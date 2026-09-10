@@ -11,6 +11,7 @@ import { AllocationsModule } from './allocations/allocations.module.js';
 import { InspectionsModule } from './inspections/inspections.module.js';
 import { IotModule } from './iot/iot.module.js';
 import { DashboardModule } from './dashboard/dashboard.module.js';
+import { AuditModule } from './audit/audit.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { RidersModule } from './riders/riders.module.js';
 
@@ -32,6 +33,7 @@ import { RidersModule } from './riders/riders.module.js';
     InspectionsModule,
     IotModule,
     DashboardModule,
+    AuditModule,
     HealthModule,
   ],
 })
