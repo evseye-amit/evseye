@@ -1,0 +1,1 @@
+import { Module } from '@nestjs/common'; import { IotService } from './iot.service.js'; import { IotController } from './iot.controller.js'; @Module({controllers:[IotController],providers:[IotService],exports:[IotService]}) export class IotModule {}
