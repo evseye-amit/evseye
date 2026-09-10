@@ -19,5 +19,6 @@ export class FleetsService {
     return { items, meta: { page: query.page, pageSize: query.pageSize, total } };
   }
   async get(tenantId: string, id: string) { const fleet = await this.prisma.fleet.findFirst({ where: { id, tenantId, deletedAt: null }, include: { hub: true, batteries: true, controllers: true } }); if (!fleet) throw new NotFoundException('Fleet not found.'); return fleet; }
+  async currentState(tenantId:string,id:string){await this.get(tenantId,id);return this.prisma.vehicleCurrentState.findFirst({where:{tenantId,fleetId:id}});}
   async changeStatus(tenantId: string, id: string, status: Parameters<FleetStatusPolicy['assertTransition']>[1]) { const fleet = await this.get(tenantId, id); this.statusPolicy.assertTransition(fleet.status, status); return this.prisma.fleet.update({ where: { id }, data: { status } }); }
 }

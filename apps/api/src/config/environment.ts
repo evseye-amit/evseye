@@ -14,6 +14,7 @@ const environmentSchema = z.object({
   OTP_TTL_SECONDS: z.coerce.number().int().positive().default(300),
   OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
   OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(60),
+  IOT_OFFLINE_THRESHOLD_SECONDS: z.coerce.number().int().positive().default(60),
   S3_BUCKET: z.string().optional(),
   AWS_REGION: z.string().default('ap-south-1'),
   AWS_ACCESS_KEY_ID: z.string().optional(),

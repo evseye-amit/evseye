@@ -7,6 +7,7 @@ export class FleetsController { constructor(private readonly fleets: FleetsServi
   @Get() list(@CurrentUser() u: AuthUser,@Query() q: ListFleetsDto){ return {data:this.fleets.list(this.tenants.requireTenantId(u),q)}; }
   @Post() create(@CurrentUser() u: AuthUser,@Body() d: CreateFleetDto){ return {data:this.fleets.create(this.tenants.requireTenantId(u),d)}; }
   @Get(':id') get(@CurrentUser() u: AuthUser,@Param('id') id:string){ return {data:this.fleets.get(this.tenants.requireTenantId(u),id)}; }
+  @Get(':id/current-state') currentState(@CurrentUser()u:AuthUser,@Param('id')id:string){return {data:this.fleets.currentState(this.tenants.requireTenantId(u),id)};}
   @Patch(':id/status') status(@CurrentUser() u: AuthUser,@Param('id') id:string,@Body('status') s:FleetStatus){ return {data:this.fleets.changeStatus(this.tenants.requireTenantId(u),id,s)}; }
   @Post(':id/batteries') battery(@CurrentUser() u: AuthUser,@Param('id') id:string,@Body() d:CreateBatteryDto){return {data:this.components.addBattery(this.tenants.requireTenantId(u),id,d)};}
   @Post(':id/controllers') controller(@CurrentUser() u: AuthUser,@Param('id') id:string,@Body() d:CreateControllerDto){return {data:this.components.addController(this.tenants.requireTenantId(u),id,d)};}
