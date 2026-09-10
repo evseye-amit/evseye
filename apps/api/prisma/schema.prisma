@@ -67,6 +67,19 @@ enum KycStatus {
   RETRY_REQUIRED
 }
 
+enum FleetStatus {
+  AVAILABLE
+  RESERVED
+  ALLOCATION_IN_PROGRESS
+  ALLOCATED
+  IN_USE
+  DEALLOCATION_IN_PROGRESS
+  INSPECTION_PENDING
+  MAINTENANCE
+  OUT_OF_SERVICE
+  OFFLINE
+}
+
 model Tenant {
   id        String     @id @default(uuid())
   name      String
@@ -75,9 +88,103 @@ model Tenant {
   users     User[]
   riders    Rider[]
   photos    Photo[]
+  zones     Zone[]
+  hubs      Hub[]
+  fleets    Fleet[]
   auditLogs AuditLog[]
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
+}
+
+model Zone {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  name      String
+  code      String
+  hubs      Hub[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, code])
+}
+
+model Hub {
+  id        String   @id @default(uuid())
+  tenantId  String
+  zoneId    String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  zone      Zone     @relation(fields: [zoneId], references: [id], onDelete: Restrict)
+  name      String
+  code      String
+  fleets    Fleet[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, code])
+  @@index([tenantId, zoneId])
+}
+
+model Fleet {
+  id                 String      @id @default(uuid())
+  tenantId           String
+  tenant             Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  hubId              String?
+  hub                Hub?        @relation(fields: [hubId], references: [id], onDelete: SetNull)
+  vehicleNumber      String
+  chassisNumber      String
+  oem                String?
+  model              String?
+  colour             String?
+  vehicleType        String?
+  motorNumber        String?
+  registrationDate   DateTime?
+  insuranceStartDate DateTime?
+  insuranceEndDate   DateTime?
+  fitnessRenewalDate DateTime?
+  status             FleetStatus @default(AVAILABLE)
+  operationalDetails Json?
+  batteries          Battery[]
+  controllers        Controller[]
+  deletedAt          DateTime?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  @@unique([tenantId, vehicleNumber])
+  @@unique([tenantId, chassisNumber])
+  @@index([tenantId, status])
+  @@index([tenantId, hubId])
+  @@index([tenantId, insuranceEndDate])
+}
+
+model Battery {
+  id           String   @id @default(uuid())
+  tenantId     String
+  fleetId      String
+  fleet        Fleet    @relation(fields: [fleetId], references: [id], onDelete: Restrict)
+  serialNumber String
+  batteryType  String?
+  capacityWh   Int?
+  manufacturer String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([tenantId, serialNumber])
+  @@index([tenantId, fleetId])
+}
+
+model Controller {
+  id           String   @id @default(uuid())
+  tenantId     String
+  fleetId      String
+  fleet        Fleet    @relation(fields: [fleetId], references: [id], onDelete: Restrict)
+  serialNumber String
+  manufacturer String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([tenantId, serialNumber])
+  @@index([tenantId, fleetId])
 }
 
 model User {
