@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from './auth/auth.module.js';
 import { validateEnvironment } from './config/environment.js';
 import { HealthModule } from './health/health.module.js';
+import { MediaModule } from './media/media.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { RidersModule } from './riders/riders.module.js';
 
@@ -16,6 +17,7 @@ import { RidersModule } from './riders/riders.module.js';
     PrismaModule,
     AuthModule,
     RidersModule,
+    MediaModule,
     HealthModule,
   ],
 })

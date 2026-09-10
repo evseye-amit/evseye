@@ -38,6 +38,21 @@ enum RiderStatus {
   BLOCKED
 }
 
+enum PhotoEntityType {
+  RIDER
+  FLEET
+  BATTERY
+  CONTROLLER
+  INSPECTION
+}
+
+enum PhotoStatus {
+  PENDING_UPLOAD
+  COMPLETE
+  FAILED
+  DELETED
+}
+
 model Tenant {
   id        String     @id @default(uuid())
   name      String
@@ -45,6 +60,7 @@ model Tenant {
   isActive  Boolean    @default(true)
   users     User[]
   riders    Rider[]
+  photos    Photo[]
   auditLogs AuditLog[]
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
@@ -85,6 +101,26 @@ model Rider {
   @@unique([tenantId, mobile])
   @@index([tenantId, status])
   @@index([tenantId, name])
+}
+
+model Photo {
+  id           String          @id @default(uuid())
+  tenantId     String
+  tenant       Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  entityType   PhotoEntityType
+  entityId     String
+  photoType    String
+  objectKey    String          @unique
+  mimeType     String
+  sizeBytes    Int
+  status       PhotoStatus     @default(PENDING_UPLOAD)
+  uploadedById String
+  uploadedAt   DateTime?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@index([tenantId, entityType, entityId])
+  @@index([tenantId, status])
 }
 
 model Session {
