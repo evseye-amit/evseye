@@ -127,6 +127,16 @@ export class AuthService {
     return this.issueTokens(user);
   }
 
+  async requestDeallocationOtp(tenantId: string, phone: string, allocationId: string, purpose: OtpPurpose.DEALLOCATION_RIDER | OtpPurpose.DEALLOCATION_OPERATOR) {
+    const allocation = await this.prisma.allocation.findFirst({ where: { id: allocationId, tenantId, status: 'DEALLOCATION_INITIATED' } });
+    if (!allocation) throw new UnauthorizedException('Deallocation is not active.');
+    const code = randomInt(100_000, 1_000_000).toString();
+    const expiresAt = new Date(Date.now() + this.config.getOrThrow('OTP_TTL_SECONDS') * 1000);
+    const otp = await this.prisma.otpRequest.create({ data: { tenantId, purpose, phone, otpHash: this.hashSecret(code), expiresAt, maxAttempts: this.config.getOrThrow('OTP_MAX_ATTEMPTS'), context: { allocationId } } });
+    await this.smsProvider.send({ phone, purpose, message: `Your EVs Eye deallocation code is ${code}.` });
+    return { id: otp.id, expiresAt: otp.expiresAt };
+  }
+
   async refresh(refreshToken: string) {
     let payload: RefreshPayload;
     try {
