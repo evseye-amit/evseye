@@ -53,6 +53,20 @@ enum PhotoStatus {
   DELETED
 }
 
+enum KycType {
+  AADHAAR
+  PAN
+  BANK_ACCOUNT
+}
+
+enum KycStatus {
+  NOT_STARTED
+  PENDING
+  VERIFIED
+  FAILED
+  RETRY_REQUIRED
+}
+
 model Tenant {
   id        String     @id @default(uuid())
   name      String
@@ -95,12 +109,33 @@ model Rider {
   address   String?
   status    RiderStatus @default(PENDING)
   deletedAt DateTime?
+  kycs      RiderKyc[]
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
   @@unique([tenantId, mobile])
   @@index([tenantId, status])
   @@index([tenantId, name])
+}
+
+model RiderKyc {
+  id                String    @id @default(uuid())
+  tenantId          String
+  riderId           String
+  rider             Rider     @relation(fields: [riderId], references: [id], onDelete: Cascade)
+  type              KycType
+  status            KycStatus @default(NOT_STARTED)
+  provider          String?
+  providerReference String?
+  maskedData        Json?
+  safeFailureCode   String?
+  verifiedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([riderId, type])
+  @@index([tenantId, status])
+  @@index([provider, providerReference])
 }
 
 model Photo {
