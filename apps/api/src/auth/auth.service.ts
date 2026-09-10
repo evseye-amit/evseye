@@ -127,7 +127,7 @@ export class AuthService {
     return this.issueTokens(user);
   }
 
-  async requestDeallocationOtp(tenantId: string, phone: string, allocationId: string, purpose: OtpPurpose.DEALLOCATION_RIDER | OtpPurpose.DEALLOCATION_OPERATOR) {
+  async requestDeallocationOtp(tenantId: string, phone: string, allocationId: string, purpose: 'DEALLOCATION_RIDER' | 'DEALLOCATION_OPERATOR') {
     const allocation = await this.prisma.allocation.findFirst({ where: { id: allocationId, tenantId, status: 'DEALLOCATION_INITIATED' } });
     if (!allocation) throw new UnauthorizedException('Deallocation is not active.');
     const code = randomInt(100_000, 1_000_000).toString();
