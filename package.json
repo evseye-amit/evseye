@@ -1,0 +1,18 @@
+{
+  "name": "evs-eye",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.4.0",
+  "scripts": {
+    "dev:api": "pnpm --filter @evs-eye/api start:dev",
+    "dev:web": "pnpm --filter @evs-eye/web dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "test": "pnpm --filter @evs-eye/api test",
+    "test:e2e": "pnpm --filter @evs-eye/api test:e2e",
+    "typecheck": "pnpm -r typecheck",
+    "db:generate": "pnpm --filter @evs-eye/api prisma generate",
+    "db:migrate": "pnpm --filter @evs-eye/api prisma migrate dev",
+    "db:seed": "pnpm --filter @evs-eye/api prisma db seed"
+  }
+}

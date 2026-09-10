@@ -1,0 +1,43 @@
+import { Body, Controller, Get, HttpCode, Ip, Post, UseGuards } from '@nestjs/common';
+import { AuthService } from './auth.service.js';
+import { CurrentUser } from './decorators/current-user.decorator.js';
+import { RefreshTokenDto } from './dto/refresh-token.dto.js';
+import { RequestLoginOtpDto } from './dto/request-login-otp.dto.js';
+import { VerifyOtpDto } from './dto/verify-otp.dto.js';
+import { AccessTokenGuard } from './guards/access-token.guard.js';
+import type { AuthUser } from './interfaces/auth-user.interface.js';
+
+@Controller('auth')
+export class AuthController {
+  constructor(private readonly authService: AuthService) {}
+
+  @Post('otp/request')
+  @HttpCode(202)
+  async requestLoginOtp(@Body() dto: RequestLoginOtpDto, @Ip() ip: string) {
+    const data = await this.authService.requestLoginOtp(dto.phone, dto.tenantSlug, ip);
+    return { data };
+  }
+
+  @Post('otp/verify')
+  async verifyLoginOtp(@Body() dto: VerifyOtpDto) {
+    return { data: await this.authService.verifyLoginOtp(dto.otpRequestId, dto.code) };
+  }
+
+  @Post('refresh')
+  async refresh(@Body() dto: RefreshTokenDto) {
+    return { data: await this.authService.refresh(dto.refreshToken) };
+  }
+
+  @Post('logout')
+  @HttpCode(204)
+  @UseGuards(AccessTokenGuard)
+  async logout(@Body() dto: RefreshTokenDto): Promise<void> {
+    await this.authService.revokeSession(dto.refreshToken);
+  }
+
+  @Get('me')
+  @UseGuards(AccessTokenGuard)
+  me(@CurrentUser() user: AuthUser) {
+    return { data: user };
+  }
+}

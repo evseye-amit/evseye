@@ -1,0 +1,140 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  TENANT_ADMIN
+  OPERATIONS_MANAGER
+  FLEET_MANAGER
+  KYC_OPERATOR
+  RIDER
+}
+
+enum OtpPurpose {
+  LOGIN
+  DEALLOCATION_RIDER
+  DEALLOCATION_OPERATOR
+  PHONE_VERIFICATION
+}
+
+enum OtpStatus {
+  PENDING
+  VERIFIED
+  EXPIRED
+  FAILED
+  CANCELLED
+}
+
+enum RiderStatus {
+  PENDING
+  ACTIVE
+  INACTIVE
+  BLOCKED
+}
+
+model Tenant {
+  id        String     @id @default(uuid())
+  name      String
+  slug      String     @unique
+  isActive  Boolean    @default(true)
+  users     User[]
+  riders    Rider[]
+  auditLogs AuditLog[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model User {
+  id        String    @id @default(uuid())
+  tenantId  String?
+  tenant    Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  mobile    String
+  name      String
+  role      UserRole
+  isActive  Boolean   @default(true)
+  sessions  Session[]
+  rider     Rider?
+  auditLogs AuditLog[] @relation("AuditActor")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([tenantId, mobile])
+  @@index([tenantId, role, isActive])
+}
+
+model Rider {
+  id        String      @id @default(uuid())
+  tenantId  String
+  tenant    Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  userId    String?     @unique
+  user      User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name      String
+  mobile    String
+  address   String?
+  status    RiderStatus @default(PENDING)
+  deletedAt DateTime?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@unique([tenantId, mobile])
+  @@index([tenantId, status])
+  @@index([tenantId, name])
+}
+
+model Session {
+  id               String   @id @default(uuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash String
+  deviceId         String?
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime @default(now())
+
+  @@index([userId, expiresAt])
+}
+
+model AuditLog {
+  id           BigInt    @id @default(autoincrement())
+  tenantId     String?
+  tenant       Tenant?   @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  actorId      String?
+  actor        User?     @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  action       String
+  entityType   String
+  entityId     String?
+  previousData Json?
+  newData      Json?
+  requestId    String?
+  ipAddress    String?
+  createdAt    DateTime  @default(now())
+
+  @@index([tenantId, entityType, entityId, createdAt])
+  @@index([tenantId, action, createdAt])
+  @@index([actorId, createdAt])
+}
+
+model OtpRequest {
+  id          String     @id @default(uuid())
+  tenantId    String?
+  purpose     OtpPurpose
+  phone       String
+  otpHash     String
+  context     Json?
+  status      OtpStatus  @default(PENDING)
+  attempts    Int        @default(0)
+  maxAttempts Int        @default(5)
+  expiresAt   DateTime
+  verifiedAt  DateTime?
+  requestedIp String?
+  createdAt   DateTime   @default(now())
+
+  @@index([phone, purpose, createdAt])
+  @@index([tenantId, status])
+}
