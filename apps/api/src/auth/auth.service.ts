@@ -137,6 +137,14 @@ export class AuthService {
     return { id: otp.id, expiresAt: otp.expiresAt };
   }
 
+  async verifyDeallocationOtp(tenantId:string, otpRequestId:string, code:string) {
+    const otp=await this.prisma.otpRequest.findFirst({where:{id:otpRequestId,tenantId,status:OtpStatus.PENDING,purpose:{in:[OtpPurpose.DEALLOCATION_RIDER,OtpPurpose.DEALLOCATION_OPERATOR]}}});
+    if(!otp||otp.expiresAt<=new Date()||!this.verifySecret(code,otp.otpHash)) throw new UnauthorizedException('Invalid or expired deallocation OTP.');
+    const updated=await this.prisma.otpRequest.updateMany({where:{id:otp.id,status:OtpStatus.PENDING},data:{status:OtpStatus.VERIFIED,verifiedAt:new Date()}});
+    if(updated.count!==1)throw new UnauthorizedException('OTP has already been used.');
+    return {verified:true};
+  }
+
   async refresh(refreshToken: string) {
     let payload: RefreshPayload;
     try {

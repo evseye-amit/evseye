@@ -6,4 +6,6 @@ export class AllocationsController { constructor(private readonly allocations:Al
   @Post() initiate(@CurrentUser() u:AuthUser,@Body('fleetId') fleetId:string,@Body('riderId') riderId:string,@Headers('idempotency-key') key?:string){return {data:this.allocations.initiate(this.tenants.requireTenantId(u),fleetId,riderId,u.id,key)};}
   @Post(':id/deallocation/initiate') deallocate(@CurrentUser() u:AuthUser,@Param('id') id:string){return {data:this.allocations.initiateDeallocation(this.tenants.requireTenantId(u),id)};}
   @Post(':id/deallocation/otp/request') otp(@CurrentUser() u:AuthUser,@Param('id') id:string,@Body('phone') phone:string,@Body('party') party:'RIDER'|'OPERATOR'){return {data:this.auth.requestDeallocationOtp(this.tenants.requireTenantId(u),phone,id,party==='RIDER'?OtpPurpose.DEALLOCATION_RIDER:OtpPurpose.DEALLOCATION_OPERATOR)};}
+  @Post(':id/deallocation/otp/verify') verifyOtp(@CurrentUser() u:AuthUser,@Body('otpRequestId') otpRequestId:string,@Body('code') code:string){return {data:this.auth.verifyDeallocationOtp(this.tenants.requireTenantId(u),otpRequestId,code)};}
+  @Post(':id/deallocation/complete') complete(@CurrentUser() u:AuthUser,@Param('id') id:string){return {data:this.allocations.completeDeallocation(this.tenants.requireTenantId(u),id)};}
 }
