@@ -102,6 +102,13 @@ enum InspectionStatus {
   REJECTED
 }
 
+enum IoTEventType {
+  LOCATION
+  HEARTBEAT
+  START
+  STOP
+}
+
 model Tenant {
   id        String     @id @default(uuid())
   name      String
@@ -169,6 +176,7 @@ model Fleet {
   batteries          Battery[]
   controllers        Controller[]
   allocations        Allocation[]
+  device             IoTDevice?
   deletedAt          DateTime?
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
@@ -178,6 +186,45 @@ model Fleet {
   @@index([tenantId, status])
   @@index([tenantId, hubId])
   @@index([tenantId, insuranceEndDate])
+}
+
+model IoTDevice {
+  id String @id @default(uuid())
+  tenantId String
+  fleetId String @unique
+  fleet Fleet @relation(fields:[fleetId],references:[id],onDelete:Restrict)
+  deviceNumber String
+  isActive Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([tenantId,deviceNumber])
+}
+
+model VehicleCurrentState {
+  id String @id @default(uuid())
+  tenantId String
+  fleetId String @unique
+  deviceId String @unique
+  latitude Decimal? @db.Decimal(9,6)
+  longitude Decimal? @db.Decimal(9,6)
+  speedKph Decimal? @db.Decimal(6,2)
+  ignition Boolean?
+  lastHeartbeat DateTime?
+  lastLocation DateTime?
+  updatedAt DateTime @updatedAt
+  @@index([tenantId,lastHeartbeat])
+}
+
+model TelemetryEvent {
+  id BigInt @id @default(autoincrement())
+  tenantId String
+  fleetId String
+  deviceId String
+  type IoTEventType
+  occurredAt DateTime
+  payload Json?
+  ingestedAt DateTime @default(now())
+  @@index([tenantId,fleetId,occurredAt])
 }
 
 model Battery {
