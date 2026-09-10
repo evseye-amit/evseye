@@ -4,6 +4,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator.js'; impo
 import { CreateFleetDto } from './dto/create-fleet.dto.js'; import { ListFleetsDto } from './dto/list-fleets.dto.js'; import { FleetsService } from './fleets.service.js';
 @Controller('fleets') @UseGuards(AccessTokenGuard, RolesGuard) @Roles(UserRole.TENANT_ADMIN,UserRole.OPERATIONS_MANAGER,UserRole.FLEET_MANAGER)
 export class FleetsController { constructor(private readonly fleets: FleetsService, private readonly tenants: TenantContextService) {}
+  @Get() list(@CurrentUser() u: AuthUser,@Query() q: ListFleetsDto){ return {data:this.fleets.list(this.tenants.requireTenantId(u),q)}; }
   @Post() create(@CurrentUser() u: AuthUser,@Body() d: CreateFleetDto){ return {data:this.fleets.create(this.tenants.requireTenantId(u),d)}; }
   @Get(':id') get(@CurrentUser() u: AuthUser,@Param('id') id:string){ return {data:this.fleets.get(this.tenants.requireTenantId(u),id)}; }
   @Patch(':id/status') status(@CurrentUser() u: AuthUser,@Param('id') id:string,@Body('status') s:FleetStatus){ return {data:this.fleets.changeStatus(this.tenants.requireTenantId(u),id,s)}; }
