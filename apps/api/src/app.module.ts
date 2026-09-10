@@ -7,6 +7,7 @@ import { MediaModule } from './media/media.module.js';
 import { KycModule } from './kyc/kyc.module.js';
 import { FleetsModule } from './fleets/fleets.module.js';
 import { LocationsModule } from './locations/locations.module.js';
+import { AllocationsModule } from './allocations/allocations.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { RidersModule } from './riders/riders.module.js';
 
@@ -24,6 +25,7 @@ import { RidersModule } from './riders/riders.module.js';
     KycModule,
     FleetsModule,
     LocationsModule,
+    AllocationsModule,
     HealthModule,
   ],
 })

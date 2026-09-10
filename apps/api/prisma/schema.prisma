@@ -80,6 +80,28 @@ enum FleetStatus {
   OFFLINE
 }
 
+enum AllocationStatus {
+  INITIATED
+  INSPECTION_PENDING
+  OTP_PENDING
+  ACTIVE
+  DEALLOCATION_INITIATED
+  COMPLETED
+  CANCELLED
+}
+
+enum InspectionType {
+  PRE_ALLOCATION
+  POST_DEALLOCATION
+}
+
+enum InspectionStatus {
+  DRAFT
+  IN_PROGRESS
+  COMPLETED
+  REJECTED
+}
+
 model Tenant {
   id        String     @id @default(uuid())
   name      String
@@ -146,6 +168,7 @@ model Fleet {
   operationalDetails Json?
   batteries          Battery[]
   controllers        Controller[]
+  allocations        Allocation[]
   deletedAt          DateTime?
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
@@ -217,12 +240,49 @@ model Rider {
   status    RiderStatus @default(PENDING)
   deletedAt DateTime?
   kycs      RiderKyc[]
+  allocations Allocation[]
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
   @@unique([tenantId, mobile])
   @@index([tenantId, status])
   @@index([tenantId, name])
+}
+
+model Allocation {
+  id String @id @default(uuid())
+  tenantId String
+  fleetId String
+  fleet Fleet @relation(fields: [fleetId], references: [id], onDelete: Restrict)
+  riderId String
+  rider Rider @relation(fields: [riderId], references: [id], onDelete: Restrict)
+  status AllocationStatus @default(INITIATED)
+  allocatedAt DateTime?
+  deallocatedAt DateTime?
+  initiatedById String
+  idempotencyKey String?
+  inspections Inspection[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, fleetId, status])
+  @@index([tenantId, riderId, status])
+}
+
+model Inspection {
+  id String @id @default(uuid())
+  tenantId String
+  allocationId String
+  allocation Allocation @relation(fields: [allocationId], references: [id], onDelete: Cascade)
+  type InspectionType
+  status InspectionStatus @default(DRAFT)
+  checklist Json?
+  completedBy String?
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([allocationId, type])
+  @@index([tenantId, status])
 }
 
 model RiderKyc {
@@ -263,6 +323,20 @@ model Photo {
 
   @@index([tenantId, entityType, entityId])
   @@index([tenantId, status])
+}
+
+model PhotoRequirement {
+  id         String          @id @default(uuid())
+  tenantId   String
+  entityType PhotoEntityType
+  photoType  String
+  isRequired Boolean         @default(true)
+  sortOrder  Int             @default(0)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@unique([tenantId, entityType, photoType])
+  @@index([tenantId, entityType, sortOrder])
 }
 
 model Session {
