@@ -1,0 +1,1 @@
+import { Module } from '@nestjs/common'; import { InspectionsService } from './inspections.service.js'; @Module({providers:[InspectionsService],exports:[InspectionsService]}) export class InspectionsModule {}

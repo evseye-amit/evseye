@@ -75,6 +75,10 @@ export class MediaService {
       const fleet = await this.prisma.fleet.findFirst({ where: { id: entityId, tenantId, deletedAt: null } });
       if (fleet) return;
     }
+    if (entityType === PhotoEntityType.INSPECTION) {
+      const inspection = await this.prisma.inspection.findFirst({ where: { id: entityId, tenantId } });
+      if (inspection) return;
+    }
     throw new NotFoundException('Media entity not found.');
   }
 
