@@ -74,6 +74,8 @@ export default function Home() {
   const [showRiderForm, setShowRiderForm] = useState(false);
   const [newRiderName, setNewRiderName] = useState("");
   const [newRiderMobile, setNewRiderMobile] = useState("");
+  const [showFleetForm, setShowFleetForm] = useState(false);
+  const [newFleet, setNewFleet] = useState({ vehicleNumber: "", chassisNumber: "", oem: "", model: "" });
   const [inspectionId, setInspectionId] = useState("");
   const [inspectionType, setInspectionType] = useState("PRE_ALLOCATION");
   const [requirements, setRequirements] = useState<RecordItem[]>([]);
@@ -239,6 +241,13 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function createFleet(event: FormEvent) {
+    event.preventDefault(); setLoading(true); setError("");
+    try { await request("/fleets", { method: "POST", body: JSON.stringify(newFleet) }, token); setShowFleetForm(false); setNewFleet({ vehicleNumber: "", chassisNumber: "", oem: "", model: "" }); setNotice("Fleet created. Add components, photos, and IoT device from fleet detail."); await loadView("fleets"); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to create fleet."); }
+    finally { setLoading(false); }
   }
 
   async function createAllocation(event: FormEvent) {
@@ -732,9 +741,10 @@ export default function Home() {
                 New allocation
               </button>
             )}
-            {tab === "riders" && (
-              <button onClick={() => setShowRiderForm(true)}>New rider</button>
-            )}
+              {tab === "riders" && (
+                <button onClick={() => setShowRiderForm(true)}>New rider</button>
+              )}
+              {tab === "fleets" && <button onClick={() => setShowFleetForm(true)}>New fleet</button>}
             <button className="secondary" onClick={() => void loadView(tab)}>
               Refresh
             </button>
@@ -879,6 +889,7 @@ export default function Home() {
             </form>
           </section>
         )}
+        {showFleetForm && <section className="action-card"><p className="eyebrow">FLEET ONBOARDING</p><h2>Create fleet</h2><form className="form-stack" onSubmit={createFleet}>{(["vehicleNumber", "chassisNumber", "oem", "model"] as const).map((field) => <label key={field}>{field.replace(/([A-Z])/g, " $1")}<input value={newFleet[field]} onChange={(event) => setNewFleet((current) => ({ ...current, [field]: event.target.value }))} required={field === "vehicleNumber" || field === "chassisNumber"} /></label>)}<div className="form-actions"><button disabled={loading}>Create fleet</button><button type="button" className="secondary" onClick={() => setShowFleetForm(false)}>Cancel</button></div></form></section>}
         {inspectionId && (
           <section className="action-card">
             <div>
@@ -1121,6 +1132,7 @@ export default function Home() {
           <section className="action-card detail-card">
             <p className="eyebrow">RIDER DETAIL</p>
             <h2>{String(riderDetail.name)}</h2>
+            <label className="photo-slot"><span>Profile photo</span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={loading} onChange={(event) => void uploadRiderPhoto(String(riderDetail.id), event.target.files?.[0])} /></label>
             <div className="detail-grid">
               <div>
                 <strong>Mobile</strong>
