@@ -184,6 +184,10 @@ export default function Home() {
   const [inspectionType, setInspectionType] = useState("PRE_ALLOCATION");
   const [requirements, setRequirements] = useState<RecordItem[]>([]);
   const [uploadedPhotoTypes, setUploadedPhotoTypes] = useState<string[]>([]);
+  const [inspectionPhotoProgress, setInspectionPhotoProgress] = useState<
+    Record<string, number>
+  >({});
+  const [requiredInspectionPhotos, setRequiredInspectionPhotos] = useState(0);
   const [deallocationId, setDeallocationId] = useState("");
   const [riderPhone, setRiderPhone] = useState("");
   const [operatorPhone, setOperatorPhone] = useState("");
@@ -725,13 +729,41 @@ export default function Home() {
       )) as RecordItem;
       setAllocationDetail(detail);
       const fleet = detail.fleet as RecordItem;
-      setVehicleState(
-        (await request(
-          `/fleets/${String(fleet.id)}/current-state`,
-          {},
-          token,
-        )) as RecordItem | null,
+      const inspections =
+        (detail.inspections as RecordItem[] | undefined) ?? [];
+      const [currentState, photoRequirements, inspectionDetails] =
+        await Promise.all([
+          request(
+            `/fleets/${String(fleet.id)}/current-state`,
+            {},
+            token,
+          ) as Promise<RecordItem | null>,
+          request(
+            "/media/photo-requirements?entityType=INSPECTION",
+            {},
+            token,
+          ) as Promise<RecordItem[]>,
+          Promise.all(
+            inspections.map(async (inspection) => {
+              const details = (await request(
+                `/inspections/${String(inspection.id)}`,
+                {},
+                token,
+              )) as { photos: RecordItem[] };
+              return [
+                String(inspection.id),
+                details.photos.filter((photo) => photo.status === "COMPLETE")
+                  .length,
+              ] as const;
+            }),
+          ),
+        ]);
+      setVehicleState(currentState);
+      setRequiredInspectionPhotos(
+        photoRequirements.filter((requirement) => requirement.isRequired)
+          .length,
       );
+      setInspectionPhotoProgress(Object.fromEntries(inspectionDetails));
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -1723,7 +1755,9 @@ export default function Home() {
                 (inspection) => (
                   <span key={String(inspection.id)}>
                     <b>{String(inspection.type).replaceAll("_", " ")}</b>{" "}
-                    <Status value={String(inspection.status)} />
+                    <Status value={String(inspection.status)} /> ·{" "}
+                    {inspectionPhotoProgress[String(inspection.id)] ?? 0}/
+                    {requiredInspectionPhotos} required photos
                   </span>
                 ),
               )}
