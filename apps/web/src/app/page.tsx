@@ -97,6 +97,8 @@ export default function Home() {
   const [vehicleState, setVehicleState] = useState<RecordItem | null>(null);
   const [riderDetail, setRiderDetail] = useState<RecordItem | null>(null);
   const [fleetDetail, setFleetDetail] = useState<RecordItem | null>(null);
+  const [iotDeviceNumber, setIotDeviceNumber] = useState("");
+  const [ingestSecret, setIngestSecret] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [loading, setLoading] = useState(false);
@@ -298,6 +300,13 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function registerIotDevice(fleetId: string) {
+    setLoading(true); setError("");
+    try { const data = await request("/iot/devices", { method: "POST", body: JSON.stringify({ fleetId, deviceNumber: iotDeviceNumber }) }, token) as { ingestSecret: string }; setIngestSecret(data.ingestSecret); setIotDeviceNumber(""); setNotice("IoT device registered. Save the ingestion secret now; it is shown only once."); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to register IoT device."); }
+    finally { setLoading(false); }
   }
 
   async function createAllocation(event: FormEvent) {
@@ -1301,6 +1310,7 @@ export default function Home() {
                 {((fleetDetail.controllers as RecordItem[]) ?? []).length}
               </span>
             </div>
+            <h3>IoT device</h3><div className="form-actions"><input value={iotDeviceNumber} onChange={(event) => setIotDeviceNumber(event.target.value)} placeholder="Device number" /><button disabled={loading || !iotDeviceNumber} onClick={() => void registerIotDevice(String(fleetDetail.id))}>Register device</button></div>{ingestSecret && <p className="notice">Save this ingestion secret now: <code>{ingestSecret}</code> <button className="secondary table-action" onClick={() => void navigator.clipboard.writeText(ingestSecret)}>Copy</button></p>}
             <div className="form-actions">
               <input id="battery-serial" placeholder="Battery serial" />
               <button
@@ -1333,7 +1343,7 @@ export default function Home() {
                 Add controller
               </button>
             </div>
-            <button className="secondary" onClick={() => setFleetDetail(null)}>
+            <button className="secondary" onClick={() => { setFleetDetail(null); setIngestSecret(""); }}>
               Close detail
             </button>
           </section>
