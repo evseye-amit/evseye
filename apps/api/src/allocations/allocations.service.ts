@@ -12,6 +12,13 @@ export class AllocationsService {
       ...(query.status ? { status: query.status as AllocationStatus } : {}),
       ...(query.riderId ? { riderId: query.riderId } : {}),
       ...(query.fleetId ? { fleetId: query.fleetId } : {}),
+      ...(query.search ? {
+        OR: [
+          { fleet: { vehicleNumber: { contains: query.search, mode: 'insensitive' as const } } },
+          { rider: { name: { contains: query.search, mode: 'insensitive' as const } } },
+          { rider: { mobile: { contains: query.search } } },
+        ],
+      } : {}),
     };
     const [items, total] = await this.prisma.$transaction([
       this.prisma.allocation.findMany({

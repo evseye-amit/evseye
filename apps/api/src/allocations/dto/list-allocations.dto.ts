@@ -26,4 +26,8 @@ export class ListAllocationsDto {
   @IsOptional()
   @IsString()
   fleetId?: string;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
 }
