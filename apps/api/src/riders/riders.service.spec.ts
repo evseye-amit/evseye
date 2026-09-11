@@ -13,8 +13,10 @@ describe('RidersService tenant isolation', () => {
     await expect(service.getById('tenant-a', 'rider-owned-by-tenant-b')).rejects.toThrow(
       'Rider not found',
     );
-    expect(prisma.rider.findFirst).toHaveBeenCalledWith({
-      where: { id: 'rider-owned-by-tenant-b', tenantId: 'tenant-a', deletedAt: null },
-    });
+    expect(prisma.rider.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'rider-owned-by-tenant-b', tenantId: 'tenant-a', deletedAt: null },
+      }),
+    );
   });
 });

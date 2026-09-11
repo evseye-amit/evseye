@@ -48,7 +48,17 @@ export class RidersService {
   }
 
   async getById(tenantId: string, id: string) {
-    const rider = await this.prisma.rider.findFirst({ where: { id, tenantId, deletedAt: null } });
+    const rider = await this.prisma.rider.findFirst({
+      where: { id, tenantId, deletedAt: null },
+      include: {
+        kycs: { orderBy: { updatedAt: 'desc' } },
+        allocations: {
+          where: { status: { in: ['INSPECTION_PENDING', 'OTP_PENDING', 'ACTIVE', 'DEALLOCATION_INITIATED'] } },
+          include: { fleet: true },
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
     if (!rider) {
       throw new NotFoundException('Rider not found.');
     }
