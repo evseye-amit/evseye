@@ -29,6 +29,19 @@ interface TokenPair {
 
 let refreshInFlight: Promise<string | null> | null = null;
 
+function normalizeDashboard(value: unknown): Dashboard {
+  const data = value as Partial<Dashboard> | null;
+  return {
+    fleet: data?.fleet ?? {},
+    riders: data?.riders ?? {},
+    activeAllocations: data?.activeAllocations ?? 0,
+    iot: {
+      online: data?.iot?.online ?? 0,
+      offline: data?.iot?.offline ?? 0,
+    },
+  };
+}
+
 async function sendRequest(
   path: string,
   options: RequestInit = {},
@@ -187,7 +200,9 @@ export default function Home() {
     setError("");
     try {
       if (nextTab === "dashboard")
-        setDashboard((await request("/dashboard", {}, token)) as Dashboard);
+        setDashboard(
+          normalizeDashboard(await request("/dashboard", {}, token)),
+        );
       else {
         const query = new URLSearchParams({
           page: String(page),
