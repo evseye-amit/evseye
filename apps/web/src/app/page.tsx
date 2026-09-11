@@ -322,6 +322,25 @@ export default function Home() {
     }
   }
 
+  function navigateTo(nextTab: Tab) {
+    setShowAllocationForm(false);
+    setShowRiderForm(false);
+    setShowFleetForm(false);
+    setInspectionId("");
+    setDeallocationId("");
+    setRiderDetail(null);
+    setFleetDetail(null);
+    setFleetOnboardingStatus(null);
+    setEditingRider(false);
+    setIngestSecret("");
+    setSearch("");
+    setStatusFilter("");
+    setPage(1);
+    setNotice("");
+    setError("");
+    setTab(nextTab);
+  }
+
   async function sendOtp(event: FormEvent) {
     event.preventDefault();
     setLoading(true);
@@ -1445,7 +1464,7 @@ export default function Home() {
             <button
               key={item}
               className={tab === item ? "nav-active" : ""}
-              onClick={() => setTab(item)}
+              onClick={() => navigateTo(item)}
             >
               {item}
             </button>
