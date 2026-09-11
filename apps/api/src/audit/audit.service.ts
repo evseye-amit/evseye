@@ -20,7 +20,7 @@ export class AuditService {
   }
 
   record(input: {
-    tenantId: string;
+    tenantId?: string;
     actorId?: string;
     action: string;
     entityType: string;

@@ -16,6 +16,7 @@ import { DashboardModule } from './dashboard/dashboard.module.js';
 import { AuditModule } from './audit/audit.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { RidersModule } from './riders/riders.module.js';
+import { PlatformAdminModule } from './platform-admin/platform-admin.module.js';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { RidersModule } from './riders/riders.module.js';
     PrismaModule,
     AuthModule,
     RidersModule,
+    PlatformAdminModule,
     MediaModule,
     KycModule,
     FleetsModule,

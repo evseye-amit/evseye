@@ -81,6 +81,24 @@ describe('AuthService', () => {
     expect(sms.send.mock.calls[0][0].message).toMatch(/\d{6}/);
   });
 
+  it('allows platform OTP requests only for a tenantless Super Admin account', async () => {
+    const { service, prisma } = createService();
+    prisma.user.findFirst.mockResolvedValue({ id: 'platform-admin-1' });
+
+    await service.requestLoginOtp('+919100000000');
+
+    expect(prisma.user.findFirst).toHaveBeenCalledWith({
+      where: {
+        tenantId: null,
+        mobile: '+919100000000',
+        role: UserRole.SUPER_ADMIN,
+        isActive: true,
+      },
+      select: { id: true },
+    });
+    expect(prisma.otpRequest.create.mock.calls[0][0].data.tenantId).toBeUndefined();
+  });
+
   it('issues tokens exactly once after a valid OTP verification', async () => {
     const { service, prisma, sms, jwt } = createService();
     await service.requestLoginOtp('+919999999999', 'demo-tenant');

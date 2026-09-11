@@ -110,19 +110,84 @@ enum IoTEventType {
 }
 
 model Tenant {
-  id        String     @id @default(uuid())
-  name      String
-  slug      String     @unique
-  isActive  Boolean    @default(true)
-  users     User[]
-  riders    Rider[]
-  photos    Photo[]
-  zones     Zone[]
-  hubs      Hub[]
-  fleets    Fleet[]
-  auditLogs AuditLog[]
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id                String                  @id @default(uuid())
+  name              String
+  slug              String                  @unique
+  isActive          Boolean                 @default(true)
+  users             User[]
+  riders            Rider[]
+  photos            Photo[]
+  zones             Zone[]
+  hubs              Hub[]
+  fleets            Fleet[]
+  auditLogs         AuditLog[]
+  onboardingConfigs RiderOnboardingConfig[]
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+}
+
+model OnboardingStepDefinition {
+  stepKey              String                      @id
+  displayName          String
+  description          String?
+  stage                Int
+  category             String
+  handlerClass         String
+  uiComponent          String
+  isLockable           Boolean                     @default(false)
+  supportsDocument     Boolean                     @default(false)
+  supportsRevalidation Boolean                     @default(false)
+  defaultEnabled       Boolean                     @default(false)
+  defaultMandatory     Boolean                     @default(true)
+  tenantEditable       Boolean                     @default(false)
+  requiresOpsApproval  Boolean                     @default(true)
+  schemaDefinition     Json
+  configSteps          RiderOnboardingConfigStep[]
+  createdAt            DateTime                    @default(now())
+}
+
+model RiderOnboardingConfig {
+  id            String                      @id @default(uuid())
+  tenantId      String
+  tenant        Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  version       Int
+  status        String                      @default("DRAFT")
+  notes         String?
+  createdById   String
+  effectiveFrom DateTime?
+  activatedAt   DateTime?
+  createdAt     DateTime                    @default(now())
+  updatedAt     DateTime                    @updatedAt
+  steps         RiderOnboardingConfigStep[]
+
+  @@unique([tenantId, version])
+  @@index([tenantId, status])
+}
+
+model RiderOnboardingConfigStep {
+  id                       String                   @id @default(uuid())
+  configId                 String
+  config                   RiderOnboardingConfig    @relation(fields: [configId], references: [id], onDelete: Cascade)
+  stepKey                  String
+  definition               OnboardingStepDefinition @relation(fields: [stepKey], references: [stepKey], onDelete: Restrict)
+  enabled                  Boolean                  @default(false)
+  mandatory                Boolean                  @default(true)
+  blocking                 Boolean                  @default(true)
+  sequenceNo               Int
+  verificationMode         String                   @default("AUTO")
+  fallbackMode             String                   @default("MANUAL")
+  maxRetryAttempts         Int                      @default(3)
+  slaHours                 Int?
+  dependsOn                Json
+  applicableModels         Json?
+  params                   Json
+  revalidationIntervalDays Int?
+  expiryWarningDays        Int                      @default(15)
+  createdAt                DateTime                 @default(now())
+  updatedAt                DateTime                 @updatedAt
+
+  @@unique([configId, stepKey])
+  @@index([configId, sequenceNo])
 }
 
 model Zone {
@@ -155,11 +220,11 @@ model Hub {
 }
 
 model Fleet {
-  id                 String      @id @default(uuid())
+  id                 String       @id @default(uuid())
   tenantId           String
-  tenant             Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  tenant             Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   hubId              String?
-  hub                Hub?        @relation(fields: [hubId], references: [id], onDelete: SetNull)
+  hub                Hub?         @relation(fields: [hubId], references: [id], onDelete: SetNull)
   vehicleNumber      String
   chassisNumber      String
   oem                String?
@@ -171,15 +236,15 @@ model Fleet {
   insuranceStartDate DateTime?
   insuranceEndDate   DateTime?
   fitnessRenewalDate DateTime?
-  status             FleetStatus @default(AVAILABLE)
+  status             FleetStatus  @default(AVAILABLE)
   operationalDetails Json?
   batteries          Battery[]
   controllers        Controller[]
   allocations        Allocation[]
   device             IoTDevice?
   deletedAt          DateTime?
-  createdAt          DateTime    @default(now())
-  updatedAt          DateTime    @updatedAt
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 
   @@unique([tenantId, vehicleNumber])
   @@unique([tenantId, chassisNumber])
@@ -189,43 +254,46 @@ model Fleet {
 }
 
 model IoTDevice {
-  id String @id @default(uuid())
-  tenantId String
-  fleetId String @unique
-  fleet Fleet @relation(fields:[fleetId],references:[id],onDelete:Restrict)
-  deviceNumber String
+  id               String   @id @default(uuid())
+  tenantId         String
+  fleetId          String   @unique
+  fleet            Fleet    @relation(fields: [fleetId], references: [id], onDelete: Restrict)
+  deviceNumber     String
   ingestSecretHash String
-  isActive Boolean @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  @@unique([tenantId,deviceNumber])
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([tenantId, deviceNumber])
 }
 
 model VehicleCurrentState {
-  id String @id @default(uuid())
-  tenantId String
-  fleetId String @unique
-  deviceId String @unique
-  latitude Decimal? @db.Decimal(9,6)
-  longitude Decimal? @db.Decimal(9,6)
-  speedKph Decimal? @db.Decimal(6,2)
-  ignition Boolean?
+  id            String    @id @default(uuid())
+  tenantId      String
+  fleetId       String    @unique
+  deviceId      String    @unique
+  latitude      Decimal?  @db.Decimal(9, 6)
+  longitude     Decimal?  @db.Decimal(9, 6)
+  speedKph      Decimal?  @db.Decimal(6, 2)
+  ignition      Boolean?
   lastHeartbeat DateTime?
-  lastLocation DateTime?
-  updatedAt DateTime @updatedAt
-  @@index([tenantId,lastHeartbeat])
+  lastLocation  DateTime?
+  updatedAt     DateTime  @updatedAt
+
+  @@index([tenantId, lastHeartbeat])
 }
 
 model TelemetryEvent {
-  id BigInt @id @default(autoincrement())
-  tenantId String
-  fleetId String
-  deviceId String
-  type IoTEventType
+  id         BigInt       @id @default(autoincrement())
+  tenantId   String
+  fleetId    String
+  deviceId   String
+  type       IoTEventType
   occurredAt DateTime
-  payload Json?
-  ingestedAt DateTime @default(now())
-  @@index([tenantId,fleetId,occurredAt])
+  payload    Json?
+  ingestedAt DateTime     @default(now())
+
+  @@index([tenantId, fleetId, occurredAt])
 }
 
 model Battery {
@@ -259,38 +327,38 @@ model Controller {
 }
 
 model User {
-  id        String    @id @default(uuid())
+  id        String     @id @default(uuid())
   tenantId  String?
-  tenant    Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  tenant    Tenant?    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   mobile    String
   name      String
   role      UserRole
-  isActive  Boolean   @default(true)
+  isActive  Boolean    @default(true)
   sessions  Session[]
   rider     Rider?
   auditLogs AuditLog[] @relation("AuditActor")
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 
   @@unique([tenantId, mobile])
   @@index([tenantId, role, isActive])
 }
 
 model Rider {
-  id        String      @id @default(uuid())
-  tenantId  String
-  tenant    Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  userId    String?     @unique
-  user      User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
-  name      String
-  mobile    String
-  address   String?
-  status    RiderStatus @default(PENDING)
-  deletedAt DateTime?
-  kycs      RiderKyc[]
+  id          String       @id @default(uuid())
+  tenantId    String
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  userId      String?      @unique
+  user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name        String
+  mobile      String
+  address     String?
+  status      RiderStatus  @default(PENDING)
+  deletedAt   DateTime?
+  kycs        RiderKyc[]
   allocations Allocation[]
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
   @@unique([tenantId, mobile])
   @@index([tenantId, status])
@@ -298,37 +366,39 @@ model Rider {
 }
 
 model Allocation {
-  id String @id @default(uuid())
-  tenantId String
-  fleetId String
-  fleet Fleet @relation(fields: [fleetId], references: [id], onDelete: Restrict)
-  riderId String
-  rider Rider @relation(fields: [riderId], references: [id], onDelete: Restrict)
-  status AllocationStatus @default(INITIATED)
-  allocatedAt DateTime?
-  deallocatedAt DateTime?
-  initiatedById String
+  id             String           @id @default(uuid())
+  tenantId       String
+  fleetId        String
+  fleet          Fleet            @relation(fields: [fleetId], references: [id], onDelete: Restrict)
+  riderId        String
+  rider          Rider            @relation(fields: [riderId], references: [id], onDelete: Restrict)
+  status         AllocationStatus @default(INITIATED)
+  allocatedAt    DateTime?
+  deallocatedAt  DateTime?
+  initiatedById  String
   idempotencyKey String?
-  inspections Inspection[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  inspections    Inspection[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId, fleetId, status])
   @@index([tenantId, riderId, status])
 }
 
 model Inspection {
-  id String @id @default(uuid())
-  tenantId String
+  id           String           @id @default(uuid())
+  tenantId     String
   allocationId String
-  allocation Allocation @relation(fields: [allocationId], references: [id], onDelete: Cascade)
-  type InspectionType
-  status InspectionStatus @default(DRAFT)
-  checklist Json?
-  completedBy String?
-  completedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  allocation   Allocation       @relation(fields: [allocationId], references: [id], onDelete: Cascade)
+  type         InspectionType
+  status       InspectionStatus @default(DRAFT)
+  checklist    Json?
+  completedBy  String?
+  completedAt  DateTime?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
   @@unique([allocationId, type])
   @@index([tenantId, status])
 }
@@ -388,24 +458,24 @@ model PhotoRequirement {
 }
 
 model Session {
-  id               String   @id @default(uuid())
+  id               String    @id @default(uuid())
   userId           String
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   refreshTokenHash String
   deviceId         String?
   expiresAt        DateTime
   revokedAt        DateTime?
-  createdAt        DateTime @default(now())
+  createdAt        DateTime  @default(now())
 
   @@index([userId, expiresAt])
 }
 
 model AuditLog {
-  id           BigInt    @id @default(autoincrement())
+  id           BigInt   @id @default(autoincrement())
   tenantId     String?
-  tenant       Tenant?   @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant       Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   actorId      String?
-  actor        User?     @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  actor        User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
   action       String
   entityType   String
   entityId     String?
@@ -413,7 +483,7 @@ model AuditLog {
   newData      Json?
   requestId    String?
   ipAddress    String?
-  createdAt    DateTime  @default(now())
+  createdAt    DateTime @default(now())
 
   @@index([tenantId, entityType, entityId, createdAt])
   @@index([tenantId, action, createdAt])

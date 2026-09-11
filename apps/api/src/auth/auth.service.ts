@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { OtpPurpose, OtpStatus, type User } from '@prisma/client';
+import { OtpPurpose, OtpStatus, UserRole, type User } from '@prisma/client';
 import {
   createHmac,
   randomInt,
@@ -38,20 +38,29 @@ export class AuthService {
 
   async requestLoginOtp(
     phone: string,
-    tenantSlug: string,
+    tenantSlug?: string,
     requestedIp?: string,
   ) {
-    const tenant = await this.prisma.tenant.findFirst({
-      where: { slug: tenantSlug, isActive: true },
-      select: { id: true },
-    });
+    const tenant = tenantSlug
+      ? await this.prisma.tenant.findFirst({
+          where: { slug: tenantSlug, isActive: true },
+          select: { id: true },
+        })
+      : null;
 
-    if (!tenant) {
+    if (tenantSlug && !tenant) {
       throw new UnauthorizedException('Invalid tenant or account.');
     }
 
     const user = await this.prisma.user.findFirst({
-      where: { tenantId: tenant.id, mobile: phone, isActive: true },
+      where: tenant
+        ? { tenantId: tenant.id, mobile: phone, isActive: true }
+        : {
+            tenantId: null,
+            mobile: phone,
+            role: UserRole.SUPER_ADMIN,
+            isActive: true,
+          },
       select: { id: true },
     });
 
@@ -64,7 +73,7 @@ export class AuthService {
     );
     const recent = await this.prisma.otpRequest.findFirst({
       where: {
-        tenantId: tenant.id,
+        tenantId: tenant?.id,
         phone,
         purpose: OtpPurpose.LOGIN,
         createdAt: { gte: cooldownAt },
@@ -86,7 +95,7 @@ export class AuthService {
     );
     const otpRequest = await this.prisma.otpRequest.create({
       data: {
-        tenantId: tenant.id,
+        tenantId: tenant?.id,
         purpose: OtpPurpose.LOGIN,
         phone,
         otpHash: this.hashSecret(code),
@@ -148,11 +157,14 @@ export class AuthService {
     }
 
     const user = await this.prisma.user.findFirst({
-      where: {
-        tenantId: otp.tenantId ?? undefined,
-        mobile: otp.phone,
-        isActive: true,
-      },
+      where: otp.tenantId
+        ? { tenantId: otp.tenantId, mobile: otp.phone, isActive: true }
+        : {
+            tenantId: null,
+            mobile: otp.phone,
+            role: UserRole.SUPER_ADMIN,
+            isActive: true,
+          },
     });
     if (!user) {
       throw new UnauthorizedException('Account is unavailable.');

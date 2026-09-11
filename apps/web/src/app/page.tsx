@@ -1473,6 +1473,9 @@ export default function Home() {
             <p className="auth-security-note">
               <span aria-hidden="true">◈</span> Protected by OTP verification
             </p>
+            <a className="platform-back-link" href="/platform">
+              Platform Super Admin sign in
+            </a>
           </div>
         </section>
       </main>

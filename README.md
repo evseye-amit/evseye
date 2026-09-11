@@ -13,6 +13,19 @@ The API health endpoints are `/health` and `/health/ready`.
 
 The development seed creates tenant slug `demo` and tenant-admin mobile `+919000000000`.
 
+## Super Admin (development)
+
+Open `http://localhost:3001/platform` to access the platform workspace. The
+development seed creates the platform-owned Super Admin account
+`+919100000000`; in development, its OTP is `123456`.
+
+From this workspace, a Super Admin can onboard a tenant, create versioned
+rider-onboarding configurations from the immutable master-step catalog, edit a
+draft, and activate it. Activating a version archives the tenant's previous
+active configuration. Tenant-side master-data and workflow change requests are
+intentionally not exposed yet; they will be built as an approval workflow in
+the next Super Admin slice.
+
 For production, use real SMS and KYC adapters, a private S3 bucket, IAM-based AWS credentials, and non-development token secrets. The API rejects the console SMS provider, sandbox KYC provider, and an unset S3 bucket in production.
 
 Run Prisma migrations once as a deployment job before rolling out API replicas:
