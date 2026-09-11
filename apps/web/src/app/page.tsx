@@ -542,6 +542,14 @@ export default function Home() {
     finally { setLoading(false); }
   }
 
+  async function uploadFleetPhoto(fleetId: string, file: File | undefined) {
+    if (!file) return;
+    setLoading(true); setError("");
+    try { const intent = await request("/media/upload-intents", { method: "POST", body: JSON.stringify({ entityType: "FLEET", entityId: fleetId, photoType: "VEHICLE", mimeType: file.type, fileName: file.name, sizeBytes: file.size }) }, token) as { photo: { id: string }; uploadUrl: string }; const result = await fetch(intent.uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file }); if (!result.ok) throw new Error("Object storage rejected the file upload."); await request(`/media/${intent.photo.id}/complete`, { method: "POST" }, token); setNotice("Fleet photo uploaded."); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to upload fleet photo."); }
+    finally { setLoading(false); }
+  }
+
   async function initiateDeallocation(allocation: RecordItem) {
     const allocationId = String(allocation.id);
     setLoading(true);
@@ -1091,6 +1099,7 @@ export default function Home() {
           <section className="action-card detail-card">
             <p className="eyebrow">FLEET DETAIL</p>
             <h2>{String(fleetDetail.vehicleNumber)}</h2>
+            <label className="photo-slot"><span>Fleet photo</span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={loading} onChange={(event) => void uploadFleetPhoto(String(fleetDetail.id), event.target.files?.[0])} /></label>
             <div className="detail-grid">
               <div>
                 <strong>OEM / model</strong>
