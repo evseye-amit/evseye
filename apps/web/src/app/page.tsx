@@ -155,11 +155,20 @@ export default function Home() {
   const [newRiderName, setNewRiderName] = useState("");
   const [newRiderMobile, setNewRiderMobile] = useState("");
   const [showFleetForm, setShowFleetForm] = useState(false);
+  const [hubs, setHubs] = useState<RecordItem[]>([]);
   const [newFleet, setNewFleet] = useState({
     vehicleNumber: "",
     chassisNumber: "",
+    hubId: "",
     oem: "",
     model: "",
+    colour: "",
+    vehicleType: "",
+    motorNumber: "",
+    registrationDate: "",
+    insuranceStartDate: "",
+    insuranceEndDate: "",
+    fitnessRenewalDate: "",
   });
   const [inspectionId, setInspectionId] = useState("");
   const [inspectionType, setInspectionType] = useState("PRE_ALLOCATION");
@@ -347,11 +356,31 @@ export default function Home() {
     try {
       await request(
         "/fleets",
-        { method: "POST", body: JSON.stringify(newFleet) },
+        {
+          method: "POST",
+          body: JSON.stringify(
+            Object.fromEntries(
+              Object.entries(newFleet).filter(([, value]) => value !== ""),
+            ),
+          ),
+        },
         token,
       );
       setShowFleetForm(false);
-      setNewFleet({ vehicleNumber: "", chassisNumber: "", oem: "", model: "" });
+      setNewFleet({
+        vehicleNumber: "",
+        chassisNumber: "",
+        hubId: "",
+        oem: "",
+        model: "",
+        colour: "",
+        vehicleType: "",
+        motorNumber: "",
+        registrationDate: "",
+        insuranceStartDate: "",
+        insuranceEndDate: "",
+        fitnessRenewalDate: "",
+      });
       setNotice(
         "Fleet created. Add components, photos, and IoT device from fleet detail.",
       );
@@ -360,6 +389,19 @@ export default function Home() {
       setError(
         cause instanceof Error ? cause.message : "Unable to create fleet.",
       );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function openFleetForm() {
+    setLoading(true);
+    setError("");
+    try {
+      setHubs((await request("/hubs", {}, token)) as RecordItem[]);
+      setShowFleetForm(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to load hubs.");
     } finally {
       setLoading(false);
     }
@@ -1003,7 +1045,7 @@ export default function Home() {
               <button onClick={() => setShowRiderForm(true)}>New rider</button>
             )}
             {tab === "fleets" && (
-              <button onClick={() => setShowFleetForm(true)}>New fleet</button>
+              <button onClick={() => void openFleetForm()}>New fleet</button>
             )}
             <button className="secondary" onClick={() => void loadView(tab)}>
               Refresh
@@ -1169,6 +1211,64 @@ export default function Home() {
                     }
                     required={
                       field === "vehicleNumber" || field === "chassisNumber"
+                    }
+                  />
+                </label>
+              ))}
+              <label>
+                Hub
+                <select
+                  value={newFleet.hubId}
+                  onChange={(event) =>
+                    setNewFleet((current) => ({
+                      ...current,
+                      hubId: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="">No hub assigned</option>
+                  {hubs.map((hub) => (
+                    <option key={String(hub.id)} value={String(hub.id)}>
+                      {String(hub.name)} ·{" "}
+                      {String((hub.zone as RecordItem)?.name ?? "No zone")}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {(["colour", "vehicleType", "motorNumber"] as const).map(
+                (field) => (
+                  <label key={field}>
+                    {field.replace(/([A-Z])/g, " $1")}
+                    <input
+                      value={newFleet[field]}
+                      onChange={(event) =>
+                        setNewFleet((current) => ({
+                          ...current,
+                          [field]: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                ),
+              )}
+              {(
+                [
+                  "registrationDate",
+                  "insuranceStartDate",
+                  "insuranceEndDate",
+                  "fitnessRenewalDate",
+                ] as const
+              ).map((field) => (
+                <label key={field}>
+                  {field.replace(/([A-Z])/g, " $1")}
+                  <input
+                    type="date"
+                    value={newFleet[field]}
+                    onChange={(event) =>
+                      setNewFleet((current) => ({
+                        ...current,
+                        [field]: event.target.value,
+                      }))
                     }
                   />
                 </label>
