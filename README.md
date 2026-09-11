@@ -18,7 +18,7 @@ For production, use real SMS and KYC adapters, a private S3 bucket, IAM-based AW
 Run Prisma migrations once as a deployment job before rolling out API replicas:
 
 ```sh
-./apps/api/node_modules/.bin/prisma migrate deploy
+./apps/api/node_modules/.bin/prisma migrate deploy --schema=apps/api/prisma/schema.prisma
 ```
 
 ## Verification

@@ -4,7 +4,7 @@
 
 - Set production secrets in the deployment secret store; never use `.env.example` values.
 - Run `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm test`, and `pnpm build`.
-- Run reviewed Prisma migrations once against the target database using the API image as a one-shot deployment job: `./apps/api/node_modules/.bin/prisma migrate deploy`. Do not run migrations in every API replica.
+- Run reviewed Prisma migrations once against the target database using the API image as a one-shot deployment job: `./apps/api/node_modules/.bin/prisma migrate deploy --schema=apps/api/prisma/schema.prisma`. Do not run migrations in every API replica.
 - Verify S3 bucket privacy, encryption, lifecycle rules, and IAM least privilege.
 - Verify SMS and KYC provider credentials using sandbox accounts first.
 
