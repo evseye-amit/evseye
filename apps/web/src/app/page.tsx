@@ -7,7 +7,7 @@ const API_URL =
 const ACCESS_TOKEN_KEY = "evs-eye-access-token";
 const REFRESH_TOKEN_KEY = "evs-eye-refresh-token";
 const AUTH_CHANGED_EVENT = "evs-eye-auth-changed";
-type Tab = "dashboard" | "fleets" | "riders" | "allocations";
+type Tab = "dashboard" | "fleets" | "riders" | "allocations" | "audit";
 type RecordItem = Record<string, unknown>;
 
 interface Dashboard {
@@ -210,8 +210,9 @@ export default function Home() {
         });
         if (search) query.set("search", search);
         if (statusFilter) query.set("status", statusFilter);
+        const resource = nextTab === "audit" ? "/audit-logs" : `/${nextTab}`;
         const result = (await request(
-          `/${nextTab}?${query.toString()}`,
+          `${resource}?${query.toString()}`,
           {},
           token,
         )) as {
@@ -960,17 +961,17 @@ export default function Home() {
           <h2>Operations</h2>
         </div>
         <nav>
-          {(["dashboard", "fleets", "riders", "allocations"] as Tab[]).map(
-            (item) => (
-              <button
-                key={item}
-                className={tab === item ? "nav-active" : ""}
-                onClick={() => setTab(item)}
-              >
-                {item}
-              </button>
-            ),
-          )}
+          {(
+            ["dashboard", "fleets", "riders", "allocations", "audit"] as Tab[]
+          ).map((item) => (
+            <button
+              key={item}
+              className={tab === item ? "nav-active" : ""}
+              onClick={() => setTab(item)}
+            >
+              {item}
+            </button>
+          ))}
         </nav>
         <button className="sign-out" onClick={signOut}>
           Sign out
@@ -999,7 +1000,7 @@ export default function Home() {
             </button>
           </div>
         </header>
-        {tab !== "dashboard" && (
+        {tab !== "dashboard" && tab !== "audit" && (
           <form
             className="list-filters"
             onSubmit={(event) => {
@@ -1582,7 +1583,14 @@ export default function Home() {
               <table>
                 <thead>
                   <tr>
-                    {tab === "fleets" ? (
+                    {tab === "audit" ? (
+                      <>
+                        <th>Action</th>
+                        <th>Entity</th>
+                        <th>Actor</th>
+                        <th>When</th>
+                      </>
+                    ) : tab === "fleets" ? (
                       <>
                         <th>Vehicle</th>
                         <th>OEM</th>
@@ -1610,7 +1618,19 @@ export default function Home() {
                 </thead>
                 <tbody>
                   {items.map((item) =>
-                    tab === "fleets" ? (
+                    tab === "audit" ? (
+                      <tr key={String(item.id)}>
+                        <td>{String(item.action)}</td>
+                        <td>
+                          {String(item.entityType)}
+                          {item.entityId ? ` · ${String(item.entityId)}` : ""}
+                        </td>
+                        <td>{String(item.actorId ?? "System")}</td>
+                        <td>
+                          {new Date(String(item.createdAt)).toLocaleString()}
+                        </td>
+                      </tr>
+                    ) : tab === "fleets" ? (
                       <tr key={String(item.id)}>
                         <td>{String(item.vehicleNumber)}</td>
                         <td>{String(item.oem)}</td>

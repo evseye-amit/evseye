@@ -20,11 +20,16 @@ export class AuditController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
+    const requestedPage = Math.max(Number(page) || 1, 1);
+    const requestedPageSize = Math.min(
+      Math.max(Number(pageSize) || 50, 1),
+      100,
+    );
     return {
       data: await this.audit.list(
         this.tenants.requireTenantId(u),
-        Number(page) || 1,
-        Number(pageSize) || 50,
+        requestedPage,
+        requestedPageSize,
       ),
     };
   }
