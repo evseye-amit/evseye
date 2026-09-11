@@ -1,9 +1,17 @@
-import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Environment } from '../../config/environment.js';
-import type { CreateUploadUrlInput, StorageProvider } from './storage-provider.interface.js';
+import type {
+  CreateUploadUrlInput,
+  StorageProvider,
+} from './storage-provider.interface.js';
 
 @Injectable()
 export class S3StorageProvider implements StorageProvider {
@@ -24,7 +32,7 @@ export class S3StorageProvider implements StorageProvider {
         ContentLength: input.sizeBytes,
         ServerSideEncryption: 'aws:kms',
       }),
-      { expiresIn: 300 },
+      { expiresIn: this.config.getOrThrow('S3_SIGNED_URL_TTL_SECONDS') },
     );
   }
 
@@ -32,18 +40,22 @@ export class S3StorageProvider implements StorageProvider {
     return getSignedUrl(
       this.client,
       new GetObjectCommand({ Bucket: this.bucket(), Key: objectKey }),
-      { expiresIn: 300 },
+      { expiresIn: this.config.getOrThrow('S3_SIGNED_URL_TTL_SECONDS') },
     );
   }
 
   async assertObjectExists(objectKey: string): Promise<void> {
-    await this.client.send(new HeadObjectCommand({ Bucket: this.bucket(), Key: objectKey }));
+    await this.client.send(
+      new HeadObjectCommand({ Bucket: this.bucket(), Key: objectKey }),
+    );
   }
 
   private bucket(): string {
     const bucket = this.config.get('S3_BUCKET');
     if (!bucket) {
-      throw new ServiceUnavailableException('Object storage is not configured.');
+      throw new ServiceUnavailableException(
+        'Object storage is not configured.',
+      );
     }
     return bucket;
   }

@@ -27,6 +27,12 @@ const environmentSchema = z.object({
   OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(60),
   IOT_OFFLINE_THRESHOLD_SECONDS: z.coerce.number().int().positive().default(60),
   S3_BUCKET: z.string().optional(),
+  S3_SIGNED_URL_TTL_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(60)
+    .max(3600)
+    .default(300),
   AWS_REGION: z.string().default('ap-south-1'),
   AWS_ACCESS_KEY_ID: z.string().optional(),
   AWS_SECRET_ACCESS_KEY: z.string().optional(),
@@ -56,6 +62,9 @@ export function validateEnvironment(
     throw new Error(
       'JWT secrets must be replaced before running in production.',
     );
+  }
+  if (result.data.NODE_ENV === 'production' && !result.data.S3_BUCKET) {
+    throw new Error('S3_BUCKET must be configured in production.');
   }
   if (
     result.data.NODE_ENV === 'production' &&

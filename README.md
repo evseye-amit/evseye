@@ -13,6 +13,8 @@ The API health endpoints are `/health` and `/health/ready`.
 
 The development seed creates tenant slug `demo` and tenant-admin mobile `+919000000000`.
 
+For production, use real SMS and KYC adapters, a private S3 bucket, IAM-based AWS credentials, and non-development token secrets. The API rejects the console SMS provider, sandbox KYC provider, and an unset S3 bucket in production.
+
 ## Verification
 
 Run `pnpm typecheck`, `pnpm test`, and `pnpm build` before review or release.
