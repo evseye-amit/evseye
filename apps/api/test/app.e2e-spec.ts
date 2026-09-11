@@ -1,18 +1,12 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
-import { FastifyAdapter } from '@nestjs/platform-fastify';
 import request from 'supertest';
-import { AppModule } from './../src/app.module.js';
+import { createApplication } from './../src/app.factory.js';
 
 describe('Health endpoints (e2e)', () => {
   let app: INestApplication;
 
   beforeEach(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = moduleFixture.createNestApplication(new FastifyAdapter());
+    app = await createApplication();
     await app.init();
     await app.getHttpAdapter().getInstance().ready();
   });
@@ -21,6 +15,7 @@ describe('Health endpoints (e2e)', () => {
     return request(app.getHttpServer())
       .get('/health')
       .expect(200)
+      .expect('x-request-id', /.+/)
       .expect({ data: { status: 'ok', service: 'evs-eye-api' } });
   });
 
