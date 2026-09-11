@@ -196,6 +196,136 @@ async function main() {
     ),
   );
 
+  await prisma.oem.upsert({
+    where: { code: 'EVSEYE' },
+    create: {
+      code: 'EVSEYE',
+      name: 'EVs Eye Mobility Systems',
+      displayName: 'EVs Eye',
+      type: 'MULTI_PRODUCT',
+      status: 'ACTIVE',
+      description: 'Platform sample OEM record.',
+    },
+    update: {
+      name: 'EVs Eye Mobility Systems',
+      displayName: 'EVs Eye',
+      type: 'MULTI_PRODUCT',
+      status: 'ACTIVE',
+    },
+  });
+  const featureSeeds = [
+    {
+      code: 'RIDER_ONBOARDING',
+      name: 'Rider onboarding',
+      category: 'Operations',
+      featureType: 'Workflow',
+      billingUnit: 'rider',
+    },
+    {
+      code: 'PAN_VERIFICATION',
+      name: 'PAN verification',
+      category: 'KYC',
+      featureType: 'Verification',
+      billingUnit: 'verification',
+    },
+    {
+      code: 'AADHAAR_VERIFICATION',
+      name: 'Aadhaar verification',
+      category: 'KYC',
+      featureType: 'Verification',
+      billingUnit: 'verification',
+    },
+    {
+      code: 'BANK_VERIFICATION',
+      name: 'Bank verification',
+      category: 'KYC',
+      featureType: 'Verification',
+      billingUnit: 'verification',
+    },
+    {
+      code: 'IOT_TRACKING',
+      name: 'IoT fleet tracking',
+      category: 'Telematics',
+      featureType: 'Module',
+      billingUnit: 'vehicle',
+    },
+  ];
+  const features = await Promise.all(
+    featureSeeds.map((feature) =>
+      prisma.feature.upsert({
+        where: { code: feature.code },
+        create: { ...feature, status: 'ACTIVE' },
+        update: { ...feature, status: 'ACTIVE' },
+      }),
+    ),
+  );
+  const standardPackage = await prisma.package.upsert({
+    where: { code: 'STANDARD' },
+    create: {
+      code: 'STANDARD',
+      name: 'Standard',
+      description: 'Core fleet operations package.',
+      monthlyPrice: 4999,
+      yearlyPrice: 49990,
+      currency: 'INR',
+      status: 'ACTIVE',
+    },
+    update: {
+      name: 'Standard',
+      monthlyPrice: 4999,
+      yearlyPrice: 49990,
+      currency: 'INR',
+      status: 'ACTIVE',
+    },
+  });
+  await Promise.all(
+    features.map((feature) =>
+      prisma.packageFeature.upsert({
+        where: {
+          packageId_featureId: {
+            packageId: standardPackage.id,
+            featureId: feature.id,
+          },
+        },
+        create: {
+          packageId: standardPackage.id,
+          featureId: feature.id,
+          unlimitedUsage:
+            feature.code === 'RIDER_ONBOARDING' ||
+            feature.code === 'IOT_TRACKING',
+          includedQuantity: feature.code.includes('VERIFICATION')
+            ? 500
+            : undefined,
+        },
+        update: {},
+      }),
+    ),
+  );
+  await Promise.all(
+    features
+      .filter((feature) => feature.code.includes('VERIFICATION'))
+      .map((feature) =>
+        prisma.featurePricing.upsert({
+          where: { id: `seed-${feature.code}` },
+          create: {
+            id: `seed-${feature.code}`,
+            featureId: feature.id,
+            pricingModel: 'PER_UNIT',
+            billingUnit: 'verification',
+            unitPrice:
+              feature.code === 'PAN_VERIFICATION'
+                ? 5
+                : feature.code === 'AADHAAR_VERIFICATION'
+                  ? 7
+                  : 4,
+            costPrice: 0,
+            currency: 'INR',
+          },
+          update: {},
+        }),
+      ),
+  );
+
   const tenant = await prisma.tenant.upsert({
     where: { slug: 'demo' },
     update: { name: 'EVs Eye Demo', isActive: true },

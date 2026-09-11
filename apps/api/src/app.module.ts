@@ -17,6 +17,7 @@ import { AuditModule } from './audit/audit.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { RidersModule } from './riders/riders.module.js';
 import { PlatformAdminModule } from './platform-admin/platform-admin.module.js';
+import { PlatformCatalogModule } from './platform-catalog/platform-catalog.module.js';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { PlatformAdminModule } from './platform-admin/platform-admin.module.js';
     AuthModule,
     RidersModule,
     PlatformAdminModule,
+    PlatformCatalogModule,
     MediaModule,
     KycModule,
     FleetsModule,

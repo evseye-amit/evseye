@@ -8,6 +8,7 @@ import { Prisma, UserRole } from '@prisma/client';
 import { AuditService } from '../audit/audit.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CreateOnboardingConfigDto } from './dto/create-onboarding-config.dto.js';
+import type { CreateClientOnboardingDto } from './dto/create-client-onboarding.dto.js';
 import type { CreateTenantDto } from './dto/create-tenant.dto.js';
 import type { UpsertOnboardingConfigStepsDto } from './dto/upsert-onboarding-config-steps.dto.js';
 
@@ -53,6 +54,94 @@ export class PlatformAdminService {
         newData: { name: tenant.name, slug: tenant.slug },
       });
       return tenant;
+    } catch (error) {
+      if (this.unique(error))
+        throw new ConflictException(
+          'Client slug or administrator mobile already exists.',
+        );
+      throw error;
+    }
+  }
+
+  async onboardClient(dto: CreateClientOnboardingDto, actorId: string) {
+    try {
+      const client = await this.prisma.$transaction(async (tx) => {
+        const packageRecord = await tx.package.findUnique({
+          where: { id: dto.packageId },
+        });
+        if (!packageRecord || packageRecord.status !== 'ACTIVE')
+          throw new NotFoundException('Selected package is unavailable.');
+        const created = await tx.tenant.create({
+          data: { name: dto.name, slug: dto.slug },
+        });
+        await tx.user.create({
+          data: {
+            tenantId: created.id,
+            name: dto.adminName,
+            mobile: dto.adminMobile,
+            role: UserRole.TENANT_ADMIN,
+          },
+        });
+        await tx.clientProfile.create({
+          data: {
+            clientId: created.id,
+            legalCompanyName: dto.legalCompanyName,
+            clientType: dto.clientType,
+            businessType: dto.businessType,
+            industry: dto.industry,
+            gstin: dto.gstin,
+            pan: dto.pan,
+            cinOrLlpin: dto.cinOrLlpin,
+            website: dto.website,
+            logoUrl: dto.logoUrl,
+            primaryContactName: dto.primaryContactName,
+            primaryContactTitle: dto.primaryContactTitle,
+            primaryContactMobile: dto.primaryContactMobile,
+            primaryContactEmail: dto.primaryContactEmail,
+            alternateMobile: dto.alternateMobile,
+            registeredAddressLine1: dto.registeredAddressLine1,
+            registeredAddressLine2: dto.registeredAddressLine2,
+            landmark: dto.landmark,
+            city: dto.city,
+            district: dto.district,
+            state: dto.state,
+            country: dto.country ?? 'India',
+            pinCode: dto.pinCode,
+          },
+        });
+        await tx.clientSubscription.create({
+          data: {
+            clientId: created.id,
+            packageId: packageRecord.id,
+            billingCycle: dto.billingCycle,
+            packageStartDate: new Date(dto.packageStartDate),
+            trialApplicable: dto.trialApplicable ?? false,
+            trialDays: dto.trialApplicable ? dto.trialDays : undefined,
+            billingFrequency: dto.billingFrequency,
+            basePackagePrice:
+              dto.billingCycle === 'YEARLY'
+                ? (packageRecord.yearlyPrice ??
+                  packageRecord.monthlyPrice.mul(12))
+                : packageRecord.monthlyPrice,
+            currency: packageRecord.currency,
+            discountType: dto.discountType,
+            discount: dto.discount,
+            taxRate: dto.taxRate ?? 18,
+            autoRenewal: dto.autoRenewal ?? true,
+            paymentTerms: dto.paymentTerms,
+            poNumber: dto.poNumber,
+          },
+        });
+        return created;
+      });
+      await this.audit.record({
+        actorId,
+        action: 'CLIENT_ONBOARDED',
+        entityType: 'Client',
+        entityId: client.id,
+        newData: { name: client.name, slug: client.slug },
+      });
+      return client;
     } catch (error) {
       if (this.unique(error))
         throw new ConflictException(

@@ -14,6 +14,7 @@ import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { CreateOnboardingConfigDto } from './dto/create-onboarding-config.dto.js';
+import { CreateClientOnboardingDto } from './dto/create-client-onboarding.dto.js';
 import { CreateTenantDto } from './dto/create-tenant.dto.js';
 import { UpsertOnboardingConfigStepsDto } from './dto/upsert-onboarding-config-steps.dto.js';
 import { PlatformAdminService } from './platform-admin.service.js';
@@ -31,6 +32,12 @@ export class PlatformAdminController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.platform.createTenant(dto, user.id).then((data) => ({ data }));
+  }
+  @Post('clients/onboarding') onboardClient(
+    @Body() dto: CreateClientOnboardingDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform.onboardClient(dto, user.id).then((data) => ({ data }));
   }
   @Get('onboarding/step-definitions') stepDefinitions() {
     return this.platform.listStepDefinitions().then((data) => ({ data }));

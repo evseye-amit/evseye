@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
 const API_URL =
@@ -58,6 +59,7 @@ async function api(path: string, options: RequestInit = {}, token?: string) {
 }
 
 export default function PlatformPage() {
+  const router = useRouter();
   const [token, setToken] = useState(() =>
     typeof window === "undefined"
       ? ""
@@ -170,7 +172,7 @@ export default function PlatformPage() {
       })) as { accessToken: string; refreshToken: string };
       sessionStorage.setItem(ACCESS_TOKEN_KEY, data.accessToken);
       sessionStorage.setItem(REFRESH_TOKEN_KEY, data.refreshToken);
-      setToken(data.accessToken);
+      router.push("/platform/dashboard");
       setNotice("");
     } catch (cause) {
       setError(
