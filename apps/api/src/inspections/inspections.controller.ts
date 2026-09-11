@@ -10,17 +10,38 @@ import { InspectionsService } from './inspections.service.js';
 
 @Controller('inspections')
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(UserRole.TENANT_ADMIN, UserRole.OPERATIONS_MANAGER, UserRole.FLEET_MANAGER)
+@Roles(
+  UserRole.TENANT_ADMIN,
+  UserRole.OPERATIONS_MANAGER,
+  UserRole.FLEET_MANAGER,
+)
 export class InspectionsController {
-  constructor(private readonly inspections: InspectionsService, private readonly tenants: TenantContextService) {}
+  constructor(
+    private readonly inspections: InspectionsService,
+    private readonly tenants: TenantContextService,
+  ) {}
 
   @Get(':id')
-  get(@CurrentUser() user: AuthUser, @Param('id') inspectionId: string) {
-    return { data: this.inspections.get(this.tenants.requireTenantId(user), inspectionId) };
+  async get(@CurrentUser() user: AuthUser, @Param('id') inspectionId: string) {
+    return {
+      data: await this.inspections.get(
+        this.tenants.requireTenantId(user),
+        inspectionId,
+      ),
+    };
   }
 
   @Post(':id/complete')
-  complete(@CurrentUser() user: AuthUser, @Param('id') inspectionId: string) {
-    return { data: this.inspections.complete(this.tenants.requireTenantId(user), inspectionId, user.id) };
+  async complete(
+    @CurrentUser() user: AuthUser,
+    @Param('id') inspectionId: string,
+  ) {
+    return {
+      data: await this.inspections.complete(
+        this.tenants.requireTenantId(user),
+        inspectionId,
+        user.id,
+      ),
+    };
   }
 }

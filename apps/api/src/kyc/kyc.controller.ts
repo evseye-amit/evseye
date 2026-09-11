@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
@@ -14,20 +22,47 @@ import { KycService } from './kyc.service.js';
 @UseGuards(AccessTokenGuard, RolesGuard)
 @Roles(UserRole.TENANT_ADMIN, UserRole.KYC_OPERATOR)
 export class KycController {
-  constructor(private readonly kyc: KycService, private readonly tenants: TenantContextService) {}
+  constructor(
+    private readonly kyc: KycService,
+    private readonly tenants: TenantContextService,
+  ) {}
 
   @Get()
-  list(@CurrentUser() user: AuthUser, @Param('riderId') riderId: string) {
-    return { data: this.kyc.list(this.tenants.requireTenantId(user), riderId) };
+  async list(@CurrentUser() user: AuthUser, @Param('riderId') riderId: string) {
+    return {
+      data: await this.kyc.list(this.tenants.requireTenantId(user), riderId),
+    };
   }
 
   @Post()
-  start(@CurrentUser() user: AuthUser, @Param('riderId') riderId: string, @Body() dto: StartKycDto) {
-    return { data: this.kyc.start(this.tenants.requireTenantId(user), riderId, dto) };
+  async start(
+    @CurrentUser() user: AuthUser,
+    @Param('riderId') riderId: string,
+    @Body() dto: StartKycDto,
+  ) {
+    return {
+      data: await this.kyc.start(
+        this.tenants.requireTenantId(user),
+        riderId,
+        dto,
+      ),
+    };
   }
 
   @Patch(':kycId')
-  complete(@CurrentUser() user: AuthUser, @Param('riderId') riderId: string, @Param('kycId') kycId: string, @Body() dto: CompleteKycDto) {
-    return { data: this.kyc.complete(this.tenants.requireTenantId(user), riderId, kycId, dto) };
+  async complete(
+    @CurrentUser() user: AuthUser,
+    @Param('riderId') riderId: string,
+    @Param('kycId') kycId: string,
+    @Body() dto: CompleteKycDto,
+  ) {
+    return {
+      data: await this.kyc.complete(
+        this.tenants.requireTenantId(user),
+        riderId,
+        kycId,
+        dto,
+      ),
+    };
   }
 }

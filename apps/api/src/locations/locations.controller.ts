@@ -12,11 +12,46 @@ import { LocationsService } from './locations.service.js';
 
 @Controller()
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(UserRole.TENANT_ADMIN, UserRole.OPERATIONS_MANAGER, UserRole.FLEET_MANAGER)
+@Roles(
+  UserRole.TENANT_ADMIN,
+  UserRole.OPERATIONS_MANAGER,
+  UserRole.FLEET_MANAGER,
+)
 export class LocationsController {
-  constructor(private readonly locations: LocationsService, private readonly tenants: TenantContextService) {}
-  @Get('zones') zones(@CurrentUser() user: AuthUser) { return { data: this.locations.listZones(this.tenants.requireTenantId(user)) }; }
-  @Post('zones') createZone(@CurrentUser() user: AuthUser, @Body() dto: CreateZoneDto) { return { data: this.locations.createZone(this.tenants.requireTenantId(user), dto) }; }
-  @Get('hubs') hubs(@CurrentUser() user: AuthUser) { return { data: this.locations.listHubs(this.tenants.requireTenantId(user)) }; }
-  @Post('hubs') createHub(@CurrentUser() user: AuthUser, @Body() dto: CreateHubDto) { return { data: this.locations.createHub(this.tenants.requireTenantId(user), dto) }; }
+  constructor(
+    private readonly locations: LocationsService,
+    private readonly tenants: TenantContextService,
+  ) {}
+  @Get('zones') async zones(@CurrentUser() user: AuthUser) {
+    return {
+      data: await this.locations.listZones(this.tenants.requireTenantId(user)),
+    };
+  }
+  @Post('zones') async createZone(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreateZoneDto,
+  ) {
+    return {
+      data: await this.locations.createZone(
+        this.tenants.requireTenantId(user),
+        dto,
+      ),
+    };
+  }
+  @Get('hubs') async hubs(@CurrentUser() user: AuthUser) {
+    return {
+      data: await this.locations.listHubs(this.tenants.requireTenantId(user)),
+    };
+  }
+  @Post('hubs') async createHub(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreateHubDto,
+  ) {
+    return {
+      data: await this.locations.createHub(
+        this.tenants.requireTenantId(user),
+        dto,
+      ),
+    };
+  }
 }

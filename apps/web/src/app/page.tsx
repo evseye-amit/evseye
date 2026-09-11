@@ -57,7 +57,7 @@ function Status({ value }: { value: string }) {
 
 export default function Home() {
   const [phone, setPhone] = useState("");
-  const [tenantSlug, setTenantSlug] = useState("demo-tenant");
+  const [tenantSlug, setTenantSlug] = useState("demo");
   const [otpRequestId, setOtpRequestId] = useState("");
   const [code, setCode] = useState("");
   const [token, setToken] = useState("");

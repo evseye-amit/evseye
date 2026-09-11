@@ -1,6 +1,23 @@
-import { Body, Controller, Headers, HttpCode, Post, UnauthorizedException, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Headers,
+  HttpCode,
+  Post,
+  UnauthorizedException,
+  UseGuards,
+} from '@nestjs/common';
 import { UserRole } from '@prisma/client';
-import { IsBoolean, IsIn, IsISO8601, IsLatitude, IsLongitude, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsIn,
+  IsISO8601,
+  IsLatitude,
+  IsLongitude,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
@@ -50,11 +67,23 @@ class IngestTelemetryDto {
 @UseGuards(AccessTokenGuard, RolesGuard)
 @Roles(UserRole.TENANT_ADMIN, UserRole.FLEET_MANAGER)
 export class IotController {
-  constructor(private readonly iot: IotService, private readonly tenants: TenantContextService) {}
+  constructor(
+    private readonly iot: IotService,
+    private readonly tenants: TenantContextService,
+  ) {}
 
   @Post('devices')
-  register(@CurrentUser() user: AuthUser, @Body() dto: RegisterDeviceDto) {
-    return { data: this.iot.registerDevice(this.tenants.requireTenantId(user), dto.fleetId, dto.deviceNumber) };
+  async register(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: RegisterDeviceDto,
+  ) {
+    return {
+      data: await this.iot.registerDevice(
+        this.tenants.requireTenantId(user),
+        dto.fleetId,
+        dto.deviceNumber,
+      ),
+    };
   }
 }
 
@@ -64,8 +93,19 @@ export class IotIngestionController {
 
   @Post('ingest')
   @HttpCode(202)
-  ingest(@Headers('x-device-secret') ingestSecret: string | undefined, @Body() dto: IngestTelemetryDto) {
-    if (!ingestSecret) throw new UnauthorizedException('Missing device credentials.');
-    return { data: this.iot.ingest(dto.deviceNumber, ingestSecret, dto.type, dto) };
+  async ingest(
+    @Headers('x-device-secret') ingestSecret: string | undefined,
+    @Body() dto: IngestTelemetryDto,
+  ) {
+    if (!ingestSecret)
+      throw new UnauthorizedException('Missing device credentials.');
+    return {
+      data: await this.iot.ingest(
+        dto.deviceNumber,
+        ingestSecret,
+        dto.type,
+        dto,
+      ),
+    };
   }
 }
