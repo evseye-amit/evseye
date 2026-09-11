@@ -1038,9 +1038,6 @@ export default function Home() {
                           <Status value={String(item.status)} />
                         </td>
                         <td>
-                          <button className="secondary table-action" onClick={() => void openRiderDetail(String(item.id))}>View</button>
-                        </td>
-                        <td>
                           {((item.hub as RecordItem | null)?.name as string) ??
                             "—"}
                         </td>
@@ -1051,6 +1048,16 @@ export default function Home() {
                         <td>{String(item.mobile)}</td>
                         <td>
                           <Status value={String(item.status)} />
+                        </td>
+                        <td>
+                          <button
+                            className="secondary table-action"
+                            onClick={() =>
+                              void openRiderDetail(String(item.id))
+                            }
+                          >
+                            View
+                          </button>
                         </td>
                       </tr>
                     ) : (
