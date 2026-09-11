@@ -14,8 +14,8 @@ ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 RUN addgroup -S evseye && adduser -S evseye -G evseye
 COPY --from=build /app/apps/web/.next/standalone ./
-COPY --from=build /app/apps/web/.next/static ./.next/static
-COPY --from=build /app/apps/web/public ./public
+COPY --from=build /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=build /app/apps/web/public ./apps/web/public
 USER evseye
 EXPOSE 3001
-CMD ["node", "server.js"]
+CMD ["node", "apps/web/server.js"]
