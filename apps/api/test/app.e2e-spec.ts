@@ -41,11 +41,33 @@ describe('Health endpoints (e2e)', () => {
       .expect('access-control-allow-origin', 'http://localhost:3001');
   });
 
+  it('allows preflight requests from the configured operations web origin', () => {
+    return request(app.getHttpServer())
+      .options('/api/v1/riders')
+      .set('Origin', 'http://localhost:3001')
+      .set('Access-Control-Request-Method', 'GET')
+      .expect(204)
+      .expect('access-control-allow-origin', 'http://localhost:3001')
+      .expect((response) => {
+        expect(response.headers['access-control-allow-methods']).toContain('GET');
+      });
+  });
+
   it('does not allow an unconfigured browser origin', () => {
     return request(app.getHttpServer())
       .get('/health')
       .set('Origin', 'https://untrusted.example')
       .expect(200)
+      .expect((response) => {
+        expect(response.headers['access-control-allow-origin']).toBeUndefined();
+      });
+  });
+
+  it('does not authorize preflight requests from an unconfigured browser origin', () => {
+    return request(app.getHttpServer())
+      .options('/api/v1/riders')
+      .set('Origin', 'https://untrusted.example')
+      .set('Access-Control-Request-Method', 'GET')
       .expect((response) => {
         expect(response.headers['access-control-allow-origin']).toBeUndefined();
       });
