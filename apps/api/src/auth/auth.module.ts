@@ -19,6 +19,6 @@ import { TenantContextService } from './tenant-context.service.js';
     ConsoleSmsProvider,
     { provide: SMS_PROVIDER, useExisting: ConsoleSmsProvider },
   ],
-  exports: [AuthService, AccessTokenGuard, RolesGuard, TenantContextService],
+  exports: [JwtModule, AuthService, AccessTokenGuard, RolesGuard, TenantContextService],
 })
 export class AuthModule {}
