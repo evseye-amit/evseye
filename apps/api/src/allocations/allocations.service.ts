@@ -11,6 +11,7 @@ import {
   PhotoEntityType,
   PhotoStatus,
   Prisma,
+  RiderStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { ListAllocationsDto } from './dto/list-allocations.dto.js';
@@ -93,6 +94,9 @@ export class AllocationsService {
         where: { id: riderId, tenantId, deletedAt: null },
       });
       if (!rider) throw new NotFoundException('Rider not found.');
+      if (rider.status !== RiderStatus.ACTIVE) {
+        throw new ConflictException('Rider must be active before allocation.');
+      }
       const reserved = await tx.fleet.updateMany({
         where: {
           id: fleetId,

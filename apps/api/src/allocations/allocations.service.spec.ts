@@ -4,6 +4,7 @@ import {
   InspectionStatus,
   InspectionType,
   PhotoEntityType,
+  RiderStatus,
 } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
 import { AllocationsService } from './allocations.service.js';
@@ -11,7 +12,12 @@ import { AllocationsService } from './allocations.service.js';
 describe('AllocationsService concurrency guard', () => {
   it('uses a conditional AVAILABLE fleet update to prevent double allocation', async () => {
     const tx = {
-      rider: { findFirst: vi.fn().mockResolvedValue({ id: 'rider-1' }) },
+      rider: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'rider-1',
+          status: RiderStatus.ACTIVE,
+        }),
+      },
       fleet: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
       allocation: { create: vi.fn() },
       inspection: { create: vi.fn() },
@@ -39,7 +45,12 @@ describe('AllocationsService concurrency guard', () => {
 
   it('rejects allocation when a required fleet onboarding photo is missing', async () => {
     const tx = {
-      rider: { findFirst: vi.fn().mockResolvedValue({ id: 'rider-1' }) },
+      rider: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'rider-1',
+          status: RiderStatus.ACTIVE,
+        }),
+      },
       fleet: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
       photoRequirement: {
         findMany: vi.fn().mockResolvedValue([{ photoType: 'FRONT' }]),
@@ -66,6 +77,29 @@ describe('AllocationsService concurrency guard', () => {
       },
       select: { photoType: true },
     });
+  });
+
+  it('rejects allocation for an inactive rider even when called directly', async () => {
+    const tx = {
+      rider: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'rider-1',
+          status: RiderStatus.BLOCKED,
+        }),
+      },
+      fleet: { updateMany: vi.fn() },
+    };
+    const prisma = {
+      $transaction: vi.fn(async (operation: (client: typeof tx) => unknown) =>
+        operation(tx),
+      ),
+    };
+    const service = new AllocationsService(prisma as never);
+
+    await expect(
+      service.initiate('tenant-a', 'fleet-1', 'rider-1', 'operator-1'),
+    ).rejects.toThrow('Rider must be active before allocation.');
+    expect(tx.fleet.updateMany).not.toHaveBeenCalled();
   });
 
   it('only activates an allocation after its completed pre-allocation inspection', async () => {
