@@ -7,7 +7,13 @@ const API_URL =
 const ACCESS_TOKEN_KEY = "evs-eye-access-token";
 const REFRESH_TOKEN_KEY = "evs-eye-refresh-token";
 const AUTH_CHANGED_EVENT = "evs-eye-auth-changed";
-type Tab = "dashboard" | "fleets" | "riders" | "allocations" | "audit";
+type Tab =
+  | "dashboard"
+  | "fleets"
+  | "riders"
+  | "allocations"
+  | "audit"
+  | "locations";
 type RecordItem = Record<string, unknown>;
 
 interface Dashboard {
@@ -156,6 +162,9 @@ export default function Home() {
   const [newRiderMobile, setNewRiderMobile] = useState("");
   const [showFleetForm, setShowFleetForm] = useState(false);
   const [hubs, setHubs] = useState<RecordItem[]>([]);
+  const [zones, setZones] = useState<RecordItem[]>([]);
+  const [newZone, setNewZone] = useState({ name: "", code: "" });
+  const [newHub, setNewHub] = useState({ name: "", code: "", zoneId: "" });
   const [newFleet, setNewFleet] = useState({
     vehicleNumber: "",
     chassisNumber: "",
@@ -222,7 +231,14 @@ export default function Home() {
         setDashboard(
           normalizeDashboard(await request("/dashboard", {}, token)),
         );
-      else {
+      else if (nextTab === "locations") {
+        const [zoneItems, hubItems] = await Promise.all([
+          request("/zones", {}, token) as Promise<RecordItem[]>,
+          request("/hubs", {}, token) as Promise<RecordItem[]>,
+        ]);
+        setZones(zoneItems);
+        setHubs(hubItems);
+      } else {
         const query = new URLSearchParams({
           page: String(page),
           pageSize: "20",
@@ -402,6 +418,50 @@ export default function Home() {
       setShowFleetForm(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to load hubs.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function createZone(event: FormEvent) {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      await request(
+        "/zones",
+        { method: "POST", body: JSON.stringify(newZone) },
+        token,
+      );
+      setNewZone({ name: "", code: "" });
+      setNotice("Zone created.");
+      await loadView("locations");
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Unable to create zone.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function createHub(event: FormEvent) {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      await request(
+        "/hubs",
+        { method: "POST", body: JSON.stringify(newHub) },
+        token,
+      );
+      setNewHub({ name: "", code: "", zoneId: "" });
+      setNotice("Hub created.");
+      await loadView("locations");
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Unable to create hub.",
+      );
     } finally {
       setLoading(false);
     }
@@ -1014,7 +1074,14 @@ export default function Home() {
         </div>
         <nav>
           {(
-            ["dashboard", "fleets", "riders", "allocations", "audit"] as Tab[]
+            [
+              "dashboard",
+              "fleets",
+              "riders",
+              "allocations",
+              "locations",
+              "audit",
+            ] as Tab[]
           ).map((item) => (
             <button
               key={item}
@@ -1052,7 +1119,7 @@ export default function Home() {
             </button>
           </div>
         </header>
-        {tab !== "dashboard" && tab !== "audit" && (
+        {tab !== "dashboard" && tab !== "audit" && tab !== "locations" && (
           <form
             className="list-filters"
             onSubmit={(event) => {
@@ -1099,6 +1166,142 @@ export default function Home() {
         {notice && <p className="notice">{notice}</p>}
         {error && <p className="error">{error}</p>}
         {loading && <p className="muted">Loading current data…</p>}
+        {!loading && tab === "locations" && (
+          <>
+            <div className="detail-grid">
+              <section className="action-card">
+                <p className="eyebrow">LOCATION SETUP</p>
+                <h2>Create zone</h2>
+                <form className="form-stack" onSubmit={createZone}>
+                  <label>
+                    Zone name
+                    <input
+                      value={newZone.name}
+                      onChange={(event) =>
+                        setNewZone((current) => ({
+                          ...current,
+                          name: event.target.value,
+                        }))
+                      }
+                      required
+                    />
+                  </label>
+                  <label>
+                    Zone code
+                    <input
+                      value={newZone.code}
+                      onChange={(event) =>
+                        setNewZone((current) => ({
+                          ...current,
+                          code: event.target.value.toUpperCase(),
+                        }))
+                      }
+                      pattern="[A-Z0-9_-]+"
+                      required
+                    />
+                  </label>
+                  <button>Create zone</button>
+                </form>
+              </section>
+              <section className="action-card">
+                <p className="eyebrow">LOCATION SETUP</p>
+                <h2>Create hub</h2>
+                <form className="form-stack" onSubmit={createHub}>
+                  <label>
+                    Zone
+                    <select
+                      value={newHub.zoneId}
+                      onChange={(event) =>
+                        setNewHub((current) => ({
+                          ...current,
+                          zoneId: event.target.value,
+                        }))
+                      }
+                      required
+                    >
+                      <option value="">Select zone</option>
+                      {zones.map((zone) => (
+                        <option key={String(zone.id)} value={String(zone.id)}>
+                          {String(zone.name)} · {String(zone.code)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Hub name
+                    <input
+                      value={newHub.name}
+                      onChange={(event) =>
+                        setNewHub((current) => ({
+                          ...current,
+                          name: event.target.value,
+                        }))
+                      }
+                      required
+                    />
+                  </label>
+                  <label>
+                    Hub code
+                    <input
+                      value={newHub.code}
+                      onChange={(event) =>
+                        setNewHub((current) => ({
+                          ...current,
+                          code: event.target.value.toUpperCase(),
+                        }))
+                      }
+                      pattern="[A-Z0-9_-]+"
+                      required
+                    />
+                  </label>
+                  <button disabled={zones.length === 0}>Create hub</button>
+                </form>
+              </section>
+            </div>
+            <div className="detail-grid">
+              <section className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Zone</th>
+                      <th>Code</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {zones.map((zone) => (
+                      <tr key={String(zone.id)}>
+                        <td>{String(zone.name)}</td>
+                        <td>{String(zone.code)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {zones.length === 0 && <p className="empty">No zones yet.</p>}
+              </section>
+              <section className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Hub</th>
+                      <th>Zone</th>
+                      <th>Code</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {hubs.map((hub) => (
+                      <tr key={String(hub.id)}>
+                        <td>{String(hub.name)}</td>
+                        <td>{String((hub.zone as RecordItem)?.name ?? "—")}</td>
+                        <td>{String(hub.code)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {hubs.length === 0 && <p className="empty">No hubs yet.</p>}
+              </section>
+            </div>
+          </>
+        )}
         {showAllocationForm && (
           <section className="action-card">
             <div>
@@ -1722,7 +1925,7 @@ export default function Home() {
             <Metric label="IoT offline" value={dashboard.iot.offline} />
           </div>
         )}
-        {!loading && tab !== "dashboard" && (
+        {!loading && tab !== "dashboard" && tab !== "locations" && (
           <>
             <div className="table-wrap">
               <table>
