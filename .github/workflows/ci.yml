@@ -44,5 +44,20 @@ jobs:
       - name: Build production artifacts
         run: pnpm build
 
+      - name: Prepare Compose environment
+        run: cp .env.example .env
+
+      - name: Validate Docker Compose configuration
+        run: docker compose config --quiet
+
       - name: Build Docker images
         run: docker compose build api web
+
+      - name: Verify migration job image
+        run: |
+          docker compose up -d postgres
+          docker compose run --rm --no-deps migrate
+
+      - name: Clean up Compose services
+        if: always()
+        run: docker compose down -v
