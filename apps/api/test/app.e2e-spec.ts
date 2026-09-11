@@ -49,7 +49,9 @@ describe('Health endpoints (e2e)', () => {
       .expect(204)
       .expect('access-control-allow-origin', 'http://localhost:3001')
       .expect((response) => {
-        expect(response.headers['access-control-allow-methods']).toContain('GET');
+        expect(response.headers['access-control-allow-methods']).toContain(
+          'GET',
+        );
       });
   });
 
@@ -71,6 +73,19 @@ describe('Health endpoints (e2e)', () => {
       .expect((response) => {
         expect(response.headers['access-control-allow-origin']).toBeUndefined();
       });
+  });
+
+  it('rate limits protected APIs while keeping health checks available', async () => {
+    await request(app.getHttpServer()).get('/api/v1/riders').expect(401);
+    await request(app.getHttpServer()).get('/api/v1/riders').expect(401);
+    await request(app.getHttpServer())
+      .get('/api/v1/riders')
+      .expect(429)
+      .expect('x-request-id', /.+/);
+
+    await request(app.getHttpServer()).get('/health').expect(200);
+    await request(app.getHttpServer()).get('/health').expect(200);
+    await request(app.getHttpServer()).get('/health').expect(200);
   });
 
   afterEach(async () => {
