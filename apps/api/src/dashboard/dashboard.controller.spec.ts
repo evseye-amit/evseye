@@ -6,7 +6,12 @@ describe('DashboardController', () => {
     const summary = {
       fleet: { AVAILABLE: 1 },
       riders: { ACTIVE: 1 },
-      activeAllocations: 0,
+      kyc: { PENDING: 1 },
+      operations: {
+        allocationsToday: 0,
+        deallocationsToday: 0,
+        activeAllocations: 0,
+      },
       iot: { online: 0, offline: 0 },
     };
     const dashboard = { summary: vi.fn().mockResolvedValue(summary) };

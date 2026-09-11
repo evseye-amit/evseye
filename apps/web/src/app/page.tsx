@@ -13,7 +13,12 @@ type RecordItem = Record<string, unknown>;
 interface Dashboard {
   fleet: Record<string, number>;
   riders: Record<string, number>;
-  activeAllocations: number;
+  kyc: Record<string, number>;
+  operations: {
+    allocationsToday: number;
+    deallocationsToday: number;
+    activeAllocations: number;
+  };
   iot: { online: number; offline: number };
 }
 
@@ -34,7 +39,12 @@ function normalizeDashboard(value: unknown): Dashboard {
   return {
     fleet: data?.fleet ?? {},
     riders: data?.riders ?? {},
-    activeAllocations: data?.activeAllocations ?? 0,
+    kyc: data?.kyc ?? {},
+    operations: {
+      allocationsToday: data?.operations?.allocationsToday ?? 0,
+      deallocationsToday: data?.operations?.deallocationsToday ?? 0,
+      activeAllocations: data?.operations?.activeAllocations ?? 0,
+    },
     iot: {
       online: data?.iot?.online ?? 0,
       offline: data?.iot?.offline ?? 0,
@@ -1568,13 +1578,48 @@ export default function Home() {
               )}
             />
             <Metric label="Available" value={dashboard.fleet.AVAILABLE ?? 0} />
+            <Metric label="Allocated" value={dashboard.fleet.ALLOCATED ?? 0} />
+            <Metric label="In use" value={dashboard.fleet.IN_USE ?? 0} />
+            <Metric
+              label="Maintenance"
+              value={dashboard.fleet.MAINTENANCE ?? 0}
+            />
+            <Metric
+              label="Fleet offline"
+              value={dashboard.fleet.OFFLINE ?? 0}
+            />
+            <Metric
+              label="Out of service"
+              value={dashboard.fleet.OUT_OF_SERVICE ?? 0}
+            />
+            <Metric
+              label="Total riders"
+              value={Object.values(dashboard.riders).reduce(
+                (sum, value) => sum + value,
+                0,
+              )}
+            />
+            <Metric
+              label="Active riders"
+              value={dashboard.riders.ACTIVE ?? 0}
+            />
+            <Metric label="KYC pending" value={dashboard.kyc.PENDING ?? 0} />
+            <Metric label="KYC verified" value={dashboard.kyc.VERIFIED ?? 0} />
+            <Metric label="KYC failed" value={dashboard.kyc.FAILED ?? 0} />
             <Metric
               label="Active allocations"
-              value={dashboard.activeAllocations}
+              value={dashboard.operations.activeAllocations}
+            />
+            <Metric
+              label="Allocations today"
+              value={dashboard.operations.allocationsToday}
+            />
+            <Metric
+              label="Deallocations today"
+              value={dashboard.operations.deallocationsToday}
             />
             <Metric label="IoT online" value={dashboard.iot.online} />
             <Metric label="IoT offline" value={dashboard.iot.offline} />
-            <Metric label="KYC pending" value={dashboard.riders.PENDING ?? 0} />
           </div>
         )}
         {!loading && tab !== "dashboard" && (
