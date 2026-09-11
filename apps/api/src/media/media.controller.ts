@@ -12,6 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { PhotoEntityType, UserRole } from '@prisma/client';
+import { AuditService } from '../audit/audit.service.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
@@ -27,6 +28,7 @@ import { MediaService } from './media.service.js';
 export class MediaController {
   constructor(
     private readonly mediaService: MediaService,
+    private readonly audit: AuditService,
     private readonly tenants: TenantContextService,
   ) {}
 
@@ -123,11 +125,22 @@ export class MediaController {
     UserRole.KYC_OPERATOR,
   )
   async complete(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const tenantId = this.tenants.requireTenantId(user);
+    const photo = await this.mediaService.complete(tenantId, id);
+    await this.audit.record({
+      tenantId,
+      actorId: user.id,
+      action: 'PHOTO_UPLOADED',
+      entityType: photo.entityType,
+      entityId: photo.entityId,
+      newData: {
+        photoId: photo.id,
+        photoType: photo.photoType,
+        status: photo.status,
+      },
+    });
     return {
-      data: await this.mediaService.complete(
-        this.tenants.requireTenantId(user),
-        id,
-      ),
+      data: photo,
     };
   }
 
