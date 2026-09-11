@@ -25,6 +25,13 @@ const environmentSchema = z.object({
   OTP_TTL_SECONDS: z.coerce.number().int().positive().default(300),
   OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
   OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(60),
+  API_RATE_LIMIT: z.coerce.number().int().min(1).max(10_000).default(120),
+  API_RATE_TTL_MS: z.coerce
+    .number()
+    .int()
+    .min(1_000)
+    .max(3_600_000)
+    .default(60_000),
   IOT_OFFLINE_THRESHOLD_SECONDS: z.coerce.number().int().positive().default(60),
   S3_BUCKET: z.string().optional(),
   S3_SIGNED_URL_TTL_SECONDS: z.coerce

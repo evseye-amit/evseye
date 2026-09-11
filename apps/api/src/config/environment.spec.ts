@@ -41,4 +41,17 @@ describe('validateEnvironment', () => {
       }),
     ).toThrow('S3_BUCKET must be configured in production.');
   });
+
+  it('validates the global API rate-limit settings', () => {
+    expect(() =>
+      validateEnvironment({
+        API_RATE_LIMIT: '0',
+      }),
+    ).toThrow();
+    expect(() =>
+      validateEnvironment({
+        API_RATE_TTL_MS: '999',
+      }),
+    ).toThrow();
+  });
 });

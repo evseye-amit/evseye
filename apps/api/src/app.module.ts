@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AuthModule } from './auth/auth.module.js';
-import { validateEnvironment } from './config/environment.js';
+import { type Environment, validateEnvironment } from './config/environment.js';
 import { HealthModule } from './health/health.module.js';
 import { MediaModule } from './media/media.module.js';
 import { KycModule } from './kyc/kyc.module.js';
@@ -22,6 +24,16 @@ import { RidersModule } from './riders/riders.module.js';
       cache: true,
       validate: validateEnvironment,
     }),
+    ThrottlerModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Environment, true>) => [
+        {
+          ttl: config.getOrThrow<number>('API_RATE_TTL_MS'),
+          limit: config.getOrThrow<number>('API_RATE_LIMIT'),
+        },
+      ],
+    }),
     PrismaModule,
     AuthModule,
     RidersModule,
@@ -35,6 +47,12 @@ import { RidersModule } from './riders/riders.module.js';
     DashboardModule,
     AuditModule,
     HealthModule,
+  ],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
   ],
 })
 export class AppModule {}
