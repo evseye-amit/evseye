@@ -8,6 +8,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
+import { AuditService } from '../audit/audit.service.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
@@ -24,6 +25,7 @@ import { KycService } from './kyc.service.js';
 export class KycController {
   constructor(
     private readonly kyc: KycService,
+    private readonly audit: AuditService,
     private readonly tenants: TenantContextService,
   ) {}
 
@@ -40,12 +42,22 @@ export class KycController {
     @Param('riderId') riderId: string,
     @Body() dto: StartKycDto,
   ) {
-    return {
-      data: await this.kyc.start(
-        this.tenants.requireTenantId(user),
+    const tenantId = this.tenants.requireTenantId(user);
+    const verification = await this.kyc.start(tenantId, riderId, dto);
+    await this.audit.record({
+      tenantId,
+      actorId: user.id,
+      action: 'KYC_STARTED',
+      entityType: 'RIDER_KYC',
+      entityId: verification.id,
+      newData: {
         riderId,
-        dto,
-      ),
+        type: verification.type,
+        status: verification.status,
+      },
+    });
+    return {
+      data: verification,
     };
   }
 
@@ -56,13 +68,22 @@ export class KycController {
     @Param('kycId') kycId: string,
     @Body() dto: CompleteKycDto,
   ) {
-    return {
-      data: await this.kyc.complete(
-        this.tenants.requireTenantId(user),
+    const tenantId = this.tenants.requireTenantId(user);
+    const verification = await this.kyc.complete(tenantId, riderId, kycId, dto);
+    await this.audit.record({
+      tenantId,
+      actorId: user.id,
+      action: 'KYC_STATUS_CHANGED',
+      entityType: 'RIDER_KYC',
+      entityId: verification.id,
+      newData: {
         riderId,
-        kycId,
-        dto,
-      ),
+        type: verification.type,
+        status: verification.status,
+      },
+    });
+    return {
+      data: verification,
     };
   }
 }
