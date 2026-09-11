@@ -13,7 +13,8 @@ type Tab =
   | "riders"
   | "allocations"
   | "audit"
-  | "locations";
+  | "locations"
+  | "evidence";
 type RecordItem = Record<string, unknown>;
 
 interface Dashboard {
@@ -183,6 +184,11 @@ export default function Home() {
   const [inspectionId, setInspectionId] = useState("");
   const [inspectionType, setInspectionType] = useState("PRE_ALLOCATION");
   const [requirements, setRequirements] = useState<RecordItem[]>([]);
+  const [configuredRequirements, setConfiguredRequirements] = useState<
+    RecordItem[]
+  >([]);
+  const [newRequirementType, setNewRequirementType] = useState("");
+  const [newRequirementRequired, setNewRequirementRequired] = useState(true);
   const [uploadedPhotoTypes, setUploadedPhotoTypes] = useState<string[]>([]);
   const [inspectionPhotoProgress, setInspectionPhotoProgress] = useState<
     Record<string, number>
@@ -250,6 +256,14 @@ export default function Home() {
         ]);
         setZones(zoneItems);
         setHubs(hubItems);
+      } else if (nextTab === "evidence") {
+        setConfiguredRequirements(
+          (await request(
+            "/media/photo-requirements?entityType=INSPECTION",
+            {},
+            token,
+          )) as RecordItem[],
+        );
       } else {
         const query = new URLSearchParams({
           page: String(page),
@@ -482,6 +496,55 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function savePhotoRequirement(
+    photoType: string,
+    isRequired: boolean,
+    sortOrder: number,
+  ) {
+    setLoading(true);
+    setError("");
+    try {
+      const requirement = (await request(
+        `/media/photo-requirements/INSPECTION/${photoType}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({ isRequired, sortOrder }),
+        },
+        token,
+      )) as RecordItem;
+      setConfiguredRequirements((current) => {
+        const existingIndex = current.findIndex(
+          (item) => String(item.photoType) === photoType,
+        );
+        if (existingIndex === -1) return [...current, requirement];
+        return current.map((item) =>
+          String(item.photoType) === photoType ? requirement : item,
+        );
+      });
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Unable to save photo requirement.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function addPhotoRequirement(event: FormEvent) {
+    event.preventDefault();
+    const photoType = newRequirementType.trim().toUpperCase();
+    if (!photoType) return;
+    await savePhotoRequirement(
+      photoType,
+      newRequirementRequired,
+      configuredRequirements.length,
+    );
+    setNewRequirementType("");
+    setNewRequirementRequired(true);
   }
 
   async function addFleetComponent(
@@ -1161,6 +1224,7 @@ export default function Home() {
               "riders",
               "allocations",
               "locations",
+              "evidence",
               "audit",
             ] as Tab[]
           ).map((item) => (
@@ -1200,50 +1264,53 @@ export default function Home() {
             </button>
           </div>
         </header>
-        {tab !== "dashboard" && tab !== "audit" && tab !== "locations" && (
-          <form
-            className="list-filters"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void loadView(tab);
-            }}
-          >
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder={
-                tab === "fleets"
-                  ? "Search vehicle, chassis, OEM"
-                  : tab === "riders"
-                    ? "Search rider or mobile"
-                    : "Filter by fleet or rider ID"
-              }
-            />
-            <select
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
+        {tab !== "dashboard" &&
+          tab !== "audit" &&
+          tab !== "locations" &&
+          tab !== "evidence" && (
+            <form
+              className="list-filters"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void loadView(tab);
+              }}
             >
-              <option value="">All statuses</option>
-              {(tab === "fleets"
-                ? ["AVAILABLE", "ALLOCATED", "MAINTENANCE", "OFFLINE"]
-                : tab === "riders"
-                  ? ["ACTIVE", "PENDING", "BLOCKED"]
-                  : [
-                      "INSPECTION_PENDING",
-                      "OTP_PENDING",
-                      "ACTIVE",
-                      "DEALLOCATION_INITIATED",
-                      "COMPLETED",
-                    ]
-              ).map((status) => (
-                <option key={status} value={status}>
-                  {status.replaceAll("_", " ")}
-                </option>
-              ))}
-            </select>
-            <button>Apply</button>
-          </form>
-        )}
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder={
+                  tab === "fleets"
+                    ? "Search vehicle, chassis, OEM"
+                    : tab === "riders"
+                      ? "Search rider or mobile"
+                      : "Filter by fleet or rider ID"
+                }
+              />
+              <select
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value)}
+              >
+                <option value="">All statuses</option>
+                {(tab === "fleets"
+                  ? ["AVAILABLE", "ALLOCATED", "MAINTENANCE", "OFFLINE"]
+                  : tab === "riders"
+                    ? ["ACTIVE", "PENDING", "BLOCKED"]
+                    : [
+                        "INSPECTION_PENDING",
+                        "OTP_PENDING",
+                        "ACTIVE",
+                        "DEALLOCATION_INITIATED",
+                        "COMPLETED",
+                      ]
+                ).map((status) => (
+                  <option key={status} value={status}>
+                    {status.replaceAll("_", " ")}
+                  </option>
+                ))}
+              </select>
+              <button>Apply</button>
+            </form>
+          )}
         {notice && <p className="notice">{notice}</p>}
         {error && <p className="error">{error}</p>}
         {loading && <p className="muted">Loading current data…</p>}
@@ -1380,6 +1447,84 @@ export default function Home() {
                 </table>
                 {hubs.length === 0 && <p className="empty">No hubs yet.</p>}
               </section>
+            </div>
+          </>
+        )}
+        {!loading && tab === "evidence" && (
+          <>
+            <section className="action-card">
+              <p className="eyebrow">INSPECTION EVIDENCE</p>
+              <h2>Required photo slots</h2>
+              <p className="muted">
+                Turn a slot off when it is optional. Changes apply to future
+                inspection completion checks for this tenant.
+              </p>
+              <form className="form-stack" onSubmit={addPhotoRequirement}>
+                <label>
+                  New photo type
+                  <input
+                    value={newRequirementType}
+                    onChange={(event) =>
+                      setNewRequirementType(event.target.value.toUpperCase())
+                    }
+                    placeholder="e.g. DAMAGE_CLOSEUP"
+                    pattern="[A-Z0-9_-]{1,80}"
+                    maxLength={80}
+                    required
+                  />
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={newRequirementRequired}
+                    onChange={(event) =>
+                      setNewRequirementRequired(event.target.checked)
+                    }
+                  />{" "}
+                  Required for completion
+                </label>
+                <button disabled={loading}>Add photo type</button>
+              </form>
+            </section>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Photo type</th>
+                    <th>Required</th>
+                    <th>Order</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {configuredRequirements.map((requirement) => {
+                    const photoType = String(requirement.photoType);
+                    const required = Boolean(requirement.isRequired);
+                    return (
+                      <tr key={String(requirement.id)}>
+                        <td>{photoType.replaceAll("_", " ")}</td>
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={required}
+                            disabled={loading}
+                            onChange={(event) =>
+                              void savePhotoRequirement(
+                                photoType,
+                                event.target.checked,
+                                Number(requirement.sortOrder ?? 0),
+                              )
+                            }
+                          />
+                        </td>
+                        <td>{String(requirement.sortOrder ?? 0)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {configuredRequirements.length === 0 && (
+                <p className="empty">No inspection photo types configured.</p>
+              )}
             </div>
           </>
         )}
@@ -2101,183 +2246,188 @@ export default function Home() {
             <Metric label="IoT offline" value={dashboard.iot.offline} />
           </div>
         )}
-        {!loading && tab !== "dashboard" && tab !== "locations" && (
-          <>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    {tab === "audit" ? (
-                      <>
-                        <th>Action</th>
-                        <th>Entity</th>
-                        <th>Actor</th>
-                        <th>When</th>
-                      </>
-                    ) : tab === "fleets" ? (
-                      <>
-                        <th>Vehicle</th>
-                        <th>OEM</th>
-                        <th>Status</th>
-                        <th>Hub</th>
-                        <th />
-                      </>
-                    ) : tab === "riders" ? (
-                      <>
-                        <th>Rider</th>
-                        <th>Mobile</th>
-                        <th>Status</th>
-                        <th />
-                      </>
-                    ) : (
-                      <>
-                        <th>Fleet</th>
-                        <th>Rider</th>
-                        <th>Status</th>
-                        <th>Created</th>
-                        <th />
-                      </>
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((item) =>
-                    tab === "audit" ? (
-                      <tr key={String(item.id)}>
-                        <td>{String(item.action)}</td>
-                        <td>
-                          {String(item.entityType)}
-                          {item.entityId ? ` · ${String(item.entityId)}` : ""}
-                        </td>
-                        <td>{String(item.actorId ?? "System")}</td>
-                        <td>
-                          {new Date(String(item.createdAt)).toLocaleString()}
-                        </td>
-                      </tr>
-                    ) : tab === "fleets" ? (
-                      <tr key={String(item.id)}>
-                        <td>{String(item.vehicleNumber)}</td>
-                        <td>{String(item.oem)}</td>
-                        <td>
-                          <Status value={String(item.status)} />
-                        </td>
-                        <td>
-                          {((item.hub as RecordItem | null)?.name as string) ??
-                            "—"}
-                        </td>
-                        <td>
-                          <button
-                            className="secondary table-action"
-                            onClick={() =>
-                              void openFleetDetail(String(item.id))
-                            }
-                          >
-                            View
-                          </button>
-                        </td>
-                      </tr>
-                    ) : tab === "riders" ? (
-                      <tr key={String(item.id)}>
-                        <td>{String(item.name)}</td>
-                        <td>{String(item.mobile)}</td>
-                        <td>
-                          <Status value={String(item.status)} />
-                        </td>
-                        <td>
-                          <button
-                            className="secondary table-action"
-                            onClick={() =>
-                              void openRiderDetail(String(item.id))
-                            }
-                          >
-                            View
-                          </button>
-                        </td>
-                      </tr>
-                    ) : (
-                      <tr key={String(item.id)}>
-                        <td>
-                          {String(
-                            (item.fleet as RecordItem)?.vehicleNumber ?? "—",
-                          )}
-                        </td>
-                        <td>
-                          {String((item.rider as RecordItem)?.name ?? "—")}
-                        </td>
-                        <td>
-                          <Status value={String(item.status)} />
-                        </td>
-                        <td>
-                          {new Date(
-                            String(item.createdAt),
-                          ).toLocaleDateString()}
-                        </td>
-                        <td>
-                          <div className="row-actions">
+        {!loading &&
+          tab !== "dashboard" &&
+          tab !== "locations" &&
+          tab !== "evidence" && (
+            <>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      {tab === "audit" ? (
+                        <>
+                          <th>Action</th>
+                          <th>Entity</th>
+                          <th>Actor</th>
+                          <th>When</th>
+                        </>
+                      ) : tab === "fleets" ? (
+                        <>
+                          <th>Vehicle</th>
+                          <th>OEM</th>
+                          <th>Status</th>
+                          <th>Hub</th>
+                          <th />
+                        </>
+                      ) : tab === "riders" ? (
+                        <>
+                          <th>Rider</th>
+                          <th>Mobile</th>
+                          <th>Status</th>
+                          <th />
+                        </>
+                      ) : (
+                        <>
+                          <th>Fleet</th>
+                          <th>Rider</th>
+                          <th>Status</th>
+                          <th>Created</th>
+                          <th />
+                        </>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((item) =>
+                      tab === "audit" ? (
+                        <tr key={String(item.id)}>
+                          <td>{String(item.action)}</td>
+                          <td>
+                            {String(item.entityType)}
+                            {item.entityId ? ` · ${String(item.entityId)}` : ""}
+                          </td>
+                          <td>{String(item.actorId ?? "System")}</td>
+                          <td>
+                            {new Date(String(item.createdAt)).toLocaleString()}
+                          </td>
+                        </tr>
+                      ) : tab === "fleets" ? (
+                        <tr key={String(item.id)}>
+                          <td>{String(item.vehicleNumber)}</td>
+                          <td>{String(item.oem)}</td>
+                          <td>
+                            <Status value={String(item.status)} />
+                          </td>
+                          <td>
+                            {((item.hub as RecordItem | null)
+                              ?.name as string) ?? "—"}
+                          </td>
+                          <td>
                             <button
                               className="secondary table-action"
                               onClick={() =>
-                                void openAllocationDetail(String(item.id))
+                                void openFleetDetail(String(item.id))
                               }
                             >
                               View
                             </button>
+                          </td>
+                        </tr>
+                      ) : tab === "riders" ? (
+                        <tr key={String(item.id)}>
+                          <td>{String(item.name)}</td>
+                          <td>{String(item.mobile)}</td>
+                          <td>
+                            <Status value={String(item.status)} />
+                          </td>
+                          <td>
                             <button
                               className="secondary table-action"
-                              onClick={() => void openInspection(item)}
+                              onClick={() =>
+                                void openRiderDetail(String(item.id))
+                              }
                             >
-                              Inspect
+                              View
                             </button>
-                            {item.status === "OTP_PENDING" && (
+                          </td>
+                        </tr>
+                      ) : (
+                        <tr key={String(item.id)}>
+                          <td>
+                            {String(
+                              (item.fleet as RecordItem)?.vehicleNumber ?? "—",
+                            )}
+                          </td>
+                          <td>
+                            {String((item.rider as RecordItem)?.name ?? "—")}
+                          </td>
+                          <td>
+                            <Status value={String(item.status)} />
+                          </td>
+                          <td>
+                            {new Date(
+                              String(item.createdAt),
+                            ).toLocaleDateString()}
+                          </td>
+                          <td>
+                            <div className="row-actions">
                               <button
-                                className="table-action"
+                                className="secondary table-action"
                                 onClick={() =>
-                                  void activateAllocation(String(item.id))
+                                  void openAllocationDetail(String(item.id))
                                 }
                               >
-                                Activate
+                                View
                               </button>
-                            )}
-                            {item.status === "ACTIVE" && (
                               <button
-                                className="table-action"
-                                onClick={() => void initiateDeallocation(item)}
+                                className="secondary table-action"
+                                onClick={() => void openInspection(item)}
                               >
-                                Deallocate
+                                Inspect
                               </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ),
-                  )}
-                </tbody>
-              </table>
-              {items.length === 0 && (
-                <p className="empty">No records match this view.</p>
-              )}
-            </div>
-            <div className="form-actions pagination">
-              <button
-                className="secondary"
-                disabled={page === 1}
-                onClick={() => setPage(page - 1)}
-              >
-                Previous
-              </button>
-              <span>
-                Page {meta.page} · {meta.total} records
-              </span>
-              <button
-                className="secondary"
-                disabled={page * meta.pageSize >= meta.total}
-                onClick={() => setPage(page + 1)}
-              >
-                Next
-              </button>
-            </div>
-          </>
-        )}
+                              {item.status === "OTP_PENDING" && (
+                                <button
+                                  className="table-action"
+                                  onClick={() =>
+                                    void activateAllocation(String(item.id))
+                                  }
+                                >
+                                  Activate
+                                </button>
+                              )}
+                              {item.status === "ACTIVE" && (
+                                <button
+                                  className="table-action"
+                                  onClick={() =>
+                                    void initiateDeallocation(item)
+                                  }
+                                >
+                                  Deallocate
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ),
+                    )}
+                  </tbody>
+                </table>
+                {items.length === 0 && (
+                  <p className="empty">No records match this view.</p>
+                )}
+              </div>
+              <div className="form-actions pagination">
+                <button
+                  className="secondary"
+                  disabled={page === 1}
+                  onClick={() => setPage(page - 1)}
+                >
+                  Previous
+                </button>
+                <span>
+                  Page {meta.page} · {meta.total} records
+                </span>
+                <button
+                  className="secondary"
+                  disabled={page * meta.pageSize >= meta.total}
+                  onClick={() => setPage(page + 1)}
+                >
+                  Next
+                </button>
+              </div>
+            </>
+          )}
       </section>
     </main>
   );
