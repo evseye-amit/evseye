@@ -947,6 +947,14 @@ export default function Home() {
             </button>
           </section>
         )}
+        {fleetDetail && (
+          <section className="action-card detail-card">
+            <p className="eyebrow">FLEET DETAIL</p><h2>{String(fleetDetail.vehicleNumber)}</h2>
+            <div className="detail-grid"><div><strong>OEM / model</strong><span>{String(fleetDetail.oem ?? "—")} {String(fleetDetail.model ?? "")}</span></div><div><strong>Status</strong><Status value={String(fleetDetail.status)} /></div><div><strong>Hub</strong><span>{String((fleetDetail.hub as RecordItem)?.name ?? "—")}</span></div><div><strong>Last heartbeat</strong><span>{vehicleState?.lastHeartbeat ? new Date(String(vehicleState.lastHeartbeat)).toLocaleString() : "Not received"}</span></div></div>
+            <h3>Components</h3><div className="inspection-summary"><span><b>Batteries</b> {((fleetDetail.batteries as RecordItem[]) ?? []).length}</span><span><b>Controllers</b> {((fleetDetail.controllers as RecordItem[]) ?? []).length}</span></div>
+            <button className="secondary" onClick={() => setFleetDetail(null)}>Close detail</button>
+          </section>
+        )}
         {riderDetail && (
           <section className="action-card detail-card">
             <p className="eyebrow">RIDER DETAIL</p>
