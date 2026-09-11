@@ -16,6 +16,34 @@ type Tab =
   | "packages"
   | "pricing";
 type Item = Record<string, any>;
+type PricingTierInput = {
+  tierOrder: string;
+  fromQuantity: string;
+  toQuantity: string;
+  unitPrice: string;
+  costPrice: string;
+};
+type PackageFeaturePricingInput = {
+  featurePricingId: string;
+  pricingModel: string;
+  includedQuantity: string;
+  unitPrice: string;
+  minimumCharge: string;
+  maximumCharge: string;
+  effectiveFrom: string;
+  effectiveTo: string;
+  isActive: boolean;
+};
+type PackageFeatureInput = {
+  featureId: string;
+  enabled: boolean;
+  includedQuantity: string;
+  usageLimit: string;
+  unlimitedUsage: boolean;
+  configuration: string;
+  displayOrder: string;
+  pricing: PackageFeaturePricingInput[];
+};
 
 const featureCategories = [
   ["RIDER_ONBOARDING", "Rider Onboarding"],
@@ -54,6 +82,21 @@ const featureBillingUnits = [
   "TRAINING",
   "DEVICE",
   "MONTH",
+];
+const pricingModels = [
+  "FREE",
+  "INCLUDED",
+  "FLAT_FEE",
+  "PER_UNIT",
+  "TIERED",
+  "VOLUME",
+  "PER_USER",
+  "PER_RIDER",
+  "PER_VEHICLE",
+  "PER_FLEET",
+  "USAGE_BASED",
+  "ONE_TIME",
+  "CUSTOM",
 ];
 
 function parseCsvLine(line: string) {
@@ -145,7 +188,34 @@ const emptyPricing = {
   effectiveTo: "",
   isActive: true,
   metadata: "",
+  tiers: [] as PricingTierInput[],
 };
+
+const emptyPackageFeaturePricing = (): PackageFeaturePricingInput => ({
+  featurePricingId: "",
+  pricingModel: "PER_UNIT",
+  includedQuantity: "0",
+  unitPrice: "",
+  minimumCharge: "",
+  maximumCharge: "",
+  effectiveFrom: new Date().toISOString().slice(0, 10),
+  effectiveTo: "",
+  isActive: true,
+});
+
+const emptyPackageFeature = (
+  featureId: string,
+  displayOrder: number,
+): PackageFeatureInput => ({
+  featureId,
+  enabled: true,
+  includedQuantity: "",
+  usageLimit: "",
+  unlimitedUsage: true,
+  configuration: "",
+  displayOrder: String(displayOrder),
+  pricing: [],
+});
 
 function Metric({
   label,
@@ -195,7 +265,9 @@ export default function SuperAdminDashboard() {
   const [pack, setPack] = useState(emptyPackage);
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
   const [showPackageForm, setShowPackageForm] = useState(false);
-  const [selectedFeatureIds, setSelectedFeatureIds] = useState<string[]>([]);
+  const [packageFeatures, setPackageFeatures] = useState<PackageFeatureInput[]>(
+    [],
+  );
   const [price, setPrice] = useState(emptyPricing);
   const [editingPricingId, setEditingPricingId] = useState<string | null>(null);
   const [showPricingForm, setShowPricingForm] = useState(false);
@@ -541,6 +613,48 @@ export default function SuperAdminDashboard() {
   }
   async function submitPackage(event: FormEvent) {
     event.preventDefault();
+    let configuredFeatures: Item[];
+    try {
+      configuredFeatures = packageFeatures.map((feature) => ({
+        featureId: feature.featureId,
+        enabled: feature.enabled,
+        unlimitedUsage: feature.unlimitedUsage,
+        displayOrder: Number(feature.displayOrder || 0),
+        ...(feature.includedQuantity
+          ? { includedQuantity: Number(feature.includedQuantity) }
+          : {}),
+        ...(feature.usageLimit
+          ? { usageLimit: Number(feature.usageLimit) }
+          : {}),
+        ...(feature.configuration
+          ? { configuration: JSON.parse(feature.configuration) }
+          : {}),
+        pricing: feature.pricing.map((priceOverride) => ({
+          ...(priceOverride.featurePricingId
+            ? { featurePricingId: priceOverride.featurePricingId }
+            : {}),
+          pricingModel: priceOverride.pricingModel,
+          includedQuantity: Number(priceOverride.includedQuantity || 0),
+          ...(priceOverride.unitPrice
+            ? { unitPrice: Number(priceOverride.unitPrice) }
+            : {}),
+          ...(priceOverride.minimumCharge
+            ? { minimumCharge: Number(priceOverride.minimumCharge) }
+            : {}),
+          ...(priceOverride.maximumCharge
+            ? { maximumCharge: Number(priceOverride.maximumCharge) }
+            : {}),
+          effectiveFrom: priceOverride.effectiveFrom,
+          ...(priceOverride.effectiveTo
+            ? { effectiveTo: priceOverride.effectiveTo }
+            : {}),
+          isActive: priceOverride.isActive,
+        })),
+      }));
+    } catch {
+      setError("Package Feature configuration must be valid JSON.");
+      return;
+    }
     await submit(
       () =>
         request(
@@ -565,7 +679,7 @@ export default function SuperAdminDashboard() {
               ...(pack.maxUsers ? { maxUsers: Number(pack.maxUsers) } : {}),
               trialDays: Number(pack.trialDays || 0),
               displayOrder: Number(pack.displayOrder || 0),
-              featureIds: selectedFeatureIds,
+              packageFeatures: configuredFeatures,
             }),
           },
           token,
@@ -573,7 +687,7 @@ export default function SuperAdminDashboard() {
       editingPackageId ? "Package updated." : "Package created.",
       () => {
         setPack(emptyPackage);
-        setSelectedFeatureIds([]);
+        setPackageFeatures([]);
         setEditingPackageId(null);
         setShowPackageForm(false);
       },
@@ -610,6 +724,17 @@ export default function SuperAdminDashboard() {
               setupFee: Number(price.setupFee || 0),
               ...(price.effectiveTo ? {} : { effectiveTo: undefined }),
               ...(metadata ? { metadata } : { metadata: undefined }),
+              tiers: price.tiers.map((tier) => ({
+                tierOrder: Number(tier.tierOrder),
+                fromQuantity: Number(tier.fromQuantity),
+                ...(tier.toQuantity
+                  ? { toQuantity: Number(tier.toQuantity) }
+                  : {}),
+                unitPrice: Number(tier.unitPrice),
+                ...(tier.costPrice
+                  ? { costPrice: Number(tier.costPrice) }
+                  : {}),
+              })),
             }),
           },
           token,
@@ -1199,7 +1324,7 @@ export default function SuperAdminDashboard() {
                 <button
                   onClick={() => {
                     setPack(emptyPackage);
-                    setSelectedFeatureIds([]);
+                    setPackageFeatures([]);
                     setEditingPackageId(null);
                     setShowPackageForm(!showPackageForm);
                   }}
@@ -1278,19 +1403,31 @@ export default function SuperAdminDashboard() {
                       .filter(
                         (feature) =>
                           feature.isActive ||
-                          selectedFeatureIds.includes(feature.id),
+                          packageFeatures.some(
+                            (item) => item.featureId === feature.id,
+                          ),
                       )
                       .map((feature) => (
                         <label key={feature.id}>
                           <input
                             type="checkbox"
-                            checked={selectedFeatureIds.includes(feature.id)}
+                            checked={packageFeatures.some(
+                              (item) => item.featureId === feature.id,
+                            )}
                             disabled={!feature.isActive}
                             onChange={(event) =>
-                              setSelectedFeatureIds((current) =>
+                              setPackageFeatures((current) =>
                                 event.target.checked
-                                  ? [...current, feature.id]
-                                  : current.filter((id) => id !== feature.id),
+                                  ? [
+                                      ...current,
+                                      emptyPackageFeature(
+                                        feature.id,
+                                        current.length,
+                                      ),
+                                    ]
+                                  : current.filter(
+                                      (item) => item.featureId !== feature.id,
+                                    ),
                               )
                             }
                           />
@@ -1299,6 +1436,233 @@ export default function SuperAdminDashboard() {
                         </label>
                       ))}
                   </div>
+                  {packageFeatures.map((packageFeature, featureIndex) => {
+                    const linkedFeature = features.find(
+                      (item) => item.id === packageFeature.featureId,
+                    );
+                    const eligiblePrices = pricing.filter(
+                      (item) => item.featureId === packageFeature.featureId,
+                    );
+                    const updatePackageFeature = (
+                      field: keyof PackageFeatureInput,
+                      value: string | boolean | PackageFeaturePricingInput[],
+                    ) =>
+                      setPackageFeatures((current) =>
+                        current.map((item, index) =>
+                          index === featureIndex
+                            ? { ...item, [field]: value }
+                            : item,
+                        ),
+                      );
+                    return (
+                      <div
+                        className="sa-package-feature"
+                        key={packageFeature.featureId}
+                      >
+                        <strong>{linkedFeature?.name ?? "Feature"}</strong>
+                        <div className="sa-feature-fields">
+                          <label className="sa-toggle">
+                            <input
+                              type="checkbox"
+                              checked={packageFeature.enabled}
+                              onChange={(event) =>
+                                updatePackageFeature(
+                                  "enabled",
+                                  event.target.checked,
+                                )
+                              }
+                            />
+                            Enabled
+                          </label>
+                          <label className="sa-toggle">
+                            <input
+                              type="checkbox"
+                              checked={packageFeature.unlimitedUsage}
+                              onChange={(event) =>
+                                updatePackageFeature(
+                                  "unlimitedUsage",
+                                  event.target.checked,
+                                )
+                              }
+                            />
+                            Unlimited usage
+                          </label>
+                          <label>
+                            Included quantity
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={packageFeature.includedQuantity}
+                              onChange={(event) =>
+                                updatePackageFeature(
+                                  "includedQuantity",
+                                  event.target.value,
+                                )
+                              }
+                            />
+                          </label>
+                          <label>
+                            Usage limit
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              disabled={packageFeature.unlimitedUsage}
+                              value={packageFeature.usageLimit}
+                              onChange={(event) =>
+                                updatePackageFeature(
+                                  "usageLimit",
+                                  event.target.value,
+                                )
+                              }
+                            />
+                          </label>
+                          <label>
+                            Display order
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={packageFeature.displayOrder}
+                              onChange={(event) =>
+                                updatePackageFeature(
+                                  "displayOrder",
+                                  event.target.value,
+                                )
+                              }
+                            />
+                          </label>
+                        </div>
+                        <label>
+                          Feature configuration (optional JSON)
+                          <textarea
+                            value={packageFeature.configuration}
+                            placeholder={'{"workflow": "standard"}'}
+                            onChange={(event) =>
+                              updatePackageFeature(
+                                "configuration",
+                                event.target.value,
+                              )
+                            }
+                          />
+                        </label>
+                        <div className="sa-package-feature-pricing">
+                          <div>
+                            <strong>Package-specific price overrides</strong>
+                            <button
+                              type="button"
+                              className="secondary"
+                              onClick={() =>
+                                updatePackageFeature("pricing", [
+                                  ...packageFeature.pricing,
+                                  emptyPackageFeaturePricing(),
+                                ])
+                              }
+                            >
+                              + Add override
+                            </button>
+                          </div>
+                          {packageFeature.pricing.map(
+                            (priceOverride, pricingIndex) => {
+                              const updateOverride = (
+                                field: keyof PackageFeaturePricingInput,
+                                value: string | boolean,
+                              ) =>
+                                updatePackageFeature(
+                                  "pricing",
+                                  packageFeature.pricing.map((item, index) =>
+                                    index === pricingIndex
+                                      ? { ...item, [field]: value }
+                                      : item,
+                                  ),
+                                );
+                              return (
+                                <div
+                                  className="sa-price-override"
+                                  key={pricingIndex}
+                                >
+                                  <label>
+                                    Feature price reference
+                                    <select
+                                      value={priceOverride.featurePricingId}
+                                      onChange={(event) =>
+                                        updateOverride(
+                                          "featurePricingId",
+                                          event.target.value,
+                                        )
+                                      }
+                                    >
+                                      <option value="">Custom override</option>
+                                      {eligiblePrices.map((item) => (
+                                        <option key={item.id} value={item.id}>
+                                          {item.pricingName ??
+                                            item.pricingModel}{" "}
+                                          · {item.currency} {item.unitPrice}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                  <Select
+                                    label="Pricing model"
+                                    value={priceOverride.pricingModel}
+                                    change={(value) =>
+                                      updateOverride("pricingModel", value)
+                                    }
+                                    options={pricingModels}
+                                  />
+                                  <TextFields
+                                    value={priceOverride}
+                                    change={(key, value) =>
+                                      updateOverride(
+                                        key as keyof PackageFeaturePricingInput,
+                                        value,
+                                      )
+                                    }
+                                    fields={[
+                                      ["includedQuantity", "Included quantity"],
+                                      ["unitPrice", "Unit price"],
+                                      ["minimumCharge", "Minimum charge"],
+                                      ["maximumCharge", "Maximum charge"],
+                                      ["effectiveFrom", "Effective from"],
+                                      ["effectiveTo", "Effective to"],
+                                    ]}
+                                  />
+                                  <label className="sa-toggle">
+                                    <input
+                                      type="checkbox"
+                                      checked={priceOverride.isActive}
+                                      onChange={(event) =>
+                                        updateOverride(
+                                          "isActive",
+                                          event.target.checked,
+                                        )
+                                      }
+                                    />
+                                    Active override
+                                  </label>
+                                  <button
+                                    type="button"
+                                    className="danger"
+                                    onClick={() =>
+                                      updatePackageFeature(
+                                        "pricing",
+                                        packageFeature.pricing.filter(
+                                          (_, index) => index !== pricingIndex,
+                                        ),
+                                      )
+                                    }
+                                  >
+                                    Remove override
+                                  </button>
+                                </div>
+                              );
+                            },
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                   <button disabled={loading}>
                     {editingPackageId ? "Update Package" : "Save Package"}
                   </button>
@@ -1355,9 +1719,49 @@ export default function SuperAdminDashboard() {
                           isDefault: item.isDefault,
                           isActive: item.isActive,
                         });
-                        setSelectedFeatureIds(
+                        setPackageFeatures(
                           (item.features ?? []).map(
-                            (link: Item) => link.featureId,
+                            (link: Item, index: number) => ({
+                              featureId: link.featureId,
+                              enabled: link.enabled,
+                              includedQuantity: link.includedQuantity
+                                ? String(link.includedQuantity)
+                                : "",
+                              usageLimit: link.usageLimit
+                                ? String(link.usageLimit)
+                                : "",
+                              unlimitedUsage: link.unlimitedUsage,
+                              configuration: link.configuration
+                                ? JSON.stringify(link.configuration, null, 2)
+                                : "",
+                              displayOrder: String(link.displayOrder ?? index),
+                              pricing: (link.pricing ?? []).map(
+                                (priceOverride: Item) => ({
+                                  featurePricingId:
+                                    priceOverride.featurePricingId ?? "",
+                                  pricingModel:
+                                    priceOverride.pricingModel ?? "PER_UNIT",
+                                  includedQuantity: String(
+                                    priceOverride.includedQuantity ?? 0,
+                                  ),
+                                  unitPrice: priceOverride.unitPrice
+                                    ? String(priceOverride.unitPrice)
+                                    : "",
+                                  minimumCharge: priceOverride.minimumCharge
+                                    ? String(priceOverride.minimumCharge)
+                                    : "",
+                                  maximumCharge: priceOverride.maximumCharge
+                                    ? String(priceOverride.maximumCharge)
+                                    : "",
+                                  effectiveFrom:
+                                    priceOverride.effectiveFrom.slice(0, 10),
+                                  effectiveTo: priceOverride.effectiveTo
+                                    ? priceOverride.effectiveTo.slice(0, 10)
+                                    : "",
+                                  isActive: priceOverride.isActive,
+                                }),
+                              ),
+                            }),
                           ),
                         );
                         setEditingPackageId(item.id);
@@ -1465,21 +1869,7 @@ export default function SuperAdminDashboard() {
                         pricingModel: value,
                       }))
                     }
-                    options={[
-                      "FREE",
-                      "INCLUDED",
-                      "FLAT_FEE",
-                      "PER_UNIT",
-                      "TIERED",
-                      "VOLUME",
-                      "PER_USER",
-                      "PER_RIDER",
-                      "PER_VEHICLE",
-                      "PER_FLEET",
-                      "USAGE_BASED",
-                      "ONE_TIME",
-                      "CUSTOM",
-                    ]}
+                    options={pricingModels}
                   />
                   <TextFields
                     value={price}
@@ -1563,6 +1953,73 @@ export default function SuperAdminDashboard() {
                     />
                     Active
                   </label>
+                  {(price.pricingModel === "TIERED" ||
+                    price.pricingModel === "VOLUME") && (
+                    <div className="sa-package-feature-pricing">
+                      <div>
+                        <strong>Pricing tiers</strong>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() =>
+                            setPrice((current) => ({
+                              ...current,
+                              tiers: [
+                                ...current.tiers,
+                                {
+                                  tierOrder: String(current.tiers.length + 1),
+                                  fromQuantity: "0",
+                                  toQuantity: "",
+                                  unitPrice: "",
+                                  costPrice: "",
+                                },
+                              ],
+                            }))
+                          }
+                        >
+                          + Add tier
+                        </button>
+                      </div>
+                      {price.tiers.map((tier, tierIndex) => (
+                        <div className="sa-price-override" key={tierIndex}>
+                          <TextFields
+                            value={tier}
+                            change={(key, value) =>
+                              setPrice((current) => ({
+                                ...current,
+                                tiers: current.tiers.map((item, index) =>
+                                  index === tierIndex
+                                    ? { ...item, [key]: value }
+                                    : item,
+                                ),
+                              }))
+                            }
+                            fields={[
+                              ["tierOrder", "Tier order"],
+                              ["fromQuantity", "From quantity"],
+                              ["toQuantity", "To quantity"],
+                              ["unitPrice", "Unit price"],
+                              ["costPrice", "Cost price"],
+                            ]}
+                          />
+                          <button
+                            type="button"
+                            className="danger"
+                            onClick={() =>
+                              setPrice((current) => ({
+                                ...current,
+                                tiers: current.tiers.filter(
+                                  (_, index) => index !== tierIndex,
+                                ),
+                              }))
+                            }
+                          >
+                            Remove tier
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <button disabled={loading}>
                     {editingPricingId
                       ? "Update Feature Price"
@@ -1618,6 +2075,17 @@ export default function SuperAdminDashboard() {
                           metadata: item.metadata
                             ? JSON.stringify(item.metadata, null, 2)
                             : "",
+                          tiers: (item.tiers ?? []).map((tier: Item) => ({
+                            tierOrder: String(tier.tierOrder),
+                            fromQuantity: String(tier.fromQuantity),
+                            toQuantity: tier.toQuantity
+                              ? String(tier.toQuantity)
+                              : "",
+                            unitPrice: String(tier.unitPrice),
+                            costPrice: tier.costPrice
+                              ? String(tier.costPrice)
+                              : "",
+                          })),
                         });
                         setEditingPricingId(item.id);
                         setShowPricingForm(true);

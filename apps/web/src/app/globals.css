@@ -1071,6 +1071,7 @@ th {
 }
 .sa-form input,
 .sa-form select,
+.sa-form textarea,
 .sa-wizard input,
 .sa-wizard select {
   width: 100%;
@@ -1079,6 +1080,10 @@ th {
   border-radius: 6px;
   background: #fff;
   color: #202421;
+}
+.sa-form textarea {
+  min-height: 68px;
+  resize: vertical;
 }
 .sa-logo-input span {
   color: #849087;
@@ -1114,6 +1119,35 @@ th {
 .sa-checkbox-list input,
 .sa-toggle input {
   width: auto !important;
+}
+.sa-package-feature,
+.sa-package-feature-pricing,
+.sa-price-override {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #e3eee7;
+  border-radius: 8px;
+  background: #f8fbf9;
+}
+.sa-package-feature-pricing > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sa-feature-fields,
+.sa-price-override {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.sa-price-override > button {
+  align-self: end;
+}
+@media (max-width: 680px) {
+  .sa-feature-fields,
+  .sa-price-override {
+    grid-template-columns: 1fr;
+  }
 }
 .sa-table-wrap {
   overflow: auto;

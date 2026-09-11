@@ -46,4 +46,38 @@ describe('PlatformCatalogService feature pricing validation', () => {
       }),
     ).not.toThrow();
   });
+
+  it('rejects a tier whose end quantity precedes its start quantity', () => {
+    expect(() =>
+      (
+        service as never as { validatePricing: (value: unknown) => void }
+      ).validatePricing({
+        ...pricing,
+        tiers: [
+          {
+            tierOrder: 1,
+            fromQuantity: 100,
+            toQuantity: 99,
+            unitPrice: 5,
+          },
+        ],
+      }),
+    ).toThrow(
+      'Tier end quantity must be greater than or equal to its start quantity.',
+    );
+  });
+
+  it('rejects duplicate tier order values', () => {
+    expect(() =>
+      (
+        service as never as { validatePricing: (value: unknown) => void }
+      ).validatePricing({
+        ...pricing,
+        tiers: [
+          { tierOrder: 1, fromQuantity: 0, unitPrice: 5 },
+          { tierOrder: 1, fromQuantity: 100, unitPrice: 4 },
+        ],
+      }),
+    ).toThrow('Pricing tier order must be unique.');
+  });
 });

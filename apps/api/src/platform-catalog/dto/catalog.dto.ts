@@ -2,6 +2,7 @@ import {
   ArrayMaxSize,
   IsArray,
   IsBoolean,
+  IsInt,
   IsEnum,
   IsIn,
   IsDateString,
@@ -14,7 +15,9 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import {
   FeatureBillingUnit,
   FeatureCategory,
@@ -99,6 +102,33 @@ export class BulkCreateFeaturesDto {
   }>;
 }
 
+export class CreatePackageFeaturePricingDto {
+  @IsOptional() @IsString() featurePricingId?: string;
+  @IsOptional() @IsEnum(PricingModel) pricingModel?: PricingModel;
+  @IsOptional() @IsInt() @Min(0) includedQuantity?: number;
+  @IsOptional() @IsNumber() @Min(0) unitPrice?: number;
+  @IsOptional() @IsNumber() @Min(0) minimumCharge?: number;
+  @IsOptional() @IsNumber() @Min(0) maximumCharge?: number;
+  @IsDateString() effectiveFrom!: string;
+  @IsOptional() @IsDateString() effectiveTo?: string;
+  @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
+export class CreatePackageFeatureDto {
+  @IsString() featureId!: string;
+  @IsOptional() @IsBoolean() enabled?: boolean;
+  @IsOptional() @IsInt() @Min(0) includedQuantity?: number;
+  @IsOptional() @IsInt() @Min(0) usageLimit?: number;
+  @IsOptional() @IsBoolean() unlimitedUsage?: boolean;
+  @IsOptional() @IsObject() configuration?: Record<string, unknown>;
+  @IsOptional() @IsInt() @Min(0) displayOrder?: number;
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreatePackageFeaturePricingDto)
+  pricing?: CreatePackageFeaturePricingDto[];
+}
+
 export class CreatePackageDto {
   @IsString() @Matches(/^[A-Z0-9_-]+$/) @MaxLength(50) code!: string;
   @IsString() @MaxLength(100) name!: string;
@@ -115,10 +145,24 @@ export class CreatePackageDto {
   @IsOptional() @IsNumber() @Min(0) displayOrder?: number;
   @IsOptional() @IsBoolean() isDefault?: boolean;
   @IsOptional() @IsBoolean() isActive?: boolean;
+  // Retained temporarily for compatibility with existing package clients.
   @IsOptional() @IsArray() @IsString({ each: true }) featureIds?: string[];
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreatePackageFeatureDto)
+  packageFeatures?: CreatePackageFeatureDto[];
 }
 
 export class UpdatePackageDto extends CreatePackageDto {}
+
+export class CreateFeaturePricingTierDto {
+  @IsInt() @Min(0) tierOrder!: number;
+  @IsInt() @Min(0) fromQuantity!: number;
+  @IsOptional() @IsInt() @Min(0) toQuantity?: number;
+  @IsNumber() @Min(0) unitPrice!: number;
+  @IsOptional() @IsNumber() @Min(0) costPrice?: number;
+}
 
 export class CreateFeaturePricingDto {
   @IsString() featureId!: string;
@@ -138,6 +182,11 @@ export class CreateFeaturePricingDto {
   @IsOptional() @IsDateString() effectiveTo?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
   @IsOptional() @IsObject() metadata?: Record<string, unknown>;
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateFeaturePricingTierDto)
+  tiers?: CreateFeaturePricingTierDto[];
 }
 
 export class UpdateFeaturePricingDto extends CreateFeaturePricingDto {}

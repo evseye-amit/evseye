@@ -26,6 +26,7 @@ import type {
   CompleteOemLogoUploadDto,
   CreateOemLogoUploadIntentDto,
   CreateFeatureDto,
+  CreatePackageFeatureDto,
   CreateFeaturePricingDto,
   CreateOemDto,
   CreatePackageDto,
@@ -276,7 +277,13 @@ export class PlatformCatalogService {
   listPackages() {
     return this.prisma.package.findMany({
       include: {
-        features: { include: { feature: true } },
+        features: {
+          include: {
+            feature: true,
+            pricing: { include: { featurePricing: true } },
+          },
+          orderBy: { displayOrder: 'asc' },
+        },
         _count: { select: { subscriptions: true } },
       },
       orderBy: [
@@ -287,7 +294,9 @@ export class PlatformCatalogService {
     });
   }
   async createPackage(dto: CreatePackageDto, actorId: string) {
-    const { featureIds = [], ...data } = dto;
+    const { featureIds = [], packageFeatures, ...data } = dto;
+    const features = this.normalizePackageFeatures(packageFeatures, featureIds);
+    await this.validatePackageFeatures(features);
     return this.createWithAudit('PACKAGE_CREATED', 'Package', actorId, () =>
       this.prisma.$transaction(async (tx) => {
         if (data.isDefault) {
@@ -302,20 +311,32 @@ export class PlatformCatalogService {
             createdById: actorId,
             updatedById: actorId,
             features: {
-              create: featureIds.map((featureId) => ({
-                featureId,
-                unlimitedUsage: true,
-              })),
+              create: features.map((feature) =>
+                this.packageFeatureData(feature),
+              ),
             },
           },
-          include: { features: { include: { feature: true } } },
+          include: {
+            features: {
+              include: {
+                feature: true,
+                pricing: { include: { featurePricing: true } },
+              },
+            },
+          },
         });
       }),
     );
   }
   async updatePackage(id: string, dto: UpdatePackageDto, actorId: string) {
     await this.exists('package', id);
-    const { featureIds, ...data } = dto;
+    const { featureIds, packageFeatures, ...data } = dto;
+    const features = packageFeatures
+      ? this.normalizePackageFeatures(packageFeatures, [])
+      : featureIds
+        ? this.normalizePackageFeatures(undefined, featureIds)
+        : undefined;
+    if (features) await this.validatePackageFeatures(features);
     return this.updateWithAudit('PACKAGE_UPDATED', 'Package', id, actorId, () =>
       this.prisma.$transaction(async (tx) => {
         if (data.isDefault) {
@@ -324,20 +345,28 @@ export class PlatformCatalogService {
             data: { isDefault: false, updatedById: actorId },
           });
         }
-        if (featureIds) {
+        if (features) {
           await tx.packageFeature.deleteMany({ where: { packageId: id } });
-          await tx.packageFeature.createMany({
-            data: featureIds.map((featureId) => ({
-              packageId: id,
-              featureId,
-              unlimitedUsage: true,
-            })),
-          });
+          for (const feature of features) {
+            await tx.packageFeature.create({
+              data: {
+                packageId: id,
+                ...this.packageFeatureData(feature),
+              },
+            });
+          }
         }
         return tx.package.update({
           where: { id },
           data: { ...data, updatedById: actorId },
-          include: { features: { include: { feature: true } } },
+          include: {
+            features: {
+              include: {
+                feature: true,
+                pricing: { include: { featurePricing: true } },
+              },
+            },
+          },
         });
       }),
     );
@@ -362,7 +391,7 @@ export class PlatformCatalogService {
 
   listPricing() {
     return this.prisma.featurePricing.findMany({
-      include: { feature: true },
+      include: { feature: true, tiers: { orderBy: { tierOrder: 'asc' } } },
       orderBy: { updatedAt: 'desc' },
     });
   }
@@ -388,6 +417,11 @@ export class PlatformCatalogService {
     await this.exists('featurePricing', id);
     this.validatePricing(dto);
     await this.exists('feature', dto.featureId);
+    if (dto.tiers) {
+      await this.prisma.featurePricingTier.deleteMany({
+        where: { featurePricingId: id },
+      });
+    }
     return this.updateWithAudit(
       'FEATURE_PRICING_UPDATED',
       'FeaturePricing',
@@ -419,13 +453,132 @@ export class PlatformCatalogService {
         'Maximum charge must be greater than or equal to minimum charge.',
       );
     }
+    const tierOrders = new Set<number>();
+    for (const tier of dto.tiers ?? []) {
+      if (tierOrders.has(tier.tierOrder)) {
+        throw new BadRequestException('Pricing tier order must be unique.');
+      }
+      tierOrders.add(tier.tierOrder);
+      if (
+        tier.toQuantity !== undefined &&
+        tier.toQuantity < tier.fromQuantity
+      ) {
+        throw new BadRequestException(
+          'Tier end quantity must be greater than or equal to its start quantity.',
+        );
+      }
+    }
   }
 
   private pricingData(dto: CreateFeaturePricingDto) {
-    const { metadata, ...data } = dto;
+    const { metadata, tiers, ...data } = dto;
     return {
       ...data,
       metadata: metadata as Prisma.InputJsonValue | undefined,
+      tiers: tiers
+        ? {
+            create: tiers.map((tier) => ({
+              ...tier,
+              fromQuantity: BigInt(tier.fromQuantity),
+              toQuantity:
+                tier.toQuantity === undefined
+                  ? undefined
+                  : BigInt(tier.toQuantity),
+            })),
+          }
+        : undefined,
+    };
+  }
+
+  private normalizePackageFeatures(
+    packageFeatures: CreatePackageFeatureDto[] | undefined,
+    featureIds: string[],
+  ) {
+    return (
+      packageFeatures ??
+      featureIds.map((featureId, displayOrder) => ({
+        featureId,
+        unlimitedUsage: true,
+        displayOrder,
+      }))
+    );
+  }
+
+  private async validatePackageFeatures(features: CreatePackageFeatureDto[]) {
+    const seen = new Set<string>();
+    for (const feature of features) {
+      if (seen.has(feature.featureId)) {
+        throw new ConflictException(
+          'A Feature can only be added once per Package.',
+        );
+      }
+      seen.add(feature.featureId);
+      await this.exists('feature', feature.featureId);
+      for (const pricing of feature.pricing ?? []) {
+        if (
+          pricing.effectiveTo &&
+          pricing.effectiveTo < pricing.effectiveFrom
+        ) {
+          throw new BadRequestException(
+            'Package Feature Pricing end date must be on or after its start date.',
+          );
+        }
+        if (
+          pricing.minimumCharge !== undefined &&
+          pricing.maximumCharge !== undefined &&
+          pricing.minimumCharge > pricing.maximumCharge
+        ) {
+          throw new BadRequestException(
+            'Package Feature Pricing maximum charge must be greater than or equal to minimum charge.',
+          );
+        }
+        if (pricing.featurePricingId) {
+          const featurePricing = await this.prisma.featurePricing.findUnique({
+            where: { id: pricing.featurePricingId },
+            select: { featureId: true },
+          });
+          if (
+            !featurePricing ||
+            featurePricing.featureId !== feature.featureId
+          ) {
+            throw new BadRequestException(
+              'The selected Feature Price must belong to the Package Feature.',
+            );
+          }
+        }
+      }
+    }
+  }
+
+  private packageFeatureData(feature: CreatePackageFeatureDto) {
+    const { pricing, configuration, ...data } = feature;
+    return {
+      ...data,
+      includedQuantity:
+        feature.includedQuantity === undefined
+          ? undefined
+          : BigInt(feature.includedQuantity),
+      usageLimit:
+        feature.usageLimit === undefined
+          ? undefined
+          : BigInt(feature.usageLimit),
+      configuration: configuration as Prisma.InputJsonValue | undefined,
+      pricing: pricing?.length
+        ? {
+            create: pricing.map((item) => this.packageFeaturePricingData(item)),
+          }
+        : undefined,
+    };
+  }
+
+  private packageFeaturePricingData(
+    pricing: NonNullable<CreatePackageFeatureDto['pricing']>[number],
+    packageFeatureId?: string,
+  ) {
+    return {
+      ...(packageFeatureId ? { packageFeatureId } : {}),
+      ...pricing,
+      includedQuantity: BigInt(pricing.includedQuantity ?? 0),
     };
   }
   async deletePricing(id: string, actorId: string) {
