@@ -86,6 +86,7 @@ export default function Home() {
   );
   const [vehicleState, setVehicleState] = useState<RecordItem | null>(null);
   const [riderDetail, setRiderDetail] = useState<RecordItem | null>(null);
+  const [fleetDetail, setFleetDetail] = useState<RecordItem | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [loading, setLoading] = useState(false);
@@ -432,6 +433,13 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function openFleetDetail(fleetId: string) {
+    setLoading(true); setError("");
+    try { setFleetDetail(await request(`/fleets/${fleetId}`, {}, token) as RecordItem); setVehicleState(await request(`/fleets/${fleetId}/current-state`, {}, token) as RecordItem | null); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load fleet details."); }
+    finally { setLoading(false); }
   }
 
   async function initiateDeallocation(allocation: RecordItem) {
