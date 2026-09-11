@@ -14,7 +14,7 @@
     "verify": "pnpm typecheck && pnpm test && pnpm build",
     "db:generate": "pnpm --filter @evs-eye/api prisma generate",
     "db:migrate": "pnpm --filter @evs-eye/api prisma migrate dev",
-    "db:seed": "pnpm --filter @evs-eye/api exec prisma db seed"
+    "db:seed": "node --env-file=.env --import ./apps/api/node_modules/tsx/dist/loader.mjs apps/api/prisma/seed.ts"
   },
   "devDependencies": {
     "prettier": "3.5.3"

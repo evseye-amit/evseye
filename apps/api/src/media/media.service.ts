@@ -1,9 +1,17 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PhotoEntityType, PhotoStatus } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CreateUploadIntentDto } from './dto/create-upload-intent.dto.js';
-import { STORAGE_PROVIDER, type StorageProvider } from './storage/storage-provider.interface.js';
+import {
+  STORAGE_PROVIDER,
+  type StorageProvider,
+} from './storage/storage-provider.interface.js';
 
 @Injectable()
 export class MediaService {
@@ -12,7 +20,11 @@ export class MediaService {
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
   ) {}
 
-  async createUploadIntent(tenantId: string, uploadedById: string, dto: CreateUploadIntentDto) {
+  async createUploadIntent(
+    tenantId: string,
+    uploadedById: string,
+    dto: CreateUploadIntentDto,
+  ) {
     await this.assertEntityOwnership(tenantId, dto.entityType, dto.entityId);
     this.assertExtensionMatchesMime(dto.fileName, dto.mimeType);
 
@@ -45,6 +57,32 @@ export class MediaService {
     });
   }
 
+  async upsertRequirement(
+    tenantId: string,
+    entityType: PhotoEntityType,
+    photoType: string,
+    input: { isRequired: boolean; sortOrder?: number },
+  ) {
+    return this.prisma.photoRequirement.upsert({
+      where: {
+        tenantId_entityType_photoType: { tenantId, entityType, photoType },
+      },
+      create: {
+        tenantId,
+        entityType,
+        photoType,
+        isRequired: input.isRequired,
+        sortOrder: input.sortOrder ?? 0,
+      },
+      update: {
+        isRequired: input.isRequired,
+        ...(input.sortOrder === undefined
+          ? {}
+          : { sortOrder: input.sortOrder }),
+      },
+    });
+  }
+
   async complete(tenantId: string, photoId: string) {
     const photo = await this.getPhoto(tenantId, photoId);
     if (photo.status !== PhotoStatus.PENDING_UPLOAD) {
@@ -66,24 +104,36 @@ export class MediaService {
   }
 
   private async getPhoto(tenantId: string, photoId: string) {
-    const photo = await this.prisma.photo.findFirst({ where: { id: photoId, tenantId } });
+    const photo = await this.prisma.photo.findFirst({
+      where: { id: photoId, tenantId },
+    });
     if (!photo) {
       throw new NotFoundException('Photo not found.');
     }
     return photo;
   }
 
-  private async assertEntityOwnership(tenantId: string, entityType: PhotoEntityType, entityId: string) {
+  private async assertEntityOwnership(
+    tenantId: string,
+    entityType: PhotoEntityType,
+    entityId: string,
+  ) {
     if (entityType === PhotoEntityType.RIDER) {
-      const rider = await this.prisma.rider.findFirst({ where: { id: entityId, tenantId, deletedAt: null } });
+      const rider = await this.prisma.rider.findFirst({
+        where: { id: entityId, tenantId, deletedAt: null },
+      });
       if (rider) return;
     }
     if (entityType === PhotoEntityType.FLEET) {
-      const fleet = await this.prisma.fleet.findFirst({ where: { id: entityId, tenantId, deletedAt: null } });
+      const fleet = await this.prisma.fleet.findFirst({
+        where: { id: entityId, tenantId, deletedAt: null },
+      });
       if (fleet) return;
     }
     if (entityType === PhotoEntityType.INSPECTION) {
-      const inspection = await this.prisma.inspection.findFirst({ where: { id: entityId, tenantId } });
+      const inspection = await this.prisma.inspection.findFirst({
+        where: { id: entityId, tenantId },
+      });
       if (inspection) return;
     }
     throw new NotFoundException('Media entity not found.');
@@ -92,11 +142,17 @@ export class MediaService {
   private assertExtensionMatchesMime(fileName: string, mimeType: string) {
     const extension = fileName.split('.').pop()?.toLowerCase();
     if (!extension || extension !== this.extensionFor(mimeType)) {
-      throw new BadRequestException('File extension does not match its MIME type.');
+      throw new BadRequestException(
+        'File extension does not match its MIME type.',
+      );
     }
   }
 
   private extensionFor(mimeType: string): string {
-    return { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[mimeType] ?? 'invalid';
+    return (
+      { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[
+        mimeType
+      ] ?? 'invalid'
+    );
   }
 }
