@@ -15,6 +15,38 @@ export class AllocationsService {
       return allocation;
     });
   }
+  async activate(tenantId: string, allocationId: string) {
+    return this.prisma.$transaction(async tx => {
+      const allocation = await tx.allocation.findFirst({
+        where: { id: allocationId, tenantId, status: AllocationStatus.OTP_PENDING },
+      });
+      if (!allocation) throw new NotFoundException('Allocation awaiting activation not found.');
+
+      const inspection = await tx.inspection.findFirst({
+        where: {
+          tenantId,
+          allocationId,
+          type: InspectionType.PRE_ALLOCATION,
+          status: InspectionStatus.COMPLETED,
+        },
+      });
+      if (!inspection) throw new ConflictException('Pre-allocation inspection is incomplete.');
+
+      const activated = await tx.allocation.updateMany({
+        where: { id: allocationId, tenantId, status: AllocationStatus.OTP_PENDING },
+        data: { status: AllocationStatus.ACTIVE, allocatedAt: new Date() },
+      });
+      if (activated.count !== 1) throw new ConflictException('Allocation state changed; retry the request.');
+
+      const fleet = await tx.fleet.updateMany({
+        where: { id: allocation.fleetId, tenantId, status: FleetStatus.RESERVED, deletedAt: null },
+        data: { status: FleetStatus.ALLOCATED },
+      });
+      if (fleet.count !== 1) throw new ConflictException('Fleet is not reserved for this allocation.');
+
+      return { activated: true, allocationId };
+    });
+  }
   async initiateDeallocation(tenantId:string, allocationId:string) {
     return this.prisma.$transaction(async tx=>{
       const allocation=await tx.allocation.findFirst({where:{id:allocationId,tenantId,status:AllocationStatus.ACTIVE}}); if(!allocation)throw new NotFoundException('Active allocation not found.');
