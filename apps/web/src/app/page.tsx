@@ -75,7 +75,12 @@ export default function Home() {
   const [newRiderName, setNewRiderName] = useState("");
   const [newRiderMobile, setNewRiderMobile] = useState("");
   const [showFleetForm, setShowFleetForm] = useState(false);
-  const [newFleet, setNewFleet] = useState({ vehicleNumber: "", chassisNumber: "", oem: "", model: "" });
+  const [newFleet, setNewFleet] = useState({
+    vehicleNumber: "",
+    chassisNumber: "",
+    oem: "",
+    model: "",
+  });
   const [inspectionId, setInspectionId] = useState("");
   const [inspectionType, setInspectionType] = useState("PRE_ALLOCATION");
   const [requirements, setRequirements] = useState<RecordItem[]>([]);
@@ -244,18 +249,55 @@ export default function Home() {
   }
 
   async function createFleet(event: FormEvent) {
-    event.preventDefault(); setLoading(true); setError("");
-    try { await request("/fleets", { method: "POST", body: JSON.stringify(newFleet) }, token); setShowFleetForm(false); setNewFleet({ vehicleNumber: "", chassisNumber: "", oem: "", model: "" }); setNotice("Fleet created. Add components, photos, and IoT device from fleet detail."); await loadView("fleets"); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to create fleet."); }
-    finally { setLoading(false); }
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      await request(
+        "/fleets",
+        { method: "POST", body: JSON.stringify(newFleet) },
+        token,
+      );
+      setShowFleetForm(false);
+      setNewFleet({ vehicleNumber: "", chassisNumber: "", oem: "", model: "" });
+      setNotice(
+        "Fleet created. Add components, photos, and IoT device from fleet detail.",
+      );
+      await loadView("fleets");
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Unable to create fleet.",
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
-  async function addFleetComponent(fleetId: string, component: "batteries" | "controllers", serialNumber: string) {
+  async function addFleetComponent(
+    fleetId: string,
+    component: "batteries" | "controllers",
+    serialNumber: string,
+  ) {
     if (!serialNumber) return;
-    setLoading(true); setError("");
-    try { await request(`/fleets/${fleetId}/${component}`, { method: "POST", body: JSON.stringify({ serialNumber }) }, token); setNotice(`${component === "batteries" ? "Battery" : "Controller"} added.`); await openFleetDetail(fleetId); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to add component."); }
-    finally { setLoading(false); }
+    setLoading(true);
+    setError("");
+    try {
+      await request(
+        `/fleets/${fleetId}/${component}`,
+        { method: "POST", body: JSON.stringify({ serialNumber }) },
+        token,
+      );
+      setNotice(
+        `${component === "batteries" ? "Battery" : "Controller"} added.`,
+      );
+      await openFleetDetail(fleetId);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Unable to add component.",
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function createAllocation(event: FormEvent) {
@@ -532,22 +574,90 @@ export default function Home() {
 
   async function uploadRiderPhoto(riderId: string, file: File | undefined) {
     if (!file) return;
-    setLoading(true); setError("");
+    setLoading(true);
+    setError("");
     try {
-      const intent = await request("/media/upload-intents", { method: "POST", body: JSON.stringify({ entityType: "RIDER", entityId: riderId, photoType: "PROFILE", mimeType: file.type, fileName: file.name, sizeBytes: file.size }) }, token) as { photo: { id: string }; uploadUrl: string };
-      const result = await fetch(intent.uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
-      if (!result.ok) throw new Error("Object storage rejected the file upload.");
-      await request(`/media/${intent.photo.id}/complete`, { method: "POST" }, token); setNotice("Rider profile photo uploaded.");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to upload rider photo."); }
-    finally { setLoading(false); }
+      const intent = (await request(
+        "/media/upload-intents",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            entityType: "RIDER",
+            entityId: riderId,
+            photoType: "PROFILE",
+            mimeType: file.type,
+            fileName: file.name,
+            sizeBytes: file.size,
+          }),
+        },
+        token,
+      )) as { photo: { id: string }; uploadUrl: string };
+      const result = await fetch(intent.uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!result.ok)
+        throw new Error("Object storage rejected the file upload.");
+      await request(
+        `/media/${intent.photo.id}/complete`,
+        { method: "POST" },
+        token,
+      );
+      setNotice("Rider profile photo uploaded.");
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Unable to upload rider photo.",
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function uploadFleetPhoto(fleetId: string, file: File | undefined) {
     if (!file) return;
-    setLoading(true); setError("");
-    try { const intent = await request("/media/upload-intents", { method: "POST", body: JSON.stringify({ entityType: "FLEET", entityId: fleetId, photoType: "VEHICLE", mimeType: file.type, fileName: file.name, sizeBytes: file.size }) }, token) as { photo: { id: string }; uploadUrl: string }; const result = await fetch(intent.uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file }); if (!result.ok) throw new Error("Object storage rejected the file upload."); await request(`/media/${intent.photo.id}/complete`, { method: "POST" }, token); setNotice("Fleet photo uploaded."); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to upload fleet photo."); }
-    finally { setLoading(false); }
+    setLoading(true);
+    setError("");
+    try {
+      const intent = (await request(
+        "/media/upload-intents",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            entityType: "FLEET",
+            entityId: fleetId,
+            photoType: "VEHICLE",
+            mimeType: file.type,
+            fileName: file.name,
+            sizeBytes: file.size,
+          }),
+        },
+        token,
+      )) as { photo: { id: string }; uploadUrl: string };
+      const result = await fetch(intent.uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!result.ok)
+        throw new Error("Object storage rejected the file upload.");
+      await request(
+        `/media/${intent.photo.id}/complete`,
+        { method: "POST" },
+        token,
+      );
+      setNotice("Fleet photo uploaded.");
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Unable to upload fleet photo.",
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function initiateDeallocation(allocation: RecordItem) {
@@ -757,10 +867,12 @@ export default function Home() {
                 New allocation
               </button>
             )}
-              {tab === "riders" && (
-                <button onClick={() => setShowRiderForm(true)}>New rider</button>
-              )}
-              {tab === "fleets" && <button onClick={() => setShowFleetForm(true)}>New fleet</button>}
+            {tab === "riders" && (
+              <button onClick={() => setShowRiderForm(true)}>New rider</button>
+            )}
+            {tab === "fleets" && (
+              <button onClick={() => setShowFleetForm(true)}>New fleet</button>
+            )}
             <button className="secondary" onClick={() => void loadView(tab)}>
               Refresh
             </button>
@@ -905,7 +1017,43 @@ export default function Home() {
             </form>
           </section>
         )}
-        {showFleetForm && <section className="action-card"><p className="eyebrow">FLEET ONBOARDING</p><h2>Create fleet</h2><form className="form-stack" onSubmit={createFleet}>{(["vehicleNumber", "chassisNumber", "oem", "model"] as const).map((field) => <label key={field}>{field.replace(/([A-Z])/g, " $1")}<input value={newFleet[field]} onChange={(event) => setNewFleet((current) => ({ ...current, [field]: event.target.value }))} required={field === "vehicleNumber" || field === "chassisNumber"} /></label>)}<div className="form-actions"><button disabled={loading}>Create fleet</button><button type="button" className="secondary" onClick={() => setShowFleetForm(false)}>Cancel</button></div></form></section>}
+        {showFleetForm && (
+          <section className="action-card">
+            <p className="eyebrow">FLEET ONBOARDING</p>
+            <h2>Create fleet</h2>
+            <form className="form-stack" onSubmit={createFleet}>
+              {(
+                ["vehicleNumber", "chassisNumber", "oem", "model"] as const
+              ).map((field) => (
+                <label key={field}>
+                  {field.replace(/([A-Z])/g, " $1")}
+                  <input
+                    value={newFleet[field]}
+                    onChange={(event) =>
+                      setNewFleet((current) => ({
+                        ...current,
+                        [field]: event.target.value,
+                      }))
+                    }
+                    required={
+                      field === "vehicleNumber" || field === "chassisNumber"
+                    }
+                  />
+                </label>
+              ))}
+              <div className="form-actions">
+                <button disabled={loading}>Create fleet</button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setShowFleetForm(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </section>
+        )}
         {inspectionId && (
           <section className="action-card">
             <div>
@@ -1099,7 +1247,20 @@ export default function Home() {
           <section className="action-card detail-card">
             <p className="eyebrow">FLEET DETAIL</p>
             <h2>{String(fleetDetail.vehicleNumber)}</h2>
-            <label className="photo-slot"><span>Fleet photo</span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={loading} onChange={(event) => void uploadFleetPhoto(String(fleetDetail.id), event.target.files?.[0])} /></label>
+            <label className="photo-slot">
+              <span>Fleet photo</span>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                disabled={loading}
+                onChange={(event) =>
+                  void uploadFleetPhoto(
+                    String(fleetDetail.id),
+                    event.target.files?.[0],
+                  )
+                }
+              />
+            </label>
             <div className="detail-grid">
               <div>
                 <strong>OEM / model</strong>
@@ -1140,7 +1301,38 @@ export default function Home() {
                 {((fleetDetail.controllers as RecordItem[]) ?? []).length}
               </span>
             </div>
-            <div className="form-actions"><input id="battery-serial" placeholder="Battery serial" /><button onClick={() => { const input = document.getElementById("battery-serial") as HTMLInputElement; void addFleetComponent(String(fleetDetail.id), "batteries", input.value); }}>Add battery</button><input id="controller-serial" placeholder="Controller serial" /><button onClick={() => { const input = document.getElementById("controller-serial") as HTMLInputElement; void addFleetComponent(String(fleetDetail.id), "controllers", input.value); }}>Add controller</button></div>
+            <div className="form-actions">
+              <input id="battery-serial" placeholder="Battery serial" />
+              <button
+                onClick={() => {
+                  const input = document.getElementById(
+                    "battery-serial",
+                  ) as HTMLInputElement;
+                  void addFleetComponent(
+                    String(fleetDetail.id),
+                    "batteries",
+                    input.value,
+                  );
+                }}
+              >
+                Add battery
+              </button>
+              <input id="controller-serial" placeholder="Controller serial" />
+              <button
+                onClick={() => {
+                  const input = document.getElementById(
+                    "controller-serial",
+                  ) as HTMLInputElement;
+                  void addFleetComponent(
+                    String(fleetDetail.id),
+                    "controllers",
+                    input.value,
+                  );
+                }}
+              >
+                Add controller
+              </button>
+            </div>
             <button className="secondary" onClick={() => setFleetDetail(null)}>
               Close detail
             </button>
@@ -1150,7 +1342,20 @@ export default function Home() {
           <section className="action-card detail-card">
             <p className="eyebrow">RIDER DETAIL</p>
             <h2>{String(riderDetail.name)}</h2>
-            <label className="photo-slot"><span>Profile photo</span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={loading} onChange={(event) => void uploadRiderPhoto(String(riderDetail.id), event.target.files?.[0])} /></label>
+            <label className="photo-slot">
+              <span>Profile photo</span>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                disabled={loading}
+                onChange={(event) =>
+                  void uploadRiderPhoto(
+                    String(riderDetail.id),
+                    event.target.files?.[0],
+                  )
+                }
+              />
+            </label>
             <div className="detail-grid">
               <div>
                 <strong>Mobile</strong>
