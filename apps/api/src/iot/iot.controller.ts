@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Header,
   Headers,
   HttpCode,
   Post,
@@ -73,6 +74,7 @@ export class IotController {
   ) {}
 
   @Post('devices')
+  @Header('Cache-Control', 'no-store')
   async register(
     @CurrentUser() user: AuthUser,
     @Body() dto: RegisterDeviceDto,

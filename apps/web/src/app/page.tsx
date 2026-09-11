@@ -38,6 +38,10 @@ interface Dashboard {
 interface ApiBody {
   data?: unknown;
   message?: string;
+  error?: {
+    code?: string;
+    message?: string;
+  };
 }
 
 interface TokenPair {
@@ -124,8 +128,21 @@ async function request(
     if (refreshedToken)
       ({ response, body } = await sendRequest(path, options, refreshedToken));
   }
-  if (!response.ok)
-    throw new Error(body.message ?? "Request failed. Please try again.");
+  if (!response.ok) {
+    const retryAfter = response.headers.get("retry-after");
+    if (response.status === 429) {
+      const waitMessage = retryAfter
+        ? ` Please wait ${retryAfter} second${retryAfter === "1" ? "" : "s"} and try again.`
+        : " Please wait a moment and try again.";
+      throw new Error(`Too many requests.${waitMessage}`);
+    }
+
+    throw new Error(
+      body.error?.message ??
+        body.message ??
+        "Request failed. Please try again.",
+    );
+  }
   return body.data;
 }
 

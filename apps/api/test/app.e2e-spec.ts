@@ -33,6 +33,23 @@ describe('Health endpoints (e2e)', () => {
       });
   });
 
+  it('normalizes validation errors into a client-safe string message', () => {
+    return request(app.getHttpServer())
+      .post('/api/v1/auth/otp/request')
+      .send({})
+      .expect(400)
+      .expect('cache-control', 'no-store')
+      .expect((response) => {
+        expect(response.body).toMatchObject({
+          error: {
+            code: 'HTTP_ERROR',
+            message: expect.any(String),
+          },
+          requestId: expect.any(String),
+        });
+      });
+  });
+
   it('allows the configured operations web origin', () => {
     return request(app.getHttpServer())
       .get('/health')

@@ -62,6 +62,7 @@ async function main() {
       photoType,
     })),
   ];
+
   await Promise.all(
     requirements.map(({ entityType, photoType }, sortOrder) =>
       prisma.photoRequirement.upsert({
@@ -88,7 +89,7 @@ async function main() {
 }
 
 main()
-  .catch((error: unknown) => {
+  .catch((error) => {
     console.error(error);
     process.exitCode = 1;
   })

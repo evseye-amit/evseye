@@ -18,7 +18,10 @@ import { TenantContextService } from '../auth/tenant-context.service.js';
 import { AuthService } from '../auth/auth.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { AllocationsService } from './allocations.service.js';
+import { CreateAllocationDto } from './dto/create-allocation.dto.js';
 import { ListAllocationsDto } from './dto/list-allocations.dto.js';
+import { RequestDeallocationOtpDto } from './dto/request-deallocation-otp.dto.js';
+import { VerifyDeallocationOtpDto } from './dto/verify-deallocation-otp.dto.js';
 @Controller('allocations')
 @UseGuards(AccessTokenGuard, RolesGuard)
 @Roles(
@@ -48,15 +51,14 @@ export class AllocationsController {
   }
   @Post() async initiate(
     @CurrentUser() u: AuthUser,
-    @Body('fleetId') fleetId: string,
-    @Body('riderId') riderId: string,
+    @Body() dto: CreateAllocationDto,
     @Headers('idempotency-key') key?: string,
   ) {
     const tenantId = this.tenants.requireTenantId(u);
     const allocation = await this.allocations.initiate(
       tenantId,
-      fleetId,
-      riderId,
+      dto.fleetId,
+      dto.riderId,
       u.id,
       key,
     );
@@ -66,7 +68,11 @@ export class AllocationsController {
       action: 'ALLOCATION_INITIATED',
       entityType: 'ALLOCATION',
       entityId: allocation.id,
-      newData: { fleetId, riderId, status: allocation.status },
+      newData: {
+        fleetId: dto.fleetId,
+        riderId: dto.riderId,
+        status: allocation.status,
+      },
     });
     return {
       data: allocation,
@@ -114,15 +120,14 @@ export class AllocationsController {
   @Post(':id/deallocation/otp/request') async otp(
     @CurrentUser() u: AuthUser,
     @Param('id') id: string,
-    @Body('phone') phone: string,
-    @Body('party') party: 'RIDER' | 'OPERATOR',
+    @Body() dto: RequestDeallocationOtpDto,
   ) {
     return {
       data: await this.auth.requestDeallocationOtp(
         this.tenants.requireTenantId(u),
-        phone,
+        dto.phone,
         id,
-        party === 'RIDER'
+        dto.party === 'RIDER'
           ? OtpPurpose.DEALLOCATION_RIDER
           : OtpPurpose.DEALLOCATION_OPERATOR,
       ),
@@ -130,14 +135,13 @@ export class AllocationsController {
   }
   @Post(':id/deallocation/otp/verify') async verifyOtp(
     @CurrentUser() u: AuthUser,
-    @Body('otpRequestId') otpRequestId: string,
-    @Body('code') code: string,
+    @Body() dto: VerifyDeallocationOtpDto,
   ) {
     return {
       data: await this.auth.verifyDeallocationOtp(
         this.tenants.requireTenantId(u),
-        otpRequestId,
-        code,
+        dto.otpRequestId,
+        dto.code,
       ),
     };
   }

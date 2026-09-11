@@ -20,8 +20,7 @@ describe('AllocationsController audit trail', () => {
     await expect(
       controller.initiate(
         { id: 'operator-1', tenantId: 'tenant-a', roles: [] },
-        'fleet-1',
-        'rider-1',
+        { fleetId: 'fleet-1', riderId: 'rider-1' },
         'request-key',
       ),
     ).resolves.toEqual({

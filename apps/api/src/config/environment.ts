@@ -34,6 +34,9 @@ const environmentSchema = z.object({
     .default(60_000),
   IOT_OFFLINE_THRESHOLD_SECONDS: z.coerce.number().int().positive().default(60),
   S3_BUCKET: z.string().optional(),
+  S3_ENDPOINT: z.string().url().optional(),
+  S3_PUBLIC_ENDPOINT: z.string().url().optional(),
+  S3_SERVER_SIDE_ENCRYPTION: z.enum(['AES256', 'aws:kms']).optional(),
   S3_SIGNED_URL_TTL_SECONDS: z.coerce
     .number()
     .int()

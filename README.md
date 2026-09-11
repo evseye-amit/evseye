@@ -5,8 +5,8 @@ Multi-tenant EV fleet-management MVP.
 ## Local development
 
 1. Copy `.env.example` to `.env`.
-2. Run `docker compose up --build` for the local stack. Compose runs a one-shot `migrate` service before starting the API.
-3. Run `pnpm install`, `pnpm db:generate`, `pnpm db:migrate`, and `pnpm db:seed`.
+2. Run `docker compose up --build` for the local stack. Compose runs one-shot migration and idempotent demo-seed jobs before starting the API, with local private MinIO object storage for media testing.
+3. For non-Docker development, run `pnpm install`, `pnpm db:generate`, `pnpm db:migrate`, and `pnpm db:seed`.
 4. Run `pnpm dev:api` and `pnpm dev:web`.
 
 The API health endpoints are `/health` and `/health/ready`.
@@ -25,3 +25,4 @@ Run Prisma migrations once as a deployment job before rolling out API replicas:
 
 Run `pnpm typecheck`, `pnpm test`, and `pnpm build` before review or release.
 For the complete deployment and acceptance procedure, see `docs/release-checklist.md`.
+For the local end-to-end manual test flow, see `docs/manual-acceptance.md`.

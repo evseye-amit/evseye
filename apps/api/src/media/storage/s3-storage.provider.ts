@@ -3,6 +3,7 @@ import {
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
+  ServerSideEncryption,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
@@ -16,21 +17,40 @@ import type {
 @Injectable()
 export class S3StorageProvider implements StorageProvider {
   private readonly client: S3Client;
+  private readonly signingClient: S3Client;
+  private readonly serverSideEncryption?: ServerSideEncryption;
 
   constructor(private readonly config: ConfigService<Environment, true>) {
-    this.client = new S3Client({ region: config.getOrThrow('AWS_REGION') });
+    const region = config.getOrThrow('AWS_REGION');
+    const endpoint = config.get('S3_ENDPOINT');
+    const publicEndpoint = config.get('S3_PUBLIC_ENDPOINT');
+    const clientOptions = {
+      region,
+      ...(endpoint ? { endpoint, forcePathStyle: true } : {}),
+    };
+    this.client = new S3Client(clientOptions);
+    this.signingClient = publicEndpoint
+      ? new S3Client({
+          region,
+          endpoint: publicEndpoint,
+          forcePathStyle: true,
+        })
+      : this.client;
+    this.serverSideEncryption = config.get('S3_SERVER_SIDE_ENCRYPTION');
   }
 
   async createUploadUrl(input: CreateUploadUrlInput): Promise<string> {
     const bucket = this.bucket();
     return getSignedUrl(
-      this.client,
+      this.signingClient,
       new PutObjectCommand({
         Bucket: bucket,
         Key: input.objectKey,
         ContentType: input.mimeType,
         ContentLength: input.sizeBytes,
-        ServerSideEncryption: 'aws:kms',
+        ...(this.serverSideEncryption
+          ? { ServerSideEncryption: this.serverSideEncryption }
+          : {}),
       }),
       { expiresIn: this.config.getOrThrow('S3_SIGNED_URL_TTL_SECONDS') },
     );
@@ -38,7 +58,7 @@ export class S3StorageProvider implements StorageProvider {
 
   async createDownloadUrl(objectKey: string): Promise<string> {
     return getSignedUrl(
-      this.client,
+      this.signingClient,
       new GetObjectCommand({ Bucket: this.bucket(), Key: objectKey }),
       { expiresIn: this.config.getOrThrow('S3_SIGNED_URL_TTL_SECONDS') },
     );

@@ -21,7 +21,7 @@ describe('FleetsController audit trail', () => {
     await controller.status(
       { id: 'operator-1', tenantId: 'tenant-a', roles: [] },
       'fleet-1',
-      FleetStatus.MAINTENANCE,
+      { status: FleetStatus.MAINTENANCE },
     );
 
     expect(audit.record).toHaveBeenCalledWith({

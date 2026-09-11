@@ -8,7 +8,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { FleetStatus, UserRole } from '@prisma/client';
+import { UserRole } from '@prisma/client';
 import { AuditService } from '../audit/audit.service.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
@@ -22,6 +22,7 @@ import {
   CreateBatteryDto,
   CreateControllerDto,
 } from './dto/create-component.dto.js';
+import { ChangeFleetStatusDto } from './dto/change-fleet-status.dto.js';
 import { FleetsService } from './fleets.service.js';
 import { ComponentsService } from './components.service.js';
 @Controller('fleets')
@@ -79,10 +80,10 @@ export class FleetsController {
   @Patch(':id/status') async status(
     @CurrentUser() u: AuthUser,
     @Param('id') id: string,
-    @Body('status') s: FleetStatus,
+    @Body() dto: ChangeFleetStatusDto,
   ) {
     const tenantId = this.tenants.requireTenantId(u);
-    const fleet = await this.fleets.changeStatus(tenantId, id, s);
+    const fleet = await this.fleets.changeStatus(tenantId, id, dto.status);
     await this.audit.record({
       tenantId,
       actorId: u.id,

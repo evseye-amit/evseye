@@ -18,6 +18,8 @@
 6. Register IoT device and send location, heartbeat, start, and stop packets.
 7. Confirm dashboard and fleet current-state results are tenant-isolated.
 
+For the local, reproducible version of this flow—including development credentials and IoT requests—see `docs/manual-acceptance.md`.
+
 ## Incident basics
 
 - SMS/KYC outage: retain workflow state, retry through provider adapter, do not bypass verification.
