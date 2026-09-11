@@ -2,6 +2,14 @@ import { KycStatus } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
 import { KycService } from './kyc.service.js';
 
+const pendingProvider = {
+  start: vi.fn().mockResolvedValue({
+    status: KycStatus.PENDING,
+    provider: 'sandbox',
+    providerReference: 'sandbox-reference',
+  }),
+};
+
 describe('KycService transitions', () => {
   it('creates a tenant-scoped pending KYC verification for an eligible rider', async () => {
     const upsert = vi.fn().mockResolvedValue({
@@ -12,26 +20,30 @@ describe('KycService transitions', () => {
       rider: { findFirst: vi.fn().mockResolvedValue({ id: 'rider-1' }) },
       riderKyc: { findUnique: vi.fn().mockResolvedValue(null), upsert },
     };
-    const service = new KycService(prisma as never);
+    const service = new KycService(prisma as never, pendingProvider);
 
     await expect(
       service.start('tenant-a', 'rider-1', { type: 'PAN' }),
     ).resolves.toEqual({ id: 'kyc-1', status: KycStatus.PENDING });
-    expect(upsert).toHaveBeenCalledWith({
-      where: { riderId_type: { riderId: 'rider-1', type: 'PAN' } },
-      create: {
-        tenantId: 'tenant-a',
-        riderId: 'rider-1',
-        type: 'PAN',
-        status: KycStatus.PENDING,
-        provider: 'sandbox',
-      },
-      update: {
-        status: KycStatus.PENDING,
-        provider: 'sandbox',
-        safeFailureCode: null,
-      },
+    expect(pendingProvider.start).toHaveBeenCalledWith({
+      tenantId: 'tenant-a',
+      riderId: 'rider-1',
+      type: 'PAN',
+      referenceHint: undefined,
     });
+    expect(upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { riderId_type: { riderId: 'rider-1', type: 'PAN' } },
+        create: expect.objectContaining({
+          tenantId: 'tenant-a',
+          riderId: 'rider-1',
+          type: 'PAN',
+          status: KycStatus.PENDING,
+          provider: 'sandbox',
+          providerReference: 'sandbox-reference',
+        }),
+      }),
+    );
   });
 
   it('does not restart an already verified KYC record', async () => {
@@ -42,7 +54,7 @@ describe('KycService transitions', () => {
         upsert: vi.fn(),
       },
     };
-    const service = new KycService(prisma as never);
+    const service = new KycService(prisma as never, pendingProvider);
 
     await expect(
       service.start('tenant-a', 'rider-1', { type: 'PAN' }),
@@ -58,7 +70,7 @@ describe('KycService transitions', () => {
           .mockResolvedValue({ id: 'kyc-1', status: KycStatus.VERIFIED }),
       },
     };
-    const service = new KycService(prisma as never);
+    const service = new KycService(prisma as never, pendingProvider);
 
     await expect(
       service.complete('tenant-a', 'rider-a', 'kyc-1', { status: 'VERIFIED' }),

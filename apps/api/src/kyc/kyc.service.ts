@@ -1,35 +1,88 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { KycStatus, KycType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CompleteKycDto } from './dto/complete-kyc.dto.js';
 import type { StartKycDto } from './dto/start-kyc.dto.js';
+import {
+  KYC_PROVIDER,
+  type KycProvider,
+} from './providers/kyc-provider.interface.js';
 
 @Injectable()
 export class KycService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(KYC_PROVIDER) private readonly provider: KycProvider,
+  ) {}
 
   async list(tenantId: string, riderId: string) {
     await this.assertRider(tenantId, riderId);
-    return this.prisma.riderKyc.findMany({ where: { tenantId, riderId }, orderBy: { type: 'asc' } });
+    return this.prisma.riderKyc.findMany({
+      where: { tenantId, riderId },
+      orderBy: { type: 'asc' },
+    });
   }
 
   async start(tenantId: string, riderId: string, dto: StartKycDto) {
     await this.assertRider(tenantId, riderId);
-    const existing = await this.prisma.riderKyc.findUnique({ where: { riderId_type: { riderId, type: dto.type as KycType } } });
-    if (existing?.status === KycStatus.PENDING || existing?.status === KycStatus.VERIFIED) {
-      throw new BadRequestException('KYC verification is already active or complete.');
+    const existing = await this.prisma.riderKyc.findUnique({
+      where: { riderId_type: { riderId, type: dto.type as KycType } },
+    });
+    if (
+      existing?.status === KycStatus.PENDING ||
+      existing?.status === KycStatus.VERIFIED
+    ) {
+      throw new BadRequestException(
+        'KYC verification is already active or complete.',
+      );
     }
+    const result = await this.provider.start({
+      tenantId,
+      riderId,
+      type: dto.type as KycType,
+      referenceHint: dto.referenceHint,
+    });
     return this.prisma.riderKyc.upsert({
       where: { riderId_type: { riderId, type: dto.type as KycType } },
-      create: { tenantId, riderId, type: dto.type as KycType, status: KycStatus.PENDING, provider: 'sandbox' },
-      update: { status: KycStatus.PENDING, provider: 'sandbox', safeFailureCode: null },
+      create: {
+        tenantId,
+        riderId,
+        type: dto.type as KycType,
+        status: result.status,
+        provider: result.provider,
+        providerReference: result.providerReference,
+        maskedData: result.maskedData as Prisma.InputJsonValue | undefined,
+        safeFailureCode: result.safeFailureCode,
+        verifiedAt: result.status === KycStatus.VERIFIED ? new Date() : null,
+      },
+      update: {
+        status: result.status,
+        provider: result.provider,
+        providerReference: result.providerReference,
+        maskedData: result.maskedData as Prisma.InputJsonValue | undefined,
+        safeFailureCode: result.safeFailureCode,
+        verifiedAt: result.status === KycStatus.VERIFIED ? new Date() : null,
+      },
     });
   }
 
-  async complete(tenantId: string, riderId: string, kycId: string, dto: CompleteKycDto) {
-    const kyc = await this.prisma.riderKyc.findFirst({ where: { id: kycId, riderId, tenantId } });
+  async complete(
+    tenantId: string,
+    riderId: string,
+    kycId: string,
+    dto: CompleteKycDto,
+  ) {
+    const kyc = await this.prisma.riderKyc.findFirst({
+      where: { id: kycId, riderId, tenantId },
+    });
     if (!kyc) throw new NotFoundException('KYC record not found.');
-    if (kyc.status !== KycStatus.PENDING) throw new BadRequestException('KYC record is not pending.');
+    if (kyc.status !== KycStatus.PENDING)
+      throw new BadRequestException('KYC record is not pending.');
     return this.prisma.riderKyc.update({
       where: { id: kyc.id },
       data: {
@@ -42,7 +95,9 @@ export class KycService {
   }
 
   private async assertRider(tenantId: string, riderId: string) {
-    const rider = await this.prisma.rider.findFirst({ where: { id: riderId, tenantId, deletedAt: null } });
+    const rider = await this.prisma.rider.findFirst({
+      where: { id: riderId, tenantId, deletedAt: null },
+    });
     if (!rider) throw new NotFoundException('Rider not found.');
   }
 }
