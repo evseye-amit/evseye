@@ -1,6 +1,6 @@
 # EVs Eye local manual acceptance
 
-This is the complete local MVP path. It starts PostgreSQL, Redis, MinIO (private S3-compatible object storage), the API, and the operations web app. The Compose `seed` job creates an idempotent demo tenant and photo requirements.
+This is the complete local MVP path. It starts PostgreSQL, Redis, MinIO (private S3-compatible object storage), the API, and the operations web app. The Compose `seed` job creates an idempotent demo client and photo requirements.
 
 ## Start the stack
 
@@ -19,7 +19,7 @@ The local MinIO console credentials are `evseye-minio` / `evseye-minio-local-pas
 
 ## Login
 
-1. Enter tenant slug `demo` and mobile `+919000000000`.
+1. Enter client workspace slug `demo` and mobile `+919000000000`.
 2. Send OTP. The application switches to the verification step.
 3. Enter `123456`. This fixed code works only when `NODE_ENV=development`.
 4. Confirm the dashboard opens and the browser has no uncaught error.
@@ -79,7 +79,7 @@ docker compose config --quiet
 Expected outcomes:
 
 - A second operator cannot allocate the same fleet.
-- Tenant-scoped APIs reject records belonging to another tenant.
+- Client-scoped APIs reject records belonging to another client.
 - OTP resend is throttled and wrong codes are limited.
 - Required evidence blocks inspection and onboarding completion.
 - Health endpoints remain available under API rate limiting.

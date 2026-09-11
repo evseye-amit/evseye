@@ -47,8 +47,8 @@ export class PlatformAdminService {
       });
       await this.audit.record({
         actorId,
-        action: 'PLATFORM_TENANT_CREATED',
-        entityType: 'Tenant',
+        action: 'PLATFORM_CLIENT_CREATED',
+        entityType: 'Client',
         entityId: tenant.id,
         newData: { name: tenant.name, slug: tenant.slug },
       });
@@ -56,7 +56,7 @@ export class PlatformAdminService {
     } catch (error) {
       if (this.unique(error))
         throw new ConflictException(
-          'Tenant slug or administrator mobile already exists.',
+          'Client slug or administrator mobile already exists.',
         );
       throw error;
     }

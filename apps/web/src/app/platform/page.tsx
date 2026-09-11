@@ -91,7 +91,7 @@ export default function PlatformPage() {
     setError("");
     try {
       const tenantData = (await api(
-        "/platform/tenants",
+        "/platform/clients",
         {},
         token,
       )) as Tenant[];
@@ -112,7 +112,7 @@ export default function PlatformPage() {
     setError("");
     try {
       const configData = (await api(
-        `/platform/tenants/${tenant.id}/onboarding-configs`,
+        `/platform/clients/${tenant.id}/onboarding-configs`,
         {},
         token,
       )) as Config[];
@@ -187,7 +187,7 @@ export default function PlatformPage() {
     setError("");
     try {
       const created = (await api(
-        "/platform/tenants",
+        "/platform/clients",
         { method: "POST", body: JSON.stringify(tenantForm) },
         token,
       )) as Tenant;
@@ -198,7 +198,7 @@ export default function PlatformPage() {
       await loadPlatform();
     } catch (cause) {
       setError(
-        cause instanceof Error ? cause.message : "Unable to create tenant.",
+        cause instanceof Error ? cause.message : "Unable to create client.",
       );
     } finally {
       setLoading(false);
@@ -211,7 +211,7 @@ export default function PlatformPage() {
     setError("");
     try {
       await api(
-        `/platform/tenants/${selectedTenant.id}/onboarding-configs`,
+        `/platform/clients/${selectedTenant.id}/onboarding-configs`,
         { method: "POST", body: JSON.stringify({}) },
         token,
       );
@@ -353,7 +353,7 @@ export default function PlatformPage() {
           {notice && <p className="notice auth-message">{notice}</p>}
           {error && <p className="error auth-message">{error}</p>}
           <Link className="platform-back-link" href="/">
-            Tenant operations login
+            Client operations login
           </Link>
         </section>
       </main>
@@ -384,7 +384,7 @@ export default function PlatformPage() {
       <section className="platform-grid">
         <div className="panel">
           <div className="panel-heading">
-            <h2>Tenants</h2>
+            <h2>Clients</h2>
             <span>{tenants.length}</span>
           </div>
           <div className="platform-list">
@@ -409,13 +409,13 @@ export default function PlatformPage() {
             className="form-stack platform-create-form"
             onSubmit={createTenant}
           >
-            <h3>Onboard tenant</h3>
+            <h3>Onboard client</h3>
             {(
               [
-                ["name", "Tenant name"],
-                ["slug", "Workspace slug"],
-                ["adminName", "Tenant admin name"],
-                ["adminMobile", "Tenant admin mobile"],
+                ["name", "Client name"],
+                ["slug", "Client workspace slug"],
+                ["adminName", "Client admin name"],
+                ["adminMobile", "Client admin mobile"],
               ] as const
             ).map(([field, label]) => (
               <label key={field}>
@@ -437,7 +437,7 @@ export default function PlatformPage() {
                 />
               </label>
             ))}
-            <button disabled={loading}>Create tenant</button>
+            <button disabled={loading}>Create client</button>
           </form>
         </div>
         <div className="panel platform-config">
@@ -449,7 +449,7 @@ export default function PlatformPage() {
                   : "Rider onboarding configuration"}
               </h2>
               <p className="muted">
-                Master steps are platform-owned. Tenant workflows are versioned
+                Master steps are platform-owned. Client workflows are versioned
                 and activated explicitly.
               </p>
             </div>
@@ -559,7 +559,7 @@ export default function PlatformPage() {
             </>
           ) : (
             <div className="empty-state">
-              Select a tenant to configure its rider onboarding workflow.
+              Select a client to configure its rider onboarding workflow.
             </div>
           )}
         </div>

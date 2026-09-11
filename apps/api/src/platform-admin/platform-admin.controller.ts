@@ -23,10 +23,10 @@ import { PlatformAdminService } from './platform-admin.service.js';
 @Roles(UserRole.SUPER_ADMIN)
 export class PlatformAdminController {
   constructor(private readonly platform: PlatformAdminService) {}
-  @Get('tenants') listTenants() {
+  @Get('clients') listClients() {
     return this.platform.listTenants().then((data) => ({ data }));
   }
-  @Post('tenants') createTenant(
+  @Post('clients') createClient(
     @Body() dto: CreateTenantDto,
     @CurrentUser() user: AuthUser,
   ) {
@@ -35,18 +35,18 @@ export class PlatformAdminController {
   @Get('onboarding/step-definitions') stepDefinitions() {
     return this.platform.listStepDefinitions().then((data) => ({ data }));
   }
-  @Get('tenants/:tenantId/onboarding-configs') configs(
-    @Param('tenantId') tenantId: string,
+  @Get('clients/:clientId/onboarding-configs') configs(
+    @Param('clientId') clientId: string,
   ) {
-    return this.platform.listConfigs(tenantId).then((data) => ({ data }));
+    return this.platform.listConfigs(clientId).then((data) => ({ data }));
   }
-  @Post('tenants/:tenantId/onboarding-configs') createConfig(
-    @Param('tenantId') tenantId: string,
+  @Post('clients/:clientId/onboarding-configs') createConfig(
+    @Param('clientId') clientId: string,
     @Body() dto: CreateOnboardingConfigDto,
     @CurrentUser() user: AuthUser,
   ) {
     return this.platform
-      .createConfig(tenantId, dto, user.id)
+      .createConfig(clientId, dto, user.id)
       .then((data) => ({ data }));
   }
   @Put('onboarding-configs/:configId/steps') steps(

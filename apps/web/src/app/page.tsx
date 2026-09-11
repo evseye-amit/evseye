@@ -167,7 +167,7 @@ function Status({ value }: { value: string }) {
 
 export default function Home() {
   const [phone, setPhone] = useState("");
-  const [tenantSlug, setTenantSlug] = useState("demo");
+  const [clientSlug, setClientSlug] = useState("demo");
   const [otpRequestId, setOtpRequestId] = useState("");
   const [code, setCode] = useState("");
   const [token, setToken] = useState("");
@@ -348,7 +348,7 @@ export default function Home() {
     try {
       const data = (await request("/auth/otp/request", {
         method: "POST",
-        body: JSON.stringify({ phone, tenantSlug }),
+        body: JSON.stringify({ phone, clientSlug }),
       })) as { otpRequestId: string };
       setOtpRequestId(data.otpRequestId);
       setNotice("OTP sent. Enter the six-digit code to continue.");
@@ -1397,12 +1397,12 @@ export default function Home() {
             {!otpRequestId ? (
               <form onSubmit={sendOtp} className="auth-form">
                 <label>
-                  Tenant workspace
+                  Client workspace
                   <span className="auth-input">
                     <span aria-hidden="true">⌂</span>
                     <input
-                      value={tenantSlug}
-                      onChange={(e) => setTenantSlug(e.target.value)}
+                      value={clientSlug}
+                      onChange={(e) => setClientSlug(e.target.value)}
                       placeholder="e.g. demo"
                       autoComplete="organization"
                       required
@@ -1517,7 +1517,7 @@ export default function Home() {
       <section className="workspace">
         <header>
           <div>
-            <p className="eyebrow">TENANT WORKSPACE</p>
+            <p className="eyebrow">CLIENT WORKSPACE</p>
             <h1>{title}</h1>
           </div>
           <div className="header-actions">
@@ -1729,7 +1729,7 @@ export default function Home() {
               <p className="eyebrow">PHOTO EVIDENCE SETTINGS</p>
               <h2>Required photo slots</h2>
               <p className="muted">
-                Manage tenant-specific onboarding and inspection evidence. Turn
+                Manage client-specific onboarding and inspection evidence. Turn
                 a slot off when it is optional.
               </p>
               <label>

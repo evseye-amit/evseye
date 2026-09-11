@@ -26,7 +26,7 @@ export class AuthController {
   async requestLoginOtp(@Body() dto: RequestLoginOtpDto, @Ip() ip: string) {
     const data = await this.authService.requestLoginOtp(
       dto.phone,
-      dto.tenantSlug,
+      dto.clientSlug ?? dto.tenantSlug,
       ip,
     );
     return { data };

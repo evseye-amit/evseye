@@ -207,14 +207,14 @@ async function main() {
       tenantId_mobile: { tenantId: tenant.id, mobile: '+919000000000' },
     },
     update: {
-      name: 'Demo Tenant Admin',
+      name: 'Demo Client Admin',
       role: UserRole.TENANT_ADMIN,
       isActive: true,
     },
     create: {
       tenantId: tenant.id,
       mobile: '+919000000000',
-      name: 'Demo Tenant Admin',
+      name: 'Demo Client Admin',
       role: UserRole.TENANT_ADMIN,
     },
   });
@@ -306,7 +306,7 @@ async function main() {
   );
 
   console.info(
-    'Seeded platform super admin, tenant "demo", onboarding configuration, administrator, and photo requirements.',
+    'Seeded platform super admin, client "demo", onboarding configuration, administrator, and photo requirements.',
   );
 }
 

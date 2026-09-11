@@ -10,13 +10,13 @@
 
 ## Acceptance flow
 
-1. Seed or create a tenant admin and authenticate by OTP.
+1. Seed or create a client admin and authenticate by OTP.
 2. Create rider, KYC records, fleet, hub, and fleet components.
 3. Upload rider and fleet photos through signed URLs.
 4. Allocate an available fleet and complete pre-allocation inspection.
 5. Start deallocation, verify rider and operator OTPs, complete post-inspection, and release fleet.
 6. Register IoT device and send location, heartbeat, start, and stop packets.
-7. Confirm dashboard and fleet current-state results are tenant-isolated.
+7. Confirm dashboard and fleet current-state results are client-isolated.
 
 For the local, reproducible version of this flow—including development credentials and IoT requests—see `docs/manual-acceptance.md`.
 
