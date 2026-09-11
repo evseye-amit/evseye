@@ -513,6 +513,18 @@ export default function Home() {
     }
   }
 
+  async function uploadRiderPhoto(riderId: string, file: File | undefined) {
+    if (!file) return;
+    setLoading(true); setError("");
+    try {
+      const intent = await request("/media/upload-intents", { method: "POST", body: JSON.stringify({ entityType: "RIDER", entityId: riderId, photoType: "PROFILE", mimeType: file.type, fileName: file.name, sizeBytes: file.size }) }, token) as { photo: { id: string }; uploadUrl: string };
+      const result = await fetch(intent.uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
+      if (!result.ok) throw new Error("Object storage rejected the file upload.");
+      await request(`/media/${intent.photo.id}/complete`, { method: "POST" }, token); setNotice("Rider profile photo uploaded.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to upload rider photo."); }
+    finally { setLoading(false); }
+  }
+
   async function initiateDeallocation(allocation: RecordItem) {
     const allocationId = String(allocation.id);
     setLoading(true);
