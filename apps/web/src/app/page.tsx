@@ -45,6 +45,9 @@ export default function Home() {
   const [allocationFleetId, setAllocationFleetId] = useState("");
   const [allocationRiderId, setAllocationRiderId] = useState("");
   const [showAllocationForm, setShowAllocationForm] = useState(false);
+  const [inspectionId, setInspectionId] = useState("");
+  const [requirements, setRequirements] = useState<RecordItem[]>([]);
+  const [uploadedPhotoTypes, setUploadedPhotoTypes] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -117,6 +120,48 @@ export default function Home() {
     finally { setLoading(false); }
   }
 
+  async function openInspection(allocation: RecordItem) {
+    const inspection = ((allocation.inspections as RecordItem[] | undefined) ?? []).find((item) => item.type === "PRE_ALLOCATION");
+    if (!inspection?.id) return setError("This allocation has no pre-allocation inspection.");
+    setLoading(true); setError("");
+    try {
+      const [details, photoRequirements] = await Promise.all([
+        request(`/inspections/${String(inspection.id)}`, {}, token) as Promise<{ photos: RecordItem[] }>,
+        request("/media/photo-requirements?entityType=INSPECTION", {}, token) as Promise<RecordItem[]>,
+      ]);
+      setInspectionId(String(inspection.id)); setRequirements(photoRequirements);
+      setUploadedPhotoTypes(details.photos.filter((photo) => photo.status === "COMPLETE").map((photo) => String(photo.photoType)));
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to open inspection."); }
+    finally { setLoading(false); }
+  }
+
+  async function uploadInspectionPhoto(photoType: string, file: File | undefined) {
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024) {
+      setError("Use a JPG, PNG, or WebP image no larger than 5 MB."); return;
+    }
+    setLoading(true); setError("");
+    try {
+      const intent = await request("/media/upload-intents", {
+        method: "POST", body: JSON.stringify({ entityType: "INSPECTION", entityId: inspectionId, photoType, mimeType: file.type, fileName: file.name, sizeBytes: file.size }),
+      }, token) as { photo: { id: string }; uploadUrl: string };
+      const upload = await fetch(intent.uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
+      if (!upload.ok) throw new Error("Object storage rejected the file upload.");
+      await request(`/media/${intent.photo.id}/complete`, { method: "POST" }, token);
+      setUploadedPhotoTypes((current) => [...new Set([...current, photoType])]);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to upload inspection photo."); }
+    finally { setLoading(false); }
+  }
+
+  async function completeInspection() {
+    setLoading(true); setError("");
+    try {
+      await request(`/inspections/${inspectionId}/complete`, { method: "POST" }, token);
+      setNotice("Inspection completed. The allocation is ready for activation."); setInspectionId(""); await loadView("allocations");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Inspection cannot be completed yet."); }
+    finally { setLoading(false); }
+  }
+
   function signOut() { sessionStorage.removeItem("evs-eye-access-token"); setToken(""); setOtpRequestId(""); setCode(""); setDashboard(null); setItems([]); }
 
   if (!token) return <main className="auth-shell"><section className="auth-card">
@@ -129,8 +174,9 @@ export default function Home() {
   return <main className="app-shell"><aside className="sidebar"><div><p className="eyebrow">EVS EYE</p><h2>Operations</h2></div><nav>{(["dashboard", "fleets", "riders", "allocations"] as Tab[]).map((item) => <button key={item} className={tab === item ? "nav-active" : ""} onClick={() => setTab(item)}>{item}</button>)}</nav><button className="sign-out" onClick={signOut}>Sign out</button></aside>
     <section className="workspace"><header><div><p className="eyebrow">TENANT WORKSPACE</p><h1>{title}</h1></div><div className="header-actions">{tab === "allocations" && <button onClick={() => void openAllocationForm()}>New allocation</button>}<button className="secondary" onClick={() => void loadView(tab)}>Refresh</button></div></header>{notice && <p className="notice">{notice}</p>}{error && <p className="error">{error}</p>}{loading && <p className="muted">Loading current data…</p>}
       {showAllocationForm && <section className="action-card"><div><p className="eyebrow">ALLOCATION</p><h2>Assign an available vehicle</h2><p className="muted">This reserves the fleet and creates its pre-allocation inspection.</p></div><form className="form-stack" onSubmit={createAllocation}><label>Available fleet<select value={allocationFleetId} onChange={(e) => setAllocationFleetId(e.target.value)} required><option value="">Select fleet</option>{availableFleets.map((fleet) => <option key={String(fleet.id)} value={String(fleet.id)}>{String(fleet.vehicleNumber)} · {String(fleet.oem ?? "Vehicle")}</option>)}</select></label><label>Active rider<select value={allocationRiderId} onChange={(e) => setAllocationRiderId(e.target.value)} required><option value="">Select rider</option>{activeRiders.map((rider) => <option key={String(rider.id)} value={String(rider.id)}>{String(rider.name)} · {String(rider.mobile)}</option>)}</select></label><div className="form-actions"><button type="submit" disabled={loading}>Create allocation</button><button type="button" className="secondary" onClick={() => setShowAllocationForm(false)}>Cancel</button></div></form></section>}
+      {inspectionId && <section className="action-card"><div><p className="eyebrow">PRE-ALLOCATION INSPECTION</p><h2>Required photo evidence</h2><p className="muted">Each required slot must be complete before the allocation can be activated.</p></div><div className="photo-slots">{requirements.map((requirement) => { const photoType = String(requirement.photoType); const complete = uploadedPhotoTypes.includes(photoType); return <label key={photoType} className={complete ? "photo-slot complete" : "photo-slot"}><span>{complete ? "✓" : "○"} {photoType.replaceAll("_", " ")}{requirement.isRequired ? " · required" : " · optional"}</span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={loading} onChange={(event) => void uploadInspectionPhoto(photoType, event.target.files?.[0])} /></label>; })}</div><div className="form-actions"><button disabled={loading} onClick={() => void completeInspection()}>Complete inspection</button><button className="secondary" onClick={() => setInspectionId("")}>Close</button></div></section>}
       {!loading && tab === "dashboard" && dashboard && <div className="dashboard-grid"><Metric label="Total fleet" value={Object.values(dashboard.fleet).reduce((sum, value) => sum + value, 0)} /><Metric label="Available" value={dashboard.fleet.AVAILABLE ?? 0} /><Metric label="Active allocations" value={dashboard.activeAllocations} /><Metric label="IoT online" value={dashboard.iot.online} /><Metric label="IoT offline" value={dashboard.iot.offline} /><Metric label="KYC pending" value={dashboard.riders.PENDING ?? 0} /></div>}
-      {!loading && tab !== "dashboard" && <div className="table-wrap"><table><thead><tr>{tab === "fleets" ? <><th>Vehicle</th><th>OEM</th><th>Status</th><th>Hub</th></> : tab === "riders" ? <><th>Rider</th><th>Mobile</th><th>Status</th></> : <><th>Fleet</th><th>Rider</th><th>Status</th><th>Created</th></>}</tr></thead><tbody>{items.map((item) => tab === "fleets" ? <tr key={String(item.id)}><td>{String(item.vehicleNumber)}</td><td>{String(item.oem)}</td><td><Status value={String(item.status)} /></td><td>{(item.hub as RecordItem | null)?.name as string ?? "—"}</td></tr> : tab === "riders" ? <tr key={String(item.id)}><td>{String(item.name)}</td><td>{String(item.mobile)}</td><td><Status value={String(item.status)} /></td></tr> : <tr key={String(item.id)}><td>{String((item.fleet as RecordItem)?.vehicleNumber ?? "—")}</td><td>{String((item.rider as RecordItem)?.name ?? "—")}</td><td><Status value={String(item.status)} /></td><td>{new Date(String(item.createdAt)).toLocaleDateString()}</td></tr>)}</tbody></table>{items.length === 0 && <p className="empty">No records match this view.</p>}</div>}
+      {!loading && tab !== "dashboard" && <div className="table-wrap"><table><thead><tr>{tab === "fleets" ? <><th>Vehicle</th><th>OEM</th><th>Status</th><th>Hub</th></> : tab === "riders" ? <><th>Rider</th><th>Mobile</th><th>Status</th></> : <><th>Fleet</th><th>Rider</th><th>Status</th><th>Created</th><th /></>}</tr></thead><tbody>{items.map((item) => tab === "fleets" ? <tr key={String(item.id)}><td>{String(item.vehicleNumber)}</td><td>{String(item.oem)}</td><td><Status value={String(item.status)} /></td><td>{(item.hub as RecordItem | null)?.name as string ?? "—"}</td></tr> : tab === "riders" ? <tr key={String(item.id)}><td>{String(item.name)}</td><td>{String(item.mobile)}</td><td><Status value={String(item.status)} /></td></tr> : <tr key={String(item.id)}><td>{String((item.fleet as RecordItem)?.vehicleNumber ?? "—")}</td><td>{String((item.rider as RecordItem)?.name ?? "—")}</td><td><Status value={String(item.status)} /></td><td>{new Date(String(item.createdAt)).toLocaleDateString()}</td><td><button className="secondary table-action" onClick={() => void openInspection(item)}>Inspect</button></td></tr>)}</tbody></table>{items.length === 0 && <p className="empty">No records match this view.</p>}</div>}
     </section>
   </main>;
 }
