@@ -195,6 +195,13 @@ export default function Home() {
   );
   const [vehicleState, setVehicleState] = useState<RecordItem | null>(null);
   const [riderDetail, setRiderDetail] = useState<RecordItem | null>(null);
+  const [editingRider, setEditingRider] = useState(false);
+  const [riderDraft, setRiderDraft] = useState({
+    name: "",
+    mobile: "",
+    address: "",
+    status: "PENDING",
+  });
   const [fleetDetail, setFleetDetail] = useState<RecordItem | null>(null);
   const [iotDeviceNumber, setIotDeviceNumber] = useState("");
   const [ingestSecret, setIngestSecret] = useState("");
@@ -740,14 +747,50 @@ export default function Home() {
     setLoading(true);
     setError("");
     try {
-      setRiderDetail(
-        (await request(`/riders/${riderId}`, {}, token)) as RecordItem,
-      );
+      const rider = (await request(
+        `/riders/${riderId}`,
+        {},
+        token,
+      )) as RecordItem;
+      setRiderDetail(rider);
+      setRiderDraft({
+        name: String(rider.name ?? ""),
+        mobile: String(rider.mobile ?? ""),
+        address: String(rider.address ?? ""),
+        status: String(rider.status ?? "PENDING"),
+      });
+      setEditingRider(false);
     } catch (cause) {
       setError(
         cause instanceof Error
           ? cause.message
           : "Unable to load rider details.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function updateRider(event: FormEvent) {
+    event.preventDefault();
+    if (!riderDetail) return;
+    setLoading(true);
+    setError("");
+    try {
+      await request(
+        `/riders/${String(riderDetail.id)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(riderDraft),
+        },
+        token,
+      );
+      setNotice("Rider updated.");
+      await openRiderDetail(String(riderDetail.id));
+      await loadView("riders");
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Unable to update rider.",
       );
     } finally {
       setLoading(false);
@@ -1853,6 +1896,86 @@ export default function Home() {
                 <span>{String(riderDetail.address ?? "—")}</span>
               </div>
             </div>
+            <button
+              className="secondary"
+              onClick={() => setEditingRider((current) => !current)}
+            >
+              {editingRider ? "Cancel edit" : "Edit rider"}
+            </button>
+            {editingRider && (
+              <form className="form-stack" onSubmit={updateRider}>
+                <label>
+                  Name
+                  <input
+                    value={riderDraft.name}
+                    onChange={(event) =>
+                      setRiderDraft((current) => ({
+                        ...current,
+                        name: event.target.value,
+                      }))
+                    }
+                    required
+                  />
+                </label>
+                <label>
+                  Mobile
+                  <input
+                    value={riderDraft.mobile}
+                    onChange={(event) =>
+                      setRiderDraft((current) => ({
+                        ...current,
+                        mobile: event.target.value,
+                      }))
+                    }
+                    required
+                  />
+                </label>
+                <label>
+                  Address
+                  <textarea
+                    value={riderDraft.address}
+                    onChange={(event) =>
+                      setRiderDraft((current) => ({
+                        ...current,
+                        address: event.target.value,
+                      }))
+                    }
+                    maxLength={500}
+                    rows={3}
+                  />
+                </label>
+                <label>
+                  Rider status
+                  <select
+                    value={riderDraft.status}
+                    onChange={(event) =>
+                      setRiderDraft((current) => ({
+                        ...current,
+                        status: event.target.value,
+                      }))
+                    }
+                  >
+                    {["PENDING", "ACTIVE", "INACTIVE", "BLOCKED"].map(
+                      (status) => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                </label>
+                <div className="form-actions">
+                  <button disabled={loading}>Save rider</button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => setEditingRider(false)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
             <h3>KYC</h3>
             <div className="inspection-summary">
               {((riderDetail.kycs as RecordItem[]) ?? []).map((kyc) => (
