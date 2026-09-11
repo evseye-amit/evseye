@@ -15,5 +15,8 @@
     "db:generate": "pnpm --filter @evs-eye/api prisma generate",
     "db:migrate": "pnpm --filter @evs-eye/api prisma migrate dev",
     "db:seed": "pnpm --filter @evs-eye/api exec prisma db seed"
+  },
+  "devDependencies": {
+    "prettier": "3.5.3"
   }
 }
