@@ -654,11 +654,12 @@ export default function Home() {
             <h1>{title}</h1>
           </div>
           <div className="header-actions">
-            {tab === "allocations" && (
-              <button onClick={() => void openAllocationForm()}>
-                New allocation
-              </button>
-            )}
+              {tab === "allocations" && (
+                <button onClick={() => void openAllocationForm()}>
+                  New allocation
+                </button>
+              )}
+              {tab === "riders" && <button onClick={() => setShowRiderForm(true)}>New rider</button>}
             <button className="secondary" onClick={() => void loadView(tab)}>
               Refresh
             </button>
@@ -768,6 +769,7 @@ export default function Home() {
             </form>
           </section>
         )}
+        {showRiderForm && <section className="action-card"><p className="eyebrow">RIDER ONBOARDING</p><h2>Create rider</h2><form className="form-stack" onSubmit={createRider}><label>Name<input value={newRiderName} onChange={(event) => setNewRiderName(event.target.value)} required /></label><label>Mobile<input value={newRiderMobile} onChange={(event) => setNewRiderMobile(event.target.value)} placeholder="+919999999999" required /></label><div className="form-actions"><button disabled={loading}>Create rider</button><button type="button" className="secondary" onClick={() => setShowRiderForm(false)}>Cancel</button></div></form></section>}
         {inspectionId && (
           <section className="action-card">
             <div>
