@@ -103,11 +103,19 @@ const emptyOem = {
 const emptyPackage = {
   code: "",
   name: "",
+  packageType: "STANDARD",
   monthlyPrice: "",
   yearlyPrice: "",
   currency: "INR",
-  status: "ACTIVE",
   description: "",
+  maxFleets: "",
+  maxVehicles: "",
+  maxRiders: "",
+  maxUsers: "",
+  trialDays: "0",
+  displayOrder: "0",
+  isDefault: false,
+  isActive: true,
 };
 const emptyFeature = {
   code: "",
@@ -530,10 +538,20 @@ export default function SuperAdminDashboard() {
             method: editingPackageId ? "PUT" : "POST",
             body: JSON.stringify({
               ...pack,
-              monthlyPrice: Number(pack.monthlyPrice),
+              ...(pack.monthlyPrice
+                ? { monthlyPrice: Number(pack.monthlyPrice) }
+                : {}),
               ...(pack.yearlyPrice
                 ? { yearlyPrice: Number(pack.yearlyPrice) }
                 : {}),
+              ...(pack.maxFleets ? { maxFleets: Number(pack.maxFleets) } : {}),
+              ...(pack.maxVehicles
+                ? { maxVehicles: Number(pack.maxVehicles) }
+                : {}),
+              ...(pack.maxRiders ? { maxRiders: Number(pack.maxRiders) } : {}),
+              ...(pack.maxUsers ? { maxUsers: Number(pack.maxUsers) } : {}),
+              trialDays: Number(pack.trialDays || 0),
+              displayOrder: Number(pack.displayOrder || 0),
               featureIds: selectedFeatureIds,
             }),
           },
@@ -1143,14 +1161,14 @@ export default function SuperAdminDashboard() {
               <div>
                 <h2>Package catalogue</h2>
                 <p>
-                  Define the commercial package and its enabled platform
-                  features.
+                  Define commercial packages, limits, trial settings, and their
+                  enabled platform features.
                 </p>
               </div>
             </section>
             <section className="sa-management">
               <form className="sa-form" onSubmit={submitPackage}>
-                <h3>Create package</h3>
+                <h3>{editingPackageId ? "Edit Package" : "Create Package"}</h3>
                 <TextFields
                   value={pack}
                   change={(key, value) =>
@@ -1159,18 +1177,57 @@ export default function SuperAdminDashboard() {
                   fields={[
                     ["code", "Package code"],
                     ["name", "Package name"],
+                    ["description", "Description"],
                     ["monthlyPrice", "Monthly price"],
                     ["yearlyPrice", "Yearly price"],
-                    ["description", "Description"],
+                    ["maxFleets", "Maximum fleets"],
+                    ["maxVehicles", "Maximum vehicles"],
+                    ["maxRiders", "Maximum riders"],
+                    ["maxUsers", "Maximum users"],
+                    ["trialDays", "Trial days"],
+                    ["displayOrder", "Display order"],
                   ]}
                 />
                 <Select
-                  value={pack.status}
+                  value={pack.packageType}
                   change={(value) =>
-                    setPack((current) => ({ ...current, status: value }))
+                    setPack((current) => ({ ...current, packageType: value }))
                   }
-                  options={["ACTIVE", "INACTIVE", "SUSPENDED"]}
+                  options={[
+                    "STANDARD",
+                    "CUSTOM",
+                    "TRIAL",
+                    "ADD_ON",
+                    "ENTERPRISE",
+                    "INTERNAL",
+                  ]}
                 />
+                <label className="sa-toggle">
+                  <input
+                    type="checkbox"
+                    checked={pack.isDefault}
+                    onChange={(event) =>
+                      setPack((current) => ({
+                        ...current,
+                        isDefault: event.target.checked,
+                      }))
+                    }
+                  />
+                  Default package
+                </label>
+                <label className="sa-toggle">
+                  <input
+                    type="checkbox"
+                    checked={pack.isActive}
+                    onChange={(event) =>
+                      setPack((current) => ({
+                        ...current,
+                        isActive: event.target.checked,
+                      }))
+                    }
+                  />
+                  Active package
+                </label>
                 <div className="sa-checkbox-list">
                   {features
                     .filter(
@@ -1202,11 +1259,23 @@ export default function SuperAdminDashboard() {
                 </button>
               </form>
               <DataTable
-                headings={["Code", "Package", "Monthly", "Features", ""]}
+                headings={[
+                  "Code",
+                  "Package",
+                  "Type",
+                  "Monthly",
+                  "Limits",
+                  "Status",
+                  "Features",
+                  "",
+                ]}
                 rows={packages.map((item) => [
                   item.code,
                   item.name,
-                  `₹${item.monthlyPrice}`,
+                  item.packageType,
+                  item.monthlyPrice ? `₹${item.monthlyPrice}` : "—",
+                  `${item.maxVehicles ?? "∞"} vehicles · ${item.maxRiders ?? "∞"} riders`,
+                  `${item.isActive ? "ACTIVE" : "INACTIVE"}${item.isDefault ? " · DEFAULT" : ""}`,
                   item.features?.length ?? 0,
                   <button
                     key="edit"
@@ -1215,13 +1284,25 @@ export default function SuperAdminDashboard() {
                       setPack({
                         code: item.code,
                         name: item.name,
-                        monthlyPrice: String(item.monthlyPrice),
+                        packageType: item.packageType,
+                        monthlyPrice: item.monthlyPrice
+                          ? String(item.monthlyPrice)
+                          : "",
                         yearlyPrice: item.yearlyPrice
                           ? String(item.yearlyPrice)
                           : "",
                         currency: item.currency,
-                        status: item.status,
                         description: item.description ?? "",
+                        maxFleets: item.maxFleets ? String(item.maxFleets) : "",
+                        maxVehicles: item.maxVehicles
+                          ? String(item.maxVehicles)
+                          : "",
+                        maxRiders: item.maxRiders ? String(item.maxRiders) : "",
+                        maxUsers: item.maxUsers ? String(item.maxUsers) : "",
+                        trialDays: String(item.trialDays ?? 0),
+                        displayOrder: String(item.displayOrder ?? 0),
+                        isDefault: item.isDefault,
+                        isActive: item.isActive,
                       });
                       setSelectedFeatureIds(
                         (item.features ?? []).map(

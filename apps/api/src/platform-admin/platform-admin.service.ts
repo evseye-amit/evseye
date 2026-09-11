@@ -69,8 +69,15 @@ export class PlatformAdminService {
         const packageRecord = await tx.package.findUnique({
           where: { id: dto.packageId },
         });
-        if (!packageRecord || packageRecord.status !== 'ACTIVE')
-          throw new NotFoundException('Selected package is unavailable.');
+        if (
+          !packageRecord ||
+          !packageRecord.isActive ||
+          packageRecord.monthlyPrice === null
+        ) {
+          throw new NotFoundException(
+            'Selected package is unavailable or has no monthly price.',
+          );
+        }
         const created = await tx.tenant.create({
           data: { name: dto.name, slug: dto.slug },
         });

@@ -19,6 +19,7 @@ import {
   FeatureType,
   MasterRecordStatus,
   OemType,
+  PackageType,
   PricingModel,
 } from '@prisma/client';
 
@@ -96,13 +97,21 @@ export class BulkCreateFeaturesDto {
 }
 
 export class CreatePackageDto {
-  @IsString() @Matches(/^[A-Z0-9_-]+$/) @MaxLength(60) code!: string;
-  @IsString() @MaxLength(120) name!: string;
-  @IsNumber() @Min(0) monthlyPrice!: number;
+  @IsString() @Matches(/^[A-Z0-9_-]+$/) @MaxLength(50) code!: string;
+  @IsString() @MaxLength(100) name!: string;
+  @IsOptional() @IsNumber() @Min(0) monthlyPrice?: number;
   @IsOptional() @IsNumber() @Min(0) yearlyPrice?: number;
   @IsOptional() @IsString() @Matches(/^[A-Z]{3}$/) currency?: string;
-  @IsEnum(MasterRecordStatus) status!: MasterRecordStatus;
-  @IsOptional() @IsString() @MaxLength(1000) description?: string;
+  @IsEnum(PackageType) packageType!: PackageType;
+  @IsOptional() @IsString() @MaxLength(500) description?: string;
+  @IsOptional() @IsNumber() @Min(0) maxFleets?: number;
+  @IsOptional() @IsNumber() @Min(0) maxVehicles?: number;
+  @IsOptional() @IsNumber() @Min(0) maxRiders?: number;
+  @IsOptional() @IsNumber() @Min(0) maxUsers?: number;
+  @IsOptional() @IsNumber() @Min(0) trialDays?: number;
+  @IsOptional() @IsNumber() @Min(0) displayOrder?: number;
+  @IsOptional() @IsBoolean() isDefault?: boolean;
+  @IsOptional() @IsBoolean() isActive?: boolean;
   @IsOptional() @IsArray() @IsString({ each: true }) featureIds?: string[];
 }
 

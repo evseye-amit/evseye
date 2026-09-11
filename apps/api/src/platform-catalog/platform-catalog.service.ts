@@ -47,7 +47,7 @@ export class PlatformCatalogService {
       this.prisma.tenant.count(),
       this.prisma.fleet.count(),
       this.prisma.rider.count(),
-      this.prisma.package.count({ where: { status: 'ACTIVE' } }),
+      this.prisma.package.count({ where: { isActive: true } }),
       this.prisma.oem.count({ where: { status: 'ACTIVE' } }),
     ]).then(([clients, fleets, riders, packages, oems]) => ({
       clients,
@@ -278,23 +278,37 @@ export class PlatformCatalogService {
         features: { include: { feature: true } },
         _count: { select: { subscriptions: true } },
       },
-      orderBy: { name: 'asc' },
+      orderBy: [
+        { isDefault: 'desc' },
+        { displayOrder: 'asc' },
+        { name: 'asc' },
+      ],
     });
   }
   async createPackage(dto: CreatePackageDto, actorId: string) {
     const { featureIds = [], ...data } = dto;
     return this.createWithAudit('PACKAGE_CREATED', 'Package', actorId, () =>
-      this.prisma.package.create({
-        data: {
-          ...data,
-          features: {
-            create: featureIds.map((featureId) => ({
-              featureId,
-              unlimitedUsage: true,
-            })),
+      this.prisma.$transaction(async (tx) => {
+        if (data.isDefault) {
+          await tx.package.updateMany({
+            where: { isDefault: true },
+            data: { isDefault: false, updatedById: actorId },
+          });
+        }
+        return tx.package.create({
+          data: {
+            ...data,
+            createdById: actorId,
+            updatedById: actorId,
+            features: {
+              create: featureIds.map((featureId) => ({
+                featureId,
+                unlimitedUsage: true,
+              })),
+            },
           },
-        },
-        include: { features: { include: { feature: true } } },
+          include: { features: { include: { feature: true } } },
+        });
       }),
     );
   }
@@ -303,6 +317,12 @@ export class PlatformCatalogService {
     const { featureIds, ...data } = dto;
     return this.updateWithAudit('PACKAGE_UPDATED', 'Package', id, actorId, () =>
       this.prisma.$transaction(async (tx) => {
+        if (data.isDefault) {
+          await tx.package.updateMany({
+            where: { isDefault: true, id: { not: id } },
+            data: { isDefault: false, updatedById: actorId },
+          });
+        }
         if (featureIds) {
           await tx.packageFeature.deleteMany({ where: { packageId: id } });
           await tx.packageFeature.createMany({
@@ -315,7 +335,7 @@ export class PlatformCatalogService {
         }
         return tx.package.update({
           where: { id },
-          data,
+          data: { ...data, updatedById: actorId },
           include: { features: { include: { feature: true } } },
         });
       }),

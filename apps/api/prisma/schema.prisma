@@ -186,6 +186,15 @@ enum FeatureBillingUnit {
   MONTH
 }
 
+enum PackageType {
+  STANDARD
+  CUSTOM
+  TRIAL
+  ADD_ON
+  ENTERPRISE
+  INTERNAL
+}
+
 model Tenant {
   id                String                  @id @default(uuid())
   name              String
@@ -227,16 +236,26 @@ model Package {
   code          String               @unique
   name          String
   description   String?
-  monthlyPrice  Decimal              @db.Decimal(12, 2)
+  packageType   PackageType          @default(STANDARD)
+  monthlyPrice  Decimal?             @db.Decimal(12, 2)
   yearlyPrice   Decimal?             @db.Decimal(12, 2)
   currency      String               @default("INR") @db.Char(3)
-  status        MasterRecordStatus   @default(ACTIVE)
+  maxFleets     Int?
+  maxVehicles   Int?
+  maxRiders     Int?
+  maxUsers      Int?
+  trialDays     Int                  @default(0)
+  displayOrder  Int                  @default(0)
+  isDefault     Boolean              @default(false)
+  isActive      Boolean              @default(true)
+  createdById   String?
+  updatedById   String?
   features      PackageFeature[]
   subscriptions ClientSubscription[]
   createdAt     DateTime             @default(now())
   updatedAt     DateTime             @updatedAt
 
-  @@index([status])
+  @@index([isActive, packageType, displayOrder])
 }
 
 model Feature {
