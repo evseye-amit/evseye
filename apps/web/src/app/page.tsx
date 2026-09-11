@@ -221,6 +221,8 @@ export default function Home() {
     status: "PENDING",
   });
   const [fleetDetail, setFleetDetail] = useState<RecordItem | null>(null);
+  const [fleetOnboardingStatus, setFleetOnboardingStatus] =
+    useState<RecordItem | null>(null);
   const [fleetPhotoRequirements, setFleetPhotoRequirements] = useState<
     RecordItem[]
   >([]);
@@ -931,7 +933,7 @@ export default function Home() {
     setLoading(true);
     setError("");
     try {
-      const [fleet, currentState, photoRequirements, photos] =
+      const [fleet, currentState, onboardingStatus, photoRequirements, photos] =
         await Promise.all([
           request(`/fleets/${fleetId}`, {}, token) as Promise<RecordItem>,
           request(
@@ -939,6 +941,11 @@ export default function Home() {
             {},
             token,
           ) as Promise<RecordItem | null>,
+          request(
+            `/fleets/${fleetId}/onboarding-status`,
+            {},
+            token,
+          ) as Promise<RecordItem>,
           request(
             "/media/photo-requirements?entityType=FLEET",
             {},
@@ -952,6 +959,7 @@ export default function Home() {
         ]);
       setFleetDetail(fleet);
       setVehicleState(currentState);
+      setFleetOnboardingStatus(onboardingStatus);
       setFleetPhotoRequirements(photoRequirements);
       setUploadedFleetPhotoTypes(
         photos
@@ -1013,6 +1021,16 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function refreshFleetOnboardingStatus(fleetId: string) {
+    setFleetOnboardingStatus(
+      (await request(
+        `/fleets/${fleetId}/onboarding-status`,
+        {},
+        token,
+      )) as RecordItem,
+    );
   }
 
   async function startKyc(
@@ -1126,6 +1144,7 @@ export default function Home() {
       setUploadedFleetPhotoTypes((current) =>
         current.includes(photoType) ? current : [...current, photoType],
       );
+      await refreshFleetOnboardingStatus(fleetId);
       setNotice(`${photoType.replaceAll("_", " ")} photo uploaded.`);
     } catch (cause) {
       setError(
@@ -1189,6 +1208,9 @@ export default function Home() {
           ? current[key]
           : [...(current[key] ?? []), photoType],
       }));
+      if (fleetDetail) {
+        await refreshFleetOnboardingStatus(String(fleetDetail.id));
+      }
       setNotice(`${photoType.replaceAll("_", " ")} photo uploaded.`);
     } catch (cause) {
       setError(
@@ -2113,6 +2135,39 @@ export default function Home() {
           <section className="action-card detail-card">
             <p className="eyebrow">FLEET DETAIL</p>
             <h2>{String(fleetDetail.vehicleNumber)}</h2>
+            {fleetOnboardingStatus && (
+              <div
+                className={
+                  fleetOnboardingStatus.ready
+                    ? "onboarding-status ready"
+                    : "onboarding-status incomplete"
+                }
+              >
+                <strong>
+                  {fleetOnboardingStatus.ready
+                    ? "✓ Onboarding evidence complete"
+                    : "! Onboarding evidence incomplete"}
+                </strong>
+                {!fleetOnboardingStatus.ready && (
+                  <span>
+                    {((fleetOnboardingStatus.items as RecordItem[]) ?? [])
+                      .filter(
+                        (item) =>
+                          (item.missingPhotoTypes as string[]).length > 0,
+                      )
+                      .map(
+                        (item) =>
+                          `${String(item.label)}: ${(
+                            item.missingPhotoTypes as string[]
+                          )
+                            .map((photoType) => photoType.replaceAll("_", " "))
+                            .join(", ")}`,
+                      )
+                      .join(" · ")}
+                  </span>
+                )}
+              </div>
+            )}
             <h3>Fleet onboarding photos</h3>
             {fleetPhotoRequirements.length > 0 ? (
               <div className="photo-slots">
@@ -2319,6 +2374,7 @@ export default function Home() {
               className="secondary"
               onClick={() => {
                 setFleetDetail(null);
+                setFleetOnboardingStatus(null);
                 setIngestSecret("");
               }}
             >

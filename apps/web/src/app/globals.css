@@ -338,6 +338,22 @@ th {
   gap: 7px;
   font-size: 13px;
 }
+.onboarding-status {
+  display: grid;
+  gap: 5px;
+  margin: 12px 0 4px;
+  padding: 12px 14px;
+  border-radius: 9px;
+  font-size: 13px;
+}
+.onboarding-status.ready {
+  color: var(--green-dark);
+  background: #dff0e5;
+}
+.onboarding-status.incomplete {
+  color: #875e11;
+  background: #fff3d5;
+}
 @media (max-width: 720px) {
   .app-shell {
     grid-template-columns: 1fr;
