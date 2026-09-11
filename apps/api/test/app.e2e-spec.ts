@@ -81,7 +81,17 @@ describe('Health endpoints (e2e)', () => {
     await request(app.getHttpServer())
       .get('/api/v1/riders')
       .expect(429)
-      .expect('x-request-id', /.+/);
+      .expect('x-request-id', /.+/)
+      .expect('retry-after', /[1-9]\d*/)
+      .expect((response) => {
+        expect(response.body).toMatchObject({
+          error: {
+            code: 'HTTP_ERROR',
+            message: 'ThrottlerException: Too Many Requests',
+          },
+          requestId: expect.any(String),
+        });
+      });
 
     await request(app.getHttpServer()).get('/health').expect(200);
     await request(app.getHttpServer()).get('/health').expect(200);
