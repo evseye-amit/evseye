@@ -12,3 +12,8 @@ Multi-tenant EV fleet-management MVP.
 The API health endpoints are `/health` and `/health/ready`.
 
 The development seed creates tenant slug `demo` and tenant-admin mobile `+919000000000`.
+
+## Verification
+
+Run `pnpm typecheck`, `pnpm test`, and `pnpm build` before review or release.
+For the complete deployment and acceptance procedure, see `docs/release-checklist.md`.
