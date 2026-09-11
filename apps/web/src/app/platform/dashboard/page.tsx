@@ -94,6 +94,10 @@ export default function SuperAdminDashboard() {
   const [pricing, setPricing] = useState<Item[]>([]);
   const [oem, setOem] = useState(emptyOem);
   const [editingOemId, setEditingOemId] = useState<string | null>(null);
+  const [showOemForm, setShowOemForm] = useState(false);
+  const [showOemBulk, setShowOemBulk] = useState(false);
+  const [oemLogoFile, setOemLogoFile] = useState<File | null>(null);
+  const [oemLogoPreview, setOemLogoPreview] = useState("");
   const [pack, setPack] = useState(emptyPackage);
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
   const [selectedFeatureIds, setSelectedFeatureIds] = useState<string[]>([]);
@@ -184,18 +188,170 @@ export default function SuperAdminDashboard() {
   async function submitOem(event: FormEvent) {
     event.preventDefault();
     await submit(
-      () =>
-        request(
+      async () => {
+        const saved = await request(
           editingOemId ? `/platform/oems/${editingOemId}` : "/platform/oems",
           { method: editingOemId ? "PUT" : "POST", body: JSON.stringify(oem) },
           token,
-        ),
+        );
+        if (oemLogoFile) await uploadOemLogo(saved.id, oemLogoFile);
+      },
       editingOemId ? "OEM updated." : "OEM created.",
       () => {
         setOem(emptyOem);
         setEditingOemId(null);
+        setShowOemForm(false);
+        setOemLogoFile(null);
+        setOemLogoPreview("");
       },
     );
+  }
+  async function selectOemLogo(file: File) {
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+    if (!allowedTypes.includes(file.type)) {
+      setError("Choose a PNG, JPEG, or WebP logo.");
+      return;
+    }
+    if (file.size > 1024 * 1024) {
+      setError("OEM logo must be 1 MB or smaller.");
+      return;
+    }
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const dimensions = await new Promise<{ width: number; height: number }>(
+        (resolve, reject) => {
+          const image = new Image();
+          image.onload = () =>
+            resolve({ width: image.width, height: image.height });
+          image.onerror = () =>
+            reject(new Error("The selected logo could not be read."));
+          image.src = objectUrl;
+        },
+      );
+      if (dimensions.width > 200 || dimensions.height > 200) {
+        throw new Error("OEM logo must be no larger than 200 × 200 pixels.");
+      }
+      setError("");
+      setOemLogoFile(file);
+      setOemLogoPreview(objectUrl);
+    } catch (cause) {
+      URL.revokeObjectURL(objectUrl);
+      setError(cause instanceof Error ? cause.message : "Invalid OEM logo.");
+    }
+  }
+  async function uploadOemLogo(oemId: string, file: File) {
+    const intent = await request(
+      `/platform/oems/${oemId}/logo-upload-intents`,
+      {
+        method: "POST",
+        body: JSON.stringify({ mimeType: file.type, sizeBytes: file.size }),
+      },
+      token,
+    );
+    const upload = await fetch(intent.uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": file.type },
+      body: file,
+    });
+    if (!upload.ok) throw new Error("The OEM logo could not be uploaded.");
+    await request(
+      `/platform/oems/${oemId}/logo-upload-complete`,
+      { method: "POST", body: JSON.stringify({ objectKey: intent.objectKey }) },
+      token,
+    );
+  }
+  function downloadOemTemplate() {
+    const csv =
+      "oem_code,oem_name,display_name,oem_type,status,logo_url,website,description\nZELIO,Zelio Auto Private Limited,Zelio,VEHICLE,ACTIVE,,,\n";
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "evseye-oem-template.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+  async function uploadOemCsv(file: File) {
+    setLoading(true);
+    setError("");
+    try {
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).filter((line) => line.trim());
+      const headers = lines
+        .shift()
+        ?.split(",")
+        .map((header) => header.trim().toLowerCase());
+      const expected = [
+        "oem_code",
+        "oem_name",
+        "display_name",
+        "oem_type",
+        "status",
+        "logo_url",
+        "website",
+        "description",
+      ];
+      if (
+        !headers ||
+        expected.some((header, index) => headers[index] !== header)
+      )
+        throw new Error(
+          "Use the OEM template. Header names or their order do not match.",
+        );
+      const parse = (line: string) => {
+        const cells: string[] = [];
+        let current = "";
+        let quoted = false;
+        for (let index = 0; index < line.length; index += 1) {
+          const char = line[index];
+          if (char === '"') quoted = !quoted;
+          else if (char === "," && !quoted) {
+            cells.push(current.trim());
+            current = "";
+          } else current += char;
+        }
+        cells.push(current.trim());
+        return cells.map((cell) => cell.replace(/^"|"$/g, ""));
+      };
+      const rows = lines.map((line) => {
+        const [
+          code,
+          name,
+          displayName,
+          type,
+          status,
+          logoUrl,
+          website,
+          description,
+        ] = parse(line);
+        return {
+          code,
+          name,
+          displayName,
+          type,
+          status,
+          ...(logoUrl ? { logoUrl } : {}),
+          ...(website ? { website } : {}),
+          ...(description ? { description } : {}),
+        };
+      });
+      if (!rows.length) throw new Error("The upload contains no OEM rows.");
+      const result = (await request(
+        "/platform/oems/bulk",
+        { method: "POST", body: JSON.stringify({ rows }) },
+        token,
+      )) as { created: number };
+      setNotice(
+        `${result.created} OEM${result.created === 1 ? "" : "s"} imported successfully.`,
+      );
+      setShowOemBulk(false);
+      await load();
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Unable to import OEMs.",
+      );
+    } finally {
+      setLoading(false);
+    }
   }
   async function submitPackage(event: FormEvent) {
     event.preventDefault();
@@ -328,7 +484,7 @@ export default function SuperAdminDashboard() {
   const nav: Array<[Tab, string, string]> = [
     ["dashboard", "Dashboard", "▦"],
     ["clients", "Clients", "♙"],
-    ["oems", "OEM master", "▣"],
+    ["oems", "OEM", "▣"],
     ["packages", "Packages", "◫"],
     ["pricing", "Feature pricing", "₹"],
   ];
@@ -424,88 +580,184 @@ export default function SuperAdminDashboard() {
           <>
             <section className="sa-page-head">
               <div>
-                <h2>OEM master</h2>
+                <h2>OEM</h2>
                 <p>
                   Create and manage manufacturers visible across the platform.
                 </p>
               </div>
-            </section>
-            <section className="sa-management">
-              <form className="sa-form" onSubmit={submitOem}>
-                <h3>Add OEM</h3>
-                <TextFields
-                  value={oem}
-                  change={(key, value) =>
-                    setOem((current) => ({ ...current, [key]: value }))
-                  }
-                  fields={[
-                    ["code", "OEM code"],
-                    ["name", "Legal name"],
-                    ["displayName", "Display name"],
-                    ["website", "Website"],
-                    ["description", "Description"],
-                  ]}
-                />
-                <Select
-                  value={oem.type}
-                  change={(value) =>
-                    setOem((current) => ({ ...current, type: value }))
-                  }
-                  options={[
-                    "VEHICLE",
-                    "BATTERY",
-                    "IOT",
-                    "CHARGER",
-                    "MULTI_PRODUCT",
-                  ]}
-                />
-                <Select
-                  value={oem.status}
-                  change={(value) =>
-                    setOem((current) => ({ ...current, status: value }))
-                  }
-                  options={["ACTIVE", "INACTIVE", "SUSPENDED"]}
-                />
-                <button disabled={loading}>
-                  {editingOemId ? "Update OEM" : "Save OEM"}
+              <div className="sa-actions">
+                <button className="secondary" onClick={downloadOemTemplate}>
+                  Download template
                 </button>
-              </form>
-              <DataTable
-                headings={["Code", "OEM", "Type", "Status", ""]}
-                rows={oems.map((item) => [
-                  item.code,
-                  item.displayName,
-                  item.type,
-                  item.status,
-                  <button
-                    key="edit"
-                    className="secondary"
-                    onClick={() => {
-                      setOem({
-                        code: item.code,
-                        name: item.name,
-                        displayName: item.displayName,
-                        type: item.type,
-                        status: item.status,
-                        website: item.website ?? "",
-                        description: item.description ?? "",
-                      });
-                      setEditingOemId(item.id);
+                <button
+                  className="secondary"
+                  onClick={() => {
+                    setShowOemBulk(!showOemBulk);
+                    setShowOemForm(false);
+                  }}
+                >
+                  Bulk upload
+                </button>
+                <button
+                  onClick={() => {
+                    setShowOemForm(!showOemForm);
+                    setShowOemBulk(false);
+                  }}
+                >
+                  + Add OEM
+                </button>
+              </div>
+            </section>
+            {showOemBulk && (
+              <section className="sa-oem-bulk">
+                <div>
+                  <h3>Bulk upload OEMs</h3>
+                  <p>
+                    Download the CSV template, complete one OEM per row, and
+                    upload it. The entire file is rejected if any row is invalid
+                    or duplicates an existing code.
+                  </p>
+                </div>
+                <label className="sa-file-input">
+                  Choose completed CSV
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void uploadOemCsv(file);
+                      event.currentTarget.value = "";
                     }}
-                  >
-                    Edit
-                  </button>,
-                  <button
-                    key="delete"
-                    className="danger"
-                    onClick={() =>
-                      void remove(`/platform/oems/${item.id}`, "OEM")
+                  />
+                </label>
+              </section>
+            )}
+            <section
+              className={`sa-management ${showOemForm ? "" : "oem-table-only"}`}
+            >
+              {showOemForm && (
+                <form className="sa-form" onSubmit={submitOem}>
+                  <h3>Add OEM</h3>
+                  <TextFields
+                    value={oem}
+                    change={(key, value) =>
+                      setOem((current) => ({ ...current, [key]: value }))
                     }
-                  >
-                    Delete
-                  </button>,
-                ])}
-              />
+                    fields={[
+                      ["code", "OEM code"],
+                      ["name", "Legal name"],
+                      ["displayName", "Display name"],
+                      ["website", "Website"],
+                      ["description", "Description"],
+                    ]}
+                  />
+                  <Select
+                    value={oem.type}
+                    change={(value) =>
+                      setOem((current) => ({ ...current, type: value }))
+                    }
+                    options={[
+                      "VEHICLE",
+                      "BATTERY",
+                      "IOT",
+                      "CHARGER",
+                      "MULTI_PRODUCT",
+                    ]}
+                  />
+                  <Select
+                    value={oem.status}
+                    change={(value) =>
+                      setOem((current) => ({ ...current, status: value }))
+                    }
+                    options={["ACTIVE", "INACTIVE", "SUSPENDED"]}
+                  />
+                  <label className="sa-logo-input">
+                    OEM logo{" "}
+                    <span>
+                      PNG, JPEG, or WebP · max 1 MB · max 200 × 200 px
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (file) void selectOemLogo(file);
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                  </label>
+                  {oemLogoPreview && (
+                    <img
+                      className="sa-logo-preview"
+                      src={oemLogoPreview}
+                      alt="OEM logo preview"
+                    />
+                  )}
+                  <button disabled={loading}>
+                    {editingOemId ? "Update OEM" : "Save OEM"}
+                  </button>
+                </form>
+              )}
+              {oems.length ? (
+                <DataTable
+                  headings={["Code", "OEM", "Type", "Status", ""]}
+                  rows={oems.map((item) => [
+                    item.code,
+                    item.displayName,
+                    item.type,
+                    item.status,
+                    <button
+                      key="edit"
+                      className="secondary"
+                      onClick={() => {
+                        setOem({
+                          code: item.code,
+                          name: item.name,
+                          displayName: item.displayName,
+                          type: item.type,
+                          status: item.status,
+                          website: item.website ?? "",
+                          description: item.description ?? "",
+                        });
+                        setEditingOemId(item.id);
+                        setShowOemForm(true);
+                        setOemLogoFile(null);
+                        setOemLogoPreview("");
+                      }}
+                    >
+                      Edit
+                    </button>,
+                    <button
+                      key="delete"
+                      className="danger"
+                      onClick={() =>
+                        void remove(`/platform/oems/${item.id}`, "OEM")
+                      }
+                    >
+                      Delete
+                    </button>,
+                  ])}
+                />
+              ) : (
+                <section className="sa-empty-catalog">
+                  <h3>No OEMs yet</h3>
+                  <p>
+                    Start by adding an OEM individually or importing a completed
+                    template.
+                  </p>
+                  <div>
+                    <button onClick={() => setShowOemForm(true)}>
+                      Add OEM
+                    </button>
+                    <button
+                      className="secondary"
+                      onClick={() => setShowOemBulk(true)}
+                    >
+                      Bulk upload
+                    </button>
+                  </div>
+                </section>
+              )}
             </section>
           </>
         )}

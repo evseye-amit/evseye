@@ -16,6 +16,9 @@ import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import {
   CreateFeatureDto,
+  BulkCreateOemsDto,
+  CompleteOemLogoUploadDto,
+  CreateOemLogoUploadIntentDto,
   CreateFeaturePricingDto,
   CreateOemDto,
   CreatePackageDto,
@@ -42,6 +45,29 @@ export class PlatformCatalogController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.catalog.createOem(dto, user.id).then((data) => ({ data }));
+  }
+  @Post('oems/bulk') bulkCreateOems(
+    @Body() dto: BulkCreateOemsDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.catalog.bulkCreateOems(dto, user.id).then((data) => ({ data }));
+  }
+  @Post('oems/:id/logo-upload-intents') createOemLogoUploadIntent(
+    @Param('id') id: string,
+    @Body() dto: CreateOemLogoUploadIntentDto,
+  ) {
+    return this.catalog
+      .createOemLogoUploadIntent(id, dto)
+      .then((data) => ({ data }));
+  }
+  @Post('oems/:id/logo-upload-complete') completeOemLogoUpload(
+    @Param('id') id: string,
+    @Body() dto: CompleteOemLogoUploadDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.catalog
+      .completeOemLogoUpload(id, dto, user.id)
+      .then((data) => ({ data }));
   }
   @Put('oems/:id') updateOem(
     @Param('id') id: string,

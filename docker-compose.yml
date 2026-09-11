@@ -70,7 +70,6 @@ services:
       S3_BUCKET: evs-eye-local
       S3_ENDPOINT: http://minio:9000
       S3_PUBLIC_ENDPOINT: http://localhost:9000
-      S3_SERVER_SIDE_ENCRYPTION: AES256
       AWS_ACCESS_KEY_ID: evseye-minio
       AWS_SECRET_ACCESS_KEY: evseye-minio-local-password
     ports:

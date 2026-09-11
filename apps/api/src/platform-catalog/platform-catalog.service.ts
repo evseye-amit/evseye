@@ -1,11 +1,22 @@
 import {
+  BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { AuditService } from '../audit/audit.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import {
+  STORAGE_PROVIDER,
+  type StorageProvider,
+} from '../media/storage/storage-provider.interface.js';
+import { MasterRecordStatus, OemType } from '@prisma/client';
 import type {
+  BulkCreateOemsDto,
+  CompleteOemLogoUploadDto,
+  CreateOemLogoUploadIntentDto,
   CreateFeatureDto,
   CreateFeaturePricingDto,
   CreateOemDto,
@@ -21,6 +32,7 @@ export class PlatformCatalogService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
   ) {}
 
   dashboard() {
@@ -64,6 +76,94 @@ export class PlatformCatalogService {
       entityType: 'OEM',
       entityId: id,
     });
+  }
+  async createOemLogoUploadIntent(
+    id: string,
+    dto: CreateOemLogoUploadIntentDto,
+  ) {
+    await this.exists('oem', id);
+    const objectKey = `platform/oems/${id}/logo/${randomUUID()}.${this.extensionFor(dto.mimeType)}`;
+    const uploadUrl = await this.storage.createUploadUrl({
+      objectKey,
+      mimeType: dto.mimeType,
+      sizeBytes: dto.sizeBytes,
+    });
+    return { objectKey, uploadUrl };
+  }
+  async completeOemLogoUpload(
+    id: string,
+    dto: CompleteOemLogoUploadDto,
+    actorId: string,
+  ) {
+    await this.exists('oem', id);
+    if (!dto.objectKey.startsWith(`platform/oems/${id}/logo/`)) {
+      throw new BadRequestException(
+        'The logo upload does not belong to this OEM.',
+      );
+    }
+    await this.storage.assertObjectExists(dto.objectKey);
+    const updated = await this.prisma.oem.update({
+      where: { id },
+      data: { logoObjectKey: dto.objectKey },
+    });
+    await this.audit.record({
+      actorId,
+      action: 'OEM_LOGO_UPLOADED',
+      entityType: 'OEM',
+      entityId: id,
+    });
+    return updated;
+  }
+  async bulkCreateOems(dto: BulkCreateOemsDto, actorId: string) {
+    const validTypes = new Set(Object.values(OemType));
+    const validStatuses = new Set(Object.values(MasterRecordStatus));
+    const codes = new Set<string>();
+    const rows = dto.rows.map((row, index) => {
+      const normalized = {
+        ...row,
+        code: row.code?.trim().toUpperCase(),
+        name: row.name?.trim(),
+        displayName: row.displayName?.trim(),
+        type: row.type?.trim().toUpperCase() as OemType,
+        status: row.status?.trim().toUpperCase() as MasterRecordStatus,
+      };
+      if (
+        !normalized.code ||
+        !/^[A-Z0-9_-]{1,40}$/.test(normalized.code) ||
+        !normalized.name ||
+        !normalized.displayName ||
+        !validTypes.has(normalized.type) ||
+        !validStatuses.has(normalized.status)
+      )
+        throw new ConflictException(
+          `Row ${index + 2} is invalid. Check code, name, display name, type, and status.`,
+        );
+      if (codes.has(normalized.code))
+        throw new ConflictException(
+          `Duplicate OEM code ${normalized.code} in the upload.`,
+        );
+      codes.add(normalized.code);
+      return normalized;
+    });
+    try {
+      await this.prisma.$transaction(
+        rows.map((row) => this.prisma.oem.create({ data: row })),
+      );
+      await this.audit.record({
+        actorId,
+        action: 'OEM_BULK_CREATED',
+        entityType: 'OEM',
+        entityId: 'bulk',
+        newData: { count: rows.length, codes: rows.map((row) => row.code) },
+      });
+      return { created: rows.length };
+    } catch (error) {
+      if (this.unique(error))
+        throw new ConflictException(
+          'The upload contains an OEM code that already exists. No OEMs were imported.',
+        );
+      throw error;
+    }
   }
 
   listFeatures() {
@@ -273,5 +373,12 @@ export class PlatformCatalogService {
       'code' in error &&
       error.code === 'P2002'
     );
+  }
+  private extensionFor(mimeType: CreateOemLogoUploadIntentDto['mimeType']) {
+    return mimeType === 'image/jpeg'
+      ? 'jpeg'
+      : mimeType === 'image/png'
+        ? 'png'
+        : 'webp';
   }
 }

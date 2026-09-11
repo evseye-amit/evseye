@@ -974,6 +974,77 @@ th {
   gap: 20px;
   align-items: start;
 }
+.sa-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.sa-management.oem-table-only {
+  grid-template-columns: 1fr;
+}
+.sa-oem-bulk {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin: -4px 0 20px;
+  padding: 18px 20px;
+  border: 1px dashed #9ac9ad;
+  border-radius: 10px;
+  background: #f2faf5;
+}
+.sa-oem-bulk h3 {
+  margin: 0 0 5px;
+  font-size: 15px;
+}
+.sa-oem-bulk p {
+  max-width: 700px;
+  margin: 0;
+  color: #657068;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.sa-file-input {
+  display: inline-flex;
+  padding: 10px 13px;
+  border-radius: 7px;
+  color: white;
+  background: #257b59;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.sa-file-input input {
+  display: none;
+}
+.sa-empty-catalog {
+  display: grid;
+  min-height: 280px;
+  place-content: center;
+  gap: 8px;
+  padding: 30px;
+  border: 1px dashed #cdd8d0;
+  border-radius: 10px;
+  color: #6c756e;
+  text-align: center;
+}
+.sa-empty-catalog h3 {
+  margin: 0;
+  color: #334238;
+}
+.sa-empty-catalog p {
+  margin: 0;
+}
+.sa-empty-catalog div {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.sa-empty-catalog button {
+  font-size: 12px;
+}
 .sa-form,
 .sa-wizard {
   padding: 20px;
@@ -1008,6 +1079,21 @@ th {
   border-radius: 6px;
   background: #fff;
   color: #202421;
+}
+.sa-logo-input span {
+  color: #849087;
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.35;
+}
+.sa-logo-preview {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  padding: 5px;
+  border: 1px solid #dce3dd;
+  border-radius: 8px;
+  background: #f8fbf9;
 }
 .sa-checkbox-list {
   display: grid;

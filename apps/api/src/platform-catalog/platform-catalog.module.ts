@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module.js';
 import { AuthModule } from '../auth/auth.module.js';
+import { MediaModule } from '../media/media.module.js';
 import { PlatformCatalogController } from './platform-catalog.controller.js';
 import { PlatformCatalogService } from './platform-catalog.service.js';
 
 @Module({
-  imports: [AuthModule, AuditModule],
+  imports: [AuthModule, AuditModule, MediaModule],
   controllers: [PlatformCatalogController],
   providers: [PlatformCatalogService],
 })

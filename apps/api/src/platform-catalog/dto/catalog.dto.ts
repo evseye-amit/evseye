@@ -1,12 +1,15 @@
 import {
+  ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsEnum,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
   IsUrl,
   Matches,
+  Max,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -24,6 +27,38 @@ export class CreateOemDto {
 }
 
 export class UpdateOemDto extends CreateOemDto {}
+
+export class BulkCreateOemsDto {
+  @IsArray()
+  @ArrayMaxSize(500)
+  rows!: Array<{
+    code: string;
+    name: string;
+    displayName: string;
+    type: OemType;
+    status: MasterRecordStatus;
+    logoUrl?: string;
+    website?: string;
+    description?: string;
+  }>;
+}
+
+export class CreateOemLogoUploadIntentDto {
+  @IsString()
+  @IsIn(['image/jpeg', 'image/png', 'image/webp'])
+  mimeType!: 'image/jpeg' | 'image/png' | 'image/webp';
+
+  @IsNumber()
+  @Min(1)
+  @Max(1024 * 1024)
+  sizeBytes!: number;
+}
+
+export class CompleteOemLogoUploadDto {
+  @IsString()
+  @Matches(/^platform\/oems\/[0-9a-f-]+\/logo\/[0-9a-f-]+\.(jpeg|png|webp)$/i)
+  objectKey!: string;
+}
 
 export class CreateFeatureDto {
   @IsString() @Matches(/^[A-Z0-9_-]+$/) @MaxLength(60) code!: string;

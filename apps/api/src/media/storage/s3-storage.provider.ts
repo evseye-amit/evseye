@@ -26,12 +26,16 @@ export class S3StorageProvider implements StorageProvider {
     const publicEndpoint = config.get('S3_PUBLIC_ENDPOINT');
     const clientOptions = {
       region,
+      // MinIO and S3 only require request checksums for specific operations.
+      // Avoid optional SDK checksum headers on signed browser uploads.
+      requestChecksumCalculation: 'WHEN_REQUIRED' as const,
       ...(endpoint ? { endpoint, forcePathStyle: true } : {}),
     };
     this.client = new S3Client(clientOptions);
     this.signingClient = publicEndpoint
       ? new S3Client({
           region,
+          requestChecksumCalculation: 'WHEN_REQUIRED' as const,
           endpoint: publicEndpoint,
           forcePathStyle: true,
         })
