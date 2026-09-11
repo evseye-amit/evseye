@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   ParseEnumPipe,
+  ParseUUIDPipe,
   Post,
   Put,
   Query,
@@ -44,6 +45,28 @@ export class MediaController {
       data: await this.mediaService.requirements(
         this.tenants.requireTenantId(user),
         entityType,
+      ),
+    };
+  }
+
+  @Get('photos')
+  @Roles(
+    UserRole.TENANT_ADMIN,
+    UserRole.OPERATIONS_MANAGER,
+    UserRole.FLEET_MANAGER,
+    UserRole.KYC_OPERATOR,
+  )
+  async entityPhotos(
+    @CurrentUser() user: AuthUser,
+    @Query('entityType', new ParseEnumPipe(PhotoEntityType))
+    entityType: PhotoEntityType,
+    @Query('entityId', ParseUUIDPipe) entityId: string,
+  ) {
+    return {
+      data: await this.mediaService.listEntityPhotos(
+        this.tenants.requireTenantId(user),
+        entityType,
+        entityId,
       ),
     };
   }

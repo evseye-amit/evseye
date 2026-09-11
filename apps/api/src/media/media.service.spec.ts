@@ -52,4 +52,25 @@ describe('MediaService photo requirements', () => {
       }),
     );
   });
+
+  it('lists entity photos only after confirming tenant ownership', async () => {
+    const findMany = vi.fn().mockResolvedValue([{ photoType: 'FRONT' }]);
+    const prisma = {
+      fleet: { findFirst: vi.fn().mockResolvedValue({ id: 'fleet-1' }) },
+      photo: { findMany },
+    };
+    const service = new MediaService(prisma as never, {} as never);
+
+    await expect(
+      service.listEntityPhotos('tenant-a', PhotoEntityType.FLEET, 'fleet-1'),
+    ).resolves.toEqual([{ photoType: 'FRONT' }]);
+    expect(findMany).toHaveBeenCalledWith({
+      where: {
+        tenantId: 'tenant-a',
+        entityType: PhotoEntityType.FLEET,
+        entityId: 'fleet-1',
+      },
+      orderBy: { uploadedAt: 'asc' },
+    });
+  });
 });

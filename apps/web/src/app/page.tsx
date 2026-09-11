@@ -213,6 +213,12 @@ export default function Home() {
     status: "PENDING",
   });
   const [fleetDetail, setFleetDetail] = useState<RecordItem | null>(null);
+  const [fleetPhotoRequirements, setFleetPhotoRequirements] = useState<
+    RecordItem[]
+  >([]);
+  const [uploadedFleetPhotoTypes, setUploadedFleetPhotoTypes] = useState<
+    string[]
+  >([]);
   const [iotDeviceNumber, setIotDeviceNumber] = useState("");
   const [ingestSecret, setIngestSecret] = useState("");
   const [search, setSearch] = useState("");
@@ -896,15 +902,32 @@ export default function Home() {
     setLoading(true);
     setError("");
     try {
-      setFleetDetail(
-        (await request(`/fleets/${fleetId}`, {}, token)) as RecordItem,
-      );
-      setVehicleState(
-        (await request(
-          `/fleets/${fleetId}/current-state`,
-          {},
-          token,
-        )) as RecordItem | null,
+      const [fleet, currentState, photoRequirements, photos] =
+        await Promise.all([
+          request(`/fleets/${fleetId}`, {}, token) as Promise<RecordItem>,
+          request(
+            `/fleets/${fleetId}/current-state`,
+            {},
+            token,
+          ) as Promise<RecordItem | null>,
+          request(
+            "/media/photo-requirements?entityType=FLEET",
+            {},
+            token,
+          ) as Promise<RecordItem[]>,
+          request(
+            `/media/photos?entityType=FLEET&entityId=${fleetId}`,
+            {},
+            token,
+          ) as Promise<RecordItem[]>,
+        ]);
+      setFleetDetail(fleet);
+      setVehicleState(currentState);
+      setFleetPhotoRequirements(photoRequirements);
+      setUploadedFleetPhotoTypes(
+        photos
+          .filter((photo) => photo.status === "COMPLETE")
+          .map((photo) => String(photo.photoType)),
       );
     } catch (cause) {
       setError(
@@ -982,8 +1005,19 @@ export default function Home() {
     }
   }
 
-  async function uploadFleetPhoto(fleetId: string, file: File | undefined) {
+  async function uploadFleetPhoto(
+    fleetId: string,
+    file: File | undefined,
+    photoType: string,
+  ) {
     if (!file) return;
+    if (
+      !["image/jpeg", "image/png", "image/webp"].includes(file.type) ||
+      file.size > 5 * 1024 * 1024
+    ) {
+      setError("Choose a JPEG, PNG, or WebP image smaller than 5 MB.");
+      return;
+    }
     setLoading(true);
     setError("");
     try {
@@ -994,7 +1028,7 @@ export default function Home() {
           body: JSON.stringify({
             entityType: "FLEET",
             entityId: fleetId,
-            photoType: "VEHICLE",
+            photoType,
             mimeType: file.type,
             fileName: file.name,
             sizeBytes: file.size,
@@ -1014,7 +1048,10 @@ export default function Home() {
         { method: "POST" },
         token,
       );
-      setNotice("Fleet photo uploaded.");
+      setUploadedFleetPhotoTypes((current) =>
+        current.includes(photoType) ? current : [...current, photoType],
+      );
+      setNotice(`${photoType.replaceAll("_", " ")} photo uploaded.`);
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -1919,20 +1956,44 @@ export default function Home() {
           <section className="action-card detail-card">
             <p className="eyebrow">FLEET DETAIL</p>
             <h2>{String(fleetDetail.vehicleNumber)}</h2>
-            <label className="photo-slot">
-              <span>Fleet photo</span>
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                disabled={loading}
-                onChange={(event) =>
-                  void uploadFleetPhoto(
-                    String(fleetDetail.id),
-                    event.target.files?.[0],
-                  )
-                }
-              />
-            </label>
+            <h3>Fleet onboarding photos</h3>
+            {fleetPhotoRequirements.length > 0 ? (
+              <div className="photo-slots">
+                {fleetPhotoRequirements.map((requirement) => {
+                  const photoType = String(requirement.photoType);
+                  const complete = uploadedFleetPhotoTypes.includes(photoType);
+                  return (
+                    <label
+                      key={String(requirement.id)}
+                      className={
+                        complete ? "photo-slot complete" : "photo-slot"
+                      }
+                    >
+                      <span>
+                        {complete ? "✓" : "○"} {photoType.replaceAll("_", " ")}
+                        {requirement.isRequired ? " · Required" : " · Optional"}
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        disabled={loading}
+                        onChange={(event) =>
+                          void uploadFleetPhoto(
+                            String(fleetDetail.id),
+                            event.target.files?.[0],
+                            photoType,
+                          )
+                        }
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="muted">
+                No fleet photo slots have been configured.
+              </p>
+            )}
             <div className="detail-grid">
               <div>
                 <strong>OEM / model</strong>

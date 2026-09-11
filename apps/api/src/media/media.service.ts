@@ -57,6 +57,18 @@ export class MediaService {
     });
   }
 
+  async listEntityPhotos(
+    tenantId: string,
+    entityType: PhotoEntityType,
+    entityId: string,
+  ) {
+    await this.assertEntityOwnership(tenantId, entityType, entityId);
+    return this.prisma.photo.findMany({
+      where: { tenantId, entityType, entityId },
+      orderBy: { uploadedAt: 'asc' },
+    });
+  }
+
   async upsertRequirement(
     tenantId: string,
     entityType: PhotoEntityType,
