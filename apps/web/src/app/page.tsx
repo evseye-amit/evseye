@@ -71,6 +71,9 @@ export default function Home() {
   const [allocationFleetId, setAllocationFleetId] = useState("");
   const [allocationRiderId, setAllocationRiderId] = useState("");
   const [showAllocationForm, setShowAllocationForm] = useState(false);
+  const [showRiderForm, setShowRiderForm] = useState(false);
+  const [newRiderName, setNewRiderName] = useState("");
+  const [newRiderMobile, setNewRiderMobile] = useState("");
   const [inspectionId, setInspectionId] = useState("");
   const [inspectionType, setInspectionType] = useState("PRE_ALLOCATION");
   const [requirements, setRequirements] = useState<RecordItem[]>([]);
@@ -207,6 +210,13 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function createRider(event: FormEvent) {
+    event.preventDefault(); setLoading(true); setError("");
+    try { await request("/riders", { method: "POST", body: JSON.stringify({ name: newRiderName, mobile: newRiderMobile }) }, token); setShowRiderForm(false); setNewRiderName(""); setNewRiderMobile(""); setNotice("Rider created. Add a profile photo and start KYC from rider detail."); await loadView("riders"); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to create rider."); }
+    finally { setLoading(false); }
   }
 
   async function createAllocation(event: FormEvent) {
