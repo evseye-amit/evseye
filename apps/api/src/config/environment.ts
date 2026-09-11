@@ -63,6 +63,14 @@ export function validateEnvironment(
   ) {
     throw new Error('KYC_PROVIDER must not use the sandbox in production.');
   }
+  if (
+    result.data.NODE_ENV === 'production' &&
+    result.data.SMS_PROVIDER === 'console'
+  ) {
+    throw new Error(
+      'SMS_PROVIDER must not use the console provider in production.',
+    );
+  }
 
   return result.data;
 }
