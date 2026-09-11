@@ -250,6 +250,14 @@ export default function Home() {
     finally { setLoading(false); }
   }
 
+  async function addFleetComponent(fleetId: string, component: "batteries" | "controllers", serialNumber: string) {
+    if (!serialNumber) return;
+    setLoading(true); setError("");
+    try { await request(`/fleets/${fleetId}/${component}`, { method: "POST", body: JSON.stringify({ serialNumber }) }, token); setNotice(`${component === "batteries" ? "Battery" : "Controller"} added.`); await openFleetDetail(fleetId); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to add component."); }
+    finally { setLoading(false); }
+  }
+
   async function createAllocation(event: FormEvent) {
     event.preventDefault();
     setLoading(true);
