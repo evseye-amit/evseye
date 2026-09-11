@@ -12,9 +12,16 @@ import {
   STORAGE_PROVIDER,
   type StorageProvider,
 } from '../media/storage/storage-provider.interface.js';
-import { MasterRecordStatus, OemType } from '@prisma/client';
+import {
+  FeatureBillingUnit,
+  FeatureCategory,
+  FeatureType,
+  MasterRecordStatus,
+  OemType,
+} from '@prisma/client';
 import type {
   BulkCreateOemsDto,
+  BulkCreateFeaturesDto,
   CompleteOemLogoUploadDto,
   CreateOemLogoUploadIntentDto,
   CreateFeatureDto,
@@ -174,7 +181,7 @@ export class PlatformCatalogService {
           orderBy: { effectiveFrom: 'desc' },
         },
       },
-      orderBy: { name: 'asc' },
+      orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
     });
   }
   async createFeature(dto: CreateFeatureDto, actorId: string) {
@@ -197,6 +204,72 @@ export class PlatformCatalogService {
       entityType: 'Feature',
       entityId: id,
     });
+  }
+  async bulkCreateFeatures(dto: BulkCreateFeaturesDto, actorId: string) {
+    const validCategories = new Set(Object.values(FeatureCategory));
+    const validTypes = new Set(Object.values(FeatureType));
+    const validUnits = new Set(Object.values(FeatureBillingUnit));
+    const codes = new Set<string>();
+    const rows = dto.rows.map((row, index) => {
+      const normalized = {
+        code: row.code?.trim().toUpperCase(),
+        name: row.name?.trim(),
+        description: row.description?.trim() || undefined,
+        category: row.category?.trim().toUpperCase() as FeatureCategory,
+        featureType: row.featureType?.trim().toUpperCase() as FeatureType,
+        billingUnit: row.billingUnit
+          ?.trim()
+          .toUpperCase() as FeatureBillingUnit,
+        displayOrder: Number(row.displayOrder ?? 0),
+        isActive:
+          typeof row.isActive === 'boolean'
+            ? row.isActive
+            : String(row.isActive ?? 'true').toLowerCase() === 'true',
+      };
+      if (
+        !normalized.code ||
+        !/^[A-Z0-9_-]{1,100}$/.test(normalized.code) ||
+        !normalized.name ||
+        normalized.name.length > 150 ||
+        (normalized.description && normalized.description.length > 500) ||
+        !validCategories.has(normalized.category) ||
+        !validTypes.has(normalized.featureType) ||
+        !validUnits.has(normalized.billingUnit) ||
+        !Number.isInteger(normalized.displayOrder) ||
+        normalized.displayOrder < 0
+      ) {
+        throw new ConflictException(
+          `Row ${index + 2} is invalid. Check code, name, category, type, billing unit, and display order.`,
+        );
+      }
+      if (codes.has(normalized.code)) {
+        throw new ConflictException(
+          `Duplicate feature code ${normalized.code} in the upload.`,
+        );
+      }
+      codes.add(normalized.code);
+      return normalized;
+    });
+    try {
+      await this.prisma.$transaction(
+        rows.map((row) => this.prisma.feature.create({ data: row })),
+      );
+      await this.audit.record({
+        actorId,
+        action: 'FEATURE_BULK_CREATED',
+        entityType: 'Feature',
+        entityId: 'bulk',
+        newData: { count: rows.length, codes: rows.map((row) => row.code) },
+      });
+      return { created: rows.length };
+    } catch (error) {
+      if (this.unique(error)) {
+        throw new ConflictException(
+          'The upload contains a feature code that already exists. No features were imported.',
+        );
+      }
+      throw error;
+    }
   }
 
   listPackages() {

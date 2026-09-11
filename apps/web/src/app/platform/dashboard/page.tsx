@@ -8,8 +8,69 @@ const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
 const ACCESS_TOKEN_KEY = "evs-eye-access-token";
 const REFRESH_TOKEN_KEY = "evs-eye-refresh-token";
-type Tab = "dashboard" | "clients" | "oems" | "packages" | "pricing";
+type Tab =
+  | "dashboard"
+  | "clients"
+  | "oems"
+  | "features"
+  | "packages"
+  | "pricing";
 type Item = Record<string, any>;
+
+const featureCategories = [
+  ["RIDER_ONBOARDING", "Rider Onboarding"],
+  ["RIDER_VERIFICATION", "Rider Verification / KYC"],
+  ["RIDER_TRAINING", "Rider Training"],
+  ["RIDER_MANAGEMENT", "Rider Management"],
+  ["ATTENDANCE", "Attendance & Workforce"],
+  ["FACE_RECOGNITION", "Face Recognition"],
+  ["FLEET_MANAGEMENT", "Fleet Management"],
+  ["VEHICLE_MANAGEMENT", "Vehicle Management"],
+  ["IOT_TELEMATICS", "IoT & Telematics"],
+  ["TRACKING_GEOFENCING", "Tracking & Geofencing"],
+  ["BATTERY_MANAGEMENT", "Battery Management"],
+  ["SERVICE_MAINTENANCE", "Service & Maintenance"],
+  ["MECHANIC_MANAGEMENT", "Mechanic Management"],
+  ["SAFETY_COMPLIANCE", "Safety & Compliance"],
+  ["ANALYTICS", "Analytics"],
+  ["REPORTING", "Reports"],
+  ["NOTIFICATION", "Notifications"],
+  ["INTEGRATION", "Integrations"],
+  ["API_ACCESS", "API Access"],
+  ["USER_ACCESS", "Users & Access"],
+  ["DOCUMENT_MANAGEMENT", "Document Management"],
+  ["SUPPORT", "Support"],
+  ["AI_AUTOMATION", "AI & Automation"],
+] as const;
+const featureTypes = ["BOOLEAN", "QUANTITY", "USAGE_BASED", "CONFIGURATION"];
+const featureBillingUnits = [
+  "VERIFICATION",
+  "RIDER",
+  "VEHICLE",
+  "FLEET",
+  "USER",
+  "API_CALL",
+  "FACE_SCAN",
+  "TRAINING",
+  "DEVICE",
+  "MONTH",
+];
+
+function parseCsvLine(line: string) {
+  const cells: string[] = [];
+  let current = "";
+  let quoted = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === '"') quoted = !quoted;
+    else if (char === "," && !quoted) {
+      cells.push(current.trim());
+      current = "";
+    } else current += char;
+  }
+  cells.push(current.trim());
+  return cells.map((cell) => cell.replace(/^"|"$/g, ""));
+}
 
 async function request(
   path: string,
@@ -47,6 +108,16 @@ const emptyPackage = {
   currency: "INR",
   status: "ACTIVE",
   description: "",
+};
+const emptyFeature = {
+  code: "",
+  name: "",
+  description: "",
+  category: "RIDER_ONBOARDING",
+  featureType: "BOOLEAN",
+  billingUnit: "MONTH",
+  displayOrder: "0",
+  isActive: true,
 };
 const emptyPricing = {
   featureId: "",
@@ -98,6 +169,10 @@ export default function SuperAdminDashboard() {
   const [showOemBulk, setShowOemBulk] = useState(false);
   const [oemLogoFile, setOemLogoFile] = useState<File | null>(null);
   const [oemLogoPreview, setOemLogoPreview] = useState("");
+  const [feature, setFeature] = useState(emptyFeature);
+  const [editingFeatureId, setEditingFeatureId] = useState<string | null>(null);
+  const [showFeatureForm, setShowFeatureForm] = useState(false);
+  const [showFeatureBulk, setShowFeatureBulk] = useState(false);
   const [pack, setPack] = useState(emptyPackage);
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
   const [selectedFeatureIds, setSelectedFeatureIds] = useState<string[]>([]);
@@ -297,21 +372,6 @@ export default function SuperAdminDashboard() {
         throw new Error(
           "Use the OEM template. Header names or their order do not match.",
         );
-      const parse = (line: string) => {
-        const cells: string[] = [];
-        let current = "";
-        let quoted = false;
-        for (let index = 0; index < line.length; index += 1) {
-          const char = line[index];
-          if (char === '"') quoted = !quoted;
-          else if (char === "," && !quoted) {
-            cells.push(current.trim());
-            current = "";
-          } else current += char;
-        }
-        cells.push(current.trim());
-        return cells.map((cell) => cell.replace(/^"|"$/g, ""));
-      };
       const rows = lines.map((line) => {
         const [
           code,
@@ -322,7 +382,7 @@ export default function SuperAdminDashboard() {
           logoUrl,
           website,
           description,
-        ] = parse(line);
+        ] = parseCsvLine(line);
         return {
           code,
           name,
@@ -348,6 +408,111 @@ export default function SuperAdminDashboard() {
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "Unable to import OEMs.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+  async function submitFeature(event: FormEvent) {
+    event.preventDefault();
+    await submit(
+      () =>
+        request(
+          editingFeatureId
+            ? `/platform/features/${editingFeatureId}`
+            : "/platform/features",
+          {
+            method: editingFeatureId ? "PUT" : "POST",
+            body: JSON.stringify({
+              ...feature,
+              displayOrder: Number(feature.displayOrder),
+            }),
+          },
+          token,
+        ),
+      editingFeatureId ? "Feature updated." : "Feature created.",
+      () => {
+        setFeature(emptyFeature);
+        setEditingFeatureId(null);
+        setShowFeatureForm(false);
+      },
+    );
+  }
+  function downloadFeatureTemplate() {
+    const csv =
+      "feature_code,feature_name,description,feature_category,feature_type,billing_unit,display_order,is_active\nAADHAAR_KYC,Aadhaar Verification,Verify rider Aadhaar,RIDER_VERIFICATION,USAGE_BASED,VERIFICATION,10,true\n";
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "evseye-feature-template.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+  async function uploadFeatureCsv(file: File) {
+    setLoading(true);
+    setError("");
+    try {
+      const lines = (await file.text())
+        .split(/\r?\n/)
+        .filter((line) => line.trim());
+      const headers = lines
+        .shift()
+        ?.split(",")
+        .map((header) => header.trim().toLowerCase());
+      const expected = [
+        "feature_code",
+        "feature_name",
+        "description",
+        "feature_category",
+        "feature_type",
+        "billing_unit",
+        "display_order",
+        "is_active",
+      ];
+      if (
+        !headers ||
+        expected.some((header, index) => headers[index] !== header)
+      ) {
+        throw new Error(
+          "Use the Feature template. Header names or their order do not match.",
+        );
+      }
+      const rows = lines.map((line) => {
+        const [
+          code,
+          name,
+          description,
+          category,
+          featureType,
+          billingUnit,
+          displayOrder,
+          isActive,
+        ] = parseCsvLine(line);
+        return {
+          code,
+          name,
+          ...(description ? { description } : {}),
+          category,
+          featureType,
+          billingUnit,
+          displayOrder: Number(displayOrder || 0),
+          isActive: (isActive || "true").toLowerCase() === "true",
+        };
+      });
+      if (!rows.length) throw new Error("The upload contains no Feature rows.");
+      const result = (await request(
+        "/platform/features/bulk",
+        { method: "POST", body: JSON.stringify({ rows }) },
+        token,
+      )) as { created: number };
+      setNotice(
+        `${result.created} feature${result.created === 1 ? "" : "s"} imported successfully.`,
+      );
+      setShowFeatureBulk(false);
+      await load();
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Unable to import Features.",
       );
     } finally {
       setLoading(false);
@@ -485,6 +650,7 @@ export default function SuperAdminDashboard() {
     ["dashboard", "Dashboard", "▦"],
     ["clients", "Clients", "♙"],
     ["oems", "OEM", "▣"],
+    ["features", "Feature", "◇"],
     ["packages", "Packages", "◫"],
     ["pricing", "Feature pricing", "₹"],
   ];
@@ -761,6 +927,216 @@ export default function SuperAdminDashboard() {
             </section>
           </>
         )}
+        {tab === "features" && (
+          <>
+            <section className="sa-page-head">
+              <div>
+                <h2>Feature</h2>
+                <p>
+                  Define platform capabilities that can be included in packages
+                  and priced commercially.
+                </p>
+              </div>
+              <div className="sa-actions">
+                <button className="secondary" onClick={downloadFeatureTemplate}>
+                  Download template
+                </button>
+                <button
+                  className="secondary"
+                  onClick={() => {
+                    setShowFeatureBulk(!showFeatureBulk);
+                    setShowFeatureForm(false);
+                  }}
+                >
+                  Bulk upload
+                </button>
+                <button
+                  onClick={() => {
+                    setFeature(emptyFeature);
+                    setEditingFeatureId(null);
+                    setShowFeatureForm(!showFeatureForm);
+                    setShowFeatureBulk(false);
+                  }}
+                >
+                  + Add Feature
+                </button>
+              </div>
+            </section>
+            {showFeatureBulk && (
+              <section className="sa-oem-bulk">
+                <div>
+                  <h3>Bulk upload Features</h3>
+                  <p>
+                    Download the CSV template, complete one Feature per row, and
+                    upload it. The entire file is rejected if any row has an
+                    invalid controlled value or duplicate code.
+                  </p>
+                </div>
+                <label className="sa-file-input">
+                  Choose completed CSV
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void uploadFeatureCsv(file);
+                      event.currentTarget.value = "";
+                    }}
+                  />
+                </label>
+              </section>
+            )}
+            <section
+              className={`sa-management ${showFeatureForm ? "" : "oem-table-only"}`}
+            >
+              {showFeatureForm && (
+                <form className="sa-form" onSubmit={submitFeature}>
+                  <h3>{editingFeatureId ? "Edit Feature" : "Add Feature"}</h3>
+                  <TextFields
+                    value={feature}
+                    change={(key, value) =>
+                      setFeature((current) => ({ ...current, [key]: value }))
+                    }
+                    fields={[
+                      ["code", "Feature code"],
+                      ["name", "Feature name"],
+                      ["description", "Description"],
+                      ["displayOrder", "Display order"],
+                    ]}
+                  />
+                  <label>
+                    Feature category
+                    <select
+                      value={feature.category}
+                      onChange={(event) =>
+                        setFeature((current) => ({
+                          ...current,
+                          category: event.target.value,
+                        }))
+                      }
+                    >
+                      {featureCategories.map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <Select
+                    value={feature.featureType}
+                    change={(value) =>
+                      setFeature((current) => ({
+                        ...current,
+                        featureType: value,
+                      }))
+                    }
+                    options={featureTypes}
+                  />
+                  <Select
+                    value={feature.billingUnit}
+                    change={(value) =>
+                      setFeature((current) => ({
+                        ...current,
+                        billingUnit: value,
+                      }))
+                    }
+                    options={featureBillingUnits}
+                  />
+                  <label className="sa-toggle">
+                    <input
+                      type="checkbox"
+                      checked={feature.isActive}
+                      onChange={(event) =>
+                        setFeature((current) => ({
+                          ...current,
+                          isActive: event.target.checked,
+                        }))
+                      }
+                    />
+                    Active feature
+                  </label>
+                  <button disabled={loading}>
+                    {editingFeatureId ? "Update Feature" : "Save Feature"}
+                  </button>
+                </form>
+              )}
+              {features.length ? (
+                <DataTable
+                  headings={[
+                    "Code",
+                    "Feature",
+                    "Category",
+                    "Type",
+                    "Billing unit",
+                    "Active",
+                    "Order",
+                    "",
+                  ]}
+                  rows={features.map((item) => [
+                    item.code,
+                    item.name,
+                    featureCategories.find(
+                      ([value]) => value === item.category,
+                    )?.[1] ?? item.category,
+                    item.featureType,
+                    item.billingUnit,
+                    item.isActive ? "YES" : "NO",
+                    item.displayOrder,
+                    <button
+                      key="edit"
+                      className="secondary"
+                      onClick={() => {
+                        setFeature({
+                          code: item.code,
+                          name: item.name,
+                          description: item.description ?? "",
+                          category: item.category,
+                          featureType: item.featureType,
+                          billingUnit: item.billingUnit,
+                          displayOrder: String(item.displayOrder),
+                          isActive: item.isActive,
+                        });
+                        setEditingFeatureId(item.id);
+                        setShowFeatureForm(true);
+                        setShowFeatureBulk(false);
+                      }}
+                    >
+                      Edit
+                    </button>,
+                    <button
+                      key="delete"
+                      className="danger"
+                      onClick={() =>
+                        void remove(`/platform/features/${item.id}`, "Feature")
+                      }
+                    >
+                      Delete
+                    </button>,
+                  ])}
+                />
+              ) : (
+                <section className="sa-empty-catalog">
+                  <h3>No Features yet</h3>
+                  <p>
+                    Start by adding a Feature individually or importing a
+                    completed template.
+                  </p>
+                  <div>
+                    <button onClick={() => setShowFeatureForm(true)}>
+                      Add Feature
+                    </button>
+                    <button
+                      className="secondary"
+                      onClick={() => setShowFeatureBulk(true)}
+                    >
+                      Bulk upload
+                    </button>
+                  </div>
+                </section>
+              )}
+            </section>
+          </>
+        )}
         {tab === "packages" && (
           <>
             <section className="sa-page-head">
@@ -796,22 +1172,30 @@ export default function SuperAdminDashboard() {
                   options={["ACTIVE", "INACTIVE", "SUSPENDED"]}
                 />
                 <div className="sa-checkbox-list">
-                  {features.map((feature) => (
-                    <label key={feature.id}>
-                      <input
-                        type="checkbox"
-                        checked={selectedFeatureIds.includes(feature.id)}
-                        onChange={(event) =>
-                          setSelectedFeatureIds((current) =>
-                            event.target.checked
-                              ? [...current, feature.id]
-                              : current.filter((id) => id !== feature.id),
-                          )
-                        }
-                      />
-                      {feature.name}
-                    </label>
-                  ))}
+                  {features
+                    .filter(
+                      (feature) =>
+                        feature.isActive ||
+                        selectedFeatureIds.includes(feature.id),
+                    )
+                    .map((feature) => (
+                      <label key={feature.id}>
+                        <input
+                          type="checkbox"
+                          checked={selectedFeatureIds.includes(feature.id)}
+                          disabled={!feature.isActive}
+                          onChange={(event) =>
+                            setSelectedFeatureIds((current) =>
+                              event.target.checked
+                                ? [...current, feature.id]
+                                : current.filter((id) => id !== feature.id),
+                            )
+                          }
+                        />
+                        {feature.name}
+                        {!feature.isActive ? " (inactive)" : ""}
+                      </label>
+                    ))}
                 </div>
                 <button disabled={loading}>
                   {editingPackageId ? "Update package" : "Save package"}
@@ -890,11 +1274,17 @@ export default function SuperAdminDashboard() {
                     required
                   >
                     <option value="">Select feature</option>
-                    {features.map((feature) => (
-                      <option key={feature.id} value={feature.id}>
-                        {feature.name}
-                      </option>
-                    ))}
+                    {features
+                      .filter(
+                        (feature) =>
+                          feature.isActive || feature.id === price.featureId,
+                      )
+                      .map((feature) => (
+                        <option key={feature.id} value={feature.id}>
+                          {feature.name}
+                          {!feature.isActive ? " (inactive)" : ""}
+                        </option>
+                      ))}
                   </select>
                 </label>
                 <Select

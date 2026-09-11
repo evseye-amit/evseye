@@ -16,6 +16,7 @@ import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import {
   CreateFeatureDto,
+  BulkCreateFeaturesDto,
   BulkCreateOemsDto,
   CompleteOemLogoUploadDto,
   CreateOemLogoUploadIntentDto,
@@ -92,6 +93,14 @@ export class PlatformCatalogController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.catalog.createFeature(dto, user.id).then((data) => ({ data }));
+  }
+  @Post('features/bulk') bulkCreateFeatures(
+    @Body() dto: BulkCreateFeaturesDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.catalog
+      .bulkCreateFeatures(dto, user.id)
+      .then((data) => ({ data }));
   }
   @Put('features/:id') updateFeature(
     @Param('id') id: string,

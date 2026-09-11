@@ -140,6 +140,52 @@ enum BillingCycle {
   YEARLY
 }
 
+enum FeatureCategory {
+  RIDER_ONBOARDING
+  RIDER_VERIFICATION
+  RIDER_TRAINING
+  RIDER_MANAGEMENT
+  ATTENDANCE
+  FACE_RECOGNITION
+  FLEET_MANAGEMENT
+  VEHICLE_MANAGEMENT
+  IOT_TELEMATICS
+  TRACKING_GEOFENCING
+  BATTERY_MANAGEMENT
+  SERVICE_MAINTENANCE
+  MECHANIC_MANAGEMENT
+  SAFETY_COMPLIANCE
+  ANALYTICS
+  REPORTING
+  NOTIFICATION
+  INTEGRATION
+  API_ACCESS
+  USER_ACCESS
+  DOCUMENT_MANAGEMENT
+  SUPPORT
+  AI_AUTOMATION
+}
+
+enum FeatureType {
+  BOOLEAN
+  QUANTITY
+  USAGE_BASED
+  CONFIGURATION
+}
+
+enum FeatureBillingUnit {
+  VERIFICATION
+  RIDER
+  VEHICLE
+  FLEET
+  USER
+  API_CALL
+  FACE_SCAN
+  TRAINING
+  DEVICE
+  MONTH
+}
+
 model Tenant {
   id                String                  @id @default(uuid())
   name              String
@@ -197,17 +243,18 @@ model Feature {
   id           String             @id @default(uuid())
   code         String             @unique
   name         String
-  category     String
-  featureType  String
-  billingUnit  String
+  category     FeatureCategory
+  featureType  FeatureType
+  billingUnit  FeatureBillingUnit
   description  String?
-  status       MasterRecordStatus @default(ACTIVE)
+  displayOrder Int                @default(0)
+  isActive     Boolean            @default(true)
   pricing      FeaturePricing[]
   packageLinks PackageFeature[]
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
 
-  @@index([status, category])
+  @@index([isActive, category, displayOrder])
 }
 
 model PackageFeature {

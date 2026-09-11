@@ -13,7 +13,14 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { MasterRecordStatus, OemType, PricingModel } from '@prisma/client';
+import {
+  FeatureBillingUnit,
+  FeatureCategory,
+  FeatureType,
+  MasterRecordStatus,
+  OemType,
+  PricingModel,
+} from '@prisma/client';
 
 export class CreateOemDto {
   @IsString() @Matches(/^[A-Z0-9_-]+$/) @MaxLength(40) code!: string;
@@ -61,16 +68,32 @@ export class CompleteOemLogoUploadDto {
 }
 
 export class CreateFeatureDto {
-  @IsString() @Matches(/^[A-Z0-9_-]+$/) @MaxLength(60) code!: string;
-  @IsString() @MaxLength(120) name!: string;
-  @IsString() @MaxLength(80) category!: string;
-  @IsString() @MaxLength(80) featureType!: string;
-  @IsString() @MaxLength(60) billingUnit!: string;
-  @IsEnum(MasterRecordStatus) status!: MasterRecordStatus;
-  @IsOptional() @IsString() @MaxLength(1000) description?: string;
+  @IsString() @Matches(/^[A-Z0-9_-]+$/) @MaxLength(100) code!: string;
+  @IsString() @MaxLength(150) name!: string;
+  @IsEnum(FeatureCategory) category!: FeatureCategory;
+  @IsEnum(FeatureType) featureType!: FeatureType;
+  @IsEnum(FeatureBillingUnit) billingUnit!: FeatureBillingUnit;
+  @IsOptional() @IsString() @MaxLength(500) description?: string;
+  @IsOptional() @IsNumber() @Min(0) displayOrder?: number;
+  @IsOptional() @IsBoolean() isActive?: boolean;
 }
 
 export class UpdateFeatureDto extends CreateFeatureDto {}
+
+export class BulkCreateFeaturesDto {
+  @IsArray()
+  @ArrayMaxSize(500)
+  rows!: Array<{
+    code: string;
+    name: string;
+    description?: string;
+    category: FeatureCategory;
+    featureType: FeatureType;
+    billingUnit: FeatureBillingUnit;
+    displayOrder?: number;
+    isActive?: boolean;
+  }>;
+}
 
 export class CreatePackageDto {
   @IsString() @Matches(/^[A-Z0-9_-]+$/) @MaxLength(60) code!: string;
