@@ -9,6 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { FleetStatus, UserRole } from '@prisma/client';
+import { AuditService } from '../audit/audit.service.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
@@ -34,14 +35,25 @@ export class FleetsController {
   constructor(
     private readonly fleets: FleetsService,
     private readonly components: ComponentsService,
+    private readonly audit: AuditService,
     private readonly tenants: TenantContextService,
   ) {}
   @Get() async list(@CurrentUser() u: AuthUser, @Query() q: ListFleetsDto) {
     return { data: await this.fleets.list(this.tenants.requireTenantId(u), q) };
   }
   @Post() async create(@CurrentUser() u: AuthUser, @Body() d: CreateFleetDto) {
+    const tenantId = this.tenants.requireTenantId(u);
+    const fleet = await this.fleets.create(tenantId, d);
+    await this.audit.record({
+      tenantId,
+      actorId: u.id,
+      action: 'FLEET_CREATED',
+      entityType: 'FLEET',
+      entityId: fleet.id,
+      newData: { vehicleNumber: fleet.vehicleNumber, status: fleet.status },
+    });
     return {
-      data: await this.fleets.create(this.tenants.requireTenantId(u), d),
+      data: fleet,
     };
   }
   @Get(':id') async get(@CurrentUser() u: AuthUser, @Param('id') id: string) {
@@ -60,12 +72,18 @@ export class FleetsController {
     @Param('id') id: string,
     @Body('status') s: FleetStatus,
   ) {
+    const tenantId = this.tenants.requireTenantId(u);
+    const fleet = await this.fleets.changeStatus(tenantId, id, s);
+    await this.audit.record({
+      tenantId,
+      actorId: u.id,
+      action: 'FLEET_STATUS_CHANGED',
+      entityType: 'FLEET',
+      entityId: id,
+      newData: { status: fleet.status },
+    });
     return {
-      data: await this.fleets.changeStatus(
-        this.tenants.requireTenantId(u),
-        id,
-        s,
-      ),
+      data: fleet,
     };
   }
   @Post(':id/batteries') async battery(
@@ -73,12 +91,18 @@ export class FleetsController {
     @Param('id') id: string,
     @Body() d: CreateBatteryDto,
   ) {
+    const tenantId = this.tenants.requireTenantId(u);
+    const battery = await this.components.addBattery(tenantId, id, d);
+    await this.audit.record({
+      tenantId,
+      actorId: u.id,
+      action: 'BATTERY_ADDED',
+      entityType: 'BATTERY',
+      entityId: battery.id,
+      newData: { fleetId: id, serialNumber: battery.serialNumber },
+    });
     return {
-      data: await this.components.addBattery(
-        this.tenants.requireTenantId(u),
-        id,
-        d,
-      ),
+      data: battery,
     };
   }
   @Post(':id/controllers') async controller(
@@ -86,12 +110,18 @@ export class FleetsController {
     @Param('id') id: string,
     @Body() d: CreateControllerDto,
   ) {
+    const tenantId = this.tenants.requireTenantId(u);
+    const controller = await this.components.addController(tenantId, id, d);
+    await this.audit.record({
+      tenantId,
+      actorId: u.id,
+      action: 'CONTROLLER_ADDED',
+      entityType: 'CONTROLLER',
+      entityId: controller.id,
+      newData: { fleetId: id, serialNumber: controller.serialNumber },
+    });
     return {
-      data: await this.components.addController(
-        this.tenants.requireTenantId(u),
-        id,
-        d,
-      ),
+      data: controller,
     };
   }
 }
