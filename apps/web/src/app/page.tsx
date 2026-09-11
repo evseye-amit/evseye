@@ -48,6 +48,12 @@ export default function Home() {
   const [inspectionId, setInspectionId] = useState("");
   const [requirements, setRequirements] = useState<RecordItem[]>([]);
   const [uploadedPhotoTypes, setUploadedPhotoTypes] = useState<string[]>([]);
+  const [deallocationId, setDeallocationId] = useState("");
+  const [riderPhone, setRiderPhone] = useState("");
+  const [operatorPhone, setOperatorPhone] = useState("");
+  const [otpRequests, setOtpRequests] = useState<Record<string, string>>({});
+  const [otpCodes, setOtpCodes] = useState<Record<string, string>>({});
+  const [verifiedParties, setVerifiedParties] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -171,13 +177,44 @@ export default function Home() {
     finally { setLoading(false); }
   }
 
-  async function initiateDeallocation(allocationId: string) {
+  async function initiateDeallocation(allocation: RecordItem) {
+    const allocationId = String(allocation.id);
     setLoading(true); setError("");
     try {
       await request(`/allocations/${allocationId}/deallocation/initiate`, { method: "POST" }, token);
+      setDeallocationId(allocationId); setRiderPhone(String((allocation.rider as RecordItem)?.mobile ?? ""));
+      setOtpRequests({}); setOtpCodes({}); setVerifiedParties([]);
       setNotice("Deallocation started. Capture post-deallocation inspection evidence, then verify both OTPs.");
       await loadView("allocations");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to start deallocation."); }
+    finally { setLoading(false); }
+  }
+
+  async function requestDeallocationOtp(party: "RIDER" | "OPERATOR") {
+    const phone = party === "RIDER" ? riderPhone : operatorPhone;
+    setLoading(true); setError("");
+    try {
+      const data = await request(`/allocations/${deallocationId}/deallocation/otp/request`, { method: "POST", body: JSON.stringify({ party, phone }) }, token) as { otpRequestId: string };
+      setOtpRequests((current) => ({ ...current, [party]: data.otpRequestId })); setNotice(`${party === "RIDER" ? "Rider" : "Operator"} OTP sent.`);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to send OTP."); }
+    finally { setLoading(false); }
+  }
+
+  async function verifyDeallocationOtp(party: "RIDER" | "OPERATOR") {
+    setLoading(true); setError("");
+    try {
+      await request(`/allocations/${deallocationId}/deallocation/otp/verify`, { method: "POST", body: JSON.stringify({ otpRequestId: otpRequests[party], code: otpCodes[party] }) }, token);
+      setVerifiedParties((current) => [...new Set([...current, party])]); setNotice(`${party === "RIDER" ? "Rider" : "Operator"} OTP verified.`);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "OTP verification failed."); }
+    finally { setLoading(false); }
+  }
+
+  async function completeDeallocation() {
+    setLoading(true); setError("");
+    try {
+      await request(`/allocations/${deallocationId}/deallocation/complete`, { method: "POST" }, token);
+      setNotice("Deallocation completed and fleet returned to available."); setDeallocationId(""); await loadView("allocations");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Deallocation cannot be completed yet."); }
     finally { setLoading(false); }
   }
 
@@ -194,8 +231,9 @@ export default function Home() {
     <section className="workspace"><header><div><p className="eyebrow">TENANT WORKSPACE</p><h1>{title}</h1></div><div className="header-actions">{tab === "allocations" && <button onClick={() => void openAllocationForm()}>New allocation</button>}<button className="secondary" onClick={() => void loadView(tab)}>Refresh</button></div></header>{notice && <p className="notice">{notice}</p>}{error && <p className="error">{error}</p>}{loading && <p className="muted">Loading current data…</p>}
       {showAllocationForm && <section className="action-card"><div><p className="eyebrow">ALLOCATION</p><h2>Assign an available vehicle</h2><p className="muted">This reserves the fleet and creates its pre-allocation inspection.</p></div><form className="form-stack" onSubmit={createAllocation}><label>Available fleet<select value={allocationFleetId} onChange={(e) => setAllocationFleetId(e.target.value)} required><option value="">Select fleet</option>{availableFleets.map((fleet) => <option key={String(fleet.id)} value={String(fleet.id)}>{String(fleet.vehicleNumber)} · {String(fleet.oem ?? "Vehicle")}</option>)}</select></label><label>Active rider<select value={allocationRiderId} onChange={(e) => setAllocationRiderId(e.target.value)} required><option value="">Select rider</option>{activeRiders.map((rider) => <option key={String(rider.id)} value={String(rider.id)}>{String(rider.name)} · {String(rider.mobile)}</option>)}</select></label><div className="form-actions"><button type="submit" disabled={loading}>Create allocation</button><button type="button" className="secondary" onClick={() => setShowAllocationForm(false)}>Cancel</button></div></form></section>}
       {inspectionId && <section className="action-card"><div><p className="eyebrow">PRE-ALLOCATION INSPECTION</p><h2>Required photo evidence</h2><p className="muted">Each required slot must be complete before the allocation can be activated.</p></div><div className="photo-slots">{requirements.map((requirement) => { const photoType = String(requirement.photoType); const complete = uploadedPhotoTypes.includes(photoType); return <label key={photoType} className={complete ? "photo-slot complete" : "photo-slot"}><span>{complete ? "✓" : "○"} {photoType.replaceAll("_", " ")}{requirement.isRequired ? " · required" : " · optional"}</span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={loading} onChange={(event) => void uploadInspectionPhoto(photoType, event.target.files?.[0])} /></label>; })}</div><div className="form-actions"><button disabled={loading} onClick={() => void completeInspection()}>Complete inspection</button><button className="secondary" onClick={() => setInspectionId("")}>Close</button></div></section>}
+      {deallocationId && <section className="action-card"><div><p className="eyebrow">DEALLOCATION SECURITY</p><h2>Verify rider and operator</h2><p className="muted">Both separately delivered OTPs are required before completion.</p></div>{(["RIDER", "OPERATOR"] as const).map((party) => <div className="otp-row" key={party}><label>{party === "RIDER" ? "Rider mobile" : "Operator mobile"}<input value={party === "RIDER" ? riderPhone : operatorPhone} onChange={(event) => party === "RIDER" ? setRiderPhone(event.target.value) : setOperatorPhone(event.target.value)} /></label>{!otpRequests[party] ? <button disabled={loading} onClick={() => void requestDeallocationOtp(party)}>Send OTP</button> : verifiedParties.includes(party) ? <span className="status">Verified</span> : <><input className="otp-code" value={otpCodes[party] ?? ""} onChange={(event) => setOtpCodes((current) => ({ ...current, [party]: event.target.value }))} placeholder="6-digit OTP" maxLength={6} /><button disabled={loading} onClick={() => void verifyDeallocationOtp(party)}>Verify</button></>}</div>)}<div className="form-actions"><button disabled={loading || verifiedParties.length !== 2} onClick={() => void completeDeallocation()}>Complete deallocation</button><button className="secondary" onClick={() => setDeallocationId("")}>Close</button></div></section>}
       {!loading && tab === "dashboard" && dashboard && <div className="dashboard-grid"><Metric label="Total fleet" value={Object.values(dashboard.fleet).reduce((sum, value) => sum + value, 0)} /><Metric label="Available" value={dashboard.fleet.AVAILABLE ?? 0} /><Metric label="Active allocations" value={dashboard.activeAllocations} /><Metric label="IoT online" value={dashboard.iot.online} /><Metric label="IoT offline" value={dashboard.iot.offline} /><Metric label="KYC pending" value={dashboard.riders.PENDING ?? 0} /></div>}
-      {!loading && tab !== "dashboard" && <div className="table-wrap"><table><thead><tr>{tab === "fleets" ? <><th>Vehicle</th><th>OEM</th><th>Status</th><th>Hub</th></> : tab === "riders" ? <><th>Rider</th><th>Mobile</th><th>Status</th></> : <><th>Fleet</th><th>Rider</th><th>Status</th><th>Created</th><th /></>}</tr></thead><tbody>{items.map((item) => tab === "fleets" ? <tr key={String(item.id)}><td>{String(item.vehicleNumber)}</td><td>{String(item.oem)}</td><td><Status value={String(item.status)} /></td><td>{(item.hub as RecordItem | null)?.name as string ?? "—"}</td></tr> : tab === "riders" ? <tr key={String(item.id)}><td>{String(item.name)}</td><td>{String(item.mobile)}</td><td><Status value={String(item.status)} /></td></tr> : <tr key={String(item.id)}><td>{String((item.fleet as RecordItem)?.vehicleNumber ?? "—")}</td><td>{String((item.rider as RecordItem)?.name ?? "—")}</td><td><Status value={String(item.status)} /></td><td>{new Date(String(item.createdAt)).toLocaleDateString()}</td><td><div className="row-actions"><button className="secondary table-action" onClick={() => void openInspection(item)}>Inspect</button>{item.status === "OTP_PENDING" && <button className="table-action" onClick={() => void activateAllocation(String(item.id))}>Activate</button>}{item.status === "ACTIVE" && <button className="table-action" onClick={() => void initiateDeallocation(String(item.id))}>Deallocate</button>}</div></td></tr>)}</tbody></table>{items.length === 0 && <p className="empty">No records match this view.</p>}</div>}
+      {!loading && tab !== "dashboard" && <div className="table-wrap"><table><thead><tr>{tab === "fleets" ? <><th>Vehicle</th><th>OEM</th><th>Status</th><th>Hub</th></> : tab === "riders" ? <><th>Rider</th><th>Mobile</th><th>Status</th></> : <><th>Fleet</th><th>Rider</th><th>Status</th><th>Created</th><th /></>}</tr></thead><tbody>{items.map((item) => tab === "fleets" ? <tr key={String(item.id)}><td>{String(item.vehicleNumber)}</td><td>{String(item.oem)}</td><td><Status value={String(item.status)} /></td><td>{(item.hub as RecordItem | null)?.name as string ?? "—"}</td></tr> : tab === "riders" ? <tr key={String(item.id)}><td>{String(item.name)}</td><td>{String(item.mobile)}</td><td><Status value={String(item.status)} /></td></tr> : <tr key={String(item.id)}><td>{String((item.fleet as RecordItem)?.vehicleNumber ?? "—")}</td><td>{String((item.rider as RecordItem)?.name ?? "—")}</td><td><Status value={String(item.status)} /></td><td>{new Date(String(item.createdAt)).toLocaleDateString()}</td><td><div className="row-actions"><button className="secondary table-action" onClick={() => void openInspection(item)}>Inspect</button>{item.status === "OTP_PENDING" && <button className="table-action" onClick={() => void activateAllocation(String(item.id))}>Activate</button>}{item.status === "ACTIVE" && <button className="table-action" onClick={() => void initiateDeallocation(item)}>Deallocate</button>}</div></td></tr>)}</tbody></table>{items.length === 0 && <p className="empty">No records match this view.</p>}</div>}
     </section>
   </main>;
 }
