@@ -15,6 +15,12 @@ type Tab =
   | "audit"
   | "locations"
   | "evidence";
+type PhotoRequirementEntityType =
+  | "RIDER"
+  | "FLEET"
+  | "BATTERY"
+  | "CONTROLLER"
+  | "INSPECTION";
 type RecordItem = Record<string, unknown>;
 
 interface Dashboard {
@@ -187,6 +193,8 @@ export default function Home() {
   const [configuredRequirements, setConfiguredRequirements] = useState<
     RecordItem[]
   >([]);
+  const [photoRequirementEntityType, setPhotoRequirementEntityType] =
+    useState<PhotoRequirementEntityType>("INSPECTION");
   const [newRequirementType, setNewRequirementType] = useState("");
   const [newRequirementRequired, setNewRequirementRequired] = useState(true);
   const [uploadedPhotoTypes, setUploadedPhotoTypes] = useState<string[]>([]);
@@ -268,13 +276,7 @@ export default function Home() {
         setZones(zoneItems);
         setHubs(hubItems);
       } else if (nextTab === "evidence") {
-        setConfiguredRequirements(
-          (await request(
-            "/media/photo-requirements?entityType=INSPECTION",
-            {},
-            token,
-          )) as RecordItem[],
-        );
+        await loadPhotoRequirements(photoRequirementEntityType);
       } else {
         const query = new URLSearchParams({
           page: String(page),
@@ -518,7 +520,7 @@ export default function Home() {
     setError("");
     try {
       const requirement = (await request(
-        `/media/photo-requirements/INSPECTION/${photoType}`,
+        `/media/photo-requirements/${photoRequirementEntityType}/${photoType}`,
         {
           method: "PUT",
           body: JSON.stringify({ isRequired, sortOrder }),
@@ -556,6 +558,28 @@ export default function Home() {
     );
     setNewRequirementType("");
     setNewRequirementRequired(true);
+  }
+
+  async function loadPhotoRequirements(entityType: PhotoRequirementEntityType) {
+    setLoading(true);
+    setError("");
+    try {
+      setConfiguredRequirements(
+        (await request(
+          `/media/photo-requirements?entityType=${entityType}`,
+          {},
+          token,
+        )) as RecordItem[],
+      );
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Unable to load photo requirements.",
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function addFleetComponent(
@@ -1604,12 +1628,31 @@ export default function Home() {
         {!loading && tab === "evidence" && (
           <>
             <section className="action-card">
-              <p className="eyebrow">INSPECTION EVIDENCE</p>
+              <p className="eyebrow">PHOTO EVIDENCE SETTINGS</p>
               <h2>Required photo slots</h2>
               <p className="muted">
-                Turn a slot off when it is optional. Changes apply to future
-                inspection completion checks for this tenant.
+                Manage tenant-specific onboarding and inspection evidence. Turn
+                a slot off when it is optional.
               </p>
+              <label>
+                Evidence type
+                <select
+                  value={photoRequirementEntityType}
+                  disabled={loading}
+                  onChange={(event) => {
+                    const entityType = event.target
+                      .value as PhotoRequirementEntityType;
+                    setPhotoRequirementEntityType(entityType);
+                    void loadPhotoRequirements(entityType);
+                  }}
+                >
+                  <option value="RIDER">Rider profile</option>
+                  <option value="FLEET">Fleet onboarding</option>
+                  <option value="BATTERY">Battery</option>
+                  <option value="CONTROLLER">Controller</option>
+                  <option value="INSPECTION">Allocation inspection</option>
+                </select>
+              </label>
               <form className="form-stack" onSubmit={addPhotoRequirement}>
                 <label>
                   New photo type
@@ -1674,7 +1717,7 @@ export default function Home() {
                 </tbody>
               </table>
               {configuredRequirements.length === 0 && (
-                <p className="empty">No inspection photo types configured.</p>
+                <p className="empty">No photo types configured.</p>
               )}
             </div>
           </>
