@@ -162,6 +162,25 @@ export default function Home() {
     finally { setLoading(false); }
   }
 
+  async function activateAllocation(allocationId: string) {
+    setLoading(true); setError("");
+    try {
+      await request(`/allocations/${allocationId}/activate`, { method: "POST" }, token);
+      setNotice("Allocation activated and fleet marked as allocated."); await loadView("allocations");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Allocation cannot be activated."); }
+    finally { setLoading(false); }
+  }
+
+  async function initiateDeallocation(allocationId: string) {
+    setLoading(true); setError("");
+    try {
+      await request(`/allocations/${allocationId}/deallocation/initiate`, { method: "POST" }, token);
+      setNotice("Deallocation started. Capture post-deallocation inspection evidence, then verify both OTPs.");
+      await loadView("allocations");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to start deallocation."); }
+    finally { setLoading(false); }
+  }
+
   function signOut() { sessionStorage.removeItem("evs-eye-access-token"); setToken(""); setOtpRequestId(""); setCode(""); setDashboard(null); setItems([]); }
 
   if (!token) return <main className="auth-shell"><section className="auth-card">
@@ -176,7 +195,7 @@ export default function Home() {
       {showAllocationForm && <section className="action-card"><div><p className="eyebrow">ALLOCATION</p><h2>Assign an available vehicle</h2><p className="muted">This reserves the fleet and creates its pre-allocation inspection.</p></div><form className="form-stack" onSubmit={createAllocation}><label>Available fleet<select value={allocationFleetId} onChange={(e) => setAllocationFleetId(e.target.value)} required><option value="">Select fleet</option>{availableFleets.map((fleet) => <option key={String(fleet.id)} value={String(fleet.id)}>{String(fleet.vehicleNumber)} · {String(fleet.oem ?? "Vehicle")}</option>)}</select></label><label>Active rider<select value={allocationRiderId} onChange={(e) => setAllocationRiderId(e.target.value)} required><option value="">Select rider</option>{activeRiders.map((rider) => <option key={String(rider.id)} value={String(rider.id)}>{String(rider.name)} · {String(rider.mobile)}</option>)}</select></label><div className="form-actions"><button type="submit" disabled={loading}>Create allocation</button><button type="button" className="secondary" onClick={() => setShowAllocationForm(false)}>Cancel</button></div></form></section>}
       {inspectionId && <section className="action-card"><div><p className="eyebrow">PRE-ALLOCATION INSPECTION</p><h2>Required photo evidence</h2><p className="muted">Each required slot must be complete before the allocation can be activated.</p></div><div className="photo-slots">{requirements.map((requirement) => { const photoType = String(requirement.photoType); const complete = uploadedPhotoTypes.includes(photoType); return <label key={photoType} className={complete ? "photo-slot complete" : "photo-slot"}><span>{complete ? "✓" : "○"} {photoType.replaceAll("_", " ")}{requirement.isRequired ? " · required" : " · optional"}</span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={loading} onChange={(event) => void uploadInspectionPhoto(photoType, event.target.files?.[0])} /></label>; })}</div><div className="form-actions"><button disabled={loading} onClick={() => void completeInspection()}>Complete inspection</button><button className="secondary" onClick={() => setInspectionId("")}>Close</button></div></section>}
       {!loading && tab === "dashboard" && dashboard && <div className="dashboard-grid"><Metric label="Total fleet" value={Object.values(dashboard.fleet).reduce((sum, value) => sum + value, 0)} /><Metric label="Available" value={dashboard.fleet.AVAILABLE ?? 0} /><Metric label="Active allocations" value={dashboard.activeAllocations} /><Metric label="IoT online" value={dashboard.iot.online} /><Metric label="IoT offline" value={dashboard.iot.offline} /><Metric label="KYC pending" value={dashboard.riders.PENDING ?? 0} /></div>}
-      {!loading && tab !== "dashboard" && <div className="table-wrap"><table><thead><tr>{tab === "fleets" ? <><th>Vehicle</th><th>OEM</th><th>Status</th><th>Hub</th></> : tab === "riders" ? <><th>Rider</th><th>Mobile</th><th>Status</th></> : <><th>Fleet</th><th>Rider</th><th>Status</th><th>Created</th><th /></>}</tr></thead><tbody>{items.map((item) => tab === "fleets" ? <tr key={String(item.id)}><td>{String(item.vehicleNumber)}</td><td>{String(item.oem)}</td><td><Status value={String(item.status)} /></td><td>{(item.hub as RecordItem | null)?.name as string ?? "—"}</td></tr> : tab === "riders" ? <tr key={String(item.id)}><td>{String(item.name)}</td><td>{String(item.mobile)}</td><td><Status value={String(item.status)} /></td></tr> : <tr key={String(item.id)}><td>{String((item.fleet as RecordItem)?.vehicleNumber ?? "—")}</td><td>{String((item.rider as RecordItem)?.name ?? "—")}</td><td><Status value={String(item.status)} /></td><td>{new Date(String(item.createdAt)).toLocaleDateString()}</td><td><button className="secondary table-action" onClick={() => void openInspection(item)}>Inspect</button></td></tr>)}</tbody></table>{items.length === 0 && <p className="empty">No records match this view.</p>}</div>}
+      {!loading && tab !== "dashboard" && <div className="table-wrap"><table><thead><tr>{tab === "fleets" ? <><th>Vehicle</th><th>OEM</th><th>Status</th><th>Hub</th></> : tab === "riders" ? <><th>Rider</th><th>Mobile</th><th>Status</th></> : <><th>Fleet</th><th>Rider</th><th>Status</th><th>Created</th><th /></>}</tr></thead><tbody>{items.map((item) => tab === "fleets" ? <tr key={String(item.id)}><td>{String(item.vehicleNumber)}</td><td>{String(item.oem)}</td><td><Status value={String(item.status)} /></td><td>{(item.hub as RecordItem | null)?.name as string ?? "—"}</td></tr> : tab === "riders" ? <tr key={String(item.id)}><td>{String(item.name)}</td><td>{String(item.mobile)}</td><td><Status value={String(item.status)} /></td></tr> : <tr key={String(item.id)}><td>{String((item.fleet as RecordItem)?.vehicleNumber ?? "—")}</td><td>{String((item.rider as RecordItem)?.name ?? "—")}</td><td><Status value={String(item.status)} /></td><td>{new Date(String(item.createdAt)).toLocaleDateString()}</td><td><div className="row-actions"><button className="secondary table-action" onClick={() => void openInspection(item)}>Inspect</button>{item.status === "OTP_PENDING" && <button className="table-action" onClick={() => void activateAllocation(String(item.id))}>Activate</button>}{item.status === "ACTIVE" && <button className="table-action" onClick={() => void initiateDeallocation(String(item.id))}>Deallocate</button>}</div></td></tr>)}</tbody></table>{items.length === 0 && <p className="empty">No records match this view.</p>}</div>}
     </section>
   </main>;
 }
