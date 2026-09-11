@@ -38,6 +38,13 @@ export class MediaService {
     return { photo, uploadUrl };
   }
 
+  async requirements(tenantId: string, entityType: PhotoEntityType) {
+    return this.prisma.photoRequirement.findMany({
+      where: { tenantId, entityType },
+      orderBy: [{ isRequired: 'desc' }, { photoType: 'asc' }],
+    });
+  }
+
   async complete(tenantId: string, photoId: string) {
     const photo = await this.getPhoto(tenantId, photoId);
     if (photo.status !== PhotoStatus.PENDING_UPLOAD) {
