@@ -62,7 +62,7 @@ export class AuthService {
       );
     }
 
-    const code = randomInt(100_000, 1_000_000).toString();
+    const code = this.generateOtpCode();
     const expiresAt = new Date(Date.now() + this.config.getOrThrow('OTP_TTL_SECONDS') * 1000);
     const otpRequest = await this.prisma.otpRequest.create({
       data: {
@@ -130,7 +130,7 @@ export class AuthService {
   async requestDeallocationOtp(tenantId: string, phone: string, allocationId: string, purpose: 'DEALLOCATION_RIDER' | 'DEALLOCATION_OPERATOR') {
     const allocation = await this.prisma.allocation.findFirst({ where: { id: allocationId, tenantId, status: 'DEALLOCATION_INITIATED' } });
     if (!allocation) throw new UnauthorizedException('Deallocation is not active.');
-    const code = randomInt(100_000, 1_000_000).toString();
+    const code = this.generateOtpCode();
     const expiresAt = new Date(Date.now() + this.config.getOrThrow('OTP_TTL_SECONDS') * 1000);
     const otp = await this.prisma.otpRequest.create({ data: { tenantId, purpose, phone, otpHash: this.hashSecret(code), expiresAt, maxAttempts: this.config.getOrThrow('OTP_MAX_ATTEMPTS'), context: { allocationId } } });
     await this.smsProvider.send({ phone, purpose, message: `Your EVs Eye deallocation code is ${code}.` });
@@ -173,6 +173,12 @@ export class AuthService {
     }
 
     return this.issueTokens(user);
+  }
+
+  private generateOtpCode(): string {
+    return this.config.getOrThrow('NODE_ENV') === 'development'
+      ? '123456'
+      : randomInt(100_000, 1_000_000).toString();
   }
 
   async revokeSession(refreshToken: string): Promise<void> {
