@@ -1,3 +1,71 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common'; import { UserRole } from '@prisma/client'; import { CurrentUser } from '../auth/decorators/current-user.decorator.js'; import { Roles } from '../auth/decorators/roles.decorator.js'; import { AccessTokenGuard } from '../auth/guards/access-token.guard.js'; import { RolesGuard } from '../auth/guards/roles.guard.js'; import type { AuthUser } from '../auth/interfaces/auth-user.interface.js'; import { TenantContextService } from '../auth/tenant-context.service.js'; import { IotService } from './iot.service.js';
-@Controller('iot') @UseGuards(AccessTokenGuard,RolesGuard) @Roles(UserRole.TENANT_ADMIN,UserRole.FLEET_MANAGER)
-export class IotController { constructor(private readonly iot:IotService,private readonly tenants:TenantContextService){} @Post('devices') register(@CurrentUser() u:AuthUser,@Body('fleetId') fleetId:string,@Body('deviceNumber') deviceNumber:string){return {data:this.iot.registerDevice(this.tenants.requireTenantId(u),fleetId,deviceNumber)};} }
+import { Body, Controller, Headers, HttpCode, Post, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
+import { IsBoolean, IsIn, IsISO8601, IsLatitude, IsLongitude, IsOptional, IsString, MaxLength } from 'class-validator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
+import { Roles } from '../auth/decorators/roles.decorator.js';
+import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
+import { RolesGuard } from '../auth/guards/roles.guard.js';
+import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
+import { TenantContextService } from '../auth/tenant-context.service.js';
+import { IotService, type TelemetryPacketType } from './iot.service.js';
+
+class RegisterDeviceDto {
+  @IsString()
+  fleetId!: string;
+
+  @IsString()
+  @MaxLength(128)
+  deviceNumber!: string;
+}
+
+class IngestTelemetryDto {
+  @IsString()
+  @MaxLength(128)
+  deviceNumber!: string;
+
+  @IsIn(['LOCATION', 'HEARTBEAT', 'START', 'STOP'])
+  type!: TelemetryPacketType;
+
+  @IsOptional()
+  @IsLatitude()
+  latitude?: number;
+
+  @IsOptional()
+  @IsLongitude()
+  longitude?: number;
+
+  @IsOptional()
+  speedKph?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  ignition?: boolean;
+
+  @IsOptional()
+  @IsISO8601()
+  occurredAt?: string;
+}
+
+@Controller('iot')
+@UseGuards(AccessTokenGuard, RolesGuard)
+@Roles(UserRole.TENANT_ADMIN, UserRole.FLEET_MANAGER)
+export class IotController {
+  constructor(private readonly iot: IotService, private readonly tenants: TenantContextService) {}
+
+  @Post('devices')
+  register(@CurrentUser() user: AuthUser, @Body() dto: RegisterDeviceDto) {
+    return { data: this.iot.registerDevice(this.tenants.requireTenantId(user), dto.fleetId, dto.deviceNumber) };
+  }
+}
+
+@Controller('iot')
+export class IotIngestionController {
+  constructor(private readonly iot: IotService) {}
+
+  @Post('ingest')
+  @HttpCode(202)
+  ingest(@Headers('x-device-secret') ingestSecret: string | undefined, @Body() dto: IngestTelemetryDto) {
+    if (!ingestSecret) throw new UnauthorizedException('Missing device credentials.');
+    return { data: this.iot.ingest(dto.deviceNumber, ingestSecret, dto.type, dto) };
+  }
+}

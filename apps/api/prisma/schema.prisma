@@ -194,6 +194,7 @@ model IoTDevice {
   fleetId String @unique
   fleet Fleet @relation(fields:[fleetId],references:[id],onDelete:Restrict)
   deviceNumber String
+  ingestSecretHash String
   isActive Boolean @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
