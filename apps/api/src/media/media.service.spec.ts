@@ -73,4 +73,23 @@ describe('MediaService photo requirements', () => {
       orderBy: { uploadedAt: 'asc' },
     });
   });
+
+  it('checks a battery belongs to the requesting tenant before media access', async () => {
+    const findFirst = vi.fn().mockResolvedValue(null);
+    const service = new MediaService(
+      { battery: { findFirst } } as never,
+      {} as never,
+    );
+
+    await expect(
+      service.listEntityPhotos(
+        'tenant-a',
+        PhotoEntityType.BATTERY,
+        'battery-1',
+      ),
+    ).rejects.toThrow('Media entity not found.');
+    expect(findFirst).toHaveBeenCalledWith({
+      where: { id: 'battery-1', tenantId: 'tenant-a' },
+    });
+  });
 });

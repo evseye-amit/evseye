@@ -142,6 +142,18 @@ export class MediaService {
       });
       if (fleet) return;
     }
+    if (entityType === PhotoEntityType.BATTERY) {
+      const battery = await this.prisma.battery.findFirst({
+        where: { id: entityId, tenantId },
+      });
+      if (battery) return;
+    }
+    if (entityType === PhotoEntityType.CONTROLLER) {
+      const controller = await this.prisma.controller.findFirst({
+        where: { id: entityId, tenantId },
+      });
+      if (controller) return;
+    }
     if (entityType === PhotoEntityType.INSPECTION) {
       const inspection = await this.prisma.inspection.findFirst({
         where: { id: entityId, tenantId },

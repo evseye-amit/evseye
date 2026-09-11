@@ -219,6 +219,11 @@ export default function Home() {
   const [uploadedFleetPhotoTypes, setUploadedFleetPhotoTypes] = useState<
     string[]
   >([]);
+  const [componentPhotoRequirements, setComponentPhotoRequirements] = useState<
+    Record<string, RecordItem[]>
+  >({});
+  const [uploadedComponentPhotoTypes, setUploadedComponentPhotoTypes] =
+    useState<Record<string, string[]>>({});
   const [iotDeviceNumber, setIotDeviceNumber] = useState("");
   const [ingestSecret, setIngestSecret] = useState("");
   const [search, setSearch] = useState("");
@@ -929,6 +934,52 @@ export default function Home() {
           .filter((photo) => photo.status === "COMPLETE")
           .map((photo) => String(photo.photoType)),
       );
+      const [batteryRequirements, controllerRequirements] = await Promise.all([
+        request(
+          "/media/photo-requirements?entityType=BATTERY",
+          {},
+          token,
+        ) as Promise<RecordItem[]>,
+        request(
+          "/media/photo-requirements?entityType=CONTROLLER",
+          {},
+          token,
+        ) as Promise<RecordItem[]>,
+      ]);
+      setComponentPhotoRequirements({
+        BATTERY: batteryRequirements,
+        CONTROLLER: controllerRequirements,
+      });
+      const components = [
+        ...((fleet.batteries as RecordItem[]) ?? []).map((component) => ({
+          entityType: "BATTERY" as const,
+          id: String(component.id),
+        })),
+        ...((fleet.controllers as RecordItem[]) ?? []).map((component) => ({
+          entityType: "CONTROLLER" as const,
+          id: String(component.id),
+        })),
+      ];
+      const componentPhotos = await Promise.all(
+        components.map(async (component) => ({
+          key: `${component.entityType}:${component.id}`,
+          photos: (await request(
+            `/media/photos?entityType=${component.entityType}&entityId=${component.id}`,
+            {},
+            token,
+          )) as RecordItem[],
+        })),
+      );
+      setUploadedComponentPhotoTypes(
+        Object.fromEntries(
+          componentPhotos.map(({ key, photos: componentPhotoItems }) => [
+            key,
+            componentPhotoItems
+              .filter((photo) => photo.status === "COMPLETE")
+              .map((photo) => String(photo.photoType)),
+          ]),
+        ),
+      );
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -1057,6 +1108,69 @@ export default function Home() {
         cause instanceof Error
           ? cause.message
           : "Unable to upload fleet photo.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function uploadComponentPhoto(
+    entityType: "BATTERY" | "CONTROLLER",
+    componentId: string,
+    file: File | undefined,
+    photoType: string,
+  ) {
+    if (!file) return;
+    if (
+      !["image/jpeg", "image/png", "image/webp"].includes(file.type) ||
+      file.size > 5 * 1024 * 1024
+    ) {
+      setError("Choose a JPEG, PNG, or WebP image smaller than 5 MB.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      const intent = (await request(
+        "/media/upload-intents",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            entityType,
+            entityId: componentId,
+            photoType,
+            mimeType: file.type,
+            fileName: file.name,
+            sizeBytes: file.size,
+          }),
+        },
+        token,
+      )) as { photo: { id: string }; uploadUrl: string };
+      const result = await fetch(intent.uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!result.ok)
+        throw new Error("Object storage rejected the file upload.");
+      await request(
+        `/media/${intent.photo.id}/complete`,
+        { method: "POST" },
+        token,
+      );
+      const key = `${entityType}:${componentId}`;
+      setUploadedComponentPhotoTypes((current) => ({
+        ...current,
+        [key]: current[key]?.includes(photoType)
+          ? current[key]
+          : [...(current[key] ?? []), photoType],
+      }));
+      setNotice(`${photoType.replaceAll("_", " ")} photo uploaded.`);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Unable to upload component photo.",
       );
     } finally {
       setLoading(false);
@@ -2034,6 +2148,71 @@ export default function Home() {
                 {((fleetDetail.controllers as RecordItem[]) ?? []).length}
               </span>
             </div>
+            {(
+              [
+                {
+                  entityType: "BATTERY" as const,
+                  label: "Battery",
+                  components: (fleetDetail.batteries as RecordItem[]) ?? [],
+                },
+                {
+                  entityType: "CONTROLLER" as const,
+                  label: "Controller",
+                  components: (fleetDetail.controllers as RecordItem[]) ?? [],
+                },
+              ] as const
+            ).map(({ entityType, label, components }) =>
+              components.map((component) => {
+                const componentId = String(component.id);
+                const uploaded =
+                  uploadedComponentPhotoTypes[`${entityType}:${componentId}`] ??
+                  [];
+                const requirements =
+                  componentPhotoRequirements[entityType] ?? [];
+                return (
+                  <section className="component-evidence" key={componentId}>
+                    <h4>
+                      {label}: {String(component.serialNumber)}
+                    </h4>
+                    <div className="photo-slots">
+                      {requirements.map((requirement) => {
+                        const photoType = String(requirement.photoType);
+                        const complete = uploaded.includes(photoType);
+                        return (
+                          <label
+                            key={String(requirement.id)}
+                            className={
+                              complete ? "photo-slot complete" : "photo-slot"
+                            }
+                          >
+                            <span>
+                              {complete ? "✓" : "○"}{" "}
+                              {photoType.replaceAll("_", " ")}
+                              {requirement.isRequired
+                                ? " · Required"
+                                : " · Optional"}
+                            </span>
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp"
+                              disabled={loading}
+                              onChange={(event) =>
+                                void uploadComponentPhoto(
+                                  entityType,
+                                  componentId,
+                                  event.target.files?.[0],
+                                  photoType,
+                                )
+                              }
+                            />
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </section>
+                );
+              }),
+            )}
             <h3>IoT device</h3>
             <div className="form-actions">
               <input

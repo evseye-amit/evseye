@@ -274,6 +274,15 @@ th {
   max-width: 100%;
   font-size: 12px;
 }
+.component-evidence {
+  margin-top: 16px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+.component-evidence h4 {
+  margin: 14px 0 0;
+  font-size: 14px;
+}
 .row-actions {
   display: flex;
   gap: 7px;

@@ -41,10 +41,20 @@ async function main() {
     'KEYS',
   ];
   const fleetPhotoTypes = ['FRONT', 'REAR', 'LEFT', 'RIGHT', 'DASHBOARD'];
+  const batteryPhotoTypes = ['FRONT', 'REAR', 'LABEL', 'CONNECTOR'];
+  const controllerPhotoTypes = ['FRONT', 'LABEL'];
   const requirements = [
     { entityType: PhotoEntityType.RIDER, photoType: 'PROFILE' },
     ...fleetPhotoTypes.map((photoType) => ({
       entityType: PhotoEntityType.FLEET,
+      photoType,
+    })),
+    ...batteryPhotoTypes.map((photoType) => ({
+      entityType: PhotoEntityType.BATTERY,
+      photoType,
+    })),
+    ...controllerPhotoTypes.map((photoType) => ({
+      entityType: PhotoEntityType.CONTROLLER,
       photoType,
     })),
     ...inspectionPhotoTypes.map((photoType) => ({

@@ -1,8 +1,16 @@
-import { IsIn, IsInt, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsString,
+  IsUUID,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export class CreateUploadIntentDto {
-  @IsIn(['RIDER', 'FLEET', 'INSPECTION'])
-  entityType!: 'RIDER' | 'FLEET' | 'INSPECTION';
+  @IsIn(['RIDER', 'FLEET', 'BATTERY', 'CONTROLLER', 'INSPECTION'])
+  entityType!: 'RIDER' | 'FLEET' | 'BATTERY' | 'CONTROLLER' | 'INSPECTION';
 
   @IsUUID()
   entityId!: string;
