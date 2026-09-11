@@ -1131,6 +1131,7 @@ export default function Home() {
                 {((fleetDetail.controllers as RecordItem[]) ?? []).length}
               </span>
             </div>
+            <div className="form-actions"><input id="battery-serial" placeholder="Battery serial" /><button onClick={() => { const input = document.getElementById("battery-serial") as HTMLInputElement; void addFleetComponent(String(fleetDetail.id), "batteries", input.value); }}>Add battery</button><input id="controller-serial" placeholder="Controller serial" /><button onClick={() => { const input = document.getElementById("controller-serial") as HTMLInputElement; void addFleetComponent(String(fleetDetail.id), "controllers", input.value); }}>Add controller</button></div>
             <button className="secondary" onClick={() => setFleetDetail(null)}>
               Close detail
             </button>
