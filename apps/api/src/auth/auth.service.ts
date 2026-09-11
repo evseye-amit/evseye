@@ -83,7 +83,7 @@ export class AuthService {
       message: `Your EVs Eye login code is ${code}. It expires in ${this.config.getOrThrow('OTP_TTL_SECONDS') / 60} minutes.`,
     });
 
-    return otpRequest;
+    return { otpRequestId: otpRequest.id, expiresAt: otpRequest.expiresAt };
   }
 
   async verifyLoginOtp(otpRequestId: string, code: string) {
@@ -134,7 +134,7 @@ export class AuthService {
     const expiresAt = new Date(Date.now() + this.config.getOrThrow('OTP_TTL_SECONDS') * 1000);
     const otp = await this.prisma.otpRequest.create({ data: { tenantId, purpose, phone, otpHash: this.hashSecret(code), expiresAt, maxAttempts: this.config.getOrThrow('OTP_MAX_ATTEMPTS'), context: { allocationId } } });
     await this.smsProvider.send({ phone, purpose, message: `Your EVs Eye deallocation code is ${code}.` });
-    return { id: otp.id, expiresAt: otp.expiresAt };
+    return { otpRequestId: otp.id, expiresAt: otp.expiresAt };
   }
 
   async verifyDeallocationOtp(tenantId:string, otpRequestId:string, code:string) {
