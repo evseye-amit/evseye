@@ -160,6 +160,7 @@ export default function Home() {
   const [showRiderForm, setShowRiderForm] = useState(false);
   const [newRiderName, setNewRiderName] = useState("");
   const [newRiderMobile, setNewRiderMobile] = useState("");
+  const [newRiderAddress, setNewRiderAddress] = useState("");
   const [showFleetForm, setShowFleetForm] = useState(false);
   const [hubs, setHubs] = useState<RecordItem[]>([]);
   const [zones, setZones] = useState<RecordItem[]>([]);
@@ -345,13 +346,18 @@ export default function Home() {
         "/riders",
         {
           method: "POST",
-          body: JSON.stringify({ name: newRiderName, mobile: newRiderMobile }),
+          body: JSON.stringify({
+            name: newRiderName,
+            mobile: newRiderMobile,
+            ...(newRiderAddress ? { address: newRiderAddress } : {}),
+          }),
         },
         token,
       );
       setShowRiderForm(false);
       setNewRiderName("");
       setNewRiderMobile("");
+      setNewRiderAddress("");
       setNotice(
         "Rider created. Add a profile photo and start KYC from rider detail.",
       );
@@ -1381,6 +1387,15 @@ export default function Home() {
                   required
                 />
               </label>
+              <label>
+                Address
+                <textarea
+                  value={newRiderAddress}
+                  onChange={(event) => setNewRiderAddress(event.target.value)}
+                  maxLength={500}
+                  rows={3}
+                />
+              </label>
               <div className="form-actions">
                 <button disabled={loading}>Create rider</button>
                 <button
@@ -1832,6 +1847,10 @@ export default function Home() {
               <div>
                 <strong>Status</strong>
                 <Status value={String(riderDetail.status)} />
+              </div>
+              <div>
+                <strong>Address</strong>
+                <span>{String(riderDetail.address ?? "—")}</span>
               </div>
             </div>
             <h3>KYC</h3>
