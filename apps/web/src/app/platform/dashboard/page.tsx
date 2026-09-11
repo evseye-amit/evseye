@@ -129,11 +129,22 @@ const emptyFeature = {
 };
 const emptyPricing = {
   featureId: "",
+  pricingName: "",
   pricingModel: "PER_UNIT",
-  billingUnit: "verification",
-  unitPrice: "",
-  costPrice: "",
+  billingUnit: "VERIFICATION",
   currency: "INR",
+  basePrice: "0",
+  unitPrice: "",
+  costPrice: "0",
+  minimumCharge: "",
+  maximumCharge: "",
+  setupFee: "0",
+  billingCycle: "MONTHLY",
+  taxInclusive: false,
+  effectiveFrom: new Date().toISOString().slice(0, 10),
+  effectiveTo: "",
+  isActive: true,
+  metadata: "",
 };
 
 function Metric({
@@ -183,9 +194,11 @@ export default function SuperAdminDashboard() {
   const [showFeatureBulk, setShowFeatureBulk] = useState(false);
   const [pack, setPack] = useState(emptyPackage);
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
+  const [showPackageForm, setShowPackageForm] = useState(false);
   const [selectedFeatureIds, setSelectedFeatureIds] = useState<string[]>([]);
   const [price, setPrice] = useState(emptyPricing);
   const [editingPricingId, setEditingPricingId] = useState<string | null>(null);
+  const [showPricingForm, setShowPricingForm] = useState(false);
   const [clientStep, setClientStep] = useState(1);
   const [showClientForm, setShowClientForm] = useState(false);
   const [client, setClient] = useState<Item>({
@@ -562,11 +575,19 @@ export default function SuperAdminDashboard() {
         setPack(emptyPackage);
         setSelectedFeatureIds([]);
         setEditingPackageId(null);
+        setShowPackageForm(false);
       },
     );
   }
   async function submitPricing(event: FormEvent) {
     event.preventDefault();
+    let metadata: Record<string, unknown> | undefined;
+    try {
+      metadata = price.metadata ? JSON.parse(price.metadata) : undefined;
+    } catch {
+      setError("Metadata must be valid JSON.");
+      return;
+    }
     await submit(
       () =>
         request(
@@ -577,10 +598,18 @@ export default function SuperAdminDashboard() {
             method: editingPricingId ? "PUT" : "POST",
             body: JSON.stringify({
               ...price,
+              basePrice: Number(price.basePrice || 0),
               unitPrice: Number(price.unitPrice),
-              ...(price.costPrice
-                ? { costPrice: Number(price.costPrice) }
+              costPrice: Number(price.costPrice || 0),
+              ...(price.minimumCharge
+                ? { minimumCharge: Number(price.minimumCharge) }
                 : {}),
+              ...(price.maximumCharge
+                ? { maximumCharge: Number(price.maximumCharge) }
+                : {}),
+              setupFee: Number(price.setupFee || 0),
+              ...(price.effectiveTo ? {} : { effectiveTo: undefined }),
+              ...(metadata ? { metadata } : { metadata: undefined }),
             }),
           },
           token,
@@ -591,6 +620,7 @@ export default function SuperAdminDashboard() {
       () => {
         setPrice(emptyPricing);
         setEditingPricingId(null);
+        setShowPricingForm(false);
       },
     );
   }
@@ -666,11 +696,11 @@ export default function SuperAdminDashboard() {
     );
   const nav: Array<[Tab, string, string]> = [
     ["dashboard", "Dashboard", "▦"],
-    ["clients", "Clients", "♙"],
     ["oems", "OEM", "▣"],
     ["features", "Feature", "◇"],
-    ["packages", "Packages", "◫"],
     ["pricing", "Feature pricing", "₹"],
+    ["packages", "Package", "◫"],
+    ["clients", "Client", "♙"],
   ];
   return (
     <main className="sa-shell">
@@ -1159,172 +1189,208 @@ export default function SuperAdminDashboard() {
           <>
             <section className="sa-page-head">
               <div>
-                <h2>Package catalogue</h2>
+                <h2>Package</h2>
                 <p>
                   Define commercial packages, limits, trial settings, and their
                   enabled platform features.
                 </p>
               </div>
-            </section>
-            <section className="sa-management">
-              <form className="sa-form" onSubmit={submitPackage}>
-                <h3>{editingPackageId ? "Edit Package" : "Create Package"}</h3>
-                <TextFields
-                  value={pack}
-                  change={(key, value) =>
-                    setPack((current) => ({ ...current, [key]: value }))
-                  }
-                  fields={[
-                    ["code", "Package code"],
-                    ["name", "Package name"],
-                    ["description", "Description"],
-                    ["monthlyPrice", "Monthly price"],
-                    ["yearlyPrice", "Yearly price"],
-                    ["maxFleets", "Maximum fleets"],
-                    ["maxVehicles", "Maximum vehicles"],
-                    ["maxRiders", "Maximum riders"],
-                    ["maxUsers", "Maximum users"],
-                    ["trialDays", "Trial days"],
-                    ["displayOrder", "Display order"],
-                  ]}
-                />
-                <Select
-                  value={pack.packageType}
-                  change={(value) =>
-                    setPack((current) => ({ ...current, packageType: value }))
-                  }
-                  options={[
-                    "STANDARD",
-                    "CUSTOM",
-                    "TRIAL",
-                    "ADD_ON",
-                    "ENTERPRISE",
-                    "INTERNAL",
-                  ]}
-                />
-                <label className="sa-toggle">
-                  <input
-                    type="checkbox"
-                    checked={pack.isDefault}
-                    onChange={(event) =>
-                      setPack((current) => ({
-                        ...current,
-                        isDefault: event.target.checked,
-                      }))
-                    }
-                  />
-                  Default package
-                </label>
-                <label className="sa-toggle">
-                  <input
-                    type="checkbox"
-                    checked={pack.isActive}
-                    onChange={(event) =>
-                      setPack((current) => ({
-                        ...current,
-                        isActive: event.target.checked,
-                      }))
-                    }
-                  />
-                  Active package
-                </label>
-                <div className="sa-checkbox-list">
-                  {features
-                    .filter(
-                      (feature) =>
-                        feature.isActive ||
-                        selectedFeatureIds.includes(feature.id),
-                    )
-                    .map((feature) => (
-                      <label key={feature.id}>
-                        <input
-                          type="checkbox"
-                          checked={selectedFeatureIds.includes(feature.id)}
-                          disabled={!feature.isActive}
-                          onChange={(event) =>
-                            setSelectedFeatureIds((current) =>
-                              event.target.checked
-                                ? [...current, feature.id]
-                                : current.filter((id) => id !== feature.id),
-                            )
-                          }
-                        />
-                        {feature.name}
-                        {!feature.isActive ? " (inactive)" : ""}
-                      </label>
-                    ))}
-                </div>
-                <button disabled={loading}>
-                  {editingPackageId ? "Update package" : "Save package"}
+              <div className="sa-actions">
+                <button
+                  onClick={() => {
+                    setPack(emptyPackage);
+                    setSelectedFeatureIds([]);
+                    setEditingPackageId(null);
+                    setShowPackageForm(!showPackageForm);
+                  }}
+                >
+                  + Add Package
                 </button>
-              </form>
-              <DataTable
-                headings={[
-                  "Code",
-                  "Package",
-                  "Type",
-                  "Monthly",
-                  "Limits",
-                  "Status",
-                  "Features",
-                  "",
-                ]}
-                rows={packages.map((item) => [
-                  item.code,
-                  item.name,
-                  item.packageType,
-                  item.monthlyPrice ? `₹${item.monthlyPrice}` : "—",
-                  `${item.maxVehicles ?? "∞"} vehicles · ${item.maxRiders ?? "∞"} riders`,
-                  `${item.isActive ? "ACTIVE" : "INACTIVE"}${item.isDefault ? " · DEFAULT" : ""}`,
-                  item.features?.length ?? 0,
-                  <button
-                    key="edit"
-                    className="secondary"
-                    onClick={() => {
-                      setPack({
-                        code: item.code,
-                        name: item.name,
-                        packageType: item.packageType,
-                        monthlyPrice: item.monthlyPrice
-                          ? String(item.monthlyPrice)
-                          : "",
-                        yearlyPrice: item.yearlyPrice
-                          ? String(item.yearlyPrice)
-                          : "",
-                        currency: item.currency,
-                        description: item.description ?? "",
-                        maxFleets: item.maxFleets ? String(item.maxFleets) : "",
-                        maxVehicles: item.maxVehicles
-                          ? String(item.maxVehicles)
-                          : "",
-                        maxRiders: item.maxRiders ? String(item.maxRiders) : "",
-                        maxUsers: item.maxUsers ? String(item.maxUsers) : "",
-                        trialDays: String(item.trialDays ?? 0),
-                        displayOrder: String(item.displayOrder ?? 0),
-                        isDefault: item.isDefault,
-                        isActive: item.isActive,
-                      });
-                      setSelectedFeatureIds(
-                        (item.features ?? []).map(
-                          (link: Item) => link.featureId,
-                        ),
-                      );
-                      setEditingPackageId(item.id);
-                    }}
-                  >
-                    Edit
-                  </button>,
-                  <button
-                    key="delete"
-                    className="danger"
-                    onClick={() =>
-                      void remove(`/platform/packages/${item.id}`, "package")
+              </div>
+            </section>
+            <section
+              className={`sa-management ${showPackageForm ? "" : "oem-table-only"}`}
+            >
+              {showPackageForm && (
+                <form className="sa-form" onSubmit={submitPackage}>
+                  <h3>{editingPackageId ? "Edit Package" : "Add Package"}</h3>
+                  <TextFields
+                    value={pack}
+                    change={(key, value) =>
+                      setPack((current) => ({ ...current, [key]: value }))
                     }
-                  >
-                    Delete
-                  </button>,
-                ])}
-              />
+                    fields={[
+                      ["code", "Package code"],
+                      ["name", "Package name"],
+                      ["description", "Description"],
+                      ["monthlyPrice", "Monthly price"],
+                      ["yearlyPrice", "Yearly price"],
+                      ["maxFleets", "Maximum fleets"],
+                      ["maxVehicles", "Maximum vehicles"],
+                      ["maxRiders", "Maximum riders"],
+                      ["maxUsers", "Maximum users"],
+                      ["trialDays", "Trial days"],
+                      ["displayOrder", "Display order"],
+                    ]}
+                  />
+                  <Select
+                    value={pack.packageType}
+                    change={(value) =>
+                      setPack((current) => ({ ...current, packageType: value }))
+                    }
+                    options={[
+                      "STANDARD",
+                      "CUSTOM",
+                      "TRIAL",
+                      "ADD_ON",
+                      "ENTERPRISE",
+                      "INTERNAL",
+                    ]}
+                  />
+                  <label className="sa-toggle">
+                    <input
+                      type="checkbox"
+                      checked={pack.isDefault}
+                      onChange={(event) =>
+                        setPack((current) => ({
+                          ...current,
+                          isDefault: event.target.checked,
+                        }))
+                      }
+                    />
+                    Default package
+                  </label>
+                  <label className="sa-toggle">
+                    <input
+                      type="checkbox"
+                      checked={pack.isActive}
+                      onChange={(event) =>
+                        setPack((current) => ({
+                          ...current,
+                          isActive: event.target.checked,
+                        }))
+                      }
+                    />
+                    Active package
+                  </label>
+                  <div className="sa-checkbox-list">
+                    {features
+                      .filter(
+                        (feature) =>
+                          feature.isActive ||
+                          selectedFeatureIds.includes(feature.id),
+                      )
+                      .map((feature) => (
+                        <label key={feature.id}>
+                          <input
+                            type="checkbox"
+                            checked={selectedFeatureIds.includes(feature.id)}
+                            disabled={!feature.isActive}
+                            onChange={(event) =>
+                              setSelectedFeatureIds((current) =>
+                                event.target.checked
+                                  ? [...current, feature.id]
+                                  : current.filter((id) => id !== feature.id),
+                              )
+                            }
+                          />
+                          {feature.name}
+                          {!feature.isActive ? " (inactive)" : ""}
+                        </label>
+                      ))}
+                  </div>
+                  <button disabled={loading}>
+                    {editingPackageId ? "Update Package" : "Save Package"}
+                  </button>
+                </form>
+              )}
+              {packages.length ? (
+                <DataTable
+                  headings={[
+                    "Code",
+                    "Package",
+                    "Type",
+                    "Monthly",
+                    "Limits",
+                    "Status",
+                    "Features",
+                    "",
+                  ]}
+                  rows={packages.map((item) => [
+                    item.code,
+                    item.name,
+                    item.packageType,
+                    item.monthlyPrice ? `₹${item.monthlyPrice}` : "—",
+                    `${item.maxVehicles ?? "∞"} vehicles · ${item.maxRiders ?? "∞"} riders`,
+                    `${item.isActive ? "ACTIVE" : "INACTIVE"}${item.isDefault ? " · DEFAULT" : ""}`,
+                    item.features?.length ?? 0,
+                    <button
+                      key="edit"
+                      className="secondary"
+                      onClick={() => {
+                        setPack({
+                          code: item.code,
+                          name: item.name,
+                          packageType: item.packageType,
+                          monthlyPrice: item.monthlyPrice
+                            ? String(item.monthlyPrice)
+                            : "",
+                          yearlyPrice: item.yearlyPrice
+                            ? String(item.yearlyPrice)
+                            : "",
+                          currency: item.currency,
+                          description: item.description ?? "",
+                          maxFleets: item.maxFleets
+                            ? String(item.maxFleets)
+                            : "",
+                          maxVehicles: item.maxVehicles
+                            ? String(item.maxVehicles)
+                            : "",
+                          maxRiders: item.maxRiders
+                            ? String(item.maxRiders)
+                            : "",
+                          maxUsers: item.maxUsers ? String(item.maxUsers) : "",
+                          trialDays: String(item.trialDays ?? 0),
+                          displayOrder: String(item.displayOrder ?? 0),
+                          isDefault: item.isDefault,
+                          isActive: item.isActive,
+                        });
+                        setSelectedFeatureIds(
+                          (item.features ?? []).map(
+                            (link: Item) => link.featureId,
+                          ),
+                        );
+                        setEditingPackageId(item.id);
+                        setShowPackageForm(true);
+                      }}
+                    >
+                      Edit
+                    </button>,
+                    <button
+                      key="delete"
+                      className="danger"
+                      onClick={() =>
+                        void remove(`/platform/packages/${item.id}`, "package")
+                      }
+                    >
+                      Delete
+                    </button>,
+                  ])}
+                />
+              ) : (
+                <section className="sa-empty-catalog">
+                  <h3>No Packages yet</h3>
+                  <p>
+                    Create a Package to group Features, commercial limits, and
+                    pricing.
+                  </p>
+                  <div>
+                    <button onClick={() => setShowPackageForm(true)}>
+                      Add Package
+                    </button>
+                  </div>
+                </section>
+              )}
             </section>
           </>
         )}
@@ -1332,110 +1398,261 @@ export default function SuperAdminDashboard() {
           <>
             <section className="sa-page-head">
               <div>
-                <h2>Feature pricing</h2>
+                <h2>Feature Pricing</h2>
                 <p>
-                  Price KYC, onboarding, telematics, and other metered
-                  capabilities.
+                  Define the platform-owned commercial terms for every feature.
                 </p>
               </div>
+              <div className="sa-actions">
+                <button
+                  onClick={() => {
+                    setPrice(emptyPricing);
+                    setEditingPricingId(null);
+                    setShowPricingForm(!showPricingForm);
+                  }}
+                >
+                  + Add Feature Price
+                </button>
+              </div>
             </section>
-            <section className="sa-management">
-              <form className="sa-form" onSubmit={submitPricing}>
-                <h3>Add feature price</h3>
-                <label>
-                  Feature
-                  <select
-                    value={price.featureId}
-                    onChange={(event) =>
+            <section
+              className={`sa-management ${showPricingForm ? "" : "oem-table-only"}`}
+            >
+              {showPricingForm && (
+                <form className="sa-form" onSubmit={submitPricing}>
+                  <h3>
+                    {editingPricingId
+                      ? "Edit Feature Price"
+                      : "Add Feature Price"}
+                  </h3>
+                  <label>
+                    Feature
+                    <select
+                      value={price.featureId}
+                      onChange={(event) => {
+                        const selectedFeature = features.find(
+                          (feature) => feature.id === event.target.value,
+                        );
+                        setPrice((current) => ({
+                          ...current,
+                          featureId: event.target.value,
+                          billingUnit:
+                            selectedFeature?.billingUnit ?? current.billingUnit,
+                        }));
+                      }}
+                      required
+                    >
+                      <option value="">Select feature</option>
+                      {features
+                        .filter(
+                          (feature) =>
+                            feature.isActive || feature.id === price.featureId,
+                        )
+                        .map((feature) => (
+                          <option key={feature.id} value={feature.id}>
+                            {feature.name}
+                            {!feature.isActive ? " (inactive)" : ""}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <Select
+                    label="Pricing model"
+                    value={price.pricingModel}
+                    change={(value) =>
                       setPrice((current) => ({
                         ...current,
-                        featureId: event.target.value,
+                        pricingModel: value,
                       }))
                     }
-                    required
-                  >
-                    <option value="">Select feature</option>
-                    {features
-                      .filter(
-                        (feature) =>
-                          feature.isActive || feature.id === price.featureId,
-                      )
-                      .map((feature) => (
-                        <option key={feature.id} value={feature.id}>
-                          {feature.name}
-                          {!feature.isActive ? " (inactive)" : ""}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-                <Select
-                  value={price.pricingModel}
-                  change={(value) =>
-                    setPrice((current) => ({ ...current, pricingModel: value }))
-                  }
-                  options={[
-                    "INCLUDED",
-                    "PER_UNIT",
-                    "PER_RIDER",
-                    "PER_VEHICLE_DEVICE",
-                    "TIERED_VOLUME",
-                    "FLAT_FEE",
-                    "CUSTOM",
-                  ]}
-                />
-                <TextFields
-                  value={price}
-                  change={(key, value) =>
-                    setPrice((current) => ({ ...current, [key]: value }))
-                  }
-                  fields={[
-                    ["billingUnit", "Billing unit"],
-                    ["unitPrice", "Unit price"],
-                    ["costPrice", "Vendor cost"],
-                  ]}
-                />
-                <button disabled={loading}>
-                  {editingPricingId ? "Update pricing" : "Save pricing"}
-                </button>
-              </form>
-              <DataTable
-                headings={["Feature", "Model", "Unit price", "Status", ""]}
-                rows={pricing.map((item) => [
-                  item.feature?.name,
-                  item.pricingModel,
-                  `₹${item.unitPrice}`,
-                  item.isActive ? "ACTIVE" : "INACTIVE",
-                  <button
-                    key="edit"
-                    className="secondary"
-                    onClick={() => {
-                      setPrice({
-                        featureId: item.featureId,
-                        pricingModel: item.pricingModel,
-                        billingUnit: item.billingUnit,
-                        unitPrice: String(item.unitPrice),
-                        costPrice: item.costPrice ? String(item.costPrice) : "",
-                        currency: item.currency,
-                      });
-                      setEditingPricingId(item.id);
-                    }}
-                  >
-                    Edit
-                  </button>,
-                  <button
-                    key="delete"
-                    className="danger"
-                    onClick={() =>
-                      void remove(
-                        `/platform/feature-pricing/${item.id}`,
-                        "price",
-                      )
+                    options={[
+                      "FREE",
+                      "INCLUDED",
+                      "FLAT_FEE",
+                      "PER_UNIT",
+                      "TIERED",
+                      "VOLUME",
+                      "PER_USER",
+                      "PER_RIDER",
+                      "PER_VEHICLE",
+                      "PER_FLEET",
+                      "USAGE_BASED",
+                      "ONE_TIME",
+                      "CUSTOM",
+                    ]}
+                  />
+                  <TextFields
+                    value={price}
+                    change={(key, value) =>
+                      setPrice((current) => ({ ...current, [key]: value }))
                     }
-                  >
-                    Delete
-                  </button>,
-                ])}
-              />
+                    fields={[
+                      ["pricingName", "Pricing name"],
+                      ["billingUnit", "Billing unit"],
+                      ["basePrice", "Base price"],
+                      ["unitPrice", "Unit price"],
+                      ["costPrice", "Cost price"],
+                      ["minimumCharge", "Minimum charge"],
+                      ["maximumCharge", "Maximum charge"],
+                      ["setupFee", "Setup fee"],
+                      ["effectiveFrom", "Effective from"],
+                      ["effectiveTo", "Effective to"],
+                    ]}
+                  />
+                  <Select
+                    label="Billing cycle"
+                    value={price.billingCycle}
+                    change={(value) =>
+                      setPrice((current) => ({
+                        ...current,
+                        billingCycle: value,
+                      }))
+                    }
+                    options={["MONTHLY", "QUARTERLY", "HALF_YEARLY", "YEARLY"]}
+                  />
+                  <label>
+                    Currency
+                    <select
+                      value={price.currency}
+                      onChange={(event) =>
+                        setPrice((current) => ({
+                          ...current,
+                          currency: event.target.value,
+                        }))
+                      }
+                    >
+                      <option value="INR">INR</option>
+                    </select>
+                  </label>
+                  <label>
+                    Pricing metadata (optional JSON)
+                    <textarea
+                      value={price.metadata}
+                      placeholder={'{"includedQuantity": 100}'}
+                      onChange={(event) =>
+                        setPrice((current) => ({
+                          ...current,
+                          metadata: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="sa-check">
+                    <input
+                      type="checkbox"
+                      checked={price.taxInclusive}
+                      onChange={(event) =>
+                        setPrice((current) => ({
+                          ...current,
+                          taxInclusive: event.target.checked,
+                        }))
+                      }
+                    />
+                    Tax inclusive
+                  </label>
+                  <label className="sa-check">
+                    <input
+                      type="checkbox"
+                      checked={price.isActive}
+                      onChange={(event) =>
+                        setPrice((current) => ({
+                          ...current,
+                          isActive: event.target.checked,
+                        }))
+                      }
+                    />
+                    Active
+                  </label>
+                  <button disabled={loading}>
+                    {editingPricingId
+                      ? "Update Feature Price"
+                      : "Save Feature Price"}
+                  </button>
+                </form>
+              )}
+              {pricing.length ? (
+                <DataTable
+                  headings={[
+                    "Feature",
+                    "Price name",
+                    "Model",
+                    "Price",
+                    "Effective from",
+                    "Status",
+                    "",
+                  ]}
+                  rows={pricing.map((item) => [
+                    item.feature?.name,
+                    item.pricingName ?? "—",
+                    item.pricingModel,
+                    `${item.currency} ${item.unitPrice}`,
+                    new Date(item.effectiveFrom).toLocaleDateString(),
+                    item.isActive ? "ACTIVE" : "INACTIVE",
+                    <button
+                      key="edit"
+                      className="secondary"
+                      onClick={() => {
+                        setPrice({
+                          featureId: item.featureId,
+                          pricingName: item.pricingName ?? "",
+                          pricingModel: item.pricingModel,
+                          billingUnit: item.billingUnit,
+                          basePrice: String(item.basePrice ?? 0),
+                          unitPrice: String(item.unitPrice),
+                          costPrice: String(item.costPrice ?? 0),
+                          minimumCharge: item.minimumCharge
+                            ? String(item.minimumCharge)
+                            : "",
+                          maximumCharge: item.maximumCharge
+                            ? String(item.maximumCharge)
+                            : "",
+                          setupFee: String(item.setupFee ?? 0),
+                          currency: item.currency,
+                          billingCycle: item.billingCycle ?? "MONTHLY",
+                          taxInclusive: item.taxInclusive ?? false,
+                          effectiveFrom: item.effectiveFrom.slice(0, 10),
+                          effectiveTo: item.effectiveTo
+                            ? item.effectiveTo.slice(0, 10)
+                            : "",
+                          isActive: item.isActive,
+                          metadata: item.metadata
+                            ? JSON.stringify(item.metadata, null, 2)
+                            : "",
+                        });
+                        setEditingPricingId(item.id);
+                        setShowPricingForm(true);
+                      }}
+                    >
+                      Edit
+                    </button>,
+                    <button
+                      key="delete"
+                      className="danger"
+                      onClick={() =>
+                        void remove(
+                          `/platform/feature-pricing/${item.id}`,
+                          "price",
+                        )
+                      }
+                    >
+                      Delete
+                    </button>,
+                  ])}
+                />
+              ) : (
+                <section className="sa-empty-catalog">
+                  <h3>No Feature Prices yet</h3>
+                  <p>
+                    Create pricing terms for a Feature, including its model,
+                    effective dates, and commercial amounts.
+                  </p>
+                  <div>
+                    <button onClick={() => setShowPricingForm(true)}>
+                      Add Feature Price
+                    </button>
+                  </div>
+                </section>
+              )}
             </section>
           </>
         )}
@@ -1769,61 +1986,82 @@ function TextFields({
 }) {
   return (
     <>
-      {fields.map(([key, label]) => (
-        <label key={key}>
-          {label}
-          <input
-            value={value[key] ?? ""}
-            type={
-              key.toLowerCase().includes("date")
-                ? "date"
-                : key.includes("Price") ||
-                    key === "discount" ||
-                    key === "taxRate"
-                  ? "number"
-                  : key.includes("description")
-                    ? "text"
+      {fields.map(([key, label]) => {
+        const normalizedKey = key.toLowerCase();
+        return (
+          <label key={key}>
+            {label}
+            <input
+              value={value[key] ?? ""}
+              type={
+                normalizedKey.includes("date") ||
+                normalizedKey.includes("effective")
+                  ? "date"
+                  : normalizedKey.includes("price") ||
+                      normalizedKey.includes("charge") ||
+                      normalizedKey.includes("fee") ||
+                      key === "discount" ||
+                      key === "taxRate"
+                    ? "number"
                     : "text"
-            }
-            onChange={(event) => change(key, event.target.value)}
-            required={[
-              "code",
-              "name",
-              "displayName",
-              "monthlyPrice",
-              "legalCompanyName",
-              "pan",
-              "primaryContactName",
-              "primaryContactMobile",
-              "primaryContactEmail",
-              "adminName",
-              "adminEmail",
-              "adminMobile",
-              "registeredAddressLine1",
-              "city",
-              "district",
-              "state",
-              "pinCode",
-              "packageStartDate",
-            ].includes(key)}
-          />
-        </label>
-      ))}
+              }
+              step={
+                normalizedKey.includes("price") ||
+                normalizedKey.includes("charge") ||
+                normalizedKey.includes("fee")
+                  ? "0.0001"
+                  : undefined
+              }
+              min={
+                normalizedKey.includes("price") ||
+                normalizedKey.includes("charge") ||
+                normalizedKey.includes("fee")
+                  ? 0
+                  : undefined
+              }
+              onChange={(event) => change(key, event.target.value)}
+              required={[
+                "code",
+                "name",
+                "displayName",
+                "monthlyPrice",
+                "legalCompanyName",
+                "pan",
+                "primaryContactName",
+                "primaryContactMobile",
+                "primaryContactEmail",
+                "adminName",
+                "adminEmail",
+                "adminMobile",
+                "registeredAddressLine1",
+                "city",
+                "district",
+                "state",
+                "pinCode",
+                "packageStartDate",
+                "effectiveFrom",
+              ].includes(key)}
+            />
+          </label>
+        );
+      })}
     </>
   );
 }
 function Select({
+  label = "Selection",
   value,
   change,
   options,
 }: {
+  label?: string;
   value: string;
   change: (value: string) => void;
   options: string[];
 }) {
   return (
     <label>
-      Selection
+      {label}
       <select value={value} onChange={(event) => change(event.target.value)}>
         {options.map((option) => (
           <option key={option}>{option}</option>

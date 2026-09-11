@@ -124,12 +124,18 @@ enum MasterRecordStatus {
 }
 
 enum PricingModel {
+  FREE
   INCLUDED
-  PER_UNIT
-  PER_RIDER
-  PER_VEHICLE_DEVICE
-  TIERED_VOLUME
   FLAT_FEE
+  PER_UNIT
+  TIERED
+  VOLUME
+  PER_USER
+  PER_RIDER
+  PER_VEHICLE
+  PER_FLEET
+  USAGE_BASED
+  ONE_TIME
   CUSTOM
 }
 
@@ -296,16 +302,22 @@ model FeaturePricing {
   id            String       @id @default(uuid())
   featureId     String
   feature       Feature      @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  pricingName   String?      @db.VarChar(150)
   pricingModel  PricingModel
-  billingUnit   String
-  unitPrice     Decimal      @db.Decimal(12, 2)
-  costPrice     Decimal?     @db.Decimal(12, 2)
-  minCharge     Decimal?     @db.Decimal(12, 2)
-  maxCharge     Decimal?     @db.Decimal(12, 2)
+  billingUnit   String       @db.VarChar(50)
   currency      String       @default("INR") @db.Char(3)
+  basePrice     Decimal      @default(0) @db.Decimal(12, 4)
+  unitPrice     Decimal      @default(0) @db.Decimal(12, 4)
+  costPrice     Decimal      @default(0) @db.Decimal(12, 4)
+  minimumCharge Decimal?     @db.Decimal(12, 2)
+  maximumCharge Decimal?     @db.Decimal(12, 2)
+  setupFee      Decimal      @default(0) @db.Decimal(12, 2)
+  billingCycle  BillingCycle?
+  taxInclusive  Boolean      @default(false)
   effectiveFrom DateTime     @default(now())
   effectiveTo   DateTime?
   isActive      Boolean      @default(true)
+  metadata      Json?
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 

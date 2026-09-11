@@ -4,6 +4,8 @@ import {
   IsBoolean,
   IsEnum,
   IsIn,
+  IsDateString,
+  IsObject,
   IsNumber,
   IsOptional,
   IsString,
@@ -17,6 +19,7 @@ import {
   FeatureBillingUnit,
   FeatureCategory,
   FeatureType,
+  BillingCycle,
   MasterRecordStatus,
   OemType,
   PackageType,
@@ -119,14 +122,22 @@ export class UpdatePackageDto extends CreatePackageDto {}
 
 export class CreateFeaturePricingDto {
   @IsString() featureId!: string;
+  @IsOptional() @IsString() @MaxLength(150) pricingName?: string;
   @IsEnum(PricingModel) pricingModel!: PricingModel;
-  @IsString() @MaxLength(60) billingUnit!: string;
-  @IsNumber() @Min(0) unitPrice!: number;
-  @IsOptional() @IsNumber() @Min(0) costPrice?: number;
-  @IsOptional() @IsNumber() @Min(0) minCharge?: number;
-  @IsOptional() @IsNumber() @Min(0) maxCharge?: number;
+  @IsString() @MaxLength(50) billingUnit!: string;
   @IsOptional() @IsString() @Matches(/^[A-Z]{3}$/) currency?: string;
+  @IsOptional() @IsNumber() @Min(0) basePrice?: number;
+  @IsOptional() @IsNumber() @Min(0) unitPrice?: number;
+  @IsOptional() @IsNumber() @Min(0) costPrice?: number;
+  @IsOptional() @IsNumber() @Min(0) minimumCharge?: number;
+  @IsOptional() @IsNumber() @Min(0) maximumCharge?: number;
+  @IsOptional() @IsNumber() @Min(0) setupFee?: number;
+  @IsOptional() @IsEnum(BillingCycle) billingCycle?: BillingCycle;
+  @IsOptional() @IsBoolean() taxInclusive?: boolean;
+  @IsDateString() effectiveFrom!: string;
+  @IsOptional() @IsDateString() effectiveTo?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
+  @IsOptional() @IsObject() metadata?: Record<string, unknown>;
 }
 
 export class UpdateFeaturePricingDto extends CreateFeaturePricingDto {}

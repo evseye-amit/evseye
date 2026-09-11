@@ -18,6 +18,7 @@ import {
   FeatureType,
   MasterRecordStatus,
   OemType,
+  Prisma,
 } from '@prisma/client';
 import type {
   BulkCreateOemsDto,
@@ -366,13 +367,15 @@ export class PlatformCatalogService {
     });
   }
   async createPricing(dto: CreateFeaturePricingDto, actorId: string) {
+    this.validatePricing(dto);
+    await this.exists('feature', dto.featureId);
     return this.createWithAudit(
       'FEATURE_PRICING_CREATED',
       'FeaturePricing',
       actorId,
       () =>
         this.prisma.featurePricing.create({
-          data: dto,
+          data: this.pricingData(dto),
           include: { feature: true },
         }),
     );
@@ -383,6 +386,8 @@ export class PlatformCatalogService {
     actorId: string,
   ) {
     await this.exists('featurePricing', id);
+    this.validatePricing(dto);
+    await this.exists('feature', dto.featureId);
     return this.updateWithAudit(
       'FEATURE_PRICING_UPDATED',
       'FeaturePricing',
@@ -391,10 +396,37 @@ export class PlatformCatalogService {
       () =>
         this.prisma.featurePricing.update({
           where: { id },
-          data: dto,
+          data: this.pricingData(dto),
           include: { feature: true },
         }),
     );
+  }
+
+  private validatePricing(dto: CreateFeaturePricingDto) {
+    const effectiveFrom = new Date(dto.effectiveFrom);
+    const effectiveTo = dto.effectiveTo ? new Date(dto.effectiveTo) : undefined;
+    if (effectiveTo && effectiveTo < effectiveFrom) {
+      throw new BadRequestException(
+        'Effective end date must be on or after the effective start date.',
+      );
+    }
+    if (
+      dto.minimumCharge !== undefined &&
+      dto.maximumCharge !== undefined &&
+      dto.minimumCharge > dto.maximumCharge
+    ) {
+      throw new BadRequestException(
+        'Maximum charge must be greater than or equal to minimum charge.',
+      );
+    }
+  }
+
+  private pricingData(dto: CreateFeaturePricingDto) {
+    const { metadata, ...data } = dto;
+    return {
+      ...data,
+      metadata: metadata as Prisma.InputJsonValue | undefined,
+    };
   }
   async deletePricing(id: string, actorId: string) {
     await this.exists('featurePricing', id);
