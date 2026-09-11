@@ -1,6 +1,7 @@
 import { Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
+import { AuditService } from '../audit/audit.service.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
@@ -18,6 +19,7 @@ import { InspectionsService } from './inspections.service.js';
 export class InspectionsController {
   constructor(
     private readonly inspections: InspectionsService,
+    private readonly audit: AuditService,
     private readonly tenants: TenantContextService,
   ) {}
 
@@ -36,12 +38,26 @@ export class InspectionsController {
     @CurrentUser() user: AuthUser,
     @Param('id') inspectionId: string,
   ) {
+    const tenantId = this.tenants.requireTenantId(user);
+    const inspection = await this.inspections.complete(
+      tenantId,
+      inspectionId,
+      user.id,
+    );
+    await this.audit.record({
+      tenantId,
+      actorId: user.id,
+      action: 'INSPECTION_COMPLETED',
+      entityType: 'INSPECTION',
+      entityId: inspectionId,
+      newData: {
+        allocationId: inspection.allocationId,
+        type: inspection.type,
+        status: inspection.status,
+      },
+    });
     return {
-      data: await this.inspections.complete(
-        this.tenants.requireTenantId(user),
-        inspectionId,
-        user.id,
-      ),
+      data: inspection,
     };
   }
 }
