@@ -4,6 +4,9 @@ import { FormEvent, useEffect, useState } from "react";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
+const ACCESS_TOKEN_KEY = "evs-eye-access-token";
+const REFRESH_TOKEN_KEY = "evs-eye-refresh-token";
+const AUTH_CHANGED_EVENT = "evs-eye-auth-changed";
 type Tab = "dashboard" | "fleets" | "riders" | "allocations";
 type RecordItem = Record<string, unknown>;
 
@@ -14,7 +17,19 @@ interface Dashboard {
   iot: { online: number; offline: number };
 }
 
-async function request(
+interface ApiBody {
+  data?: unknown;
+  message?: string;
+}
+
+interface TokenPair {
+  accessToken: string;
+  refreshToken: string;
+}
+
+let refreshInFlight: Promise<string | null> | null = null;
+
+async function sendRequest(
   path: string,
   options: RequestInit = {},
   token?: string,
@@ -27,10 +42,52 @@ async function request(
       ...options.headers,
     },
   });
-  const body = (await response.json().catch(() => ({}))) as {
-    data?: unknown;
-    message?: string;
-  };
+  const body = (await response.json().catch(() => ({}))) as ApiBody;
+  return { response, body };
+}
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = (async () => {
+    const refreshToken = sessionStorage.getItem(REFRESH_TOKEN_KEY);
+    if (!refreshToken) return null;
+
+    const { response, body } = await sendRequest("/auth/refresh", {
+      method: "POST",
+      body: JSON.stringify({ refreshToken }),
+    });
+    const tokens = body.data as Partial<TokenPair> | undefined;
+    if (!response.ok || !tokens?.accessToken || !tokens.refreshToken) {
+      sessionStorage.removeItem(ACCESS_TOKEN_KEY);
+      sessionStorage.removeItem(REFRESH_TOKEN_KEY);
+      window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
+      return null;
+    }
+
+    sessionStorage.setItem(ACCESS_TOKEN_KEY, tokens.accessToken);
+    sessionStorage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
+    window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
+    return tokens.accessToken;
+  })().finally(() => {
+    refreshInFlight = null;
+  });
+
+  return refreshInFlight;
+}
+
+async function request(
+  path: string,
+  options: RequestInit = {},
+  token?: string,
+) {
+  let { response, body } = await sendRequest(path, options, token);
+  if (response.status === 401 && token && path !== "/auth/refresh") {
+    const refreshedToken = await refreshAccessToken();
+    if (refreshedToken)
+      ({ response, body } = await sendRequest(path, options, refreshedToken));
+  }
   if (!response.ok)
     throw new Error(body.message ?? "Request failed. Please try again.");
   return body.data;
@@ -106,10 +163,16 @@ export default function Home() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const saved = sessionStorage.getItem("evs-eye-access-token");
-    if (!saved) return;
-    const timer = window.setTimeout(() => setToken(saved), 0);
-    return () => window.clearTimeout(timer);
+    const syncToken = () => {
+      const saved = sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? "";
+      setToken(saved);
+    };
+    const timer = window.setTimeout(syncToken, 0);
+    window.addEventListener(AUTH_CHANGED_EVENT, syncToken);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener(AUTH_CHANGED_EVENT, syncToken);
+    };
   }, []);
 
   useEffect(() => {
@@ -178,8 +241,9 @@ export default function Home() {
       const data = (await request("/auth/otp/verify", {
         method: "POST",
         body: JSON.stringify({ otpRequestId, code }),
-      })) as { accessToken: string };
-      sessionStorage.setItem("evs-eye-access-token", data.accessToken);
+      })) as TokenPair;
+      sessionStorage.setItem(ACCESS_TOKEN_KEY, data.accessToken);
+      sessionStorage.setItem(REFRESH_TOKEN_KEY, data.refreshToken);
       setToken(data.accessToken);
       setNotice("");
     } catch (cause) {
@@ -788,13 +852,25 @@ export default function Home() {
     }
   }
 
-  function signOut() {
-    sessionStorage.removeItem("evs-eye-access-token");
+  async function signOut() {
+    const refreshToken = sessionStorage.getItem(REFRESH_TOKEN_KEY);
+    sessionStorage.removeItem(ACCESS_TOKEN_KEY);
+    sessionStorage.removeItem(REFRESH_TOKEN_KEY);
     setToken("");
     setOtpRequestId("");
     setCode("");
     setDashboard(null);
     setItems([]);
+    if (!refreshToken || !token) return;
+    try {
+      await request(
+        "/auth/logout",
+        { method: "POST", body: JSON.stringify({ refreshToken }) },
+        token,
+      );
+    } catch {
+      // Local sign-out is still correct when the network is unavailable.
+    }
   }
 
   if (!token)
