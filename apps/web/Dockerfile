@@ -16,6 +16,7 @@ RUN addgroup -S evseye && adduser -S evseye -G evseye
 COPY --from=build /app/apps/web/.next/standalone ./
 COPY --from=build /app/apps/web/.next/static ./apps/web/.next/static
 COPY --from=build /app/apps/web/public ./apps/web/public
+RUN chmod -R a+rX /app/apps/web/public
 USER evseye
 EXPOSE 3001
 CMD ["node", "apps/web/server.js"]

@@ -1381,62 +1381,99 @@ export default function Home() {
   if (!token)
     return (
       <main className="auth-shell">
-        <section className="auth-card">
-          <p className="eyebrow">EVS EYE · OPERATIONS</p>
-          <h1>Fleet control, clearly seen.</h1>
-          <p className="muted">
-            Use your operations mobile number to enter the tenant workspace.
-          </p>
-          {!otpRequestId ? (
-            <form onSubmit={sendOtp} className="form-stack">
-              <label>
-                Tenant slug
-                <input
-                  value={tenantSlug}
-                  onChange={(e) => setTenantSlug(e.target.value)}
-                  required
-                />
-              </label>
-              <label>
-                Mobile number
-                <input
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="+919999999999"
-                  required
-                />
-              </label>
-              <button disabled={loading}>
-                {loading ? "Sending…" : "Send OTP"}
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={verifyOtp} className="form-stack">
-              <label>
-                Six-digit OTP
-                <input
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  inputMode="numeric"
-                  pattern="[0-9]{6}"
-                  maxLength={6}
-                  required
-                />
-              </label>
-              <button disabled={loading}>
-                {loading ? "Verifying…" : "Verify and enter"}
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => setOtpRequestId("")}
-              >
-                Use another number
-              </button>
-            </form>
-          )}
-          {notice && <p className="notice">{notice}</p>}
-          {error && <p className="error">{error}</p>}
+        <section
+          className="auth-hero"
+          aria-label="EVs Eye fleet operations platform"
+        />
+        <section className="auth-panel">
+          <div className="auth-card">
+            <p className="eyebrow">SECURE OPERATIONS ACCESS</p>
+            <h2>{otpRequestId ? "Verify your number" : "Welcome back"}</h2>
+            <p className="muted">
+              {otpRequestId
+                ? `Enter the six-digit code sent to ${phone}.`
+                : "Sign in to your EV fleet workspace."}
+            </p>
+            {!otpRequestId ? (
+              <form onSubmit={sendOtp} className="auth-form">
+                <label>
+                  Tenant workspace
+                  <span className="auth-input">
+                    <span aria-hidden="true">⌂</span>
+                    <input
+                      value={tenantSlug}
+                      onChange={(e) => setTenantSlug(e.target.value)}
+                      placeholder="e.g. demo"
+                      autoComplete="organization"
+                      required
+                    />
+                  </span>
+                </label>
+                <label>
+                  Mobile number
+                  <span className="auth-input">
+                    <span aria-hidden="true">⌕</span>
+                    <input
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="+91 99999 99999"
+                      type="tel"
+                      inputMode="tel"
+                      autoComplete="tel"
+                      required
+                    />
+                  </span>
+                </label>
+                <button className="auth-submit" disabled={loading}>
+                  {loading ? "Sending code…" : "Send OTP"}
+                  <span aria-hidden="true">→</span>
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={verifyOtp} className="auth-form">
+                <label>
+                  Six-digit OTP
+                  <span className="auth-input auth-otp-input">
+                    <span aria-hidden="true">#</span>
+                    <input
+                      value={code}
+                      onChange={(e) =>
+                        setCode(e.target.value.replace(/\D/g, ""))
+                      }
+                      placeholder="Enter verification code"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      pattern="[0-9]{6}"
+                      maxLength={6}
+                      required
+                      autoFocus
+                    />
+                  </span>
+                </label>
+                <button className="auth-submit" disabled={loading}>
+                  {loading ? "Verifying…" : "Verify and enter"}
+                  <span aria-hidden="true">→</span>
+                </button>
+                <button
+                  type="button"
+                  className="auth-text-button"
+                  onClick={() => {
+                    setOtpRequestId("");
+                    setCode("");
+                    setNotice("");
+                    setError("");
+                  }}
+                >
+                  Change mobile number
+                </button>
+              </form>
+            )}
+            {notice && <p className="notice auth-message">{notice}</p>}
+            {error && <p className="error auth-message">{error}</p>}
+            <p className="auth-security-note">
+              <span aria-hidden="true">◈</span> Protected by OTP verification
+            </p>
+          </div>
         </section>
       </main>
     );
