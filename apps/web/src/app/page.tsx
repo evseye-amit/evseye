@@ -1025,6 +1025,7 @@ export default function Home() {
                         <th>OEM</th>
                         <th>Status</th>
                         <th>Hub</th>
+                        <th />
                       </>
                     ) : tab === "riders" ? (
                       <>
@@ -1057,6 +1058,7 @@ export default function Home() {
                           {((item.hub as RecordItem | null)?.name as string) ??
                             "—"}
                         </td>
+                        <td><button className="secondary table-action" onClick={() => void openFleetDetail(String(item.id))}>View</button></td>
                       </tr>
                     ) : tab === "riders" ? (
                       <tr key={String(item.id)}>
