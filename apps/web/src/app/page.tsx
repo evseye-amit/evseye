@@ -213,10 +213,32 @@ export default function Home() {
   }
 
   async function createRider(event: FormEvent) {
-    event.preventDefault(); setLoading(true); setError("");
-    try { await request("/riders", { method: "POST", body: JSON.stringify({ name: newRiderName, mobile: newRiderMobile }) }, token); setShowRiderForm(false); setNewRiderName(""); setNewRiderMobile(""); setNotice("Rider created. Add a profile photo and start KYC from rider detail."); await loadView("riders"); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to create rider."); }
-    finally { setLoading(false); }
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      await request(
+        "/riders",
+        {
+          method: "POST",
+          body: JSON.stringify({ name: newRiderName, mobile: newRiderMobile }),
+        },
+        token,
+      );
+      setShowRiderForm(false);
+      setNewRiderName("");
+      setNewRiderMobile("");
+      setNotice(
+        "Rider created. Add a profile photo and start KYC from rider detail.",
+      );
+      await loadView("riders");
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Unable to create rider.",
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function createAllocation(event: FormEvent) {
@@ -446,10 +468,49 @@ export default function Home() {
   }
 
   async function openFleetDetail(fleetId: string) {
-    setLoading(true); setError("");
-    try { setFleetDetail(await request(`/fleets/${fleetId}`, {}, token) as RecordItem); setVehicleState(await request(`/fleets/${fleetId}/current-state`, {}, token) as RecordItem | null); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load fleet details."); }
-    finally { setLoading(false); }
+    setLoading(true);
+    setError("");
+    try {
+      setFleetDetail(
+        (await request(`/fleets/${fleetId}`, {}, token)) as RecordItem,
+      );
+      setVehicleState(
+        (await request(
+          `/fleets/${fleetId}/current-state`,
+          {},
+          token,
+        )) as RecordItem | null,
+      );
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Unable to load fleet details.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function startKyc(
+    riderId: string,
+    type: "AADHAAR" | "PAN" | "BANK_ACCOUNT",
+  ) {
+    setLoading(true);
+    setError("");
+    try {
+      await request(
+        `/riders/${riderId}/kyc`,
+        { method: "POST", body: JSON.stringify({ type }) },
+        token,
+      );
+      setNotice(`${type.replaceAll("_", " ")} verification started.`);
+      await openRiderDetail(riderId);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to start KYC.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function initiateDeallocation(allocation: RecordItem) {
@@ -654,12 +715,14 @@ export default function Home() {
             <h1>{title}</h1>
           </div>
           <div className="header-actions">
-              {tab === "allocations" && (
-                <button onClick={() => void openAllocationForm()}>
-                  New allocation
-                </button>
-              )}
-              {tab === "riders" && <button onClick={() => setShowRiderForm(true)}>New rider</button>}
+            {tab === "allocations" && (
+              <button onClick={() => void openAllocationForm()}>
+                New allocation
+              </button>
+            )}
+            {tab === "riders" && (
+              <button onClick={() => setShowRiderForm(true)}>New rider</button>
+            )}
             <button className="secondary" onClick={() => void loadView(tab)}>
               Refresh
             </button>
@@ -769,7 +832,41 @@ export default function Home() {
             </form>
           </section>
         )}
-        {showRiderForm && <section className="action-card"><p className="eyebrow">RIDER ONBOARDING</p><h2>Create rider</h2><form className="form-stack" onSubmit={createRider}><label>Name<input value={newRiderName} onChange={(event) => setNewRiderName(event.target.value)} required /></label><label>Mobile<input value={newRiderMobile} onChange={(event) => setNewRiderMobile(event.target.value)} placeholder="+919999999999" required /></label><div className="form-actions"><button disabled={loading}>Create rider</button><button type="button" className="secondary" onClick={() => setShowRiderForm(false)}>Cancel</button></div></form></section>}
+        {showRiderForm && (
+          <section className="action-card">
+            <p className="eyebrow">RIDER ONBOARDING</p>
+            <h2>Create rider</h2>
+            <form className="form-stack" onSubmit={createRider}>
+              <label>
+                Name
+                <input
+                  value={newRiderName}
+                  onChange={(event) => setNewRiderName(event.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                Mobile
+                <input
+                  value={newRiderMobile}
+                  onChange={(event) => setNewRiderMobile(event.target.value)}
+                  placeholder="+919999999999"
+                  required
+                />
+              </label>
+              <div className="form-actions">
+                <button disabled={loading}>Create rider</button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setShowRiderForm(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </section>
+        )}
         {inspectionId && (
           <section className="action-card">
             <div>
@@ -961,10 +1058,51 @@ export default function Home() {
         )}
         {fleetDetail && (
           <section className="action-card detail-card">
-            <p className="eyebrow">FLEET DETAIL</p><h2>{String(fleetDetail.vehicleNumber)}</h2>
-            <div className="detail-grid"><div><strong>OEM / model</strong><span>{String(fleetDetail.oem ?? "—")} {String(fleetDetail.model ?? "")}</span></div><div><strong>Status</strong><Status value={String(fleetDetail.status)} /></div><div><strong>Hub</strong><span>{String((fleetDetail.hub as RecordItem)?.name ?? "—")}</span></div><div><strong>Last heartbeat</strong><span>{vehicleState?.lastHeartbeat ? new Date(String(vehicleState.lastHeartbeat)).toLocaleString() : "Not received"}</span></div></div>
-            <h3>Components</h3><div className="inspection-summary"><span><b>Batteries</b> {((fleetDetail.batteries as RecordItem[]) ?? []).length}</span><span><b>Controllers</b> {((fleetDetail.controllers as RecordItem[]) ?? []).length}</span></div>
-            <button className="secondary" onClick={() => setFleetDetail(null)}>Close detail</button>
+            <p className="eyebrow">FLEET DETAIL</p>
+            <h2>{String(fleetDetail.vehicleNumber)}</h2>
+            <div className="detail-grid">
+              <div>
+                <strong>OEM / model</strong>
+                <span>
+                  {String(fleetDetail.oem ?? "—")}{" "}
+                  {String(fleetDetail.model ?? "")}
+                </span>
+              </div>
+              <div>
+                <strong>Status</strong>
+                <Status value={String(fleetDetail.status)} />
+              </div>
+              <div>
+                <strong>Hub</strong>
+                <span>
+                  {String((fleetDetail.hub as RecordItem)?.name ?? "—")}
+                </span>
+              </div>
+              <div>
+                <strong>Last heartbeat</strong>
+                <span>
+                  {vehicleState?.lastHeartbeat
+                    ? new Date(
+                        String(vehicleState.lastHeartbeat),
+                      ).toLocaleString()
+                    : "Not received"}
+                </span>
+              </div>
+            </div>
+            <h3>Components</h3>
+            <div className="inspection-summary">
+              <span>
+                <b>Batteries</b>{" "}
+                {((fleetDetail.batteries as RecordItem[]) ?? []).length}
+              </span>
+              <span>
+                <b>Controllers</b>{" "}
+                {((fleetDetail.controllers as RecordItem[]) ?? []).length}
+              </span>
+            </div>
+            <button className="secondary" onClick={() => setFleetDetail(null)}>
+              Close detail
+            </button>
           </section>
         )}
         {riderDetail && (
@@ -988,6 +1126,18 @@ export default function Home() {
                   <b>{String(kyc.type)}</b>{" "}
                   <Status value={String(kyc.status)} />
                 </span>
+              ))}
+            </div>
+            <div className="form-actions">
+              {(["AADHAAR", "PAN", "BANK_ACCOUNT"] as const).map((type) => (
+                <button
+                  key={type}
+                  className="secondary table-action"
+                  disabled={loading}
+                  onClick={() => void startKyc(String(riderDetail.id), type)}
+                >
+                  Start {type.replaceAll("_", " ")}
+                </button>
               ))}
             </div>
             <h3>Open allocations</h3>
@@ -1070,7 +1220,16 @@ export default function Home() {
                           {((item.hub as RecordItem | null)?.name as string) ??
                             "—"}
                         </td>
-                        <td><button className="secondary table-action" onClick={() => void openFleetDetail(String(item.id))}>View</button></td>
+                        <td>
+                          <button
+                            className="secondary table-action"
+                            onClick={() =>
+                              void openFleetDetail(String(item.id))
+                            }
+                          >
+                            View
+                          </button>
+                        </td>
                       </tr>
                     ) : tab === "riders" ? (
                       <tr key={String(item.id)}>
