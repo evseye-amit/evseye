@@ -74,6 +74,31 @@ describe('MediaService photo requirements', () => {
     });
   });
 
+  it('does not reveal Tenant B fleet photos to a Tenant A caller', async () => {
+    const photoFindMany = vi.fn();
+    const prisma = {
+      fleet: { findFirst: vi.fn().mockResolvedValue(null) },
+      photo: { findMany: photoFindMany },
+    };
+    const service = new MediaService(prisma as never, {} as never);
+
+    await expect(
+      service.listEntityPhotos(
+        'tenant-a',
+        PhotoEntityType.FLEET,
+        'fleet-owned-by-tenant-b',
+      ),
+    ).rejects.toThrow('Media entity not found.');
+    expect(prisma.fleet.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'fleet-owned-by-tenant-b',
+        tenantId: 'tenant-a',
+        deletedAt: null,
+      },
+    });
+    expect(photoFindMany).not.toHaveBeenCalled();
+  });
+
   it('checks a battery belongs to the requesting tenant before media access', async () => {
     const findFirst = vi.fn().mockResolvedValue(null);
     const service = new MediaService(
