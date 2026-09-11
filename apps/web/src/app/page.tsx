@@ -40,6 +40,11 @@ export default function Home() {
   const [tab, setTab] = useState<Tab>("dashboard");
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [items, setItems] = useState<RecordItem[]>([]);
+  const [availableFleets, setAvailableFleets] = useState<RecordItem[]>([]);
+  const [activeRiders, setActiveRiders] = useState<RecordItem[]>([]);
+  const [allocationFleetId, setAllocationFleetId] = useState("");
+  const [allocationRiderId, setAllocationRiderId] = useState("");
+  const [showAllocationForm, setShowAllocationForm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -85,6 +90,33 @@ export default function Home() {
     finally { setLoading(false); }
   }
 
+  async function openAllocationForm() {
+    setLoading(true); setError("");
+    try {
+      const [fleets, riders] = await Promise.all([
+        request("/fleets?status=AVAILABLE&page=1&pageSize=100", {}, token) as Promise<{ items: RecordItem[] }>,
+        request("/riders?status=ACTIVE&page=1&pageSize=100", {}, token) as Promise<{ items: RecordItem[] }>,
+      ]);
+      setAvailableFleets(fleets.items); setActiveRiders(riders.items); setShowAllocationForm(true);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load allocation options."); }
+    finally { setLoading(false); }
+  }
+
+  async function createAllocation(event: FormEvent) {
+    event.preventDefault(); setLoading(true); setError("");
+    try {
+      const allocation = await request("/allocations", {
+        method: "POST",
+        headers: { "Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify({ fleetId: allocationFleetId, riderId: allocationRiderId }),
+      }, token) as { id: string };
+      setShowAllocationForm(false); setAllocationFleetId(""); setAllocationRiderId(""); setTab("allocations");
+      setNotice(`Allocation ${allocation.id.slice(0, 8)} created. Complete its pre-allocation inspection before activation.`);
+      await loadView("allocations");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to create allocation."); }
+    finally { setLoading(false); }
+  }
+
   function signOut() { sessionStorage.removeItem("evs-eye-access-token"); setToken(""); setOtpRequestId(""); setCode(""); setDashboard(null); setItems([]); }
 
   if (!token) return <main className="auth-shell"><section className="auth-card">
@@ -95,7 +127,8 @@ export default function Home() {
 
   const title = tab[0].toUpperCase() + tab.slice(1);
   return <main className="app-shell"><aside className="sidebar"><div><p className="eyebrow">EVS EYE</p><h2>Operations</h2></div><nav>{(["dashboard", "fleets", "riders", "allocations"] as Tab[]).map((item) => <button key={item} className={tab === item ? "nav-active" : ""} onClick={() => setTab(item)}>{item}</button>)}</nav><button className="sign-out" onClick={signOut}>Sign out</button></aside>
-    <section className="workspace"><header><div><p className="eyebrow">TENANT WORKSPACE</p><h1>{title}</h1></div><button className="secondary" onClick={() => void loadView(tab)}>Refresh</button></header>{error && <p className="error">{error}</p>}{loading && <p className="muted">Loading current data…</p>}
+    <section className="workspace"><header><div><p className="eyebrow">TENANT WORKSPACE</p><h1>{title}</h1></div><div className="header-actions">{tab === "allocations" && <button onClick={() => void openAllocationForm()}>New allocation</button>}<button className="secondary" onClick={() => void loadView(tab)}>Refresh</button></div></header>{notice && <p className="notice">{notice}</p>}{error && <p className="error">{error}</p>}{loading && <p className="muted">Loading current data…</p>}
+      {showAllocationForm && <section className="action-card"><div><p className="eyebrow">ALLOCATION</p><h2>Assign an available vehicle</h2><p className="muted">This reserves the fleet and creates its pre-allocation inspection.</p></div><form className="form-stack" onSubmit={createAllocation}><label>Available fleet<select value={allocationFleetId} onChange={(e) => setAllocationFleetId(e.target.value)} required><option value="">Select fleet</option>{availableFleets.map((fleet) => <option key={String(fleet.id)} value={String(fleet.id)}>{String(fleet.vehicleNumber)} · {String(fleet.oem ?? "Vehicle")}</option>)}</select></label><label>Active rider<select value={allocationRiderId} onChange={(e) => setAllocationRiderId(e.target.value)} required><option value="">Select rider</option>{activeRiders.map((rider) => <option key={String(rider.id)} value={String(rider.id)}>{String(rider.name)} · {String(rider.mobile)}</option>)}</select></label><div className="form-actions"><button type="submit" disabled={loading}>Create allocation</button><button type="button" className="secondary" onClick={() => setShowAllocationForm(false)}>Cancel</button></div></form></section>}
       {!loading && tab === "dashboard" && dashboard && <div className="dashboard-grid"><Metric label="Total fleet" value={Object.values(dashboard.fleet).reduce((sum, value) => sum + value, 0)} /><Metric label="Available" value={dashboard.fleet.AVAILABLE ?? 0} /><Metric label="Active allocations" value={dashboard.activeAllocations} /><Metric label="IoT online" value={dashboard.iot.online} /><Metric label="IoT offline" value={dashboard.iot.offline} /><Metric label="KYC pending" value={dashboard.riders.PENDING ?? 0} /></div>}
       {!loading && tab !== "dashboard" && <div className="table-wrap"><table><thead><tr>{tab === "fleets" ? <><th>Vehicle</th><th>OEM</th><th>Status</th><th>Hub</th></> : tab === "riders" ? <><th>Rider</th><th>Mobile</th><th>Status</th></> : <><th>Fleet</th><th>Rider</th><th>Status</th><th>Created</th></>}</tr></thead><tbody>{items.map((item) => tab === "fleets" ? <tr key={String(item.id)}><td>{String(item.vehicleNumber)}</td><td>{String(item.oem)}</td><td><Status value={String(item.status)} /></td><td>{(item.hub as RecordItem | null)?.name as string ?? "—"}</td></tr> : tab === "riders" ? <tr key={String(item.id)}><td>{String(item.name)}</td><td>{String(item.mobile)}</td><td><Status value={String(item.status)} /></td></tr> : <tr key={String(item.id)}><td>{String((item.fleet as RecordItem)?.vehicleNumber ?? "—")}</td><td>{String((item.rider as RecordItem)?.name ?? "—")}</td><td><Status value={String(item.status)} /></td><td>{new Date(String(item.createdAt)).toLocaleDateString()}</td></tr>)}</tbody></table>{items.length === 0 && <p className="empty">No records match this view.</p>}</div>}
     </section>
