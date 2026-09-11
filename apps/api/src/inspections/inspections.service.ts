@@ -3,6 +3,19 @@ import { AllocationStatus, InspectionStatus, PhotoEntityType, PhotoStatus } from
 import { PrismaService } from '../prisma/prisma.service.js';
 @Injectable()
 export class InspectionsService { constructor(private readonly prisma:PrismaService){}
+  async get(tenantId: string, inspectionId: string) {
+    const inspection = await this.prisma.inspection.findFirst({
+      where: { id: inspectionId, tenantId },
+      include: { allocation: { include: { rider: true, fleet: true } } },
+    });
+    if (!inspection) throw new NotFoundException('Inspection not found.');
+    const photos = await this.prisma.photo.findMany({
+      where: { tenantId, entityType: PhotoEntityType.INSPECTION, entityId: inspectionId },
+      orderBy: { uploadedAt: 'asc' },
+    });
+    return { ...inspection, photos };
+  }
+
   async complete(tenantId:string,inspectionId:string,actorId:string){
     const inspection=await this.prisma.inspection.findFirst({where:{id:inspectionId,tenantId},include:{allocation:true}}); if(!inspection)throw new NotFoundException('Inspection not found.');
     const required=await this.prisma.photoRequirement.findMany({where:{tenantId,entityType:PhotoEntityType.INSPECTION,isRequired:true}});

@@ -1,10 +1,40 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { AllocationStatus, FleetStatus, InspectionStatus, InspectionType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import type { ListAllocationsDto } from './dto/list-allocations.dto.js';
 
 @Injectable()
 export class AllocationsService {
   constructor(private readonly prisma: PrismaService) {}
+  async list(tenantId: string, query: ListAllocationsDto) {
+    const where = {
+      tenantId,
+      ...(query.status ? { status: query.status as AllocationStatus } : {}),
+      ...(query.riderId ? { riderId: query.riderId } : {}),
+      ...(query.fleetId ? { fleetId: query.fleetId } : {}),
+    };
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.allocation.findMany({
+        where,
+        include: { rider: true, fleet: { include: { hub: true } }, inspections: true },
+        orderBy: { createdAt: 'desc' },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+      }),
+      this.prisma.allocation.count({ where }),
+    ]);
+    return { items, meta: { page: query.page, pageSize: query.pageSize, total } };
+  }
+
+  async get(tenantId: string, allocationId: string) {
+    const allocation = await this.prisma.allocation.findFirst({
+      where: { id: allocationId, tenantId },
+      include: { rider: true, fleet: { include: { hub: true } }, inspections: true },
+    });
+    if (!allocation) throw new NotFoundException('Allocation not found.');
+    return allocation;
+  }
+
   async initiate(tenantId:string, fleetId:string, riderId:string, actorId:string, idempotencyKey?:string) {
     return this.prisma.$transaction(async tx => {
       const rider=await tx.rider.findFirst({where:{id:riderId,tenantId,deletedAt:null}}); if(!rider) throw new NotFoundException('Rider not found.');

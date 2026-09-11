@@ -1,4 +1,4 @@
-import { Controller, Param, Post, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
@@ -13,6 +13,11 @@ import { InspectionsService } from './inspections.service.js';
 @Roles(UserRole.TENANT_ADMIN, UserRole.OPERATIONS_MANAGER, UserRole.FLEET_MANAGER)
 export class InspectionsController {
   constructor(private readonly inspections: InspectionsService, private readonly tenants: TenantContextService) {}
+
+  @Get(':id')
+  get(@CurrentUser() user: AuthUser, @Param('id') inspectionId: string) {
+    return { data: this.inspections.get(this.tenants.requireTenantId(user), inspectionId) };
+  }
 
   @Post(':id/complete')
   complete(@CurrentUser() user: AuthUser, @Param('id') inspectionId: string) {
