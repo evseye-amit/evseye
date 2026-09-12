@@ -89,6 +89,7 @@ const pricingModels = [
   "PER_VEHICLE",
   "PER_FLEET",
   "USAGE_BASED",
+  "PER_DEVICE",
   "ONE_TIME",
   "CUSTOM",
 ];
@@ -181,7 +182,6 @@ const emptyFeature = {
 };
 const emptyPricing = {
   featureId: "",
-  pricingName: "",
   pricingModel: "PER_UNIT",
   billingUnit: "VERIFICATION",
   currency: "INR",
@@ -2214,7 +2214,6 @@ export default function SuperAdminDashboard() {
                       setPrice((current) => ({ ...current, [key]: value }))
                     }
                     fields={[
-                      ["pricingName", "Pricing name"],
                       ["billingUnit", "Billing unit"],
                       ["basePrice", "Base price"],
                       ["unitPrice", "Unit price"],
@@ -2368,7 +2367,6 @@ export default function SuperAdminDashboard() {
                 <DataTable
                   headings={[
                     "Feature",
-                    "Price name",
                     "Model",
                     "Price",
                     "Effective from",
@@ -2377,7 +2375,6 @@ export default function SuperAdminDashboard() {
                   ]}
                   rows={pricing.map((item) => [
                     item.feature?.name,
-                    item.pricingName ?? "—",
                     item.pricingModel,
                     `${item.currency} ${item.unitPrice}`,
                     new Date(item.effectiveFrom).toLocaleDateString(),
@@ -2388,7 +2385,6 @@ export default function SuperAdminDashboard() {
                       onClick={() => {
                         setPrice({
                           featureId: item.featureId,
-                          pricingName: item.pricingName ?? "",
                           pricingModel: item.pricingModel,
                           billingUnit: item.billingUnit,
                           basePrice: String(item.basePrice ?? 0),

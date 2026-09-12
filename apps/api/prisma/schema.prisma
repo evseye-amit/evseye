@@ -156,6 +156,7 @@ enum PricingModel {
   PER_VEHICLE
   PER_FLEET
   USAGE_BASED
+  PER_DEVICE
   ONE_TIME
   CUSTOM
 }
@@ -345,7 +346,6 @@ model FeaturePricing {
   id             String                  @id @default(uuid())
   featureId      String
   feature        Feature                 @relation(fields: [featureId], references: [id], onDelete: Cascade)
-  pricingName    String?                 @db.VarChar(150)
   pricingModel   PricingModel
   billingUnit    String                  @db.VarChar(50)
   currency       String                  @default("INR") @db.Char(3)

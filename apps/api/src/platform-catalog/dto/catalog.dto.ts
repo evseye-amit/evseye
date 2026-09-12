@@ -212,7 +212,6 @@ export class CreateFeaturePricingTierDto {
 
 export class CreateFeaturePricingDto {
   @IsString() featureId!: string;
-  @IsOptional() @IsString() @MaxLength(150) pricingName?: string;
   @IsEnum(PricingModel) pricingModel!: PricingModel;
   @IsString() @MaxLength(50) billingUnit!: string;
   @IsOptional() @IsString() @Matches(/^[A-Z]{3}$/) currency?: string;
