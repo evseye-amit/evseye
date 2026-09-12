@@ -312,16 +312,11 @@ export default function SuperAdminDashboard() {
     pinCode: "",
     packageId: "",
     billingCycle: "MONTHLY",
-    packageStartDate: new Date().toISOString().slice(0, 10),
-    trialApplicable: false,
-    trialDays: "",
-    billingFrequency: "MONTHLY",
+    startDate: new Date().toISOString().slice(0, 10),
+    endDate: "",
     discountType: "",
-    discount: "",
-    taxRate: "18",
-    autoRenewal: true,
-    paymentTerms: "",
-    poNumber: "",
+    discountValue: "",
+    autoRenew: true,
   });
 
   const load = useCallback(async () => {
@@ -899,11 +894,10 @@ export default function SuperAdminDashboard() {
             method: "POST",
             body: JSON.stringify({
               ...client,
-              trialDays: client.trialDays
-                ? Number(client.trialDays)
+              endDate: client.endDate || undefined,
+              discountValue: client.discountValue
+                ? Number(client.discountValue)
                 : undefined,
-              discount: client.discount ? Number(client.discount) : undefined,
-              taxRate: Number(client.taxRate),
             }),
           },
           token,
@@ -2637,13 +2631,10 @@ function ClientsView({
               ["pinCode", "PIN code"],
             ]
           : [
-              ["packageStartDate", "Package start date"],
-              ["billingFrequency", "Billing frequency"],
+              ["startDate", "Start date"],
+              ["endDate", "End date"],
               ["discountType", "Discount type"],
-              ["discount", "Discount"],
-              ["taxRate", "Tax / GST"],
-              ["paymentTerms", "Payment terms"],
-              ["poNumber", "PO number"],
+              ["discountValue", "Discount value"],
             ];
   return (
     <>
@@ -2722,22 +2713,12 @@ function ClientsView({
                   <label className="sa-toggle">
                     <input
                       type="checkbox"
-                      checked={client.trialApplicable}
+                      checked={client.autoRenew}
                       onChange={(event) =>
-                        change("trialApplicable", event.target.checked)
+                        change("autoRenew", event.target.checked)
                       }
                     />{" "}
-                    Trial applicable
-                  </label>
-                  <label className="sa-toggle">
-                    <input
-                      type="checkbox"
-                      checked={client.autoRenewal}
-                      onChange={(event) =>
-                        change("autoRenewal", event.target.checked)
-                      }
-                    />{" "}
-                    Auto renewal
+                    Auto renew
                   </label>
                 </>
               )}
@@ -2801,8 +2782,7 @@ function TextFields({
                   : normalizedKey.includes("price") ||
                       normalizedKey.includes("charge") ||
                       normalizedKey.includes("fee") ||
-                      key === "discount" ||
-                      key === "taxRate"
+                      key === "discountValue"
                     ? "number"
                     : "text"
               }
@@ -2839,7 +2819,7 @@ function TextFields({
                 "district",
                 "state",
                 "pinCode",
-                "packageStartDate",
+                "startDate",
                 "effectiveFrom",
               ].includes(key)}
             />

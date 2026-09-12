@@ -1,8 +1,8 @@
 import { BillingCycle } from '@prisma/client';
 import {
   IsBoolean,
+  IsDateString,
   IsEnum,
-  IsInt,
   IsNumber,
   IsOptional,
   IsString,
@@ -45,14 +45,9 @@ export class CreateClientOnboardingDto {
   @IsString() @Matches(/^\d{4,10}$/) pinCode!: string;
   @IsString() packageId!: string;
   @IsEnum(BillingCycle) billingCycle!: BillingCycle;
-  @IsString() packageStartDate!: string;
-  @IsOptional() @IsBoolean() trialApplicable?: boolean;
-  @IsOptional() @IsInt() @Min(1) trialDays?: number;
-  @IsString() @MaxLength(40) billingFrequency!: string;
-  @IsOptional() @IsNumber() @Min(0) discount?: number;
-  @IsOptional() @IsString() @MaxLength(40) discountType?: string;
-  @IsOptional() @IsNumber() @Min(0) taxRate?: number;
-  @IsOptional() @IsBoolean() autoRenewal?: boolean;
-  @IsOptional() @IsString() @MaxLength(120) paymentTerms?: string;
-  @IsOptional() @IsString() @MaxLength(80) poNumber?: string;
+  @IsDateString() startDate!: string;
+  @IsOptional() @IsDateString() endDate?: string;
+  @IsOptional() @IsString() @MaxLength(20) discountType?: string;
+  @IsOptional() @IsNumber() @Min(0) discountValue?: number;
+  @IsOptional() @IsBoolean() autoRenew?: boolean;
 }

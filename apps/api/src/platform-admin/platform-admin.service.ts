@@ -116,27 +116,28 @@ export class PlatformAdminService {
             pinCode: dto.pinCode,
           },
         });
+        const listPrice =
+          dto.billingCycle === 'YEARLY'
+            ? (packageRecord.yearlyPrice ?? packageRecord.monthlyPrice.mul(12))
+            : packageRecord.monthlyPrice;
+        const discountValue = new Prisma.Decimal(dto.discountValue ?? 0);
+        const finalPackagePrice = Prisma.Decimal.max(
+          listPrice.minus(discountValue),
+          new Prisma.Decimal(0),
+        );
         await tx.clientSubscription.create({
           data: {
             clientId: created.id,
             packageId: packageRecord.id,
             billingCycle: dto.billingCycle,
-            packageStartDate: new Date(dto.packageStartDate),
-            trialApplicable: dto.trialApplicable ?? false,
-            trialDays: dto.trialApplicable ? dto.trialDays : undefined,
-            billingFrequency: dto.billingFrequency,
-            basePackagePrice:
-              dto.billingCycle === 'YEARLY'
-                ? (packageRecord.yearlyPrice ??
-                  packageRecord.monthlyPrice.mul(12))
-                : packageRecord.monthlyPrice,
+            startDate: new Date(dto.startDate),
+            endDate: dto.endDate ? new Date(dto.endDate) : undefined,
+            listPrice,
             currency: packageRecord.currency,
             discountType: dto.discountType,
-            discount: dto.discount,
-            taxRate: dto.taxRate ?? 18,
-            autoRenewal: dto.autoRenewal ?? true,
-            paymentTerms: dto.paymentTerms,
-            poNumber: dto.poNumber,
+            discountValue: dto.discountValue,
+            finalPackagePrice,
+            autoRenew: dto.autoRenew ?? true,
           },
         });
         return created;
