@@ -1,4 +1,5 @@
 import { PhotoEntityType, PrismaClient, UserRole } from '@prisma/client';
+import { oemSeeds } from './seeds/oems.seed.mjs';
 import { vehicleCategorySeeds } from './seeds/vehicle-categories.seed.mjs';
 
 const prisma = new PrismaClient();
@@ -214,6 +215,16 @@ async function main() {
       status: 'ACTIVE',
     },
   });
+
+  await Promise.all(
+    oemSeeds.map((oem) =>
+      prisma.oem.upsert({
+        where: { code: oem.code },
+        create: oem,
+        update: oem,
+      }),
+    ),
+  );
 
   await Promise.all(
     vehicleCategorySeeds.map((vehicleCategory) =>
