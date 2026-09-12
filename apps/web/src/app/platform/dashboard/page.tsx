@@ -12,6 +12,7 @@ type Tab =
   | "dashboard"
   | "clients"
   | "oems"
+  | "vehicleCategories"
   | "features"
   | "packages"
   | "pricing";
@@ -123,7 +124,9 @@ async function request(
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
-      "Content-Type": "application/json",
+      ...(options.body !== undefined
+        ? { "Content-Type": "application/json" }
+        : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
@@ -142,6 +145,13 @@ const emptyOem = {
   status: "ACTIVE",
   website: "",
   description: "",
+};
+const emptyVehicleCategory = {
+  code: "",
+  name: "",
+  description: "",
+  status: "ACTIVE",
+  displayOrder: "0",
 };
 const emptyPackage = {
   code: "",
@@ -249,6 +259,7 @@ export default function SuperAdminDashboard() {
   const [summary, setSummary] = useState<Item>({});
   const [clients, setClients] = useState<Item[]>([]);
   const [oems, setOems] = useState<Item[]>([]);
+  const [vehicleCategories, setVehicleCategories] = useState<Item[]>([]);
   const [packages, setPackages] = useState<Item[]>([]);
   const [features, setFeatures] = useState<Item[]>([]);
   const [pricing, setPricing] = useState<Item[]>([]);
@@ -258,6 +269,11 @@ export default function SuperAdminDashboard() {
   const [showOemBulk, setShowOemBulk] = useState(false);
   const [oemLogoFile, setOemLogoFile] = useState<File | null>(null);
   const [oemLogoPreview, setOemLogoPreview] = useState("");
+  const [vehicleCategory, setVehicleCategory] = useState(emptyVehicleCategory);
+  const [editingVehicleCategoryId, setEditingVehicleCategoryId] = useState<
+    string | null
+  >(null);
+  const [showVehicleCategoryForm, setShowVehicleCategoryForm] = useState(false);
   const [feature, setFeature] = useState(emptyFeature);
   const [editingFeatureId, setEditingFeatureId] = useState<string | null>(null);
   const [showFeatureForm, setShowFeatureForm] = useState(false);
@@ -321,6 +337,7 @@ export default function SuperAdminDashboard() {
         dashboard,
         clientList,
         oemList,
+        vehicleCategoryList,
         packageList,
         featureList,
         priceList,
@@ -328,6 +345,7 @@ export default function SuperAdminDashboard() {
         request("/platform/dashboard", {}, token),
         request("/platform/clients", {}, token),
         request("/platform/oems", {}, token),
+        request("/platform/vehicle-categories", {}, token),
         request("/platform/packages", {}, token),
         request("/platform/features", {}, token),
         request("/platform/feature-pricing", {}, token),
@@ -335,6 +353,7 @@ export default function SuperAdminDashboard() {
       setSummary(dashboard);
       setClients(clientList);
       setOems(oemList);
+      setVehicleCategories(vehicleCategoryList);
       setPackages(packageList);
       setFeatures(featureList);
       setPricing(priceList);
@@ -406,6 +425,33 @@ export default function SuperAdminDashboard() {
       URL.revokeObjectURL(objectUrl);
       setError(cause instanceof Error ? cause.message : "Invalid OEM logo.");
     }
+  }
+  async function submitVehicleCategory(event: FormEvent) {
+    event.preventDefault();
+    await submit(
+      () =>
+        request(
+          editingVehicleCategoryId
+            ? `/platform/vehicle-categories/${editingVehicleCategoryId}`
+            : "/platform/vehicle-categories",
+          {
+            method: editingVehicleCategoryId ? "PUT" : "POST",
+            body: JSON.stringify({
+              ...vehicleCategory,
+              displayOrder: Number(vehicleCategory.displayOrder || 0),
+            }),
+          },
+          token,
+        ),
+      editingVehicleCategoryId
+        ? "Vehicle Category updated."
+        : "Vehicle Category created.",
+      () => {
+        setVehicleCategory(emptyVehicleCategory);
+        setEditingVehicleCategoryId(null);
+        setShowVehicleCategoryForm(false);
+      },
+    );
   }
   async function uploadOemLogo(oemId: string, file: File) {
     const intent = await request(
@@ -822,6 +868,7 @@ export default function SuperAdminDashboard() {
   const nav: Array<[Tab, string, string]> = [
     ["dashboard", "Dashboard", "▦"],
     ["oems", "OEM", "▣"],
+    ["vehicleCategories", "Vehicle Category", "▤"],
     ["features", "Feature", "◇"],
     ["pricing", "Feature pricing", "₹"],
     ["packages", "Package", "◫"],
@@ -1095,6 +1142,131 @@ export default function SuperAdminDashboard() {
                       Bulk upload
                     </button>
                   </div>
+                </section>
+              )}
+            </section>
+          </>
+        )}
+        {tab === "vehicleCategories" && (
+          <>
+            <section className="sa-page-head">
+              <div>
+                <h2>Vehicle Category</h2>
+                <p>
+                  Define platform-wide vehicle classifications used in fleet
+                  onboarding and reporting.
+                </p>
+              </div>
+              <div className="sa-actions">
+                <button
+                  onClick={() => {
+                    setVehicleCategory(emptyVehicleCategory);
+                    setEditingVehicleCategoryId(null);
+                    setShowVehicleCategoryForm(!showVehicleCategoryForm);
+                  }}
+                >
+                  + Add Vehicle Category
+                </button>
+              </div>
+            </section>
+            <section
+              className={`sa-management ${showVehicleCategoryForm ? "" : "oem-table-only"}`}
+            >
+              {showVehicleCategoryForm && (
+                <form className="sa-form" onSubmit={submitVehicleCategory}>
+                  <h3>
+                    {editingVehicleCategoryId
+                      ? "Edit Vehicle Category"
+                      : "Add Vehicle Category"}
+                  </h3>
+                  <TextFields
+                    value={vehicleCategory}
+                    change={(key, value) =>
+                      setVehicleCategory((current) => ({
+                        ...current,
+                        [key]: value,
+                      }))
+                    }
+                    fields={[
+                      ["code", "Category code"],
+                      ["name", "Category name"],
+                      ["description", "Description"],
+                      ["displayOrder", "Display order"],
+                    ]}
+                  />
+                  <Select
+                    label="Status"
+                    value={vehicleCategory.status}
+                    change={(value) =>
+                      setVehicleCategory((current) => ({
+                        ...current,
+                        status: value,
+                      }))
+                    }
+                    options={["ACTIVE", "INACTIVE", "SUSPENDED"]}
+                  />
+                  <button disabled={loading}>
+                    {editingVehicleCategoryId
+                      ? "Update Vehicle Category"
+                      : "Save Vehicle Category"}
+                  </button>
+                </form>
+              )}
+              {vehicleCategories.length ? (
+                <DataTable
+                  headings={[
+                    "Code",
+                    "Category",
+                    "Description",
+                    "Status",
+                    "Order",
+                    "",
+                    "",
+                  ]}
+                  rows={vehicleCategories.map((item) => [
+                    item.code,
+                    item.name,
+                    item.description ?? "—",
+                    item.status,
+                    item.displayOrder,
+                    <button
+                      key="edit"
+                      className="secondary"
+                      onClick={() => {
+                        setVehicleCategory({
+                          code: item.code,
+                          name: item.name,
+                          description: item.description ?? "",
+                          status: item.status,
+                          displayOrder: String(item.displayOrder ?? 0),
+                        });
+                        setEditingVehicleCategoryId(item.id);
+                        setShowVehicleCategoryForm(true);
+                      }}
+                    >
+                      Edit
+                    </button>,
+                    <button
+                      key="delete"
+                      className="danger"
+                      onClick={() =>
+                        void remove(
+                          `/platform/vehicle-categories/${item.id}`,
+                          "Vehicle Category",
+                        )
+                      }
+                    >
+                      Delete
+                    </button>,
+                  ])}
+                />
+              ) : (
+                <section className="sa-empty-catalog">
+                  <h3>No Vehicle Categories yet</h3>
+                  <p>Create your first platform-wide vehicle classification.</p>
+                  <button onClick={() => setShowVehicleCategoryForm(true)}>
+                    Add Vehicle Category
+                  </button>
                 </section>
               )}
             </section>

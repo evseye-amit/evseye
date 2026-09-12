@@ -221,20 +221,35 @@ model Tenant {
 }
 
 model Oem {
-  id          String             @id @default(uuid())
-  code        String             @unique
-  name        String
-  displayName String
-  type        OemType
-  status      MasterRecordStatus @default(ACTIVE)
-  logoUrl     String?
+  id            String             @id @default(uuid())
+  code          String             @unique
+  name          String
+  displayName   String
+  type          OemType
+  status        MasterRecordStatus @default(ACTIVE)
+  logoUrl       String?
   logoObjectKey String?
-  website     String?
-  description String?
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
+  website       String?
+  description   String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
 
   @@index([status, type])
+}
+
+model VehicleCategory {
+  id           String             @id @default(uuid())
+  code         String             @unique
+  name         String
+  description  String?
+  status       MasterRecordStatus @default(ACTIVE)
+  displayOrder Int                @default(0)
+  createdById  String?
+  updatedById  String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@index([status, displayOrder, name])
 }
 
 model Package {
@@ -302,49 +317,49 @@ model PackageFeature {
 }
 
 model FeaturePricing {
-  id            String       @id @default(uuid())
-  featureId     String
-  feature       Feature      @relation(fields: [featureId], references: [id], onDelete: Cascade)
-  pricingName   String?      @db.VarChar(150)
-  pricingModel  PricingModel
-  billingUnit   String       @db.VarChar(50)
-  currency      String       @default("INR") @db.Char(3)
-  basePrice     Decimal      @default(0) @db.Decimal(12, 4)
-  unitPrice     Decimal      @default(0) @db.Decimal(12, 4)
-  costPrice     Decimal      @default(0) @db.Decimal(12, 4)
-  minimumCharge Decimal?     @db.Decimal(12, 2)
-  maximumCharge Decimal?     @db.Decimal(12, 2)
-  setupFee      Decimal      @default(0) @db.Decimal(12, 2)
-  billingCycle  BillingCycle?
-  taxInclusive  Boolean      @default(false)
-  effectiveFrom DateTime     @default(now())
-  effectiveTo   DateTime?
-  isActive      Boolean      @default(true)
-  metadata      Json?
+  id             String                  @id @default(uuid())
+  featureId      String
+  feature        Feature                 @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  pricingName    String?                 @db.VarChar(150)
+  pricingModel   PricingModel
+  billingUnit    String                  @db.VarChar(50)
+  currency       String                  @default("INR") @db.Char(3)
+  basePrice      Decimal                 @default(0) @db.Decimal(12, 4)
+  unitPrice      Decimal                 @default(0) @db.Decimal(12, 4)
+  costPrice      Decimal                 @default(0) @db.Decimal(12, 4)
+  minimumCharge  Decimal?                @db.Decimal(12, 2)
+  maximumCharge  Decimal?                @db.Decimal(12, 2)
+  setupFee       Decimal                 @default(0) @db.Decimal(12, 2)
+  billingCycle   BillingCycle?
+  taxInclusive   Boolean                 @default(false)
+  effectiveFrom  DateTime                @default(now())
+  effectiveTo    DateTime?
+  isActive       Boolean                 @default(true)
+  metadata       Json?
   packagePricing PackageFeaturePricing[]
-  tiers         FeaturePricingTier[]
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  tiers          FeaturePricingTier[]
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
 
   @@index([featureId, isActive, effectiveFrom])
 }
 
 model PackageFeaturePricing {
-  id               String         @id @default(uuid())
+  id               String          @id @default(uuid())
   packageFeatureId String
-  packageFeature   PackageFeature @relation(fields: [packageFeatureId], references: [id], onDelete: Cascade)
+  packageFeature   PackageFeature  @relation(fields: [packageFeatureId], references: [id], onDelete: Cascade)
   featurePricingId String?
   featurePricing   FeaturePricing? @relation(fields: [featurePricingId], references: [id], onDelete: SetNull)
   pricingModel     PricingModel?
-  includedQuantity BigInt         @default(0)
-  unitPrice        Decimal?       @db.Decimal(12, 4)
-  minimumCharge    Decimal?       @db.Decimal(12, 2)
-  maximumCharge    Decimal?       @db.Decimal(12, 2)
+  includedQuantity BigInt          @default(0)
+  unitPrice        Decimal?        @db.Decimal(12, 4)
+  minimumCharge    Decimal?        @db.Decimal(12, 2)
+  maximumCharge    Decimal?        @db.Decimal(12, 2)
   effectiveFrom    DateTime
   effectiveTo      DateTime?
-  isActive         Boolean        @default(true)
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+  isActive         Boolean         @default(true)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
 
   @@index([packageFeatureId, isActive, effectiveFrom])
   @@index([featurePricingId])

@@ -42,6 +42,16 @@ export class CreateOemDto {
 
 export class UpdateOemDto extends CreateOemDto {}
 
+export class CreateVehicleCategoryDto {
+  @IsString() @Matches(/^[A-Z0-9_-]+$/) @MaxLength(50) code!: string;
+  @IsString() @MaxLength(120) name!: string;
+  @IsOptional() @IsString() @MaxLength(500) description?: string;
+  @IsOptional() @IsEnum(MasterRecordStatus) status?: MasterRecordStatus;
+  @IsOptional() @IsInt() @Min(0) displayOrder?: number;
+}
+
+export class UpdateVehicleCategoryDto extends CreateVehicleCategoryDto {}
+
 export class BulkCreateOemsDto {
   @IsArray()
   @ArrayMaxSize(500)

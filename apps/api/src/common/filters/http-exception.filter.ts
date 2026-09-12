@@ -4,6 +4,7 @@ import {
   ExceptionFilter,
   HttpException,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
@@ -35,6 +36,8 @@ function getExceptionMessage(exceptionResponse: unknown): string {
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
+  private readonly logger = new Logger(HttpExceptionFilter.name);
+
   catch(exception: unknown, host: ArgumentsHost): void {
     const context = host.switchToHttp();
     const response = context.getResponse<FastifyReply>();
@@ -46,6 +49,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const exceptionResponse =
       exception instanceof HttpException ? exception.getResponse() : undefined;
     const message = getExceptionMessage(exceptionResponse);
+
+    if (!(exception instanceof HttpException)) {
+      this.logger.error(
+        'Unhandled request exception',
+        exception instanceof Error ? exception.stack : String(exception),
+      );
+    }
 
     response.status(status).send({
       error: {

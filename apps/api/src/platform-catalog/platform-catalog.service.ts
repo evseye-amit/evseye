@@ -30,10 +30,12 @@ import type {
   CreateFeaturePricingDto,
   CreateOemDto,
   CreatePackageDto,
+  CreateVehicleCategoryDto,
   UpdateFeatureDto,
   UpdateFeaturePricingDto,
   UpdateOemDto,
   UpdatePackageDto,
+  UpdateVehicleCategoryDto,
 } from './dto/catalog.dto.js';
 
 @Injectable()
@@ -175,6 +177,51 @@ export class PlatformCatalogService {
     }
   }
 
+  listVehicleCategories() {
+    return this.prisma.vehicleCategory.findMany({
+      orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
+    });
+  }
+  async createVehicleCategory(dto: CreateVehicleCategoryDto, actorId: string) {
+    return this.createWithAudit(
+      'VEHICLE_CATEGORY_CREATED',
+      'VehicleCategory',
+      actorId,
+      () =>
+        this.prisma.vehicleCategory.create({
+          data: { ...dto, createdById: actorId, updatedById: actorId },
+        }),
+    );
+  }
+  async updateVehicleCategory(
+    id: string,
+    dto: UpdateVehicleCategoryDto,
+    actorId: string,
+  ) {
+    await this.exists('vehicleCategory', id);
+    return this.updateWithAudit(
+      'VEHICLE_CATEGORY_UPDATED',
+      'VehicleCategory',
+      id,
+      actorId,
+      () =>
+        this.prisma.vehicleCategory.update({
+          where: { id },
+          data: { ...dto, updatedById: actorId },
+        }),
+    );
+  }
+  async deleteVehicleCategory(id: string, actorId: string) {
+    await this.exists('vehicleCategory', id);
+    await this.prisma.vehicleCategory.delete({ where: { id } });
+    await this.audit.record({
+      actorId,
+      action: 'VEHICLE_CATEGORY_DELETED',
+      entityType: 'VehicleCategory',
+      entityId: id,
+    });
+  }
+
   listFeatures() {
     return this.prisma.feature.findMany({
       include: {
@@ -275,58 +322,65 @@ export class PlatformCatalogService {
   }
 
   listPackages() {
-    return this.prisma.package.findMany({
-      include: {
-        features: {
-          include: {
-            feature: true,
-            pricing: { include: { featurePricing: true } },
+    return this.prisma.package
+      .findMany({
+        include: {
+          features: {
+            include: {
+              feature: true,
+              pricing: { include: { featurePricing: true } },
+            },
+            orderBy: { displayOrder: 'asc' },
           },
-          orderBy: { displayOrder: 'asc' },
+          _count: { select: { subscriptions: true } },
         },
-        _count: { select: { subscriptions: true } },
-      },
-      orderBy: [
-        { isDefault: 'desc' },
-        { displayOrder: 'asc' },
-        { name: 'asc' },
-      ],
-    });
+        orderBy: [
+          { isDefault: 'desc' },
+          { displayOrder: 'asc' },
+          { name: 'asc' },
+        ],
+      })
+      .then((packages) => this.jsonSafe(packages));
   }
   async createPackage(dto: CreatePackageDto, actorId: string) {
     const { featureIds = [], packageFeatures, ...data } = dto;
     const features = this.normalizePackageFeatures(packageFeatures, featureIds);
     await this.validatePackageFeatures(features);
-    return this.createWithAudit('PACKAGE_CREATED', 'Package', actorId, () =>
-      this.prisma.$transaction(async (tx) => {
-        if (data.isDefault) {
-          await tx.package.updateMany({
-            where: { isDefault: true },
-            data: { isDefault: false, updatedById: actorId },
-          });
-        }
-        return tx.package.create({
-          data: {
-            ...data,
-            createdById: actorId,
-            updatedById: actorId,
-            features: {
-              create: features.map((feature) =>
-                this.packageFeatureData(feature),
-              ),
-            },
-          },
-          include: {
-            features: {
-              include: {
-                feature: true,
-                pricing: { include: { featurePricing: true } },
+    const created = await this.createWithAudit(
+      'PACKAGE_CREATED',
+      'Package',
+      actorId,
+      () =>
+        this.prisma.$transaction(async (tx) => {
+          if (data.isDefault) {
+            await tx.package.updateMany({
+              where: { isDefault: true },
+              data: { isDefault: false, updatedById: actorId },
+            });
+          }
+          return tx.package.create({
+            data: {
+              ...data,
+              createdById: actorId,
+              updatedById: actorId,
+              features: {
+                create: features.map((feature) =>
+                  this.packageFeatureData(feature),
+                ),
               },
             },
-          },
-        });
-      }),
+            include: {
+              features: {
+                include: {
+                  feature: true,
+                  pricing: { include: { featurePricing: true } },
+                },
+              },
+            },
+          });
+        }),
     );
+    return this.jsonSafe(created);
   }
   async updatePackage(id: string, dto: UpdatePackageDto, actorId: string) {
     await this.exists('package', id);
@@ -337,39 +391,45 @@ export class PlatformCatalogService {
         ? this.normalizePackageFeatures(undefined, featureIds)
         : undefined;
     if (features) await this.validatePackageFeatures(features);
-    return this.updateWithAudit('PACKAGE_UPDATED', 'Package', id, actorId, () =>
-      this.prisma.$transaction(async (tx) => {
-        if (data.isDefault) {
-          await tx.package.updateMany({
-            where: { isDefault: true, id: { not: id } },
-            data: { isDefault: false, updatedById: actorId },
-          });
-        }
-        if (features) {
-          await tx.packageFeature.deleteMany({ where: { packageId: id } });
-          for (const feature of features) {
-            await tx.packageFeature.create({
-              data: {
-                packageId: id,
-                ...this.packageFeatureData(feature),
-              },
+    const updated = await this.updateWithAudit(
+      'PACKAGE_UPDATED',
+      'Package',
+      id,
+      actorId,
+      () =>
+        this.prisma.$transaction(async (tx) => {
+          if (data.isDefault) {
+            await tx.package.updateMany({
+              where: { isDefault: true, id: { not: id } },
+              data: { isDefault: false, updatedById: actorId },
             });
           }
-        }
-        return tx.package.update({
-          where: { id },
-          data: { ...data, updatedById: actorId },
-          include: {
-            features: {
-              include: {
-                feature: true,
-                pricing: { include: { featurePricing: true } },
+          if (features) {
+            await tx.packageFeature.deleteMany({ where: { packageId: id } });
+            for (const feature of features) {
+              await tx.packageFeature.create({
+                data: {
+                  packageId: id,
+                  ...this.packageFeatureData(feature),
+                },
+              });
+            }
+          }
+          return tx.package.update({
+            where: { id },
+            data: { ...data, updatedById: actorId },
+            include: {
+              features: {
+                include: {
+                  feature: true,
+                  pricing: { include: { featurePricing: true } },
+                },
               },
             },
-          },
-        });
-      }),
+          });
+        }),
     );
+    return this.jsonSafe(updated);
   }
   async deletePackage(id: string, actorId: string) {
     await this.exists('package', id);
@@ -390,24 +450,27 @@ export class PlatformCatalogService {
   }
 
   listPricing() {
-    return this.prisma.featurePricing.findMany({
-      include: { feature: true, tiers: { orderBy: { tierOrder: 'asc' } } },
-      orderBy: { updatedAt: 'desc' },
-    });
+    return this.prisma.featurePricing
+      .findMany({
+        include: { feature: true, tiers: { orderBy: { tierOrder: 'asc' } } },
+        orderBy: { updatedAt: 'desc' },
+      })
+      .then((pricing) => this.jsonSafe(pricing));
   }
   async createPricing(dto: CreateFeaturePricingDto, actorId: string) {
     this.validatePricing(dto);
     await this.exists('feature', dto.featureId);
-    return this.createWithAudit(
+    const created = await this.createWithAudit(
       'FEATURE_PRICING_CREATED',
       'FeaturePricing',
       actorId,
       () =>
         this.prisma.featurePricing.create({
           data: this.pricingData(dto),
-          include: { feature: true },
+          include: { feature: true, tiers: { orderBy: { tierOrder: 'asc' } } },
         }),
     );
+    return this.jsonSafe(created);
   }
   async updatePricing(
     id: string,
@@ -422,7 +485,7 @@ export class PlatformCatalogService {
         where: { featurePricingId: id },
       });
     }
-    return this.updateWithAudit(
+    const updated = await this.updateWithAudit(
       'FEATURE_PRICING_UPDATED',
       'FeaturePricing',
       id,
@@ -431,9 +494,10 @@ export class PlatformCatalogService {
         this.prisma.featurePricing.update({
           where: { id },
           data: this.pricingData(dto),
-          include: { feature: true },
+          include: { feature: true, tiers: { orderBy: { tierOrder: 'asc' } } },
         }),
     );
+    return this.jsonSafe(updated);
   }
 
   private validatePricing(dto: CreateFeaturePricingDto) {
@@ -471,9 +535,11 @@ export class PlatformCatalogService {
   }
 
   private pricingData(dto: CreateFeaturePricingDto) {
-    const { metadata, tiers, ...data } = dto;
+    const { metadata, tiers, effectiveFrom, effectiveTo, ...data } = dto;
     return {
       ...data,
+      effectiveFrom: new Date(effectiveFrom),
+      effectiveTo: effectiveTo ? new Date(effectiveTo) : undefined,
       metadata: metadata as Prisma.InputJsonValue | undefined,
       tiers: tiers
         ? {
@@ -579,7 +645,18 @@ export class PlatformCatalogService {
       ...(packageFeatureId ? { packageFeatureId } : {}),
       ...pricing,
       includedQuantity: BigInt(pricing.includedQuantity ?? 0),
+      effectiveFrom: new Date(pricing.effectiveFrom),
+      effectiveTo: pricing.effectiveTo
+        ? new Date(pricing.effectiveTo)
+        : undefined,
     };
+  }
+  private jsonSafe<T>(value: T): T {
+    return JSON.parse(
+      JSON.stringify(value, (_, current) =>
+        typeof current === 'bigint' ? current.toString() : current,
+      ),
+    ) as T;
   }
   async deletePricing(id: string, actorId: string) {
     await this.exists('featurePricing', id);
@@ -593,17 +670,19 @@ export class PlatformCatalogService {
   }
 
   private async exists(
-    model: 'oem' | 'feature' | 'package' | 'featurePricing',
+    model: 'oem' | 'vehicleCategory' | 'feature' | 'package' | 'featurePricing',
     id: string,
   ) {
     const found =
       model === 'oem'
         ? await this.prisma.oem.findUnique({ where: { id } })
-        : model === 'feature'
-          ? await this.prisma.feature.findUnique({ where: { id } })
-          : model === 'package'
-            ? await this.prisma.package.findUnique({ where: { id } })
-            : await this.prisma.featurePricing.findUnique({ where: { id } });
+        : model === 'vehicleCategory'
+          ? await this.prisma.vehicleCategory.findUnique({ where: { id } })
+          : model === 'feature'
+            ? await this.prisma.feature.findUnique({ where: { id } })
+            : model === 'package'
+              ? await this.prisma.package.findUnique({ where: { id } })
+              : await this.prisma.featurePricing.findUnique({ where: { id } });
     if (!found) throw new NotFoundException('Record not found.');
   }
   private async createWithAudit<T extends { id: string }>(
