@@ -26,7 +26,6 @@ import {
   MasterRecordStatus,
   EnergyType,
   VehicleUsageType,
-  PackageType,
   PricingModel,
 } from '@prisma/client';
 
@@ -183,15 +182,12 @@ export class CreatePackageDto {
   @IsOptional() @IsNumber() @Min(0) monthlyPrice?: number;
   @IsOptional() @IsNumber() @Min(0) yearlyPrice?: number;
   @IsOptional() @IsString() @Matches(/^[A-Z]{3}$/) currency?: string;
-  @IsEnum(PackageType) packageType!: PackageType;
   @IsOptional() @IsString() @MaxLength(500) description?: string;
   @IsOptional() @IsNumber() @Min(0) maxFleets?: number;
-  @IsOptional() @IsNumber() @Min(0) maxVehicles?: number;
   @IsOptional() @IsNumber() @Min(0) maxRiders?: number;
-  @IsOptional() @IsNumber() @Min(0) maxUsers?: number;
   @IsOptional() @IsNumber() @Min(0) trialDays?: number;
   @IsOptional() @IsNumber() @Min(0) displayOrder?: number;
-  @IsOptional() @IsBoolean() isDefault?: boolean;
+  @IsOptional() @IsBoolean() isCustom?: boolean;
   @IsOptional() @IsBoolean() isActive?: boolean;
   // Retained temporarily for compatibility with existing package clients.
   @IsOptional() @IsArray() @IsString({ each: true }) featureIds?: string[];
@@ -210,17 +206,14 @@ export class BulkCreatePackagesDto {
   rows!: Array<{
     code: string;
     name: string;
-    packageType: PackageType;
     monthlyPrice?: number;
     yearlyPrice?: number;
     currency?: string;
     maxFleets?: number;
-    maxVehicles?: number;
     maxRiders?: number;
-    maxUsers?: number;
     trialDays?: number;
     displayOrder?: number;
-    isDefault?: boolean;
+    isCustom?: boolean;
     isActive?: boolean;
     description?: string;
   }>;

@@ -170,18 +170,15 @@ const emptyVehicleType = {
 const emptyPackage = {
   code: "",
   name: "",
-  packageType: "STANDARD",
   monthlyPrice: "",
   yearlyPrice: "",
   currency: "INR",
   description: "",
   maxFleets: "",
-  maxVehicles: "",
   maxRiders: "",
-  maxUsers: "",
   trialDays: "0",
   displayOrder: "0",
-  isDefault: false,
+  isCustom: false,
   isActive: true,
 };
 const emptyFeature = {
@@ -682,16 +679,16 @@ export default function SuperAdminDashboard() {
   function downloadPackageTemplate() {
     downloadCsvTemplate(
       "evseye-package-template.csv",
-      "code,name,package_type,monthly_price,yearly_price,currency,max_fleets,max_vehicles,max_riders,max_users,trial_days,display_order,is_default,is_active,description\nSTARTER,Starter,STANDARD,1999,19990,INR,1,50,100,5,0,10,false,true,Starter platform package\n",
+      "code,name,monthly_price,yearly_price,currency,max_fleets,max_riders,trial_days,display_order,is_custom,is_active,description\nSTARTER,Starter,1999,19990,INR,1,100,0,10,false,true,Starter platform package\n",
     );
   }
   async function uploadPackageCsv(file: File) {
     await uploadBulkCsv(
       file,
-      ["code", "name", "package_type", "monthly_price", "yearly_price", "currency", "max_fleets", "max_vehicles", "max_riders", "max_users", "trial_days", "display_order", "is_default", "is_active", "description"],
+      ["code", "name", "monthly_price", "yearly_price", "currency", "max_fleets", "max_riders", "trial_days", "display_order", "is_custom", "is_active", "description"],
       "/platform/packages/bulk",
       "Package",
-      ([code, name, packageType, monthlyPrice, yearlyPrice, currency, maxFleets, maxVehicles, maxRiders, maxUsers, trialDays, displayOrder, isDefault, isActive, description]) => ({ code, name, packageType, monthlyPrice, yearlyPrice, currency, maxFleets, maxVehicles, maxRiders, maxUsers, trialDays, displayOrder, isDefault, isActive, description }),
+      ([code, name, monthlyPrice, yearlyPrice, currency, maxFleets, maxRiders, trialDays, displayOrder, isCustom, isActive, description]) => ({ code, name, monthlyPrice, yearlyPrice, currency, maxFleets, maxRiders, trialDays, displayOrder, isCustom, isActive, description }),
       () => setShowPackageBulk(false),
     );
   }
@@ -861,11 +858,7 @@ export default function SuperAdminDashboard() {
                 ? { yearlyPrice: Number(pack.yearlyPrice) }
                 : {}),
               ...(pack.maxFleets ? { maxFleets: Number(pack.maxFleets) } : {}),
-              ...(pack.maxVehicles
-                ? { maxVehicles: Number(pack.maxVehicles) }
-                : {}),
               ...(pack.maxRiders ? { maxRiders: Number(pack.maxRiders) } : {}),
-              ...(pack.maxUsers ? { maxUsers: Number(pack.maxUsers) } : {}),
               trialDays: Number(pack.trialDays || 0),
               displayOrder: Number(pack.displayOrder || 0),
               packageFeatures: configuredFeatures,
@@ -1906,39 +1899,23 @@ export default function SuperAdminDashboard() {
                       ["monthlyPrice", "Monthly price"],
                       ["yearlyPrice", "Yearly price"],
                       ["maxFleets", "Maximum fleets"],
-                      ["maxVehicles", "Maximum vehicles"],
                       ["maxRiders", "Maximum riders"],
-                      ["maxUsers", "Maximum users"],
                       ["trialDays", "Trial days"],
                       ["displayOrder", "Display order"],
-                    ]}
-                  />
-                  <Select
-                    value={pack.packageType}
-                    change={(value) =>
-                      setPack((current) => ({ ...current, packageType: value }))
-                    }
-                    options={[
-                      "STANDARD",
-                      "CUSTOM",
-                      "TRIAL",
-                      "ADD_ON",
-                      "ENTERPRISE",
-                      "INTERNAL",
                     ]}
                   />
                   <label className="sa-toggle">
                     <input
                       type="checkbox"
-                      checked={pack.isDefault}
+                      checked={pack.isCustom}
                       onChange={(event) =>
                         setPack((current) => ({
                           ...current,
-                          isDefault: event.target.checked,
+                          isCustom: event.target.checked,
                         }))
                       }
                     />
-                    Default package
+                    Custom package
                   </label>
                   <label className="sa-toggle">
                     <input
@@ -2228,7 +2205,6 @@ export default function SuperAdminDashboard() {
                   headings={[
                     "Code",
                     "Package",
-                    "Type",
                     "Monthly",
                     "Limits",
                     "Status",
@@ -2238,10 +2214,9 @@ export default function SuperAdminDashboard() {
                   rows={packages.map((item) => [
                     item.code,
                     item.name,
-                    item.packageType,
                     item.monthlyPrice ? `₹${item.monthlyPrice}` : "—",
-                    `${item.maxVehicles ?? "∞"} vehicles · ${item.maxRiders ?? "∞"} riders`,
-                    `${item.isActive ? "ACTIVE" : "INACTIVE"}${item.isDefault ? " · DEFAULT" : ""}`,
+                    `${item.maxFleets ?? "∞"} fleets · ${item.maxRiders ?? "∞"} riders`,
+                    `${item.isActive ? "ACTIVE" : "INACTIVE"}${item.isCustom ? " · CUSTOM" : ""}`,
                     item.features?.length ?? 0,
                     <button
                       key="edit"
@@ -2250,7 +2225,6 @@ export default function SuperAdminDashboard() {
                         setPack({
                           code: item.code,
                           name: item.name,
-                          packageType: item.packageType,
                           monthlyPrice: item.monthlyPrice
                             ? String(item.monthlyPrice)
                             : "",
@@ -2262,16 +2236,12 @@ export default function SuperAdminDashboard() {
                           maxFleets: item.maxFleets
                             ? String(item.maxFleets)
                             : "",
-                          maxVehicles: item.maxVehicles
-                            ? String(item.maxVehicles)
-                            : "",
                           maxRiders: item.maxRiders
                             ? String(item.maxRiders)
                             : "",
-                          maxUsers: item.maxUsers ? String(item.maxUsers) : "",
                           trialDays: String(item.trialDays ?? 0),
                           displayOrder: String(item.displayOrder ?? 0),
-                          isDefault: item.isDefault,
+                          isCustom: item.isCustom,
                           isActive: item.isActive,
                         });
                         setPackageFeatures(

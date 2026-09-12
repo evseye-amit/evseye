@@ -18,7 +18,6 @@ import {
   FeatureType,
   EnergyType,
   MasterRecordStatus,
-  PackageType,
   Prisma,
   VehicleUsageType,
 } from '@prisma/client';
@@ -513,7 +512,7 @@ export class PlatformCatalogService {
           _count: { select: { subscriptions: true } },
         },
         orderBy: [
-          { isDefault: 'desc' },
+          { isCustom: 'desc' },
           { displayOrder: 'asc' },
           { name: 'asc' },
         ],
@@ -530,12 +529,6 @@ export class PlatformCatalogService {
       actorId,
       () =>
         this.prisma.$transaction(async (tx) => {
-          if (data.isDefault) {
-            await tx.package.updateMany({
-              where: { isDefault: true },
-              data: { isDefault: false },
-            });
-          }
           return tx.package.create({
             data: {
               ...data,
@@ -574,12 +567,6 @@ export class PlatformCatalogService {
       actorId,
       () =>
         this.prisma.$transaction(async (tx) => {
-          if (data.isDefault) {
-            await tx.package.updateMany({
-              where: { isDefault: true, id: { not: id } },
-              data: { isDefault: false },
-            });
-          }
           if (features) {
             await tx.packageFeature.deleteMany({ where: { packageId: id } });
             for (const feature of features) {
@@ -629,7 +616,6 @@ export class PlatformCatalogService {
     actorId: string,
   ) {
     const codes = new Set<string>();
-    const packageTypes = new Set(Object.values(PackageType));
     const rows = dto.rows.map((row, index) => {
       const optionalNumber = (value: unknown) =>
         value === undefined || value === null || value === ''
@@ -638,25 +624,20 @@ export class PlatformCatalogService {
       const normalized = {
         code: row.code?.trim().toUpperCase(),
         name: row.name?.trim(),
-        packageType: row.packageType?.toString().trim().toUpperCase(),
         monthlyPrice: optionalNumber(row.monthlyPrice),
         yearlyPrice: optionalNumber(row.yearlyPrice),
         currency: (row.currency ?? 'INR').toString().trim().toUpperCase(),
         maxFleets: optionalNumber(row.maxFleets),
-        maxVehicles: optionalNumber(row.maxVehicles),
         maxRiders: optionalNumber(row.maxRiders),
-        maxUsers: optionalNumber(row.maxUsers),
         trialDays: Number(row.trialDays ?? 0),
         displayOrder: Number(row.displayOrder ?? 0),
-        isDefault: this.toBoolean(row.isDefault, false),
+        isCustom: this.toBoolean(row.isCustom, false),
         isActive: this.toBoolean(row.isActive, true),
         description: row.description?.trim() || undefined,
       };
       const integerFields = [
         normalized.maxFleets,
-        normalized.maxVehicles,
         normalized.maxRiders,
-        normalized.maxUsers,
         normalized.trialDays,
         normalized.displayOrder,
       ];
@@ -666,7 +647,6 @@ export class PlatformCatalogService {
         !/^[A-Z0-9_-]{1,50}$/.test(normalized.code) ||
         !normalized.name ||
         normalized.name.length > 100 ||
-        !packageTypes.has(normalized.packageType as PackageType) ||
         !/^[A-Z]{3}$/.test(normalized.currency) ||
         (normalized.description && normalized.description.length > 500) ||
         integerFields.some(
@@ -677,7 +657,7 @@ export class PlatformCatalogService {
         )
       ) {
         throw new BadRequestException(
-          `Row ${index + 2} is invalid. Check package code, name, type, prices, limits, and status values.`,
+          `Row ${index + 2} is invalid. Check package code, name, prices, limits, and status values.`,
         );
       }
       if (codes.has(normalized.code)) {
@@ -686,21 +666,10 @@ export class PlatformCatalogService {
         );
       }
       codes.add(normalized.code);
-      return { ...normalized, packageType: normalized.packageType as PackageType };
+      return normalized;
     });
-    if (rows.filter((row) => row.isDefault).length > 1) {
-      throw new BadRequestException(
-        'Only one default package can be included in a bulk upload.',
-      );
-    }
     try {
       await this.prisma.$transaction(async (tx) => {
-        if (rows.some((row) => row.isDefault)) {
-          await tx.package.updateMany({
-            where: { isDefault: true },
-            data: { isDefault: false },
-          });
-        }
         for (const row of rows) await tx.package.create({ data: row });
       });
       await this.audit.record({
