@@ -442,6 +442,14 @@ export class PlatformCatalogService {
         'This feature is assigned to one or more clients and cannot be deleted.',
       );
     }
+    const recordedUsage = await this.prisma.featureUsage.count({
+      where: { featureId: id },
+    });
+    if (recordedUsage) {
+      throw new ConflictException(
+        'This feature has recorded usage and cannot be deleted.',
+      );
+    }
 
     const removedPackageLinks = await this.prisma.$transaction(async (tx) => {
       const { count } = await tx.packageFeature.deleteMany({

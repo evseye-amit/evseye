@@ -241,6 +241,7 @@ model Tenant {
   clientProfile     ClientProfile?
   subscriptions     ClientSubscription[]
   clientFeatures    ClientFeature[]
+  featureUsage      FeatureUsage[]
   createdAt         DateTime                @default(now())
   updatedAt         DateTime                @updatedAt
 }
@@ -327,6 +328,7 @@ model Feature {
   pricing      FeaturePricing[]
   packageLinks PackageFeature[]
   clientLinks  ClientFeature[]
+  usage        FeatureUsage[]
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
 
@@ -429,6 +431,7 @@ model ClientSubscription {
   packageId         String
   package           Package            @relation(fields: [packageId], references: [id], onDelete: Restrict)
   features          ClientFeature[]
+  usage             FeatureUsage[]
   billingCycle      BillingCycle
   startDate         DateTime           @db.Date
   endDate           DateTime?          @db.Date
@@ -491,6 +494,24 @@ model ClientFeaturePricing {
 
   @@index([clientFeatureId, effectiveFrom])
   @@index([featurePricingId, effectiveFrom])
+}
+
+model FeatureUsage {
+  id             String             @id @default(uuid())
+  clientId       String
+  client         Tenant             @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  subscriptionId String
+  subscription   ClientSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  featureId      String
+  feature        Feature            @relation(fields: [featureId], references: [id], onDelete: Restrict)
+  usageReference String?            @db.VarChar(150)
+  quantity       Decimal            @default(1) @db.Decimal(14, 4)
+  usageTimestamp DateTime
+  metadata       Json?
+  createdAt      DateTime           @default(now())
+
+  @@index([subscriptionId, featureId, usageTimestamp])
+  @@index([clientId, usageTimestamp])
 }
 
 model OnboardingStepDefinition {

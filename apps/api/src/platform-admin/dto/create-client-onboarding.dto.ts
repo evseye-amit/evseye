@@ -3,6 +3,7 @@ import {
   IsBoolean,
   IsDateString,
   IsEnum,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -47,7 +48,7 @@ export class CreateClientOnboardingDto {
   @IsEnum(BillingCycle) billingCycle!: BillingCycle;
   @IsDateString() startDate!: string;
   @IsOptional() @IsDateString() endDate?: string;
-  @IsOptional() @IsString() @MaxLength(20) discountType?: string;
+  @IsOptional() @IsIn(['FIXED_AMOUNT', 'PERCENTAGE']) discountType?: string;
   @IsOptional() @IsNumber() @Min(0) discountValue?: number;
   @IsOptional() @IsBoolean() autoRenew?: boolean;
 }

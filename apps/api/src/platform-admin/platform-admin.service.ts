@@ -15,6 +15,7 @@ import type {
   CreateClientFeaturePricingDto,
   UpdateClientFeaturePricingDto,
 } from './dto/client-feature-pricing.dto.js';
+import type { CreateFeatureUsageDto } from './dto/feature-usage.dto.js';
 import type { CreateOnboardingConfigDto } from './dto/create-onboarding-config.dto.js';
 import type { CreateClientOnboardingDto } from './dto/create-client-onboarding.dto.js';
 import type { CreateTenantDto } from './dto/create-tenant.dto.js';
@@ -36,6 +37,214 @@ export class PlatformAdminService {
       },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  async recordFeatureUsage(
+    clientId: string,
+    dto: CreateFeatureUsageDto,
+    actorId: string,
+  ) {
+    const usageTimestamp = new Date(dto.usageTimestamp);
+    const subscription = await this.prisma.clientSubscription.findFirst({
+      where: { id: dto.subscriptionId, clientId, status: 'ACTIVE' },
+      include: {
+        package: {
+          include: {
+            features: {
+              where: { featureId: dto.featureId, enabled: true },
+            },
+          },
+        },
+        features: {
+          where: {
+            featureId: dto.featureId,
+            enabled: true,
+            effectiveFrom: { lte: usageTimestamp },
+            OR: [{ effectiveTo: null }, { effectiveTo: { gte: usageTimestamp } }],
+          },
+        },
+      },
+    });
+    if (!subscription) throw new NotFoundException('Active client subscription not found.');
+    if (
+      subscription.package.features.length === 0 &&
+      subscription.features.length === 0
+    ) {
+      throw new UnprocessableEntityException(
+        'This feature is not enabled for the client subscription.',
+      );
+    }
+    await this.requireActiveFeature(dto.featureId);
+    const usage = await this.prisma.featureUsage.create({
+      data: {
+        clientId,
+        subscriptionId: dto.subscriptionId,
+        featureId: dto.featureId,
+        usageReference: dto.usageReference,
+        quantity: dto.quantity ?? 1,
+        usageTimestamp,
+        metadata: dto.metadata as Prisma.InputJsonValue | undefined,
+      },
+      include: { feature: true },
+    });
+    await this.audit.record({
+      tenantId: clientId,
+      actorId,
+      action: 'FEATURE_USAGE_RECORDED',
+      entityType: 'FeatureUsage',
+      entityId: usage.id,
+      newData: {
+        subscriptionId: dto.subscriptionId,
+        featureId: dto.featureId,
+        quantity: usage.quantity.toString(),
+        usageReference: usage.usageReference,
+      },
+    });
+    return usage;
+  }
+
+  async billingPreview(
+    clientId: string,
+    subscriptionId: string,
+    from: string,
+    to: string,
+  ) {
+    const periodStart = new Date(from);
+    const periodEnd = new Date(to);
+    if (Number.isNaN(periodStart.valueOf()) || Number.isNaN(periodEnd.valueOf())) {
+      throw new UnprocessableEntityException('A valid billing period is required.');
+    }
+    if (periodEnd < periodStart) {
+      throw new UnprocessableEntityException('Billing period end cannot be before start.');
+    }
+    const subscription = await this.prisma.clientSubscription.findFirst({
+      where: { id: subscriptionId, clientId },
+      include: {
+        package: {
+          include: {
+            features: {
+              where: { enabled: true },
+              include: { feature: true },
+            },
+          },
+        },
+        features: {
+          where: {
+            enabled: true,
+            effectiveFrom: { lte: periodEnd },
+            OR: [{ effectiveTo: null }, { effectiveTo: { gte: periodStart } }],
+          },
+          include: {
+            feature: true,
+            pricing: {
+              where: {
+                effectiveFrom: { lte: periodEnd },
+                OR: [{ effectiveTo: null }, { effectiveTo: { gte: periodStart } }],
+              },
+              orderBy: { effectiveFrom: 'desc' },
+            },
+          },
+        },
+      },
+    });
+    if (!subscription) throw new NotFoundException('Client subscription not found.');
+    const usage = await this.prisma.featureUsage.findMany({
+      where: {
+        clientId,
+        subscriptionId,
+        usageTimestamp: { gte: periodStart, lte: periodEnd },
+      },
+      include: { feature: true },
+      orderBy: { usageTimestamp: 'asc' },
+    });
+    const featureIds = [...new Set(usage.map((item) => item.featureId))];
+    const masterPricing = featureIds.length
+      ? await this.prisma.featurePricing.findMany({
+          where: {
+            featureId: { in: featureIds },
+            isActive: true,
+            effectiveFrom: { lte: periodEnd },
+            OR: [{ effectiveTo: null }, { effectiveTo: { gte: periodStart } }],
+          },
+          orderBy: { effectiveFrom: 'desc' },
+        })
+      : [];
+    const usageByFeature = new Map<string, Prisma.Decimal>();
+    for (const item of usage) {
+      usageByFeature.set(
+        item.featureId,
+        (usageByFeature.get(item.featureId) ?? new Prisma.Decimal(0)).plus(
+          item.quantity,
+        ),
+      );
+    }
+    const lines = [...usageByFeature.entries()].map(([featureId, quantity]) => {
+      const packageFeature = subscription.package.features.find(
+        (item) => item.featureId === featureId,
+      );
+      const clientFeature = subscription.features.find(
+        (item) => item.featureId === featureId,
+      );
+      const includedUnlimited = packageFeature
+        ? packageFeature.unlimitedUsage
+        : (clientFeature?.unlimitedUsage ?? false);
+      const includedQuantity = includedUnlimited
+        ? quantity
+        : new Prisma.Decimal(
+            packageFeature?.includedQuantity?.toString() ??
+              clientFeature?.includedQuantity.toString() ??
+              '0',
+          );
+      const billableQuantity = includedUnlimited
+        ? new Prisma.Decimal(0)
+        : Prisma.Decimal.max(quantity.minus(includedQuantity), new Prisma.Decimal(0));
+      const negotiatedPricing = clientFeature?.pricing[0];
+      const catalogPricing = masterPricing.find(
+        (item) => item.featureId === featureId,
+      );
+      if (billableQuantity.greaterThan(0) && !negotiatedPricing && !catalogPricing) {
+        throw new UnprocessableEntityException(
+          `No active price exists for feature ${featureId}.`,
+        );
+      }
+      const unitPrice = negotiatedPricing?.finalUnitPrice ?? catalogPricing?.unitPrice ?? new Prisma.Decimal(0);
+      return {
+        featureId,
+        featureName:
+          packageFeature?.feature.name ?? clientFeature?.feature.name ?? usage.find((item) => item.featureId === featureId)?.feature.name,
+        totalQuantity: quantity,
+        includedQuantity: includedUnlimited ? null : includedQuantity,
+        unlimitedUsage: includedUnlimited,
+        billableQuantity,
+        unitPrice,
+        amount: billableQuantity.mul(unitPrice),
+        priceSource: negotiatedPricing
+          ? 'CLIENT_FEATURE_PRICING'
+          : 'FEATURE_PRICING',
+      };
+    });
+    const overageTotal = lines.reduce(
+      (total, line) => total.plus(line.amount),
+      new Prisma.Decimal(0),
+    );
+    return {
+      subscriptionId,
+      clientId,
+      period: { from: periodStart, to: periodEnd },
+      currency: subscription.currency,
+      package: {
+        packageId: subscription.packageId,
+        packageName: subscription.package.name,
+        listPrice: subscription.listPrice,
+        finalPrice: subscription.finalPackagePrice,
+      },
+      featureOverages: lines,
+      totals: {
+        package: subscription.finalPackagePrice,
+        overage: overageTotal,
+        subtotal: subscription.finalPackagePrice.plus(overageTotal),
+      },
+    };
   }
 
   async listClientFeatures(clientId: string) {
@@ -75,7 +284,7 @@ export class PlatformAdminService {
       dto.featurePricingId,
     );
     this.validateFeatureWindow(dto.effectiveFrom, dto.effectiveTo);
-    const finalUnitPrice = this.finalUnitPrice(
+    const finalUnitPrice = this.discountedPrice(
       featurePricing.unitPrice,
       dto.discountType,
       dto.discountValue,
@@ -134,7 +343,7 @@ export class PlatformAdminService {
       dto.discountValue === undefined
         ? (current.discountValue?.toNumber() ?? undefined)
         : dto.discountValue;
-    const finalUnitPrice = this.finalUnitPrice(
+    const finalUnitPrice = this.discountedPrice(
       current.listUnitPrice,
       discountType,
       discountValue,
@@ -191,16 +400,26 @@ export class PlatformAdminService {
     dto: CreateClientFeatureDto,
     actorId: string,
   ) {
-    await this.requireClientSubscription(clientId, dto.subscriptionId);
+    const subscription = await this.requireClientSubscription(
+      clientId,
+      dto.subscriptionId,
+    );
     await this.requireActiveFeature(dto.featureId);
     this.validateFeatureWindow(dto.effectiveFrom, dto.effectiveTo);
+    const packageFeature = await this.prisma.packageFeature.findFirst({
+      where: {
+        packageId: subscription.packageId,
+        featureId: dto.featureId,
+        enabled: true,
+      },
+    });
     try {
       const created = await this.prisma.clientFeature.create({
         data: {
           clientId,
           subscriptionId: dto.subscriptionId,
           featureId: dto.featureId,
-          source: dto.source ?? 'ADD_ON',
+          source: dto.source ?? (packageFeature ? 'CUSTOM' : 'ADD_ON'),
           enabled: dto.enabled ?? true,
           includedQuantity: dto.includedQuantity ?? 0,
           usageLimit: dto.usageLimit,
@@ -327,12 +546,6 @@ export class PlatformAdminService {
       const client = await this.prisma.$transaction(async (tx) => {
         const packageRecord = await tx.package.findUnique({
           where: { id: dto.packageId },
-          include: {
-            features: {
-              where: { enabled: true, feature: { isActive: true } },
-              include: { feature: true },
-            },
-          },
         });
         if (
           !packageRecord ||
@@ -385,12 +598,12 @@ export class PlatformAdminService {
           dto.billingCycle === 'YEARLY'
             ? (packageRecord.yearlyPrice ?? packageRecord.monthlyPrice.mul(12))
             : packageRecord.monthlyPrice;
-        const discountValue = new Prisma.Decimal(dto.discountValue ?? 0);
-        const finalPackagePrice = Prisma.Decimal.max(
-          listPrice.minus(discountValue),
-          new Prisma.Decimal(0),
+        const finalPackagePrice = this.discountedPrice(
+          listPrice,
+          dto.discountType,
+          dto.discountValue,
         );
-        const subscription = await tx.clientSubscription.create({
+        await tx.clientSubscription.create({
           data: {
             clientId: created.id,
             packageId: packageRecord.id,
@@ -405,28 +618,6 @@ export class PlatformAdminService {
             autoRenew: dto.autoRenew ?? true,
           },
         });
-        if (packageRecord.features.length) {
-          await tx.clientFeature.createMany({
-            data: packageRecord.features.map((packageFeature) => ({
-              clientId: created.id,
-              subscriptionId: subscription.id,
-              featureId: packageFeature.featureId,
-              source: 'PACKAGE',
-              enabled: packageFeature.enabled,
-              includedQuantity: new Prisma.Decimal(
-                packageFeature.includedQuantity?.toString() ?? '0',
-              ),
-              usageLimit:
-                packageFeature.usageLimit === null
-                  ? null
-                  : new Prisma.Decimal(packageFeature.usageLimit.toString()),
-              unlimitedUsage: packageFeature.unlimitedUsage,
-              effectiveFrom: new Date(dto.startDate),
-              configuration:
-                packageFeature.configuration as Prisma.InputJsonValue | undefined,
-            })),
-          });
-        }
         return created;
       });
       await this.audit.record({
@@ -667,6 +858,7 @@ export class PlatformAdminService {
     if (!subscription) {
       throw new NotFoundException('Client subscription not found.');
     }
+    return subscription;
   }
   private async requireClientFeature(clientId: string, clientFeatureId: string) {
     const clientFeature = await this.prisma.clientFeature.findFirst({
@@ -690,7 +882,7 @@ export class PlatformAdminService {
     }
     return featurePricing;
   }
-  private finalUnitPrice(
+  private discountedPrice(
     listUnitPrice: Prisma.Decimal,
     discountType?: string,
     discountValue?: number,

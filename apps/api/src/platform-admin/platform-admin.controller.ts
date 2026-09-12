@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Patch,
+  Query,
   Post,
   Put,
   UseGuards,
@@ -24,6 +25,7 @@ import {
   CreateClientFeaturePricingDto,
   UpdateClientFeaturePricingDto,
 } from './dto/client-feature-pricing.dto.js';
+import { CreateFeatureUsageDto } from './dto/feature-usage.dto.js';
 import { CreateClientOnboardingDto } from './dto/create-client-onboarding.dto.js';
 import { CreateTenantDto } from './dto/create-tenant.dto.js';
 import { UpsertOnboardingConfigStepsDto } from './dto/upsert-onboarding-config-steps.dto.js';
@@ -131,6 +133,25 @@ export class PlatformAdminController {
         user.id,
       )
       .then(() => ({ data: { deleted: true } }));
+  }
+  @Post('clients/:clientId/usage') recordFeatureUsage(
+    @Param('clientId') clientId: string,
+    @Body() dto: CreateFeatureUsageDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform
+      .recordFeatureUsage(clientId, dto, user.id)
+      .then((data) => ({ data }));
+  }
+  @Get('clients/:clientId/subscriptions/:subscriptionId/billing-preview') billingPreview(
+    @Param('clientId') clientId: string,
+    @Param('subscriptionId') subscriptionId: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+  ) {
+    return this.platform
+      .billingPreview(clientId, subscriptionId, from, to)
+      .then((data) => ({ data }));
   }
   @Get('onboarding/step-definitions') stepDefinitions() {
     return this.platform.listStepDefinitions().then((data) => ({ data }));
