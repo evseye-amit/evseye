@@ -335,7 +335,6 @@ model PackageFeature {
   unlimitedUsage   Boolean                 @default(false)
   configuration    Json?
   displayOrder     Int                     @default(0)
-  pricing          PackageFeaturePricing[]
   createdAt        DateTime                @default(now())
   updatedAt        DateTime                @updatedAt
 
@@ -362,33 +361,11 @@ model FeaturePricing {
   effectiveTo    DateTime?
   isActive       Boolean                 @default(true)
   metadata       Json?
-  packagePricing PackageFeaturePricing[]
   tiers          FeaturePricingTier[]
   createdAt      DateTime                @default(now())
   updatedAt      DateTime                @updatedAt
 
   @@index([featureId, isActive, effectiveFrom])
-}
-
-model PackageFeaturePricing {
-  id               String          @id @default(uuid())
-  packageFeatureId String
-  packageFeature   PackageFeature  @relation(fields: [packageFeatureId], references: [id], onDelete: Cascade)
-  featurePricingId String?
-  featurePricing   FeaturePricing? @relation(fields: [featurePricingId], references: [id], onDelete: SetNull)
-  pricingModel     PricingModel?
-  includedQuantity BigInt          @default(0)
-  unitPrice        Decimal?        @db.Decimal(12, 4)
-  minimumCharge    Decimal?        @db.Decimal(12, 2)
-  maximumCharge    Decimal?        @db.Decimal(12, 2)
-  effectiveFrom    DateTime
-  effectiveTo      DateTime?
-  isActive         Boolean         @default(true)
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-
-  @@index([packageFeatureId, isActive, effectiveFrom])
-  @@index([featurePricingId])
 }
 
 model FeaturePricingTier {

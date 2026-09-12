@@ -524,7 +524,6 @@ export class PlatformCatalogService {
           features: {
             include: {
               feature: true,
-              pricing: { include: { featurePricing: true } },
             },
             orderBy: { displayOrder: 'asc' },
           },
@@ -561,7 +560,6 @@ export class PlatformCatalogService {
               features: {
                 include: {
                   feature: true,
-                  pricing: { include: { featurePricing: true } },
                 },
               },
             },
@@ -604,7 +602,6 @@ export class PlatformCatalogService {
               features: {
                 include: {
                   feature: true,
-                  pricing: { include: { featurePricing: true } },
                 },
               },
             },
@@ -840,44 +837,11 @@ export class PlatformCatalogService {
       }
       seen.add(feature.featureId);
       await this.exists('feature', feature.featureId);
-      for (const pricing of feature.pricing ?? []) {
-        if (
-          pricing.effectiveTo &&
-          pricing.effectiveTo < pricing.effectiveFrom
-        ) {
-          throw new BadRequestException(
-            'Package Feature Pricing end date must be on or after its start date.',
-          );
-        }
-        if (
-          pricing.minimumCharge !== undefined &&
-          pricing.maximumCharge !== undefined &&
-          pricing.minimumCharge > pricing.maximumCharge
-        ) {
-          throw new BadRequestException(
-            'Package Feature Pricing maximum charge must be greater than or equal to minimum charge.',
-          );
-        }
-        if (pricing.featurePricingId) {
-          const featurePricing = await this.prisma.featurePricing.findUnique({
-            where: { id: pricing.featurePricingId },
-            select: { featureId: true },
-          });
-          if (
-            !featurePricing ||
-            featurePricing.featureId !== feature.featureId
-          ) {
-            throw new BadRequestException(
-              'The selected Feature Price must belong to the Package Feature.',
-            );
-          }
-        }
-      }
     }
   }
 
   private packageFeatureData(feature: CreatePackageFeatureDto) {
-    const { pricing, configuration, ...data } = feature;
+    const { configuration, ...data } = feature;
     return {
       ...data,
       includedQuantity:
@@ -889,26 +853,6 @@ export class PlatformCatalogService {
           ? undefined
           : BigInt(feature.usageLimit),
       configuration: configuration as Prisma.InputJsonValue | undefined,
-      pricing: pricing?.length
-        ? {
-            create: pricing.map((item) => this.packageFeaturePricingData(item)),
-          }
-        : undefined,
-    };
-  }
-
-  private packageFeaturePricingData(
-    pricing: NonNullable<CreatePackageFeatureDto['pricing']>[number],
-    packageFeatureId?: string,
-  ) {
-    return {
-      ...(packageFeatureId ? { packageFeatureId } : {}),
-      ...pricing,
-      includedQuantity: BigInt(pricing.includedQuantity ?? 0),
-      effectiveFrom: new Date(pricing.effectiveFrom),
-      effectiveTo: pricing.effectiveTo
-        ? new Date(pricing.effectiveTo)
-        : undefined,
     };
   }
   private jsonSafe<T>(value: T): T {

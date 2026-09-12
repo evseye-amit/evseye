@@ -25,17 +25,6 @@ type PricingTierInput = {
   unitPrice: string;
   costPrice: string;
 };
-type PackageFeaturePricingInput = {
-  featurePricingId: string;
-  pricingModel: string;
-  includedQuantity: string;
-  unitPrice: string;
-  minimumCharge: string;
-  maximumCharge: string;
-  effectiveFrom: string;
-  effectiveTo: string;
-  isActive: boolean;
-};
 type PackageFeatureInput = {
   featureId: string;
   enabled: boolean;
@@ -44,7 +33,6 @@ type PackageFeatureInput = {
   unlimitedUsage: boolean;
   configuration: string;
   displayOrder: string;
-  pricing: PackageFeaturePricingInput[];
 };
 
 const featureCategories = [
@@ -212,18 +200,6 @@ const emptyPricing = {
   tiers: [] as PricingTierInput[],
 };
 
-const emptyPackageFeaturePricing = (): PackageFeaturePricingInput => ({
-  featurePricingId: "",
-  pricingModel: "PER_UNIT",
-  includedQuantity: "0",
-  unitPrice: "",
-  minimumCharge: "",
-  maximumCharge: "",
-  effectiveFrom: new Date().toISOString().slice(0, 10),
-  effectiveTo: "",
-  isActive: true,
-});
-
 const emptyPackageFeature = (
   featureId: string,
   displayOrder: number,
@@ -235,7 +211,6 @@ const emptyPackageFeature = (
   unlimitedUsage: true,
   configuration: "",
   displayOrder: String(displayOrder),
-  pricing: [],
 });
 
 function Metric({
@@ -815,27 +790,6 @@ export default function SuperAdminDashboard() {
         ...(feature.configuration
           ? { configuration: JSON.parse(feature.configuration) }
           : {}),
-        pricing: feature.pricing.map((priceOverride) => ({
-          ...(priceOverride.featurePricingId
-            ? { featurePricingId: priceOverride.featurePricingId }
-            : {}),
-          pricingModel: priceOverride.pricingModel,
-          includedQuantity: Number(priceOverride.includedQuantity || 0),
-          ...(priceOverride.unitPrice
-            ? { unitPrice: Number(priceOverride.unitPrice) }
-            : {}),
-          ...(priceOverride.minimumCharge
-            ? { minimumCharge: Number(priceOverride.minimumCharge) }
-            : {}),
-          ...(priceOverride.maximumCharge
-            ? { maximumCharge: Number(priceOverride.maximumCharge) }
-            : {}),
-          effectiveFrom: priceOverride.effectiveFrom,
-          ...(priceOverride.effectiveTo
-            ? { effectiveTo: priceOverride.effectiveTo }
-            : {}),
-          isActive: priceOverride.isActive,
-        })),
       }));
     } catch {
       setError("Package Feature configuration must be valid JSON.");
@@ -1972,12 +1926,9 @@ export default function SuperAdminDashboard() {
                     const linkedFeature = features.find(
                       (item) => item.id === packageFeature.featureId,
                     );
-                    const eligiblePrices = pricing.filter(
-                      (item) => item.featureId === packageFeature.featureId,
-                    );
                     const updatePackageFeature = (
                       field: keyof PackageFeatureInput,
-                      value: string | boolean | PackageFeaturePricingInput[],
+                      value: string | boolean,
                     ) =>
                       setPackageFeatures((current) =>
                         current.map((item, index) =>
@@ -2079,119 +2030,6 @@ export default function SuperAdminDashboard() {
                             }
                           />
                         </label>
-                        <div className="sa-package-feature-pricing">
-                          <div>
-                            <strong>Package-specific price overrides</strong>
-                            <button
-                              type="button"
-                              className="secondary"
-                              onClick={() =>
-                                updatePackageFeature("pricing", [
-                                  ...packageFeature.pricing,
-                                  emptyPackageFeaturePricing(),
-                                ])
-                              }
-                            >
-                              + Add override
-                            </button>
-                          </div>
-                          {packageFeature.pricing.map(
-                            (priceOverride, pricingIndex) => {
-                              const updateOverride = (
-                                field: keyof PackageFeaturePricingInput,
-                                value: string | boolean,
-                              ) =>
-                                updatePackageFeature(
-                                  "pricing",
-                                  packageFeature.pricing.map((item, index) =>
-                                    index === pricingIndex
-                                      ? { ...item, [field]: value }
-                                      : item,
-                                  ),
-                                );
-                              return (
-                                <div
-                                  className="sa-price-override"
-                                  key={pricingIndex}
-                                >
-                                  <label>
-                                    Feature price reference
-                                    <select
-                                      value={priceOverride.featurePricingId}
-                                      onChange={(event) =>
-                                        updateOverride(
-                                          "featurePricingId",
-                                          event.target.value,
-                                        )
-                                      }
-                                    >
-                                      <option value="">Custom override</option>
-                                      {eligiblePrices.map((item) => (
-                                        <option key={item.id} value={item.id}>
-                                          {item.pricingName ??
-                                            item.pricingModel}{" "}
-                                          · {item.currency} {item.unitPrice}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </label>
-                                  <Select
-                                    label="Pricing model"
-                                    value={priceOverride.pricingModel}
-                                    change={(value) =>
-                                      updateOverride("pricingModel", value)
-                                    }
-                                    options={pricingModels}
-                                  />
-                                  <TextFields
-                                    value={priceOverride}
-                                    change={(key, value) =>
-                                      updateOverride(
-                                        key as keyof PackageFeaturePricingInput,
-                                        value,
-                                      )
-                                    }
-                                    fields={[
-                                      ["includedQuantity", "Included quantity"],
-                                      ["unitPrice", "Unit price"],
-                                      ["minimumCharge", "Minimum charge"],
-                                      ["maximumCharge", "Maximum charge"],
-                                      ["effectiveFrom", "Effective from"],
-                                      ["effectiveTo", "Effective to"],
-                                    ]}
-                                  />
-                                  <label className="sa-toggle">
-                                    <input
-                                      type="checkbox"
-                                      checked={priceOverride.isActive}
-                                      onChange={(event) =>
-                                        updateOverride(
-                                          "isActive",
-                                          event.target.checked,
-                                        )
-                                      }
-                                    />
-                                    Active override
-                                  </label>
-                                  <button
-                                    type="button"
-                                    className="danger"
-                                    onClick={() =>
-                                      updatePackageFeature(
-                                        "pricing",
-                                        packageFeature.pricing.filter(
-                                          (_, index) => index !== pricingIndex,
-                                        ),
-                                      )
-                                    }
-                                  >
-                                    Remove override
-                                  </button>
-                                </div>
-                              );
-                            },
-                          )}
-                        </div>
                       </div>
                     );
                   })}
@@ -2260,32 +2098,6 @@ export default function SuperAdminDashboard() {
                                 ? JSON.stringify(link.configuration, null, 2)
                                 : "",
                               displayOrder: String(link.displayOrder ?? index),
-                              pricing: (link.pricing ?? []).map(
-                                (priceOverride: Item) => ({
-                                  featurePricingId:
-                                    priceOverride.featurePricingId ?? "",
-                                  pricingModel:
-                                    priceOverride.pricingModel ?? "PER_UNIT",
-                                  includedQuantity: String(
-                                    priceOverride.includedQuantity ?? 0,
-                                  ),
-                                  unitPrice: priceOverride.unitPrice
-                                    ? String(priceOverride.unitPrice)
-                                    : "",
-                                  minimumCharge: priceOverride.minimumCharge
-                                    ? String(priceOverride.minimumCharge)
-                                    : "",
-                                  maximumCharge: priceOverride.maximumCharge
-                                    ? String(priceOverride.maximumCharge)
-                                    : "",
-                                  effectiveFrom:
-                                    priceOverride.effectiveFrom.slice(0, 10),
-                                  effectiveTo: priceOverride.effectiveTo
-                                    ? priceOverride.effectiveTo.slice(0, 10)
-                                    : "",
-                                  isActive: priceOverride.isActive,
-                                }),
-                              ),
                             }),
                           ),
                         );

@@ -149,18 +149,6 @@ export class BulkCreateFeaturesDto {
   }>;
 }
 
-export class CreatePackageFeaturePricingDto {
-  @IsOptional() @IsString() featurePricingId?: string;
-  @IsOptional() @IsEnum(PricingModel) pricingModel?: PricingModel;
-  @IsOptional() @IsInt() @Min(0) includedQuantity?: number;
-  @IsOptional() @IsNumber() @Min(0) unitPrice?: number;
-  @IsOptional() @IsNumber() @Min(0) minimumCharge?: number;
-  @IsOptional() @IsNumber() @Min(0) maximumCharge?: number;
-  @IsDateString() effectiveFrom!: string;
-  @IsOptional() @IsDateString() effectiveTo?: string;
-  @IsOptional() @IsBoolean() isActive?: boolean;
-}
-
 export class CreatePackageFeatureDto {
   @IsString() featureId!: string;
   @IsOptional() @IsBoolean() enabled?: boolean;
@@ -169,11 +157,6 @@ export class CreatePackageFeatureDto {
   @IsOptional() @IsBoolean() unlimitedUsage?: boolean;
   @IsOptional() @IsObject() configuration?: Record<string, unknown>;
   @IsOptional() @IsInt() @Min(0) displayOrder?: number;
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => CreatePackageFeaturePricingDto)
-  pricing?: CreatePackageFeaturePricingDto[];
 }
 
 export class CreatePackageDto {
