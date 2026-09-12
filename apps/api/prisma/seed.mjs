@@ -1,4 +1,5 @@
 import { PhotoEntityType, PrismaClient, UserRole } from '@prisma/client';
+import { vehicleCategorySeeds } from './seeds/vehicle-categories.seed.mjs';
 
 const prisma = new PrismaClient();
 
@@ -213,6 +214,17 @@ async function main() {
       status: 'ACTIVE',
     },
   });
+
+  await Promise.all(
+    vehicleCategorySeeds.map((vehicleCategory) =>
+      prisma.vehicleCategory.upsert({
+        where: { code: vehicleCategory.code },
+        create: vehicleCategory,
+        update: vehicleCategory,
+      }),
+    ),
+  );
+
   const featureSeeds = [
     {
       code: 'RIDER_ONBOARDING',
