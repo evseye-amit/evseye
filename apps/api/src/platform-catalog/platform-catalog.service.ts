@@ -31,11 +31,13 @@ import type {
   CreateOemDto,
   CreatePackageDto,
   CreateVehicleCategoryDto,
+  CreateVehicleTypeDto,
   UpdateFeatureDto,
   UpdateFeaturePricingDto,
   UpdateOemDto,
   UpdatePackageDto,
   UpdateVehicleCategoryDto,
+  UpdateVehicleTypeDto,
 } from './dto/catalog.dto.js';
 
 @Injectable()
@@ -218,6 +220,55 @@ export class PlatformCatalogService {
       actorId,
       action: 'VEHICLE_CATEGORY_DELETED',
       entityType: 'VehicleCategory',
+      entityId: id,
+    });
+  }
+  listVehicleTypes() {
+    return this.prisma.vehicleType.findMany({
+      include: { category: true },
+      orderBy: [{ category: { displayOrder: 'asc' } }, { name: 'asc' }],
+    });
+  }
+  async createVehicleType(dto: CreateVehicleTypeDto, actorId: string) {
+    await this.exists('vehicleCategory', dto.categoryId);
+    return this.createWithAudit(
+      'VEHICLE_TYPE_CREATED',
+      'VehicleType',
+      actorId,
+      () =>
+        this.prisma.vehicleType.create({
+          data: { ...dto, createdById: actorId, updatedById: actorId },
+          include: { category: true },
+        }),
+    );
+  }
+  async updateVehicleType(
+    id: string,
+    dto: UpdateVehicleTypeDto,
+    actorId: string,
+  ) {
+    await this.exists('vehicleType', id);
+    await this.exists('vehicleCategory', dto.categoryId);
+    return this.updateWithAudit(
+      'VEHICLE_TYPE_UPDATED',
+      'VehicleType',
+      id,
+      actorId,
+      () =>
+        this.prisma.vehicleType.update({
+          where: { id },
+          data: { ...dto, updatedById: actorId },
+          include: { category: true },
+        }),
+    );
+  }
+  async deleteVehicleType(id: string, actorId: string) {
+    await this.exists('vehicleType', id);
+    await this.prisma.vehicleType.delete({ where: { id } });
+    await this.audit.record({
+      actorId,
+      action: 'VEHICLE_TYPE_DELETED',
+      entityType: 'VehicleType',
       entityId: id,
     });
   }
@@ -670,7 +721,13 @@ export class PlatformCatalogService {
   }
 
   private async exists(
-    model: 'oem' | 'vehicleCategory' | 'feature' | 'package' | 'featurePricing',
+    model:
+      | 'oem'
+      | 'vehicleCategory'
+      | 'vehicleType'
+      | 'feature'
+      | 'package'
+      | 'featurePricing',
     id: string,
   ) {
     const found =
@@ -678,11 +735,15 @@ export class PlatformCatalogService {
         ? await this.prisma.oem.findUnique({ where: { id } })
         : model === 'vehicleCategory'
           ? await this.prisma.vehicleCategory.findUnique({ where: { id } })
-          : model === 'feature'
-            ? await this.prisma.feature.findUnique({ where: { id } })
-            : model === 'package'
-              ? await this.prisma.package.findUnique({ where: { id } })
-              : await this.prisma.featurePricing.findUnique({ where: { id } });
+          : model === 'vehicleType'
+            ? await this.prisma.vehicleType.findUnique({ where: { id } })
+            : model === 'feature'
+              ? await this.prisma.feature.findUnique({ where: { id } })
+              : model === 'package'
+                ? await this.prisma.package.findUnique({ where: { id } })
+                : await this.prisma.featurePricing.findUnique({
+                    where: { id },
+                  });
     if (!found) throw new NotFoundException('Record not found.');
   }
   private async createWithAudit<T extends { id: string }>(

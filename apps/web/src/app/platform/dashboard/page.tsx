@@ -13,6 +13,7 @@ type Tab =
   | "clients"
   | "oems"
   | "vehicleCategories"
+  | "vehicleTypes"
   | "features"
   | "packages"
   | "pricing";
@@ -153,6 +154,16 @@ const emptyVehicleCategory = {
   status: "ACTIVE",
   displayOrder: "0",
 };
+const emptyVehicleType = {
+  categoryId: "",
+  code: "",
+  name: "",
+  subCategory: "",
+  description: "",
+  energyType: "ELECTRIC",
+  usageType: "",
+  status: "ACTIVE",
+};
 const emptyPackage = {
   code: "",
   name: "",
@@ -260,6 +271,7 @@ export default function SuperAdminDashboard() {
   const [clients, setClients] = useState<Item[]>([]);
   const [oems, setOems] = useState<Item[]>([]);
   const [vehicleCategories, setVehicleCategories] = useState<Item[]>([]);
+  const [vehicleTypes, setVehicleTypes] = useState<Item[]>([]);
   const [packages, setPackages] = useState<Item[]>([]);
   const [features, setFeatures] = useState<Item[]>([]);
   const [pricing, setPricing] = useState<Item[]>([]);
@@ -274,6 +286,11 @@ export default function SuperAdminDashboard() {
     string | null
   >(null);
   const [showVehicleCategoryForm, setShowVehicleCategoryForm] = useState(false);
+  const [vehicleType, setVehicleType] = useState(emptyVehicleType);
+  const [editingVehicleTypeId, setEditingVehicleTypeId] = useState<
+    string | null
+  >(null);
+  const [showVehicleTypeForm, setShowVehicleTypeForm] = useState(false);
   const [feature, setFeature] = useState(emptyFeature);
   const [editingFeatureId, setEditingFeatureId] = useState<string | null>(null);
   const [showFeatureForm, setShowFeatureForm] = useState(false);
@@ -338,6 +355,7 @@ export default function SuperAdminDashboard() {
         clientList,
         oemList,
         vehicleCategoryList,
+        vehicleTypeList,
         packageList,
         featureList,
         priceList,
@@ -346,6 +364,7 @@ export default function SuperAdminDashboard() {
         request("/platform/clients", {}, token),
         request("/platform/oems", {}, token),
         request("/platform/vehicle-categories", {}, token),
+        request("/platform/vehicle-types", {}, token),
         request("/platform/packages", {}, token),
         request("/platform/features", {}, token),
         request("/platform/feature-pricing", {}, token),
@@ -354,6 +373,7 @@ export default function SuperAdminDashboard() {
       setClients(clientList);
       setOems(oemList);
       setVehicleCategories(vehicleCategoryList);
+      setVehicleTypes(vehicleTypeList);
       setPackages(packageList);
       setFeatures(featureList);
       setPricing(priceList);
@@ -450,6 +470,31 @@ export default function SuperAdminDashboard() {
         setVehicleCategory(emptyVehicleCategory);
         setEditingVehicleCategoryId(null);
         setShowVehicleCategoryForm(false);
+      },
+    );
+  }
+  async function submitVehicleType(event: FormEvent) {
+    event.preventDefault();
+    await submit(
+      () =>
+        request(
+          editingVehicleTypeId
+            ? `/platform/vehicle-types/${editingVehicleTypeId}`
+            : "/platform/vehicle-types",
+          {
+            method: editingVehicleTypeId ? "PUT" : "POST",
+            body: JSON.stringify({
+              ...vehicleType,
+              ...(vehicleType.usageType ? {} : { usageType: undefined }),
+            }),
+          },
+          token,
+        ),
+      editingVehicleTypeId ? "Vehicle Type updated." : "Vehicle Type created.",
+      () => {
+        setVehicleType(emptyVehicleType);
+        setEditingVehicleTypeId(null);
+        setShowVehicleTypeForm(false);
       },
     );
   }
@@ -869,6 +914,7 @@ export default function SuperAdminDashboard() {
     ["dashboard", "Dashboard", "▦"],
     ["oems", "OEM", "▣"],
     ["vehicleCategories", "Vehicle Category", "▤"],
+    ["vehicleTypes", "Vehicle Type", "▧"],
     ["features", "Feature", "◇"],
     ["pricing", "Feature pricing", "₹"],
     ["packages", "Package", "◫"],
@@ -1269,6 +1315,200 @@ export default function SuperAdminDashboard() {
                   </button>
                 </section>
               )}
+            </section>
+          </>
+        )}
+        {tab === "vehicleTypes" && (
+          <>
+            <section className="sa-page-head">
+              <div>
+                <h2>Vehicle Type</h2>
+                <p>
+                  Define vehicle types by category, energy source, and usage.
+                </p>
+              </div>
+              <div className="sa-actions">
+                <button
+                  onClick={() => {
+                    setVehicleType(emptyVehicleType);
+                    setEditingVehicleTypeId(null);
+                    setShowVehicleTypeForm(!showVehicleTypeForm);
+                  }}
+                >
+                  + Add Vehicle Type
+                </button>
+              </div>
+            </section>
+            <section
+              className={`sa-management ${showVehicleTypeForm ? "" : "oem-table-only"}`}
+            >
+              {showVehicleTypeForm && (
+                <form className="sa-form" onSubmit={submitVehicleType}>
+                  <h3>
+                    {editingVehicleTypeId
+                      ? "Edit Vehicle Type"
+                      : "Add Vehicle Type"}
+                  </h3>
+                  <label>
+                    Vehicle Category
+                    <select
+                      required
+                      value={vehicleType.categoryId}
+                      onChange={(event) =>
+                        setVehicleType((current) => ({
+                          ...current,
+                          categoryId: event.target.value,
+                        }))
+                      }
+                    >
+                      <option value="">Select vehicle category</option>
+                      {vehicleCategories
+                        .filter((item) => item.status === "ACTIVE")
+                        .map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.code} · {item.name}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <TextFields
+                    value={vehicleType}
+                    change={(key, value) =>
+                      setVehicleType((current) => ({
+                        ...current,
+                        [key]: value,
+                      }))
+                    }
+                    fields={[
+                      ["code", "Type code"],
+                      ["name", "Type name"],
+                      ["subCategory", "Sub-category"],
+                      ["description", "Description"],
+                    ]}
+                  />
+                  <Select
+                    label="Energy type"
+                    value={vehicleType.energyType}
+                    change={(value) =>
+                      setVehicleType((current) => ({
+                        ...current,
+                        energyType: value,
+                      }))
+                    }
+                    options={[
+                      "ELECTRIC",
+                      "HYBRID",
+                      "PETROL",
+                      "DIESEL",
+                      "CNG",
+                      "HYDROGEN",
+                      "OTHER",
+                      "LPG",
+                    ]}
+                  />
+                  <label>
+                    Usage type
+                    <select
+                      value={vehicleType.usageType}
+                      onChange={(event) =>
+                        setVehicleType((current) => ({
+                          ...current,
+                          usageType: event.target.value,
+                        }))
+                      }
+                    >
+                      <option value="">Not specified</option>
+                      {[
+                        "PRIVATE",
+                        "PASSENGER",
+                        "GOODS",
+                        "DELIVERY",
+                        "SHARED_MOBILITY",
+                        "PUBLIC_TRANSPORT",
+                        "STAFF_TRANSPORT",
+                        "SCHOOL_TRANSPORT",
+                        "EMERGENCY",
+                        "AGRICULTURAL",
+                        "CONSTRUCTION",
+                        "INDUSTRIAL",
+                        "RENTAL",
+                        "GOVERNMENT",
+                        "SPECIAL_PURPOSE",
+                      ].map((option) => (
+                        <option key={option}>{option}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <Select
+                    label="Status"
+                    value={vehicleType.status}
+                    change={(value) =>
+                      setVehicleType((current) => ({
+                        ...current,
+                        status: value,
+                      }))
+                    }
+                    options={["ACTIVE", "INACTIVE", "SUSPENDED"]}
+                  />
+                  <button disabled={loading}>
+                    {editingVehicleTypeId
+                      ? "Update Vehicle Type"
+                      : "Save Vehicle Type"}
+                  </button>
+                </form>
+              )}
+              <DataTable
+                headings={[
+                  "Code",
+                  "Vehicle Type",
+                  "Category",
+                  "Energy",
+                  "Usage",
+                  "Status",
+                  "",
+                  "",
+                ]}
+                rows={vehicleTypes.map((item) => [
+                  item.code,
+                  item.name,
+                  item.category?.name,
+                  item.energyType,
+                  item.usageType ?? "—",
+                  item.status,
+                  <button
+                    key="edit"
+                    className="secondary"
+                    onClick={() => {
+                      setVehicleType({
+                        categoryId: item.categoryId,
+                        code: item.code,
+                        name: item.name,
+                        subCategory: item.subCategory ?? "",
+                        description: item.description ?? "",
+                        energyType: item.energyType,
+                        usageType: item.usageType ?? "",
+                        status: item.status,
+                      });
+                      setEditingVehicleTypeId(item.id);
+                      setShowVehicleTypeForm(true);
+                    }}
+                  >
+                    Edit
+                  </button>,
+                  <button
+                    key="delete"
+                    className="danger"
+                    onClick={() =>
+                      void remove(
+                        `/platform/vehicle-types/${item.id}`,
+                        "Vehicle Type",
+                      )
+                    }
+                  >
+                    Delete
+                  </button>,
+                ])}
+              />
             </section>
           </>
         )}

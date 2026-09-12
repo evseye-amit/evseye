@@ -25,6 +25,8 @@ import {
   BillingCycle,
   MasterRecordStatus,
   OemType,
+  EnergyType,
+  VehicleUsageType,
   PackageType,
   PricingModel,
 } from '@prisma/client';
@@ -51,6 +53,18 @@ export class CreateVehicleCategoryDto {
 }
 
 export class UpdateVehicleCategoryDto extends CreateVehicleCategoryDto {}
+
+export class CreateVehicleTypeDto {
+  @IsString() categoryId!: string;
+  @IsString() @Matches(/^[A-Z0-9_-]+$/) @MaxLength(50) code!: string;
+  @IsString() @MaxLength(120) name!: string;
+  @IsOptional() @IsString() @MaxLength(120) subCategory?: string;
+  @IsOptional() @IsString() @MaxLength(500) description?: string;
+  @IsEnum(EnergyType) energyType!: EnergyType;
+  @IsOptional() @IsEnum(VehicleUsageType) usageType?: VehicleUsageType;
+  @IsOptional() @IsEnum(MasterRecordStatus) status?: MasterRecordStatus;
+}
+export class UpdateVehicleTypeDto extends CreateVehicleTypeDto {}
 
 export class BulkCreateOemsDto {
   @IsArray()

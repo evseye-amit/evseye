@@ -24,11 +24,13 @@ import {
   CreateOemDto,
   CreatePackageDto,
   CreateVehicleCategoryDto,
+  CreateVehicleTypeDto,
   UpdateFeatureDto,
   UpdateFeaturePricingDto,
   UpdateOemDto,
   UpdatePackageDto,
   UpdateVehicleCategoryDto,
+  UpdateVehicleTypeDto,
 } from './dto/catalog.dto.js';
 import { PlatformCatalogService } from './platform-catalog.service.js';
 
@@ -113,6 +115,34 @@ export class PlatformCatalogController {
   ) {
     return this.catalog
       .deleteVehicleCategory(id, user.id)
+      .then(() => ({ data: { deleted: true } }));
+  }
+  @Get('vehicle-types') vehicleTypes() {
+    return this.catalog.listVehicleTypes().then((data) => ({ data }));
+  }
+  @Post('vehicle-types') createVehicleType(
+    @Body() dto: CreateVehicleTypeDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.catalog
+      .createVehicleType(dto, user.id)
+      .then((data) => ({ data }));
+  }
+  @Put('vehicle-types/:id') updateVehicleType(
+    @Param('id') id: string,
+    @Body() dto: UpdateVehicleTypeDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.catalog
+      .updateVehicleType(id, dto, user.id)
+      .then((data) => ({ data }));
+  }
+  @Delete('vehicle-types/:id') deleteVehicleType(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.catalog
+      .deleteVehicleType(id, user.id)
       .then(() => ({ data: { deleted: true } }));
   }
   @Get('features') features() {

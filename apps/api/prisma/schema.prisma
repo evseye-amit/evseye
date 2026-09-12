@@ -123,6 +123,35 @@ enum MasterRecordStatus {
   SUSPENDED
 }
 
+enum EnergyType {
+  ELECTRIC
+  HYBRID
+  PETROL
+  DIESEL
+  CNG
+  HYDROGEN
+  OTHER
+  LPG
+}
+
+enum VehicleUsageType {
+  PRIVATE
+  PASSENGER
+  GOODS
+  DELIVERY
+  SHARED_MOBILITY
+  PUBLIC_TRANSPORT
+  STAFF_TRANSPORT
+  SCHOOL_TRANSPORT
+  EMERGENCY
+  AGRICULTURAL
+  CONSTRUCTION
+  INDUSTRIAL
+  RENTAL
+  GOVERNMENT
+  SPECIAL_PURPOSE
+}
+
 enum PricingModel {
   FREE
   INCLUDED
@@ -248,8 +277,28 @@ model VehicleCategory {
   updatedById  String?
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
+  vehicleTypes VehicleType[]
 
   @@index([status, displayOrder, name])
+}
+
+model VehicleType {
+  id          String             @id @default(uuid())
+  categoryId  String
+  category    VehicleCategory    @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  code        String             @unique
+  name        String
+  subCategory String?
+  description String?
+  energyType  EnergyType
+  usageType   VehicleUsageType?
+  status      MasterRecordStatus @default(ACTIVE)
+  createdById String?
+  updatedById String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@index([categoryId, status, name])
 }
 
 model Package {
