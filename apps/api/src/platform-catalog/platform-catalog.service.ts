@@ -16,10 +16,16 @@ import {
   FeatureBillingUnit,
   FeatureCategory,
   FeatureType,
+  EnergyType,
   MasterRecordStatus,
+  PackageType,
   Prisma,
+  VehicleUsageType,
 } from '@prisma/client';
 import type {
+  BulkCreatePackagesDto,
+  BulkCreateVehicleCategoriesDto,
+  BulkCreateVehicleTypesDto,
   BulkCreateOemsDto,
   BulkCreateFeaturesDto,
   CompleteOemLogoUploadDto,
@@ -219,6 +225,55 @@ export class PlatformCatalogService {
       entityId: id,
     });
   }
+  async bulkCreateVehicleCategories(
+    dto: BulkCreateVehicleCategoriesDto,
+    actorId: string,
+  ) {
+    const codes = new Set<string>();
+    const statuses = new Set(Object.values(MasterRecordStatus));
+    const rows = dto.rows.map((row, index) => {
+      const normalized = {
+        code: row.code?.trim().toUpperCase(),
+        name: row.name?.trim(),
+        description: row.description?.trim() || undefined,
+        status: (row.status ?? 'ACTIVE').toString().toUpperCase(),
+        displayOrder: Number(row.displayOrder ?? 0),
+      };
+      if (
+        !normalized.code ||
+        !/^[A-Z0-9_-]{1,50}$/.test(normalized.code) ||
+        !normalized.name ||
+        normalized.name.length > 120 ||
+        (normalized.description && normalized.description.length > 500) ||
+        !statuses.has(normalized.status as MasterRecordStatus) ||
+        !Number.isInteger(normalized.displayOrder) ||
+        normalized.displayOrder < 0
+      ) {
+        throw new BadRequestException(
+          `Row ${index + 2} is invalid. Check code, name, status, and display order.`,
+        );
+      }
+      if (codes.has(normalized.code)) {
+        throw new ConflictException(
+          `Duplicate vehicle category code ${normalized.code} in the upload.`,
+        );
+      }
+      codes.add(normalized.code);
+      return {
+        ...normalized,
+        status: normalized.status as MasterRecordStatus,
+      };
+    });
+    await this.createBulk(
+      rows,
+      (row) => this.prisma.vehicleCategory.create({ data: row }),
+      actorId,
+      'VEHICLE_CATEGORY_BULK_CREATED',
+      'VehicleCategory',
+      'vehicle category code',
+    );
+    return { created: rows.length };
+  }
   listVehicleTypes() {
     return this.prisma.vehicleType.findMany({
       include: { category: true },
@@ -267,6 +322,82 @@ export class PlatformCatalogService {
       entityType: 'VehicleType',
       entityId: id,
     });
+  }
+  async bulkCreateVehicleTypes(
+    dto: BulkCreateVehicleTypesDto,
+    actorId: string,
+  ) {
+    const categoryCodes = new Set<string>();
+    const codes = new Set<string>();
+    const energyTypes = new Set(Object.values(EnergyType));
+    const usageTypes = new Set(Object.values(VehicleUsageType));
+    const statuses = new Set(Object.values(MasterRecordStatus));
+    const rows = dto.rows.map((row, index) => {
+      const normalized = {
+        categoryCode: row.categoryCode?.trim().toUpperCase(),
+        code: row.code?.trim().toUpperCase(),
+        name: row.name?.trim(),
+        subCategory: row.subCategory?.trim() || undefined,
+        description: row.description?.trim() || undefined,
+        energyType: row.energyType?.toString().trim().toUpperCase(),
+        usageType: row.usageType?.toString().trim().toUpperCase() || undefined,
+        status: (row.status ?? 'ACTIVE').toString().toUpperCase(),
+      };
+      if (
+        !normalized.categoryCode ||
+        !normalized.code ||
+        !/^[A-Z0-9_-]{1,50}$/.test(normalized.code) ||
+        !normalized.name ||
+        normalized.name.length > 120 ||
+        (normalized.subCategory && normalized.subCategory.length > 120) ||
+        (normalized.description && normalized.description.length > 500) ||
+        !energyTypes.has(normalized.energyType as EnergyType) ||
+        (normalized.usageType &&
+          !usageTypes.has(normalized.usageType as VehicleUsageType)) ||
+        !statuses.has(normalized.status as MasterRecordStatus)
+      ) {
+        throw new BadRequestException(
+          `Row ${index + 2} is invalid. Check category code, type code, name, energy type, usage type, and status.`,
+        );
+      }
+      if (codes.has(normalized.code)) {
+        throw new ConflictException(
+          `Duplicate vehicle type code ${normalized.code} in the upload.`,
+        );
+      }
+      codes.add(normalized.code);
+      categoryCodes.add(normalized.categoryCode);
+      return normalized;
+    });
+    const categories = await this.prisma.vehicleCategory.findMany({
+      where: { code: { in: [...categoryCodes] } },
+      select: { id: true, code: true },
+    });
+    const categoryIdByCode = new Map(
+      categories.map((category) => [category.code, category.id]),
+    );
+    for (const categoryCode of categoryCodes) {
+      if (!categoryIdByCode.has(categoryCode)) {
+        throw new BadRequestException(
+          `Vehicle category code ${categoryCode} does not exist.`,
+        );
+      }
+    }
+    await this.createBulk(
+      rows.map(({ categoryCode, ...row }) => ({
+        ...row,
+        categoryId: categoryIdByCode.get(categoryCode)!,
+        energyType: row.energyType as EnergyType,
+        usageType: row.usageType as VehicleUsageType | undefined,
+        status: row.status as MasterRecordStatus,
+      })),
+      (row) => this.prisma.vehicleType.create({ data: row }),
+      actorId,
+      'VEHICLE_TYPE_BULK_CREATED',
+      'VehicleType',
+      'vehicle type code',
+    );
+    return { created: rows.length };
   }
 
   listFeatures() {
@@ -492,6 +623,102 @@ export class PlatformCatalogService {
       entityType: 'Package',
       entityId: id,
     });
+  }
+  async bulkCreatePackages(
+    dto: BulkCreatePackagesDto,
+    actorId: string,
+  ) {
+    const codes = new Set<string>();
+    const packageTypes = new Set(Object.values(PackageType));
+    const rows = dto.rows.map((row, index) => {
+      const optionalNumber = (value: unknown) =>
+        value === undefined || value === null || value === ''
+          ? undefined
+          : Number(value);
+      const normalized = {
+        code: row.code?.trim().toUpperCase(),
+        name: row.name?.trim(),
+        packageType: row.packageType?.toString().trim().toUpperCase(),
+        monthlyPrice: optionalNumber(row.monthlyPrice),
+        yearlyPrice: optionalNumber(row.yearlyPrice),
+        currency: (row.currency ?? 'INR').toString().trim().toUpperCase(),
+        maxFleets: optionalNumber(row.maxFleets),
+        maxVehicles: optionalNumber(row.maxVehicles),
+        maxRiders: optionalNumber(row.maxRiders),
+        maxUsers: optionalNumber(row.maxUsers),
+        trialDays: Number(row.trialDays ?? 0),
+        displayOrder: Number(row.displayOrder ?? 0),
+        isDefault: this.toBoolean(row.isDefault, false),
+        isActive: this.toBoolean(row.isActive, true),
+        description: row.description?.trim() || undefined,
+      };
+      const integerFields = [
+        normalized.maxFleets,
+        normalized.maxVehicles,
+        normalized.maxRiders,
+        normalized.maxUsers,
+        normalized.trialDays,
+        normalized.displayOrder,
+      ];
+      const monetaryFields = [normalized.monthlyPrice, normalized.yearlyPrice];
+      if (
+        !normalized.code ||
+        !/^[A-Z0-9_-]{1,50}$/.test(normalized.code) ||
+        !normalized.name ||
+        normalized.name.length > 100 ||
+        !packageTypes.has(normalized.packageType as PackageType) ||
+        !/^[A-Z]{3}$/.test(normalized.currency) ||
+        (normalized.description && normalized.description.length > 500) ||
+        integerFields.some(
+          (value) => value !== undefined && (!Number.isInteger(value) || value < 0),
+        ) ||
+        monetaryFields.some(
+          (value) => value !== undefined && (!Number.isFinite(value) || value < 0),
+        )
+      ) {
+        throw new BadRequestException(
+          `Row ${index + 2} is invalid. Check package code, name, type, prices, limits, and status values.`,
+        );
+      }
+      if (codes.has(normalized.code)) {
+        throw new ConflictException(
+          `Duplicate package code ${normalized.code} in the upload.`,
+        );
+      }
+      codes.add(normalized.code);
+      return { ...normalized, packageType: normalized.packageType as PackageType };
+    });
+    if (rows.filter((row) => row.isDefault).length > 1) {
+      throw new BadRequestException(
+        'Only one default package can be included in a bulk upload.',
+      );
+    }
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        if (rows.some((row) => row.isDefault)) {
+          await tx.package.updateMany({
+            where: { isDefault: true },
+            data: { isDefault: false },
+          });
+        }
+        for (const row of rows) await tx.package.create({ data: row });
+      });
+      await this.audit.record({
+        actorId,
+        action: 'PACKAGE_BULK_CREATED',
+        entityType: 'Package',
+        entityId: 'bulk',
+        newData: { count: rows.length, codes: rows.map((row) => row.code) },
+      });
+      return { created: rows.length };
+    } catch (error) {
+      if (this.unique(error)) {
+        throw new ConflictException(
+          'The upload contains a package code that already exists. No packages were imported.',
+        );
+      }
+      throw error;
+    }
   }
 
   listPricing() {
@@ -777,6 +1004,40 @@ export class PlatformCatalogService {
         throw new ConflictException('A record with this code already exists.');
       throw error;
     }
+  }
+  private async createBulk<T extends { code: string }>(
+    rows: T[],
+    create: (row: T) => Prisma.PrismaPromise<unknown>,
+    actorId: string,
+    action: string,
+    entityType: string,
+    label: string,
+  ) {
+    try {
+      await this.prisma.$transaction(rows.map((row) => create(row)));
+      await this.audit.record({
+        actorId,
+        action,
+        entityType,
+        entityId: 'bulk',
+        newData: { count: rows.length, codes: rows.map((row) => row.code) },
+      });
+    } catch (error) {
+      if (this.unique(error)) {
+        throw new ConflictException(
+          `The upload contains a ${label} that already exists. No records were imported.`,
+        );
+      }
+      throw error;
+    }
+  }
+  private toBoolean(value: unknown, fallback: boolean) {
+    if (value === undefined || value === null || value === '') return fallback;
+    if (typeof value === 'boolean') return value;
+    const normalized = String(value).trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+    throw new BadRequestException(`Expected true or false, received ${value}.`);
   }
   private unique(error: unknown) {
     return (

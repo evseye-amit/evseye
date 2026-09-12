@@ -16,6 +16,9 @@ import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import {
   CreateFeatureDto,
+  BulkCreatePackagesDto,
+  BulkCreateVehicleCategoriesDto,
+  BulkCreateVehicleTypesDto,
   BulkCreateFeaturesDto,
   BulkCreateOemsDto,
   CompleteOemLogoUploadDto,
@@ -100,6 +103,14 @@ export class PlatformCatalogController {
       .createVehicleCategory(dto, user.id)
       .then((data) => ({ data }));
   }
+  @Post('vehicle-categories/bulk') bulkCreateVehicleCategories(
+    @Body() dto: BulkCreateVehicleCategoriesDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.catalog
+      .bulkCreateVehicleCategories(dto, user.id)
+      .then((data) => ({ data }));
+  }
   @Put('vehicle-categories/:id') updateVehicleCategory(
     @Param('id') id: string,
     @Body() dto: UpdateVehicleCategoryDto,
@@ -126,6 +137,14 @@ export class PlatformCatalogController {
   ) {
     return this.catalog
       .createVehicleType(dto, user.id)
+      .then((data) => ({ data }));
+  }
+  @Post('vehicle-types/bulk') bulkCreateVehicleTypes(
+    @Body() dto: BulkCreateVehicleTypesDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.catalog
+      .bulkCreateVehicleTypes(dto, user.id)
       .then((data) => ({ data }));
   }
   @Put('vehicle-types/:id') updateVehicleType(
@@ -187,6 +206,14 @@ export class PlatformCatalogController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.catalog.createPackage(dto, user.id).then((data) => ({ data }));
+  }
+  @Post('packages/bulk') bulkCreatePackages(
+    @Body() dto: BulkCreatePackagesDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.catalog
+      .bulkCreatePackages(dto, user.id)
+      .then((data) => ({ data }));
   }
   @Put('packages/:id') updatePackage(
     @Param('id') id: string,

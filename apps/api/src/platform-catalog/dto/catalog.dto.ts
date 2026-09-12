@@ -52,6 +52,18 @@ export class CreateVehicleCategoryDto {
 
 export class UpdateVehicleCategoryDto extends CreateVehicleCategoryDto {}
 
+export class BulkCreateVehicleCategoriesDto {
+  @IsArray()
+  @ArrayMaxSize(500)
+  rows!: Array<{
+    code: string;
+    name: string;
+    description?: string;
+    status?: MasterRecordStatus;
+    displayOrder?: number;
+  }>;
+}
+
 export class CreateVehicleTypeDto {
   @IsString() categoryId!: string;
   @IsString() @Matches(/^[A-Z0-9_-]+$/) @MaxLength(50) code!: string;
@@ -63,6 +75,21 @@ export class CreateVehicleTypeDto {
   @IsOptional() @IsEnum(MasterRecordStatus) status?: MasterRecordStatus;
 }
 export class UpdateVehicleTypeDto extends CreateVehicleTypeDto {}
+
+export class BulkCreateVehicleTypesDto {
+  @IsArray()
+  @ArrayMaxSize(500)
+  rows!: Array<{
+    categoryCode: string;
+    code: string;
+    name: string;
+    subCategory?: string;
+    description?: string;
+    energyType: EnergyType;
+    usageType?: VehicleUsageType;
+    status?: MasterRecordStatus;
+  }>;
+}
 
 export class BulkCreateOemsDto {
   @IsArray()
@@ -176,6 +203,28 @@ export class CreatePackageDto {
 }
 
 export class UpdatePackageDto extends CreatePackageDto {}
+
+export class BulkCreatePackagesDto {
+  @IsArray()
+  @ArrayMaxSize(500)
+  rows!: Array<{
+    code: string;
+    name: string;
+    packageType: PackageType;
+    monthlyPrice?: number;
+    yearlyPrice?: number;
+    currency?: string;
+    maxFleets?: number;
+    maxVehicles?: number;
+    maxRiders?: number;
+    maxUsers?: number;
+    trialDays?: number;
+    displayOrder?: number;
+    isDefault?: boolean;
+    isActive?: boolean;
+    description?: string;
+  }>;
+}
 
 export class CreateFeaturePricingTierDto {
   @IsInt() @Min(0) tierOrder!: number;

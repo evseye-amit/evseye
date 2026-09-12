@@ -285,11 +285,13 @@ export default function SuperAdminDashboard() {
     string | null
   >(null);
   const [showVehicleCategoryForm, setShowVehicleCategoryForm] = useState(false);
+  const [showVehicleCategoryBulk, setShowVehicleCategoryBulk] = useState(false);
   const [vehicleType, setVehicleType] = useState(emptyVehicleType);
   const [editingVehicleTypeId, setEditingVehicleTypeId] = useState<
     string | null
   >(null);
   const [showVehicleTypeForm, setShowVehicleTypeForm] = useState(false);
+  const [showVehicleTypeBulk, setShowVehicleTypeBulk] = useState(false);
   const [feature, setFeature] = useState(emptyFeature);
   const [editingFeatureId, setEditingFeatureId] = useState<string | null>(null);
   const [showFeatureForm, setShowFeatureForm] = useState(false);
@@ -297,6 +299,7 @@ export default function SuperAdminDashboard() {
   const [pack, setPack] = useState(emptyPackage);
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
   const [showPackageForm, setShowPackageForm] = useState(false);
+  const [showPackageBulk, setShowPackageBulk] = useState(false);
   const [packageFeatures, setPackageFeatures] = useState<PackageFeatureInput[]>(
     [],
   );
@@ -592,6 +595,101 @@ export default function SuperAdminDashboard() {
     } finally {
       setLoading(false);
     }
+  }
+  function downloadCsvTemplate(filename: string, csv: string) {
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+  async function uploadBulkCsv(
+    file: File,
+    expectedHeaders: string[],
+    endpoint: string,
+    label: string,
+    toRow: (cells: string[]) => Item,
+    complete: () => void,
+  ) {
+    setLoading(true);
+    setError("");
+    try {
+      const lines = (await file.text()).split(/\r?\n/).filter((line) => line.trim());
+      const headers = lines
+        .shift()
+        ?.split(",")
+        .map((header) => header.trim().toLowerCase());
+      if (
+        !headers ||
+        headers.length !== expectedHeaders.length ||
+        expectedHeaders.some((header, index) => headers[index] !== header)
+      ) {
+        throw new Error("Use the downloaded template. Header names or their order do not match.");
+      }
+      const rows = lines.map((line) => toRow(parseCsvLine(line)));
+      if (!rows.length) throw new Error("The upload contains no rows.");
+      const result = (await request(
+        endpoint,
+        { method: "POST", body: JSON.stringify({ rows }) },
+        token,
+      )) as { created: number };
+      setNotice(`${result.created} ${label}${result.created === 1 ? "" : "s"} imported successfully.`);
+      complete();
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : `Unable to import ${label.toLowerCase()}s.`);
+    } finally {
+      setLoading(false);
+    }
+  }
+  function downloadVehicleCategoryTemplate() {
+    downloadCsvTemplate(
+      "evseye-vehicle-category-template.csv",
+      "code,name,description,status,display_order\n2W,Two Wheeler,Two-wheeled vehicles,ACTIVE,10\n",
+    );
+  }
+  async function uploadVehicleCategoryCsv(file: File) {
+    await uploadBulkCsv(
+      file,
+      ["code", "name", "description", "status", "display_order"],
+      "/platform/vehicle-categories/bulk",
+      "Vehicle Category",
+      ([code, name, description, status, displayOrder]) => ({ code, name, description, status, displayOrder }),
+      () => setShowVehicleCategoryBulk(false),
+    );
+  }
+  function downloadVehicleTypeTemplate() {
+    downloadCsvTemplate(
+      "evseye-vehicle-type-template.csv",
+      "category_code,code,name,sub_category,description,energy_type,usage_type,status\n2W,SCOOTER_ELECTRIC,Electric Scooter,SCOOTER,Electric urban scooter,ELECTRIC,PRIVATE,ACTIVE\n",
+    );
+  }
+  async function uploadVehicleTypeCsv(file: File) {
+    await uploadBulkCsv(
+      file,
+      ["category_code", "code", "name", "sub_category", "description", "energy_type", "usage_type", "status"],
+      "/platform/vehicle-types/bulk",
+      "Vehicle Type",
+      ([categoryCode, code, name, subCategory, description, energyType, usageType, status]) => ({ categoryCode, code, name, subCategory, description, energyType, usageType, status }),
+      () => setShowVehicleTypeBulk(false),
+    );
+  }
+  function downloadPackageTemplate() {
+    downloadCsvTemplate(
+      "evseye-package-template.csv",
+      "code,name,package_type,monthly_price,yearly_price,currency,max_fleets,max_vehicles,max_riders,max_users,trial_days,display_order,is_default,is_active,description\nSTARTER,Starter,STANDARD,1999,19990,INR,1,50,100,5,0,10,false,true,Starter platform package\n",
+    );
+  }
+  async function uploadPackageCsv(file: File) {
+    await uploadBulkCsv(
+      file,
+      ["code", "name", "package_type", "monthly_price", "yearly_price", "currency", "max_fleets", "max_vehicles", "max_riders", "max_users", "trial_days", "display_order", "is_default", "is_active", "description"],
+      "/platform/packages/bulk",
+      "Package",
+      ([code, name, packageType, monthlyPrice, yearlyPrice, currency, maxFleets, maxVehicles, maxRiders, maxUsers, trialDays, displayOrder, isDefault, isActive, description]) => ({ code, name, packageType, monthlyPrice, yearlyPrice, currency, maxFleets, maxVehicles, maxRiders, maxUsers, trialDays, displayOrder, isDefault, isActive, description }),
+      () => setShowPackageBulk(false),
+    );
   }
   async function submitFeature(event: FormEvent) {
     event.preventDefault();
@@ -908,9 +1006,9 @@ export default function SuperAdminDashboard() {
     );
   const nav: Array<[Tab, string, string]> = [
     ["dashboard", "Dashboard", "▦"],
-    ["oems", "OEM", "▣"],
     ["vehicleCategories", "Vehicle Category", "▤"],
     ["vehicleTypes", "Vehicle Type", "▧"],
+    ["oems", "OEM", "▣"],
     ["features", "Feature", "◇"],
     ["pricing", "Feature pricing", "₹"],
     ["packages", "Package", "◫"],
@@ -1185,17 +1283,37 @@ export default function SuperAdminDashboard() {
                 </p>
               </div>
               <div className="sa-actions">
+                <button className="secondary" onClick={downloadVehicleCategoryTemplate}>
+                  Download template
+                </button>
+                <button
+                  className="secondary"
+                  onClick={() => {
+                    setShowVehicleCategoryBulk(!showVehicleCategoryBulk);
+                    setShowVehicleCategoryForm(false);
+                  }}
+                >
+                  Bulk upload
+                </button>
                 <button
                   onClick={() => {
                     setVehicleCategory(emptyVehicleCategory);
                     setEditingVehicleCategoryId(null);
                     setShowVehicleCategoryForm(!showVehicleCategoryForm);
+                    setShowVehicleCategoryBulk(false);
                   }}
                 >
                   + Add Vehicle Category
                 </button>
               </div>
             </section>
+            {showVehicleCategoryBulk && (
+              <BulkUploadPanel
+                title="Bulk upload Vehicle Categories"
+                description="Download the CSV template, complete one Vehicle Category per row, and upload it. The entire file is rejected if a row is invalid or a code already exists."
+                onChoose={(file) => void uploadVehicleCategoryCsv(file)}
+              />
+            )}
             <section
               className={`sa-management ${showVehicleCategoryForm ? "" : "oem-table-only"}`}
             >
@@ -1309,17 +1427,37 @@ export default function SuperAdminDashboard() {
                 </p>
               </div>
               <div className="sa-actions">
+                <button className="secondary" onClick={downloadVehicleTypeTemplate}>
+                  Download template
+                </button>
+                <button
+                  className="secondary"
+                  onClick={() => {
+                    setShowVehicleTypeBulk(!showVehicleTypeBulk);
+                    setShowVehicleTypeForm(false);
+                  }}
+                >
+                  Bulk upload
+                </button>
                 <button
                   onClick={() => {
                     setVehicleType(emptyVehicleType);
                     setEditingVehicleTypeId(null);
                     setShowVehicleTypeForm(!showVehicleTypeForm);
+                    setShowVehicleTypeBulk(false);
                   }}
                 >
                   + Add Vehicle Type
                 </button>
               </div>
             </section>
+            {showVehicleTypeBulk && (
+              <BulkUploadPanel
+                title="Bulk upload Vehicle Types"
+                description="Download the CSV template. Each Vehicle Type references its Vehicle Category by category code. The entire file is rejected if a category or controlled value is invalid."
+                onChoose={(file) => void uploadVehicleTypeCsv(file)}
+              />
+            )}
             <section
               className={`sa-management ${showVehicleTypeForm ? "" : "oem-table-only"}`}
             >
@@ -1714,18 +1852,38 @@ export default function SuperAdminDashboard() {
                 </p>
               </div>
               <div className="sa-actions">
+                <button className="secondary" onClick={downloadPackageTemplate}>
+                  Download template
+                </button>
+                <button
+                  className="secondary"
+                  onClick={() => {
+                    setShowPackageBulk(!showPackageBulk);
+                    setShowPackageForm(false);
+                  }}
+                >
+                  Bulk upload
+                </button>
                 <button
                   onClick={() => {
                     setPack(emptyPackage);
                     setPackageFeatures([]);
                     setEditingPackageId(null);
                     setShowPackageForm(!showPackageForm);
+                    setShowPackageBulk(false);
                   }}
                 >
                   + Add Package
                 </button>
               </div>
             </section>
+            {showPackageBulk && (
+              <BulkUploadPanel
+                title="Bulk upload Packages"
+                description="Download the CSV template to create base package and commercial settings. Package Features can be configured after import."
+                onChoose={(file) => void uploadPackageCsv(file)}
+              />
+            )}
             <section
               className={`sa-management ${showPackageForm ? "" : "oem-table-only"}`}
             >
@@ -2931,33 +3089,99 @@ function Select({
     </label>
   );
 }
-function DataTable({ headings, rows }: { headings: string[]; rows: any[][] }) {
+function BulkUploadPanel({
+  title,
+  description,
+  onChoose,
+}: {
+  title: string;
+  description: string;
+  onChoose: (file: File) => void;
+}) {
   return (
-    <div className="sa-table-wrap">
-      <table>
-        <thead>
-          <tr>
-            {headings.map((heading) => (
-              <th key={heading}>{heading}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length ? (
-            rows.map((row, index) => (
-              <tr key={index}>
-                {row.map((cell, cellIndex) => (
-                  <td key={cellIndex}>{cell}</td>
-                ))}
-              </tr>
-            ))
-          ) : (
+    <section className="sa-oem-bulk">
+      <div>
+        <h3>{title}</h3>
+        <p>{description}</p>
+      </div>
+      <label className="sa-file-input">
+        Choose completed CSV
+        <input
+          type="file"
+          accept=".csv,text/csv"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) onChoose(file);
+            event.currentTarget.value = "";
+          }}
+        />
+      </label>
+    </section>
+  );
+}
+
+function DataTable({ headings, rows }: { headings: string[]; rows: any[][] }) {
+  const pageSize = 10;
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+  const [page, setPage] = useState(1);
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = rows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  return (
+    <div>
+      <div className="sa-table-wrap">
+        <table>
+          <thead>
             <tr>
-              <td colSpan={headings.length}>No records yet.</td>
+              {headings.map((heading) => (
+                <th key={heading}>{heading}</th>
+              ))}
             </tr>
-          )}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {pageRows.length ? (
+              pageRows.map((row, index) => (
+                <tr key={(currentPage - 1) * pageSize + index}>
+                  {row.map((cell, cellIndex) => (
+                    <td key={cellIndex}>{cell}</td>
+                  ))}
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={headings.length}>No records yet.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      {rows.length > pageSize && (
+        <div className="sa-pagination" aria-label="Table pagination">
+          <span>
+            Showing {(currentPage - 1) * pageSize + 1}–
+            {Math.min(currentPage * pageSize, rows.length)} of {rows.length}
+          </span>
+          <div>
+            <button
+              className="secondary"
+              disabled={currentPage === 1}
+              onClick={() => setPage((value) => Math.max(1, value - 1))}
+            >
+              Previous
+            </button>
+            <span>
+              Page {currentPage} of {pageCount}
+            </span>
+            <button
+              className="secondary"
+              disabled={currentPage === pageCount}
+              onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

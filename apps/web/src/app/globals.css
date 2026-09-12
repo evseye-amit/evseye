@@ -1177,6 +1177,34 @@ th {
 .sa-table-wrap td {
   color: #4b554e;
 }
+.sa-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 4px 0;
+  color: #68736b;
+  font-size: 12px;
+}
+.sa-pagination > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sa-pagination button {
+  padding: 7px 10px;
+  font-size: 11px;
+}
+.sa-pagination button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+@media (max-width: 680px) {
+  .sa-pagination {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
 .danger {
   padding: 7px 10px;
   background: #f9e3df;
