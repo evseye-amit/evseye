@@ -7,6 +7,14 @@ import {
 import { Prisma, UserRole } from '@prisma/client';
 import { AuditService } from '../audit/audit.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import type {
+  CreateClientFeatureDto,
+  UpdateClientFeatureDto,
+} from './dto/client-feature.dto.js';
+import type {
+  CreateClientFeaturePricingDto,
+  UpdateClientFeaturePricingDto,
+} from './dto/client-feature-pricing.dto.js';
 import type { CreateOnboardingConfigDto } from './dto/create-onboarding-config.dto.js';
 import type { CreateClientOnboardingDto } from './dto/create-client-onboarding.dto.js';
 import type { CreateTenantDto } from './dto/create-tenant.dto.js';
@@ -27,6 +35,257 @@ export class PlatformAdminService {
         },
       },
       orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async listClientFeatures(clientId: string) {
+    await this.requireTenant(clientId);
+    return this.prisma.clientFeature.findMany({
+      where: { clientId },
+      include: {
+        feature: true,
+        subscription: { include: { package: true } },
+        pricing: { orderBy: { effectiveFrom: 'desc' } },
+      },
+      orderBy: [{ effectiveFrom: 'desc' }, { feature: { name: 'asc' } }],
+    });
+  }
+
+  async listClientFeaturePricing(clientId: string, clientFeatureId: string) {
+    await this.requireClientFeature(clientId, clientFeatureId);
+    return this.prisma.clientFeaturePricing.findMany({
+      where: { clientFeatureId },
+      include: { featurePricing: true },
+      orderBy: { effectiveFrom: 'desc' },
+    });
+  }
+
+  async createClientFeaturePricing(
+    clientId: string,
+    clientFeatureId: string,
+    dto: CreateClientFeaturePricingDto,
+    actorId: string,
+  ) {
+    const clientFeature = await this.requireClientFeature(
+      clientId,
+      clientFeatureId,
+    );
+    const featurePricing = await this.requireFeaturePricing(
+      clientFeature.featureId,
+      dto.featurePricingId,
+    );
+    this.validateFeatureWindow(dto.effectiveFrom, dto.effectiveTo);
+    const finalUnitPrice = this.finalUnitPrice(
+      featurePricing.unitPrice,
+      dto.discountType,
+      dto.discountValue,
+    );
+    const created = await this.prisma.clientFeaturePricing.create({
+      data: {
+        clientFeatureId,
+        featurePricingId: featurePricing.id,
+        currency: featurePricing.currency,
+        listUnitPrice: featurePricing.unitPrice,
+        discountType: dto.discountType,
+        discountValue: dto.discountValue,
+        finalUnitPrice,
+        setupFee: dto.setupFee ?? 0,
+        effectiveFrom: new Date(dto.effectiveFrom),
+        effectiveTo: dto.effectiveTo ? new Date(dto.effectiveTo) : undefined,
+        reason: dto.reason,
+        approvedBy: actorId,
+      },
+      include: { featurePricing: true },
+    });
+    await this.audit.record({
+      tenantId: clientId,
+      actorId,
+      action: 'CLIENT_FEATURE_PRICING_CREATED',
+      entityType: 'ClientFeaturePricing',
+      entityId: created.id,
+      newData: {
+        clientFeatureId,
+        featurePricingId: featurePricing.id,
+        finalUnitPrice: created.finalUnitPrice.toString(),
+      },
+    });
+    return created;
+  }
+
+  async updateClientFeaturePricing(
+    clientId: string,
+    clientFeatureId: string,
+    clientFeaturePricingId: string,
+    dto: UpdateClientFeaturePricingDto,
+    actorId: string,
+  ) {
+    await this.requireClientFeature(clientId, clientFeatureId);
+    const current = await this.prisma.clientFeaturePricing.findFirst({
+      where: { id: clientFeaturePricingId, clientFeatureId },
+      include: { featurePricing: true },
+    });
+    if (!current) throw new NotFoundException('Client feature pricing not found.');
+    this.validateFeatureWindow(
+      dto.effectiveFrom ?? current.effectiveFrom.toISOString(),
+      dto.effectiveTo ?? current.effectiveTo?.toISOString(),
+    );
+    const discountType = dto.discountType ?? current.discountType ?? undefined;
+    const discountValue =
+      dto.discountValue === undefined
+        ? (current.discountValue?.toNumber() ?? undefined)
+        : dto.discountValue;
+    const finalUnitPrice = this.finalUnitPrice(
+      current.listUnitPrice,
+      discountType,
+      discountValue,
+    );
+    const { effectiveFrom, effectiveTo, ...data } = dto;
+    const updated = await this.prisma.clientFeaturePricing.update({
+      where: { id: clientFeaturePricingId },
+      data: {
+        ...data,
+        finalUnitPrice,
+        effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : undefined,
+        effectiveTo: effectiveTo ? new Date(effectiveTo) : undefined,
+      },
+      include: { featurePricing: true },
+    });
+    await this.audit.record({
+      tenantId: clientId,
+      actorId,
+      action: 'CLIENT_FEATURE_PRICING_UPDATED',
+      entityType: 'ClientFeaturePricing',
+      entityId: clientFeaturePricingId,
+      previousData: { finalUnitPrice: current.finalUnitPrice.toString() },
+      newData: { finalUnitPrice: updated.finalUnitPrice.toString() },
+    });
+    return updated;
+  }
+
+  async deleteClientFeaturePricing(
+    clientId: string,
+    clientFeatureId: string,
+    clientFeaturePricingId: string,
+    actorId: string,
+  ) {
+    await this.requireClientFeature(clientId, clientFeatureId);
+    const current = await this.prisma.clientFeaturePricing.findFirst({
+      where: { id: clientFeaturePricingId, clientFeatureId },
+    });
+    if (!current) throw new NotFoundException('Client feature pricing not found.');
+    await this.prisma.clientFeaturePricing.delete({
+      where: { id: clientFeaturePricingId },
+    });
+    await this.audit.record({
+      tenantId: clientId,
+      actorId,
+      action: 'CLIENT_FEATURE_PRICING_REMOVED',
+      entityType: 'ClientFeaturePricing',
+      entityId: clientFeaturePricingId,
+      previousData: { featurePricingId: current.featurePricingId },
+    });
+  }
+
+  async createClientFeature(
+    clientId: string,
+    dto: CreateClientFeatureDto,
+    actorId: string,
+  ) {
+    await this.requireClientSubscription(clientId, dto.subscriptionId);
+    await this.requireActiveFeature(dto.featureId);
+    this.validateFeatureWindow(dto.effectiveFrom, dto.effectiveTo);
+    try {
+      const created = await this.prisma.clientFeature.create({
+        data: {
+          clientId,
+          subscriptionId: dto.subscriptionId,
+          featureId: dto.featureId,
+          source: dto.source ?? 'ADD_ON',
+          enabled: dto.enabled ?? true,
+          includedQuantity: dto.includedQuantity ?? 0,
+          usageLimit: dto.usageLimit,
+          unlimitedUsage: dto.unlimitedUsage ?? false,
+          effectiveFrom: new Date(dto.effectiveFrom),
+          effectiveTo: dto.effectiveTo ? new Date(dto.effectiveTo) : undefined,
+          configuration: dto.configuration as Prisma.InputJsonValue | undefined,
+        },
+        include: { feature: true, subscription: { include: { package: true } } },
+      });
+      await this.audit.record({
+        tenantId: clientId,
+        actorId,
+        action: 'CLIENT_FEATURE_ADDED',
+        entityType: 'ClientFeature',
+        entityId: created.id,
+        newData: { featureId: dto.featureId, subscriptionId: dto.subscriptionId },
+      });
+      return created;
+    } catch (error) {
+      if (this.unique(error))
+        throw new ConflictException(
+          'This feature is already configured for the selected subscription.',
+        );
+      throw error;
+    }
+  }
+
+  async updateClientFeature(
+    clientId: string,
+    clientFeatureId: string,
+    dto: UpdateClientFeatureDto,
+    actorId: string,
+  ) {
+    const current = await this.prisma.clientFeature.findFirst({
+      where: { id: clientFeatureId, clientId },
+    });
+    if (!current) throw new NotFoundException('Client feature not found.');
+    this.validateFeatureWindow(
+      dto.effectiveFrom ?? current.effectiveFrom.toISOString(),
+      dto.effectiveTo ?? current.effectiveTo?.toISOString(),
+    );
+    const { effectiveFrom, effectiveTo, configuration, ...data } = dto;
+    const updated = await this.prisma.clientFeature.update({
+      where: { id: clientFeatureId },
+      data: {
+        ...data,
+        effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : undefined,
+        effectiveTo: effectiveTo ? new Date(effectiveTo) : undefined,
+        configuration:
+          configuration === undefined
+            ? undefined
+            : (configuration as Prisma.InputJsonValue),
+      },
+      include: { feature: true, subscription: { include: { package: true } } },
+    });
+    await this.audit.record({
+      tenantId: clientId,
+      actorId,
+      action: 'CLIENT_FEATURE_UPDATED',
+      entityType: 'ClientFeature',
+      entityId: clientFeatureId,
+      previousData: { enabled: current.enabled, source: current.source },
+      newData: { enabled: updated.enabled, source: updated.source },
+    });
+    return updated;
+  }
+
+  async deleteClientFeature(
+    clientId: string,
+    clientFeatureId: string,
+    actorId: string,
+  ) {
+    const current = await this.prisma.clientFeature.findFirst({
+      where: { id: clientFeatureId, clientId },
+    });
+    if (!current) throw new NotFoundException('Client feature not found.');
+    await this.prisma.clientFeature.delete({ where: { id: clientFeatureId } });
+    await this.audit.record({
+      tenantId: clientId,
+      actorId,
+      action: 'CLIENT_FEATURE_REMOVED',
+      entityType: 'ClientFeature',
+      entityId: clientFeatureId,
+      previousData: { featureId: current.featureId, subscriptionId: current.subscriptionId },
     });
   }
 
@@ -68,6 +327,12 @@ export class PlatformAdminService {
       const client = await this.prisma.$transaction(async (tx) => {
         const packageRecord = await tx.package.findUnique({
           where: { id: dto.packageId },
+          include: {
+            features: {
+              where: { enabled: true, feature: { isActive: true } },
+              include: { feature: true },
+            },
+          },
         });
         if (
           !packageRecord ||
@@ -125,7 +390,7 @@ export class PlatformAdminService {
           listPrice.minus(discountValue),
           new Prisma.Decimal(0),
         );
-        await tx.clientSubscription.create({
+        const subscription = await tx.clientSubscription.create({
           data: {
             clientId: created.id,
             packageId: packageRecord.id,
@@ -140,6 +405,28 @@ export class PlatformAdminService {
             autoRenew: dto.autoRenew ?? true,
           },
         });
+        if (packageRecord.features.length) {
+          await tx.clientFeature.createMany({
+            data: packageRecord.features.map((packageFeature) => ({
+              clientId: created.id,
+              subscriptionId: subscription.id,
+              featureId: packageFeature.featureId,
+              source: 'PACKAGE',
+              enabled: packageFeature.enabled,
+              includedQuantity: new Prisma.Decimal(
+                packageFeature.includedQuantity?.toString() ?? '0',
+              ),
+              usageLimit:
+                packageFeature.usageLimit === null
+                  ? null
+                  : new Prisma.Decimal(packageFeature.usageLimit.toString()),
+              unlimitedUsage: packageFeature.unlimitedUsage,
+              effectiveFrom: new Date(dto.startDate),
+              configuration:
+                packageFeature.configuration as Prisma.InputJsonValue | undefined,
+            })),
+          });
+        }
         return created;
       });
       await this.audit.record({
@@ -372,6 +659,68 @@ export class PlatformAdminService {
   private async requireTenant(tenantId: string) {
     if (!(await this.prisma.tenant.findUnique({ where: { id: tenantId } })))
       throw new NotFoundException('Tenant not found.');
+  }
+  private async requireClientSubscription(clientId: string, subscriptionId: string) {
+    const subscription = await this.prisma.clientSubscription.findFirst({
+      where: { id: subscriptionId, clientId },
+    });
+    if (!subscription) {
+      throw new NotFoundException('Client subscription not found.');
+    }
+  }
+  private async requireClientFeature(clientId: string, clientFeatureId: string) {
+    const clientFeature = await this.prisma.clientFeature.findFirst({
+      where: { id: clientFeatureId, clientId },
+    });
+    if (!clientFeature) throw new NotFoundException('Client feature not found.');
+    return clientFeature;
+  }
+  private async requireActiveFeature(featureId: string) {
+    const feature = await this.prisma.feature.findFirst({
+      where: { id: featureId, isActive: true },
+    });
+    if (!feature) throw new NotFoundException('Active feature not found.');
+  }
+  private async requireFeaturePricing(featureId: string, featurePricingId: string) {
+    const featurePricing = await this.prisma.featurePricing.findFirst({
+      where: { id: featurePricingId, featureId, isActive: true },
+    });
+    if (!featurePricing) {
+      throw new NotFoundException('Active pricing for this feature was not found.');
+    }
+    return featurePricing;
+  }
+  private finalUnitPrice(
+    listUnitPrice: Prisma.Decimal,
+    discountType?: string,
+    discountValue?: number,
+  ) {
+    if (!discountType && discountValue !== undefined) {
+      throw new UnprocessableEntityException(
+        'A discount type is required when a discount value is supplied.',
+      );
+    }
+    if (discountType && discountValue === undefined) {
+      throw new UnprocessableEntityException(
+        'A discount value is required when a discount type is supplied.',
+      );
+    }
+    const discount = new Prisma.Decimal(discountValue ?? 0);
+    if (discountType === 'PERCENTAGE' && discount.greaterThan(100)) {
+      throw new UnprocessableEntityException('Percentage discount cannot exceed 100.');
+    }
+    const finalPrice =
+      discountType === 'PERCENTAGE'
+        ? listUnitPrice.mul(new Prisma.Decimal(100).minus(discount)).div(100)
+        : listUnitPrice.minus(discount);
+    return Prisma.Decimal.max(finalPrice, new Prisma.Decimal(0));
+  }
+  private validateFeatureWindow(effectiveFrom: string, effectiveTo?: string) {
+    if (effectiveTo && new Date(effectiveTo) < new Date(effectiveFrom)) {
+      throw new UnprocessableEntityException(
+        'Effective end date cannot be before the effective start date.',
+      );
+    }
   }
   private async validateSteps(
     steps: Array<{

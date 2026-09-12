@@ -434,6 +434,14 @@ export class PlatformCatalogService {
         'This feature is enabled in a package with an active client subscription and cannot be deleted.',
       );
     }
+    const assignedClientFeatures = await this.prisma.clientFeature.count({
+      where: { featureId: id },
+    });
+    if (assignedClientFeatures) {
+      throw new ConflictException(
+        'This feature is assigned to one or more clients and cannot be deleted.',
+      );
+    }
 
     const removedPackageLinks = await this.prisma.$transaction(async (tx) => {
       const { count } = await tx.packageFeature.deleteMany({
