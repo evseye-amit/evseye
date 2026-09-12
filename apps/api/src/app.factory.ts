@@ -33,7 +33,11 @@ export async function createApplication(): Promise<NestFastifyApplication> {
     .map((origin: string) => origin.trim());
 
   await app.register(helmet as never);
-  await app.register(cors as never, { credentials: true, origin: origins });
+  await app.register(cors as never, {
+    credentials: true,
+    origin: origins,
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  });
   const fastify = app.getHttpAdapter().getInstance() as FastifyInstance;
   fastify.addHook('onRequest', (request, reply, done) => {
     requestStartedAt.set(request, Date.now());

@@ -423,12 +423,31 @@ export class PlatformCatalogService {
   }
   async deleteFeature(id: string, actorId: string) {
     await this.exists('feature', id);
-    await this.prisma.feature.delete({ where: { id } });
+    const activeSubscriptions = await this.prisma.clientSubscription.count({
+      where: {
+        status: 'ACTIVE',
+        package: { features: { some: { featureId: id } } },
+      },
+    });
+    if (activeSubscriptions) {
+      throw new ConflictException(
+        'This feature is enabled in a package with an active client subscription and cannot be deleted.',
+      );
+    }
+
+    const removedPackageLinks = await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.packageFeature.deleteMany({
+        where: { featureId: id },
+      });
+      await tx.feature.delete({ where: { id } });
+      return count;
+    });
     await this.audit.record({
       actorId,
       action: 'FEATURE_DELETED',
       entityType: 'Feature',
       entityId: id,
+      newData: { removedPackageLinks },
     });
   }
   async bulkCreateFeatures(dto: BulkCreateFeaturesDto, actorId: string) {

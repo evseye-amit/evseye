@@ -1,6 +1,7 @@
 import { PhotoEntityType, PrismaClient, UserRole } from '@prisma/client';
 import { oemSeeds } from './seeds/oems.seed.mjs';
 import { featureSeeds } from './seeds/features.seed.mjs';
+import { packageSeeds } from './seeds/packages.seed.mjs';
 import { vehicleCategorySeeds } from './seeds/vehicle-categories.seed.mjs';
 import { vehicleTypeSeeds } from './seeds/vehicle-types.seed.mjs';
 
@@ -302,7 +303,7 @@ async function main() {
       feature,
     ]),
   );
-  const features = await Promise.all(
+  await Promise.all(
     [...featureSeedsByCode.values()].map((feature) =>
       prisma.feature.upsert({
         where: { code: feature.code },
@@ -311,79 +312,14 @@ async function main() {
       }),
     ),
   );
-  const standardPackage = await prisma.package.upsert({
-    where: { code: 'STANDARD' },
-    create: {
-      code: 'STANDARD',
-      name: 'Standard',
-      description: 'Core fleet operations package.',
-      monthlyPrice: 4999,
-      yearlyPrice: 49990,
-      currency: 'INR',
-      maxFleets: 5,
-      maxRiders: 250,
-      displayOrder: 10,
-      isCustom: false,
-      isActive: true,
-    },
-    update: {
-      name: 'Standard',
-      monthlyPrice: 4999,
-      yearlyPrice: 49990,
-      currency: 'INR',
-      maxFleets: 5,
-      maxRiders: 250,
-      displayOrder: 10,
-      isCustom: false,
-      isActive: true,
-    },
-  });
   await Promise.all(
-    features.map((feature) =>
-      prisma.packageFeature.upsert({
-        where: {
-          packageId_featureId: {
-            packageId: standardPackage.id,
-            featureId: feature.id,
-          },
-        },
-        create: {
-          packageId: standardPackage.id,
-          featureId: feature.id,
-          unlimitedUsage:
-            feature.code === 'RIDER_ONBOARDING' ||
-            feature.code === 'IOT_TRACKING',
-          includedQuantity: feature.code.includes('VERIFICATION')
-            ? 500
-            : undefined,
-        },
-        update: {},
+    packageSeeds.map((pkg) =>
+      prisma.package.upsert({
+        where: { code: pkg.code },
+        create: pkg,
+        update: pkg,
       }),
     ),
-  );
-  await Promise.all(
-    features
-      .filter((feature) => feature.code.includes('VERIFICATION'))
-      .map((feature) =>
-        prisma.featurePricing.upsert({
-          where: { id: `seed-${feature.code}` },
-          create: {
-            id: `seed-${feature.code}`,
-            featureId: feature.id,
-            pricingModel: 'PER_UNIT',
-            billingUnit: 'verification',
-            unitPrice:
-              feature.code === 'PAN_VERIFICATION'
-                ? 5
-                : feature.code === 'AADHAAR_VERIFICATION'
-                  ? 7
-                  : 4,
-            costPrice: 0,
-            currency: 'INR',
-          },
-          update: {},
-        }),
-      ),
   );
 
   const tenant = await prisma.tenant.upsert({
