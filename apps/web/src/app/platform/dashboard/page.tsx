@@ -48,6 +48,7 @@ type PackageFeatureInput = {
 };
 
 const featureCategories = [
+  ["LOGIN", "Login"],
   ["RIDER_ONBOARDING", "Rider Onboarding"],
   ["RIDER_VERIFICATION", "Rider Verification / KYC"],
   ["RIDER_TRAINING", "Rider Training"],
@@ -69,6 +70,9 @@ const featureCategories = [
   ["API_ACCESS", "API Access"],
   ["USER_ACCESS", "Users & Access"],
   ["DOCUMENT_MANAGEMENT", "Document Management"],
+  ["USER_VERIFICATION", "User Verification"],
+  ["COUPON", "Coupon"],
+  ["TRAINING", "Training"],
   ["SUPPORT", "Support"],
   ["AI_AUTOMATION", "AI & Automation"],
 ] as const;

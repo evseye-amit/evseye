@@ -1,5 +1,6 @@
 import { PhotoEntityType, PrismaClient, UserRole } from '@prisma/client';
 import { oemSeeds } from './seeds/oems.seed.mjs';
+import { featureSeeds } from './seeds/features.seed.mjs';
 import { vehicleCategorySeeds } from './seeds/vehicle-categories.seed.mjs';
 import { vehicleTypeSeeds } from './seeds/vehicle-types.seed.mjs';
 
@@ -257,7 +258,7 @@ async function main() {
     }),
   );
 
-  const featureSeeds = [
+  const defaultFeatureSeeds = [
     {
       code: 'RIDER_ONBOARDING',
       name: 'Rider onboarding',
@@ -294,8 +295,15 @@ async function main() {
       billingUnit: 'MONTH',
     },
   ];
+  // Workbook entries are authoritative when they overlap a starter record.
+  const featureSeedsByCode = new Map(
+    [...defaultFeatureSeeds, ...featureSeeds].map((feature) => [
+      feature.code,
+      feature,
+    ]),
+  );
   const features = await Promise.all(
-    featureSeeds.map((feature) =>
+    [...featureSeedsByCode.values()].map((feature) =>
       prisma.feature.upsert({
         where: { code: feature.code },
         create: { ...feature, isActive: true },
