@@ -17,7 +17,6 @@ import {
   FeatureCategory,
   FeatureType,
   MasterRecordStatus,
-  OemType,
   Prisma,
 } from '@prisma/client';
 import type {
@@ -128,7 +127,6 @@ export class PlatformCatalogService {
     return updated;
   }
   async bulkCreateOems(dto: BulkCreateOemsDto, actorId: string) {
-    const validTypes = new Set(Object.values(OemType));
     const validStatuses = new Set(Object.values(MasterRecordStatus));
     const codes = new Set<string>();
     const rows = dto.rows.map((row, index) => {
@@ -137,7 +135,6 @@ export class PlatformCatalogService {
         code: row.code?.trim().toUpperCase(),
         name: row.name?.trim(),
         displayName: row.displayName?.trim(),
-        type: row.type?.trim().toUpperCase() as OemType,
         status: row.status?.trim().toUpperCase() as MasterRecordStatus,
       };
       if (
@@ -145,11 +142,10 @@ export class PlatformCatalogService {
         !/^[A-Z0-9_-]{1,40}$/.test(normalized.code) ||
         !normalized.name ||
         !normalized.displayName ||
-        !validTypes.has(normalized.type) ||
         !validStatuses.has(normalized.status)
       )
         throw new ConflictException(
-          `Row ${index + 2} is invalid. Check code, name, display name, type, and status.`,
+          `Row ${index + 2} is invalid. Check code, name, display name, and status.`,
         );
       if (codes.has(normalized.code))
         throw new ConflictException(
@@ -191,7 +187,7 @@ export class PlatformCatalogService {
       actorId,
       () =>
         this.prisma.vehicleCategory.create({
-          data: { ...dto, createdById: actorId, updatedById: actorId },
+          data: dto,
         }),
     );
   }
@@ -209,7 +205,7 @@ export class PlatformCatalogService {
       () =>
         this.prisma.vehicleCategory.update({
           where: { id },
-          data: { ...dto, updatedById: actorId },
+          data: dto,
         }),
     );
   }
@@ -237,7 +233,7 @@ export class PlatformCatalogService {
       actorId,
       () =>
         this.prisma.vehicleType.create({
-          data: { ...dto, createdById: actorId, updatedById: actorId },
+          data: dto,
           include: { category: true },
         }),
     );
@@ -257,7 +253,7 @@ export class PlatformCatalogService {
       () =>
         this.prisma.vehicleType.update({
           where: { id },
-          data: { ...dto, updatedById: actorId },
+          data: dto,
           include: { category: true },
         }),
     );
@@ -406,14 +402,12 @@ export class PlatformCatalogService {
           if (data.isDefault) {
             await tx.package.updateMany({
               where: { isDefault: true },
-              data: { isDefault: false, updatedById: actorId },
+              data: { isDefault: false },
             });
           }
           return tx.package.create({
             data: {
               ...data,
-              createdById: actorId,
-              updatedById: actorId,
               features: {
                 create: features.map((feature) =>
                   this.packageFeatureData(feature),
@@ -452,7 +446,7 @@ export class PlatformCatalogService {
           if (data.isDefault) {
             await tx.package.updateMany({
               where: { isDefault: true, id: { not: id } },
-              data: { isDefault: false, updatedById: actorId },
+              data: { isDefault: false },
             });
           }
           if (features) {
@@ -468,7 +462,7 @@ export class PlatformCatalogService {
           }
           return tx.package.update({
             where: { id },
-            data: { ...data, updatedById: actorId },
+            data,
             include: {
               features: {
                 include: {

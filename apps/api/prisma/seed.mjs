@@ -1,6 +1,7 @@
 import { PhotoEntityType, PrismaClient, UserRole } from '@prisma/client';
 import { oemSeeds } from './seeds/oems.seed.mjs';
 import { vehicleCategorySeeds } from './seeds/vehicle-categories.seed.mjs';
+import { vehicleTypeSeeds } from './seeds/vehicle-types.seed.mjs';
 
 const prisma = new PrismaClient();
 
@@ -8,22 +9,24 @@ async function main() {
   const existingSuperAdmin = await prisma.user.findFirst({
     where: { tenantId: null, mobile: '+919100000000' },
   });
-  const superAdmin = existingSuperAdmin
-    ? await prisma.user.update({
-        where: { id: existingSuperAdmin.id },
-        data: {
-          name: 'EVs Eye Super Admin',
-          role: UserRole.SUPER_ADMIN,
-          isActive: true,
-        },
-      })
-    : await prisma.user.create({
-        data: {
-          mobile: '+919100000000',
-          name: 'EVs Eye Super Admin',
-          role: UserRole.SUPER_ADMIN,
-        },
-      });
+  if (existingSuperAdmin) {
+    await prisma.user.update({
+      where: { id: existingSuperAdmin.id },
+      data: {
+        name: 'EVs Eye Super Admin',
+        role: UserRole.SUPER_ADMIN,
+        isActive: true,
+      },
+    });
+  } else {
+    await prisma.user.create({
+      data: {
+        mobile: '+919100000000',
+        name: 'EVs Eye Super Admin',
+        role: UserRole.SUPER_ADMIN,
+      },
+    });
+  }
 
   const onboardingSteps = [
     [
@@ -204,14 +207,12 @@ async function main() {
       code: 'EVSEYE',
       name: 'EVs Eye Mobility Systems',
       displayName: 'EVs Eye',
-      type: 'MULTI_PRODUCT',
       status: 'ACTIVE',
       description: 'Platform sample OEM record.',
     },
     update: {
       name: 'EVs Eye Mobility Systems',
       displayName: 'EVs Eye',
-      type: 'MULTI_PRODUCT',
       status: 'ACTIVE',
     },
   });
@@ -226,7 +227,7 @@ async function main() {
     ),
   );
 
-  await Promise.all(
+  const vehicleCategories = await Promise.all(
     vehicleCategorySeeds.map((vehicleCategory) =>
       prisma.vehicleCategory.upsert({
         where: { code: vehicleCategory.code },
@@ -234,6 +235,26 @@ async function main() {
         update: vehicleCategory,
       }),
     ),
+  );
+
+  const vehicleCategoryIdsByCode = new Map(
+    vehicleCategories.map(({ code, id }) => [code, id]),
+  );
+  await Promise.all(
+    vehicleTypeSeeds.map(({ categoryCode, ...vehicleType }) => {
+      const categoryId = vehicleCategoryIdsByCode.get(categoryCode);
+      if (!categoryId) {
+        throw new Error(
+          `Vehicle type seed references missing category code: ${categoryCode}`,
+        );
+      }
+
+      return prisma.vehicleType.upsert({
+        where: { code: vehicleType.code },
+        create: { ...vehicleType, categoryId },
+        update: { ...vehicleType, categoryId },
+      });
+    }),
   );
 
   const featureSeeds = [
@@ -395,7 +416,6 @@ async function main() {
         tenantId: tenant.id,
         version: 1,
         status: 'ACTIVE',
-        createdById: superAdmin.id,
         activatedAt: new Date(),
         effectiveFrom: new Date(),
         notes: 'Platform default rider onboarding configuration.',

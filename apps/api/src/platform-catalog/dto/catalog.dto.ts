@@ -24,7 +24,6 @@ import {
   FeatureType,
   BillingCycle,
   MasterRecordStatus,
-  OemType,
   EnergyType,
   VehicleUsageType,
   PackageType,
@@ -35,7 +34,6 @@ export class CreateOemDto {
   @IsString() @Matches(/^[A-Z0-9_-]+$/) @MaxLength(40) code!: string;
   @IsString() @MaxLength(160) name!: string;
   @IsString() @MaxLength(120) displayName!: string;
-  @IsEnum(OemType) type!: OemType;
   @IsEnum(MasterRecordStatus) status!: MasterRecordStatus;
   @IsOptional() @IsUrl() logoUrl?: string;
   @IsOptional() @IsUrl() website?: string;
@@ -73,7 +71,6 @@ export class BulkCreateOemsDto {
     code: string;
     name: string;
     displayName: string;
-    type: OemType;
     status: MasterRecordStatus;
     logoUrl?: string;
     website?: string;

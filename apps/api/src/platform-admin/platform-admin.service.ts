@@ -207,7 +207,6 @@ export class PlatformAdminService {
           tenantId,
           version: (latest._max.version ?? 0) + 1,
           notes: dto.notes,
-          createdById: actorId,
           steps: {
             create: clone
               ? clone.steps.map((step) => ({

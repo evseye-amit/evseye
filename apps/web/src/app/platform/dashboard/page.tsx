@@ -142,7 +142,6 @@ const emptyOem = {
   code: "",
   name: "",
   displayName: "",
-  type: "VEHICLE",
   status: "ACTIVE",
   website: "",
   description: "",
@@ -521,7 +520,7 @@ export default function SuperAdminDashboard() {
   }
   function downloadOemTemplate() {
     const csv =
-      "oem_code,oem_name,display_name,oem_type,status,logo_url,website,description\nZELIO,Zelio Auto Private Limited,Zelio,VEHICLE,ACTIVE,,,\n";
+      "oem_code,oem_name,display_name,status,logo_url,website,description\nZELIO,Zelio Auto Private Limited,Zelio,ACTIVE,,,\n";
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     const link = document.createElement("a");
     link.href = url;
@@ -543,7 +542,6 @@ export default function SuperAdminDashboard() {
         "oem_code",
         "oem_name",
         "display_name",
-        "oem_type",
         "status",
         "logo_url",
         "website",
@@ -561,7 +559,6 @@ export default function SuperAdminDashboard() {
           code,
           name,
           displayName,
-          type,
           status,
           logoUrl,
           website,
@@ -571,7 +568,6 @@ export default function SuperAdminDashboard() {
           code,
           name,
           displayName,
-          type,
           status,
           ...(logoUrl ? { logoUrl } : {}),
           ...(website ? { website } : {}),
@@ -1084,19 +1080,6 @@ export default function SuperAdminDashboard() {
                     ]}
                   />
                   <Select
-                    value={oem.type}
-                    change={(value) =>
-                      setOem((current) => ({ ...current, type: value }))
-                    }
-                    options={[
-                      "VEHICLE",
-                      "BATTERY",
-                      "IOT",
-                      "CHARGER",
-                      "MULTI_PRODUCT",
-                    ]}
-                  />
-                  <Select
                     value={oem.status}
                     change={(value) =>
                       setOem((current) => ({ ...current, status: value }))
@@ -1132,11 +1115,10 @@ export default function SuperAdminDashboard() {
               )}
               {oems.length ? (
                 <DataTable
-                  headings={["Code", "OEM", "Type", "Status", ""]}
+                  headings={["Code", "OEM", "Status", ""]}
                   rows={oems.map((item) => [
                     item.code,
                     item.displayName,
-                    item.type,
                     item.status,
                     <button
                       key="edit"
@@ -1146,7 +1128,6 @@ export default function SuperAdminDashboard() {
                           code: item.code,
                           name: item.name,
                           displayName: item.displayName,
-                          type: item.type,
                           status: item.status,
                           website: item.website ?? "",
                           description: item.description ?? "",

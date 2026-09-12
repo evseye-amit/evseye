@@ -109,14 +109,6 @@ enum IoTEventType {
   STOP
 }
 
-enum OemType {
-  VEHICLE
-  BATTERY
-  IOT
-  CHARGER
-  MULTI_PRODUCT
-}
-
 enum MasterRecordStatus {
   ACTIVE
   INACTIVE
@@ -254,7 +246,6 @@ model Oem {
   code          String             @unique
   name          String
   displayName   String
-  type          OemType
   status        MasterRecordStatus @default(ACTIVE)
   logoUrl       String?
   logoObjectKey String?
@@ -263,7 +254,7 @@ model Oem {
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
 
-  @@index([status, type])
+  @@index([status, displayName])
 }
 
 model VehicleCategory {
@@ -273,8 +264,6 @@ model VehicleCategory {
   description  String?
   status       MasterRecordStatus @default(ACTIVE)
   displayOrder Int                @default(0)
-  createdById  String?
-  updatedById  String?
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
   vehicleTypes VehicleType[]
@@ -293,8 +282,6 @@ model VehicleType {
   energyType  EnergyType
   usageType   VehicleUsageType?
   status      MasterRecordStatus @default(ACTIVE)
-  createdById String?
-  updatedById String?
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
 
@@ -318,8 +305,6 @@ model Package {
   displayOrder  Int                  @default(0)
   isDefault     Boolean              @default(false)
   isActive      Boolean              @default(true)
-  createdById   String?
-  updatedById   String?
   features      PackageFeature[]
   subscriptions ClientSubscription[]
   createdAt     DateTime             @default(now())
@@ -511,7 +496,6 @@ model RiderOnboardingConfig {
   version       Int
   status        String                      @default("DRAFT")
   notes         String?
-  createdById   String
   effectiveFrom DateTime?
   activatedAt   DateTime?
   createdAt     DateTime                    @default(now())

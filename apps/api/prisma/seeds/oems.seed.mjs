@@ -12,13 +12,6 @@ const REQUIRED_HEADERS = [
   'Description',
 ];
 
-const OEM_TYPE_MAP = new Map([
-  ['Indian EV OEM', 'VEHICLE'],
-  ['Legacy OEM', 'VEHICLE'],
-  ['Foreign OEM', 'VEHICLE'],
-  ['Joint Venture', 'VEHICLE'],
-]);
-
 const STATUS_MAP = new Map([
   ['Active', 'ACTIVE'],
   ['Inactive', 'INACTIVE'],
@@ -124,7 +117,7 @@ export const oemSeeds = dataRows
       rawCode,
       rawName,
       rawDisplayName,
-      rawType,
+      ,
       rawStatus,
       rawLogoUrl,
       rawWebsite,
@@ -133,7 +126,6 @@ export const oemSeeds = dataRows
     const code = rawCode.trim().toUpperCase();
     const name = rawName.trim();
     const displayName = rawDisplayName.trim();
-    const type = OEM_TYPE_MAP.get(rawType.trim());
     const status = STATUS_MAP.get(rawStatus.trim());
 
     if (!code || !name || !displayName) {
@@ -143,11 +135,6 @@ export const oemSeeds = dataRows
     }
     if (seededCodes.has(code)) {
       throw new Error(`OEM seed has a duplicate OEM Code: ${code}`);
-    }
-    if (!type) {
-      throw new Error(
-        `OEM seed row ${rowNumber} has an unsupported OEM Type: ${rawType}`,
-      );
     }
     if (!status) {
       throw new Error(
@@ -161,7 +148,6 @@ export const oemSeeds = dataRows
       code,
       name,
       displayName,
-      type,
       status,
       logoUrl: optionalUrl(rawLogoUrl, rowNumber, 'Logo'),
       website: optionalUrl(rawWebsite, rowNumber, 'Website'),
