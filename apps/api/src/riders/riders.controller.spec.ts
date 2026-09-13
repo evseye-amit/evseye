@@ -14,16 +14,16 @@ describe('RidersController audit trail', () => {
     const controller = new RidersController(
       riders as never,
       audit as never,
-      { requireTenantId: vi.fn().mockReturnValue('tenant-a') } as never,
+      { requireClientId: vi.fn().mockReturnValue('client-a') } as never,
     );
 
     await controller.create(
-      { id: 'operator-1', tenantId: 'tenant-a', roles: [] },
+      { id: 'operator-1', clientId: 'client-a', roles: [] },
       { name: 'Rider Name', mobile: '+919000000001', address: 'Private' },
     );
 
     expect(audit.record).toHaveBeenCalledWith({
-      tenantId: 'tenant-a',
+      clientId: 'client-a',
       actorId: 'operator-1',
       action: 'RIDER_CREATED',
       entityType: 'RIDER',

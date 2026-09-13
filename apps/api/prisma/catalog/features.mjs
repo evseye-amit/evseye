@@ -1,6 +1,6 @@
 // Imported from the approved Feature List workbook. Keep this catalog
 // platform-owned: clients select from it but cannot modify its definitions.
-export const featureSeeds = [
+export const featureCatalog = [
   { code: 'MOBILE_LOGIN_OTP', name: 'OTP based Mobile Login', category: 'LOGIN', featureType: 'USAGE_BASED', billingUnit: 'USER', description: 'SMS OTP capability for the Evs Eye platform.', displayOrder: 10, isActive: true },
   { code: 'EMAIL_LOGIN_OTP', name: 'OTP based Email Login', category: 'LOGIN', featureType: 'USAGE_BASED', billingUnit: 'USER', description: 'Email OTP capability for the Evs Eye platform.', displayOrder: 20, isActive: true },
   { code: 'AGE_VERIFICATION', name: 'Age Verification', category: 'USER_VERIFICATION', featureType: 'USAGE_BASED', billingUnit: 'VERIFICATION', description: 'User age verification for the Evs Eye platform.', displayOrder: 30, isActive: true },

@@ -26,7 +26,7 @@ import type {
   UpdateClientFeaturePricingDto,
 } from './dto/client-feature-pricing.dto.js';
 import type { CreateFeatureUsageDto } from './dto/feature-usage.dto.js';
-import type { CreateTenantDto } from './dto/create-tenant.dto.js';
+import type { CreateClientDto } from './dto/create-client.dto.js';
 import type {
   CreateClientDocumentUploadIntentDto,
   CreateClientDraftDto,
@@ -50,7 +50,7 @@ export class PlatformAdminService {
   ) {}
 
   listClients() {
-    return this.prisma.tenant.findMany({
+    return this.prisma.client.findMany({
       include: {
         businessProfile: true,
         _count: {
@@ -110,7 +110,7 @@ export class PlatformAdminService {
       include: { feature: true },
     });
     await this.audit.record({
-      tenantId: clientId,
+      clientId: clientId,
       actorId,
       action: 'FEATURE_USAGE_RECORDED',
       entityType: 'FeatureUsage',
@@ -329,7 +329,7 @@ export class PlatformAdminService {
       include: { featurePricing: true },
     });
     await this.audit.record({
-      tenantId: clientId,
+      clientId: clientId,
       actorId,
       action: 'CLIENT_FEATURE_PRICING_CREATED',
       entityType: 'ClientFeaturePricing',
@@ -382,7 +382,7 @@ export class PlatformAdminService {
       include: { featurePricing: true },
     });
     await this.audit.record({
-      tenantId: clientId,
+      clientId: clientId,
       actorId,
       action: 'CLIENT_FEATURE_PRICING_UPDATED',
       entityType: 'ClientFeaturePricing',
@@ -408,7 +408,7 @@ export class PlatformAdminService {
       where: { id: clientFeaturePricingId },
     });
     await this.audit.record({
-      tenantId: clientId,
+      clientId: clientId,
       actorId,
       action: 'CLIENT_FEATURE_PRICING_REMOVED',
       entityType: 'ClientFeaturePricing',
@@ -453,7 +453,7 @@ export class PlatformAdminService {
         include: { feature: true, subscription: { include: { package: true } } },
       });
       await this.audit.record({
-        tenantId: clientId,
+        clientId: clientId,
         actorId,
         action: 'CLIENT_FEATURE_ADDED',
         entityType: 'ClientFeature',
@@ -499,7 +499,7 @@ export class PlatformAdminService {
       include: { feature: true, subscription: { include: { package: true } } },
     });
     await this.audit.record({
-      tenantId: clientId,
+      clientId: clientId,
       actorId,
       action: 'CLIENT_FEATURE_UPDATED',
       entityType: 'ClientFeature',
@@ -521,7 +521,7 @@ export class PlatformAdminService {
     if (!current) throw new NotFoundException('Client feature not found.');
     await this.prisma.clientFeature.delete({ where: { id: clientFeatureId } });
     await this.audit.record({
-      tenantId: clientId,
+      clientId: clientId,
       actorId,
       action: 'CLIENT_FEATURE_REMOVED',
       entityType: 'ClientFeature',
@@ -530,15 +530,15 @@ export class PlatformAdminService {
     });
   }
 
-  async createClient(dto: CreateTenantDto, actorId: string) {
+  async createClient(dto: CreateClientDto, actorId: string) {
     try {
-      const tenant = await this.prisma.$transaction(async (tx) => {
-        const created = await tx.tenant.create({
+      const client = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.client.create({
           data: { name: dto.name, slug: dto.slug, companyCode: dto.slug, status: ClientStatus.ACTIVE },
         });
         await tx.user.create({
           data: {
-            tenantId: created.id,
+            clientId: created.id,
             name: dto.adminName,
             mobile: dto.adminMobile,
             role: UserRole.CLIENT_ADMIN,
@@ -550,10 +550,10 @@ export class PlatformAdminService {
         actorId,
         action: 'PLATFORM_CLIENT_CREATED',
         entityType: 'Client',
-        entityId: tenant.id,
-        newData: { name: tenant.name, slug: tenant.slug },
+        entityId: client.id,
+        newData: { name: client.name, slug: client.slug },
       });
-      return tenant;
+      return client;
     } catch (error) {
       if (this.unique(error))
         throw new ConflictException(
@@ -566,7 +566,7 @@ export class PlatformAdminService {
   async createClientDraft(dto: CreateClientDraftDto, actorId: string) {
     try {
       const client = await this.prisma.$transaction(async (tx) => {
-        const created = await tx.tenant.create({
+        const created = await tx.client.create({
           data: {
             name: dto.businessFleetName,
             slug: dto.companyCode,
@@ -603,7 +603,7 @@ export class PlatformAdminService {
   }
 
   async clientDetail(clientId: string) {
-    const client = await this.prisma.tenant.findUnique({
+    const client = await this.prisma.client.findUnique({
       where: { id: clientId },
       include: {
         businessProfile: true,
@@ -733,8 +733,8 @@ export class PlatformAdminService {
     if (!admin.mobile) throw new UnprocessableEntityException('Account Admin mobile number is required.');
     try {
       await this.prisma.$transaction(async (tx) => {
-        await tx.user.create({ data: { tenantId: clientId, name: admin.name, mobile: admin.mobile!, role: UserRole.CLIENT_ADMIN, isActive: false } });
-        await tx.tenant.update({ where: { id: clientId }, data: { status: ClientStatus.PENDING_APPROVAL, isActive: false } });
+        await tx.user.create({ data: { clientId: clientId, name: admin.name, mobile: admin.mobile!, role: UserRole.CLIENT_ADMIN, isActive: false } });
+        await tx.client.update({ where: { id: clientId }, data: { status: ClientStatus.PENDING_APPROVAL, isActive: false } });
         await tx.clientAgreement.update({ where: { clientId }, data: { submittedAt: new Date() } });
       });
     } catch (error) {
@@ -746,12 +746,12 @@ export class PlatformAdminService {
   }
 
   async approveClient(clientId: string, actorId: string) {
-    const client = await this.prisma.tenant.findUnique({ where: { id: clientId } });
+    const client = await this.prisma.client.findUnique({ where: { id: clientId } });
     if (!client) throw new NotFoundException('Client not found.');
     if (client.status !== ClientStatus.PENDING_APPROVAL) throw new BadRequestException('Only a pending client can be approved.');
     await this.prisma.$transaction([
-      this.prisma.tenant.update({ where: { id: clientId }, data: { status: ClientStatus.ACTIVE, isActive: true } }),
-      this.prisma.user.updateMany({ where: { tenantId: clientId, role: UserRole.CLIENT_ADMIN }, data: { isActive: true } }),
+      this.prisma.client.update({ where: { id: clientId }, data: { status: ClientStatus.ACTIVE, isActive: true } }),
+      this.prisma.user.updateMany({ where: { clientId: clientId, role: UserRole.CLIENT_ADMIN }, data: { isActive: true } }),
       this.prisma.clientAgreement.update({ where: { clientId }, data: { approvedAt: new Date(), approvedById: actorId } }),
     ]);
     await this.audit.record({ actorId, action: 'CLIENT_APPROVED', entityType: 'Client', entityId: clientId });
@@ -760,11 +760,11 @@ export class PlatformAdminService {
 
   async rejectClient(clientId: string, reason: string, actorId: string) {
     if (!reason.trim()) throw new BadRequestException('A rejection reason is required.');
-    const client = await this.prisma.tenant.findUnique({ where: { id: clientId } });
+    const client = await this.prisma.client.findUnique({ where: { id: clientId } });
     if (!client) throw new NotFoundException('Client not found.');
     if (client.status !== ClientStatus.PENDING_APPROVAL) throw new BadRequestException('Only a pending client can be rejected.');
     await this.prisma.$transaction([
-      this.prisma.tenant.update({ where: { id: clientId }, data: { status: ClientStatus.REJECTED, isActive: false } }),
+      this.prisma.client.update({ where: { id: clientId }, data: { status: ClientStatus.REJECTED, isActive: false } }),
       this.prisma.clientAgreement.update({ where: { clientId }, data: { rejectedAt: new Date(), rejectedById: actorId, rejectionReason: reason } }),
     ]);
     await this.audit.record({ actorId, action: 'CLIENT_REJECTED', entityType: 'Client', entityId: clientId, newData: { reason } });
@@ -772,7 +772,7 @@ export class PlatformAdminService {
   }
 
   private async requireDraftClient(clientId: string) {
-    const client = await this.prisma.tenant.findUnique({ where: { id: clientId } });
+    const client = await this.prisma.client.findUnique({ where: { id: clientId } });
     if (!client) throw new NotFoundException('Client not found.');
     if (client.status !== ClientStatus.DRAFT) {
       throw new BadRequestException('Only a draft client can be edited.');
@@ -781,7 +781,7 @@ export class PlatformAdminService {
   }
 
   private async requireClient(clientId: string) {
-    if (!(await this.prisma.tenant.findUnique({ where: { id: clientId } })))
+    if (!(await this.prisma.client.findUnique({ where: { id: clientId } })))
       throw new NotFoundException('Client not found.');
   }
   private async requireClientSubscription(clientId: string, subscriptionId: string) {

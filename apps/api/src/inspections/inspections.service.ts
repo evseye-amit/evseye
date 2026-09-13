@@ -14,15 +14,15 @@ import { PrismaService } from '../prisma/prisma.service.js';
 @Injectable()
 export class InspectionsService {
   constructor(private readonly prisma: PrismaService) {}
-  async get(tenantId: string, inspectionId: string) {
+  async get(clientId: string, inspectionId: string) {
     const inspection = await this.prisma.inspection.findFirst({
-      where: { id: inspectionId, tenantId },
+      where: { id: inspectionId, clientId },
       include: { allocation: { include: { rider: true, fleet: true } } },
     });
     if (!inspection) throw new NotFoundException('Inspection not found.');
     const photos = await this.prisma.photo.findMany({
       where: {
-        tenantId,
+        clientId,
         entityType: PhotoEntityType.INSPECTION,
         entityId: inspectionId,
       },
@@ -31,9 +31,9 @@ export class InspectionsService {
     return { ...inspection, photos };
   }
 
-  async complete(tenantId: string, inspectionId: string, actorId: string) {
+  async complete(clientId: string, inspectionId: string, actorId: string) {
     const inspection = await this.prisma.inspection.findFirst({
-      where: { id: inspectionId, tenantId },
+      where: { id: inspectionId, clientId },
       include: { allocation: true },
     });
     if (!inspection) throw new NotFoundException('Inspection not found.');
@@ -42,14 +42,14 @@ export class InspectionsService {
     }
     const required = await this.prisma.photoRequirement.findMany({
       where: {
-        tenantId,
+        clientId,
         entityType: PhotoEntityType.INSPECTION,
         isRequired: true,
       },
     });
     const complete = await this.prisma.photo.findMany({
       where: {
-        tenantId,
+        clientId,
         entityType: PhotoEntityType.INSPECTION,
         entityId: inspectionId,
         status: PhotoStatus.COMPLETE,

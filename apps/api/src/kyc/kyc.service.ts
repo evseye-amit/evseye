@@ -20,16 +20,16 @@ export class KycService {
     @Inject(KYC_PROVIDER) private readonly provider: KycProvider,
   ) {}
 
-  async list(tenantId: string, riderId: string) {
-    await this.assertRider(tenantId, riderId);
+  async list(clientId: string, riderId: string) {
+    await this.assertRider(clientId, riderId);
     return this.prisma.riderKyc.findMany({
-      where: { tenantId, riderId },
+      where: { clientId, riderId },
       orderBy: { type: 'asc' },
     });
   }
 
-  async start(tenantId: string, riderId: string, dto: StartKycDto) {
-    await this.assertRider(tenantId, riderId);
+  async start(clientId: string, riderId: string, dto: StartKycDto) {
+    await this.assertRider(clientId, riderId);
     const existing = await this.prisma.riderKyc.findUnique({
       where: { riderId_type: { riderId, type: dto.type as KycType } },
     });
@@ -42,7 +42,7 @@ export class KycService {
       );
     }
     const result = await this.provider.start({
-      tenantId,
+      clientId,
       riderId,
       type: dto.type as KycType,
       referenceHint: dto.referenceHint,
@@ -50,7 +50,7 @@ export class KycService {
     return this.prisma.riderKyc.upsert({
       where: { riderId_type: { riderId, type: dto.type as KycType } },
       create: {
-        tenantId,
+        clientId,
         riderId,
         type: dto.type as KycType,
         status: result.status,
@@ -72,13 +72,13 @@ export class KycService {
   }
 
   async complete(
-    tenantId: string,
+    clientId: string,
     riderId: string,
     kycId: string,
     dto: CompleteKycDto,
   ) {
     const kyc = await this.prisma.riderKyc.findFirst({
-      where: { id: kycId, riderId, tenantId },
+      where: { id: kycId, riderId, clientId },
     });
     if (!kyc) throw new NotFoundException('KYC record not found.');
     if (kyc.status !== KycStatus.PENDING)
@@ -94,9 +94,9 @@ export class KycService {
     });
   }
 
-  private async assertRider(tenantId: string, riderId: string) {
+  private async assertRider(clientId: string, riderId: string) {
     const rider = await this.prisma.rider.findFirst({
-      where: { id: riderId, tenantId, deletedAt: null },
+      where: { id: riderId, clientId, deletedAt: null },
     });
     if (!rider) throw new NotFoundException('Rider not found.');
   }

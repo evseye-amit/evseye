@@ -27,7 +27,7 @@ describe('InspectionsService', () => {
     const service = new InspectionsService(prisma as never);
 
     await expect(
-      service.complete('tenant-a', 'inspection-1', 'operator-1'),
+      service.complete('client-a', 'inspection-1', 'operator-1'),
     ).rejects.toMatchObject({
       response: {
         message: 'Required inspection photos are missing.',
@@ -36,7 +36,7 @@ describe('InspectionsService', () => {
     });
     expect(prisma.photo.findMany).toHaveBeenCalledWith({
       where: {
-        tenantId: 'tenant-a',
+        clientId: 'client-a',
         entityType: PhotoEntityType.INSPECTION,
         entityId: 'inspection-1',
         status: PhotoStatus.COMPLETE,
@@ -58,7 +58,7 @@ describe('InspectionsService', () => {
     const service = new InspectionsService(prisma as never);
 
     await expect(
-      service.complete('tenant-a', 'inspection-1', 'operator-1'),
+      service.complete('client-a', 'inspection-1', 'operator-1'),
     ).rejects.toThrow('Inspection has already been completed.');
   });
 });

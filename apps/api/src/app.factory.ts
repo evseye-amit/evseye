@@ -49,7 +49,7 @@ export async function createApplication(): Promise<NestFastifyApplication> {
     request.log.info({
       event: 'request_completed',
       requestId: request.id,
-      tenantId: user?.tenantId,
+      clientId: user?.clientId,
       userId: user?.id,
       endpoint: request.routeOptions.url,
       method: request.method,

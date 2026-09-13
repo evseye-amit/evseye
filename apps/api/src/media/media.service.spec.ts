@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { MediaService } from './media.service.js';
 
 describe('MediaService photo requirements', () => {
-  it('queries configurable requirements within the caller tenant only', async () => {
+  it('queries configurable requirements within the caller client only', async () => {
     const prisma = {
       photoRequirement: {
         findMany: vi
@@ -14,15 +14,15 @@ describe('MediaService photo requirements', () => {
     const service = new MediaService(prisma as never, {} as never);
 
     await expect(
-      service.requirements('tenant-a', PhotoEntityType.INSPECTION),
+      service.requirements('client-a', PhotoEntityType.INSPECTION),
     ).resolves.toEqual([{ photoType: 'FRONT', isRequired: true }]);
     expect(prisma.photoRequirement.findMany).toHaveBeenCalledWith({
-      where: { tenantId: 'tenant-a', entityType: PhotoEntityType.INSPECTION },
+      where: { clientId: 'client-a', entityType: PhotoEntityType.INSPECTION },
       orderBy: [{ isRequired: 'desc' }, { photoType: 'asc' }],
     });
   });
 
-  it('upserts a requirement scoped to the caller tenant', async () => {
+  it('upserts a requirement scoped to the caller client', async () => {
     const upsert = vi.fn().mockResolvedValue({ id: 'requirement-1' });
     const service = new MediaService(
       { photoRequirement: { upsert } } as never,
@@ -31,7 +31,7 @@ describe('MediaService photo requirements', () => {
 
     await expect(
       service.upsertRequirement(
-        'tenant-a',
+        'client-a',
         PhotoEntityType.INSPECTION,
         'FRONT',
         {
@@ -43,8 +43,8 @@ describe('MediaService photo requirements', () => {
     expect(upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          tenantId_entityType_photoType: {
-            tenantId: 'tenant-a',
+          clientId_entityType_photoType: {
+            clientId: 'client-a',
             entityType: PhotoEntityType.INSPECTION,
             photoType: 'FRONT',
           },
@@ -53,7 +53,7 @@ describe('MediaService photo requirements', () => {
     );
   });
 
-  it('lists entity photos only after confirming tenant ownership', async () => {
+  it('lists entity photos only after confirming client ownership', async () => {
     const findMany = vi.fn().mockResolvedValue([{ photoType: 'FRONT' }]);
     const prisma = {
       fleet: { findFirst: vi.fn().mockResolvedValue({ id: 'fleet-1' }) },
@@ -62,11 +62,11 @@ describe('MediaService photo requirements', () => {
     const service = new MediaService(prisma as never, {} as never);
 
     await expect(
-      service.listEntityPhotos('tenant-a', PhotoEntityType.FLEET, 'fleet-1'),
+      service.listEntityPhotos('client-a', PhotoEntityType.FLEET, 'fleet-1'),
     ).resolves.toEqual([{ photoType: 'FRONT' }]);
     expect(findMany).toHaveBeenCalledWith({
       where: {
-        tenantId: 'tenant-a',
+        clientId: 'client-a',
         entityType: PhotoEntityType.FLEET,
         entityId: 'fleet-1',
       },
@@ -74,7 +74,7 @@ describe('MediaService photo requirements', () => {
     });
   });
 
-  it('does not reveal Tenant B fleet photos to a Tenant A caller', async () => {
+  it('does not reveal Client B fleet photos to a Client A caller', async () => {
     const photoFindMany = vi.fn();
     const prisma = {
       fleet: { findFirst: vi.fn().mockResolvedValue(null) },
@@ -84,22 +84,22 @@ describe('MediaService photo requirements', () => {
 
     await expect(
       service.listEntityPhotos(
-        'tenant-a',
+        'client-a',
         PhotoEntityType.FLEET,
-        'fleet-owned-by-tenant-b',
+        'fleet-owned-by-client-b',
       ),
     ).rejects.toThrow('Media entity not found.');
     expect(prisma.fleet.findFirst).toHaveBeenCalledWith({
       where: {
-        id: 'fleet-owned-by-tenant-b',
-        tenantId: 'tenant-a',
+        id: 'fleet-owned-by-client-b',
+        clientId: 'client-a',
         deletedAt: null,
       },
     });
     expect(photoFindMany).not.toHaveBeenCalled();
   });
 
-  it('checks a battery belongs to the requesting tenant before media access', async () => {
+  it('checks a battery belongs to the requesting client before media access', async () => {
     const findFirst = vi.fn().mockResolvedValue(null);
     const service = new MediaService(
       { battery: { findFirst } } as never,
@@ -108,13 +108,13 @@ describe('MediaService photo requirements', () => {
 
     await expect(
       service.listEntityPhotos(
-        'tenant-a',
+        'client-a',
         PhotoEntityType.BATTERY,
         'battery-1',
       ),
     ).rejects.toThrow('Media entity not found.');
     expect(findFirst).toHaveBeenCalledWith({
-      where: { id: 'battery-1', tenantId: 'tenant-a' },
+      where: { id: 'battery-1', clientId: 'client-a' },
     });
   });
 });

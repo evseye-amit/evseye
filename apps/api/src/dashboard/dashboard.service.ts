@@ -10,7 +10,7 @@ export class DashboardService {
     private readonly config: ConfigService<Environment, true>,
   ) {}
 
-  async summary(tenantId: string) {
+  async summary(clientId: string) {
     const cutoff = new Date(
       Date.now() -
         this.config.getOrThrow('IOT_OFFLINE_THRESHOLD_SECONDS') * 1000,
@@ -29,30 +29,30 @@ export class DashboardService {
     ] = await Promise.all([
       this.prisma.fleet.groupBy({
         by: ['status'],
-        where: { tenantId, deletedAt: null },
+        where: { clientId, deletedAt: null },
         _count: true,
       }),
       this.prisma.rider.groupBy({
         by: ['status'],
-        where: { tenantId, deletedAt: null },
+        where: { clientId, deletedAt: null },
         _count: true,
       }),
       this.prisma.riderKyc.groupBy({
         by: ['status'],
-        where: { tenantId },
+        where: { clientId },
         _count: true,
       }),
-      this.prisma.allocation.count({ where: { tenantId, status: 'ACTIVE' } }),
+      this.prisma.allocation.count({ where: { clientId, status: 'ACTIVE' } }),
       this.prisma.allocation.count({
-        where: { tenantId, allocatedAt: { gte: today } },
+        where: { clientId, allocatedAt: { gte: today } },
       }),
       this.prisma.allocation.count({
-        where: { tenantId, deallocatedAt: { gte: today } },
+        where: { clientId, deallocatedAt: { gte: today } },
       }),
       this.prisma.vehicleCurrentState.count({
-        where: { tenantId, lastHeartbeat: { gte: cutoff } },
+        where: { clientId, lastHeartbeat: { gte: cutoff } },
       }),
-      this.prisma.vehicleCurrentState.count({ where: { tenantId } }),
+      this.prisma.vehicleCurrentState.count({ where: { clientId } }),
     ]);
 
     return {

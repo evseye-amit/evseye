@@ -15,11 +15,11 @@ const configValues = {
 
 function createService() {
   const prisma = {
-    tenant: { findFirst: vi.fn().mockResolvedValue({ id: 'tenant-1' }) },
+    client: { findFirst: vi.fn().mockResolvedValue({ id: 'client-1' }) },
     user: {
       findFirst: vi.fn().mockResolvedValue({
         id: 'user-1',
-        tenantId: 'tenant-1',
+        clientId: 'client-1',
         mobile: '+919999999999',
         name: 'Operations User',
         role: UserRole.OPERATIONS_MANAGER,
@@ -71,7 +71,7 @@ describe('AuthService', () => {
   it('stores only a hash and sends a login OTP through the provider', async () => {
     const { service, prisma, sms } = createService();
 
-    await service.requestLoginOtp('+919999999999', 'demo-tenant', '127.0.0.1');
+    await service.requestLoginOtp('+919999999999', 'demo-client', '127.0.0.1');
 
     const created = prisma.otpRequest.create.mock.calls[0][0].data;
     expect(created.purpose).toBe(OtpPurpose.LOGIN);
@@ -81,7 +81,7 @@ describe('AuthService', () => {
     expect(sms.send.mock.calls[0][0].message).toMatch(/\d{6}/);
   });
 
-  it('allows platform OTP requests only for a tenantless Super Admin account', async () => {
+  it('allows platform OTP requests only for a clientless Super Admin account', async () => {
     const { service, prisma } = createService();
     prisma.user.findFirst.mockResolvedValue({ id: 'platform-admin-1' });
 
@@ -89,24 +89,24 @@ describe('AuthService', () => {
 
     expect(prisma.user.findFirst).toHaveBeenCalledWith({
       where: {
-        tenantId: null,
+        clientId: null,
         mobile: '+919100000000',
         role: UserRole.SUPER_ADMIN,
         isActive: true,
       },
       select: { id: true },
     });
-    expect(prisma.otpRequest.create.mock.calls[0][0].data.tenantId).toBeUndefined();
+    expect(prisma.otpRequest.create.mock.calls[0][0].data.clientId).toBeUndefined();
   });
 
   it('issues tokens exactly once after a valid OTP verification', async () => {
     const { service, prisma, sms, jwt } = createService();
-    await service.requestLoginOtp('+919999999999', 'demo-tenant');
+    await service.requestLoginOtp('+919999999999', 'demo-client');
     const code = sms.send.mock.calls[0][0].message.match(/(\d{6})/)?.[1];
     const otpHash = prisma.otpRequest.create.mock.calls[0][0].data.otpHash;
     prisma.otpRequest.findUnique.mockResolvedValue({
       id: 'otp-1',
-      tenantId: 'tenant-1',
+      clientId: 'client-1',
       purpose: OtpPurpose.LOGIN,
       phone: '+919999999999',
       otpHash,
@@ -141,7 +141,7 @@ describe('AuthService', () => {
 
     await expect(
       service.requestDeallocationOtp(
-        'tenant-1',
+        'client-1',
         '+919999999999',
         'allocation-1',
         OtpPurpose.DEALLOCATION_RIDER,
@@ -162,7 +162,7 @@ describe('AuthService', () => {
   it('records failed deallocation OTP attempts and locks the request at its limit', async () => {
     const { service, prisma, sms } = createService();
     await service.requestDeallocationOtp(
-      'tenant-1',
+      'client-1',
       '+919999999999',
       'allocation-1',
       OtpPurpose.DEALLOCATION_RIDER,
@@ -170,7 +170,7 @@ describe('AuthService', () => {
     const otpHash = prisma.otpRequest.create.mock.calls[0][0].data.otpHash;
     prisma.otpRequest.findFirst.mockResolvedValue({
       id: 'otp-1',
-      tenantId: 'tenant-1',
+      clientId: 'client-1',
       purpose: OtpPurpose.DEALLOCATION_RIDER,
       phone: '+919999999999',
       otpHash,
@@ -181,7 +181,7 @@ describe('AuthService', () => {
     });
 
     await expect(
-      service.verifyDeallocationOtp('tenant-1', 'otp-1', '000000'),
+      service.verifyDeallocationOtp('client-1', 'otp-1', '000000'),
     ).rejects.toThrow('Invalid deallocation OTP.');
 
     expect(prisma.otpRequest.update).toHaveBeenCalledWith({

@@ -15,14 +15,14 @@ describe('DashboardController', () => {
       iot: { online: 0, offline: 0 },
     };
     const dashboard = { summary: vi.fn().mockResolvedValue(summary) };
-    const tenants = { requireTenantId: vi.fn().mockReturnValue('tenant-1') };
+    const clients = { requireClientId: vi.fn().mockReturnValue('client-1') };
     const controller = new DashboardController(
       dashboard as never,
-      tenants as never,
+      clients as never,
     );
 
     await expect(
-      controller.summary({ id: 'user-1', tenantId: 'tenant-1', roles: [] }),
+      controller.summary({ id: 'user-1', clientId: 'client-1', roles: [] }),
     ).resolves.toEqual({ data: summary });
   });
 });

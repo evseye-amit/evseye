@@ -5,7 +5,7 @@ import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
-import { TenantContextService } from '../auth/tenant-context.service.js';
+import { ClientContextService } from '../auth/client-context.service.js';
 import { AuditService } from './audit.service.js';
 @Controller('audit-logs')
 @UseGuards(AccessTokenGuard, RolesGuard)
@@ -13,7 +13,7 @@ import { AuditService } from './audit.service.js';
 export class AuditController {
   constructor(
     private readonly audit: AuditService,
-    private readonly tenants: TenantContextService,
+    private readonly clients: ClientContextService,
   ) {}
   @Get() async list(
     @CurrentUser() u: AuthUser,
@@ -27,7 +27,7 @@ export class AuditController {
     );
     return {
       data: await this.audit.list(
-        this.tenants.requireTenantId(u),
+        this.clients.requireClientId(u),
         requestedPage,
         requestedPageSize,
       ),

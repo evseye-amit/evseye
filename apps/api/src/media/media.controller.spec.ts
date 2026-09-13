@@ -17,17 +17,17 @@ describe('MediaController audit trail', () => {
     const controller = new MediaController(
       media as never,
       audit as never,
-      { requireTenantId: vi.fn().mockReturnValue('tenant-a') } as never,
+      { requireClientId: vi.fn().mockReturnValue('client-a') } as never,
     );
 
     await expect(
       controller.complete(
-        { id: 'operator-1', tenantId: 'tenant-a', roles: [] },
+        { id: 'operator-1', clientId: 'client-a', roles: [] },
         'photo-1',
       ),
     ).resolves.toMatchObject({ data: { id: 'photo-1' } });
     expect(audit.record).toHaveBeenCalledWith({
-      tenantId: 'tenant-a',
+      clientId: 'client-a',
       actorId: 'operator-1',
       action: 'PHOTO_UPLOADED',
       entityType: 'FLEET',

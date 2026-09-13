@@ -54,7 +54,7 @@ export class PlatformCatalogService {
 
   dashboard() {
     return Promise.all([
-      this.prisma.tenant.count(),
+      this.prisma.client.count(),
       this.prisma.fleet.count(),
       this.prisma.rider.count(),
       this.prisma.package.count({ where: { isActive: true } }),

@@ -1,4 +1,4 @@
-export const vehicleCategorySeeds = [
+export const vehicleCategoryCatalog = [
   {
     displayOrder: 10,
     code: '2W',

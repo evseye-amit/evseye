@@ -15,7 +15,7 @@ import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
-import { TenantContextService } from '../auth/tenant-context.service.js';
+import { ClientContextService } from '../auth/client-context.service.js';
 import { CreateRiderDto } from './dto/create-rider.dto.js';
 import { ListRidersDto } from './dto/list-riders.dto.js';
 import { UpdateRiderDto } from './dto/update-rider.dto.js';
@@ -27,7 +27,7 @@ export class RidersController {
   constructor(
     private readonly ridersService: RidersService,
     private readonly audit: AuditService,
-    private readonly tenantContext: TenantContextService,
+    private readonly clientContext: ClientContextService,
   ) {}
 
   @Get()
@@ -40,7 +40,7 @@ export class RidersController {
   async list(@CurrentUser() user: AuthUser, @Query() query: ListRidersDto) {
     return {
       data: await this.ridersService.list(
-        this.tenantContext.requireTenantId(user),
+        this.clientContext.requireClientId(user),
         query,
       ),
     };
@@ -49,10 +49,10 @@ export class RidersController {
   @Post()
   @Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
   async create(@CurrentUser() user: AuthUser, @Body() dto: CreateRiderDto) {
-    const tenantId = this.tenantContext.requireTenantId(user);
-    const rider = await this.ridersService.create(tenantId, dto);
+    const clientId = this.clientContext.requireClientId(user);
+    const rider = await this.ridersService.create(clientId, dto);
     await this.audit.record({
-      tenantId,
+      clientId,
       actorId: user.id,
       action: 'RIDER_CREATED',
       entityType: 'RIDER',
@@ -72,7 +72,7 @@ export class RidersController {
   async getById(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return {
       data: await this.ridersService.getById(
-        this.tenantContext.requireTenantId(user),
+        this.clientContext.requireClientId(user),
         id,
       ),
     };
@@ -89,10 +89,10 @@ export class RidersController {
     @Param('id') id: string,
     @Body() dto: UpdateRiderDto,
   ) {
-    const tenantId = this.tenantContext.requireTenantId(user);
-    const rider = await this.ridersService.update(tenantId, id, dto);
+    const clientId = this.clientContext.requireClientId(user);
+    const rider = await this.ridersService.update(clientId, id, dto);
     await this.audit.record({
-      tenantId,
+      clientId,
       actorId: user.id,
       action: 'RIDER_UPDATED',
       entityType: 'RIDER',

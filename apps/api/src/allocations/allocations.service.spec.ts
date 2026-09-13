@@ -30,12 +30,12 @@ describe('AllocationsService concurrency guard', () => {
     const service = new AllocationsService(prisma as never);
 
     await expect(
-      service.initiate('tenant-a', 'fleet-busy', 'rider-1', 'operator-1'),
+      service.initiate('client-a', 'fleet-busy', 'rider-1', 'operator-1'),
     ).rejects.toThrow('Fleet is not available');
     expect(tx.fleet.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          tenantId: 'tenant-a',
+          clientId: 'client-a',
           status: FleetStatus.AVAILABLE,
         }),
         data: { status: FleetStatus.RESERVED },
@@ -67,11 +67,11 @@ describe('AllocationsService concurrency guard', () => {
     const service = new AllocationsService(prisma as never);
 
     await expect(
-      service.initiate('tenant-a', 'fleet-1', 'rider-1', 'operator-1'),
+      service.initiate('client-a', 'fleet-1', 'rider-1', 'operator-1'),
     ).rejects.toThrow('Fleet onboarding photos are incomplete: FRONT.');
     expect(tx.photoRequirement.findMany).toHaveBeenCalledWith({
       where: {
-        tenantId: 'tenant-a',
+        clientId: 'client-a',
         entityType: PhotoEntityType.FLEET,
         isRequired: true,
       },
@@ -97,7 +97,7 @@ describe('AllocationsService concurrency guard', () => {
     const service = new AllocationsService(prisma as never);
 
     await expect(
-      service.initiate('tenant-a', 'fleet-1', 'rider-1', 'operator-1'),
+      service.initiate('client-a', 'fleet-1', 'rider-1', 'operator-1'),
     ).rejects.toThrow('Rider must be active before allocation.');
     expect(tx.fleet.updateMany).not.toHaveBeenCalled();
   });
@@ -122,12 +122,12 @@ describe('AllocationsService concurrency guard', () => {
     };
     const service = new AllocationsService(prisma as never);
 
-    await expect(service.activate('tenant-a', 'allocation-1')).resolves.toEqual(
+    await expect(service.activate('client-a', 'allocation-1')).resolves.toEqual(
       { activated: true, allocationId: 'allocation-1' },
     );
     expect(tx.inspection.findFirst).toHaveBeenCalledWith({
       where: expect.objectContaining({
-        tenantId: 'tenant-a',
+        clientId: 'client-a',
         type: InspectionType.PRE_ALLOCATION,
         status: InspectionStatus.COMPLETED,
       }),
@@ -142,7 +142,7 @@ describe('AllocationsService concurrency guard', () => {
     expect(tx.fleet.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          tenantId: 'tenant-a',
+          clientId: 'client-a',
           status: FleetStatus.RESERVED,
         }),
         data: { status: FleetStatus.ALLOCATED },

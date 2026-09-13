@@ -21,17 +21,17 @@ export class MediaService {
   ) {}
 
   async createUploadIntent(
-    tenantId: string,
+    clientId: string,
     uploadedById: string,
     dto: CreateUploadIntentDto,
   ) {
-    await this.assertEntityOwnership(tenantId, dto.entityType, dto.entityId);
+    await this.assertEntityOwnership(clientId, dto.entityType, dto.entityId);
     this.assertExtensionMatchesMime(dto.fileName, dto.mimeType);
 
-    const objectKey = `tenants/${tenantId}/${dto.entityType.toLowerCase()}/${dto.entityId}/${randomUUID()}.${this.extensionFor(dto.mimeType)}`;
+    const objectKey = `clients/${clientId}/${dto.entityType.toLowerCase()}/${dto.entityId}/${randomUUID()}.${this.extensionFor(dto.mimeType)}`;
     const photo = await this.prisma.photo.create({
       data: {
-        tenantId,
+        clientId,
         entityType: dto.entityType,
         entityId: dto.entityId,
         photoType: dto.photoType,
@@ -50,37 +50,37 @@ export class MediaService {
     return { photo, uploadUrl };
   }
 
-  async requirements(tenantId: string, entityType: PhotoEntityType) {
+  async requirements(clientId: string, entityType: PhotoEntityType) {
     return this.prisma.photoRequirement.findMany({
-      where: { tenantId, entityType },
+      where: { clientId, entityType },
       orderBy: [{ isRequired: 'desc' }, { photoType: 'asc' }],
     });
   }
 
   async listEntityPhotos(
-    tenantId: string,
+    clientId: string,
     entityType: PhotoEntityType,
     entityId: string,
   ) {
-    await this.assertEntityOwnership(tenantId, entityType, entityId);
+    await this.assertEntityOwnership(clientId, entityType, entityId);
     return this.prisma.photo.findMany({
-      where: { tenantId, entityType, entityId },
+      where: { clientId, entityType, entityId },
       orderBy: { uploadedAt: 'asc' },
     });
   }
 
   async upsertRequirement(
-    tenantId: string,
+    clientId: string,
     entityType: PhotoEntityType,
     photoType: string,
     input: { isRequired: boolean; sortOrder?: number },
   ) {
     return this.prisma.photoRequirement.upsert({
       where: {
-        tenantId_entityType_photoType: { tenantId, entityType, photoType },
+        clientId_entityType_photoType: { clientId, entityType, photoType },
       },
       create: {
-        tenantId,
+        clientId,
         entityType,
         photoType,
         isRequired: input.isRequired,
@@ -95,8 +95,8 @@ export class MediaService {
     });
   }
 
-  async complete(tenantId: string, photoId: string) {
-    const photo = await this.getPhoto(tenantId, photoId);
+  async complete(clientId: string, photoId: string) {
+    const photo = await this.getPhoto(clientId, photoId);
     if (photo.status !== PhotoStatus.PENDING_UPLOAD) {
       throw new BadRequestException('Photo is not awaiting upload completion.');
     }
@@ -107,17 +107,17 @@ export class MediaService {
     });
   }
 
-  async downloadUrl(tenantId: string, photoId: string) {
-    const photo = await this.getPhoto(tenantId, photoId);
+  async downloadUrl(clientId: string, photoId: string) {
+    const photo = await this.getPhoto(clientId, photoId);
     if (photo.status !== PhotoStatus.COMPLETE) {
       throw new BadRequestException('Photo is not available.');
     }
     return { url: await this.storage.createDownloadUrl(photo.objectKey) };
   }
 
-  private async getPhoto(tenantId: string, photoId: string) {
+  private async getPhoto(clientId: string, photoId: string) {
     const photo = await this.prisma.photo.findFirst({
-      where: { id: photoId, tenantId },
+      where: { id: photoId, clientId },
     });
     if (!photo) {
       throw new NotFoundException('Photo not found.');
@@ -126,37 +126,37 @@ export class MediaService {
   }
 
   private async assertEntityOwnership(
-    tenantId: string,
+    clientId: string,
     entityType: PhotoEntityType,
     entityId: string,
   ) {
     if (entityType === PhotoEntityType.RIDER) {
       const rider = await this.prisma.rider.findFirst({
-        where: { id: entityId, tenantId, deletedAt: null },
+        where: { id: entityId, clientId, deletedAt: null },
       });
       if (rider) return;
     }
     if (entityType === PhotoEntityType.FLEET) {
       const fleet = await this.prisma.fleet.findFirst({
-        where: { id: entityId, tenantId, deletedAt: null },
+        where: { id: entityId, clientId, deletedAt: null },
       });
       if (fleet) return;
     }
     if (entityType === PhotoEntityType.BATTERY) {
       const battery = await this.prisma.battery.findFirst({
-        where: { id: entityId, tenantId },
+        where: { id: entityId, clientId },
       });
       if (battery) return;
     }
     if (entityType === PhotoEntityType.CONTROLLER) {
       const controller = await this.prisma.controller.findFirst({
-        where: { id: entityId, tenantId },
+        where: { id: entityId, clientId },
       });
       if (controller) return;
     }
     if (entityType === PhotoEntityType.INSPECTION) {
       const inspection = await this.prisma.inspection.findFirst({
-        where: { id: entityId, tenantId },
+        where: { id: entityId, clientId },
       });
       if (inspection) return;
     }

@@ -7,7 +7,7 @@ import { AccessTokenGuard } from './guards/access-token.guard.js';
 import { RolesGuard } from './guards/roles.guard.js';
 import { ConsoleSmsProvider } from './sms/console-sms.provider.js';
 import { SMS_PROVIDER } from './sms/sms-provider.interface.js';
-import { TenantContextService } from './tenant-context.service.js';
+import { ClientContextService } from './client-context.service.js';
 import type { Environment } from '../config/environment.js';
 
 @Module({
@@ -17,7 +17,7 @@ import type { Environment } from '../config/environment.js';
     AuthService,
     AccessTokenGuard,
     RolesGuard,
-    TenantContextService,
+    ClientContextService,
     ConsoleSmsProvider,
     {
       provide: SMS_PROVIDER,
@@ -37,7 +37,7 @@ import type { Environment } from '../config/environment.js';
     AuthService,
     AccessTokenGuard,
     RolesGuard,
-    TenantContextService,
+    ClientContextService,
   ],
 })
 export class AuthModule {}

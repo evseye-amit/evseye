@@ -16,18 +16,18 @@ describe('KycController audit trail', () => {
     const controller = new KycController(
       kyc as never,
       audit as never,
-      { requireTenantId: vi.fn().mockReturnValue('tenant-a') } as never,
+      { requireClientId: vi.fn().mockReturnValue('client-a') } as never,
     );
 
     await controller.complete(
-      { id: 'kyc-operator-1', tenantId: 'tenant-a', roles: [] },
+      { id: 'kyc-operator-1', clientId: 'client-a', roles: [] },
       'rider-1',
       'kyc-1',
       { status: KycStatus.VERIFIED, maskedData: { lastFour: '1234' } },
     );
 
     expect(audit.record).toHaveBeenCalledWith({
-      tenantId: 'tenant-a',
+      clientId: 'client-a',
       actorId: 'kyc-operator-1',
       action: 'KYC_STATUS_CHANGED',
       entityType: 'RIDER_KYC',

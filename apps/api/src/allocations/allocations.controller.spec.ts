@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { AllocationsController } from './allocations.controller.js';
 
 describe('AllocationsController audit trail', () => {
-  it('records the allocation actor and tenant after initiation', async () => {
+  it('records the allocation actor and client after initiation', async () => {
     const allocations = {
       initiate: vi.fn().mockResolvedValue({
         id: 'allocation-1',
@@ -14,12 +14,12 @@ describe('AllocationsController audit trail', () => {
       allocations as never,
       {} as never,
       audit as never,
-      { requireTenantId: vi.fn().mockReturnValue('tenant-a') } as never,
+      { requireClientId: vi.fn().mockReturnValue('client-a') } as never,
     );
 
     await expect(
       controller.initiate(
-        { id: 'operator-1', tenantId: 'tenant-a', roles: [] },
+        { id: 'operator-1', clientId: 'client-a', roles: [] },
         { fleetId: 'fleet-1', riderId: 'rider-1' },
         'request-key',
       ),
@@ -27,7 +27,7 @@ describe('AllocationsController audit trail', () => {
       data: { id: 'allocation-1', status: 'INSPECTION_PENDING' },
     });
     expect(audit.record).toHaveBeenCalledWith({
-      tenantId: 'tenant-a',
+      clientId: 'client-a',
       actorId: 'operator-1',
       action: 'ALLOCATION_INITIATED',
       entityType: 'ALLOCATION',

@@ -14,7 +14,7 @@ import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
-import { TenantContextService } from '../auth/tenant-context.service.js';
+import { ClientContextService } from '../auth/client-context.service.js';
 import { CompleteKycDto } from './dto/complete-kyc.dto.js';
 import { StartKycDto } from './dto/start-kyc.dto.js';
 import { KycService } from './kyc.service.js';
@@ -26,13 +26,13 @@ export class KycController {
   constructor(
     private readonly kyc: KycService,
     private readonly audit: AuditService,
-    private readonly tenants: TenantContextService,
+    private readonly clients: ClientContextService,
   ) {}
 
   @Get()
   async list(@CurrentUser() user: AuthUser, @Param('riderId') riderId: string) {
     return {
-      data: await this.kyc.list(this.tenants.requireTenantId(user), riderId),
+      data: await this.kyc.list(this.clients.requireClientId(user), riderId),
     };
   }
 
@@ -42,10 +42,10 @@ export class KycController {
     @Param('riderId') riderId: string,
     @Body() dto: StartKycDto,
   ) {
-    const tenantId = this.tenants.requireTenantId(user);
-    const verification = await this.kyc.start(tenantId, riderId, dto);
+    const clientId = this.clients.requireClientId(user);
+    const verification = await this.kyc.start(clientId, riderId, dto);
     await this.audit.record({
-      tenantId,
+      clientId,
       actorId: user.id,
       action: 'KYC_STARTED',
       entityType: 'RIDER_KYC',
@@ -68,10 +68,10 @@ export class KycController {
     @Param('kycId') kycId: string,
     @Body() dto: CompleteKycDto,
   ) {
-    const tenantId = this.tenants.requireTenantId(user);
-    const verification = await this.kyc.complete(tenantId, riderId, kycId, dto);
+    const clientId = this.clients.requireClientId(user);
+    const verification = await this.kyc.complete(clientId, riderId, kycId, dto);
     await this.audit.record({
-      tenantId,
+      clientId,
       actorId: user.id,
       action: 'KYC_STATUS_CHANGED',
       entityType: 'RIDER_KYC',

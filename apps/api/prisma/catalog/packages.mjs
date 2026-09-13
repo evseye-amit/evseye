@@ -1,6 +1,6 @@
 // Imported from the approved package_master workbook. This catalog owns only
 // package-master data; package features are configured separately.
-export const packageSeeds = [
+export const packageCatalog = [
   {
     code: 'BASIC',
     name: 'Basic',

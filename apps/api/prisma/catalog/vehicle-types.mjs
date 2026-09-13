@@ -110,7 +110,7 @@ function parseCsv(contents) {
 }
 
 const csvContents = await readFile(
-  new URL('./vehicle-types.seed.csv', import.meta.url),
+  new URL('./vehicle-types.csv', import.meta.url),
   'utf8',
 );
 const [headers, ...dataRows] = parseCsv(csvContents);
@@ -126,7 +126,7 @@ if (
 
 const seededCodes = new Set();
 
-export const vehicleTypeSeeds = dataRows
+export const vehicleTypeCatalog = dataRows
   .filter((row) => row.some((value) => value.trim()))
   .map((row, index) => {
     const rowNumber = index + 2;

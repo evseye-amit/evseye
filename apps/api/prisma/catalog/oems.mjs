@@ -88,7 +88,7 @@ function optionalUrl(value, rowNumber, fieldName) {
   return trimmedValue;
 }
 
-const csvContents = await readFile(new URL('./oems.seed.csv', import.meta.url), 'utf8');
+const csvContents = await readFile(new URL('./oems.csv', import.meta.url), 'utf8');
 const [headers, ...dataRows] = parseCsv(csvContents);
 
 if (
@@ -102,7 +102,7 @@ if (
 
 const seededCodes = new Set();
 
-export const oemSeeds = dataRows
+export const oemCatalog = dataRows
   .filter((row) => row.some((value) => value.trim()))
   .map((row, index) => {
     const rowNumber = index + 2;

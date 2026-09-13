@@ -11,7 +11,7 @@ const pendingProvider = {
 };
 
 describe('KycService transitions', () => {
-  it('creates a tenant-scoped pending KYC verification for an eligible rider', async () => {
+  it('creates a client-scoped pending KYC verification for an eligible rider', async () => {
     const upsert = vi.fn().mockResolvedValue({
       id: 'kyc-1',
       status: KycStatus.PENDING,
@@ -23,10 +23,10 @@ describe('KycService transitions', () => {
     const service = new KycService(prisma as never, pendingProvider);
 
     await expect(
-      service.start('tenant-a', 'rider-1', { type: 'PAN' }),
+      service.start('client-a', 'rider-1', { type: 'PAN' }),
     ).resolves.toEqual({ id: 'kyc-1', status: KycStatus.PENDING });
     expect(pendingProvider.start).toHaveBeenCalledWith({
-      tenantId: 'tenant-a',
+      clientId: 'client-a',
       riderId: 'rider-1',
       type: 'PAN',
       referenceHint: undefined,
@@ -35,7 +35,7 @@ describe('KycService transitions', () => {
       expect.objectContaining({
         where: { riderId_type: { riderId: 'rider-1', type: 'PAN' } },
         create: expect.objectContaining({
-          tenantId: 'tenant-a',
+          clientId: 'client-a',
           riderId: 'rider-1',
           type: 'PAN',
           status: KycStatus.PENDING,
@@ -57,7 +57,7 @@ describe('KycService transitions', () => {
     const service = new KycService(prisma as never, pendingProvider);
 
     await expect(
-      service.start('tenant-a', 'rider-1', { type: 'PAN' }),
+      service.start('client-a', 'rider-1', { type: 'PAN' }),
     ).rejects.toThrow('already active or complete');
     expect(prisma.riderKyc.upsert).not.toHaveBeenCalled();
   });
@@ -73,7 +73,7 @@ describe('KycService transitions', () => {
     const service = new KycService(prisma as never, pendingProvider);
 
     await expect(
-      service.complete('tenant-a', 'rider-a', 'kyc-1', { status: 'VERIFIED' }),
+      service.complete('client-a', 'rider-a', 'kyc-1', { status: 'VERIFIED' }),
     ).rejects.toThrow('not pending');
   });
 });

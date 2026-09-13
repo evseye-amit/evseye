@@ -18,7 +18,7 @@ import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
-import { TenantContextService } from '../auth/tenant-context.service.js';
+import { ClientContextService } from '../auth/client-context.service.js';
 import { CreateUploadIntentDto } from './dto/create-upload-intent.dto.js';
 import { UpsertPhotoRequirementDto } from './dto/upsert-photo-requirement.dto.js';
 import { MediaService } from './media.service.js';
@@ -29,7 +29,7 @@ export class MediaController {
   constructor(
     private readonly mediaService: MediaService,
     private readonly audit: AuditService,
-    private readonly tenants: TenantContextService,
+    private readonly clients: ClientContextService,
   ) {}
 
   @Get('photo-requirements')
@@ -45,7 +45,7 @@ export class MediaController {
   ) {
     return {
       data: await this.mediaService.requirements(
-        this.tenants.requireTenantId(user),
+        this.clients.requireClientId(user),
         entityType,
       ),
     };
@@ -66,7 +66,7 @@ export class MediaController {
   ) {
     return {
       data: await this.mediaService.listEntityPhotos(
-        this.tenants.requireTenantId(user),
+        this.clients.requireClientId(user),
         entityType,
         entityId,
       ),
@@ -89,7 +89,7 @@ export class MediaController {
     }
     return {
       data: await this.mediaService.upsertRequirement(
-        this.tenants.requireTenantId(user),
+        this.clients.requireClientId(user),
         entityType,
         photoType,
         dto,
@@ -110,7 +110,7 @@ export class MediaController {
   ) {
     return {
       data: await this.mediaService.createUploadIntent(
-        this.tenants.requireTenantId(user),
+        this.clients.requireClientId(user),
         user.id,
         dto,
       ),
@@ -125,10 +125,10 @@ export class MediaController {
     UserRole.KYC_OPERATOR,
   )
   async complete(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    const tenantId = this.tenants.requireTenantId(user);
-    const photo = await this.mediaService.complete(tenantId, id);
+    const clientId = this.clients.requireClientId(user);
+    const photo = await this.mediaService.complete(clientId, id);
     await this.audit.record({
-      tenantId,
+      clientId,
       actorId: user.id,
       action: 'PHOTO_UPLOADED',
       entityType: photo.entityType,
@@ -153,7 +153,7 @@ export class MediaController {
   async downloadUrl(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return {
       data: await this.mediaService.downloadUrl(
-        this.tenants.requireTenantId(user),
+        this.clients.requireClientId(user),
         id,
       ),
     };

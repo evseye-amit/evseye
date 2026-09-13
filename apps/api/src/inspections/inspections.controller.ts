@@ -6,7 +6,7 @@ import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
-import { TenantContextService } from '../auth/tenant-context.service.js';
+import { ClientContextService } from '../auth/client-context.service.js';
 import { InspectionsService } from './inspections.service.js';
 
 @Controller('inspections')
@@ -20,14 +20,14 @@ export class InspectionsController {
   constructor(
     private readonly inspections: InspectionsService,
     private readonly audit: AuditService,
-    private readonly tenants: TenantContextService,
+    private readonly clients: ClientContextService,
   ) {}
 
   @Get(':id')
   async get(@CurrentUser() user: AuthUser, @Param('id') inspectionId: string) {
     return {
       data: await this.inspections.get(
-        this.tenants.requireTenantId(user),
+        this.clients.requireClientId(user),
         inspectionId,
       ),
     };
@@ -38,14 +38,14 @@ export class InspectionsController {
     @CurrentUser() user: AuthUser,
     @Param('id') inspectionId: string,
   ) {
-    const tenantId = this.tenants.requireTenantId(user);
+    const clientId = this.clients.requireClientId(user);
     const inspection = await this.inspections.complete(
-      tenantId,
+      clientId,
       inspectionId,
       user.id,
     );
     await this.audit.record({
-      tenantId,
+      clientId,
       actorId: user.id,
       action: 'INSPECTION_COMPLETED',
       entityType: 'INSPECTION',

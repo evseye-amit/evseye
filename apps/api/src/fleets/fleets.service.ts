@@ -15,17 +15,17 @@ export class FleetsService {
     private readonly prisma: PrismaService,
     private readonly statusPolicy: FleetStatusPolicy,
   ) {}
-  async create(tenantId: string, dto: CreateFleetDto) {
+  async create(clientId: string, dto: CreateFleetDto) {
     if (
       dto.hubId &&
-      !(await this.prisma.hub.findFirst({ where: { id: dto.hubId, tenantId } }))
+      !(await this.prisma.hub.findFirst({ where: { id: dto.hubId, clientId } }))
     )
       throw new NotFoundException('Hub not found.');
     try {
       return await this.prisma.fleet.create({
         data: {
           ...dto,
-          tenantId,
+          clientId,
           registrationDate: dto.registrationDate
             ? new Date(dto.registrationDate)
             : undefined,
@@ -48,14 +48,14 @@ export class FleetsService {
         error.code === 'P2002'
       )
         throw new ConflictException(
-          'Vehicle number or chassis number already exists in this tenant.',
+          'Vehicle number or chassis number already exists in this client.',
         );
       throw error;
     }
   }
-  async list(tenantId: string, query: ListFleetsDto) {
+  async list(clientId: string, query: ListFleetsDto) {
     const where = {
-      tenantId,
+      clientId,
       deletedAt: null,
       ...(query.status
         ? { status: query.status as import('@prisma/client').FleetStatus }
@@ -95,16 +95,16 @@ export class FleetsService {
       meta: { page: query.page, pageSize: query.pageSize, total },
     };
   }
-  async get(tenantId: string, id: string) {
+  async get(clientId: string, id: string) {
     const fleet = await this.prisma.fleet.findFirst({
-      where: { id, tenantId, deletedAt: null },
+      where: { id, clientId, deletedAt: null },
       include: { hub: true, batteries: true, controllers: true },
     });
     if (!fleet) throw new NotFoundException('Fleet not found.');
     return fleet;
   }
-  async onboardingStatus(tenantId: string, id: string) {
-    const fleet = await this.get(tenantId, id);
+  async onboardingStatus(clientId: string, id: string) {
+    const fleet = await this.get(clientId, id);
     const entities = [
       {
         entityType: PhotoEntityType.FLEET,
@@ -129,12 +129,12 @@ export class FleetsService {
     ];
     const [requirements, completedPhotos] = await Promise.all([
       this.prisma.photoRequirement.findMany({
-        where: { tenantId, entityType: { in: entityTypes }, isRequired: true },
+        where: { clientId, entityType: { in: entityTypes }, isRequired: true },
         select: { entityType: true, photoType: true },
       }),
       this.prisma.photo.findMany({
         where: {
-          tenantId,
+          clientId,
           entityType: { in: entityTypes },
           entityId: { in: entities.map((entity) => entity.entityId) },
           status: PhotoStatus.COMPLETE,
@@ -167,18 +167,18 @@ export class FleetsService {
     });
     return { ready: items.every((item) => item.ready), items };
   }
-  async currentState(tenantId: string, id: string) {
-    await this.get(tenantId, id);
+  async currentState(clientId: string, id: string) {
+    await this.get(clientId, id);
     return this.prisma.vehicleCurrentState.findFirst({
-      where: { tenantId, fleetId: id },
+      where: { clientId, fleetId: id },
     });
   }
   async changeStatus(
-    tenantId: string,
+    clientId: string,
     id: string,
     status: Parameters<FleetStatusPolicy['assertTransition']>[1],
   ) {
-    const fleet = await this.get(tenantId, id);
+    const fleet = await this.get(clientId, id);
     this.statusPolicy.assertTransition(fleet.status, status);
     return this.prisma.fleet.update({ where: { id }, data: { status } });
   }

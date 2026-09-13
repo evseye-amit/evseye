@@ -24,7 +24,7 @@ import {
   UpdateClientFeaturePricingDto,
 } from './dto/client-feature-pricing.dto.js';
 import { CreateFeatureUsageDto } from './dto/feature-usage.dto.js';
-import { CreateTenantDto } from './dto/create-tenant.dto.js';
+import { CreateClientDto } from './dto/create-client.dto.js';
 import {
   CreateClientDocumentUploadIntentDto,
   CreateClientDraftDto,
@@ -46,7 +46,7 @@ export class PlatformAdminController {
     return this.platform.listClients().then((data) => ({ data }));
   }
   @Post('clients') createClient(
-    @Body() dto: CreateTenantDto,
+    @Body() dto: CreateClientDto,
     @CurrentUser() user: AuthUser,
   ) {
     return this.platform.createClient(dto, user.id).then((data) => ({ data }));

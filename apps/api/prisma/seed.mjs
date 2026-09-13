@@ -1,15 +1,15 @@
 import { PhotoEntityType, PrismaClient, UserRole } from '@prisma/client';
-import { oemSeeds } from './seeds/oems.seed.mjs';
-import { featureSeeds } from './seeds/features.seed.mjs';
-import { packageSeeds } from './seeds/packages.seed.mjs';
-import { vehicleCategorySeeds } from './seeds/vehicle-categories.seed.mjs';
-import { vehicleTypeSeeds } from './seeds/vehicle-types.seed.mjs';
+import { oemCatalog } from './catalog/oems.mjs';
+import { featureCatalog } from './catalog/features.mjs';
+import { packageCatalog } from './catalog/packages.mjs';
+import { vehicleCategoryCatalog } from './catalog/vehicle-categories.mjs';
+import { vehicleTypeCatalog } from './catalog/vehicle-types.mjs';
 
 const prisma = new PrismaClient();
 
 async function main() {
   const existingSuperAdmin = await prisma.user.findFirst({
-    where: { tenantId: null, mobile: '+919100000000' },
+    where: { clientId: null, mobile: '+919100000000' },
   });
   if (existingSuperAdmin) {
     await prisma.user.update({
@@ -47,7 +47,7 @@ async function main() {
   });
 
   await Promise.all(
-    oemSeeds.map((oem) =>
+    oemCatalog.map((oem) =>
       prisma.oem.upsert({
         where: { code: oem.code },
         create: oem,
@@ -57,7 +57,7 @@ async function main() {
   );
 
   const vehicleCategories = await Promise.all(
-    vehicleCategorySeeds.map((vehicleCategory) =>
+    vehicleCategoryCatalog.map((vehicleCategory) =>
       prisma.vehicleCategory.upsert({
         where: { code: vehicleCategory.code },
         create: vehicleCategory,
@@ -70,7 +70,7 @@ async function main() {
     vehicleCategories.map(({ code, id }) => [code, id]),
   );
   await Promise.all(
-    vehicleTypeSeeds.map(({ categoryCode, ...vehicleType }) => {
+    vehicleTypeCatalog.map(({ categoryCode, ...vehicleType }) => {
       const categoryId = vehicleCategoryIdsByCode.get(categoryCode);
       if (!categoryId) {
         throw new Error(
@@ -86,7 +86,7 @@ async function main() {
     }),
   );
 
-  const defaultFeatureSeeds = [
+  const defaultFeatureCatalog = [
     {
       code: 'RIDER_ONBOARDING',
       name: 'Rider onboarding',
@@ -124,14 +124,14 @@ async function main() {
     },
   ];
   // Workbook entries are authoritative when they overlap a starter record.
-  const featureSeedsByCode = new Map(
-    [...defaultFeatureSeeds, ...featureSeeds].map((feature) => [
+  const featureCatalogByCode = new Map(
+    [...defaultFeatureCatalog, ...featureCatalog].map((feature) => [
       feature.code,
       feature,
     ]),
   );
   await Promise.all(
-    [...featureSeedsByCode.values()].map((feature) =>
+    [...featureCatalogByCode.values()].map((feature) =>
       prisma.feature.upsert({
         where: { code: feature.code },
         create: { ...feature, isActive: true },
@@ -140,7 +140,7 @@ async function main() {
     ),
   );
   await Promise.all(
-    packageSeeds.map((pkg) =>
+    packageCatalog.map((pkg) =>
       prisma.package.upsert({
         where: { code: pkg.code },
         create: pkg,
@@ -149,7 +149,7 @@ async function main() {
     ),
   );
 
-  const tenant = await prisma.tenant.upsert({
+  const client = await prisma.client.upsert({
     where: { slug: 'demo' },
     update: { name: 'EVs Eye Demo', companyCode: 'demo', status: 'ACTIVE', isActive: true },
     create: { slug: 'demo', companyCode: 'demo', name: 'EVs Eye Demo', status: 'ACTIVE' },
@@ -157,7 +157,7 @@ async function main() {
 
   await prisma.user.upsert({
     where: {
-      tenantId_mobile: { tenantId: tenant.id, mobile: '+919000000000' },
+      clientId_mobile: { clientId: client.id, mobile: '+919000000000' },
     },
     update: {
       name: 'Demo Client Admin',
@@ -165,7 +165,7 @@ async function main() {
       isActive: true,
     },
     create: {
-      tenantId: tenant.id,
+      clientId: client.id,
       mobile: '+919000000000',
       name: 'Demo Client Admin',
       role: UserRole.CLIENT_ADMIN,
@@ -213,14 +213,14 @@ async function main() {
     requirements.map(({ entityType, photoType }, sortOrder) =>
       prisma.photoRequirement.upsert({
         where: {
-          tenantId_entityType_photoType: {
-            tenantId: tenant.id,
+          clientId_entityType_photoType: {
+            clientId: client.id,
             entityType,
             photoType,
           },
         },
         create: {
-          tenantId: tenant.id,
+          clientId: client.id,
           entityType,
           photoType,
           isRequired: true,
