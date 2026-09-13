@@ -34,7 +34,7 @@ export class MediaController {
 
   @Get('photo-requirements')
   @Roles(
-    UserRole.TENANT_ADMIN,
+    UserRole.CLIENT_ADMIN,
     UserRole.OPERATIONS_MANAGER,
     UserRole.FLEET_MANAGER,
     UserRole.KYC_OPERATOR,
@@ -53,7 +53,7 @@ export class MediaController {
 
   @Get('photos')
   @Roles(
-    UserRole.TENANT_ADMIN,
+    UserRole.CLIENT_ADMIN,
     UserRole.OPERATIONS_MANAGER,
     UserRole.FLEET_MANAGER,
     UserRole.KYC_OPERATOR,
@@ -74,7 +74,7 @@ export class MediaController {
   }
 
   @Put('photo-requirements/:entityType/:photoType')
-  @Roles(UserRole.TENANT_ADMIN)
+  @Roles(UserRole.CLIENT_ADMIN)
   async upsertRequirement(
     @CurrentUser() user: AuthUser,
     @Param('entityType', new ParseEnumPipe(PhotoEntityType))
@@ -99,7 +99,7 @@ export class MediaController {
 
   @Post('upload-intents')
   @Roles(
-    UserRole.TENANT_ADMIN,
+    UserRole.CLIENT_ADMIN,
     UserRole.OPERATIONS_MANAGER,
     UserRole.FLEET_MANAGER,
     UserRole.KYC_OPERATOR,
@@ -119,7 +119,7 @@ export class MediaController {
 
   @Post(':id/complete')
   @Roles(
-    UserRole.TENANT_ADMIN,
+    UserRole.CLIENT_ADMIN,
     UserRole.OPERATIONS_MANAGER,
     UserRole.FLEET_MANAGER,
     UserRole.KYC_OPERATOR,
@@ -146,7 +146,7 @@ export class MediaController {
 
   @Get(':id/download-url')
   @Roles(
-    UserRole.TENANT_ADMIN,
+    UserRole.CLIENT_ADMIN,
     UserRole.OPERATIONS_MANAGER,
     UserRole.KYC_OPERATOR,
   )

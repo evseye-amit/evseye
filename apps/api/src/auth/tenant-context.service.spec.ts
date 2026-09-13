@@ -11,6 +11,6 @@ describe('TenantContextService', () => {
   });
 
   it('does not allow an ordinary tenant user to cross tenant boundaries', () => {
-    expect(service.canAccessTenant({ id: 'a', tenantId: 'tenant-a', roles: ['TENANT_ADMIN'] }, 'tenant-b')).toBe(false);
+    expect(service.canAccessTenant({ id: 'a', tenantId: 'tenant-a', roles: ['CLIENT_ADMIN'] }, 'tenant-b')).toBe(false);
   });
 });

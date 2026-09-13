@@ -151,8 +151,8 @@ async function main() {
 
   const tenant = await prisma.tenant.upsert({
     where: { slug: 'demo' },
-    update: { name: 'EVs Eye Demo', isActive: true },
-    create: { slug: 'demo', name: 'EVs Eye Demo' },
+    update: { name: 'EVs Eye Demo', companyCode: 'demo', status: 'ACTIVE', isActive: true },
+    create: { slug: 'demo', companyCode: 'demo', name: 'EVs Eye Demo', status: 'ACTIVE' },
   });
 
   await prisma.user.upsert({
@@ -161,14 +161,14 @@ async function main() {
     },
     update: {
       name: 'Demo Client Admin',
-      role: UserRole.TENANT_ADMIN,
+      role: UserRole.CLIENT_ADMIN,
       isActive: true,
     },
     create: {
       tenantId: tenant.id,
       mobile: '+919000000000',
       name: 'Demo Client Admin',
-      role: UserRole.TENANT_ADMIN,
+      role: UserRole.CLIENT_ADMIN,
     },
   });
 

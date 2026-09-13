@@ -21,7 +21,7 @@ import { KycService } from './kyc.service.js';
 
 @Controller('riders/:riderId/kyc')
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(UserRole.TENANT_ADMIN, UserRole.KYC_OPERATOR)
+@Roles(UserRole.CLIENT_ADMIN, UserRole.KYC_OPERATOR)
 export class KycController {
   constructor(
     private readonly kyc: KycService,

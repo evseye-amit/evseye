@@ -169,7 +169,7 @@ function Status({ value }: { value: string }) {
 
 export default function Home() {
   const [phone, setPhone] = useState("");
-  const [clientSlug, setClientSlug] = useState("demo");
+  const [companyCode, setCompanyCode] = useState("demo");
   const [otpRequestId, setOtpRequestId] = useState("");
   const [code, setCode] = useState("");
   const [token, setToken] = useState("");
@@ -350,7 +350,7 @@ export default function Home() {
     try {
       const data = (await request("/auth/otp/request", {
         method: "POST",
-        body: JSON.stringify({ phone, clientSlug }),
+        body: JSON.stringify({ phone, companyCode }),
       })) as { otpRequestId: string };
       setOtpRequestId(data.otpRequestId);
       setNotice("OTP sent. Enter the six-digit code to continue.");
@@ -1399,12 +1399,12 @@ export default function Home() {
             {!otpRequestId ? (
               <form onSubmit={sendOtp} className="auth-form">
                 <label>
-                  Client workspace
+                  Company code
                   <span className="auth-input">
                     <span aria-hidden="true">⌂</span>
                     <input
-                      value={clientSlug}
-                      onChange={(e) => setClientSlug(e.target.value)}
+                      value={companyCode}
+                      onChange={(e) => setCompanyCode(e.target.value)}
                       placeholder="e.g. demo"
                       autoComplete="organization"
                       required

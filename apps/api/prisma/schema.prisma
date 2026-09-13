@@ -9,7 +9,7 @@ datasource db {
 
 enum UserRole {
   SUPER_ADMIN
-  TENANT_ADMIN
+  CLIENT_ADMIN
   OPERATIONS_MANAGER
   FLEET_MANAGER
   KYC_OPERATOR
@@ -175,6 +175,53 @@ enum ClientFeatureSource {
   PROMOTIONAL
 }
 
+enum ClientStatus {
+  DRAFT
+  PENDING_APPROVAL
+  ACTIVE
+  REJECTED
+  SUSPENDED
+}
+
+enum ClientContactRole {
+  PRIMARY
+  ACCOUNT_ADMIN
+  BILLING
+}
+
+enum ClientAddressType {
+  REGISTERED
+  BILLING
+}
+
+enum ClientDocumentType {
+  PAN_CARD
+  GST_CERTIFICATE
+  INCORPORATION_CERTIFICATE
+  FLEET_AGREEMENT
+  BUSINESS_AGREEMENT
+}
+
+enum DocumentVerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum FleetBusinessModel {
+  OWNED
+  LEASED
+  ATTACHED
+  MIXED
+}
+
+enum VehicleOwnership {
+  OWNED
+  LEASED
+  DRIVER_OWNED
+  MIXED
+}
+
 enum FeatureCategory {
   LOGIN
   RIDER_ONBOARDING
@@ -229,6 +276,8 @@ model Tenant {
   id                String                  @id @default(uuid())
   name              String
   slug              String                  @unique
+  companyCode       String?                 @unique
+  status            ClientStatus            @default(DRAFT)
   isActive          Boolean                 @default(true)
   users             User[]
   riders            Rider[]
@@ -237,12 +286,20 @@ model Tenant {
   hubs              Hub[]
   fleets            Fleet[]
   auditLogs         AuditLog[]
-  clientProfile     ClientProfile?
+  businessProfile   ClientBusinessProfile?
+  contacts          ClientContact[]
+  addresses         ClientAddress[]
+  operationsProfile ClientOperationsProfile?
+  billingProfile    ClientBillingProfile?
+  documents         ClientDocument[]
+  agreement         ClientAgreement?
   subscriptions     ClientSubscription[]
   clientFeatures    ClientFeature[]
   featureUsage      FeatureUsage[]
   createdAt         DateTime                @default(now())
   updatedAt         DateTime                @updatedAt
+
+  @@map("Client")
 }
 
 model Oem {
@@ -288,6 +345,7 @@ model VehicleType {
   status      MasterRecordStatus @default(ACTIVE)
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
+  clientOperations ClientOperationsProfile[]
 
   @@index([categoryId, status, name])
 }
@@ -393,7 +451,7 @@ model FeaturePricingTier {
   @@unique([featurePricingId, tierOrder])
 }
 
-model ClientProfile {
+model ClientBusinessProfile {
   id                     String   @id @default(uuid())
   clientId               String   @unique
   client                 Tenant   @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -406,21 +464,122 @@ model ClientProfile {
   cinOrLlpin             String?
   website                String?
   logoUrl                String?
-  primaryContactName     String
-  primaryContactTitle    String
-  primaryContactMobile   String
-  primaryContactEmail    String
-  alternateMobile        String?
-  registeredAddressLine1 String
-  registeredAddressLine2 String?
-  landmark               String?
-  city                   String
-  district               String
-  state                  String
-  country                String   @default("India")
-  pinCode                String
+  logoObjectKey          String?
+  yearEstablished        Int?
+  estimatedFleetSize     Int?
+  estimatedRiderCount    Int?
+  estimatedUserCount     Int?
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
+}
+
+model ClientContact {
+  id               String            @id @default(uuid())
+  clientId         String
+  client           Tenant            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  role             ClientContactRole
+  name             String
+  designation      String?
+  mobile           String?
+  email            String?
+  alternateMobile  String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@unique([clientId, role])
+  @@index([clientId, role])
+}
+
+model ClientAddress {
+  id          String            @id @default(uuid())
+  clientId    String
+  client      Tenant            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  type        ClientAddressType
+  line1       String
+  line2       String?
+  landmark    String?
+  city        String
+  district    String?
+  state       String
+  country     String            @default("India")
+  pinCode     String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@unique([clientId, type])
+}
+
+model ClientOperationsProfile {
+  id                     String             @id @default(uuid())
+  clientId               String             @unique
+  client                 Tenant             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  fleetBusinessModel     FleetBusinessModel
+  numberOfFleets         Int
+  approximateRiderCount  Int
+  vehicleOwnership       VehicleOwnership
+  primaryVehicleTypeId   String
+  primaryVehicleType     VehicleType        @relation(fields: [primaryVehicleTypeId], references: [id], onDelete: Restrict)
+  operationalHubCount    Int?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  @@index([primaryVehicleTypeId])
+}
+
+model ClientBillingProfile {
+  id                 String   @id @default(uuid())
+  clientId           String   @unique
+  client             Tenant   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  billingContactName String
+  billingEmail       String
+  billingMobile      String?
+  purchaseOrderRequired Boolean @default(false)
+  poNumber           String?
+  paymentTerms       String?
+  taxApplicable      Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model ClientDocument {
+  id                 String                     @id @default(uuid())
+  clientId           String
+  client             Tenant                     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  documentType       ClientDocumentType
+  documentNumber     String?
+  issueDate          DateTime?                  @db.Date
+  expiryDate         DateTime?                  @db.Date
+  objectKey          String                     @unique
+  fileName           String
+  mimeType           String
+  sizeBytes          Int
+  verificationStatus DocumentVerificationStatus @default(PENDING)
+  uploadedAt         DateTime?
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+
+  @@index([clientId, documentType, verificationStatus])
+}
+
+model ClientAgreement {
+  id                       String   @id @default(uuid())
+  clientId                 String   @unique
+  client                   Tenant   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  authorizedSignatoryName  String
+  designation              String
+  termsAcceptedAt          DateTime
+  privacyAcceptedAt        DateTime
+  dataProcessingConsentAt  DateTime
+  kycConsentAt             DateTime?
+  marketingConsentAt       DateTime?
+  submittedAt              DateTime?
+  approvedAt               DateTime?
+  approvedById             String?
+  rejectedAt               DateTime?
+  rejectedById             String?
+  rejectionReason          String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
 }
 
 model ClientSubscription {

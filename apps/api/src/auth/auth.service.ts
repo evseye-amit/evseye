@@ -38,17 +38,17 @@ export class AuthService {
 
   async requestLoginOtp(
     phone: string,
-    tenantSlug?: string,
+    companyCode?: string,
     requestedIp?: string,
   ) {
-    const tenant = tenantSlug
+    const tenant = companyCode
       ? await this.prisma.tenant.findFirst({
-          where: { slug: tenantSlug, isActive: true },
+          where: { companyCode, isActive: true, status: 'ACTIVE' },
           select: { id: true },
         })
       : null;
 
-    if (tenantSlug && !tenant) {
+    if (companyCode && !tenant) {
       throw new UnauthorizedException('Invalid tenant or account.');
     }
 

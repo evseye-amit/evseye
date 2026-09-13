@@ -13,7 +13,7 @@ import { LocationsService } from './locations.service.js';
 @Controller()
 @UseGuards(AccessTokenGuard, RolesGuard)
 @Roles(
-  UserRole.TENANT_ADMIN,
+  UserRole.CLIENT_ADMIN,
   UserRole.OPERATIONS_MANAGER,
   UserRole.FLEET_MANAGER,
 )

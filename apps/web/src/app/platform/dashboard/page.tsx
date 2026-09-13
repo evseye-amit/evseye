@@ -285,23 +285,31 @@ export default function SuperAdminDashboard() {
   const [clientStep, setClientStep] = useState(1);
   const [showClientForm, setShowClientForm] = useState(false);
   const [client, setClient] = useState<Item>({
-    name: "",
-    slug: "",
-    legalCompanyName: "",
+    id: "",
+    businessFleetName: "",
+    companyCode: "",
+    legalEntityName: "",
     clientType: "FLEET_OPERATOR",
     businessType: "PVT_LTD",
     industry: "",
     gstin: "",
     pan: "",
+    cinOrLlpin: "",
     website: "",
+    yearEstablished: "",
+    estimatedFleetSize: "",
+    estimatedRiderCount: "",
+    estimatedUserCount: "",
     primaryContactName: "",
-    primaryContactTitle: "",
-    primaryContactMobile: "",
-    primaryContactEmail: "",
+    primaryDesignation: "",
+    primaryMobile: "",
+    primaryEmail: "",
     alternateMobile: "",
+    adminSameAsPrimary: true,
     adminName: "",
     adminEmail: "",
     adminMobile: "",
+    adminDesignation: "",
     registeredAddressLine1: "",
     registeredAddressLine2: "",
     landmark: "",
@@ -310,14 +318,44 @@ export default function SuperAdminDashboard() {
     state: "",
     country: "India",
     pinCode: "",
+    billingSameAsRegistered: true,
+    billingAddressLine1: "",
+    billingAddressLine2: "",
+    billingLandmark: "",
+    billingCity: "",
+    billingDistrict: "",
+    billingState: "",
+    billingCountry: "India",
+    billingPinCode: "",
+    fleetBusinessModel: "OWNED",
+    numberOfFleets: "",
+    approximateRiderCount: "",
+    vehicleOwnership: "OWNED",
+    primaryVehicleTypeId: "",
+    operationalHubCount: "",
     packageId: "",
     billingCycle: "MONTHLY",
     startDate: new Date().toISOString().slice(0, 10),
     endDate: "",
-    discountType: "",
-    discountValue: "",
+    trialRequired: false,
     autoRenew: true,
+    billingContactName: "",
+    billingEmail: "",
+    billingMobile: "",
+    purchaseOrderRequired: false,
+    poNumber: "",
+    paymentTerms: "",
+    authorizedSignatoryName: "",
+    signatoryDesignation: "",
+    termsAccepted: false,
+    privacyAccepted: false,
+    dataProcessingConsent: false,
+    kycConsent: false,
+    marketingConsent: false,
   });
+  const [clientDocumentFiles, setClientDocumentFiles] = useState<
+    Record<string, File | undefined>
+  >({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -882,28 +920,73 @@ export default function SuperAdminDashboard() {
   }
   async function submitClient(event: FormEvent) {
     event.preventDefault();
-    if (clientStep < 4) {
-      setClientStep(clientStep + 1);
-      return;
-    }
     await submit(
-      () =>
-        request(
-          "/platform/clients/onboarding",
-          {
-            method: "POST",
-            body: JSON.stringify({
-              ...client,
-              endDate: client.endDate || undefined,
-              discountValue: client.discountValue
-                ? Number(client.discountValue)
-                : undefined,
-            }),
-          },
-          token,
-        ),
-      "Client onboarded successfully.",
-      () => setShowClientForm(false),
+      async () => {
+        const numberOrUndefined = (value: unknown) =>
+          value === "" || value === undefined ? undefined : Number(value);
+        if (clientStep === 1) {
+          const created = await request(
+            "/platform/clients/drafts",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                businessFleetName: client.businessFleetName,
+                companyCode: client.companyCode,
+                legalEntityName: client.legalEntityName,
+                businessType: client.businessType,
+                clientType: client.clientType,
+                industry: client.industry || undefined,
+                pan: client.pan,
+                gstin: client.gstin || undefined,
+                cinOrLlpin: client.cinOrLlpin || undefined,
+                website: client.website || undefined,
+                yearEstablished: numberOrUndefined(client.yearEstablished),
+                estimatedFleetSize: Number(client.estimatedFleetSize),
+                estimatedRiderCount: Number(client.estimatedRiderCount),
+                estimatedUserCount: numberOrUndefined(client.estimatedUserCount),
+              }),
+            },
+            token,
+          );
+          setClient((current) => ({ ...current, id: created.id }));
+          setClientStep(2);
+          return;
+        }
+        if (!client.id) throw new Error("Create Business Details before continuing.");
+        if (clientStep === 2) {
+          await request(`/platform/clients/${client.id}/contacts-addresses`, { method: "PATCH", body: JSON.stringify(client) }, token);
+          setClientStep(3);
+          return;
+        }
+        if (clientStep === 3) {
+          await request(`/platform/clients/${client.id}/fleet-operations`, { method: "PATCH", body: JSON.stringify({ ...client, numberOfFleets: Number(client.numberOfFleets), approximateRiderCount: Number(client.approximateRiderCount), operationalHubCount: numberOrUndefined(client.operationalHubCount) }) }, token);
+          setClientStep(4);
+          return;
+        }
+        if (clientStep === 4) {
+          await request(`/platform/clients/${client.id}/package-selection`, { method: "PATCH", body: JSON.stringify({ packageId: client.packageId, billingCycle: client.billingCycle, startDate: client.startDate, endDate: client.endDate || undefined, trialRequired: client.trialRequired, autoRenew: client.autoRenew }) }, token);
+          setClientStep(5);
+          return;
+        }
+        if (clientStep === 5) {
+          await request(`/platform/clients/${client.id}/billing`, { method: "PATCH", body: JSON.stringify({ billingContactName: client.billingContactName, billingEmail: client.billingEmail, billingMobile: client.billingMobile || undefined, purchaseOrderRequired: client.purchaseOrderRequired, poNumber: client.poNumber || undefined, paymentTerms: client.paymentTerms || undefined }) }, token);
+          for (const [documentType, file] of Object.entries(clientDocumentFiles)) {
+            if (!file) continue;
+            const intent = await request(`/platform/clients/${client.id}/documents/upload-intents`, { method: "POST", body: JSON.stringify({ documentType, fileName: file.name, mimeType: file.type, sizeBytes: file.size }) }, token);
+            const upload = await fetch(intent.uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
+            if (!upload.ok) throw new Error(`Unable to upload ${documentType}.`);
+            await request(`/platform/clients/${client.id}/documents/${intent.document.id}/complete`, { method: "POST" }, token);
+          }
+          setClientStep(6);
+          return;
+        }
+        await request(`/platform/clients/${client.id}/agreement`, { method: "PATCH", body: JSON.stringify({ authorizedSignatoryName: client.authorizedSignatoryName, designation: client.signatoryDesignation, termsAccepted: client.termsAccepted, privacyAccepted: client.privacyAccepted, dataProcessingConsent: client.dataProcessingConsent, kycConsent: client.kycConsent, marketingConsent: client.marketingConsent }) }, token);
+        await request(`/platform/clients/${client.id}/submit`, { method: "POST" }, token);
+      },
+      clientStep === 6 ? "Client submitted for Super Admin approval." : "Draft saved.",
+      () => {
+        if (clientStep === 6) setShowClientForm(false);
+      },
     );
   }
   async function remove(path: string, label: string) {
@@ -1038,6 +1121,7 @@ export default function SuperAdminDashboard() {
           <ClientsView
             clients={clients}
             packages={packages}
+            vehicleTypes={vehicleTypes}
             showForm={showClientForm}
             setShowForm={setShowClientForm}
             client={client}
@@ -1045,6 +1129,8 @@ export default function SuperAdminDashboard() {
             step={clientStep}
             setStep={setClientStep}
             submit={submitClient}
+            documentFiles={clientDocumentFiles}
+            setDocumentFiles={setClientDocumentFiles}
           />
         )}
         {tab === "oems" && (
@@ -2587,6 +2673,7 @@ function DashboardView({
 function ClientsView({
   clients,
   packages,
+  vehicleTypes,
   showForm,
   setShowForm,
   client,
@@ -2594,56 +2681,35 @@ function ClientsView({
   step,
   setStep,
   submit,
+  documentFiles,
+  setDocumentFiles,
 }: any) {
-  const fields =
-    step === 1
-      ? [
-          ["name", "Client / company name"],
-          ["slug", "Client workspace slug"],
-          ["legalCompanyName", "Legal company name"],
-          ["clientType", "Client type"],
-          ["businessType", "Business type"],
-          ["industry", "Industry"],
-          ["gstin", "GSTIN"],
-          ["pan", "PAN"],
-          ["website", "Website"],
-        ]
-      : step === 2
-        ? [
-            ["primaryContactName", "Primary contact name"],
-            ["primaryContactTitle", "Designation"],
-            ["primaryContactMobile", "Primary mobile"],
-            ["primaryContactEmail", "Primary email"],
-            ["alternateMobile", "Alternate mobile"],
-            ["adminName", "Admin name"],
-            ["adminEmail", "Admin email"],
-            ["adminMobile", "Admin mobile"],
-          ]
-        : step === 3
-          ? [
-              ["registeredAddressLine1", "Address line 1"],
-              ["registeredAddressLine2", "Address line 2"],
-              ["landmark", "Landmark"],
-              ["city", "City"],
-              ["district", "District"],
-              ["state", "State"],
-              ["country", "Country"],
-              ["pinCode", "PIN code"],
-            ]
-          : [
-              ["startDate", "Start date"],
-              ["endDate", "End date"],
-              ["discountType", "Discount type"],
-              ["discountValue", "Discount value"],
-            ];
+  const headings = [
+    "Business Details",
+    "Contacts & Address",
+    "Fleet Operations",
+    "Package Selection",
+    "Billing & Documents",
+    "Review & Submit",
+  ];
+  const fields = step === 1
+    ? [["businessFleetName", "Business / fleet name"], ["companyCode", "Company code (client login)"], ["legalEntityName", "Legal entity name"], ["industry", "Industry"], ["pan", "PAN"], ["gstin", "GSTIN"], ["cinOrLlpin", "CIN / LLPIN"], ["website", "Website"], ["yearEstablished", "Year of establishment"], ["estimatedFleetSize", "Approx. fleet size"], ["estimatedRiderCount", "Approx. rider count"], ["estimatedUserCount", "Approx. employee / user count"]]
+    : step === 2
+      ? [["primaryContactName", "Primary contact name"], ["primaryDesignation", "Primary designation"], ["primaryMobile", "Primary mobile"], ["primaryEmail", "Primary email"], ["alternateMobile", "Alternate mobile"], ["registeredAddressLine1", "Registered address line 1"], ["registeredAddressLine2", "Registered address line 2"], ["landmark", "Landmark"], ["city", "City"], ["district", "District"], ["state", "State"], ["country", "Country"], ["pinCode", "PIN code"]]
+      : step === 3
+        ? [["numberOfFleets", "Number of fleets"], ["approximateRiderCount", "Approx. riders"], ["operationalHubCount", "Number of operational hubs"]]
+        : step === 4
+          ? [["startDate", "Package start date"], ["endDate", "Package end date"]]
+          : step === 5
+            ? [["billingContactName", "Billing contact name"], ["billingEmail", "Billing email"], ["billingMobile", "Billing mobile"], ["poNumber", "PO number"], ["paymentTerms", "Payment terms"]]
+            : [["authorizedSignatoryName", "Authorized signatory name"], ["signatoryDesignation", "Signatory designation"]];
   return (
     <>
       <section className="sa-page-head">
         <div>
           <h2>Clients</h2>
           <p>
-            Onboard a client with contacts, address, package, and commercial
-            terms.
+            Manage onboarding drafts, approvals, subscriptions, and documents.
           </p>
         </div>
         <button
@@ -2659,24 +2725,36 @@ function ClientsView({
         <form className="sa-wizard" onSubmit={submit}>
           <header>
             <span>Client onboarding</span>
-            <strong>Step {step} of 4</strong>
+            <strong>Step {step} of 6</strong>
           </header>
           <div className="sa-wizard-progress">
-            <span style={{ width: `${step * 25}%` }} />
+            <span style={{ width: `${(step / 6) * 100}%` }} />
           </div>
           <section>
-            <h3>
-              {
-                [
-                  "Company information",
-                  "Contact information",
-                  "Registered & billing address",
-                  "Package & commercials",
-                ][step - 1]
-              }
-            </h3>
+            <h3>{headings[step - 1]}</h3>
             <div className="sa-field-grid">
               <TextFields value={client} change={change} fields={fields} />
+              {step === 1 && (
+                <>
+                  <Select label="Client type" value={client.clientType} change={(value) => change("clientType", value)} options={["FLEET_OWNER", "FLEET_OPERATOR", "LOGISTICS_COMPANY", "DELIVERY_PARTNER", "LEASING_COMPANY", "VEHICLE_AGGREGATOR", "ENTERPRISE", "OTHER"]} />
+                  <Select label="Business type" value={client.businessType} change={(value) => change("businessType", value)} options={["PVT_LTD", "LLP", "PARTNERSHIP", "PROPRIETORSHIP", "HUF", "INDIVIDUAL", "OTHER"]} />
+                </>
+              )}
+              {step === 2 && (
+                <>
+                  <label className="sa-toggle"><input type="checkbox" checked={client.adminSameAsPrimary} onChange={(event) => change("adminSameAsPrimary", event.target.checked)} /> Admin is same as Primary Contact</label>
+                  {!client.adminSameAsPrimary && <TextFields value={client} change={change} fields={[["adminName", "Admin name"], ["adminDesignation", "Admin designation"], ["adminMobile", "Admin mobile"], ["adminEmail", "Admin email"]]} />}
+                  <label className="sa-toggle"><input type="checkbox" checked={client.billingSameAsRegistered} onChange={(event) => change("billingSameAsRegistered", event.target.checked)} /> Billing address is same as registered</label>
+                  {!client.billingSameAsRegistered && <TextFields value={client} change={change} fields={[["billingAddressLine1", "Billing address line 1"], ["billingAddressLine2", "Billing address line 2"], ["billingLandmark", "Billing landmark"], ["billingCity", "Billing city"], ["billingDistrict", "Billing district"], ["billingState", "Billing state"], ["billingCountry", "Billing country"], ["billingPinCode", "Billing PIN code"]]} />}
+                </>
+              )}
+              {step === 3 && (
+                <>
+                  <Select label="Fleet business model" value={client.fleetBusinessModel} change={(value) => change("fleetBusinessModel", value)} options={["OWNED", "LEASED", "ATTACHED", "MIXED"]} />
+                  <Select label="Vehicle ownership" value={client.vehicleOwnership} change={(value) => change("vehicleOwnership", value)} options={["OWNED", "LEASED", "DRIVER_OWNED", "MIXED"]} />
+                  <label>Primary vehicle type<select required value={client.primaryVehicleTypeId} onChange={(event) => change("primaryVehicleTypeId", event.target.value)}><option value="">Select vehicle type</option>{vehicleTypes.filter((item: Item) => item.status === "ACTIVE").map((item: Item) => <option key={item.id} value={item.id}>{item.code} · {item.name}</option>)}</select></label>
+                </>
+              )}
               {step === 4 && (
                 <>
                   <label>
@@ -2689,7 +2767,9 @@ function ClientsView({
                       required
                     >
                       <option value="">Select package</option>
-                      {packages.map((item: Item) => (
+                      {packages
+                        .filter((item: Item) => item.isActive && item.monthlyPrice !== null)
+                        .map((item: Item) => (
                         <option key={item.id} value={item.id}>
                           {item.name} · ₹{item.monthlyPrice}/month
                         </option>
@@ -2720,6 +2800,23 @@ function ClientsView({
                     />{" "}
                     Auto renew
                   </label>
+                  <label className="sa-toggle"><input type="checkbox" checked={client.trialRequired} onChange={(event) => change("trialRequired", event.target.checked)} /> Trial required</label>
+                </>
+              )}
+              {step === 5 && (
+                <>
+                  <label className="sa-toggle"><input type="checkbox" checked={client.purchaseOrderRequired} onChange={(event) => change("purchaseOrderRequired", event.target.checked)} /> Purchase order required</label>
+                  {[["PAN_CARD", "PAN Card · required"], ["GST_CERTIFICATE", "GST Certificate"], ["INCORPORATION_CERTIFICATE", "Incorporation Certificate"], ["FLEET_AGREEMENT", "Fleet / Business Agreement"]].map(([type, label]) => <label key={type} className="sa-logo-input">{label}<input type="file" accept="application/pdf,image/jpeg,image/png" onChange={(event) => setDocumentFiles((current: any) => ({ ...current, [type]: event.target.files?.[0] }))} />{documentFiles[type] && <small>{documentFiles[type]?.name}</small>}</label>)}
+                </>
+              )}
+              {step === 6 && (
+                <>
+                  <p className="muted">Review the saved Client profile, contacts, operations, package, billing, and uploaded documents. Submission locks the draft and sends it to Super Admin approval.</p>
+                  <label className="sa-toggle"><input type="checkbox" checked={client.termsAccepted} onChange={(event) => change("termsAccepted", event.target.checked)} /> I accept the Terms</label>
+                  <label className="sa-toggle"><input type="checkbox" checked={client.privacyAccepted} onChange={(event) => change("privacyAccepted", event.target.checked)} /> I accept the Privacy Policy</label>
+                  <label className="sa-toggle"><input type="checkbox" checked={client.dataProcessingConsent} onChange={(event) => change("dataProcessingConsent", event.target.checked)} /> I give Data Processing Consent</label>
+                  <label className="sa-toggle"><input type="checkbox" checked={client.kycConsent} onChange={(event) => change("kycConsent", event.target.checked)} /> KYC consent</label>
+                  <label className="sa-toggle"><input type="checkbox" checked={client.marketingConsent} onChange={(event) => change("marketingConsent", event.target.checked)} /> Marketing consent</label>
                 </>
               )}
             </div>
@@ -2734,7 +2831,7 @@ function ClientsView({
                 Back
               </button>
             )}
-            <button>{step === 4 ? "Create client" : "Continue"}</button>
+            <button>{step === 6 ? "Submit for onboarding" : "Save & continue"}</button>
           </footer>
         </form>
       )}
@@ -2747,9 +2844,9 @@ function ClientsView({
         ]}
         rows={clients.map((item: Item) => [
           item.name,
-          item.slug,
+          item.companyCode ?? item.slug,
           item._count?.riders ?? 0,
-          item.isActive ? "ACTIVE" : "INACTIVE",
+          item.status ?? (item.isActive ? "ACTIVE" : "INACTIVE"),
         ])}
       />
     </>

@@ -9,7 +9,7 @@ import { TenantContextService } from '../auth/tenant-context.service.js';
 import { AuditService } from './audit.service.js';
 @Controller('audit-logs')
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(UserRole.TENANT_ADMIN)
+@Roles(UserRole.CLIENT_ADMIN)
 export class AuditController {
   constructor(
     private readonly audit: AuditService,

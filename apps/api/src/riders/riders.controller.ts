@@ -32,7 +32,7 @@ export class RidersController {
 
   @Get()
   @Roles(
-    UserRole.TENANT_ADMIN,
+    UserRole.CLIENT_ADMIN,
     UserRole.OPERATIONS_MANAGER,
     UserRole.FLEET_MANAGER,
     UserRole.KYC_OPERATOR,
@@ -47,7 +47,7 @@ export class RidersController {
   }
 
   @Post()
-  @Roles(UserRole.TENANT_ADMIN, UserRole.OPERATIONS_MANAGER)
+  @Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
   async create(@CurrentUser() user: AuthUser, @Body() dto: CreateRiderDto) {
     const tenantId = this.tenantContext.requireTenantId(user);
     const rider = await this.ridersService.create(tenantId, dto);
@@ -64,7 +64,7 @@ export class RidersController {
 
   @Get(':id')
   @Roles(
-    UserRole.TENANT_ADMIN,
+    UserRole.CLIENT_ADMIN,
     UserRole.OPERATIONS_MANAGER,
     UserRole.FLEET_MANAGER,
     UserRole.KYC_OPERATOR,
@@ -80,7 +80,7 @@ export class RidersController {
 
   @Patch(':id')
   @Roles(
-    UserRole.TENANT_ADMIN,
+    UserRole.CLIENT_ADMIN,
     UserRole.OPERATIONS_MANAGER,
     UserRole.KYC_OPERATOR,
   )

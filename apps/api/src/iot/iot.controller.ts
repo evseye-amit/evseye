@@ -66,7 +66,7 @@ class IngestTelemetryDto {
 
 @Controller('iot')
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(UserRole.TENANT_ADMIN, UserRole.FLEET_MANAGER)
+@Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
 export class IotController {
   constructor(
     private readonly iot: IotService,
