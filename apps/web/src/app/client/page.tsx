@@ -95,6 +95,10 @@ export default function ClientHome() {
     RIDERS: "Rider creation",
     REVIEW: "Review & submit",
   };
+  const currentStepNumber =
+    data.progress.steps.findIndex(
+      (step) => step.step === data.progress.currentStep,
+    ) + 1;
   if (data.route === "WAITING")
     return (
       <Gate
@@ -120,52 +124,62 @@ export default function ClientHome() {
     return <ClientDashboardView client={data.client} dashboard={dashboard} />;
   return (
     <main className="client-workspace">
-      <p className="eyebrow">CLIENT ONBOARDING</p>
-      <h1>Set up {data.client.name}</h1>
-      <p>
-        Save progress at any time. You will resume from your latest incomplete
-        step after login.
-      </p>
-      <ol className="client-steps">
-        {data.progress.steps.map((step) => (
-          <li
-            key={step.step}
-            className={
-              step.step === data.progress.currentStep
-                ? "current"
-                : step.status.toLowerCase()
-            }
-          >
-            <strong>{labels[step.step]}</strong>
-            <span>{step.status.replaceAll("_", " ")}</span>
-          </li>
-        ))}
-      </ol>
-      <p className="notice">
-        Current step: {labels[data.progress.currentStep]}. Creation and
-        bulk-upload results are saved to this persisted workflow.
-      </p>
-      {data.progress.currentStep === "HUBS" ? (
-        <HubSetup onSaved={() => setRefresh((value) => value + 1)} />
-      ) : data.progress.currentStep === "FLEET_MANAGERS" ? (
-        <FleetManagerSetup onSaved={() => setRefresh((value) => value + 1)} />
-      ) : data.progress.currentStep === "TEAM_LEADERS" ? (
-        <TeamLeaderSetup onSaved={() => setRefresh((value) => value + 1)} />
-      ) : data.progress.currentStep === "FLEETS" ? (
-        <FleetSetup onSaved={() => setRefresh((value) => value + 1)} />
-      ) : data.progress.currentStep === "RIDERS" ? (
-        <RiderSetup onSaved={() => setRefresh((value) => value + 1)} />
-      ) : data.progress.currentStep === "REVIEW" ? (
-        <ReviewSubmit onSaved={() => setRefresh((value) => value + 1)} />
-      ) : (
-        <section className="client-next-step">
-          <strong>{labels[data.progress.currentStep]}</strong>
+      <aside className="client-onboarding-sidebar">
+        <p className="eyebrow">CLIENT ONBOARDING</p>
+        <h1>Set up {data.client.name}</h1>
+        <p>
+          Save your progress at any time. You will resume from the latest
+          incomplete step after login.
+        </p>
+        <ol className="client-steps">
+          {data.progress.steps.map((step, index) => (
+            <li
+              key={step.step}
+              className={
+                step.step === data.progress.currentStep
+                  ? "current"
+                  : step.status.toLowerCase()
+              }
+            >
+              <b>{index + 1}</b>
+              <strong>{labels[step.step]}</strong>
+              <span>{step.status.replaceAll("_", " ")}</span>
+            </li>
+          ))}
+        </ol>
+      </aside>
+      <section className="client-onboarding-main">
+        <header className="client-onboarding-context">
+          <span>
+            Step {currentStepNumber} of {data.progress.steps.length}
+          </span>
           <p>
-            This step is ready to continue. The matching single-create and bulk
-            import workspace is the next onboarding delivery.
+            {labels[data.progress.currentStep]} is in progress. Your creation
+            and bulk-import results are safely saved to this workflow.
           </p>
-        </section>
-      )}
+        </header>
+        {data.progress.currentStep === "HUBS" ? (
+          <HubSetup onSaved={() => setRefresh((value) => value + 1)} />
+        ) : data.progress.currentStep === "FLEET_MANAGERS" ? (
+          <FleetManagerSetup onSaved={() => setRefresh((value) => value + 1)} />
+        ) : data.progress.currentStep === "TEAM_LEADERS" ? (
+          <TeamLeaderSetup onSaved={() => setRefresh((value) => value + 1)} />
+        ) : data.progress.currentStep === "FLEETS" ? (
+          <FleetSetup onSaved={() => setRefresh((value) => value + 1)} />
+        ) : data.progress.currentStep === "RIDERS" ? (
+          <RiderSetup onSaved={() => setRefresh((value) => value + 1)} />
+        ) : data.progress.currentStep === "REVIEW" ? (
+          <ReviewSubmit onSaved={() => setRefresh((value) => value + 1)} />
+        ) : (
+          <section className="client-next-step">
+            <strong>{labels[data.progress.currentStep]}</strong>
+            <p>
+              This step is ready to continue. The matching single-create and
+              bulk import workspace is the next onboarding delivery.
+            </p>
+          </section>
+        )}
+      </section>
     </main>
   );
 }
@@ -1341,7 +1355,41 @@ function FleetManagerSetup({ onSaved }: { onSaved: () => void }) {
 }
 
 function HubSetup({ onSaved }: { onSaved: () => void }) {
-  const [form, setForm] = useState({ code: "", name: "", city: "", state: "" });
+  const emptyForm = {
+    code: "",
+    name: "",
+    type: "OPERATIONS",
+    status: "ACTIVE",
+    addressLine1: "",
+    addressLine2: "",
+    landmark: "",
+    city: "",
+    district: "",
+    state: "",
+    country: "India",
+    postalCode: "",
+    latitude: "",
+    longitude: "",
+    vehicleCapacity: "",
+    riderCapacity: "",
+    batteryCapacity: "",
+    parkingSlots: "",
+    chargingPoints: "",
+    swappingPoints: "",
+    contactName: "",
+    contactPhone: "",
+    contactEmail: "",
+    openingTime: "",
+    closingTime: "",
+    is24x7: false,
+    supportsCharging: false,
+    supportsBatterySwapping: false,
+    supportsMaintenance: false,
+    supportsAllocation: true,
+    supportsDeallocation: true,
+    supportsPdi: false,
+  };
+  const [form, setForm] = useState(emptyForm);
   const [rows, setRows] = useState<Record<string, string>[]>([]);
   const [filename, setFilename] = useState("");
   const [message, setMessage] = useState("");
@@ -1371,11 +1419,29 @@ function HubSetup({ onSaved }: { onSaved: () => void }) {
       await request("/hubs", {
         ...form,
         code: form.code.trim().toUpperCase(),
+        latitude: form.latitude ? Number(form.latitude) : undefined,
+        longitude: form.longitude ? Number(form.longitude) : undefined,
+        vehicleCapacity: form.vehicleCapacity
+          ? Number(form.vehicleCapacity)
+          : undefined,
+        riderCapacity: form.riderCapacity
+          ? Number(form.riderCapacity)
+          : undefined,
+        batteryCapacity: form.batteryCapacity
+          ? Number(form.batteryCapacity)
+          : undefined,
+        parkingSlots: form.parkingSlots ? Number(form.parkingSlots) : undefined,
+        chargingPoints: form.chargingPoints
+          ? Number(form.chargingPoints)
+          : undefined,
+        swappingPoints: form.swappingPoints
+          ? Number(form.swappingPoints)
+          : undefined,
       });
       setMessage(
         "Hub created. You can now continue to Fleet Manager creation.",
       );
-      setForm({ code: "", name: "", city: "", state: "" });
+      setForm(emptyForm);
       onSaved();
     } catch (cause) {
       setMessage(
@@ -1440,8 +1506,10 @@ function HubSetup({ onSaved }: { onSaved: () => void }) {
     }
   };
   const downloadTemplate = () => {
-    const csv =
-      "code,name,city,state\nHUB-DEL-01,Delhi Central,New Delhi,Delhi\n";
+    const csv = [
+      "code,name,type,status,addressLine1,addressLine2,landmark,city,district,state,country,postalCode,latitude,longitude,vehicleCapacity,riderCapacity,batteryCapacity,parkingSlots,chargingPoints,swappingPoints,contactName,contactPhone,contactEmail,openingTime,closingTime,is24x7,supportsCharging,supportsBatterySwapping,supportsMaintenance,supportsAllocation,supportsDeallocation,supportsPdi",
+      "HUB-DEL-01,Delhi Central,OPERATIONS,ACTIVE,Connaught Place,,,New Delhi,New Delhi,Delhi,India,110001,28.6315,77.2167,120,250,40,80,12,4,Rahul Sharma,+919876543210,rahul@example.com,08:00,20:00,false,true,false,false,true,true,false",
+    ].join("\n");
     const anchor = document.createElement("a");
     anchor.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     anchor.download = "evs-eye-hubs-template.csv";
@@ -1454,14 +1522,17 @@ function HubSetup({ onSaved }: { onSaved: () => void }) {
         <p className="eyebrow">STEP 1 · HUBS</p>
         <h2>Create your operational Hubs</h2>
         <p>
-          Add a Hub one at a time or upload a prepared CSV. Required columns are
-          code, name, city, and state.
+          Set up the location, capacity, contact details, hours, and services
+          available at each Hub. Fields marked <strong>*</strong> are required.
         </p>
       </div>
       <div className="client-onboarding-options">
         <form onSubmit={create} className="client-hub-form">
+          <h3 className="client-form-section-title">Hub identity</h3>
           <label>
-            Hub code
+            <span className="client-label-text">
+              Hub code <span className="client-required-star">*</span>
+            </span>
             <input
               required
               value={form.code}
@@ -1472,7 +1543,9 @@ function HubSetup({ onSaved }: { onSaved: () => void }) {
             />
           </label>
           <label>
-            Hub name
+            <span className="client-label-text">
+              Hub name <span className="client-required-star">*</span>
+            </span>
             <input
               required
               value={form.name}
@@ -1483,7 +1556,74 @@ function HubSetup({ onSaved }: { onSaved: () => void }) {
             />
           </label>
           <label>
-            City
+            Hub type
+            <select
+              value={form.type}
+              onChange={(event) =>
+                setForm({ ...form, type: event.target.value })
+              }
+            >
+              <option value="OPERATIONS">Operations</option>
+              <option value="PARKING">Parking</option>
+              <option value="CHARGING">Charging</option>
+              <option value="BATTERY_SWAP">Battery swap</option>
+              <option value="MAINTENANCE">Maintenance</option>
+              <option value="WAREHOUSE">Warehouse</option>
+              <option value="DELIVERY">Delivery</option>
+              <option value="MIXED">Mixed</option>
+            </select>
+          </label>
+          <label>
+            Status
+            <select
+              value={form.status}
+              onChange={(event) =>
+                setForm({ ...form, status: event.target.value })
+              }
+            >
+              <option value="ACTIVE">Active</option>
+              <option value="INACTIVE">Inactive</option>
+              <option value="TEMPORARILY_CLOSED">Temporarily closed</option>
+              <option value="UNDER_MAINTENANCE">Under maintenance</option>
+              <option value="FULL">Full</option>
+            </select>
+          </label>
+
+          <h3 className="client-form-section-title">Location & address</h3>
+          <label className="client-form-wide">
+            Address line 1
+            <input
+              value={form.addressLine1}
+              onChange={(event) =>
+                setForm({ ...form, addressLine1: event.target.value })
+              }
+              placeholder="Building, street, locality"
+            />
+          </label>
+          <label>
+            Address line 2
+            <input
+              value={form.addressLine2}
+              onChange={(event) =>
+                setForm({ ...form, addressLine2: event.target.value })
+              }
+              placeholder="Floor, area, etc."
+            />
+          </label>
+          <label>
+            Landmark
+            <input
+              value={form.landmark}
+              onChange={(event) =>
+                setForm({ ...form, landmark: event.target.value })
+              }
+              placeholder="Nearby landmark"
+            />
+          </label>
+          <label>
+            <span className="client-label-text">
+              City <span className="client-required-star">*</span>
+            </span>
             <input
               required
               value={form.city}
@@ -1494,7 +1634,19 @@ function HubSetup({ onSaved }: { onSaved: () => void }) {
             />
           </label>
           <label>
-            State
+            District
+            <input
+              value={form.district}
+              onChange={(event) =>
+                setForm({ ...form, district: event.target.value })
+              }
+              placeholder="District"
+            />
+          </label>
+          <label>
+            <span className="client-label-text">
+              State <span className="client-required-star">*</span>
+            </span>
             <input
               required
               value={form.state}
@@ -1504,13 +1656,214 @@ function HubSetup({ onSaved }: { onSaved: () => void }) {
               placeholder="Delhi"
             />
           </label>
+          <label>
+            Country
+            <input
+              value={form.country}
+              onChange={(event) =>
+                setForm({ ...form, country: event.target.value })
+              }
+              placeholder="India"
+            />
+          </label>
+          <label>
+            PIN / postal code
+            <input
+              value={form.postalCode}
+              onChange={(event) =>
+                setForm({ ...form, postalCode: event.target.value })
+              }
+              placeholder="110001"
+            />
+          </label>
+          <label>
+            Latitude
+            <input
+              type="number"
+              step="0.0000001"
+              value={form.latitude}
+              onChange={(event) =>
+                setForm({ ...form, latitude: event.target.value })
+              }
+              placeholder="28.6315"
+            />
+          </label>
+          <label>
+            Longitude
+            <input
+              type="number"
+              step="0.0000001"
+              value={form.longitude}
+              onChange={(event) =>
+                setForm({ ...form, longitude: event.target.value })
+              }
+              placeholder="77.2167"
+            />
+          </label>
+
+          <h3 className="client-form-section-title">Capacity & facilities</h3>
+          <label>
+            Vehicle capacity
+            <input
+              type="number"
+              min="0"
+              value={form.vehicleCapacity}
+              onChange={(event) =>
+                setForm({ ...form, vehicleCapacity: event.target.value })
+              }
+              placeholder="120"
+            />
+          </label>
+          <label>
+            Rider capacity
+            <input
+              type="number"
+              min="0"
+              value={form.riderCapacity}
+              onChange={(event) =>
+                setForm({ ...form, riderCapacity: event.target.value })
+              }
+              placeholder="250"
+            />
+          </label>
+          <label>
+            Battery capacity
+            <input
+              type="number"
+              min="0"
+              value={form.batteryCapacity}
+              onChange={(event) =>
+                setForm({ ...form, batteryCapacity: event.target.value })
+              }
+              placeholder="40"
+            />
+          </label>
+          <label>
+            Parking slots
+            <input
+              type="number"
+              min="0"
+              value={form.parkingSlots}
+              onChange={(event) =>
+                setForm({ ...form, parkingSlots: event.target.value })
+              }
+              placeholder="80"
+            />
+          </label>
+          <label>
+            Charging points
+            <input
+              type="number"
+              min="0"
+              value={form.chargingPoints}
+              onChange={(event) =>
+                setForm({ ...form, chargingPoints: event.target.value })
+              }
+              placeholder="12"
+            />
+          </label>
+          <label>
+            Swapping points
+            <input
+              type="number"
+              min="0"
+              value={form.swappingPoints}
+              onChange={(event) =>
+                setForm({ ...form, swappingPoints: event.target.value })
+              }
+              placeholder="4"
+            />
+          </label>
+
+          <h3 className="client-form-section-title">Hub contact & hours</h3>
+          <label>
+            Contact name
+            <input
+              value={form.contactName}
+              onChange={(event) =>
+                setForm({ ...form, contactName: event.target.value })
+              }
+              placeholder="Hub contact"
+            />
+          </label>
+          <label>
+            Contact mobile
+            <input
+              value={form.contactPhone}
+              onChange={(event) =>
+                setForm({ ...form, contactPhone: event.target.value })
+              }
+              placeholder="+919876543210"
+            />
+          </label>
+          <label className="client-form-wide">
+            Contact email
+            <input
+              type="email"
+              value={form.contactEmail}
+              onChange={(event) =>
+                setForm({ ...form, contactEmail: event.target.value })
+              }
+              placeholder="hub@example.com"
+            />
+          </label>
+          <label>
+            Opening time
+            <input
+              type="time"
+              value={form.openingTime}
+              disabled={form.is24x7}
+              onChange={(event) =>
+                setForm({ ...form, openingTime: event.target.value })
+              }
+            />
+          </label>
+          <label>
+            Closing time
+            <input
+              type="time"
+              value={form.closingTime}
+              disabled={form.is24x7}
+              onChange={(event) =>
+                setForm({ ...form, closingTime: event.target.value })
+              }
+            />
+          </label>
+
+          <fieldset className="client-hub-picker client-form-wide">
+            <legend>Operational capabilities</legend>
+            <p>Select the services this Hub can support.</p>
+            {[
+              ["is24x7", "Open 24 × 7"],
+              ["supportsCharging", "Charging"],
+              ["supportsBatterySwapping", "Battery swapping"],
+              ["supportsMaintenance", "Maintenance"],
+              ["supportsAllocation", "Allocation"],
+              ["supportsDeallocation", "Deallocation"],
+              ["supportsPdi", "PDI inspection"],
+            ].map(([key, label]) => (
+              <label key={key}>
+                <input
+                  type="checkbox"
+                  checked={form[key as keyof typeof form] as boolean}
+                  onChange={(event) =>
+                    setForm({ ...form, [key]: event.target.checked })
+                  }
+                />{" "}
+                {label}
+              </label>
+            ))}
+          </fieldset>
           <button disabled={busy} type="submit">
             {busy ? "Saving…" : "Create Hub"}
           </button>
         </form>
         <div className="client-bulk-card">
           <h3>Bulk upload</h3>
-          <p>Use the template, complete your Hubs, then upload the CSV.</p>
+          <p>
+            Download the full template, complete only the columns you need, then
+            upload it. Required columns: code, name, city, and state.
+          </p>
           <button
             type="button"
             className="secondary-button"

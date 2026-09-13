@@ -11,7 +11,21 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { HubStatus, HubType } from '@prisma/client';
+
+const optionalNumber = () =>
+  Transform(({ value }) =>
+    value === '' || value === null || value === undefined
+      ? undefined
+      : Number(value),
+  );
+const optionalBoolean = () =>
+  Transform(({ value }) => {
+    if (value === '' || value === null || value === undefined) return undefined;
+    if (typeof value === 'boolean') return value;
+    return String(value).trim().toLowerCase() === 'true';
+  });
 
 export class CreateHubDto {
   @IsString() @MaxLength(150) name!: string;
@@ -26,25 +40,28 @@ export class CreateHubDto {
   @IsString() @MaxLength(100) state!: string;
   @IsOptional() @IsString() @MaxLength(100) country?: string;
   @IsOptional() @IsString() @MaxLength(10) postalCode?: string;
-  @IsOptional() @IsNumber() latitude?: number;
-  @IsOptional() @IsNumber() longitude?: number;
+  @IsOptional() @optionalNumber() @IsNumber() latitude?: number;
+  @IsOptional() @optionalNumber() @IsNumber() longitude?: number;
   @IsOptional() @IsUUID() parentHubId?: string;
-  @IsOptional() @IsInt() @Min(0) vehicleCapacity?: number;
-  @IsOptional() @IsInt() @Min(0) riderCapacity?: number;
-  @IsOptional() @IsInt() @Min(0) batteryCapacity?: number;
-  @IsOptional() @IsInt() @Min(0) parkingSlots?: number;
-  @IsOptional() @IsInt() @Min(0) chargingPoints?: number;
-  @IsOptional() @IsInt() @Min(0) swappingPoints?: number;
+  @IsOptional() @optionalNumber() @IsInt() @Min(0) vehicleCapacity?: number;
+  @IsOptional() @optionalNumber() @IsInt() @Min(0) riderCapacity?: number;
+  @IsOptional() @optionalNumber() @IsInt() @Min(0) batteryCapacity?: number;
+  @IsOptional() @optionalNumber() @IsInt() @Min(0) parkingSlots?: number;
+  @IsOptional() @optionalNumber() @IsInt() @Min(0) chargingPoints?: number;
+  @IsOptional() @optionalNumber() @IsInt() @Min(0) swappingPoints?: number;
   @IsOptional() @IsString() @MaxLength(150) contactName?: string;
   @IsOptional() @Matches(/^\+?[1-9]\d{7,14}$/) contactPhone?: string;
   @IsOptional() @IsEmail() @MaxLength(150) contactEmail?: string;
   @IsOptional() @Matches(/^([01]\d|2[0-3]):[0-5]\d$/) openingTime?: string;
   @IsOptional() @Matches(/^([01]\d|2[0-3]):[0-5]\d$/) closingTime?: string;
-  @IsOptional() @IsBoolean() is24x7?: boolean;
-  @IsOptional() @IsBoolean() supportsCharging?: boolean;
-  @IsOptional() @IsBoolean() supportsBatterySwapping?: boolean;
-  @IsOptional() @IsBoolean() supportsMaintenance?: boolean;
-  @IsOptional() @IsBoolean() supportsAllocation?: boolean;
-  @IsOptional() @IsBoolean() supportsDeallocation?: boolean;
-  @IsOptional() @IsBoolean() supportsPdi?: boolean;
+  @IsOptional() @optionalBoolean() @IsBoolean() is24x7?: boolean;
+  @IsOptional() @optionalBoolean() @IsBoolean() supportsCharging?: boolean;
+  @IsOptional()
+  @optionalBoolean()
+  @IsBoolean()
+  supportsBatterySwapping?: boolean;
+  @IsOptional() @optionalBoolean() @IsBoolean() supportsMaintenance?: boolean;
+  @IsOptional() @optionalBoolean() @IsBoolean() supportsAllocation?: boolean;
+  @IsOptional() @optionalBoolean() @IsBoolean() supportsDeallocation?: boolean;
+  @IsOptional() @optionalBoolean() @IsBoolean() supportsPdi?: boolean;
 }

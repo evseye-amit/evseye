@@ -274,6 +274,18 @@ export default function Home() {
 
   useEffect(() => {
     if (!token) return;
+    void request("/auth/me", {}, token)
+      .then((identity) => {
+        const roles = (identity as { roles?: string[] }).roles ?? [];
+        if (roles.includes("CLIENT_ADMIN")) {
+          window.location.replace("/client");
+        }
+      })
+      .catch(() => undefined);
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
     void loadView(tab);
     // Loading belongs to the selected view and intentionally runs after sign-in/tab change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -371,11 +383,14 @@ export default function Home() {
         clientId: string | null;
         roles: string[];
       };
-      window.location.assign(
-        identity.roles.includes("SUPER_ADMIN")
-          ? "/platform/dashboard"
-          : "/client",
-      );
+      if (identity.roles.includes("SUPER_ADMIN")) {
+        window.location.replace("/platform/dashboard");
+        return;
+      }
+      if (identity.roles.includes("CLIENT_ADMIN")) {
+        window.location.replace("/client");
+        return;
+      }
       setToken(data.accessToken);
       setNotice("");
     } catch (cause) {
