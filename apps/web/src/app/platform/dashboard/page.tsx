@@ -1,7 +1,14 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import {
+  FormEvent,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 
 const API_URL =
@@ -253,6 +260,9 @@ export default function SuperAdminDashboard() {
   const [oem, setOem] = useState(emptyOem);
   const [editingOemId, setEditingOemId] = useState<string | null>(null);
   const [showOemForm, setShowOemForm] = useState(false);
+  const oemDialogRef = useRef<HTMLDialogElement>(null);
+  const oemTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const oemWasOpenRef = useRef(false);
   const [showOemBulk, setShowOemBulk] = useState(false);
   const [oemLogoFile, setOemLogoFile] = useState<File | null>(null);
   const [oemLogoPreview, setOemLogoPreview] = useState("");
@@ -370,6 +380,59 @@ export default function SuperAdminDashboard() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (token) void load();
   }, [token, load]);
+  useEffect(() => {
+    const dialog = oemDialogRef.current;
+    if (!dialog) return;
+
+    let frame = 0;
+    if (showOemForm) {
+      if (!dialog.open) dialog.showModal();
+      frame = window.requestAnimationFrame(() => {
+        dialog
+          .querySelector<HTMLElement>('input:not([type="file"])')
+          ?.focus();
+      });
+    } else {
+      if (dialog.open) dialog.close();
+      if (oemWasOpenRef.current) {
+        frame = window.requestAnimationFrame(() => {
+          oemTriggerRef.current?.focus();
+        });
+      }
+    }
+    oemWasOpenRef.current = showOemForm;
+
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [showOemForm]);
+  function openOemModal(trigger: HTMLButtonElement, item?: Item) {
+    oemTriggerRef.current = trigger;
+    setError("");
+    setNotice("");
+    setShowOemBulk(false);
+    if (item) {
+      setOem({
+        code: item.code,
+        name: item.name,
+        displayName: item.displayName,
+        status: item.status,
+        website: item.website ?? "",
+        description: item.description ?? "",
+      });
+      setEditingOemId(item.id);
+    } else {
+      setOem(emptyOem);
+      setEditingOemId(null);
+    }
+    setOemLogoFile(null);
+    setOemLogoPreview("");
+    setShowOemForm(true);
+  }
+  function closeOemModal() {
+    setError("");
+    setShowOemForm(false);
+  }
   async function submitOem(event: FormEvent) {
     event.preventDefault();
     await submit(
@@ -379,6 +442,7 @@ export default function SuperAdminDashboard() {
           { method: editingOemId ? "PUT" : "POST", body: JSON.stringify(oem) },
           token,
         );
+        if (!editingOemId) setEditingOemId(saved.id);
         if (oemLogoFile) await uploadOemLogo(saved.id, oemLogoFile);
       },
       editingOemId ? "OEM updated." : "OEM created.",
@@ -1030,7 +1094,7 @@ export default function SuperAdminDashboard() {
           </div>
         </header>
         {notice && <p className="notice">{notice}</p>}
-        {error && <p className="error">{error}</p>}
+        {error && !showOemForm && <p className="error">{error}</p>}
         {tab === "dashboard" && (
           <DashboardView
             summary={summary}
@@ -1076,10 +1140,7 @@ export default function SuperAdminDashboard() {
                   Bulk upload
                 </button>
                 <button
-                  onClick={() => {
-                    setShowOemForm(!showOemForm);
-                    setShowOemBulk(false);
-                  }}
+                  onClick={(event) => openOemModal(event.currentTarget)}
                 >
                   + Add OEM
                 </button>
@@ -1109,59 +1170,93 @@ export default function SuperAdminDashboard() {
                 </label>
               </section>
             )}
-            <section
-              className={`sa-management ${showOemForm ? "" : "oem-table-only"}`}
+            <dialog
+              ref={oemDialogRef}
+              className="sa-oem-dialog"
+              aria-labelledby="oem-dialog-title"
+              aria-describedby={error ? "oem-dialog-error" : undefined}
+              aria-modal="true"
+              onCancel={(event) => {
+                event.preventDefault();
+                if (!loading) closeOemModal();
+              }}
+              onClose={() => setShowOemForm(false)}
             >
-              {showOemForm && (
-                <form className="sa-form" onSubmit={submitOem}>
-                  <h3>Add OEM</h3>
-                  <TextFields
-                    value={oem}
-                    change={(key, value) =>
-                      setOem((current) => ({ ...current, [key]: value }))
-                    }
-                    fields={[
-                      ["code", "OEM code"],
-                      ["name", "Legal name"],
-                      ["displayName", "Display name"],
-                      ["website", "Website"],
-                      ["description", "Description"],
-                    ]}
+              <form className="sa-form" onSubmit={submitOem}>
+                <header className="sa-oem-dialog-head">
+                  <div>
+                    <h2 id="oem-dialog-title">
+                      {editingOemId ? "Edit OEM" : "Add OEM"}
+                    </h2>
+                    <p>
+                      Enter the manufacturer details shown across the platform.
+                    </p>
+                  </div>
+                </header>
+                {error && (
+                  <p id="oem-dialog-error" className="error" role="alert">
+                    {error}
+                  </p>
+                )}
+                <TextFields
+                  value={oem}
+                  change={(key, value) =>
+                    setOem((current) => ({ ...current, [key]: value }))
+                  }
+                  fields={[
+                    ["code", "OEM code"],
+                    ["name", "Legal name"],
+                    ["displayName", "Display name"],
+                    ["website", "Website"],
+                    ["description", "Description"],
+                  ]}
+                />
+                <Select
+                  label="Status"
+                  value={oem.status}
+                  change={(value) =>
+                    setOem((current) => ({ ...current, status: value }))
+                  }
+                  options={["ACTIVE", "INACTIVE", "SUSPENDED"]}
+                />
+                <label className="sa-logo-input">
+                  OEM logo{" "}
+                  <span>
+                    PNG, JPEG, or WebP · max 1 MB · max 200 × 200 px
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void selectOemLogo(file);
+                      event.currentTarget.value = "";
+                    }}
                   />
-                  <Select
-                    value={oem.status}
-                    change={(value) =>
-                      setOem((current) => ({ ...current, status: value }))
-                    }
-                    options={["ACTIVE", "INACTIVE", "SUSPENDED"]}
+                </label>
+                {oemLogoPreview && (
+                  <img
+                    className="sa-logo-preview"
+                    src={oemLogoPreview}
+                    alt="OEM logo preview"
                   />
-                  <label className="sa-logo-input">
-                    OEM logo{" "}
-                    <span>
-                      PNG, JPEG, or WebP · max 1 MB · max 200 × 200 px
-                    </span>
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp"
-                      onChange={(event) => {
-                        const file = event.target.files?.[0];
-                        if (file) void selectOemLogo(file);
-                        event.currentTarget.value = "";
-                      }}
-                    />
-                  </label>
-                  {oemLogoPreview && (
-                    <img
-                      className="sa-logo-preview"
-                      src={oemLogoPreview}
-                      alt="OEM logo preview"
-                    />
-                  )}
-                  <button disabled={loading}>
+                )}
+                <footer className="sa-oem-dialog-actions">
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={closeOemModal}
+                    disabled={loading}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" disabled={loading}>
                     {editingOemId ? "Update OEM" : "Save OEM"}
                   </button>
-                </form>
-              )}
+                </footer>
+              </form>
+            </dialog>
+            <section className="sa-management oem-table-only">
               {oems.length ? (
                 <DataTable
                   headings={["Code", "OEM", "Status", ""]}
@@ -1172,20 +1267,9 @@ export default function SuperAdminDashboard() {
                     <button
                       key="edit"
                       className="secondary"
-                      onClick={() => {
-                        setOem({
-                          code: item.code,
-                          name: item.name,
-                          displayName: item.displayName,
-                          status: item.status,
-                          website: item.website ?? "",
-                          description: item.description ?? "",
-                        });
-                        setEditingOemId(item.id);
-                        setShowOemForm(true);
-                        setOemLogoFile(null);
-                        setOemLogoPreview("");
-                      }}
+                      onClick={(event) =>
+                        openOemModal(event.currentTarget, item)
+                      }
                     >
                       Edit
                     </button>,
@@ -1208,7 +1292,9 @@ export default function SuperAdminDashboard() {
                     template.
                   </p>
                   <div>
-                    <button onClick={() => setShowOemForm(true)}>
+                    <button
+                      onClick={(event) => openOemModal(event.currentTarget)}
+                    >
                       Add OEM
                     </button>
                     <button
@@ -2907,14 +2993,84 @@ function BulkUploadPanel({
 }
 
 function DataTable({ headings, rows }: { headings: string[]; rows: any[][] }) {
-  const pageSize = 10;
-  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+  const [pageSize, setPageSize] = useState(10);
+  const searchId = useId();
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredRows = normalizedQuery
+    ? rows.filter((row) =>
+        row.some(
+          (cell) =>
+            (typeof cell === "string" || typeof cell === "number") &&
+            String(cell).toLowerCase().includes(normalizedQuery),
+        ),
+      )
+    : rows;
+  const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize));
   const currentPage = Math.min(page, pageCount);
-  const pageRows = rows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const pageRows = filteredRows.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
 
   return (
     <div>
+      <div className="sa-table-toolbar">
+        <div className="sa-table-search">
+          <label htmlFor={searchId}>Search this table</label>
+          <div className="sa-table-search-control">
+            <input
+              id={searchId}
+              ref={searchInputRef}
+              type="search"
+              value={query}
+              placeholder="Search this table"
+              onChange={(event) => {
+                setQuery(event.currentTarget.value);
+                setPage(1);
+              }}
+            />
+            {normalizedQuery && (
+              <button
+                type="button"
+                className="secondary sa-table-search-clear"
+                aria-label="Clear table search"
+                onClick={() => {
+                  setQuery("");
+                  setPage(1);
+                  searchInputRef.current?.focus();
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="sa-table-toolbar-meta">
+          <span className="sa-table-result-count">
+            {filteredRows.length}{" "}
+            {filteredRows.length === 1 ? "result" : "results"}
+          </span>
+          <label className="sa-table-page-size">
+            Rows per page
+            <select
+              value={pageSize}
+              onChange={(event) => {
+                setPageSize(Number(event.currentTarget.value));
+                setPage(1);
+              }}
+            >
+              {[10, 25, 50, 100].map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </div>
       <div className="sa-table-wrap">
         <table>
           <thead>
@@ -2935,17 +3091,20 @@ function DataTable({ headings, rows }: { headings: string[]; rows: any[][] }) {
               ))
             ) : (
               <tr>
-                <td colSpan={headings.length}>No records yet.</td>
+                <td colSpan={headings.length}>
+                  {rows.length ? "No matching records." : "No records yet."}
+                </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
-      {rows.length > pageSize && (
+      {filteredRows.length > pageSize && (
         <div className="sa-pagination" aria-label="Table pagination">
           <span>
             Showing {(currentPage - 1) * pageSize + 1}–
-            {Math.min(currentPage * pageSize, rows.length)} of {rows.length}
+            {Math.min(currentPage * pageSize, filteredRows.length)} of{" "}
+            {filteredRows.length}
           </span>
           <div>
             <button
