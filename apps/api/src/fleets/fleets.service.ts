@@ -17,15 +17,25 @@ export class FleetsService {
   ) {}
   async create(clientId: string, dto: CreateFleetDto) {
     if (
-      dto.hubId &&
-      !(await this.prisma.hub.findFirst({ where: { id: dto.hubId, clientId } }))
+      dto.homeHubId &&
+      !(await this.prisma.hub.findFirst({
+        where: { id: dto.homeHubId, clientId, deletedAt: null },
+      }))
     )
       throw new NotFoundException('Hub not found.');
+    if (
+      dto.currentHubId &&
+      !(await this.prisma.hub.findFirst({
+        where: { id: dto.currentHubId, clientId, deletedAt: null },
+      }))
+    )
+      throw new NotFoundException('Current hub not found.');
     try {
       return await this.prisma.fleet.create({
         data: {
           ...dto,
           clientId,
+          currentHubId: dto.currentHubId ?? dto.homeHubId,
           registrationDate: dto.registrationDate
             ? new Date(dto.registrationDate)
             : undefined,
@@ -83,7 +93,7 @@ export class FleetsService {
     const [items, total] = await this.prisma.$transaction([
       this.prisma.fleet.findMany({
         where,
-        include: { hub: true },
+        include: { homeHub: true, currentHub: true },
         orderBy: { createdAt: 'desc' },
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
@@ -98,7 +108,12 @@ export class FleetsService {
   async get(clientId: string, id: string) {
     const fleet = await this.prisma.fleet.findFirst({
       where: { id, clientId, deletedAt: null },
-      include: { hub: true, batteries: true, controllers: true },
+      include: {
+        homeHub: true,
+        currentHub: true,
+        batteries: true,
+        controllers: true,
+      },
     });
     if (!fleet) throw new NotFoundException('Fleet not found.');
     return fleet;

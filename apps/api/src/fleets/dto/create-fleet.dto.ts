@@ -1,8 +1,16 @@
-import { IsISO8601, IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator';
+import {
+  IsISO8601,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  MaxLength,
+} from 'class-validator';
 export class CreateFleetDto {
   @IsString() @MaxLength(40) vehicleNumber!: string;
   @IsString() @MaxLength(80) chassisNumber!: string;
-  @IsOptional() @IsUUID() hubId?: string;
+  @IsOptional() @IsUUID() homeHubId?: string;
+  @IsOptional() @IsUUID() currentHubId?: string;
   @IsOptional() @IsString() @MaxLength(80) oem?: string;
   @IsOptional() @IsString() @MaxLength(80) model?: string;
   @IsOptional() @IsString() @MaxLength(40) colour?: string;

@@ -54,7 +54,7 @@ export class AllocationsService {
         where,
         include: {
           rider: true,
-          fleet: { include: { hub: true } },
+          fleet: { include: { currentHub: true } },
           inspections: true,
         },
         orderBy: { createdAt: 'desc' },
@@ -74,7 +74,7 @@ export class AllocationsService {
       where: { id: allocationId, clientId },
       include: {
         rider: true,
-        fleet: { include: { hub: true } },
+        fleet: { include: { currentHub: true } },
         inspections: true,
       },
     });

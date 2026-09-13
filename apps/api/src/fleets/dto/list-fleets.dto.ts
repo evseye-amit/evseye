@@ -4,5 +4,18 @@ export class ListFleetsDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page = 1;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) pageSize = 20;
   @IsOptional() @IsString() search?: string;
-  @IsOptional() @IsIn(['AVAILABLE','RESERVED','ALLOCATION_IN_PROGRESS','ALLOCATED','IN_USE','DEALLOCATION_IN_PROGRESS','INSPECTION_PENDING','MAINTENANCE','OUT_OF_SERVICE','OFFLINE']) status?: string;
+  @IsOptional()
+  @IsIn([
+    'AVAILABLE',
+    'RESERVED',
+    'ALLOCATION_IN_PROGRESS',
+    'ALLOCATED',
+    'IN_USE',
+    'DEALLOCATION_IN_PROGRESS',
+    'INSPECTION_PENDING',
+    'MAINTENANCE',
+    'OUT_OF_SERVICE',
+    'OFFLINE',
+  ])
+  status?: string;
 }

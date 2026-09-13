@@ -7,7 +7,7 @@ describe('RidersController audit trail', () => {
     const riders = {
       create: vi.fn().mockResolvedValue({
         id: 'rider-1',
-        status: RiderStatus.PENDING,
+        status: RiderStatus.ONBOARDING,
       }),
     };
     const audit = { record: vi.fn().mockResolvedValue({ id: 'audit-1' }) };
@@ -28,7 +28,7 @@ describe('RidersController audit trail', () => {
       action: 'RIDER_CREATED',
       entityType: 'RIDER',
       entityId: 'rider-1',
-      newData: { status: RiderStatus.PENDING },
+      newData: { status: RiderStatus.ONBOARDING },
     });
   });
 });

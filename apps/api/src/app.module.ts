@@ -18,6 +18,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
 import { RidersModule } from './riders/riders.module.js';
 import { PlatformAdminModule } from './platform-admin/platform-admin.module.js';
 import { PlatformCatalogModule } from './platform-catalog/platform-catalog.module.js';
+import { ClientOnboardingModule } from './client-onboarding/client-onboarding.module.js';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { PlatformCatalogModule } from './platform-catalog/platform-catalog.modul
     RidersModule,
     PlatformAdminModule,
     PlatformCatalogModule,
+    ClientOnboardingModule,
     MediaModule,
     KycModule,
     FleetsModule,

@@ -367,6 +367,15 @@ export default function Home() {
       })) as TokenPair;
       sessionStorage.setItem(ACCESS_TOKEN_KEY, data.accessToken);
       sessionStorage.setItem(REFRESH_TOKEN_KEY, data.refreshToken);
+      const identity = (await request("/auth/me", {}, data.accessToken)) as {
+        clientId: string | null;
+        roles: string[];
+      };
+      window.location.assign(
+        identity.roles.includes("SUPER_ADMIN")
+          ? "/platform/dashboard"
+          : "/client",
+      );
       setToken(data.accessToken);
       setNotice("");
     } catch (cause) {

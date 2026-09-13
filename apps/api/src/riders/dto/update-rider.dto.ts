@@ -17,6 +17,6 @@ export class UpdateRiderDto {
   address?: string;
 
   @IsOptional()
-  @IsIn(['PENDING', 'ACTIVE', 'INACTIVE', 'BLOCKED'])
-  status?: 'PENDING' | 'ACTIVE' | 'INACTIVE' | 'BLOCKED';
+  @IsIn(['ONBOARDING', 'ACTIVE', 'INACTIVE', 'BLOCKED', 'EXITED'])
+  status?: 'ONBOARDING' | 'ACTIVE' | 'INACTIVE' | 'BLOCKED' | 'EXITED';
 }

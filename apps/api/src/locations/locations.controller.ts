@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Header,
+  Param,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
@@ -7,6 +15,7 @@ import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { ClientContextService } from '../auth/client-context.service.js';
 import { CreateHubDto } from './dto/create-hub.dto.js';
+import { BulkHubDto } from './dto/bulk-hub.dto.js';
 import { LocationsService } from './locations.service.js';
 
 @Controller()
@@ -36,5 +45,41 @@ export class LocationsController {
         dto,
       ),
     };
+  }
+  @Post('hubs/bulk') async bulkHubs(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: BulkHubDto,
+  ) {
+    return {
+      data: await this.locations.bulkCreateHubs(
+        this.clients.requireClientId(user),
+        user.id,
+        dto.filename,
+        dto.rows,
+      ),
+    };
+  }
+  @Get('hubs/imports/:id/failed-records')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  async failedHubRecords(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    const rows = await this.locations.failedRows(
+      this.clients.requireClientId(user),
+      id,
+    );
+    if (!rows.length) return '';
+    const headers = Object.keys(rows[0] as Record<string, unknown>);
+    const cell = (value: unknown) =>
+      `"${String(value ?? '').replaceAll('"', '""')}"`;
+    return [
+      headers.join(','),
+      ...rows.map((row) =>
+        headers
+          .map((header) => cell((row as Record<string, unknown>)[header]))
+          .join(','),
+      ),
+    ].join('\n');
   }
 }
