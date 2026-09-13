@@ -793,6 +793,9 @@ th {
   gap: 14px;
   margin-bottom: 20px;
 }
+.sa-metrics-secondary {
+  margin-top: -6px;
+}
 .sa-metric {
   position: relative;
   display: grid;
@@ -848,6 +851,14 @@ th {
   color: #d26551;
   background: #ffe0d8;
 }
+.sa-icon.blue {
+  color: #2675a9;
+  background: #dceff9;
+}
+.sa-icon.purple {
+  color: #7557aa;
+  background: #eee6fb;
+}
 .sa-icon.gold {
   color: #aa8450;
   background: #f8eedc;
@@ -875,6 +886,37 @@ th {
   height: 156px;
   margin: 22px 0 10px;
   border-bottom: 1px solid #eee;
+}
+.sa-health-bars {
+  display: grid;
+  gap: 16px;
+  margin: 28px 0 20px;
+}
+.sa-health-bars > div {
+  display: grid;
+  gap: 7px;
+}
+.sa-health-label {
+  display: flex;
+  justify-content: space-between;
+  color: #69736b;
+  font-size: 11px;
+}
+.sa-health-label strong {
+  color: #26352d;
+}
+.sa-health-track {
+  display: block;
+  height: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eef1ed;
+}
+.sa-health-track i {
+  display: block;
+  height: 100%;
+  min-width: 3px;
+  border-radius: inherit;
 }
 .sa-revenue-bars div {
   display: grid;
@@ -939,6 +981,95 @@ th {
   grid-template-columns: repeat(3, 1fr);
   gap: 10px;
   margin-top: 40px;
+}
+.sa-lifecycle {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  min-height: 170px;
+  padding: 18px 5px 0;
+}
+.sa-donut {
+  display: grid;
+  width: 142px;
+  height: 142px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+}
+.sa-donut > div {
+  display: grid;
+  width: 94px;
+  height: 94px;
+  place-content: center;
+  border-radius: 50%;
+  background: white;
+  text-align: center;
+}
+.sa-donut strong {
+  font-size: 26px;
+}
+.sa-donut small {
+  color: #89928a;
+  font-size: 10px;
+}
+.sa-legend {
+  display: grid;
+  gap: 11px;
+  flex: 1;
+}
+.sa-legend > div {
+  display: grid;
+  grid-template-columns: 9px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  color: #717a72;
+  font-size: 11px;
+}
+.sa-legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.sa-legend strong {
+  color: #36443b;
+}
+.sa-catalog-card {
+  min-height: 290px;
+}
+.sa-catalog-coverage {
+  display: grid;
+  gap: 13px;
+  margin-top: 24px;
+}
+.sa-catalog-coverage button {
+  display: grid;
+  grid-template-columns: 155px 1fr;
+  align-items: center;
+  gap: 14px;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+}
+.sa-catalog-coverage button > span {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+.sa-catalog-coverage strong {
+  color: #26352d;
+  font-size: 18px;
+}
+.sa-catalog-coverage small {
+  color: #788279;
+  font-size: 11px;
+}
+.sa-catalog-coverage i {
+  display: block;
+  height: 7px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2d8662, #74c599);
 }
 .sa-summary-list button {
   display: grid;

@@ -52,20 +52,75 @@ export class PlatformCatalogService {
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
   ) {}
 
-  dashboard() {
-    return Promise.all([
-      this.prisma.client.count(),
-      this.prisma.fleet.count(),
-      this.prisma.rider.count(),
-      this.prisma.package.count({ where: { isActive: true } }),
-      this.prisma.oem.count({ where: { status: 'ACTIVE' } }),
-    ]).then(([clients, fleets, riders, packages, oems]) => ({
+  async dashboard() {
+    const [
       clients,
+      activeClients,
+      pendingClients,
       fleets,
       riders,
       packages,
       oems,
-    }));
+      features,
+      pricing,
+      subscriptions,
+      vehicleCategories,
+      vehicleTypes,
+      clientsByStatus,
+      fleetsByStatus,
+      ridersByStatus,
+    ] = await Promise.all([
+      this.prisma.client.count(),
+      this.prisma.client.count({ where: { status: 'ACTIVE', isActive: true } }),
+      this.prisma.client.count({ where: { status: 'PENDING_APPROVAL' } }),
+      this.prisma.fleet.count({ where: { deletedAt: null } }),
+      this.prisma.rider.count({ where: { deletedAt: null } }),
+      this.prisma.package.count({ where: { isActive: true } }),
+      this.prisma.oem.count({ where: { status: 'ACTIVE' } }),
+      this.prisma.feature.count({ where: { isActive: true } }),
+      this.prisma.featurePricing.count({ where: { isActive: true } }),
+      this.prisma.clientSubscription.count({ where: { status: 'ACTIVE' } }),
+      this.prisma.vehicleCategory.count({ where: { status: 'ACTIVE' } }),
+      this.prisma.vehicleType.count({ where: { status: 'ACTIVE' } }),
+      this.prisma.client.groupBy({ by: ['status'], _count: { _all: true } }),
+      this.prisma.fleet.groupBy({
+        by: ['status'],
+        where: { deletedAt: null },
+        _count: { _all: true },
+      }),
+      this.prisma.rider.groupBy({
+        by: ['status'],
+        where: { deletedAt: null },
+        _count: { _all: true },
+      }),
+    ]);
+
+    const statusCounts = <
+      T extends { status: string; _count: { _all: number } },
+    >(
+      values: T[],
+    ) =>
+      Object.fromEntries(
+        values.map((value) => [value.status, value._count._all]),
+      );
+
+    return {
+      clients,
+      activeClients,
+      pendingClients,
+      fleets,
+      riders,
+      packages,
+      oems,
+      features,
+      pricing,
+      subscriptions,
+      vehicleCategories,
+      vehicleTypes,
+      clientsByStatus: statusCounts(clientsByStatus),
+      fleetsByStatus: statusCounts(fleetsByStatus),
+      ridersByStatus: statusCounts(ridersByStatus),
+    };
   }
 
   listOems() {
@@ -643,10 +698,7 @@ export class PlatformCatalogService {
       entityId: id,
     });
   }
-  async bulkCreatePackages(
-    dto: BulkCreatePackagesDto,
-    actorId: string,
-  ) {
+  async bulkCreatePackages(dto: BulkCreatePackagesDto, actorId: string) {
     const codes = new Set<string>();
     const rows = dto.rows.map((row, index) => {
       const optionalNumber = (value: unknown) =>
@@ -682,10 +734,12 @@ export class PlatformCatalogService {
         !/^[A-Z]{3}$/.test(normalized.currency) ||
         (normalized.description && normalized.description.length > 500) ||
         integerFields.some(
-          (value) => value !== undefined && (!Number.isInteger(value) || value < 0),
+          (value) =>
+            value !== undefined && (!Number.isInteger(value) || value < 0),
         ) ||
         monetaryFields.some(
-          (value) => value !== undefined && (!Number.isFinite(value) || value < 0),
+          (value) =>
+            value !== undefined && (!Number.isFinite(value) || value < 0),
         )
       ) {
         throw new BadRequestException(

@@ -223,17 +223,19 @@ function Metric({
   label,
   value,
   tone,
+  detail,
 }: {
   label: string;
   value: string | number;
   tone: string;
+  detail?: string;
 }) {
   return (
     <article className="sa-metric">
       <span className={`sa-icon ${tone}`}>◈</span>
       <strong>{value}</strong>
       <small>{label}</small>
-      <em>Live</em>
+      <em>{detail ?? "Live"}</em>
     </article>
   );
 }
@@ -2798,48 +2800,143 @@ function DashboardView({
   oems: Item[];
   setTab: (tab: Tab) => void;
 }) {
+  const fleetStatus = summary.fleetsByStatus ?? {};
+  const riderStatus = summary.ridersByStatus ?? {};
+  const clientStatus = summary.clientsByStatus ?? {};
+  const clientSlices = [
+    ["Active", Number(clientStatus.ACTIVE ?? 0), "#2d8662"],
+    ["Pending", Number(clientStatus.PENDING_APPROVAL ?? 0), "#d5913a"],
+    ["Draft", Number(clientStatus.DRAFT ?? 0), "#8092a2"],
+    ["Suspended", Number(clientStatus.SUSPENDED ?? 0), "#d26551"],
+  ] as const;
+  const clientTotal = clientSlices.reduce(
+    (total, [, count]) => total + count,
+    0,
+  );
+  let cursor = 0;
+  const clientGradient = clientSlices
+    .filter(([, count]) => count > 0)
+    .map(([, count, color]) => {
+      const start = (cursor / Math.max(clientTotal, 1)) * 100;
+      cursor += count;
+      const end = (cursor / Math.max(clientTotal, 1)) * 100;
+      return `${color} ${start}% ${end}%`;
+    })
+    .join(", ");
+  const fleetBars = [
+    ["Available", Number(fleetStatus.AVAILABLE ?? 0), "#2d8662"],
+    [
+      "Allocated",
+      Number(fleetStatus.ALLOCATED ?? 0) + Number(fleetStatus.IN_USE ?? 0),
+      "#367eb5",
+    ],
+    ["Maintenance", Number(fleetStatus.MAINTENANCE ?? 0), "#d5913a"],
+    [
+      "Offline",
+      Number(fleetStatus.OFFLINE ?? 0) +
+        Number(fleetStatus.OUT_OF_SERVICE ?? 0),
+      "#d26551",
+    ],
+  ] as const;
+  const maxFleetBar = Math.max(...fleetBars.map(([, count]) => count), 1);
+  const catalogItems = [
+    [
+      "Vehicle categories",
+      Number(summary.vehicleCategories ?? 0),
+      "vehicleCategories",
+    ],
+    ["Vehicle types", Number(summary.vehicleTypes ?? 0), "vehicleTypes"],
+    ["OEMs", Number(summary.oems ?? oems.length), "oems"],
+    ["Features", Number(summary.features ?? 0), "features"],
+    ["Price rules", Number(summary.pricing ?? 0), "pricing"],
+  ] as const;
+
   return (
     <>
       <section className="sa-metrics">
         <Metric
-          label="Total clients"
-          value={summary.clients ?? 0}
+          label="Active clients"
+          value={summary.activeClients ?? 0}
+          detail={`${summary.pendingClients ?? 0} pending`}
           tone="green"
         />
         <Metric
-          label="Active vehicles"
+          label="Total fleet"
           value={summary.fleets ?? 0}
+          detail={`${fleetStatus.AVAILABLE ?? 0} available`}
+          tone="blue"
+        />
+        <Metric
+          label="Active riders"
+          value={riderStatus.ACTIVE ?? 0}
+          detail={`${summary.riders ?? 0} total`}
+          tone="gold"
+        />
+        <Metric
+          label="Live subscriptions"
+          value={summary.subscriptions ?? 0}
+          detail={`${summary.packages ?? 0} packages`}
+          tone="purple"
+        />
+      </section>
+      <section className="sa-metrics sa-metrics-secondary">
+        <Metric
+          label="Client pipeline"
+          value={summary.clients ?? 0}
+          detail={`${summary.pendingClients ?? 0} awaiting review`}
           tone="coral"
         />
-        <Metric label="Active riders" value={summary.riders ?? 0} tone="gold" />
         <Metric
-          label="Active packages"
-          value={summary.packages ?? 0}
-          tone="green"
+          label="Platform OEMs"
+          value={summary.oems ?? oems.length}
+          detail="Master controlled"
+          tone="blue"
+        />
+        <Metric
+          label="Billable features"
+          value={summary.pricing ?? 0}
+          detail={`${summary.features ?? 0} catalog features`}
+          tone="gold"
+        />
+        <Metric
+          label="Riders awaiting activation"
+          value={riderStatus.PENDING ?? 0}
+          detail={`${riderStatus.BLOCKED ?? 0} blocked`}
+          tone="coral"
         />
       </section>
       <section className="sa-dashboard-grid">
-        <article className="sa-card sa-revenue">
+        <article className="sa-card sa-fleet-chart">
           <div className="sa-card-head">
             <div>
-              <h3>Platform revenue</h3>
-              <p>Commercial catalogue health</p>
+              <h3>Fleet operational health</h3>
+              <p>Current fleet availability across all clients</p>
             </div>
-            <button className="secondary" onClick={() => setTab("packages")}>
-              Manage packages
+            <button className="secondary" onClick={() => setTab("clients")}>
+              View clients
             </button>
           </div>
-          <div className="sa-revenue-bars">
-            {["Jan", "Feb", "Mar", "Apr", "May", "Jun"].map((month, index) => (
-              <div key={month}>
-                <span style={{ height: `${35 + index * 9}%` }}></span>
-                <small>{month}</small>
+          <div className="sa-health-bars">
+            {fleetBars.map(([label, count, color]) => (
+              <div key={label}>
+                <div className="sa-health-label">
+                  <span>{label}</span>
+                  <strong>{count}</strong>
+                </div>
+                <span className="sa-health-track">
+                  <i
+                    style={{
+                      width: `${(count / maxFleetBar) * 100}%`,
+                      background: color,
+                    }}
+                  />
+                </span>
               </div>
             ))}
           </div>
           <p className="sa-footnote">
-            Pricing and usage reporting begins as clients activate
-            subscriptions.
+            {summary.fleets ?? 0} active fleet records are monitored from one
+            platform view.
           </p>
         </article>
         <article className="sa-card">
@@ -2874,23 +2971,57 @@ function DashboardView({
         <article className="sa-card">
           <div className="sa-card-head">
             <div>
-              <h3>Platform catalogue</h3>
-              <p>Master data available to all clients</p>
+              <h3>Client lifecycle</h3>
+              <p>Onboarding and account-status distribution</p>
             </div>
           </div>
-          <div className="sa-summary-list">
-            <button onClick={() => setTab("oems")}>
-              <strong>{summary.oems ?? oems.length}</strong>
-              <span>OEMs</span>
+          <div className="sa-lifecycle">
+            <div
+              className="sa-donut"
+              style={{
+                background: clientGradient
+                  ? `conic-gradient(${clientGradient})`
+                  : "#edf1ee",
+              }}
+            >
+              <div>
+                <strong>{clientTotal}</strong>
+                <small>clients</small>
+              </div>
+            </div>
+            <div className="sa-legend">
+              {clientSlices.map(([label, count, color]) => (
+                <div key={label}>
+                  <i style={{ background: color }} />
+                  <span>{label}</span>
+                  <strong>{count}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
+        </article>
+        <article className="sa-card sa-catalog-card">
+          <div className="sa-card-head">
+            <div>
+              <h3>Platform catalogue</h3>
+              <p>Master records ready for client configuration</p>
+            </div>
+            <button className="secondary" onClick={() => setTab("features")}>
+              Manage
             </button>
-            <button onClick={() => setTab("packages")}>
-              <strong>{packages.length}</strong>
-              <span>Packages</span>
-            </button>
-            <button onClick={() => setTab("pricing")}>
-              <strong>₹</strong>
-              <span>Feature pricing</span>
-            </button>
+          </div>
+          <div className="sa-catalog-coverage">
+            {catalogItems.map(([label, count, target]) => (
+              <button key={label} onClick={() => setTab(target as Tab)}>
+                <span>
+                  <strong>{count}</strong>
+                  <small>{label}</small>
+                </span>
+                <i
+                  style={{ width: `${Math.min(100, Math.max(8, count * 8))}%` }}
+                />
+              </button>
+            ))}
           </div>
         </article>
         <article className="sa-card">
@@ -2902,9 +3033,21 @@ function DashboardView({
             <span className="sa-live">● Live</span>
           </div>
           <ul className="sa-activity">
-            <li>Client catalogue is ready for commercial onboarding</li>
-            <li>Rider onboarding master workflow is active</li>
-            <li>Package and feature pricing are platform controlled</li>
+            <li>
+              {summary.pendingClients ?? 0} client application
+              {Number(summary.pendingClients ?? 0) === 1 ? " is" : "s are"}{" "}
+              awaiting review
+            </li>
+            <li>
+              {summary.subscriptions ?? 0} active subscription
+              {Number(summary.subscriptions ?? 0) === 1 ? " is" : "s are"} using
+              platform pricing
+            </li>
+            <li>
+              {summary.pricing ?? 0} feature price rule
+              {Number(summary.pricing ?? 0) === 1 ? " is" : "s are"} available
+              for commercial configuration
+            </li>
           </ul>
         </article>
       </section>
