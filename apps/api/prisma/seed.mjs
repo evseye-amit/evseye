@@ -4,6 +4,7 @@ import { featureCatalog } from './catalog/features.mjs';
 import { packageCatalog } from './catalog/packages.mjs';
 import { vehicleCategoryCatalog } from './catalog/vehicle-categories.mjs';
 import { vehicleTypeCatalog } from './catalog/vehicle-types.mjs';
+import { featurePricingCatalog } from './catalog/feature-pricing.mjs';
 
 const prisma = new PrismaClient();
 
@@ -86,52 +87,8 @@ async function main() {
     }),
   );
 
-  const defaultFeatureCatalog = [
-    {
-      code: 'RIDER_ONBOARDING',
-      name: 'Rider onboarding',
-      category: 'RIDER_ONBOARDING',
-      featureType: 'CONFIGURATION',
-      billingUnit: 'RIDER',
-    },
-    {
-      code: 'PAN_VERIFICATION',
-      name: 'PAN verification',
-      category: 'RIDER_VERIFICATION',
-      featureType: 'USAGE_BASED',
-      billingUnit: 'VERIFICATION',
-    },
-    {
-      code: 'AADHAAR_VERIFICATION',
-      name: 'Aadhaar verification',
-      category: 'RIDER_VERIFICATION',
-      featureType: 'USAGE_BASED',
-      billingUnit: 'VERIFICATION',
-    },
-    {
-      code: 'BANK_VERIFICATION',
-      name: 'Bank verification',
-      category: 'RIDER_VERIFICATION',
-      featureType: 'USAGE_BASED',
-      billingUnit: 'VERIFICATION',
-    },
-    {
-      code: 'IOT_TRACKING',
-      name: 'IoT fleet tracking',
-      category: 'IOT_TELEMATICS',
-      featureType: 'BOOLEAN',
-      billingUnit: 'MONTH',
-    },
-  ];
-  // Workbook entries are authoritative when they overlap a starter record.
-  const featureCatalogByCode = new Map(
-    [...defaultFeatureCatalog, ...featureCatalog].map((feature) => [
-      feature.code,
-      feature,
-    ]),
-  );
   await Promise.all(
-    [...featureCatalogByCode.values()].map((feature) =>
+    featureCatalog.map((feature) =>
       prisma.feature.upsert({
         where: { code: feature.code },
         create: { ...feature, isActive: true },
@@ -139,6 +96,29 @@ async function main() {
       }),
     ),
   );
+  for (const pricing of featurePricingCatalog) {
+    const feature = await prisma.feature.findUnique({
+      where: { code: pricing.featureCode },
+      select: { id: true },
+    });
+    if (!feature) {
+      throw new Error(`Feature pricing catalog references unknown feature code: ${pricing.featureCode}`);
+    }
+    const { featureCode, sourceFeatureId, ...data } = pricing;
+    const existing = await prisma.featurePricing.findFirst({
+      where: {
+        featureId: feature.id,
+        pricingModel: data.pricingModel,
+        billingUnit: data.billingUnit,
+        effectiveFrom: data.effectiveFrom,
+      },
+    });
+    if (existing) {
+      await prisma.featurePricing.update({ where: { id: existing.id }, data });
+    } else {
+      await prisma.featurePricing.create({ data: { ...data, featureId: feature.id } });
+    }
+  }
   await Promise.all(
     packageCatalog.map((pkg) =>
       prisma.package.upsert({

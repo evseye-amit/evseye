@@ -162,6 +162,7 @@ enum PricingModel {
 }
 
 enum BillingCycle {
+  ONCE
   MONTHLY
   QUARTERLY
   HALF_YEARLY
@@ -270,6 +271,7 @@ enum FeatureBillingUnit {
   TRAINING
   DEVICE
   MONTH
+  LIFE_TIME
 }
 
 model Client {
@@ -414,7 +416,7 @@ model FeaturePricing {
   featureId      String
   feature        Feature                 @relation(fields: [featureId], references: [id], onDelete: Cascade)
   pricingModel   PricingModel
-  billingUnit    String                  @db.VarChar(50)
+  billingUnit    FeatureBillingUnit
   currency       String                  @default("INR") @db.Char(3)
   basePrice      Decimal                 @default(0) @db.Decimal(12, 4)
   unitPrice      Decimal                 @default(0) @db.Decimal(12, 4)
