@@ -24,6 +24,7 @@ type Tab =
 type Item = Record<string, any>;
 type PricingTierInput = {
   tierOrder: string;
+  tierName: string;
   fromQuantity: string;
   toQuantity: string;
   unitPrice: string;
@@ -976,6 +977,7 @@ export default function SuperAdminDashboard() {
               ...(metadata ? { metadata } : { metadata: undefined }),
               tiers: price.tiers.map((tier) => ({
                 tierOrder: Number(tier.tierOrder),
+                ...(tier.tierName ? { tierName: tier.tierName } : {}),
                 fromQuantity: Number(tier.fromQuantity),
                 ...(tier.toQuantity
                   ? { toQuantity: Number(tier.toQuantity) }
@@ -2621,6 +2623,7 @@ export default function SuperAdminDashboard() {
                                 ...current.tiers,
                                 {
                                   tierOrder: String(current.tiers.length + 1),
+                                  tierName: "",
                                   fromQuantity: "0",
                                   toQuantity: "",
                                   unitPrice: "",
@@ -2649,6 +2652,7 @@ export default function SuperAdminDashboard() {
                             }
                             fields={[
                               ["tierOrder", "Tier order"],
+                              ["tierName", "Tier name"],
                               ["fromQuantity", "From quantity"],
                               ["toQuantity", "To quantity"],
                               ["unitPrice", "Unit price"],
@@ -2727,6 +2731,7 @@ export default function SuperAdminDashboard() {
                             : "",
                           tiers: (item.tiers ?? []).map((tier: Item) => ({
                             tierOrder: String(tier.tierOrder),
+                            tierName: tier.tierName ?? "",
                             fromQuantity: String(tier.fromQuantity),
                             toQuantity: tier.toQuantity
                               ? String(tier.toQuantity)
@@ -3514,6 +3519,7 @@ function FeaturePricingTiersView({ pricing }: { pricing: Item[] }) {
           headings={[
             "Feature",
             "Tier",
+            "Tier name",
             "From quantity",
             "To quantity",
             "Unit price",
@@ -3523,6 +3529,7 @@ function FeaturePricingTiersView({ pricing }: { pricing: Item[] }) {
             (item.tiers ?? []).map((tier: Item) => [
               item.feature?.name ?? "—",
               tier.tierOrder,
+              tier.tierName ?? "—",
               tier.fromQuantity,
               tier.toQuantity ?? "∞",
               `₹${tier.unitPrice}`,

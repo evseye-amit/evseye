@@ -26,7 +26,7 @@ The local MinIO console credentials are `evseye-minio` / `evseye-minio-local-pas
 
 ## Operations workflow
 
-1. In **Locations**, create a zone and hub.
+1. In **Locations**, create a hub.
 2. In **Riders**, create a rider, open the record, upload a profile photo, and change the rider status to `ACTIVE`.
 3. In **Fleet**, create a scooter assigned to the hub. Open it, add a battery and controller, then upload each required fleet, battery, and controller photo. The onboarding status must become ready.
 4. Register an IoT device from the fleet detail. Copy the one-time ingestion secret before closing the detail pane.

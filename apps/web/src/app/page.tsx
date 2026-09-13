@@ -169,7 +169,7 @@ function Status({ value }: { value: string }) {
 
 export default function Home() {
   const [phone, setPhone] = useState("");
-  const [companyCode, setCompanyCode] = useState("demo");
+  const [companyCode, setCompanyCode] = useState("");
   const [otpRequestId, setOtpRequestId] = useState("");
   const [code, setCode] = useState("");
   const [token, setToken] = useState("");
@@ -189,9 +189,7 @@ export default function Home() {
   const [newRiderAddress, setNewRiderAddress] = useState("");
   const [showFleetForm, setShowFleetForm] = useState(false);
   const [hubs, setHubs] = useState<RecordItem[]>([]);
-  const [zones, setZones] = useState<RecordItem[]>([]);
-  const [newZone, setNewZone] = useState({ name: "", code: "" });
-  const [newHub, setNewHub] = useState({ name: "", code: "", zoneId: "" });
+  const [newHub, setNewHub] = useState({ name: "", code: "" });
   const [newFleet, setNewFleet] = useState({
     vehicleNumber: "",
     chassisNumber: "",
@@ -290,12 +288,7 @@ export default function Home() {
           normalizeDashboard(await request("/dashboard", {}, token)),
         );
       else if (nextTab === "locations") {
-        const [zoneItems, hubItems] = await Promise.all([
-          request("/zones", {}, token) as Promise<RecordItem[]>,
-          request("/hubs", {}, token) as Promise<RecordItem[]>,
-        ]);
-        setZones(zoneItems);
-        setHubs(hubItems);
+        setHubs((await request("/hubs", {}, token)) as RecordItem[]);
       } else if (nextTab === "evidence") {
         await loadPhotoRequirements(photoRequirementEntityType);
       } else {
@@ -507,28 +500,6 @@ export default function Home() {
     }
   }
 
-  async function createZone(event: FormEvent) {
-    event.preventDefault();
-    setLoading(true);
-    setError("");
-    try {
-      await request(
-        "/zones",
-        { method: "POST", body: JSON.stringify(newZone) },
-        token,
-      );
-      setNewZone({ name: "", code: "" });
-      setNotice("Zone created.");
-      await loadView("locations");
-    } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Unable to create zone.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
   async function createHub(event: FormEvent) {
     event.preventDefault();
     setLoading(true);
@@ -539,7 +510,7 @@ export default function Home() {
         { method: "POST", body: JSON.stringify(newHub) },
         token,
       );
-      setNewHub({ name: "", code: "", zoneId: "" });
+      setNewHub({ name: "", code: "" });
       setNotice("Hub created.");
       await loadView("locations");
     } catch (cause) {
@@ -1405,7 +1376,7 @@ export default function Home() {
                     <input
                       value={companyCode}
                       onChange={(e) => setCompanyCode(e.target.value)}
-                      placeholder="e.g. demo"
+                      placeholder="e.g. acme-fleet"
                       autoComplete="organization"
                       required
                     />
@@ -1594,62 +1565,8 @@ export default function Home() {
             <div className="detail-grid">
               <section className="action-card">
                 <p className="eyebrow">LOCATION SETUP</p>
-                <h2>Create zone</h2>
-                <form className="form-stack" onSubmit={createZone}>
-                  <label>
-                    Zone name
-                    <input
-                      value={newZone.name}
-                      onChange={(event) =>
-                        setNewZone((current) => ({
-                          ...current,
-                          name: event.target.value,
-                        }))
-                      }
-                      required
-                    />
-                  </label>
-                  <label>
-                    Zone code
-                    <input
-                      value={newZone.code}
-                      onChange={(event) =>
-                        setNewZone((current) => ({
-                          ...current,
-                          code: event.target.value.toUpperCase(),
-                        }))
-                      }
-                      pattern="[A-Z0-9_-]+"
-                      required
-                    />
-                  </label>
-                  <button>Create zone</button>
-                </form>
-              </section>
-              <section className="action-card">
-                <p className="eyebrow">LOCATION SETUP</p>
                 <h2>Create hub</h2>
                 <form className="form-stack" onSubmit={createHub}>
-                  <label>
-                    Zone
-                    <select
-                      value={newHub.zoneId}
-                      onChange={(event) =>
-                        setNewHub((current) => ({
-                          ...current,
-                          zoneId: event.target.value,
-                        }))
-                      }
-                      required
-                    >
-                      <option value="">Select zone</option>
-                      {zones.map((zone) => (
-                        <option key={String(zone.id)} value={String(zone.id)}>
-                          {String(zone.name)} · {String(zone.code)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
                   <label>
                     Hub name
                     <input
@@ -1677,52 +1594,29 @@ export default function Home() {
                       required
                     />
                   </label>
-                  <button disabled={zones.length === 0}>Create hub</button>
+                  <button>Create hub</button>
                 </form>
               </section>
             </div>
-            <div className="detail-grid">
-              <section className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Zone</th>
-                      <th>Code</th>
+            <section className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Hub</th>
+                    <th>Code</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {hubs.map((hub) => (
+                    <tr key={String(hub.id)}>
+                      <td>{String(hub.name)}</td>
+                      <td>{String(hub.code)}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {zones.map((zone) => (
-                      <tr key={String(zone.id)}>
-                        <td>{String(zone.name)}</td>
-                        <td>{String(zone.code)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {zones.length === 0 && <p className="empty">No zones yet.</p>}
-              </section>
-              <section className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Hub</th>
-                      <th>Zone</th>
-                      <th>Code</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {hubs.map((hub) => (
-                      <tr key={String(hub.id)}>
-                        <td>{String(hub.name)}</td>
-                        <td>{String((hub.zone as RecordItem)?.name ?? "—")}</td>
-                        <td>{String(hub.code)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {hubs.length === 0 && <p className="empty">No hubs yet.</p>}
-              </section>
-            </div>
+                  ))}
+                </tbody>
+              </table>
+              {hubs.length === 0 && <p className="empty">No hubs yet.</p>}
+            </section>
           </>
         )}
         {!loading && tab === "evidence" && (
@@ -1961,8 +1855,7 @@ export default function Home() {
                   <option value="">No hub assigned</option>
                   {hubs.map((hub) => (
                     <option key={String(hub.id)} value={String(hub.id)}>
-                      {String(hub.name)} ·{" "}
-                      {String((hub.zone as RecordItem)?.name ?? "No zone")}
+                      {String(hub.name)} · {String(hub.code)}
                     </option>
                   ))}
                 </select>

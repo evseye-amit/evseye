@@ -7,7 +7,6 @@ import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { ClientContextService } from '../auth/client-context.service.js';
 import { CreateHubDto } from './dto/create-hub.dto.js';
-import { CreateZoneDto } from './dto/create-zone.dto.js';
 import { LocationsService } from './locations.service.js';
 
 @Controller()
@@ -22,22 +21,6 @@ export class LocationsController {
     private readonly locations: LocationsService,
     private readonly clients: ClientContextService,
   ) {}
-  @Get('zones') async zones(@CurrentUser() user: AuthUser) {
-    return {
-      data: await this.locations.listZones(this.clients.requireClientId(user)),
-    };
-  }
-  @Post('zones') async createZone(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: CreateZoneDto,
-  ) {
-    return {
-      data: await this.locations.createZone(
-        this.clients.requireClientId(user),
-        dto,
-      ),
-    };
-  }
   @Get('hubs') async hubs(@CurrentUser() user: AuthUser) {
     return {
       data: await this.locations.listHubs(this.clients.requireClientId(user)),

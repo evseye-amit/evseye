@@ -50,7 +50,7 @@ CREATE TYPE "VehicleUsageType" AS ENUM ('PRIVATE', 'PASSENGER', 'GOODS', 'DELIVE
 CREATE TYPE "PricingModel" AS ENUM ('FREE', 'INCLUDED', 'FLAT_FEE', 'PER_UNIT', 'TIERED', 'VOLUME', 'PER_USER', 'PER_RIDER', 'PER_VEHICLE', 'PER_FLEET', 'USAGE_BASED', 'PER_DEVICE', 'ONE_TIME', 'CUSTOM');
 
 -- CreateEnum
-CREATE TYPE "BillingCycle" AS ENUM ('MONTHLY', 'QUARTERLY', 'HALF_YEARLY', 'YEARLY');
+CREATE TYPE "BillingCycle" AS ENUM ('ONCE', 'MONTHLY', 'QUARTERLY', 'HALF_YEARLY', 'YEARLY');
 
 -- CreateEnum
 CREATE TYPE "ClientFeatureSource" AS ENUM ('PACKAGE', 'ADD_ON', 'CUSTOM', 'PROMOTIONAL');
@@ -83,7 +83,7 @@ CREATE TYPE "FeatureCategory" AS ENUM ('LOGIN', 'RIDER_ONBOARDING', 'RIDER_VERIF
 CREATE TYPE "FeatureType" AS ENUM ('BOOLEAN', 'QUANTITY', 'USAGE_BASED', 'CONFIGURATION');
 
 -- CreateEnum
-CREATE TYPE "FeatureBillingUnit" AS ENUM ('VERIFICATION', 'RIDER', 'VEHICLE', 'FLEET', 'USER', 'API_CALL', 'FACE_SCAN', 'TRAINING', 'DEVICE', 'MONTH');
+CREATE TYPE "FeatureBillingUnit" AS ENUM ('VERIFICATION', 'RIDER', 'VEHICLE', 'FLEET', 'USER', 'API_CALL', 'FACE_SCAN', 'TRAINING', 'DEVICE', 'MONTH', 'LIFE_TIME');
 
 -- CreateTable
 CREATE TABLE "Client" (
@@ -207,11 +207,11 @@ CREATE TABLE "FeaturePricing" (
     "id" TEXT NOT NULL,
     "featureId" TEXT NOT NULL,
     "pricingModel" "PricingModel" NOT NULL,
-    "billingUnit" VARCHAR(50) NOT NULL,
+    "billingUnit" "FeatureBillingUnit" NOT NULL,
     "currency" CHAR(3) NOT NULL DEFAULT 'INR',
-    "basePrice" DECIMAL(12,4) NOT NULL DEFAULT 0,
-    "unitPrice" DECIMAL(12,4) NOT NULL DEFAULT 0,
-    "costPrice" DECIMAL(12,4) NOT NULL DEFAULT 0,
+    "basePrice" DECIMAL(12,3) NOT NULL DEFAULT 0,
+    "unitPrice" DECIMAL(12,3) NOT NULL DEFAULT 0,
+    "costPrice" DECIMAL(12,3) NOT NULL DEFAULT 0,
     "minimumCharge" DECIMAL(12,2),
     "maximumCharge" DECIMAL(12,2),
     "setupFee" DECIMAL(12,2) NOT NULL DEFAULT 0,
@@ -232,10 +232,11 @@ CREATE TABLE "FeaturePricingTier" (
     "id" TEXT NOT NULL,
     "featurePricingId" TEXT NOT NULL,
     "tierOrder" INTEGER NOT NULL,
+    "tierName" VARCHAR(100),
     "fromQuantity" BIGINT NOT NULL,
     "toQuantity" BIGINT,
-    "unitPrice" DECIMAL(12,4) NOT NULL,
-    "costPrice" DECIMAL(12,4),
+    "unitPrice" DECIMAL(12,3) NOT NULL,
+    "costPrice" DECIMAL(12,3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "FeaturePricingTier_pkey" PRIMARY KEY ("id")
@@ -454,22 +455,9 @@ CREATE TABLE "FeatureUsage" (
 );
 
 -- CreateTable
-CREATE TABLE "Zone" (
-    "id" TEXT NOT NULL,
-    "clientId" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
-    "code" TEXT NOT NULL,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "Zone_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
 CREATE TABLE "Hub" (
     "id" TEXT NOT NULL,
     "clientId" TEXT NOT NULL,
-    "zoneId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "code" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -839,12 +827,6 @@ CREATE INDEX "FeatureUsage_subscriptionId_featureId_usageTimestamp_idx" ON "Feat
 CREATE INDEX "FeatureUsage_clientId_usageTimestamp_idx" ON "FeatureUsage"("clientId", "usageTimestamp");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Zone_clientId_code_key" ON "Zone"("clientId", "code");
-
--- CreateIndex
-CREATE INDEX "Hub_clientId_zoneId_idx" ON "Hub"("clientId", "zoneId");
-
--- CreateIndex
 CREATE UNIQUE INDEX "Hub_clientId_code_key" ON "Hub"("clientId", "code");
 
 -- CreateIndex
@@ -1037,13 +1019,7 @@ ALTER TABLE "FeatureUsage" ADD CONSTRAINT "FeatureUsage_subscriptionId_fkey" FOR
 ALTER TABLE "FeatureUsage" ADD CONSTRAINT "FeatureUsage_featureId_fkey" FOREIGN KEY ("featureId") REFERENCES "Feature"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Zone" ADD CONSTRAINT "Zone_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
 ALTER TABLE "Hub" ADD CONSTRAINT "Hub_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Hub" ADD CONSTRAINT "Hub_zoneId_fkey" FOREIGN KEY ("zoneId") REFERENCES "Zone"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Fleet" ADD CONSTRAINT "Fleet_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

@@ -1,10 +1,13 @@
-import { PhotoEntityType, PrismaClient, UserRole } from '@prisma/client';
+import { PrismaClient, UserRole } from '@prisma/client';
 import { oemCatalog } from './catalog/oems.mjs';
 import { featureCatalog } from './catalog/features.mjs';
 import { packageCatalog } from './catalog/packages.mjs';
 import { vehicleCategoryCatalog } from './catalog/vehicle-categories.mjs';
 import { vehicleTypeCatalog } from './catalog/vehicle-types.mjs';
-import { featurePricingCatalog } from './catalog/feature-pricing.mjs';
+import {
+  featurePricingCatalog,
+  featurePricingTierCatalog,
+} from './catalog/feature-pricing-tier.mjs';
 
 const prisma = new PrismaClient();
 
@@ -104,20 +107,24 @@ async function main() {
     if (!feature) {
       throw new Error(`Feature pricing catalog references unknown feature code: ${pricing.featureCode}`);
     }
-    const { featureCode, sourceFeatureId, ...data } = pricing;
-    const existing = await prisma.featurePricing.findFirst({
-      where: {
-        featureId: feature.id,
-        pricingModel: data.pricingModel,
-        billingUnit: data.billingUnit,
-        effectiveFrom: data.effectiveFrom,
-      },
+    const { featureCode, sourceFeatureId, id, ...data } = pricing;
+    await prisma.featurePricing.upsert({
+      where: { id: id ?? sourceFeatureId },
+      create: { id: id ?? sourceFeatureId, ...data, featureId: feature.id },
+      update: { ...data, featureId: feature.id },
     });
-    if (existing) {
-      await prisma.featurePricing.update({ where: { id: existing.id }, data });
-    } else {
-      await prisma.featurePricing.create({ data: { ...data, featureId: feature.id } });
-    }
+  }
+  for (const tier of featurePricingTierCatalog) {
+    await prisma.featurePricingTier.upsert({
+      where: {
+        featurePricingId_tierOrder: {
+          featurePricingId: tier.featurePricingId,
+          tierOrder: tier.tierOrder,
+        },
+      },
+      create: tier,
+      update: tier,
+    });
   }
   await Promise.all(
     packageCatalog.map((pkg) =>
@@ -129,91 +136,7 @@ async function main() {
     ),
   );
 
-  const client = await prisma.client.upsert({
-    where: { slug: 'demo' },
-    update: { name: 'EVs Eye Demo', companyCode: 'demo', status: 'ACTIVE', isActive: true },
-    create: { slug: 'demo', companyCode: 'demo', name: 'EVs Eye Demo', status: 'ACTIVE' },
-  });
-
-  await prisma.user.upsert({
-    where: {
-      clientId_mobile: { clientId: client.id, mobile: '+919000000000' },
-    },
-    update: {
-      name: 'Demo Client Admin',
-      role: UserRole.CLIENT_ADMIN,
-      isActive: true,
-    },
-    create: {
-      clientId: client.id,
-      mobile: '+919000000000',
-      name: 'Demo Client Admin',
-      role: UserRole.CLIENT_ADMIN,
-    },
-  });
-
-  const inspectionPhotoTypes = [
-    'FRONT',
-    'REAR',
-    'LEFT',
-    'RIGHT',
-    'ODOMETER',
-    'BATTERY',
-    'CONTROLLER',
-    'TYRES',
-    'BRAKES',
-    'LIGHTS',
-    'CHARGER',
-    'KEYS',
-  ];
-  const fleetPhotoTypes = ['FRONT', 'REAR', 'LEFT', 'RIGHT', 'DASHBOARD'];
-  const batteryPhotoTypes = ['FRONT', 'REAR', 'LABEL', 'CONNECTOR'];
-  const controllerPhotoTypes = ['FRONT', 'LABEL'];
-  const requirements = [
-    { entityType: PhotoEntityType.RIDER, photoType: 'PROFILE' },
-    ...fleetPhotoTypes.map((photoType) => ({
-      entityType: PhotoEntityType.FLEET,
-      photoType,
-    })),
-    ...batteryPhotoTypes.map((photoType) => ({
-      entityType: PhotoEntityType.BATTERY,
-      photoType,
-    })),
-    ...controllerPhotoTypes.map((photoType) => ({
-      entityType: PhotoEntityType.CONTROLLER,
-      photoType,
-    })),
-    ...inspectionPhotoTypes.map((photoType) => ({
-      entityType: PhotoEntityType.INSPECTION,
-      photoType,
-    })),
-  ];
-
-  await Promise.all(
-    requirements.map(({ entityType, photoType }, sortOrder) =>
-      prisma.photoRequirement.upsert({
-        where: {
-          clientId_entityType_photoType: {
-            clientId: client.id,
-            entityType,
-            photoType,
-          },
-        },
-        create: {
-          clientId: client.id,
-          entityType,
-          photoType,
-          isRequired: true,
-          sortOrder,
-        },
-        update: {},
-      }),
-    ),
-  );
-
-  console.info(
-    'Seeded platform super admin, client "demo", administrator, and photo requirements.',
-  );
+  console.info('Seeded platform master data and Super Admin account.');
 }
 
 main()
