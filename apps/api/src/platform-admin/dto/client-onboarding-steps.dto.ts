@@ -4,7 +4,10 @@ import {
   FleetBusinessModel,
   VehicleOwnership,
 } from '@prisma/client';
+import { Transform } from 'class-transformer';
 import {
+  ArrayNotEmpty,
+  IsArray,
   IsBoolean,
   IsDateString,
   IsEmail,
@@ -29,8 +32,22 @@ export class CreateClientDraftDto {
   @IsString() @MaxLength(60) businessType!: string;
   @IsString() @MaxLength(60) clientType!: string;
   @IsOptional() @IsEnum(ClientIndustry) industry?: ClientIndustry;
-  @IsString() @MaxLength(20) pan!: string;
-  @IsOptional() @IsString() @MaxLength(30) gstin?: string;
+  // These identifiers intentionally use soft format validation in the UI so
+  // onboarding drafts are not blocked when a client needs to correct details.
+  // The API only normalizes the values before persisting them.
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toUpperCase() : value,
+  )
+  @IsString()
+  @MaxLength(20)
+  pan!: string;
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toUpperCase() : value,
+  )
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  gstin?: string;
   @IsOptional() @IsString() @MaxLength(30) cinOrLlpin?: string;
   @IsOptional() @IsUrl() website?: string;
   @IsOptional() @IsInt() @Min(1800) yearEstablished?: number;
@@ -111,7 +128,10 @@ export class UpdateClientOperationsDto {
   @IsInt() @Min(1) numberOfFleets!: number;
   @IsInt() @Min(0) approximateRiderCount!: number;
   @IsEnum(VehicleOwnership) vehicleOwnership!: VehicleOwnership;
-  @IsString() primaryVehicleTypeId!: string;
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsString({ each: true })
+  vehicleCategoryIds!: string[];
   @IsOptional() @IsInt() @Min(0) operationalHubCount?: number;
 }
 

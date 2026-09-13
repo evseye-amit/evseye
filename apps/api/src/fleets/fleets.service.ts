@@ -168,7 +168,7 @@ export class FleetsService {
     });
     if (
       !progress ||
-      progress.client.status !== ClientStatus.DRAFT ||
+      progress.client.status !== ClientStatus.CREATED ||
       progress.currentStep !== ClientOnboardingStep.FLEETS
     )
       return;

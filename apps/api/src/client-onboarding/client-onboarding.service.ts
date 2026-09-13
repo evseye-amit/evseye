@@ -69,7 +69,7 @@ export class ClientOnboardingService {
     step: ClientOnboardingStep,
     status: ClientOnboardingStepStatus,
   ) {
-    await this.assertDraft(clientId);
+    await this.assertCreated(clientId);
     if (
       status === ClientOnboardingStepStatus.SKIPPED &&
       !optionalSteps.has(step as 'TEAM_LEADERS' | 'RIDERS')
@@ -102,7 +102,7 @@ export class ClientOnboardingService {
   }
 
   async submit(clientId: string, actorId: string) {
-    await this.assertDraft(clientId);
+    await this.assertCreated(clientId);
     const [hubCount, managerCount, fleetCount] = await Promise.all([
       this.prisma.hub.count({ where: { clientId, deletedAt: null } }),
       this.prisma.user.count({
@@ -206,14 +206,14 @@ export class ClientOnboardingService {
     };
   }
 
-  private async assertDraft(clientId: string) {
+  private async assertCreated(clientId: string) {
     const client = await this.prisma.client.findUniqueOrThrow({
       where: { id: clientId },
       select: { status: true },
     });
-    if (client.status !== ClientStatus.DRAFT)
+    if (client.status !== ClientStatus.CREATED)
       throw new ForbiddenException(
-        'Onboarding is read-only until the client is returned to draft.',
+        'Onboarding is read-only until the client workspace is returned to created.',
       );
   }
 
@@ -236,7 +236,7 @@ export class ClientOnboardingService {
 
   private routeFor(status: ClientStatus) {
     if (status === ClientStatus.ACTIVE) return 'DASHBOARD';
-    if (status === ClientStatus.DRAFT) return 'ONBOARDING';
+    if (status === ClientStatus.CREATED) return 'ONBOARDING';
     if (status === ClientStatus.PENDING_APPROVAL) return 'WAITING';
     return status === ClientStatus.REJECTED ? 'REJECTED' : 'SUSPENDED';
   }

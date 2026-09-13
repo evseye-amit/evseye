@@ -49,6 +49,7 @@ export class AuthService {
             status: {
               in: [
                 'DRAFT',
+                'CREATED',
                 'PENDING_APPROVAL',
                 'ACTIVE',
                 'REJECTED',

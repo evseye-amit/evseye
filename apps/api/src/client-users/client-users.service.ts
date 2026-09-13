@@ -314,7 +314,7 @@ export class ClientUsersService {
     });
     if (
       !progress ||
-      progress.client.status !== ClientStatus.DRAFT ||
+      progress.client.status !== ClientStatus.CREATED ||
       progress.currentStep !== step
     )
       return;

@@ -145,7 +145,7 @@ export class LocationsService {
     });
     if (
       !progress ||
-      progress.client.status !== ClientStatus.DRAFT ||
+      progress.client.status !== ClientStatus.CREATED ||
       progress.currentStep !== ClientOnboardingStep.HUBS
     )
       return;

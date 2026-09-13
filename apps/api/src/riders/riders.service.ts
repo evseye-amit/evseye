@@ -212,7 +212,7 @@ export class RidersService {
     });
     if (
       !progress ||
-      progress.client.status !== ClientStatus.DRAFT ||
+      progress.client.status !== ClientStatus.CREATED ||
       progress.currentStep !== ClientOnboardingStep.RIDERS
     )
       return;

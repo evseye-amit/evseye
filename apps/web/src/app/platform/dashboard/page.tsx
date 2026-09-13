@@ -340,7 +340,7 @@ export default function SuperAdminDashboard() {
     numberOfFleets: "",
     approximateRiderCount: "",
     vehicleOwnership: "",
-    primaryVehicleTypeId: "",
+    vehicleCategoryIds: [] as string[],
     operationalHubCount: "",
     packageId: "",
     billingCycle: "",
@@ -1044,7 +1044,62 @@ export default function SuperAdminDashboard() {
         if (clientStep === 2) {
           await request(
             `/platform/clients/${client.id}/contacts-addresses`,
-            { method: "PATCH", body: JSON.stringify(client) },
+            {
+              method: "PATCH",
+              // This endpoint has a step-specific DTO. Send only contact and
+              // address fields so the API can keep its strict whitelist on.
+              body: JSON.stringify({
+                primaryContactName: client.primaryContactName,
+                primaryDesignation: client.primaryDesignation,
+                primaryMobile: client.primaryMobile,
+                primaryEmail: client.primaryEmail,
+                ...(client.alternateMobile
+                  ? { alternateMobile: client.alternateMobile }
+                  : {}),
+                adminSameAsPrimary: client.adminSameAsPrimary,
+                ...(client.adminSameAsPrimary
+                  ? {}
+                  : {
+                      adminName: client.adminName,
+                      adminMobile: client.adminMobile,
+                      adminEmail: client.adminEmail,
+                      ...(client.adminDesignation
+                        ? { adminDesignation: client.adminDesignation }
+                        : {}),
+                    }),
+                registeredAddressLine1: client.registeredAddressLine1,
+                ...(client.registeredAddressLine2
+                  ? { registeredAddressLine2: client.registeredAddressLine2 }
+                  : {}),
+                ...(client.landmark ? { landmark: client.landmark } : {}),
+                city: client.city,
+                ...(client.district ? { district: client.district } : {}),
+                state: client.state,
+                ...(client.country ? { country: client.country } : {}),
+                pinCode: client.pinCode,
+                billingSameAsRegistered: client.billingSameAsRegistered,
+                ...(client.billingSameAsRegistered
+                  ? {}
+                  : {
+                      billingAddressLine1: client.billingAddressLine1,
+                      ...(client.billingAddressLine2
+                        ? { billingAddressLine2: client.billingAddressLine2 }
+                        : {}),
+                      ...(client.billingLandmark
+                        ? { billingLandmark: client.billingLandmark }
+                        : {}),
+                      billingCity: client.billingCity,
+                      ...(client.billingDistrict
+                        ? { billingDistrict: client.billingDistrict }
+                        : {}),
+                      billingState: client.billingState,
+                      ...(client.billingCountry
+                        ? { billingCountry: client.billingCountry }
+                        : {}),
+                      billingPinCode: client.billingPinCode,
+                    }),
+              }),
+            },
             token,
           );
           setClientStep(3);
@@ -1056,9 +1111,11 @@ export default function SuperAdminDashboard() {
             {
               method: "PATCH",
               body: JSON.stringify({
-                ...client,
+                fleetBusinessModel: client.fleetBusinessModel,
                 numberOfFleets: Number(client.numberOfFleets),
                 approximateRiderCount: Number(client.approximateRiderCount),
+                vehicleOwnership: client.vehicleOwnership,
+                vehicleCategoryIds: client.vehicleCategoryIds,
                 operationalHubCount: numberOrUndefined(
                   client.operationalHubCount,
                 ),
@@ -1160,7 +1217,7 @@ export default function SuperAdminDashboard() {
         );
       },
       clientStep === 6
-        ? "Client submitted for Super Admin approval."
+        ? "Client workspace created. The Client Admin can now sign in."
         : "Draft saved.",
       () => {
         if (clientStep === 6) setShowClientForm(false);
@@ -1223,7 +1280,132 @@ export default function SuperAdminDashboard() {
     }
   }
   function changeClient(key: string, value: unknown) {
-    setClient((current) => ({ ...current, [key]: value }));
+    const normalizedValue =
+      typeof value === "string" && (key === "pan" || key === "gstin")
+        ? value.toUpperCase()
+        : value;
+    setClient((current) => ({ ...current, [key]: normalizedValue }));
+  }
+  async function editClientDraft(clientId: string) {
+    await submit(async () => {
+      const detail = (await request(
+        `/platform/clients/${clientId}`,
+        {},
+        token,
+      )) as Item;
+      const profile = (detail.businessProfile ?? {}) as Item;
+      const contacts = (detail.contacts ?? []) as Item[];
+      const addresses = (detail.addresses ?? []) as Item[];
+      const primary = contacts.find((item) => item.role === "PRIMARY") ?? {};
+      const admin =
+        contacts.find((item) => item.role === "ACCOUNT_ADMIN") ?? {};
+      const registered =
+        addresses.find((item) => item.type === "REGISTERED") ?? {};
+      const billing = addresses.find((item) => item.type === "BILLING") ?? {};
+      const operations = (detail.operationsProfile ?? {}) as Item;
+      const subscription = ((detail.subscriptions ?? []) as Item[])[0] ?? {};
+      const billingProfile = (detail.billingProfile ?? {}) as Item;
+      const agreement = (detail.agreement ?? {}) as Item;
+      const sameAdmin =
+        !admin.id ||
+        (admin.name === primary.name &&
+          admin.mobile === primary.mobile &&
+          admin.email === primary.email);
+      const sameBilling =
+        !billing.id ||
+        (billing.line1 === registered.line1 &&
+          billing.city === registered.city &&
+          billing.state === registered.state &&
+          billing.pinCode === registered.pinCode);
+      const dateValue = (value: unknown) =>
+        value ? String(value).slice(0, 10) : "";
+
+      setClient((current) => ({
+        ...current,
+        id: detail.id,
+        businessFleetName: detail.name ?? "",
+        companyCode: detail.companyCode ?? detail.slug ?? "",
+        legalEntityName: profile.legalCompanyName ?? "",
+        clientType: profile.clientType ?? "",
+        businessType: profile.businessType ?? "",
+        industry: profile.industry ?? "",
+        gstin: profile.gstin ?? "",
+        pan: profile.pan ?? "",
+        cinOrLlpin: profile.cinOrLlpin ?? "",
+        website: profile.website ?? "",
+        yearEstablished: profile.yearEstablished ?? "",
+        estimatedFleetSize: profile.estimatedFleetSize ?? "",
+        estimatedRiderCount: profile.estimatedRiderCount ?? "",
+        estimatedUserCount: profile.estimatedUserCount ?? "",
+        primaryContactName: primary.name ?? "",
+        primaryDesignation: primary.designation ?? "",
+        primaryMobile: primary.mobile ?? "",
+        primaryEmail: primary.email ?? "",
+        alternateMobile: primary.alternateMobile ?? "",
+        adminSameAsPrimary: sameAdmin,
+        adminName: sameAdmin ? "" : (admin.name ?? ""),
+        adminDesignation: sameAdmin ? "" : (admin.designation ?? ""),
+        adminMobile: sameAdmin ? "" : (admin.mobile ?? ""),
+        adminEmail: sameAdmin ? "" : (admin.email ?? ""),
+        registeredAddressLine1: registered.line1 ?? "",
+        registeredAddressLine2: registered.line2 ?? "",
+        landmark: registered.landmark ?? "",
+        city: registered.city ?? "",
+        district: registered.district ?? "",
+        state: registered.state ?? "",
+        country: registered.country ?? "India",
+        pinCode: registered.pinCode ?? "",
+        billingSameAsRegistered: sameBilling,
+        billingAddressLine1: sameBilling ? "" : (billing.line1 ?? ""),
+        billingAddressLine2: sameBilling ? "" : (billing.line2 ?? ""),
+        billingLandmark: sameBilling ? "" : (billing.landmark ?? ""),
+        billingCity: sameBilling ? "" : (billing.city ?? ""),
+        billingDistrict: sameBilling ? "" : (billing.district ?? ""),
+        billingState: sameBilling ? "" : (billing.state ?? ""),
+        billingCountry: sameBilling ? "India" : (billing.country ?? "India"),
+        billingPinCode: sameBilling ? "" : (billing.pinCode ?? ""),
+        fleetBusinessModel: operations.fleetBusinessModel ?? "",
+        numberOfFleets: operations.numberOfFleets ?? "",
+        approximateRiderCount: operations.approximateRiderCount ?? "",
+        vehicleOwnership: operations.vehicleOwnership ?? "",
+        vehicleCategoryIds: (operations.vehicleCategories ?? []).map(
+          (item: Item) => item.vehicleCategoryId,
+        ),
+        operationalHubCount: operations.operationalHubCount ?? "",
+        packageId: subscription.packageId ?? "",
+        billingCycle: subscription.billingCycle ?? "",
+        startDate: dateValue(subscription.startDate) || current.startDate,
+        endDate: dateValue(subscription.endDate),
+        autoRenew: subscription.autoRenew ?? true,
+        billingContactName: billingProfile.billingContactName ?? "",
+        billingEmail: billingProfile.billingEmail ?? "",
+        billingMobile: billingProfile.billingMobile ?? "",
+        purchaseOrderRequired: billingProfile.purchaseOrderRequired ?? false,
+        poNumber: billingProfile.poNumber ?? "",
+        paymentTerms: billingProfile.paymentTerms ?? "",
+        authorizedSignatoryName: agreement.authorizedSignatoryName ?? "",
+        signatoryDesignation: agreement.designation ?? "",
+        termsAccepted: Boolean(agreement.termsAcceptedAt),
+        privacyAccepted: Boolean(agreement.privacyAcceptedAt),
+        dataProcessingConsent: Boolean(agreement.dataProcessingConsentAt),
+        kycConsent: Boolean(agreement.kycConsentAt),
+        marketingConsent: Boolean(agreement.marketingConsentAt),
+        uploadedDocuments: detail.documents ?? [],
+      }));
+      setClientDocumentFiles({});
+      setShowClientForm(true);
+      setClientStep(
+        !primary.id || !registered.id
+          ? 2
+          : !operations.id
+            ? 3
+            : !subscription.id
+              ? 4
+              : !billingProfile.id
+                ? 5
+                : 6,
+      );
+    }, "Draft loaded. Continue from the next incomplete step.");
   }
   if (!token)
     return (
@@ -1356,7 +1538,7 @@ export default function SuperAdminDashboard() {
           <ClientsView
             clients={clients}
             packages={packages}
-            vehicleTypes={vehicleTypes}
+            vehicleCategories={vehicleCategories}
             showForm={showClientForm}
             setShowForm={setShowClientForm}
             client={client}
@@ -1368,6 +1550,7 @@ export default function SuperAdminDashboard() {
             setDocumentFiles={setClientDocumentFiles}
             approveClient={approveClient}
             rejectClient={rejectClient}
+            editClient={editClientDraft}
           />
         )}
         {tab === "clientFeaturesPricing" && (
@@ -3121,7 +3304,7 @@ function DashboardView({
 function ClientsView({
   clients,
   packages,
-  vehicleTypes,
+  vehicleCategories,
   showForm,
   setShowForm,
   client,
@@ -3133,7 +3316,24 @@ function ClientsView({
   setDocumentFiles,
   approveClient,
   rejectClient,
+  editClient,
 }: any) {
+  const panPattern = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+  const gstinPattern = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+  const softWarnings = {
+    ...(client.pan && !panPattern.test(String(client.pan).trim().toUpperCase())
+      ? { pan: "PAN format looks unusual. Expected: ABCDE1234F." }
+      : {}),
+    ...(client.gstin &&
+    !gstinPattern.test(String(client.gstin).trim().toUpperCase())
+      ? { gstin: "GSTIN format looks unusual. Expected: 22ABCDE1234F1Z5." }
+      : {}),
+  };
+  const uploadedDocumentTypes = new Set(
+    ((client.uploadedDocuments ?? []) as Item[]).map(
+      (document) => document.documentType,
+    ),
+  );
   const headings = [
     "Business Details",
     "Contacts & Address",
@@ -3226,7 +3426,12 @@ function ClientsView({
           <section>
             <h3>{headings[step - 1]}</h3>
             <div className="sa-field-grid">
-              <TextFields value={client} change={change} fields={fields} />
+              <TextFields
+                value={client}
+                change={change}
+                fields={fields}
+                softWarnings={step === 1 ? softWarnings : undefined}
+              />
               {step === 1 && (
                 <>
                   <Select
@@ -3346,18 +3551,24 @@ function ClientsView({
                   />
                   <label>
                     <span className="sa-label-text">
-                      Primary vehicle type{" "}
+                      Vehicle categories{" "}
                       <span className="sa-required-star">*</span>
                     </span>
                     <select
                       required
-                      value={client.primaryVehicleTypeId}
+                      multiple
+                      value={client.vehicleCategoryIds ?? []}
                       onChange={(event) =>
-                        change("primaryVehicleTypeId", event.target.value)
+                        change(
+                          "vehicleCategoryIds",
+                          Array.from(
+                            event.target.selectedOptions,
+                            (option) => option.value,
+                          ),
+                        )
                       }
                     >
-                      <option value="">Select vehicle type</option>
-                      {vehicleTypes
+                      {vehicleCategories
                         .filter((item: Item) => item.status === "ACTIVE")
                         .map((item: Item) => (
                           <option key={item.id} value={item.id}>
@@ -3365,6 +3576,7 @@ function ClientsView({
                           </option>
                         ))}
                     </select>
+                    <small>Select one or more vehicle categories.</small>
                   </label>
                 </>
               )}
@@ -3464,6 +3676,10 @@ function ClientsView({
                       {documentFiles[type] && (
                         <small>{documentFiles[type]?.name}</small>
                       )}
+                      {!documentFiles[type] &&
+                        uploadedDocumentTypes.has(type) && (
+                          <small>Previously uploaded</small>
+                        )}
                     </label>
                   ))}
                 </>
@@ -3540,19 +3756,25 @@ function ClientsView({
               </button>
             )}
             <button>
-              {step === 6 ? "Submit for onboarding" : "Save & continue"}
+              {step === 6 ? "Create client workspace" : "Save & continue"}
             </button>
           </footer>
         </form>
       )}
       <DataTable
-        headings={["Client", "Workspace", "Riders", "Status", ""]}
+        headings={["Client", "Workspace", "Riders", "Status", "Actions"]}
         rows={clients.map((item: Item) => [
           item.name,
           item.companyCode ?? item.slug,
           item._count?.riders ?? 0,
           item.status ?? (item.isActive ? "ACTIVE" : "INACTIVE"),
-          item.status === "PENDING_APPROVAL" ? (
+          item.status === "DRAFT" ? (
+            <span className="sa-client-actions" key={item.id}>
+              <button type="button" onClick={() => void editClient(item.id)}>
+                Edit & resume
+              </button>
+            </span>
+          ) : item.status === "PENDING_APPROVAL" ? (
             <span className="sa-client-actions" key={item.id}>
               <button type="button" onClick={() => void approveClient(item.id)}>
                 Approve
@@ -3578,11 +3800,13 @@ function TextFields({
   change,
   fields,
   requiredKeys,
+  softWarnings,
 }: {
   value: Item;
   change: (key: string, value: string) => void;
   fields: string[][];
   requiredKeys?: string[];
+  softWarnings?: Record<string, string>;
 }) {
   const defaultRequiredFields = [
     "code",
@@ -3662,6 +3886,9 @@ function TextFields({
               onChange={(event) => change(key, event.target.value)}
               required={required}
             />
+            {softWarnings?.[key] && (
+              <small className="sa-field-warning">{softWarnings[key]}</small>
+            )}
           </label>
         );
       })}
