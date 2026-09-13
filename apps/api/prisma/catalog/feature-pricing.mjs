@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 
 const REQUIRED_HEADERS = [
   'featureId',
+  'Feature Name',
   'pricingModel',
   'billingUnit',
   'currency',
@@ -78,14 +79,14 @@ export const featurePricingCatalog = rows
   .map((row, index) => {
     const rowNumber = index + 2;
     if (row.length !== REQUIRED_HEADERS.length) throw new Error(`Feature pricing row ${rowNumber} has an invalid column count.`);
-    const [sourceFeatureId, rawModel, billingUnit, currency, basePrice, unitPrice, costPrice, minimumCharge, maximumCharge, setupFee, billingCycle, taxInclusive, effectiveFrom, effectiveTo, isActive, metadataText] = row;
+    const [sourceFeatureId, featureName, rawModel, billingUnit, currency, basePrice, unitPrice, costPrice, minimumCharge, maximumCharge, setupFee, billingCycle, taxInclusive, effectiveFrom, effectiveTo, isActive, metadataText] = row;
     const pricingModel = PRICING_MODEL_MAP.get(rawModel) ?? rawModel;
     if (!PRICING_MODELS.has(pricingModel)) throw new Error(`Feature pricing row ${rowNumber} has unsupported pricing model: ${rawModel}`);
     if (!BILLING_CYCLES.has(billingCycle)) throw new Error(`Feature pricing row ${rowNumber} has unsupported billing cycle: ${billingCycle}`);
     const normalizedBillingUnit = BILLING_UNIT_MAP.get(billingUnit.trim()) ?? billingUnit.trim();
     if (!BILLING_UNITS.has(normalizedBillingUnit)) throw new Error(`Feature pricing row ${rowNumber} has unsupported billing unit: ${billingUnit}`);
     const metadata = JSON.parse(metadataText);
-    if (!metadata.featureCode) throw new Error(`Feature pricing row ${rowNumber} metadata requires featureCode.`);
+    if (!metadata.featureCode || !featureName.trim()) throw new Error(`Feature pricing row ${rowNumber} requires Feature Name and metadata.featureCode.`);
     return {
       sourceFeatureId: sourceFeatureId.trim(),
       featureCode: metadata.featureCode,
@@ -99,10 +100,10 @@ export const featurePricingCatalog = rows
       maximumCharge: numberOrNull(maximumCharge, rowNumber, 'maximumCharge'),
       setupFee: numberOrNull(setupFee, rowNumber, 'setupFee') ?? 0,
       billingCycle,
-      taxInclusive: taxInclusive.trim() === 'true',
+      taxInclusive: taxInclusive.trim().toLowerCase() === 'true',
       effectiveFrom: new Date(effectiveFrom),
       effectiveTo: effectiveTo.trim() ? new Date(effectiveTo) : null,
-      isActive: isActive.trim() === 'true',
+      isActive: isActive.trim().toLowerCase() === 'true',
       metadata,
     };
   });

@@ -82,12 +82,16 @@ export class PlatformAdminService {
             featureId: dto.featureId,
             enabled: true,
             effectiveFrom: { lte: usageTimestamp },
-            OR: [{ effectiveTo: null }, { effectiveTo: { gte: usageTimestamp } }],
+            OR: [
+              { effectiveTo: null },
+              { effectiveTo: { gte: usageTimestamp } },
+            ],
           },
         },
       },
     });
-    if (!subscription) throw new NotFoundException('Active client subscription not found.');
+    if (!subscription)
+      throw new NotFoundException('Active client subscription not found.');
     if (
       subscription.package.features.length === 0 &&
       subscription.features.length === 0
@@ -133,11 +137,18 @@ export class PlatformAdminService {
   ) {
     const periodStart = new Date(from);
     const periodEnd = new Date(to);
-    if (Number.isNaN(periodStart.valueOf()) || Number.isNaN(periodEnd.valueOf())) {
-      throw new UnprocessableEntityException('A valid billing period is required.');
+    if (
+      Number.isNaN(periodStart.valueOf()) ||
+      Number.isNaN(periodEnd.valueOf())
+    ) {
+      throw new UnprocessableEntityException(
+        'A valid billing period is required.',
+      );
     }
     if (periodEnd < periodStart) {
-      throw new UnprocessableEntityException('Billing period end cannot be before start.');
+      throw new UnprocessableEntityException(
+        'Billing period end cannot be before start.',
+      );
     }
     const subscription = await this.prisma.clientSubscription.findFirst({
       where: { id: subscriptionId, clientId },
@@ -161,7 +172,10 @@ export class PlatformAdminService {
             pricing: {
               where: {
                 effectiveFrom: { lte: periodEnd },
-                OR: [{ effectiveTo: null }, { effectiveTo: { gte: periodStart } }],
+                OR: [
+                  { effectiveTo: null },
+                  { effectiveTo: { gte: periodStart } },
+                ],
               },
               orderBy: { effectiveFrom: 'desc' },
             },
@@ -169,7 +183,8 @@ export class PlatformAdminService {
         },
       },
     });
-    if (!subscription) throw new NotFoundException('Client subscription not found.');
+    if (!subscription)
+      throw new NotFoundException('Client subscription not found.');
     const usage = await this.prisma.featureUsage.findMany({
       where: {
         clientId,
@@ -219,21 +234,33 @@ export class PlatformAdminService {
           );
       const billableQuantity = includedUnlimited
         ? new Prisma.Decimal(0)
-        : Prisma.Decimal.max(quantity.minus(includedQuantity), new Prisma.Decimal(0));
+        : Prisma.Decimal.max(
+            quantity.minus(includedQuantity),
+            new Prisma.Decimal(0),
+          );
       const negotiatedPricing = clientFeature?.pricing[0];
       const catalogPricing = masterPricing.find(
         (item) => item.featureId === featureId,
       );
-      if (billableQuantity.greaterThan(0) && !negotiatedPricing && !catalogPricing) {
+      if (
+        billableQuantity.greaterThan(0) &&
+        !negotiatedPricing &&
+        !catalogPricing
+      ) {
         throw new UnprocessableEntityException(
           `No active price exists for feature ${featureId}.`,
         );
       }
-      const unitPrice = negotiatedPricing?.finalUnitPrice ?? catalogPricing?.unitPrice ?? new Prisma.Decimal(0);
+      const unitPrice =
+        negotiatedPricing?.finalUnitPrice ??
+        catalogPricing?.unitPrice ??
+        new Prisma.Decimal(0);
       return {
         featureId,
         featureName:
-          packageFeature?.feature.name ?? clientFeature?.feature.name ?? usage.find((item) => item.featureId === featureId)?.feature.name,
+          packageFeature?.feature.name ??
+          clientFeature?.feature.name ??
+          usage.find((item) => item.featureId === featureId)?.feature.name,
         totalQuantity: quantity,
         includedQuantity: includedUnlimited ? null : includedQuantity,
         unlimitedUsage: includedUnlimited,
@@ -279,6 +306,81 @@ export class PlatformAdminService {
         pricing: { orderBy: { effectiveFrom: 'desc' } },
       },
       orderBy: [{ effectiveFrom: 'desc' }, { feature: { name: 'asc' } }],
+    });
+  }
+
+  /**
+   * Returns the commercial entitlement snapshot used by the Super Admin
+   * workspace. Package inclusions and client-specific add-ons deliberately
+   * remain separate: assigning an add-on must never mutate the package master.
+   */
+  async clientEntitlements(clientId: string) {
+    const client = await this.clientDetail(clientId);
+    const subscription = client.subscriptions.find(
+      (item) => item.status === 'ACTIVE',
+    );
+
+    if (!subscription) {
+      return {
+        client,
+        subscription: null,
+        packageFeatures: [],
+        clientFeatures: [],
+      };
+    }
+
+    const [packageFeatures, clientFeatures] = await Promise.all([
+      this.prisma.packageFeature.findMany({
+        where: { packageId: subscription.packageId, enabled: true },
+        include: {
+          feature: {
+            include: {
+              pricing: {
+                where: {
+                  isActive: true,
+                  effectiveFrom: { lte: new Date() },
+                  OR: [
+                    { effectiveTo: null },
+                    { effectiveTo: { gte: new Date() } },
+                  ],
+                },
+                orderBy: { effectiveFrom: 'desc' },
+              },
+            },
+          },
+        },
+        orderBy: [{ displayOrder: 'asc' }, { feature: { name: 'asc' } }],
+      }),
+      this.prisma.clientFeature.findMany({
+        where: { clientId, subscriptionId: subscription.id, enabled: true },
+        include: {
+          feature: {
+            include: {
+              pricing: {
+                where: { isActive: true },
+                orderBy: { effectiveFrom: 'desc' },
+              },
+            },
+          },
+          pricing: {
+            include: { featurePricing: true },
+            orderBy: { effectiveFrom: 'desc' },
+          },
+        },
+        orderBy: [{ effectiveFrom: 'asc' }, { feature: { name: 'asc' } }],
+      }),
+    ]);
+
+    return { client, subscription, packageFeatures, clientFeatures };
+  }
+
+  async listClientFeatureUsage(clientId: string) {
+    await this.requireClient(clientId);
+    return this.prisma.featureUsage.findMany({
+      where: { clientId },
+      include: { feature: true, subscription: { include: { package: true } } },
+      orderBy: { usageTimestamp: 'desc' },
+      take: 250,
     });
   }
 
@@ -355,7 +457,8 @@ export class PlatformAdminService {
       where: { id: clientFeaturePricingId, clientFeatureId },
       include: { featurePricing: true },
     });
-    if (!current) throw new NotFoundException('Client feature pricing not found.');
+    if (!current)
+      throw new NotFoundException('Client feature pricing not found.');
     this.validateFeatureWindow(
       dto.effectiveFrom ?? current.effectiveFrom.toISOString(),
       dto.effectiveTo ?? current.effectiveTo?.toISOString(),
@@ -403,7 +506,8 @@ export class PlatformAdminService {
     const current = await this.prisma.clientFeaturePricing.findFirst({
       where: { id: clientFeaturePricingId, clientFeatureId },
     });
-    if (!current) throw new NotFoundException('Client feature pricing not found.');
+    if (!current)
+      throw new NotFoundException('Client feature pricing not found.');
     await this.prisma.clientFeaturePricing.delete({
       where: { id: clientFeaturePricingId },
     });
@@ -450,7 +554,10 @@ export class PlatformAdminService {
           effectiveTo: dto.effectiveTo ? new Date(dto.effectiveTo) : undefined,
           configuration: dto.configuration as Prisma.InputJsonValue | undefined,
         },
-        include: { feature: true, subscription: { include: { package: true } } },
+        include: {
+          feature: true,
+          subscription: { include: { package: true } },
+        },
       });
       await this.audit.record({
         clientId: clientId,
@@ -458,7 +565,10 @@ export class PlatformAdminService {
         action: 'CLIENT_FEATURE_ADDED',
         entityType: 'ClientFeature',
         entityId: created.id,
-        newData: { featureId: dto.featureId, subscriptionId: dto.subscriptionId },
+        newData: {
+          featureId: dto.featureId,
+          subscriptionId: dto.subscriptionId,
+        },
       });
       return created;
     } catch (error) {
@@ -526,7 +636,10 @@ export class PlatformAdminService {
       action: 'CLIENT_FEATURE_REMOVED',
       entityType: 'ClientFeature',
       entityId: clientFeatureId,
-      previousData: { featureId: current.featureId, subscriptionId: current.subscriptionId },
+      previousData: {
+        featureId: current.featureId,
+        subscriptionId: current.subscriptionId,
+      },
     });
   }
 
@@ -534,7 +647,12 @@ export class PlatformAdminService {
     try {
       const client = await this.prisma.$transaction(async (tx) => {
         const created = await tx.client.create({
-          data: { name: dto.name, slug: dto.slug, companyCode: dto.slug, status: ClientStatus.ACTIVE },
+          data: {
+            name: dto.name,
+            slug: dto.slug,
+            companyCode: dto.slug,
+            status: ClientStatus.ACTIVE,
+          },
         });
         await tx.user.create({
           data: {
@@ -594,10 +712,17 @@ export class PlatformAdminService {
         });
         return created;
       });
-      await this.audit.record({ actorId, action: 'CLIENT_DRAFT_CREATED', entityType: 'Client', entityId: client.id, newData: { companyCode: client.companyCode } });
+      await this.audit.record({
+        actorId,
+        action: 'CLIENT_DRAFT_CREATED',
+        entityType: 'Client',
+        entityId: client.id,
+        newData: { companyCode: client.companyCode },
+      });
       return client;
     } catch (error) {
-      if (this.unique(error)) throw new ConflictException('Company Code is already in use.');
+      if (this.unique(error))
+        throw new ConflictException('Company Code is already in use.');
       throw error;
     }
   }
@@ -613,96 +738,324 @@ export class PlatformAdminService {
         billingProfile: true,
         documents: { orderBy: { createdAt: 'desc' } },
         agreement: true,
-        subscriptions: { include: { package: true, features: { include: { feature: true } } }, orderBy: { createdAt: 'desc' } },
+        subscriptions: {
+          include: { package: true, features: { include: { feature: true } } },
+          orderBy: { createdAt: 'desc' },
+        },
       },
     });
     if (!client) throw new NotFoundException('Client not found.');
     return client;
   }
 
-  async saveContactsAndAddress(clientId: string, dto: UpdateClientContactsAndAddressDto, actorId: string) {
+  async saveContactsAndAddress(
+    clientId: string,
+    dto: UpdateClientContactsAndAddressDto,
+    actorId: string,
+  ) {
     await this.requireDraftClient(clientId);
-    const primary = { name: dto.primaryContactName, designation: dto.primaryDesignation, mobile: dto.primaryMobile, email: dto.primaryEmail, alternateMobile: dto.alternateMobile };
-    const admin = dto.adminSameAsPrimary ? primary : { name: dto.adminName!, designation: dto.adminDesignation, mobile: dto.adminMobile!, email: dto.adminEmail!, alternateMobile: undefined };
-    const registered = { line1: dto.registeredAddressLine1, line2: dto.registeredAddressLine2, landmark: dto.landmark, city: dto.city, district: dto.district, state: dto.state, country: dto.country ?? 'India', pinCode: dto.pinCode };
-    const billing = dto.billingSameAsRegistered ? registered : { line1: dto.billingAddressLine1!, line2: dto.billingAddressLine2, landmark: dto.billingLandmark, city: dto.billingCity!, district: dto.billingDistrict, state: dto.billingState!, country: dto.billingCountry ?? 'India', pinCode: dto.billingPinCode! };
+    const primary = {
+      name: dto.primaryContactName,
+      designation: dto.primaryDesignation,
+      mobile: dto.primaryMobile,
+      email: dto.primaryEmail,
+      alternateMobile: dto.alternateMobile,
+    };
+    const admin = dto.adminSameAsPrimary
+      ? primary
+      : {
+          name: dto.adminName!,
+          designation: dto.adminDesignation,
+          mobile: dto.adminMobile!,
+          email: dto.adminEmail!,
+          alternateMobile: undefined,
+        };
+    const registered = {
+      line1: dto.registeredAddressLine1,
+      line2: dto.registeredAddressLine2,
+      landmark: dto.landmark,
+      city: dto.city,
+      district: dto.district,
+      state: dto.state,
+      country: dto.country ?? 'India',
+      pinCode: dto.pinCode,
+    };
+    const billing = dto.billingSameAsRegistered
+      ? registered
+      : {
+          line1: dto.billingAddressLine1!,
+          line2: dto.billingAddressLine2,
+          landmark: dto.billingLandmark,
+          city: dto.billingCity!,
+          district: dto.billingDistrict,
+          state: dto.billingState!,
+          country: dto.billingCountry ?? 'India',
+          pinCode: dto.billingPinCode!,
+        };
     await this.prisma.$transaction([
-      this.prisma.clientContact.upsert({ where: { clientId_role: { clientId, role: ClientContactRole.PRIMARY } }, create: { clientId, role: ClientContactRole.PRIMARY, ...primary }, update: primary }),
-      this.prisma.clientContact.upsert({ where: { clientId_role: { clientId, role: ClientContactRole.ACCOUNT_ADMIN } }, create: { clientId, role: ClientContactRole.ACCOUNT_ADMIN, ...admin }, update: admin }),
-      this.prisma.clientAddress.upsert({ where: { clientId_type: { clientId, type: ClientAddressType.REGISTERED } }, create: { clientId, type: ClientAddressType.REGISTERED, ...registered }, update: registered }),
-      this.prisma.clientAddress.upsert({ where: { clientId_type: { clientId, type: ClientAddressType.BILLING } }, create: { clientId, type: ClientAddressType.BILLING, ...billing }, update: billing }),
+      this.prisma.clientContact.upsert({
+        where: { clientId_role: { clientId, role: ClientContactRole.PRIMARY } },
+        create: { clientId, role: ClientContactRole.PRIMARY, ...primary },
+        update: primary,
+      }),
+      this.prisma.clientContact.upsert({
+        where: {
+          clientId_role: { clientId, role: ClientContactRole.ACCOUNT_ADMIN },
+        },
+        create: { clientId, role: ClientContactRole.ACCOUNT_ADMIN, ...admin },
+        update: admin,
+      }),
+      this.prisma.clientAddress.upsert({
+        where: {
+          clientId_type: { clientId, type: ClientAddressType.REGISTERED },
+        },
+        create: { clientId, type: ClientAddressType.REGISTERED, ...registered },
+        update: registered,
+      }),
+      this.prisma.clientAddress.upsert({
+        where: { clientId_type: { clientId, type: ClientAddressType.BILLING } },
+        create: { clientId, type: ClientAddressType.BILLING, ...billing },
+        update: billing,
+      }),
     ]);
-    await this.audit.record({ actorId, action: 'CLIENT_CONTACTS_AND_ADDRESS_SAVED', entityType: 'Client', entityId: clientId });
+    await this.audit.record({
+      actorId,
+      action: 'CLIENT_CONTACTS_AND_ADDRESS_SAVED',
+      entityType: 'Client',
+      entityId: clientId,
+    });
     return this.clientDetail(clientId);
   }
 
-  async saveOperations(clientId: string, dto: UpdateClientOperationsDto, actorId: string) {
+  async saveOperations(
+    clientId: string,
+    dto: UpdateClientOperationsDto,
+    actorId: string,
+  ) {
     await this.requireDraftClient(clientId);
-    const vehicleType = await this.prisma.vehicleType.findFirst({ where: { id: dto.primaryVehicleTypeId, status: 'ACTIVE' } });
-    if (!vehicleType) throw new NotFoundException('Select an active Vehicle Type.');
+    const vehicleType = await this.prisma.vehicleType.findFirst({
+      where: { id: dto.primaryVehicleTypeId, status: 'ACTIVE' },
+    });
+    if (!vehicleType)
+      throw new NotFoundException('Select an active Vehicle Type.');
     await this.prisma.clientOperationsProfile.upsert({
       where: { clientId },
       create: { clientId, ...dto },
       update: { ...dto },
     });
-    await this.audit.record({ actorId, action: 'CLIENT_OPERATIONS_SAVED', entityType: 'Client', entityId: clientId, newData: { primaryVehicleTypeId: dto.primaryVehicleTypeId } });
+    await this.audit.record({
+      actorId,
+      action: 'CLIENT_OPERATIONS_SAVED',
+      entityType: 'Client',
+      entityId: clientId,
+      newData: { primaryVehicleTypeId: dto.primaryVehicleTypeId },
+    });
     return this.clientDetail(clientId);
   }
 
-  async savePackageSelection(clientId: string, dto: UpdateClientPackageSelectionDto, actorId: string) {
+  async savePackageSelection(
+    clientId: string,
+    dto: UpdateClientPackageSelectionDto,
+    actorId: string,
+  ) {
     await this.requireDraftClient(clientId);
-    const packageRecord = await this.prisma.package.findFirst({ where: { id: dto.packageId, isActive: true } });
-    if (!packageRecord || packageRecord.monthlyPrice === null) throw new NotFoundException('Selected package is unavailable.');
-    const listPrice = dto.billingCycle === 'YEARLY' ? (packageRecord.yearlyPrice ?? packageRecord.monthlyPrice.mul(12)) : packageRecord.monthlyPrice;
-    const existing = await this.prisma.clientSubscription.findFirst({ where: { clientId }, orderBy: { createdAt: 'desc' } });
-    const values = { packageId: packageRecord.id, billingCycle: dto.billingCycle, startDate: new Date(dto.startDate), endDate: dto.endDate ? new Date(dto.endDate) : undefined, listPrice, finalPackagePrice: listPrice, currency: packageRecord.currency, autoRenew: dto.autoRenew };
-    if (existing) await this.prisma.clientSubscription.update({ where: { id: existing.id }, data: values });
-    else await this.prisma.clientSubscription.create({ data: { clientId, ...values } });
-    await this.audit.record({ actorId, action: 'CLIENT_PACKAGE_SELECTED', entityType: 'Client', entityId: clientId, newData: { packageId: dto.packageId, billingCycle: dto.billingCycle } });
+    const packageRecord = await this.prisma.package.findFirst({
+      where: { id: dto.packageId, isActive: true },
+    });
+    if (!packageRecord || packageRecord.monthlyPrice === null)
+      throw new NotFoundException('Selected package is unavailable.');
+    const listPrice =
+      dto.billingCycle === 'YEARLY'
+        ? (packageRecord.yearlyPrice ?? packageRecord.monthlyPrice.mul(12))
+        : packageRecord.monthlyPrice;
+    const existing = await this.prisma.clientSubscription.findFirst({
+      where: { clientId },
+      orderBy: { createdAt: 'desc' },
+    });
+    const values = {
+      packageId: packageRecord.id,
+      billingCycle: dto.billingCycle,
+      startDate: new Date(dto.startDate),
+      endDate: dto.endDate ? new Date(dto.endDate) : undefined,
+      listPrice,
+      finalPackagePrice: listPrice,
+      currency: packageRecord.currency,
+      autoRenew: dto.autoRenew,
+    };
+    if (existing)
+      await this.prisma.clientSubscription.update({
+        where: { id: existing.id },
+        data: values,
+      });
+    else
+      await this.prisma.clientSubscription.create({
+        data: { clientId, ...values },
+      });
+    await this.audit.record({
+      actorId,
+      action: 'CLIENT_PACKAGE_SELECTED',
+      entityType: 'Client',
+      entityId: clientId,
+      newData: { packageId: dto.packageId, billingCycle: dto.billingCycle },
+    });
     return this.clientDetail(clientId);
   }
 
-  async saveBilling(clientId: string, dto: UpdateClientBillingDto, actorId: string) {
+  async saveBilling(
+    clientId: string,
+    dto: UpdateClientBillingDto,
+    actorId: string,
+  ) {
     await this.requireDraftClient(clientId);
-    await this.prisma.clientBillingProfile.upsert({ where: { clientId }, create: { clientId, ...dto }, update: dto });
-    await this.prisma.clientContact.upsert({ where: { clientId_role: { clientId, role: ClientContactRole.BILLING } }, create: { clientId, role: ClientContactRole.BILLING, name: dto.billingContactName, email: dto.billingEmail, mobile: dto.billingMobile }, update: { name: dto.billingContactName, email: dto.billingEmail, mobile: dto.billingMobile } });
-    await this.audit.record({ actorId, action: 'CLIENT_BILLING_SAVED', entityType: 'Client', entityId: clientId });
+    await this.prisma.clientBillingProfile.upsert({
+      where: { clientId },
+      create: { clientId, ...dto },
+      update: dto,
+    });
+    await this.prisma.clientContact.upsert({
+      where: { clientId_role: { clientId, role: ClientContactRole.BILLING } },
+      create: {
+        clientId,
+        role: ClientContactRole.BILLING,
+        name: dto.billingContactName,
+        email: dto.billingEmail,
+        mobile: dto.billingMobile,
+      },
+      update: {
+        name: dto.billingContactName,
+        email: dto.billingEmail,
+        mobile: dto.billingMobile,
+      },
+    });
+    await this.audit.record({
+      actorId,
+      action: 'CLIENT_BILLING_SAVED',
+      entityType: 'Client',
+      entityId: clientId,
+    });
     return this.clientDetail(clientId);
   }
 
-  async saveAgreement(clientId: string, dto: UpdateClientAgreementDto, actorId: string) {
+  async saveAgreement(
+    clientId: string,
+    dto: UpdateClientAgreementDto,
+    actorId: string,
+  ) {
     await this.requireDraftClient(clientId);
-    if (!dto.termsAccepted || !dto.privacyAccepted || !dto.dataProcessingConsent) throw new BadRequestException('Terms, privacy policy, and data processing consent are required.');
+    if (
+      !dto.termsAccepted ||
+      !dto.privacyAccepted ||
+      !dto.dataProcessingConsent
+    )
+      throw new BadRequestException(
+        'Terms, privacy policy, and data processing consent are required.',
+      );
     const now = new Date();
     await this.prisma.clientAgreement.upsert({
       where: { clientId },
-      create: { clientId, authorizedSignatoryName: dto.authorizedSignatoryName, designation: dto.designation, termsAcceptedAt: now, privacyAcceptedAt: now, dataProcessingConsentAt: now, kycConsentAt: dto.kycConsent ? now : undefined, marketingConsentAt: dto.marketingConsent ? now : undefined },
-      update: { authorizedSignatoryName: dto.authorizedSignatoryName, designation: dto.designation, termsAcceptedAt: now, privacyAcceptedAt: now, dataProcessingConsentAt: now, kycConsentAt: dto.kycConsent ? now : undefined, marketingConsentAt: dto.marketingConsent ? now : undefined },
+      create: {
+        clientId,
+        authorizedSignatoryName: dto.authorizedSignatoryName,
+        designation: dto.designation,
+        termsAcceptedAt: now,
+        privacyAcceptedAt: now,
+        dataProcessingConsentAt: now,
+        kycConsentAt: dto.kycConsent ? now : undefined,
+        marketingConsentAt: dto.marketingConsent ? now : undefined,
+      },
+      update: {
+        authorizedSignatoryName: dto.authorizedSignatoryName,
+        designation: dto.designation,
+        termsAcceptedAt: now,
+        privacyAcceptedAt: now,
+        dataProcessingConsentAt: now,
+        kycConsentAt: dto.kycConsent ? now : undefined,
+        marketingConsentAt: dto.marketingConsent ? now : undefined,
+      },
     });
-    await this.audit.record({ actorId, action: 'CLIENT_AGREEMENT_SAVED', entityType: 'Client', entityId: clientId });
+    await this.audit.record({
+      actorId,
+      action: 'CLIENT_AGREEMENT_SAVED',
+      entityType: 'Client',
+      entityId: clientId,
+    });
     return this.clientDetail(clientId);
   }
 
-  async createDocumentUploadIntent(clientId: string, dto: CreateClientDocumentUploadIntentDto, actorId: string) {
+  async createDocumentUploadIntent(
+    clientId: string,
+    dto: CreateClientDocumentUploadIntentDto,
+    actorId: string,
+  ) {
     await this.requireDraftClient(clientId);
-    if (dto.sizeBytes > 10 * 1024 * 1024) throw new BadRequestException('Document size must not exceed 10 MB.');
-    if (!Object.values(ClientDocumentType).includes(dto.documentType as ClientDocumentType)) throw new BadRequestException('Unsupported document type.');
+    if (dto.sizeBytes > 10 * 1024 * 1024)
+      throw new BadRequestException('Document size must not exceed 10 MB.');
+    if (
+      !Object.values(ClientDocumentType).includes(
+        dto.documentType as ClientDocumentType,
+      )
+    )
+      throw new BadRequestException('Unsupported document type.');
     const extension = dto.fileName.split('.').pop()?.toLowerCase();
-    const expected = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png' }[dto.mimeType];
-    if (!extension || extension !== expected) throw new BadRequestException('File extension does not match its MIME type.');
+    const expected = {
+      'application/pdf': 'pdf',
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+    }[dto.mimeType];
+    if (!extension || extension !== expected)
+      throw new BadRequestException(
+        'File extension does not match its MIME type.',
+      );
     const objectKey = `clients/${clientId}/documents/${randomUUID()}.${extension}`;
-    const document = await this.prisma.clientDocument.create({ data: { clientId, documentType: dto.documentType as ClientDocumentType, documentNumber: dto.documentNumber, issueDate: dto.issueDate ? new Date(dto.issueDate) : undefined, expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : undefined, objectKey, fileName: dto.fileName, mimeType: dto.mimeType, sizeBytes: dto.sizeBytes } });
-    const uploadUrl = await this.storage.createUploadUrl({ objectKey, mimeType: dto.mimeType, sizeBytes: dto.sizeBytes });
-    await this.audit.record({ actorId, action: 'CLIENT_DOCUMENT_UPLOAD_REQUESTED', entityType: 'ClientDocument', entityId: document.id, newData: { clientId, documentType: document.documentType } });
+    const document = await this.prisma.clientDocument.create({
+      data: {
+        clientId,
+        documentType: dto.documentType as ClientDocumentType,
+        documentNumber: dto.documentNumber,
+        issueDate: dto.issueDate ? new Date(dto.issueDate) : undefined,
+        expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : undefined,
+        objectKey,
+        fileName: dto.fileName,
+        mimeType: dto.mimeType,
+        sizeBytes: dto.sizeBytes,
+      },
+    });
+    const uploadUrl = await this.storage.createUploadUrl({
+      objectKey,
+      mimeType: dto.mimeType,
+      sizeBytes: dto.sizeBytes,
+    });
+    await this.audit.record({
+      actorId,
+      action: 'CLIENT_DOCUMENT_UPLOAD_REQUESTED',
+      entityType: 'ClientDocument',
+      entityId: document.id,
+      newData: { clientId, documentType: document.documentType },
+    });
     return { document, uploadUrl };
   }
 
-  async completeDocumentUpload(clientId: string, documentId: string, actorId: string) {
-    const document = await this.prisma.clientDocument.findFirst({ where: { id: documentId, clientId } });
+  async completeDocumentUpload(
+    clientId: string,
+    documentId: string,
+    actorId: string,
+  ) {
+    const document = await this.prisma.clientDocument.findFirst({
+      where: { id: documentId, clientId },
+    });
     if (!document) throw new NotFoundException('Client document not found.');
     await this.storage.assertObjectExists(document.objectKey);
-    const completed = await this.prisma.clientDocument.update({ where: { id: documentId }, data: { uploadedAt: new Date() } });
-    await this.audit.record({ actorId, action: 'CLIENT_DOCUMENT_UPLOADED', entityType: 'ClientDocument', entityId: documentId, newData: { clientId } });
+    const completed = await this.prisma.clientDocument.update({
+      where: { id: documentId },
+      data: { uploadedAt: new Date() },
+    });
+    await this.audit.record({
+      actorId,
+      action: 'CLIENT_DOCUMENT_UPLOADED',
+      entityType: 'ClientDocument',
+      entityId: documentId,
+      newData: { clientId },
+    });
     return completed;
   }
 
@@ -716,11 +1069,40 @@ export class PlatformAdminService {
 
   async submitClient(clientId: string, actorId: string) {
     const client = await this.clientDetail(clientId);
-    if (client.status !== ClientStatus.DRAFT) throw new BadRequestException('Only a draft client can be submitted.');
+    if (client.status !== ClientStatus.DRAFT)
+      throw new BadRequestException('Only a draft client can be submitted.');
     const roles = new Set(client.contacts.map((contact) => contact.role));
-    const docs = new Set(client.documents.filter((document) => document.uploadedAt).map((document) => document.documentType));
-    if (!client.businessProfile || !client.operationsProfile || !client.billingProfile || !client.agreement || !client.subscriptions[0] || !roles.has(ClientContactRole.PRIMARY) || !roles.has(ClientContactRole.ACCOUNT_ADMIN) || !client.addresses.some((address) => address.type === ClientAddressType.REGISTERED) || !client.addresses.some((address) => address.type === ClientAddressType.BILLING) || !docs.has(ClientDocumentType.PAN_CARD)) throw new UnprocessableEntityException('Complete all mandatory onboarding steps and upload the PAN Card before submitting.');
-    if (client.businessProfile.gstin && !docs.has(ClientDocumentType.GST_CERTIFICATE)) throw new UnprocessableEntityException('GST Certificate is required when GSTIN is supplied.');
+    const docs = new Set(
+      client.documents
+        .filter((document) => document.uploadedAt)
+        .map((document) => document.documentType),
+    );
+    if (
+      !client.businessProfile ||
+      !client.operationsProfile ||
+      !client.billingProfile ||
+      !client.agreement ||
+      !client.subscriptions[0] ||
+      !roles.has(ClientContactRole.PRIMARY) ||
+      !roles.has(ClientContactRole.ACCOUNT_ADMIN) ||
+      !client.addresses.some(
+        (address) => address.type === ClientAddressType.REGISTERED,
+      ) ||
+      !client.addresses.some(
+        (address) => address.type === ClientAddressType.BILLING,
+      ) ||
+      !docs.has(ClientDocumentType.PAN_CARD)
+    )
+      throw new UnprocessableEntityException(
+        'Complete all mandatory onboarding steps and upload the PAN Card before submitting.',
+      );
+    if (
+      client.businessProfile.gstin &&
+      !docs.has(ClientDocumentType.GST_CERTIFICATE)
+    )
+      throw new UnprocessableEntityException(
+        'GST Certificate is required when GSTIN is supplied.',
+      );
     if (
       ['PVT_LTD', 'LLP'].includes(client.businessProfile.businessType) &&
       !docs.has(ClientDocumentType.INCORPORATION_CERTIFICATE)
@@ -729,50 +1111,116 @@ export class PlatformAdminService {
         'Incorporation Certificate is required for the selected business type.',
       );
     }
-    const admin = client.contacts.find((contact) => contact.role === ClientContactRole.ACCOUNT_ADMIN)!;
-    if (!admin.mobile) throw new UnprocessableEntityException('Account Admin mobile number is required.');
+    const admin = client.contacts.find(
+      (contact) => contact.role === ClientContactRole.ACCOUNT_ADMIN,
+    )!;
+    if (!admin.mobile)
+      throw new UnprocessableEntityException(
+        'Account Admin mobile number is required.',
+      );
     try {
       await this.prisma.$transaction(async (tx) => {
-        await tx.user.create({ data: { clientId: clientId, name: admin.name, mobile: admin.mobile!, role: UserRole.CLIENT_ADMIN, isActive: false } });
-        await tx.client.update({ where: { id: clientId }, data: { status: ClientStatus.PENDING_APPROVAL, isActive: false } });
-        await tx.clientAgreement.update({ where: { clientId }, data: { submittedAt: new Date() } });
+        await tx.user.create({
+          data: {
+            clientId: clientId,
+            name: admin.name,
+            mobile: admin.mobile!,
+            role: UserRole.CLIENT_ADMIN,
+            isActive: false,
+          },
+        });
+        await tx.client.update({
+          where: { id: clientId },
+          data: { status: ClientStatus.PENDING_APPROVAL, isActive: false },
+        });
+        await tx.clientAgreement.update({
+          where: { clientId },
+          data: { submittedAt: new Date() },
+        });
       });
     } catch (error) {
-      if (this.unique(error)) throw new ConflictException('The Account Admin mobile number is already registered for this client.');
+      if (this.unique(error))
+        throw new ConflictException(
+          'The Account Admin mobile number is already registered for this client.',
+        );
       throw error;
     }
-    await this.audit.record({ actorId, action: 'CLIENT_SUBMITTED_FOR_APPROVAL', entityType: 'Client', entityId: clientId });
+    await this.audit.record({
+      actorId,
+      action: 'CLIENT_SUBMITTED_FOR_APPROVAL',
+      entityType: 'Client',
+      entityId: clientId,
+    });
     return this.clientDetail(clientId);
   }
 
   async approveClient(clientId: string, actorId: string) {
-    const client = await this.prisma.client.findUnique({ where: { id: clientId } });
+    const client = await this.prisma.client.findUnique({
+      where: { id: clientId },
+    });
     if (!client) throw new NotFoundException('Client not found.');
-    if (client.status !== ClientStatus.PENDING_APPROVAL) throw new BadRequestException('Only a pending client can be approved.');
+    if (client.status !== ClientStatus.PENDING_APPROVAL)
+      throw new BadRequestException('Only a pending client can be approved.');
     await this.prisma.$transaction([
-      this.prisma.client.update({ where: { id: clientId }, data: { status: ClientStatus.ACTIVE, isActive: true } }),
-      this.prisma.user.updateMany({ where: { clientId: clientId, role: UserRole.CLIENT_ADMIN }, data: { isActive: true } }),
-      this.prisma.clientAgreement.update({ where: { clientId }, data: { approvedAt: new Date(), approvedById: actorId } }),
+      this.prisma.client.update({
+        where: { id: clientId },
+        data: { status: ClientStatus.ACTIVE, isActive: true },
+      }),
+      this.prisma.user.updateMany({
+        where: { clientId: clientId, role: UserRole.CLIENT_ADMIN },
+        data: { isActive: true },
+      }),
+      this.prisma.clientAgreement.update({
+        where: { clientId },
+        data: { approvedAt: new Date(), approvedById: actorId },
+      }),
     ]);
-    await this.audit.record({ actorId, action: 'CLIENT_APPROVED', entityType: 'Client', entityId: clientId });
+    await this.audit.record({
+      actorId,
+      action: 'CLIENT_APPROVED',
+      entityType: 'Client',
+      entityId: clientId,
+    });
     return this.clientDetail(clientId);
   }
 
   async rejectClient(clientId: string, reason: string, actorId: string) {
-    if (!reason.trim()) throw new BadRequestException('A rejection reason is required.');
-    const client = await this.prisma.client.findUnique({ where: { id: clientId } });
+    if (!reason.trim())
+      throw new BadRequestException('A rejection reason is required.');
+    const client = await this.prisma.client.findUnique({
+      where: { id: clientId },
+    });
     if (!client) throw new NotFoundException('Client not found.');
-    if (client.status !== ClientStatus.PENDING_APPROVAL) throw new BadRequestException('Only a pending client can be rejected.');
+    if (client.status !== ClientStatus.PENDING_APPROVAL)
+      throw new BadRequestException('Only a pending client can be rejected.');
     await this.prisma.$transaction([
-      this.prisma.client.update({ where: { id: clientId }, data: { status: ClientStatus.REJECTED, isActive: false } }),
-      this.prisma.clientAgreement.update({ where: { clientId }, data: { rejectedAt: new Date(), rejectedById: actorId, rejectionReason: reason } }),
+      this.prisma.client.update({
+        where: { id: clientId },
+        data: { status: ClientStatus.REJECTED, isActive: false },
+      }),
+      this.prisma.clientAgreement.update({
+        where: { clientId },
+        data: {
+          rejectedAt: new Date(),
+          rejectedById: actorId,
+          rejectionReason: reason,
+        },
+      }),
     ]);
-    await this.audit.record({ actorId, action: 'CLIENT_REJECTED', entityType: 'Client', entityId: clientId, newData: { reason } });
+    await this.audit.record({
+      actorId,
+      action: 'CLIENT_REJECTED',
+      entityType: 'Client',
+      entityId: clientId,
+      newData: { reason },
+    });
     return this.clientDetail(clientId);
   }
 
   private async requireDraftClient(clientId: string) {
-    const client = await this.prisma.client.findUnique({ where: { id: clientId } });
+    const client = await this.prisma.client.findUnique({
+      where: { id: clientId },
+    });
     if (!client) throw new NotFoundException('Client not found.');
     if (client.status !== ClientStatus.DRAFT) {
       throw new BadRequestException('Only a draft client can be edited.');
@@ -784,7 +1232,10 @@ export class PlatformAdminService {
     if (!(await this.prisma.client.findUnique({ where: { id: clientId } })))
       throw new NotFoundException('Client not found.');
   }
-  private async requireClientSubscription(clientId: string, subscriptionId: string) {
+  private async requireClientSubscription(
+    clientId: string,
+    subscriptionId: string,
+  ) {
     const subscription = await this.prisma.clientSubscription.findFirst({
       where: { id: subscriptionId, clientId },
     });
@@ -793,11 +1244,15 @@ export class PlatformAdminService {
     }
     return subscription;
   }
-  private async requireClientFeature(clientId: string, clientFeatureId: string) {
+  private async requireClientFeature(
+    clientId: string,
+    clientFeatureId: string,
+  ) {
     const clientFeature = await this.prisma.clientFeature.findFirst({
       where: { id: clientFeatureId, clientId },
     });
-    if (!clientFeature) throw new NotFoundException('Client feature not found.');
+    if (!clientFeature)
+      throw new NotFoundException('Client feature not found.');
     return clientFeature;
   }
   private async requireActiveFeature(featureId: string) {
@@ -806,12 +1261,17 @@ export class PlatformAdminService {
     });
     if (!feature) throw new NotFoundException('Active feature not found.');
   }
-  private async requireFeaturePricing(featureId: string, featurePricingId: string) {
+  private async requireFeaturePricing(
+    featureId: string,
+    featurePricingId: string,
+  ) {
     const featurePricing = await this.prisma.featurePricing.findFirst({
       where: { id: featurePricingId, featureId, isActive: true },
     });
     if (!featurePricing) {
-      throw new NotFoundException('Active pricing for this feature was not found.');
+      throw new NotFoundException(
+        'Active pricing for this feature was not found.',
+      );
     }
     return featurePricing;
   }
@@ -832,7 +1292,9 @@ export class PlatformAdminService {
     }
     const discount = new Prisma.Decimal(discountValue ?? 0);
     if (discountType === 'PERCENTAGE' && discount.greaterThan(100)) {
-      throw new UnprocessableEntityException('Percentage discount cannot exceed 100.');
+      throw new UnprocessableEntityException(
+        'Percentage discount cannot exceed 100.',
+      );
     }
     const finalPrice =
       discountType === 'PERCENTAGE'

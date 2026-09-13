@@ -16,7 +16,11 @@ type Tab =
   | "vehicleTypes"
   | "features"
   | "packages"
-  | "pricing";
+  | "pricing"
+  | "pricingTiers"
+  | "packageFeatures"
+  | "clientFeaturesPricing"
+  | "clientFeatureUsage";
 type Item = Record<string, any>;
 type PricingTierInput = {
   tierOrder: string;
@@ -76,6 +80,7 @@ const featureBillingUnits = [
   "TRAINING",
   "DEVICE",
   "MONTH",
+  "LIFE_TIME",
 ];
 const pricingModels = [
   "FREE",
@@ -250,6 +255,7 @@ export default function SuperAdminDashboard() {
   const [packages, setPackages] = useState<Item[]>([]);
   const [features, setFeatures] = useState<Item[]>([]);
   const [pricing, setPricing] = useState<Item[]>([]);
+  const [selectedClientId, setSelectedClientId] = useState("");
   const [oem, setOem] = useState(emptyOem);
   const [editingOemId, setEditingOemId] = useState<string | null>(null);
   const [showOemForm, setShowOemForm] = useState(false);
@@ -567,15 +573,8 @@ export default function SuperAdminDashboard() {
           "Use the OEM template. Header names or their order do not match.",
         );
       const rows = lines.map((line) => {
-        const [
-          code,
-          name,
-          displayName,
-          status,
-          logoUrl,
-          website,
-          description,
-        ] = parseCsvLine(line);
+        const [code, name, displayName, status, logoUrl, website, description] =
+          parseCsvLine(line);
         return {
           code,
           name,
@@ -624,7 +623,9 @@ export default function SuperAdminDashboard() {
     setLoading(true);
     setError("");
     try {
-      const lines = (await file.text()).split(/\r?\n/).filter((line) => line.trim());
+      const lines = (await file.text())
+        .split(/\r?\n/)
+        .filter((line) => line.trim());
       const headers = lines
         .shift()
         ?.split(",")
@@ -634,7 +635,9 @@ export default function SuperAdminDashboard() {
         headers.length !== expectedHeaders.length ||
         expectedHeaders.some((header, index) => headers[index] !== header)
       ) {
-        throw new Error("Use the downloaded template. Header names or their order do not match.");
+        throw new Error(
+          "Use the downloaded template. Header names or their order do not match.",
+        );
       }
       const rows = lines.map((line) => toRow(parseCsvLine(line)));
       if (!rows.length) throw new Error("The upload contains no rows.");
@@ -643,11 +646,17 @@ export default function SuperAdminDashboard() {
         { method: "POST", body: JSON.stringify({ rows }) },
         token,
       )) as { created: number };
-      setNotice(`${result.created} ${label}${result.created === 1 ? "" : "s"} imported successfully.`);
+      setNotice(
+        `${result.created} ${label}${result.created === 1 ? "" : "s"} imported successfully.`,
+      );
       complete();
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : `Unable to import ${label.toLowerCase()}s.`);
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : `Unable to import ${label.toLowerCase()}s.`,
+      );
     } finally {
       setLoading(false);
     }
@@ -664,7 +673,13 @@ export default function SuperAdminDashboard() {
       ["code", "name", "description", "status", "display_order"],
       "/platform/vehicle-categories/bulk",
       "Vehicle Category",
-      ([code, name, description, status, displayOrder]) => ({ code, name, description, status, displayOrder }),
+      ([code, name, description, status, displayOrder]) => ({
+        code,
+        name,
+        description,
+        status,
+        displayOrder,
+      }),
       () => setShowVehicleCategoryBulk(false),
     );
   }
@@ -677,10 +692,37 @@ export default function SuperAdminDashboard() {
   async function uploadVehicleTypeCsv(file: File) {
     await uploadBulkCsv(
       file,
-      ["category_code", "code", "name", "sub_category", "description", "energy_type", "usage_type", "status"],
+      [
+        "category_code",
+        "code",
+        "name",
+        "sub_category",
+        "description",
+        "energy_type",
+        "usage_type",
+        "status",
+      ],
       "/platform/vehicle-types/bulk",
       "Vehicle Type",
-      ([categoryCode, code, name, subCategory, description, energyType, usageType, status]) => ({ categoryCode, code, name, subCategory, description, energyType, usageType, status }),
+      ([
+        categoryCode,
+        code,
+        name,
+        subCategory,
+        description,
+        energyType,
+        usageType,
+        status,
+      ]) => ({
+        categoryCode,
+        code,
+        name,
+        subCategory,
+        description,
+        energyType,
+        usageType,
+        status,
+      }),
       () => setShowVehicleTypeBulk(false),
     );
   }
@@ -693,10 +735,49 @@ export default function SuperAdminDashboard() {
   async function uploadPackageCsv(file: File) {
     await uploadBulkCsv(
       file,
-      ["code", "name", "monthly_price", "yearly_price", "currency", "max_fleets", "max_riders", "trial_days", "display_order", "is_custom", "is_active", "description"],
+      [
+        "code",
+        "name",
+        "monthly_price",
+        "yearly_price",
+        "currency",
+        "max_fleets",
+        "max_riders",
+        "trial_days",
+        "display_order",
+        "is_custom",
+        "is_active",
+        "description",
+      ],
       "/platform/packages/bulk",
       "Package",
-      ([code, name, monthlyPrice, yearlyPrice, currency, maxFleets, maxRiders, trialDays, displayOrder, isCustom, isActive, description]) => ({ code, name, monthlyPrice, yearlyPrice, currency, maxFleets, maxRiders, trialDays, displayOrder, isCustom, isActive, description }),
+      ([
+        code,
+        name,
+        monthlyPrice,
+        yearlyPrice,
+        currency,
+        maxFleets,
+        maxRiders,
+        trialDays,
+        displayOrder,
+        isCustom,
+        isActive,
+        description,
+      ]) => ({
+        code,
+        name,
+        monthlyPrice,
+        yearlyPrice,
+        currency,
+        maxFleets,
+        maxRiders,
+        trialDays,
+        displayOrder,
+        isCustom,
+        isActive,
+        description,
+      }),
       () => setShowPackageBulk(false),
     );
   }
@@ -943,7 +1024,9 @@ export default function SuperAdminDashboard() {
                 yearEstablished: numberOrUndefined(client.yearEstablished),
                 estimatedFleetSize: Number(client.estimatedFleetSize),
                 estimatedRiderCount: Number(client.estimatedRiderCount),
-                estimatedUserCount: numberOrUndefined(client.estimatedUserCount),
+                estimatedUserCount: numberOrUndefined(
+                  client.estimatedUserCount,
+                ),
               }),
             },
             token,
@@ -952,38 +1035,129 @@ export default function SuperAdminDashboard() {
           setClientStep(2);
           return;
         }
-        if (!client.id) throw new Error("Create Business Details before continuing.");
+        if (!client.id)
+          throw new Error("Create Business Details before continuing.");
         if (clientStep === 2) {
-          await request(`/platform/clients/${client.id}/contacts-addresses`, { method: "PATCH", body: JSON.stringify(client) }, token);
+          await request(
+            `/platform/clients/${client.id}/contacts-addresses`,
+            { method: "PATCH", body: JSON.stringify(client) },
+            token,
+          );
           setClientStep(3);
           return;
         }
         if (clientStep === 3) {
-          await request(`/platform/clients/${client.id}/fleet-operations`, { method: "PATCH", body: JSON.stringify({ ...client, numberOfFleets: Number(client.numberOfFleets), approximateRiderCount: Number(client.approximateRiderCount), operationalHubCount: numberOrUndefined(client.operationalHubCount) }) }, token);
+          await request(
+            `/platform/clients/${client.id}/fleet-operations`,
+            {
+              method: "PATCH",
+              body: JSON.stringify({
+                ...client,
+                numberOfFleets: Number(client.numberOfFleets),
+                approximateRiderCount: Number(client.approximateRiderCount),
+                operationalHubCount: numberOrUndefined(
+                  client.operationalHubCount,
+                ),
+              }),
+            },
+            token,
+          );
           setClientStep(4);
           return;
         }
         if (clientStep === 4) {
-          await request(`/platform/clients/${client.id}/package-selection`, { method: "PATCH", body: JSON.stringify({ packageId: client.packageId, billingCycle: client.billingCycle, startDate: client.startDate, endDate: client.endDate || undefined, trialRequired: client.trialRequired, autoRenew: client.autoRenew }) }, token);
+          await request(
+            `/platform/clients/${client.id}/package-selection`,
+            {
+              method: "PATCH",
+              body: JSON.stringify({
+                packageId: client.packageId,
+                billingCycle: client.billingCycle,
+                startDate: client.startDate,
+                endDate: client.endDate || undefined,
+                trialRequired: client.trialRequired,
+                autoRenew: client.autoRenew,
+              }),
+            },
+            token,
+          );
           setClientStep(5);
           return;
         }
         if (clientStep === 5) {
-          await request(`/platform/clients/${client.id}/billing`, { method: "PATCH", body: JSON.stringify({ billingContactName: client.billingContactName, billingEmail: client.billingEmail, billingMobile: client.billingMobile || undefined, purchaseOrderRequired: client.purchaseOrderRequired, poNumber: client.poNumber || undefined, paymentTerms: client.paymentTerms || undefined }) }, token);
-          for (const [documentType, file] of Object.entries(clientDocumentFiles)) {
+          await request(
+            `/platform/clients/${client.id}/billing`,
+            {
+              method: "PATCH",
+              body: JSON.stringify({
+                billingContactName: client.billingContactName,
+                billingEmail: client.billingEmail,
+                billingMobile: client.billingMobile || undefined,
+                purchaseOrderRequired: client.purchaseOrderRequired,
+                poNumber: client.poNumber || undefined,
+                paymentTerms: client.paymentTerms || undefined,
+              }),
+            },
+            token,
+          );
+          for (const [documentType, file] of Object.entries(
+            clientDocumentFiles,
+          )) {
             if (!file) continue;
-            const intent = await request(`/platform/clients/${client.id}/documents/upload-intents`, { method: "POST", body: JSON.stringify({ documentType, fileName: file.name, mimeType: file.type, sizeBytes: file.size }) }, token);
-            const upload = await fetch(intent.uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
-            if (!upload.ok) throw new Error(`Unable to upload ${documentType}.`);
-            await request(`/platform/clients/${client.id}/documents/${intent.document.id}/complete`, { method: "POST" }, token);
+            const intent = await request(
+              `/platform/clients/${client.id}/documents/upload-intents`,
+              {
+                method: "POST",
+                body: JSON.stringify({
+                  documentType,
+                  fileName: file.name,
+                  mimeType: file.type,
+                  sizeBytes: file.size,
+                }),
+              },
+              token,
+            );
+            const upload = await fetch(intent.uploadUrl, {
+              method: "PUT",
+              headers: { "Content-Type": file.type },
+              body: file,
+            });
+            if (!upload.ok)
+              throw new Error(`Unable to upload ${documentType}.`);
+            await request(
+              `/platform/clients/${client.id}/documents/${intent.document.id}/complete`,
+              { method: "POST" },
+              token,
+            );
           }
           setClientStep(6);
           return;
         }
-        await request(`/platform/clients/${client.id}/agreement`, { method: "PATCH", body: JSON.stringify({ authorizedSignatoryName: client.authorizedSignatoryName, designation: client.signatoryDesignation, termsAccepted: client.termsAccepted, privacyAccepted: client.privacyAccepted, dataProcessingConsent: client.dataProcessingConsent, kycConsent: client.kycConsent, marketingConsent: client.marketingConsent }) }, token);
-        await request(`/platform/clients/${client.id}/submit`, { method: "POST" }, token);
+        await request(
+          `/platform/clients/${client.id}/agreement`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({
+              authorizedSignatoryName: client.authorizedSignatoryName,
+              designation: client.signatoryDesignation,
+              termsAccepted: client.termsAccepted,
+              privacyAccepted: client.privacyAccepted,
+              dataProcessingConsent: client.dataProcessingConsent,
+              kycConsent: client.kycConsent,
+              marketingConsent: client.marketingConsent,
+            }),
+          },
+          token,
+        );
+        await request(
+          `/platform/clients/${client.id}/submit`,
+          { method: "POST" },
+          token,
+        );
       },
-      clientStep === 6 ? "Client submitted for Super Admin approval." : "Draft saved.",
+      clientStep === 6
+        ? "Client submitted for Super Admin approval."
+        : "Draft saved.",
       () => {
         if (clientStep === 6) setShowClientForm(false);
       },
@@ -1032,16 +1206,39 @@ export default function SuperAdminDashboard() {
         </section>
       </main>
     );
-  const nav: Array<[Tab, string, string]> = [
-    ["dashboard", "Dashboard", "▦"],
-    ["vehicleCategories", "Vehicle Category", "▤"],
-    ["vehicleTypes", "Vehicle Type", "▧"],
-    ["oems", "OEM", "▣"],
-    ["features", "Feature", "◇"],
-    ["pricing", "Feature pricing", "₹"],
-    ["packages", "Package", "◫"],
-    ["clients", "Client", "♙"],
+  const navGroups: Array<{
+    label?: string;
+    items: Array<[Tab, string, string]>;
+  }> = [
+    { items: [["dashboard", "Dashboard", "▦"]] },
+    {
+      label: "Vehicle Management",
+      items: [
+        ["vehicleCategories", "Vehicle Category", "▤"],
+        ["vehicleTypes", "Vehicle Type", "▧"],
+        ["oems", "OEM", "▣"],
+      ],
+    },
+    {
+      label: "Package Management",
+      items: [
+        ["features", "Feature", "◇"],
+        ["pricing", "Feature Pricing", "₹"],
+        ["pricingTiers", "Feature Pricing Tiered", "≋"],
+        ["packages", "Package", "◫"],
+        ["packageFeatures", "Package Feature", "⊞"],
+      ],
+    },
+    {
+      label: "Client Management",
+      items: [
+        ["clients", "Client", "♙"],
+        ["clientFeaturesPricing", "Features & Pricing", "₹"],
+        ["clientFeatureUsage", "Feature Usage", "◷"],
+      ],
+    },
   ];
+  const nav = navGroups.flatMap((group) => group.items);
   return (
     <main className="sa-shell">
       <aside className="sa-sidebar">
@@ -1052,21 +1249,27 @@ export default function SuperAdminDashboard() {
             <small>PRO</small>
           </div>
         </div>
-        <p className="sa-nav-label">PLATFORM</p>
         <nav>
-          {nav.map(([key, label, icon]) => (
-            <button
-              key={key}
-              className={tab === key ? "active" : ""}
-              onClick={() => {
-                setTab(key);
-                setShowClientForm(false);
-                setNotice("");
-              }}
-            >
-              <span>{icon}</span>
-              {label}
-            </button>
+          {navGroups.map((group, groupIndex) => (
+            <div className="sa-nav-group" key={group.label ?? "root"}>
+              {group.label ? (
+                <p className="sa-nav-label">{group.label}</p>
+              ) : null}
+              {group.items.map(([key, label, icon]) => (
+                <button
+                  key={key}
+                  className={`${tab === key ? "active" : ""} ${groupIndex ? "sa-nav-child" : ""}`}
+                  onClick={() => {
+                    setTab(key);
+                    setShowClientForm(false);
+                    setNotice("");
+                  }}
+                >
+                  <span>{icon}</span>
+                  {label}
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
         <div className="sa-user">
@@ -1131,6 +1334,22 @@ export default function SuperAdminDashboard() {
             submit={submitClient}
             documentFiles={clientDocumentFiles}
             setDocumentFiles={setClientDocumentFiles}
+          />
+        )}
+        {tab === "clientFeaturesPricing" && (
+          <ClientFeaturesPricingView
+            clients={clients}
+            selectedClientId={selectedClientId}
+            setSelectedClientId={setSelectedClientId}
+            token={token}
+          />
+        )}
+        {tab === "clientFeatureUsage" && (
+          <ClientFeatureUsageView
+            clients={clients}
+            selectedClientId={selectedClientId}
+            setSelectedClientId={setSelectedClientId}
+            token={token}
           />
         )}
         {tab === "oems" && (
@@ -1314,7 +1533,10 @@ export default function SuperAdminDashboard() {
                 </p>
               </div>
               <div className="sa-actions">
-                <button className="secondary" onClick={downloadVehicleCategoryTemplate}>
+                <button
+                  className="secondary"
+                  onClick={downloadVehicleCategoryTemplate}
+                >
                   Download template
                 </button>
                 <button
@@ -1458,7 +1680,10 @@ export default function SuperAdminDashboard() {
                 </p>
               </div>
               <div className="sa-actions">
-                <button className="secondary" onClick={downloadVehicleTypeTemplate}>
+                <button
+                  className="secondary"
+                  onClick={downloadVehicleTypeTemplate}
+                >
                   Download template
                 </button>
                 <button
@@ -2215,6 +2440,12 @@ export default function SuperAdminDashboard() {
             </section>
           </>
         )}
+        {tab === "packageFeatures" && (
+          <PackageFeaturesView packages={packages} />
+        )}
+        {tab === "pricingTiers" && (
+          <FeaturePricingTiersView pricing={pricing} />
+        )}
         {tab === "pricing" && (
           <>
             <section className="sa-page-head">
@@ -2314,7 +2545,13 @@ export default function SuperAdminDashboard() {
                         billingCycle: value,
                       }))
                     }
-                    options={["MONTHLY", "QUARTERLY", "HALF_YEARLY", "YEARLY"]}
+                    options={[
+                      "ONCE",
+                      "MONTHLY",
+                      "QUARTERLY",
+                      "HALF_YEARLY",
+                      "YEARLY",
+                    ]}
                   />
                   <label>
                     Currency
@@ -2692,17 +2929,61 @@ function ClientsView({
     "Billing & Documents",
     "Review & Submit",
   ];
-  const fields = step === 1
-    ? [["businessFleetName", "Business / fleet name"], ["companyCode", "Company code (client login)"], ["legalEntityName", "Legal entity name"], ["industry", "Industry"], ["pan", "PAN"], ["gstin", "GSTIN"], ["cinOrLlpin", "CIN / LLPIN"], ["website", "Website"], ["yearEstablished", "Year of establishment"], ["estimatedFleetSize", "Approx. fleet size"], ["estimatedRiderCount", "Approx. rider count"], ["estimatedUserCount", "Approx. employee / user count"]]
-    : step === 2
-      ? [["primaryContactName", "Primary contact name"], ["primaryDesignation", "Primary designation"], ["primaryMobile", "Primary mobile"], ["primaryEmail", "Primary email"], ["alternateMobile", "Alternate mobile"], ["registeredAddressLine1", "Registered address line 1"], ["registeredAddressLine2", "Registered address line 2"], ["landmark", "Landmark"], ["city", "City"], ["district", "District"], ["state", "State"], ["country", "Country"], ["pinCode", "PIN code"]]
-      : step === 3
-        ? [["numberOfFleets", "Number of fleets"], ["approximateRiderCount", "Approx. riders"], ["operationalHubCount", "Number of operational hubs"]]
-        : step === 4
-          ? [["startDate", "Package start date"], ["endDate", "Package end date"]]
-          : step === 5
-            ? [["billingContactName", "Billing contact name"], ["billingEmail", "Billing email"], ["billingMobile", "Billing mobile"], ["poNumber", "PO number"], ["paymentTerms", "Payment terms"]]
-            : [["authorizedSignatoryName", "Authorized signatory name"], ["signatoryDesignation", "Signatory designation"]];
+  const fields =
+    step === 1
+      ? [
+          ["businessFleetName", "Business / fleet name"],
+          ["companyCode", "Company code (client login)"],
+          ["legalEntityName", "Legal entity name"],
+          ["industry", "Industry"],
+          ["pan", "PAN"],
+          ["gstin", "GSTIN"],
+          ["cinOrLlpin", "CIN / LLPIN"],
+          ["website", "Website"],
+          ["yearEstablished", "Year of establishment"],
+          ["estimatedFleetSize", "Approx. fleet size"],
+          ["estimatedRiderCount", "Approx. rider count"],
+          ["estimatedUserCount", "Approx. employee / user count"],
+        ]
+      : step === 2
+        ? [
+            ["primaryContactName", "Primary contact name"],
+            ["primaryDesignation", "Primary designation"],
+            ["primaryMobile", "Primary mobile"],
+            ["primaryEmail", "Primary email"],
+            ["alternateMobile", "Alternate mobile"],
+            ["registeredAddressLine1", "Registered address line 1"],
+            ["registeredAddressLine2", "Registered address line 2"],
+            ["landmark", "Landmark"],
+            ["city", "City"],
+            ["district", "District"],
+            ["state", "State"],
+            ["country", "Country"],
+            ["pinCode", "PIN code"],
+          ]
+        : step === 3
+          ? [
+              ["numberOfFleets", "Number of fleets"],
+              ["approximateRiderCount", "Approx. riders"],
+              ["operationalHubCount", "Number of operational hubs"],
+            ]
+          : step === 4
+            ? [
+                ["startDate", "Package start date"],
+                ["endDate", "Package end date"],
+              ]
+            : step === 5
+              ? [
+                  ["billingContactName", "Billing contact name"],
+                  ["billingEmail", "Billing email"],
+                  ["billingMobile", "Billing mobile"],
+                  ["poNumber", "PO number"],
+                  ["paymentTerms", "Payment terms"],
+                ]
+              : [
+                  ["authorizedSignatoryName", "Authorized signatory name"],
+                  ["signatoryDesignation", "Signatory designation"],
+                ];
   return (
     <>
       <section className="sa-page-head">
@@ -2736,23 +3017,122 @@ function ClientsView({
               <TextFields value={client} change={change} fields={fields} />
               {step === 1 && (
                 <>
-                  <Select label="Client type" value={client.clientType} change={(value) => change("clientType", value)} options={["FLEET_OWNER", "FLEET_OPERATOR", "LOGISTICS_COMPANY", "DELIVERY_PARTNER", "LEASING_COMPANY", "VEHICLE_AGGREGATOR", "ENTERPRISE", "OTHER"]} />
-                  <Select label="Business type" value={client.businessType} change={(value) => change("businessType", value)} options={["PVT_LTD", "LLP", "PARTNERSHIP", "PROPRIETORSHIP", "HUF", "INDIVIDUAL", "OTHER"]} />
+                  <Select
+                    label="Client type"
+                    value={client.clientType}
+                    change={(value) => change("clientType", value)}
+                    options={[
+                      "FLEET_OWNER",
+                      "FLEET_OPERATOR",
+                      "LOGISTICS_COMPANY",
+                      "DELIVERY_PARTNER",
+                      "LEASING_COMPANY",
+                      "VEHICLE_AGGREGATOR",
+                      "ENTERPRISE",
+                      "OTHER",
+                    ]}
+                  />
+                  <Select
+                    label="Business type"
+                    value={client.businessType}
+                    change={(value) => change("businessType", value)}
+                    options={[
+                      "PVT_LTD",
+                      "LLP",
+                      "PARTNERSHIP",
+                      "PROPRIETORSHIP",
+                      "HUF",
+                      "INDIVIDUAL",
+                      "OTHER",
+                    ]}
+                  />
                 </>
               )}
               {step === 2 && (
                 <>
-                  <label className="sa-toggle"><input type="checkbox" checked={client.adminSameAsPrimary} onChange={(event) => change("adminSameAsPrimary", event.target.checked)} /> Admin is same as Primary Contact</label>
-                  {!client.adminSameAsPrimary && <TextFields value={client} change={change} fields={[["adminName", "Admin name"], ["adminDesignation", "Admin designation"], ["adminMobile", "Admin mobile"], ["adminEmail", "Admin email"]]} />}
-                  <label className="sa-toggle"><input type="checkbox" checked={client.billingSameAsRegistered} onChange={(event) => change("billingSameAsRegistered", event.target.checked)} /> Billing address is same as registered</label>
-                  {!client.billingSameAsRegistered && <TextFields value={client} change={change} fields={[["billingAddressLine1", "Billing address line 1"], ["billingAddressLine2", "Billing address line 2"], ["billingLandmark", "Billing landmark"], ["billingCity", "Billing city"], ["billingDistrict", "Billing district"], ["billingState", "Billing state"], ["billingCountry", "Billing country"], ["billingPinCode", "Billing PIN code"]]} />}
+                  <label className="sa-toggle">
+                    <input
+                      type="checkbox"
+                      checked={client.adminSameAsPrimary}
+                      onChange={(event) =>
+                        change("adminSameAsPrimary", event.target.checked)
+                      }
+                    />{" "}
+                    Admin is same as Primary Contact
+                  </label>
+                  {!client.adminSameAsPrimary && (
+                    <TextFields
+                      value={client}
+                      change={change}
+                      fields={[
+                        ["adminName", "Admin name"],
+                        ["adminDesignation", "Admin designation"],
+                        ["adminMobile", "Admin mobile"],
+                        ["adminEmail", "Admin email"],
+                      ]}
+                    />
+                  )}
+                  <label className="sa-toggle">
+                    <input
+                      type="checkbox"
+                      checked={client.billingSameAsRegistered}
+                      onChange={(event) =>
+                        change("billingSameAsRegistered", event.target.checked)
+                      }
+                    />{" "}
+                    Billing address is same as registered
+                  </label>
+                  {!client.billingSameAsRegistered && (
+                    <TextFields
+                      value={client}
+                      change={change}
+                      fields={[
+                        ["billingAddressLine1", "Billing address line 1"],
+                        ["billingAddressLine2", "Billing address line 2"],
+                        ["billingLandmark", "Billing landmark"],
+                        ["billingCity", "Billing city"],
+                        ["billingDistrict", "Billing district"],
+                        ["billingState", "Billing state"],
+                        ["billingCountry", "Billing country"],
+                        ["billingPinCode", "Billing PIN code"],
+                      ]}
+                    />
+                  )}
                 </>
               )}
               {step === 3 && (
                 <>
-                  <Select label="Fleet business model" value={client.fleetBusinessModel} change={(value) => change("fleetBusinessModel", value)} options={["OWNED", "LEASED", "ATTACHED", "MIXED"]} />
-                  <Select label="Vehicle ownership" value={client.vehicleOwnership} change={(value) => change("vehicleOwnership", value)} options={["OWNED", "LEASED", "DRIVER_OWNED", "MIXED"]} />
-                  <label>Primary vehicle type<select required value={client.primaryVehicleTypeId} onChange={(event) => change("primaryVehicleTypeId", event.target.value)}><option value="">Select vehicle type</option>{vehicleTypes.filter((item: Item) => item.status === "ACTIVE").map((item: Item) => <option key={item.id} value={item.id}>{item.code} · {item.name}</option>)}</select></label>
+                  <Select
+                    label="Fleet business model"
+                    value={client.fleetBusinessModel}
+                    change={(value) => change("fleetBusinessModel", value)}
+                    options={["OWNED", "LEASED", "ATTACHED", "MIXED"]}
+                  />
+                  <Select
+                    label="Vehicle ownership"
+                    value={client.vehicleOwnership}
+                    change={(value) => change("vehicleOwnership", value)}
+                    options={["OWNED", "LEASED", "DRIVER_OWNED", "MIXED"]}
+                  />
+                  <label>
+                    Primary vehicle type
+                    <select
+                      required
+                      value={client.primaryVehicleTypeId}
+                      onChange={(event) =>
+                        change("primaryVehicleTypeId", event.target.value)
+                      }
+                    >
+                      <option value="">Select vehicle type</option>
+                      {vehicleTypes
+                        .filter((item: Item) => item.status === "ACTIVE")
+                        .map((item: Item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.code} · {item.name}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
                 </>
               )}
               {step === 4 && (
@@ -2768,12 +3148,15 @@ function ClientsView({
                     >
                       <option value="">Select package</option>
                       {packages
-                        .filter((item: Item) => item.isActive && item.monthlyPrice !== null)
+                        .filter(
+                          (item: Item) =>
+                            item.isActive && item.monthlyPrice !== null,
+                        )
                         .map((item: Item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name} · ₹{item.monthlyPrice}/month
-                        </option>
-                      ))}
+                          <option key={item.id} value={item.id}>
+                            {item.name} · ₹{item.monthlyPrice}/month
+                          </option>
+                        ))}
                     </select>
                   </label>
                   <label>
@@ -2800,23 +3183,112 @@ function ClientsView({
                     />{" "}
                     Auto renew
                   </label>
-                  <label className="sa-toggle"><input type="checkbox" checked={client.trialRequired} onChange={(event) => change("trialRequired", event.target.checked)} /> Trial required</label>
+                  <label className="sa-toggle">
+                    <input
+                      type="checkbox"
+                      checked={client.trialRequired}
+                      onChange={(event) =>
+                        change("trialRequired", event.target.checked)
+                      }
+                    />{" "}
+                    Trial required
+                  </label>
                 </>
               )}
               {step === 5 && (
                 <>
-                  <label className="sa-toggle"><input type="checkbox" checked={client.purchaseOrderRequired} onChange={(event) => change("purchaseOrderRequired", event.target.checked)} /> Purchase order required</label>
-                  {[["PAN_CARD", "PAN Card · required"], ["GST_CERTIFICATE", "GST Certificate"], ["INCORPORATION_CERTIFICATE", "Incorporation Certificate"], ["FLEET_AGREEMENT", "Fleet / Business Agreement"]].map(([type, label]) => <label key={type} className="sa-logo-input">{label}<input type="file" accept="application/pdf,image/jpeg,image/png" onChange={(event) => setDocumentFiles((current: any) => ({ ...current, [type]: event.target.files?.[0] }))} />{documentFiles[type] && <small>{documentFiles[type]?.name}</small>}</label>)}
+                  <label className="sa-toggle">
+                    <input
+                      type="checkbox"
+                      checked={client.purchaseOrderRequired}
+                      onChange={(event) =>
+                        change("purchaseOrderRequired", event.target.checked)
+                      }
+                    />{" "}
+                    Purchase order required
+                  </label>
+                  {[
+                    ["PAN_CARD", "PAN Card · required"],
+                    ["GST_CERTIFICATE", "GST Certificate"],
+                    ["INCORPORATION_CERTIFICATE", "Incorporation Certificate"],
+                    ["FLEET_AGREEMENT", "Fleet / Business Agreement"],
+                  ].map(([type, label]) => (
+                    <label key={type} className="sa-logo-input">
+                      {label}
+                      <input
+                        type="file"
+                        accept="application/pdf,image/jpeg,image/png"
+                        onChange={(event) =>
+                          setDocumentFiles((current: any) => ({
+                            ...current,
+                            [type]: event.target.files?.[0],
+                          }))
+                        }
+                      />
+                      {documentFiles[type] && (
+                        <small>{documentFiles[type]?.name}</small>
+                      )}
+                    </label>
+                  ))}
                 </>
               )}
               {step === 6 && (
                 <>
-                  <p className="muted">Review the saved Client profile, contacts, operations, package, billing, and uploaded documents. Submission locks the draft and sends it to Super Admin approval.</p>
-                  <label className="sa-toggle"><input type="checkbox" checked={client.termsAccepted} onChange={(event) => change("termsAccepted", event.target.checked)} /> I accept the Terms</label>
-                  <label className="sa-toggle"><input type="checkbox" checked={client.privacyAccepted} onChange={(event) => change("privacyAccepted", event.target.checked)} /> I accept the Privacy Policy</label>
-                  <label className="sa-toggle"><input type="checkbox" checked={client.dataProcessingConsent} onChange={(event) => change("dataProcessingConsent", event.target.checked)} /> I give Data Processing Consent</label>
-                  <label className="sa-toggle"><input type="checkbox" checked={client.kycConsent} onChange={(event) => change("kycConsent", event.target.checked)} /> KYC consent</label>
-                  <label className="sa-toggle"><input type="checkbox" checked={client.marketingConsent} onChange={(event) => change("marketingConsent", event.target.checked)} /> Marketing consent</label>
+                  <p className="muted">
+                    Review the saved Client profile, contacts, operations,
+                    package, billing, and uploaded documents. Submission locks
+                    the draft and sends it to Super Admin approval.
+                  </p>
+                  <label className="sa-toggle">
+                    <input
+                      type="checkbox"
+                      checked={client.termsAccepted}
+                      onChange={(event) =>
+                        change("termsAccepted", event.target.checked)
+                      }
+                    />{" "}
+                    I accept the Terms
+                  </label>
+                  <label className="sa-toggle">
+                    <input
+                      type="checkbox"
+                      checked={client.privacyAccepted}
+                      onChange={(event) =>
+                        change("privacyAccepted", event.target.checked)
+                      }
+                    />{" "}
+                    I accept the Privacy Policy
+                  </label>
+                  <label className="sa-toggle">
+                    <input
+                      type="checkbox"
+                      checked={client.dataProcessingConsent}
+                      onChange={(event) =>
+                        change("dataProcessingConsent", event.target.checked)
+                      }
+                    />{" "}
+                    I give Data Processing Consent
+                  </label>
+                  <label className="sa-toggle">
+                    <input
+                      type="checkbox"
+                      checked={client.kycConsent}
+                      onChange={(event) =>
+                        change("kycConsent", event.target.checked)
+                      }
+                    />{" "}
+                    KYC consent
+                  </label>
+                  <label className="sa-toggle">
+                    <input
+                      type="checkbox"
+                      checked={client.marketingConsent}
+                      onChange={(event) =>
+                        change("marketingConsent", event.target.checked)
+                      }
+                    />{" "}
+                    Marketing consent
+                  </label>
                 </>
               )}
             </div>
@@ -2831,17 +3303,14 @@ function ClientsView({
                 Back
               </button>
             )}
-            <button>{step === 6 ? "Submit for onboarding" : "Save & continue"}</button>
+            <button>
+              {step === 6 ? "Submit for onboarding" : "Save & continue"}
+            </button>
           </footer>
         </form>
       )}
       <DataTable
-        headings={[
-          "Client",
-          "Workspace",
-          "Riders",
-          "Status",
-        ]}
+        headings={["Client", "Workspace", "Riders", "Status"]}
         rows={clients.map((item: Item) => [
           item.name,
           item.companyCode ?? item.slug,
@@ -2977,12 +3446,316 @@ function BulkUploadPanel({
   );
 }
 
+function PackageFeaturesView({ packages }: { packages: Item[] }) {
+  return (
+    <>
+      <section className="sa-page-head">
+        <div>
+          <h2>Package Feature</h2>
+          <p>
+            Review the features, included quantities, and usage limits supplied
+            by each package.
+          </p>
+        </div>
+      </section>
+      <section className="sa-management oem-table-only">
+        {packages.length ? (
+          <DataTable
+            headings={[
+              "Package",
+              "Feature",
+              "Included",
+              "Usage limit",
+              "Status",
+            ]}
+            rows={packages.flatMap((pack) =>
+              (pack.features ?? []).map((link: Item) => [
+                pack.name,
+                link.feature?.name ?? "—",
+                link.unlimitedUsage
+                  ? "Unlimited"
+                  : (link.includedQuantity ?? "0"),
+                link.usageLimit ?? "—",
+                link.enabled ? "ENABLED" : "DISABLED",
+              ]),
+            )}
+          />
+        ) : (
+          <section className="sa-empty-catalog">
+            <h3>No Package Features yet</h3>
+            <p>
+              Create a Package and select its included Features to populate this
+              view.
+            </p>
+          </section>
+        )}
+      </section>
+    </>
+  );
+}
+
+function FeaturePricingTiersView({ pricing }: { pricing: Item[] }) {
+  const tiered = pricing.filter(
+    (item) => item.pricingModel === "TIERED" || item.tiers?.length,
+  );
+  return (
+    <>
+      <section className="sa-page-head">
+        <div>
+          <h2>Feature Pricing Tiered</h2>
+          <p>
+            Review tiered master pricing. Tiers are configured while creating or
+            editing Feature Pricing.
+          </p>
+        </div>
+      </section>
+      <section className="sa-management oem-table-only">
+        <DataTable
+          headings={[
+            "Feature",
+            "Tier",
+            "From quantity",
+            "To quantity",
+            "Unit price",
+            "Cost price",
+          ]}
+          rows={tiered.flatMap((item) =>
+            (item.tiers ?? []).map((tier: Item) => [
+              item.feature?.name ?? "—",
+              tier.tierOrder,
+              tier.fromQuantity,
+              tier.toQuantity ?? "∞",
+              `₹${tier.unitPrice}`,
+              tier.costPrice ? `₹${tier.costPrice}` : "—",
+            ]),
+          )}
+        />
+      </section>
+    </>
+  );
+}
+
+function ClientFeaturesPricingView({
+  clients,
+  selectedClientId,
+  setSelectedClientId,
+  token,
+}: {
+  clients: Item[];
+  selectedClientId: string;
+  setSelectedClientId: (value: string) => void;
+  token: string;
+}) {
+  const [data, setData] = useState<Item | null>(null);
+  const [error, setError] = useState("");
+  const selected = selectedClientId || clients[0]?.id || "";
+
+  useEffect(() => {
+    if (!selected) return;
+    let active = true;
+    void request(`/platform/clients/${selected}/entitlements`, {}, token)
+      .then((result) => {
+        if (active) {
+          setData(result);
+          setError("");
+        }
+      })
+      .catch(
+        (cause) =>
+          active &&
+          setError(
+            cause instanceof Error
+              ? cause.message
+              : "Unable to load client entitlements.",
+          ),
+      );
+    return () => {
+      active = false;
+    };
+  }, [selected, token]);
+
+  const subscription = data?.subscription;
+  const rows = [
+    ...(data?.packageFeatures ?? []).map((link: Item) => {
+      const price = link.feature?.pricing?.[0];
+      return [
+        link.feature?.name ?? "—",
+        "PACKAGE",
+        link.unlimitedUsage ? "Unlimited" : (link.includedQuantity ?? "0"),
+        price ? `${price.currency} ${price.unitPrice}` : "Included / no price",
+        price?.pricingModel ?? "INCLUDED",
+      ];
+    }),
+    ...(data?.clientFeatures ?? []).map((link: Item) => {
+      const negotiated = link.pricing?.[0];
+      const master = link.feature?.pricing?.[0];
+      const displayedPrice = negotiated
+        ? `${negotiated.currency} ${negotiated.finalUnitPrice} (negotiated)`
+        : master
+          ? `${master.currency} ${master.unitPrice}`
+          : "—";
+      return [
+        link.feature?.name ?? "—",
+        link.source,
+        link.unlimitedUsage ? "Unlimited" : (link.includedQuantity ?? "0"),
+        displayedPrice,
+        negotiated?.featurePricing?.pricingModel ?? master?.pricingModel ?? "—",
+      ];
+    }),
+  ];
+
+  return (
+    <>
+      <section className="sa-page-head">
+        <div>
+          <h2>Client Features &amp; Pricing</h2>
+          <p>
+            Package entitlements and client-specific add-ons retain their own
+            commercial snapshots.
+          </p>
+        </div>
+        <label className="sa-client-picker">
+          Client
+          <select
+            value={selected}
+            onChange={(event) => setSelectedClientId(event.target.value)}
+          >
+            <option value="">Select client</option>
+            {clients.map((client) => (
+              <option key={client.id} value={client.id}>
+                {client.name} ({client.companyCode})
+              </option>
+            ))}
+          </select>
+        </label>
+      </section>
+      {error && <p className="error">{error}</p>}
+      {!selected ? (
+        <section className="sa-empty-catalog">
+          <h3>No Client selected</h3>
+          <p>Create or select a Client to review its package and pricing.</p>
+        </section>
+      ) : !subscription ? (
+        <section className="sa-empty-catalog">
+          <h3>No active Package</h3>
+          <p>
+            This Client has no active subscription. Assign a Package from Client
+            onboarding first.
+          </p>
+        </section>
+      ) : (
+        <section className="sa-management oem-table-only">
+          <article className="sa-entitlement-summary">
+            <strong>{subscription.package?.name ?? "Package"}</strong>
+            <span>
+              {subscription.billingCycle} · {subscription.currency}{" "}
+              {subscription.finalPackagePrice}
+            </span>
+            <small>
+              List price: {subscription.currency} {subscription.listPrice}
+            </small>
+          </article>
+          <DataTable
+            headings={[
+              "Feature",
+              "Source",
+              "Included quantity",
+              "Current price",
+              "Pricing model",
+            ]}
+            rows={rows}
+          />
+        </section>
+      )}
+    </>
+  );
+}
+
+function ClientFeatureUsageView({
+  clients,
+  selectedClientId,
+  setSelectedClientId,
+  token,
+}: {
+  clients: Item[];
+  selectedClientId: string;
+  setSelectedClientId: (value: string) => void;
+  token: string;
+}) {
+  const [usage, setUsage] = useState<Item[]>([]);
+  const [error, setError] = useState("");
+  const selected = selectedClientId || clients[0]?.id || "";
+
+  useEffect(() => {
+    if (!selected) return;
+    let active = true;
+    void request(`/platform/clients/${selected}/usage`, {}, token)
+      .then((result) => active && (setUsage(result), setError("")))
+      .catch(
+        (cause) =>
+          active &&
+          setError(
+            cause instanceof Error
+              ? cause.message
+              : "Unable to load client feature usage.",
+          ),
+      );
+    return () => {
+      active = false;
+    };
+  }, [selected, token]);
+
+  return (
+    <>
+      <section className="sa-page-head">
+        <div>
+          <h2>Client Feature Usage</h2>
+          <p>
+            Recent recorded consumption used for feature overage and billing
+            calculations.
+          </p>
+        </div>
+        <label className="sa-client-picker">
+          Client
+          <select
+            value={selected}
+            onChange={(event) => setSelectedClientId(event.target.value)}
+          >
+            <option value="">Select client</option>
+            {clients.map((client) => (
+              <option key={client.id} value={client.id}>
+                {client.name} ({client.companyCode})
+              </option>
+            ))}
+          </select>
+        </label>
+      </section>
+      {error && <p className="error">{error}</p>}
+      <section className="sa-management oem-table-only">
+        <DataTable
+          headings={["Feature", "Package", "Reference", "Quantity", "Used at"]}
+          rows={usage.map((entry) => [
+            entry.feature?.name ?? "—",
+            entry.subscription?.package?.name ?? "—",
+            entry.usageReference ?? "—",
+            entry.quantity,
+            new Date(entry.usageTimestamp).toLocaleString(),
+          ])}
+        />
+      </section>
+    </>
+  );
+}
+
 function DataTable({ headings, rows }: { headings: string[]; rows: any[][] }) {
   const pageSize = 10;
   const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
   const [page, setPage] = useState(1);
   const currentPage = Math.min(page, pageCount);
-  const pageRows = rows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const pageRows = rows.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
 
   return (
     <div>
