@@ -237,7 +237,6 @@ model Tenant {
   hubs              Hub[]
   fleets            Fleet[]
   auditLogs         AuditLog[]
-  onboardingConfigs RiderOnboardingConfig[]
   clientProfile     ClientProfile?
   subscriptions     ClientSubscription[]
   clientFeatures    ClientFeature[]
@@ -512,69 +511,6 @@ model FeatureUsage {
 
   @@index([subscriptionId, featureId, usageTimestamp])
   @@index([clientId, usageTimestamp])
-}
-
-model OnboardingStepDefinition {
-  stepKey              String                      @id
-  displayName          String
-  description          String?
-  stage                Int
-  category             String
-  handlerClass         String
-  uiComponent          String
-  isLockable           Boolean                     @default(false)
-  supportsDocument     Boolean                     @default(false)
-  supportsRevalidation Boolean                     @default(false)
-  defaultEnabled       Boolean                     @default(false)
-  defaultMandatory     Boolean                     @default(true)
-  tenantEditable       Boolean                     @default(false)
-  requiresOpsApproval  Boolean                     @default(true)
-  schemaDefinition     Json
-  configSteps          RiderOnboardingConfigStep[]
-  createdAt            DateTime                    @default(now())
-}
-
-model RiderOnboardingConfig {
-  id            String                      @id @default(uuid())
-  tenantId      String
-  tenant        Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  version       Int
-  status        String                      @default("DRAFT")
-  notes         String?
-  effectiveFrom DateTime?
-  activatedAt   DateTime?
-  createdAt     DateTime                    @default(now())
-  updatedAt     DateTime                    @updatedAt
-  steps         RiderOnboardingConfigStep[]
-
-  @@unique([tenantId, version])
-  @@index([tenantId, status])
-}
-
-model RiderOnboardingConfigStep {
-  id                       String                   @id @default(uuid())
-  configId                 String
-  config                   RiderOnboardingConfig    @relation(fields: [configId], references: [id], onDelete: Cascade)
-  stepKey                  String
-  definition               OnboardingStepDefinition @relation(fields: [stepKey], references: [stepKey], onDelete: Restrict)
-  enabled                  Boolean                  @default(false)
-  mandatory                Boolean                  @default(true)
-  blocking                 Boolean                  @default(true)
-  sequenceNo               Int
-  verificationMode         String                   @default("AUTO")
-  fallbackMode             String                   @default("MANUAL")
-  maxRetryAttempts         Int                      @default(3)
-  slaHours                 Int?
-  dependsOn                Json
-  applicableModels         Json?
-  params                   Json
-  revalidationIntervalDays Int?
-  expiryWarningDays        Int                      @default(15)
-  createdAt                DateTime                 @default(now())
-  updatedAt                DateTime                 @updatedAt
-
-  @@unique([configId, stepKey])
-  @@index([configId, sequenceNo])
 }
 
 model Zone {

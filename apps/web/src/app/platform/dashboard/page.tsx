@@ -2743,14 +2743,12 @@ function ClientsView({
           "Client",
           "Workspace",
           "Riders",
-          "Workflow versions",
           "Status",
         ]}
         rows={clients.map((item: Item) => [
           item.name,
           item.slug,
           item._count?.riders ?? 0,
-          item._count?.onboardingConfigs ?? 0,
           item.isActive ? "ACTIVE" : "INACTIVE",
         ])}
       />
