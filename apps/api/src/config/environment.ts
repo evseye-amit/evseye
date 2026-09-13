@@ -4,8 +4,8 @@ const environmentSchema = z.object({
   NODE_ENV: z
     .enum(['development', 'test', 'production'])
     .default('development'),
-  API_PORT: z.coerce.number().int().positive().default(4000),
-  CORS_ORIGINS: z.string().default('http://localhost:4001'),
+  API_PORT: z.coerce.number().int().positive().default(3000),
+  CORS_ORIGINS: z.string().default('http://localhost:3001'),
   DATABASE_URL: z.string().url().optional(),
   REDIS_URL: z.string().url().optional(),
   JWT_ACCESS_SECRET: z
