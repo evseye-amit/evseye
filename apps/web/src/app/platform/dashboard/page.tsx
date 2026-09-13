@@ -1174,6 +1174,34 @@ export default function SuperAdminDashboard() {
       `${label} deleted.`,
     );
   }
+  async function approveClient(clientId: string) {
+    await submit(
+      () =>
+        request(
+          `/platform/clients/${clientId}/approve`,
+          { method: "POST" },
+          token,
+        ),
+      "Client approved and activated.",
+    );
+  }
+  async function rejectClient(clientId: string) {
+    const reason = window.prompt("Enter the reason for rejecting this Client.");
+    if (reason === null) return;
+    if (!reason.trim()) {
+      setError("A rejection reason is required.");
+      return;
+    }
+    await submit(
+      () =>
+        request(
+          `/platform/clients/${clientId}/reject`,
+          { method: "POST", body: JSON.stringify({ reason: reason.trim() }) },
+          token,
+        ),
+      "Client rejected. The Client Admin will see the correction message.",
+    );
+  }
   async function submit(
     operation: () => Promise<unknown>,
     success: string,
@@ -1338,6 +1366,8 @@ export default function SuperAdminDashboard() {
             submit={submitClient}
             documentFiles={clientDocumentFiles}
             setDocumentFiles={setClientDocumentFiles}
+            approveClient={approveClient}
+            rejectClient={rejectClient}
           />
         )}
         {tab === "clientFeaturesPricing" && (
@@ -2463,7 +2493,11 @@ export default function SuperAdminDashboard() {
           <PackageFeaturesView packages={packages} />
         )}
         {tab === "pricingTiers" && (
-          <FeaturePricingTiersView pricing={pricing} />
+          <FeaturePricingTiersView
+            pricing={pricing}
+            token={token}
+            onSaved={() => void load()}
+          />
         )}
         {tab === "pricing" && (
           <>
@@ -2904,6 +2938,12 @@ function DashboardView({
       </section>
       <section className="sa-metrics sa-metrics-secondary">
         <Metric
+          label="Approval pending"
+          value={summary.pendingClients ?? 0}
+          detail="Clients awaiting decision"
+          tone="gold"
+        />
+        <Metric
           label="Client pipeline"
           value={summary.clients ?? 0}
           detail={`${summary.pendingClients ?? 0} awaiting review`}
@@ -3091,6 +3131,8 @@ function ClientsView({
   submit,
   documentFiles,
   setDocumentFiles,
+  approveClient,
+  rejectClient,
 }: any) {
   const headings = [
     "Business Details",
@@ -3504,12 +3546,28 @@ function ClientsView({
         </form>
       )}
       <DataTable
-        headings={["Client", "Workspace", "Riders", "Status"]}
+        headings={["Client", "Workspace", "Riders", "Status", ""]}
         rows={clients.map((item: Item) => [
           item.name,
           item.companyCode ?? item.slug,
           item._count?.riders ?? 0,
           item.status ?? (item.isActive ? "ACTIVE" : "INACTIVE"),
+          item.status === "PENDING_APPROVAL" ? (
+            <span className="sa-client-actions" key={item.id}>
+              <button type="button" onClick={() => void approveClient(item.id)}>
+                Approve
+              </button>
+              <button
+                type="button"
+                className="danger"
+                onClick={() => void rejectClient(item.id)}
+              >
+                Reject
+              </button>
+            </span>
+          ) : (
+            "—"
+          ),
         ])}
       />
     </>
@@ -3754,21 +3812,224 @@ function PackageFeaturesView({ packages }: { packages: Item[] }) {
   );
 }
 
-function FeaturePricingTiersView({ pricing }: { pricing: Item[] }) {
+function FeaturePricingTiersView({
+  pricing,
+  token,
+  onSaved,
+}: {
+  pricing: Item[];
+  token: string;
+  onSaved: () => void;
+}) {
   const tiered = pricing.filter(
-    (item) => item.pricingModel === "TIERED" || item.tiers?.length,
+    (item) =>
+      item.pricingModel === "TIERED" ||
+      item.pricingModel === "VOLUME" ||
+      item.tiers?.length,
   );
+  const [selectedId, setSelectedId] = useState("");
+  const [tiers, setTiers] = useState<PricingTierInput[]>([]);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const selected = tiered.find((item) => item.id === selectedId) ?? tiered[0];
+  useEffect(() => {
+    if (!selected) {
+      setTiers([]);
+      return;
+    }
+    setSelectedId(selected.id);
+    setTiers(
+      (selected.tiers ?? []).map((tier: Item) => ({
+        tierOrder: String(tier.tierOrder),
+        tierName: tier.tierName ?? "",
+        fromQuantity: String(tier.fromQuantity),
+        toQuantity:
+          tier.toQuantity === null ? "" : String(tier.toQuantity ?? ""),
+        unitPrice: String(tier.unitPrice),
+        costPrice: tier.costPrice === null ? "" : String(tier.costPrice ?? ""),
+      })),
+    );
+  }, [selected?.id]);
+  const updateTier = (
+    index: number,
+    key: keyof PricingTierInput,
+    value: string,
+  ) =>
+    setTiers((current) =>
+      current.map((tier, tierIndex) =>
+        tierIndex === index ? { ...tier, [key]: value } : tier,
+      ),
+    );
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!selected) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await request(
+        `/platform/feature-pricing/${selected.id}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            featureId: selected.featureId,
+            pricingModel: selected.pricingModel,
+            billingUnit: selected.billingUnit,
+            currency: selected.currency,
+            basePrice: Number(selected.basePrice ?? 0),
+            unitPrice: Number(selected.unitPrice ?? 0),
+            costPrice: Number(selected.costPrice ?? 0),
+            minimumCharge:
+              selected.minimumCharge === null
+                ? undefined
+                : Number(selected.minimumCharge),
+            maximumCharge:
+              selected.maximumCharge === null
+                ? undefined
+                : Number(selected.maximumCharge),
+            setupFee: Number(selected.setupFee ?? 0),
+            billingCycle: selected.billingCycle ?? undefined,
+            taxInclusive: selected.taxInclusive,
+            effectiveFrom: new Date(selected.effectiveFrom).toISOString(),
+            effectiveTo: selected.effectiveTo
+              ? new Date(selected.effectiveTo).toISOString()
+              : undefined,
+            isActive: selected.isActive,
+            metadata: selected.metadata ?? undefined,
+            tiers: tiers.map((tier) => ({
+              tierOrder: Number(tier.tierOrder),
+              tierName: tier.tierName || undefined,
+              fromQuantity: Number(tier.fromQuantity),
+              toQuantity: tier.toQuantity ? Number(tier.toQuantity) : undefined,
+              unitPrice: Number(tier.unitPrice),
+              costPrice: tier.costPrice ? Number(tier.costPrice) : undefined,
+            })),
+          }),
+        },
+        token,
+      );
+      setMessage(
+        `Saved ${response.tiers?.length ?? tiers.length} pricing tier(s).`,
+      );
+      onSaved();
+    } catch (cause) {
+      setMessage(
+        cause instanceof Error
+          ? cause.message
+          : "Unable to save pricing tiers.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <>
       <section className="sa-page-head">
         <div>
           <h2>Feature Pricing Tiered</h2>
           <p>
-            Review tiered master pricing. Tiers are configured while creating or
-            editing Feature Pricing.
+            Create and edit the quantity tiers for each tiered Feature Price.
           </p>
         </div>
       </section>
+      {tiered.length ? (
+        <form className="sa-form sa-tier-editor" onSubmit={save}>
+          <label>
+            Tiered Feature Price
+            <select
+              value={selected?.id ?? ""}
+              onChange={(event) => setSelectedId(event.target.value)}
+            >
+              {tiered.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.feature?.name ?? "Feature"} ·{" "}
+                  {enumLabel(item.pricingModel)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="sa-tier-editor-head">
+            <div>
+              <strong>{selected?.feature?.name}</strong>
+              <small>
+                {selected?.currency} {selected?.unitPrice} base unit price ·{" "}
+                {enumLabel(selected?.billingUnit ?? "")}
+              </small>
+            </div>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() =>
+                setTiers((current) => [
+                  ...current,
+                  {
+                    tierOrder: String(current.length + 1),
+                    tierName: "",
+                    fromQuantity: current.length ? "" : "0",
+                    toQuantity: "",
+                    unitPrice: "",
+                    costPrice: "",
+                  },
+                ])
+              }
+            >
+              + Add tier
+            </button>
+          </div>
+          {tiers.length ? (
+            <div className="sa-tier-grid">
+              {tiers.map((tier, index) => (
+                <section
+                  key={`${tier.tierOrder}-${index}`}
+                  className="sa-price-override"
+                >
+                  <TextFields
+                    value={tier}
+                    change={(key, value) =>
+                      updateTier(index, key as keyof PricingTierInput, value)
+                    }
+                    fields={[
+                      ["tierOrder", "Tier order"],
+                      ["tierName", "Tier name"],
+                      ["fromQuantity", "From quantity"],
+                      ["toQuantity", "To quantity"],
+                      ["unitPrice", "Unit price"],
+                      ["costPrice", "Cost price"],
+                    ]}
+                    requiredKeys={["tierOrder", "fromQuantity", "unitPrice"]}
+                  />
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() =>
+                      setTiers((current) =>
+                        current.filter((_, tierIndex) => tierIndex !== index),
+                      )
+                    }
+                  >
+                    Remove tier
+                  </button>
+                </section>
+              ))}
+            </div>
+          ) : (
+            <p className="muted">
+              No tiers configured. Add the first tier to begin.
+            </p>
+          )}
+          <button disabled={busy || !tiers.length}>
+            {busy ? "Saving…" : "Save tiers"}
+          </button>
+          {message && <p className="notice">{message}</p>}
+        </form>
+      ) : (
+        <section className="sa-empty-catalog">
+          <h3>No tiered Feature Pricing yet</h3>
+          <p>
+            Create a Feature Price with the TIERED or VOLUME model, then return
+            here to configure its tiers.
+          </p>
+        </section>
+      )}
       <section className="sa-management oem-table-only">
         <DataTable
           headings={[
