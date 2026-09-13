@@ -158,7 +158,7 @@ const emptyVehicleType = {
   name: "",
   subCategory: "",
   description: "",
-  energyType: "ELECTRIC",
+  energyType: "",
   usageType: "",
   status: "ACTIVE",
 };
@@ -180,16 +180,16 @@ const emptyFeature = {
   code: "",
   name: "",
   description: "",
-  category: "RIDER_ONBOARDING",
-  featureType: "BOOLEAN",
-  billingUnit: "MONTH",
+  category: "",
+  featureType: "",
+  billingUnit: "",
   displayOrder: "0",
   isActive: true,
 };
 const emptyPricing = {
   featureId: "",
-  pricingModel: "PER_UNIT",
-  billingUnit: "VERIFICATION",
+  pricingModel: "",
+  billingUnit: "",
   currency: "INR",
   basePrice: "0",
   unitPrice: "",
@@ -197,7 +197,7 @@ const emptyPricing = {
   minimumCharge: "",
   maximumCharge: "",
   setupFee: "0",
-  billingCycle: "MONTHLY",
+  billingCycle: "",
   taxInclusive: false,
   effectiveFrom: new Date().toISOString().slice(0, 10),
   effectiveTo: "",
@@ -298,8 +298,8 @@ export default function SuperAdminDashboard() {
     businessFleetName: "",
     companyCode: "",
     legalEntityName: "",
-    clientType: "FLEET_OPERATOR",
-    businessType: "PVT_LTD",
+    clientType: "",
+    businessType: "",
     industry: "",
     gstin: "",
     pan: "",
@@ -336,14 +336,14 @@ export default function SuperAdminDashboard() {
     billingState: "",
     billingCountry: "India",
     billingPinCode: "",
-    fleetBusinessModel: "OWNED",
+    fleetBusinessModel: "",
     numberOfFleets: "",
     approximateRiderCount: "",
-    vehicleOwnership: "OWNED",
+    vehicleOwnership: "",
     primaryVehicleTypeId: "",
     operationalHubCount: "",
     packageId: "",
-    billingCycle: "MONTHLY",
+    billingCycle: "",
     startDate: new Date().toISOString().slice(0, 10),
     endDate: "",
     trialRequired: false,
@@ -1432,6 +1432,7 @@ export default function SuperAdminDashboard() {
                     ]}
                   />
                   <Select
+                    label="Status"
                     value={oem.status}
                     change={(value) =>
                       setOem((current) => ({ ...current, status: value }))
@@ -1729,7 +1730,10 @@ export default function SuperAdminDashboard() {
                       : "Add Vehicle Type"}
                   </h3>
                   <label>
-                    Vehicle Category
+                    <span className="sa-label-text">
+                      Vehicle Category{" "}
+                      <span className="sa-required-star">*</span>
+                    </span>
                     <select
                       required
                       value={vehicleType.categoryId}
@@ -1796,7 +1800,7 @@ export default function SuperAdminDashboard() {
                         }))
                       }
                     >
-                      <option value="">Not specified</option>
+                      <option value="">Select usage type</option>
                       {[
                         "PRIVATE",
                         "PASSENGER",
@@ -1814,7 +1818,9 @@ export default function SuperAdminDashboard() {
                         "GOVERNMENT",
                         "SPECIAL_PURPOSE",
                       ].map((option) => (
-                        <option key={option}>{option}</option>
+                        <option key={option} value={option}>
+                          {enumLabel(option)}
+                        </option>
                       ))}
                     </select>
                   </label>
@@ -1969,8 +1975,12 @@ export default function SuperAdminDashboard() {
                     ]}
                   />
                   <label>
-                    Feature category
+                    <span className="sa-label-text">
+                      Feature category{" "}
+                      <span className="sa-required-star">*</span>
+                    </span>
                     <select
+                      required
                       value={feature.category}
                       onChange={(event) =>
                         setFeature((current) => ({
@@ -1979,6 +1989,7 @@ export default function SuperAdminDashboard() {
                         }))
                       }
                     >
+                      <option value="">Select feature category</option>
                       {featureCategories.map(([value, label]) => (
                         <option key={value} value={value}>
                           {label}
@@ -1987,6 +1998,7 @@ export default function SuperAdminDashboard() {
                     </select>
                   </label>
                   <Select
+                    label="Feature type"
                     value={feature.featureType}
                     change={(value) =>
                       setFeature((current) => ({
@@ -1995,8 +2007,10 @@ export default function SuperAdminDashboard() {
                       }))
                     }
                     options={featureTypes}
+                    required
                   />
                   <Select
+                    label="Billing unit"
                     value={feature.billingUnit}
                     change={(value) =>
                       setFeature((current) => ({
@@ -2005,6 +2019,7 @@ export default function SuperAdminDashboard() {
                       }))
                     }
                     options={featureBillingUnits}
+                    required
                   />
                   <label className="sa-toggle">
                     <input
@@ -2482,7 +2497,9 @@ export default function SuperAdminDashboard() {
                       : "Add Feature Price"}
                   </h3>
                   <label>
-                    Feature
+                    <span className="sa-label-text">
+                      Feature <span className="sa-required-star">*</span>
+                    </span>
                     <select
                       value={price.featureId}
                       onChange={(event) => {
@@ -2522,6 +2539,7 @@ export default function SuperAdminDashboard() {
                       }))
                     }
                     options={pricingModels}
+                    required
                   />
                   <TextFields
                     value={price}
@@ -2659,6 +2677,11 @@ export default function SuperAdminDashboard() {
                               ["toQuantity", "To quantity"],
                               ["unitPrice", "Unit price"],
                               ["costPrice", "Cost price"],
+                            ]}
+                            requiredKeys={[
+                              "tierOrder",
+                              "fromQuantity",
+                              "unitPrice",
                             ]}
                           />
                           <button
@@ -3083,7 +3106,6 @@ function ClientsView({
           ["businessFleetName", "Business / fleet name"],
           ["companyCode", "Company code (client login)"],
           ["legalEntityName", "Legal entity name"],
-          ["industry", "Industry"],
           ["pan", "PAN"],
           ["gstin", "GSTIN"],
           ["cinOrLlpin", "CIN / LLPIN"],
@@ -3166,6 +3188,20 @@ function ClientsView({
               {step === 1 && (
                 <>
                   <Select
+                    label="Industry"
+                    value={client.industry}
+                    change={(value) => change("industry", value)}
+                    allowEmpty
+                    options={[
+                      "LOGISTICS",
+                      "LAST_MILE",
+                      "DELIVERY",
+                      "MOBILITY",
+                      "RENTAL",
+                      "OTHER",
+                    ]}
+                  />
+                  <Select
                     label="Client type"
                     value={client.clientType}
                     change={(value) => change("clientType", value)}
@@ -3179,6 +3215,7 @@ function ClientsView({
                       "ENTERPRISE",
                       "OTHER",
                     ]}
+                    required
                   />
                   <Select
                     label="Business type"
@@ -3193,6 +3230,7 @@ function ClientsView({
                       "INDIVIDUAL",
                       "OTHER",
                     ]}
+                    required
                   />
                 </>
               )}
@@ -3255,15 +3293,20 @@ function ClientsView({
                     value={client.fleetBusinessModel}
                     change={(value) => change("fleetBusinessModel", value)}
                     options={["OWNED", "LEASED", "ATTACHED", "MIXED"]}
+                    required
                   />
                   <Select
                     label="Vehicle ownership"
                     value={client.vehicleOwnership}
                     change={(value) => change("vehicleOwnership", value)}
                     options={["OWNED", "LEASED", "DRIVER_OWNED", "MIXED"]}
+                    required
                   />
                   <label>
-                    Primary vehicle type
+                    <span className="sa-label-text">
+                      Primary vehicle type{" "}
+                      <span className="sa-required-star">*</span>
+                    </span>
                     <select
                       required
                       value={client.primaryVehicleTypeId}
@@ -3286,7 +3329,9 @@ function ClientsView({
               {step === 4 && (
                 <>
                   <label>
-                    Package
+                    <span className="sa-label-text">
+                      Package <span className="sa-required-star">*</span>
+                    </span>
                     <select
                       value={client.packageId}
                       onChange={(event) =>
@@ -3315,6 +3360,7 @@ function ClientsView({
                         change("billingCycle", event.target.value)
                       }
                     >
+                      <option value="">Select billing cycle</option>
                       <option>MONTHLY</option>
                       <option>QUARTERLY</option>
                       <option>HALF_YEARLY</option>
@@ -3473,18 +3519,61 @@ function TextFields({
   value,
   change,
   fields,
+  requiredKeys,
 }: {
   value: Item;
   change: (key: string, value: string) => void;
   fields: string[][];
+  requiredKeys?: string[];
 }) {
+  const defaultRequiredFields = [
+    "code",
+    "name",
+    "displayName",
+    "businessFleetName",
+    "companyCode",
+    "legalCompanyName",
+    "legalEntityName",
+    "monthlyPrice",
+    "pan",
+    "estimatedFleetSize",
+    "estimatedRiderCount",
+    "numberOfFleets",
+    "approximateRiderCount",
+    "primaryContactName",
+    "primaryDesignation",
+    "primaryContactMobile",
+    "primaryContactEmail",
+    "primaryMobile",
+    "primaryEmail",
+    "adminName",
+    "adminEmail",
+    "adminMobile",
+    "registeredAddressLine1",
+    "city",
+    "district",
+    "state",
+    "pinCode",
+    "startDate",
+    "effectiveFrom",
+    "billingUnit",
+    "billingContactName",
+    "billingEmail",
+    "authorizedSignatoryName",
+    "signatoryDesignation",
+  ];
+  const requiredFields = new Set(requiredKeys ?? defaultRequiredFields);
   return (
     <>
       {fields.map(([key, label]) => {
         const normalizedKey = key.toLowerCase();
+        const required = requiredFields.has(key);
         return (
           <label key={key}>
-            {label}
+            <span className="sa-label-text">
+              {label}
+              {required && <span className="sa-required-star">*</span>}
+            </span>
             <input
               value={value[key] ?? ""}
               type={
@@ -3513,27 +3602,7 @@ function TextFields({
                   : undefined
               }
               onChange={(event) => change(key, event.target.value)}
-              required={[
-                "code",
-                "name",
-                "displayName",
-                "monthlyPrice",
-                "legalCompanyName",
-                "pan",
-                "primaryContactName",
-                "primaryContactMobile",
-                "primaryContactEmail",
-                "adminName",
-                "adminEmail",
-                "adminMobile",
-                "registeredAddressLine1",
-                "city",
-                "district",
-                "state",
-                "pinCode",
-                "startDate",
-                "effectiveFrom",
-              ].includes(key)}
+              required={required}
             />
           </label>
         );
@@ -3546,21 +3615,64 @@ function Select({
   value,
   change,
   options,
+  allowEmpty = false,
+  required = false,
 }: {
   label?: string;
   value: string;
   change: (value: string) => void;
   options: string[];
+  allowEmpty?: boolean;
+  required?: boolean;
 }) {
   return (
     <label>
-      {label}
-      <select value={value} onChange={(event) => change(event.target.value)}>
+      <span className="sa-label-text">
+        {label}
+        {required && <span className="sa-required-star">*</span>}
+      </span>
+      <select
+        required={required}
+        value={value}
+        onChange={(event) => change(event.target.value)}
+      >
+        {(allowEmpty || label.toLowerCase() !== "status") && (
+          <option value="">Select {label.toLowerCase()}</option>
+        )}
         {options.map((option) => (
-          <option key={option}>{option}</option>
+          <option key={option} value={option}>
+            {enumLabel(option)}
+          </option>
         ))}
       </select>
     </label>
+  );
+}
+
+function enumLabel(value: string) {
+  const labels: Record<string, string> = {
+    LOGISTICS: "Logistics",
+    LAST_MILE: "Last-mile",
+    DELIVERY: "Delivery",
+    MOBILITY: "Mobility",
+    RENTAL: "Rental",
+    OTHER: "Other",
+    PVT_LTD: "Pvt Ltd",
+    DRIVER_OWNED: "Driver Owned",
+    FLEET_OWNER: "Fleet Owner",
+    FLEET_OPERATOR: "Fleet Operator",
+    LOGISTICS_COMPANY: "Logistics Company",
+    DELIVERY_PARTNER: "Delivery Partner",
+    LEASING_COMPANY: "Leasing Company",
+    VEHICLE_AGGREGATOR: "Vehicle Aggregator",
+  };
+  return (
+    labels[value] ??
+    value
+      .toLowerCase()
+      .split("_")
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ")
   );
 }
 function BulkUploadPanel({

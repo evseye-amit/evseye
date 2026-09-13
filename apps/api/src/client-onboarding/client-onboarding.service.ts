@@ -146,6 +146,66 @@ export class ClientOnboardingService {
     return this.bootstrap(clientId);
   }
 
+  async dashboard(clientId: string) {
+    const [
+      hubs,
+      fleets,
+      riders,
+      fleetManagers,
+      teamLeaders,
+      activeAllocations,
+      fleetGroups,
+      riderGroups,
+    ] = await Promise.all([
+      this.prisma.hub.count({ where: { clientId, deletedAt: null } }),
+      this.prisma.fleet.count({ where: { clientId, deletedAt: null } }),
+      this.prisma.rider.count({ where: { clientId, deletedAt: null } }),
+      this.prisma.user.count({
+        where: { clientId, role: UserRole.FLEET_MANAGER, isActive: true },
+      }),
+      this.prisma.user.count({
+        where: { clientId, role: UserRole.TEAM_LEAD, isActive: true },
+      }),
+      this.prisma.allocation.count({
+        where: {
+          clientId,
+          status: {
+            in: [
+              'INSPECTION_PENDING',
+              'OTP_PENDING',
+              'ACTIVE',
+              'DEALLOCATION_INITIATED',
+            ],
+          },
+        },
+      }),
+      this.prisma.fleet.groupBy({
+        by: ['status'],
+        where: { clientId, deletedAt: null },
+        _count: { _all: true },
+      }),
+      this.prisma.rider.groupBy({
+        by: ['status'],
+        where: { clientId, deletedAt: null },
+        _count: { _all: true },
+      }),
+    ]);
+    const map = <T extends { status: string; _count: { _all: number } }>(
+      items: T[],
+    ) =>
+      Object.fromEntries(items.map((item) => [item.status, item._count._all]));
+    return {
+      hubs,
+      fleets,
+      riders,
+      fleetManagers,
+      teamLeaders,
+      activeAllocations,
+      fleetByStatus: map(fleetGroups),
+      riderByStatus: map(riderGroups),
+    };
+  }
+
   private async assertDraft(clientId: string) {
     const client = await this.prisma.client.findUniqueOrThrow({
       where: { id: clientId },

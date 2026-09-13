@@ -1,4 +1,10 @@
-import { IsIn, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import {
+  IsIn,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+} from 'class-validator';
 
 export class UpdateRiderDto {
   @IsOptional()

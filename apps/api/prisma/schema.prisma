@@ -275,6 +275,15 @@ enum VehicleOwnership {
   MIXED
 }
 
+enum ClientIndustry {
+  LOGISTICS
+  LAST_MILE
+  DELIVERY
+  MOBILITY
+  RENTAL
+  OTHER
+}
+
 enum FeatureCategory {
   LOGIN
   RIDER_ONBOARDING
@@ -517,7 +526,7 @@ model ClientBusinessProfile {
   legalCompanyName       String
   clientType             String
   businessType           String
-  industry               String?
+  industry               ClientIndustry?
   gstin                  String?
   pan                    String
   cinOrLlpin             String?

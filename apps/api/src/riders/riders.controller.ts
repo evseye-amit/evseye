@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Param,
   Patch,
   Post,
@@ -16,7 +17,7 @@ import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { ClientContextService } from '../auth/client-context.service.js';
-import { CreateRiderDto } from './dto/create-rider.dto.js';
+import { BulkRiderDto, CreateRiderDto } from './dto/create-rider.dto.js';
 import { ListRidersDto } from './dto/list-riders.dto.js';
 import { UpdateRiderDto } from './dto/update-rider.dto.js';
 import { RidersService } from './riders.service.js';
@@ -60,6 +61,38 @@ export class RidersController {
       newData: { status: rider.status },
     });
     return { data: rider };
+  }
+  @Post('bulk')
+  @Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+  async bulkCreate(@CurrentUser() user: AuthUser, @Body() dto: BulkRiderDto) {
+    return {
+      data: await this.ridersService.bulkCreate(
+        this.clientContext.requireClientId(user),
+        user.id,
+        dto.filename,
+        dto.rows,
+      ),
+    };
+  }
+  @Get('imports/:id/failed-records')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  async failedRecords(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const rows = await this.ridersService.failedRows(
+      this.clientContext.requireClientId(user),
+      id,
+    );
+    if (!rows.length) return '';
+    const headers = Object.keys(rows[0] as Record<string, unknown>);
+    const cell = (value: unknown) =>
+      `"${String(value ?? '').replaceAll('"', '""')}"`;
+    return [
+      headers.join(','),
+      ...rows.map((row) =>
+        headers
+          .map((header) => cell((row as Record<string, unknown>)[header]))
+          .join(','),
+      ),
+    ].join('\n');
   }
 
   @Get(':id')

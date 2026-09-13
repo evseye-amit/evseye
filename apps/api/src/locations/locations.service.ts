@@ -3,7 +3,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ImportEntityType, ImportStatus } from '@prisma/client';
+import {
+  ClientOnboardingStep,
+  ClientOnboardingStepStatus,
+  ClientStatus,
+  ImportEntityType,
+  ImportStatus,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CreateHubDto } from './dto/create-hub.dto.js';
 
@@ -19,7 +25,9 @@ export class LocationsService {
   async createHub(clientId: string, dto: CreateHubDto) {
     await this.assertParent(clientId, dto.parentHubId);
     try {
-      return await this.prisma.hub.create({ data: { ...dto, clientId } });
+      const hub = await this.prisma.hub.create({ data: { ...dto, clientId } });
+      await this.completeOnboardingStep(clientId);
+      return hub;
     } catch (error) {
       if (this.unique(error))
         throw new ConflictException('Hub code already exists.');
@@ -81,6 +89,7 @@ export class LocationsService {
         ),
       );
       created = valid.length;
+      await this.completeOnboardingStep(clientId);
     }
     const status = !created
       ? ImportStatus.FAIL
@@ -128,6 +137,32 @@ export class LocationsService {
       select: { id: true },
     });
     if (!parent) throw new NotFoundException('Parent hub not found.');
+  }
+  private async completeOnboardingStep(clientId: string) {
+    const progress = await this.prisma.clientOnboardingProgress.findUnique({
+      where: { clientId },
+      include: { client: { select: { status: true } } },
+    });
+    if (
+      !progress ||
+      progress.client.status !== ClientStatus.DRAFT ||
+      progress.currentStep !== ClientOnboardingStep.HUBS
+    )
+      return;
+    await this.prisma.$transaction([
+      this.prisma.clientOnboardingStepRecord.updateMany({
+        where: { progressId: progress.id, step: ClientOnboardingStep.HUBS },
+        data: {
+          status: ClientOnboardingStepStatus.COMPLETED,
+          savedAt: new Date(),
+          completedAt: new Date(),
+        },
+      }),
+      this.prisma.clientOnboardingProgress.update({
+        where: { id: progress.id },
+        data: { currentStep: ClientOnboardingStep.FLEET_MANAGERS },
+      }),
+    ]);
   }
   private unique(error: unknown) {
     return (

@@ -10,12 +10,16 @@ describe('RidersService client isolation', () => {
     };
     const service = new RidersService(prisma as never);
 
-    await expect(service.getById('client-a', 'rider-owned-by-client-b')).rejects.toThrow(
-      'Rider not found',
-    );
+    await expect(
+      service.getById('client-a', 'rider-owned-by-client-b'),
+    ).rejects.toThrow('Rider not found');
     expect(prisma.rider.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'rider-owned-by-client-b', clientId: 'client-a', deletedAt: null },
+        where: {
+          id: 'rider-owned-by-client-b',
+          clientId: 'client-a',
+          deletedAt: null,
+        },
       }),
     );
   });

@@ -30,6 +30,11 @@ export class ClientOnboardingController {
       .progress(this.clients.requireClientId(user))
       .then((data) => ({ data }));
   }
+  @Get('dashboard') dashboard(@CurrentUser() user: AuthUser) {
+    return this.onboarding
+      .dashboard(this.clients.requireClientId(user))
+      .then((data) => ({ data }));
+  }
   @Post('onboarding/steps') save(
     @CurrentUser() user: AuthUser,
     @Body() dto: SaveOnboardingStepDto,

@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Param,
   Patch,
   Post,
@@ -17,6 +18,7 @@ import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { ClientContextService } from '../auth/client-context.service.js';
 import { CreateFleetDto } from './dto/create-fleet.dto.js';
+import { BulkFleetDto } from './dto/bulk-fleet.dto.js';
 import { ListFleetsDto } from './dto/list-fleets.dto.js';
 import {
   CreateBatteryDto,
@@ -56,6 +58,35 @@ export class FleetsController {
     return {
       data: fleet,
     };
+  }
+  @Post('bulk') async bulkCreate(
+    @CurrentUser() u: AuthUser,
+    @Body() d: BulkFleetDto,
+  ) {
+    const clientId = this.clients.requireClientId(u);
+    return {
+      data: await this.fleets.bulkCreate(clientId, u.id, d.filename, d.rows),
+    };
+  }
+  @Get('imports/:id/failed-records')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  async failedRecords(@CurrentUser() u: AuthUser, @Param('id') id: string) {
+    const rows = await this.fleets.failedRows(
+      this.clients.requireClientId(u),
+      id,
+    );
+    if (!rows.length) return '';
+    const headers = Object.keys(rows[0] as Record<string, unknown>);
+    const cell = (value: unknown) =>
+      `"${String(value ?? '').replaceAll('"', '""')}"`;
+    return [
+      headers.join(','),
+      ...rows.map((row) =>
+        headers
+          .map((header) => cell((row as Record<string, unknown>)[header]))
+          .join(','),
+      ),
+    ].join('\n');
   }
   @Get(':id/onboarding-status')
   async onboardingStatus(@CurrentUser() u: AuthUser, @Param('id') id: string) {

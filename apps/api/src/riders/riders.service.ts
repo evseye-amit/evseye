@@ -1,5 +1,17 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import type { RiderStatus } from '@prisma/client';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  ClientOnboardingStep,
+  ClientOnboardingStepStatus,
+  ClientStatus,
+  ImportEntityType,
+  ImportStatus,
+  RiderStatus,
+  UserRole,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CreateRiderDto } from './dto/create-rider.dto.js';
 import type { ListRidersDto } from './dto/list-riders.dto.js';
@@ -11,13 +23,105 @@ export class RidersService {
 
   async create(clientId: string, dto: CreateRiderDto) {
     try {
-      return await this.prisma.rider.create({ data: { ...dto, clientId } });
+      const rider = await this.prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            clientId,
+            name: dto.name,
+            mobile: dto.mobile,
+            role: UserRole.RIDER,
+          },
+        });
+        return tx.rider.create({ data: { ...dto, clientId, userId: user.id } });
+      });
+      await this.completeOnboardingStep(clientId);
+      return rider;
     } catch (error) {
       if (this.isUniqueViolation(error)) {
-        throw new ConflictException('A rider with this mobile number already exists in this client.');
+        throw new ConflictException(
+          'A rider with this mobile number already exists in this client.',
+        );
       }
       throw error;
     }
+  }
+  async bulkCreate(
+    clientId: string,
+    actorId: string,
+    filename: string,
+    rows: CreateRiderDto[],
+  ) {
+    const failures: Array<
+      CreateRiderDto & {
+        row_number: number;
+        failure_reason: string;
+        failure_fields: string;
+      }
+    > = [];
+    const seen = new Set<string>();
+    let created = 0;
+    for (const [index, row] of rows.entries()) {
+      if (seen.has(row.mobile)) {
+        failures.push({
+          ...row,
+          row_number: index + 2,
+          failure_reason: 'Duplicate mobile in upload.',
+          failure_fields: 'mobile',
+        });
+        continue;
+      }
+      seen.add(row.mobile);
+      try {
+        await this.create(clientId, row);
+        created += 1;
+      } catch (error) {
+        failures.push({
+          ...row,
+          row_number: index + 2,
+          failure_reason:
+            error instanceof Error ? error.message : 'Invalid row.',
+          failure_fields: 'mobile,riderCode',
+        });
+      }
+    }
+    const status = !created
+      ? ImportStatus.FAIL
+      : failures.length
+        ? ImportStatus.PARTIAL_PASS
+        : ImportStatus.PASS;
+    const job = await this.prisma.importJob.create({
+      data: {
+        clientId,
+        entityType: ImportEntityType.RIDER,
+        status,
+        originalFilename: filename,
+        totalRows: rows.length,
+        passedRows: created,
+        failedRows: failures.length,
+        duplicateRows: failures.filter((row) => row.failure_fields === 'mobile')
+          .length,
+        createdRows: created,
+        createdById: actorId,
+        completedAt: new Date(),
+        metadata: JSON.parse(JSON.stringify({ failures })),
+      },
+    });
+    return {
+      jobId: job.id,
+      status,
+      totalRows: rows.length,
+      passedRows: created,
+      failedRows: failures.length,
+      createdRows: created,
+    };
+  }
+  async failedRows(clientId: string, jobId: string) {
+    const job = await this.prisma.importJob.findFirst({
+      where: { id: jobId, clientId, entityType: ImportEntityType.RIDER },
+      select: { metadata: true },
+    });
+    if (!job) throw new NotFoundException('Import job not found.');
+    return (job.metadata as { failures?: unknown[] } | null)?.failures ?? [];
   }
 
   async list(clientId: string, query: ListRidersDto) {
@@ -28,7 +132,9 @@ export class RidersService {
       ...(query.search
         ? {
             OR: [
-              { name: { contains: query.search, mode: 'insensitive' as const } },
+              {
+                name: { contains: query.search, mode: 'insensitive' as const },
+              },
               { mobile: { contains: query.search } },
             ],
           }
@@ -44,7 +150,10 @@ export class RidersService {
       this.prisma.rider.count({ where }),
     ]);
 
-    return { items, meta: { page: query.page, pageSize: query.pageSize, total } };
+    return {
+      items,
+      meta: { page: query.page, pageSize: query.pageSize, total },
+    };
   }
 
   async getById(clientId: string, id: string) {
@@ -53,7 +162,16 @@ export class RidersService {
       include: {
         kycs: { orderBy: { updatedAt: 'desc' } },
         allocations: {
-          where: { status: { in: ['INSPECTION_PENDING', 'OTP_PENDING', 'ACTIVE', 'DEALLOCATION_INITIATED'] } },
+          where: {
+            status: {
+              in: [
+                'INSPECTION_PENDING',
+                'OTP_PENDING',
+                'ACTIVE',
+                'DEALLOCATION_INITIATED',
+              ],
+            },
+          },
           include: { fleet: true },
           orderBy: { createdAt: 'desc' },
         },
@@ -71,13 +189,46 @@ export class RidersService {
       return await this.prisma.rider.update({ where: { id }, data: dto });
     } catch (error) {
       if (this.isUniqueViolation(error)) {
-        throw new ConflictException('A rider with this mobile number already exists in this client.');
+        throw new ConflictException(
+          'A rider with this mobile number already exists in this client.',
+        );
       }
       throw error;
     }
   }
 
   private isUniqueViolation(error: unknown): boolean {
-    return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002';
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      error.code === 'P2002'
+    );
+  }
+  private async completeOnboardingStep(clientId: string) {
+    const progress = await this.prisma.clientOnboardingProgress.findUnique({
+      where: { clientId },
+      include: { client: { select: { status: true } } },
+    });
+    if (
+      !progress ||
+      progress.client.status !== ClientStatus.DRAFT ||
+      progress.currentStep !== ClientOnboardingStep.RIDERS
+    )
+      return;
+    await this.prisma.$transaction([
+      this.prisma.clientOnboardingStepRecord.updateMany({
+        where: { progressId: progress.id, step: ClientOnboardingStep.RIDERS },
+        data: {
+          status: ClientOnboardingStepStatus.COMPLETED,
+          savedAt: new Date(),
+          completedAt: new Date(),
+        },
+      }),
+      this.prisma.clientOnboardingProgress.update({
+        where: { id: progress.id },
+        data: { currentStep: ClientOnboardingStep.REVIEW },
+      }),
+    ]);
   }
 }
