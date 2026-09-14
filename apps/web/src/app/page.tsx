@@ -14,7 +14,22 @@ type Tab =
   | "allocations"
   | "audit"
   | "locations"
-  | "evidence";
+  | "evidence"
+  | "fleet-managers"
+  | "team-leads"
+  | "cluster-managers"
+  | "iot-devices"
+  | "batteries"
+  | "fleet-iot-mapping"
+  | "fleet-battery-mapping"
+  | "deallocations"
+  | "wallet"
+  | "rider-fleet-mapping"
+  | "rider-vendor-mapping"
+  | "rider-earnings"
+  | "zones"
+  | "reports"
+  | "feature-usage";
 type PhotoRequirementEntityType =
   | "RIDER"
   | "FLEET"
@@ -22,6 +37,106 @@ type PhotoRequirementEntityType =
   | "CONTROLLER"
   | "INSPECTION";
 type RecordItem = Record<string, unknown>;
+
+const CLIENT_NAVIGATION: Array<{
+  label: string;
+  items: Array<{ id: Tab; label: string }>;
+}> = [
+  { label: "", items: [{ id: "dashboard", label: "Dashboard" }] },
+  {
+    label: "User Management",
+    items: [
+      { id: "fleet-managers", label: "Fleet Manager" },
+      { id: "team-leads", label: "Team Lead" },
+      { id: "cluster-managers", label: "Cluster Manager" },
+    ],
+  },
+  {
+    label: "Vehicle Management",
+    items: [
+      { id: "fleets", label: "Fleet" },
+      { id: "iot-devices", label: "IoT" },
+      { id: "batteries", label: "Battery" },
+      { id: "fleet-iot-mapping", label: "Fleet IoT Mapping" },
+      { id: "fleet-battery-mapping", label: "Fleet Battery Mapping" },
+      { id: "allocations", label: "Allocation" },
+      { id: "deallocations", label: "Deallocation" },
+      { id: "evidence", label: "Photos & Evidence" },
+    ],
+  },
+  {
+    label: "Rider Management",
+    items: [
+      { id: "riders", label: "Rider" },
+      { id: "wallet", label: "Wallet" },
+      { id: "rider-fleet-mapping", label: "Rider Fleet Mapping" },
+      { id: "rider-vendor-mapping", label: "Rider Vendor Mapping" },
+      { id: "rider-earnings", label: "Rider Earnings" },
+    ],
+  },
+  {
+    label: "Location",
+    items: [
+      { id: "locations", label: "Hub" },
+      { id: "zones", label: "Zone" },
+    ],
+  },
+  {
+    label: "",
+    items: [
+      { id: "reports", label: "Reports" },
+      { id: "audit", label: "Audit Log" },
+      { id: "feature-usage", label: "Feature Usage" },
+    ],
+  },
+];
+
+const CLIENT_TAB_TITLES: Record<Tab, string> = {
+  dashboard: "Dashboard",
+  fleets: "Fleet",
+  riders: "Rider",
+  allocations: "Allocation",
+  audit: "Audit Log",
+  locations: "Hub",
+  evidence: "Photos & Evidence",
+  "fleet-managers": "Fleet Manager",
+  "team-leads": "Team Lead",
+  "cluster-managers": "Cluster Manager",
+  "iot-devices": "IoT",
+  batteries: "Battery",
+  "fleet-iot-mapping": "Fleet IoT Mapping",
+  "fleet-battery-mapping": "Fleet Battery Mapping",
+  deallocations: "Deallocation",
+  wallet: "Wallet",
+  "rider-fleet-mapping": "Rider Fleet Mapping",
+  "rider-vendor-mapping": "Rider Vendor Mapping",
+  "rider-earnings": "Rider Earnings",
+  zones: "Zone",
+  reports: "Reports",
+  "feature-usage": "Feature Usage",
+};
+
+const ACTIVE_CLIENT_TABS = new Set<Tab>([
+  "dashboard",
+  "fleets",
+  "riders",
+  "allocations",
+  "audit",
+  "locations",
+  "evidence",
+]);
+
+function oemLabel(value: unknown, fallback = "—") {
+  if (typeof value === "string") return value || fallback;
+  if (value && typeof value === "object") {
+    const oem = value as RecordItem;
+    const displayName = oem.displayName ?? oem.name ?? oem.code;
+    if (typeof displayName === "string" && displayName.trim()) {
+      return displayName;
+    }
+  }
+  return fallback;
+}
 
 interface Dashboard {
   fleet: Record<string, number>;
@@ -157,6 +272,144 @@ function Metric({ label, value }: { label: string; value: number }) {
   );
 }
 
+function OperationsDashboardVisuals({ dashboard }: { dashboard: Dashboard }) {
+  const fleetRows = [
+    ["Available", dashboard.fleet.AVAILABLE ?? 0, "#21865d"],
+    ["Allocated", dashboard.fleet.ALLOCATED ?? 0, "#2f80ed"],
+    ["In use", dashboard.fleet.IN_USE ?? 0, "#7456d8"],
+    ["Maintenance", dashboard.fleet.MAINTENANCE ?? 0, "#dd9b2a"],
+    ["Offline", dashboard.fleet.OFFLINE ?? 0, "#bd5560"],
+    ["Out of service", dashboard.fleet.OUT_OF_SERVICE ?? 0, "#6b7280"],
+  ] as const;
+  const maxFleet = Math.max(1, ...fleetRows.map(([, value]) => value));
+  const riderTotal = Object.values(dashboard.riders).reduce(
+    (sum, value) => sum + value,
+    0,
+  );
+  const activeRiders = dashboard.riders.ACTIVE ?? 0;
+  const activeRiderPercent = riderTotal
+    ? Math.round((activeRiders / riderTotal) * 100)
+    : 0;
+  const telemetryTotal = dashboard.iot.online + dashboard.iot.offline;
+  const onlinePercent = telemetryTotal
+    ? Math.round((dashboard.iot.online / telemetryTotal) * 100)
+    : 0;
+  const operationRows = [
+    ["Allocated today", dashboard.operations.allocationsToday, "#21865d"],
+    ["Deallocated today", dashboard.operations.deallocationsToday, "#2f80ed"],
+    ["Active now", dashboard.operations.activeAllocations, "#7456d8"],
+  ] as const;
+  const maxOperation = Math.max(1, ...operationRows.map(([, value]) => value));
+
+  return (
+    <section
+      className="operations-visual-grid"
+      aria-label="Operations visual summary"
+    >
+      <article className="operations-chart-card operations-fleet-chart">
+        <header>
+          <div>
+            <p className="eyebrow">FLEET HEALTH</p>
+            <h2>Fleet status distribution</h2>
+          </div>
+          <span>
+            {fleetRows.reduce((sum, [, value]) => sum + value, 0)} total
+          </span>
+        </header>
+        <div className="bar-chart-list">
+          {fleetRows.map(([label, value, color]) => (
+            <div className="bar-chart-row" key={label}>
+              <span>{label}</span>
+              <div>
+                <i
+                  style={{
+                    width: `${(value / maxFleet) * 100}%`,
+                    background: color,
+                  }}
+                />
+              </div>
+              <b>{value}</b>
+            </div>
+          ))}
+        </div>
+      </article>
+      <article className="operations-chart-card operations-readiness-chart">
+        <header>
+          <div>
+            <p className="eyebrow">WORKFORCE</p>
+            <h2>Rider readiness</h2>
+          </div>
+          <span>{riderTotal} total</span>
+        </header>
+        <div className="donut-summary">
+          <div
+            className="donut"
+            style={{
+              background: `conic-gradient(#21865d ${activeRiderPercent}%, #e8efea 0)`,
+            }}
+          >
+            <strong>{activeRiderPercent}%</strong>
+            <span>active</span>
+          </div>
+          <div>
+            <p>
+              <b>{activeRiders}</b> active Riders
+            </p>
+            <p>
+              <b>{dashboard.kyc.VERIFIED ?? 0}</b> KYC verified
+            </p>
+            <p>
+              <b>{dashboard.kyc.PENDING ?? 0}</b> KYC pending
+            </p>
+          </div>
+        </div>
+      </article>
+      <article className="operations-chart-card operations-activity-chart">
+        <header>
+          <div>
+            <p className="eyebrow">TODAY</p>
+            <h2>Allocation activity</h2>
+          </div>
+        </header>
+        <div className="activity-bars">
+          {operationRows.map(([label, value, color]) => (
+            <div key={label}>
+              <span
+                style={{
+                  height: `${Math.max(value ? 14 : 4, (value / maxOperation) * 100)}%`,
+                  background: color,
+                }}
+              />
+              <b>{value}</b>
+              <small>{label}</small>
+            </div>
+          ))}
+        </div>
+      </article>
+      <article className="operations-chart-card operations-iot-chart">
+        <header>
+          <div>
+            <p className="eyebrow">TELEMATICS</p>
+            <h2>Device connectivity</h2>
+          </div>
+          <span>{telemetryTotal} devices</span>
+        </header>
+        <div className="connectivity">
+          <strong>{onlinePercent}%</strong>
+          <span>online now</span>
+          <div>
+            <i style={{ width: `${onlinePercent}%` }} />
+          </div>
+          <p>
+            <b>{dashboard.iot.online}</b> online ·{" "}
+            <b>{dashboard.iot.offline}</b> offline
+          </p>
+        </div>
+      </article>
+    </section>
+  );
+}
+
 function Status({ value }: { value: string }) {
   return (
     <span
@@ -275,10 +528,20 @@ export default function Home() {
   useEffect(() => {
     if (!token) return;
     void request("/auth/me", {}, token)
-      .then((identity) => {
+      .then(async (identity) => {
         const roles = (identity as { roles?: string[] }).roles ?? [];
-        if (roles.includes("CLIENT_ADMIN")) {
-          window.location.replace("/client");
+        // Incomplete Client onboarding stays guided; active Clients use this
+        // single full operations console as their dashboard.
+        const openOperations =
+          new URLSearchParams(window.location.search).get("workspace") ===
+          "operations";
+        if (roles.includes("CLIENT_ADMIN") && !openOperations) {
+          const bootstrap = (await request("/client/bootstrap", {}, token)) as {
+            route?: string;
+          };
+          if (bootstrap.route !== "DASHBOARD") {
+            window.location.replace("/client");
+          }
         }
       })
       .catch(() => undefined);
@@ -292,6 +555,11 @@ export default function Home() {
   }, [token, tab, page]);
 
   async function loadView(nextTab: Tab) {
+    if (!ACTIVE_CLIENT_TABS.has(nextTab)) {
+      setItems([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError("");
     try {
@@ -1478,7 +1746,8 @@ export default function Home() {
       </main>
     );
 
-  const title = tab[0].toUpperCase() + tab.slice(1);
+  const title = CLIENT_TAB_TITLES[tab];
+  const isComingSoon = !ACTIVE_CLIENT_TABS.has(tab);
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -1486,25 +1755,23 @@ export default function Home() {
           <p className="eyebrow">EVS EYE</p>
           <h2>Operations</h2>
         </div>
-        <nav>
-          {(
-            [
-              "dashboard",
-              "fleets",
-              "riders",
-              "allocations",
-              "locations",
-              "evidence",
-              "audit",
-            ] as Tab[]
-          ).map((item) => (
-            <button
-              key={item}
-              className={tab === item ? "nav-active" : ""}
-              onClick={() => navigateTo(item)}
+        <nav className="client-navigation" aria-label="Client operations">
+          {CLIENT_NAVIGATION.map((section, index) => (
+            <div
+              className="client-nav-section"
+              key={`${section.label}-${index}`}
             >
-              {item}
-            </button>
+              {section.label && <p>{section.label}</p>}
+              {section.items.map((item) => (
+                <button
+                  key={item.id}
+                  className={tab === item.id ? "nav-active" : ""}
+                  onClick={() => navigateTo(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
         <button className="sign-out" onClick={signOut}>
@@ -1534,7 +1801,8 @@ export default function Home() {
             </button>
           </div>
         </header>
-        {tab !== "dashboard" &&
+        {!isComingSoon &&
+          tab !== "dashboard" &&
           tab !== "audit" &&
           tab !== "locations" &&
           tab !== "evidence" && (
@@ -1762,7 +2030,7 @@ export default function Home() {
                   {availableFleets.map((fleet) => (
                     <option key={String(fleet.id)} value={String(fleet.id)}>
                       {String(fleet.vehicleNumber)} ·{" "}
-                      {String(fleet.oem ?? "Vehicle")}
+                      {oemLabel(fleet.oem, "Vehicle")}
                     </option>
                   ))}
                 </select>
@@ -2083,7 +2351,7 @@ export default function Home() {
               <div>
                 <strong>Fleet</strong>
                 <span>
-                  {String((allocationDetail.fleet as RecordItem)?.oem ?? "—")}
+                  {oemLabel((allocationDetail.fleet as RecordItem)?.oem)}
                 </span>
               </div>
               <div>
@@ -2205,8 +2473,8 @@ export default function Home() {
               <div>
                 <strong>OEM / model</strong>
                 <span>
-                  {String(fleetDetail.oem ?? "—")}{" "}
-                  {String(fleetDetail.model ?? "")}
+                  {oemLabel(fleetDetail.oem)}{" "}
+                  {String(fleetDetail.modelName ?? "")}
                 </span>
               </div>
               <div>
@@ -2526,61 +2794,84 @@ export default function Home() {
             </button>
           </section>
         )}
+        {!loading && isComingSoon && (
+          <section className="coming-soon-card">
+            <p className="eyebrow">CLIENT OPERATIONS</p>
+            <h2>{title} is coming soon</h2>
+            <p>
+              This workspace is planned for a future release. Your current
+              client data and operational workflows remain unchanged.
+            </p>
+          </section>
+        )}
         {!loading && tab === "dashboard" && dashboard && (
-          <div className="dashboard-grid">
-            <Metric
-              label="Total fleet"
-              value={Object.values(dashboard.fleet).reduce(
-                (sum, value) => sum + value,
-                0,
-              )}
-            />
-            <Metric label="Available" value={dashboard.fleet.AVAILABLE ?? 0} />
-            <Metric label="Allocated" value={dashboard.fleet.ALLOCATED ?? 0} />
-            <Metric label="In use" value={dashboard.fleet.IN_USE ?? 0} />
-            <Metric
-              label="Maintenance"
-              value={dashboard.fleet.MAINTENANCE ?? 0}
-            />
-            <Metric
-              label="Fleet offline"
-              value={dashboard.fleet.OFFLINE ?? 0}
-            />
-            <Metric
-              label="Out of service"
-              value={dashboard.fleet.OUT_OF_SERVICE ?? 0}
-            />
-            <Metric
-              label="Total riders"
-              value={Object.values(dashboard.riders).reduce(
-                (sum, value) => sum + value,
-                0,
-              )}
-            />
-            <Metric
-              label="Active riders"
-              value={dashboard.riders.ACTIVE ?? 0}
-            />
-            <Metric label="KYC pending" value={dashboard.kyc.PENDING ?? 0} />
-            <Metric label="KYC verified" value={dashboard.kyc.VERIFIED ?? 0} />
-            <Metric label="KYC failed" value={dashboard.kyc.FAILED ?? 0} />
-            <Metric
-              label="Active allocations"
-              value={dashboard.operations.activeAllocations}
-            />
-            <Metric
-              label="Allocations today"
-              value={dashboard.operations.allocationsToday}
-            />
-            <Metric
-              label="Deallocations today"
-              value={dashboard.operations.deallocationsToday}
-            />
-            <Metric label="IoT online" value={dashboard.iot.online} />
-            <Metric label="IoT offline" value={dashboard.iot.offline} />
-          </div>
+          <>
+            <div className="dashboard-grid">
+              <Metric
+                label="Total fleet"
+                value={Object.values(dashboard.fleet).reduce(
+                  (sum, value) => sum + value,
+                  0,
+                )}
+              />
+              <Metric
+                label="Available"
+                value={dashboard.fleet.AVAILABLE ?? 0}
+              />
+              <Metric
+                label="Allocated"
+                value={dashboard.fleet.ALLOCATED ?? 0}
+              />
+              <Metric label="In use" value={dashboard.fleet.IN_USE ?? 0} />
+              <Metric
+                label="Maintenance"
+                value={dashboard.fleet.MAINTENANCE ?? 0}
+              />
+              <Metric
+                label="Fleet offline"
+                value={dashboard.fleet.OFFLINE ?? 0}
+              />
+              <Metric
+                label="Out of service"
+                value={dashboard.fleet.OUT_OF_SERVICE ?? 0}
+              />
+              <Metric
+                label="Total riders"
+                value={Object.values(dashboard.riders).reduce(
+                  (sum, value) => sum + value,
+                  0,
+                )}
+              />
+              <Metric
+                label="Active riders"
+                value={dashboard.riders.ACTIVE ?? 0}
+              />
+              <Metric label="KYC pending" value={dashboard.kyc.PENDING ?? 0} />
+              <Metric
+                label="KYC verified"
+                value={dashboard.kyc.VERIFIED ?? 0}
+              />
+              <Metric label="KYC failed" value={dashboard.kyc.FAILED ?? 0} />
+              <Metric
+                label="Active allocations"
+                value={dashboard.operations.activeAllocations}
+              />
+              <Metric
+                label="Allocations today"
+                value={dashboard.operations.allocationsToday}
+              />
+              <Metric
+                label="Deallocations today"
+                value={dashboard.operations.deallocationsToday}
+              />
+              <Metric label="IoT online" value={dashboard.iot.online} />
+              <Metric label="IoT offline" value={dashboard.iot.offline} />
+            </div>
+            <OperationsDashboardVisuals dashboard={dashboard} />
+          </>
         )}
         {!loading &&
+          !isComingSoon &&
           tab !== "dashboard" &&
           tab !== "locations" &&
           tab !== "evidence" && (
@@ -2639,7 +2930,7 @@ export default function Home() {
                       ) : tab === "fleets" ? (
                         <tr key={String(item.id)}>
                           <td>{String(item.vehicleNumber)}</td>
-                          <td>{String(item.oem)}</td>
+                          <td>{oemLabel(item.oem)}</td>
                           <td>
                             <Status value={String(item.status)} />
                           </td>

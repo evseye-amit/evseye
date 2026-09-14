@@ -21,6 +21,13 @@ import type {
 @Injectable()
 export class ClientUsersService {
   constructor(private readonly prisma: PrismaService) {}
+  listFleetManagers(clientId: string) {
+    return this.prisma.user.findMany({
+      where: { clientId, role: UserRole.FLEET_MANAGER, isActive: true },
+      include: { hubAssignments: { include: { hub: true } } },
+      orderBy: { name: 'asc' },
+    });
+  }
   async createFleetManager(clientId: string, dto: CreateFleetManagerDto) {
     await this.assertHubs(clientId, dto.hubIds, dto.primaryHubId);
     try {
@@ -49,6 +56,47 @@ export class ClientUsersService {
         ClientOnboardingStep.TEAM_LEADERS,
       );
       return user;
+    } catch (error) {
+      if (this.unique(error))
+        throw new ConflictException(
+          'A user with this mobile number already exists in this client.',
+        );
+      throw error;
+    }
+  }
+  async updateFleetManager(
+    clientId: string,
+    userId: string,
+    dto: CreateFleetManagerDto,
+  ) {
+    await this.assertHubs(clientId, dto.hubIds, dto.primaryHubId);
+    const user = await this.prisma.user.findFirst({
+      where: {
+        id: userId,
+        clientId,
+        role: UserRole.FLEET_MANAGER,
+        isActive: true,
+      },
+      select: { id: true },
+    });
+    if (!user) throw new NotFoundException('Fleet Manager not found.');
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const updated = await tx.user.update({
+          where: { id: userId },
+          data: { name: dto.name.trim(), mobile: dto.mobile.trim() },
+        });
+        await tx.userHub.deleteMany({ where: { userId, clientId } });
+        await tx.userHub.createMany({
+          data: dto.hubIds.map((hubId) => ({
+            clientId,
+            userId,
+            hubId,
+            isPrimary: hubId === dto.primaryHubId,
+          })),
+        });
+        return updated;
+      });
     } catch (error) {
       if (this.unique(error))
         throw new ConflictException(
@@ -165,6 +213,45 @@ export class ClientUsersService {
         ClientOnboardingStep.FLEETS,
       );
       return profile;
+    } catch (error) {
+      if (this.unique(error))
+        throw new ConflictException(
+          'A Team Leader with this mobile or employee code already exists in this client.',
+        );
+      throw error;
+    }
+  }
+  listTeamLeaders(clientId: string) {
+    return this.prisma.teamLeaderProfile.findMany({
+      where: { clientId, deletedAt: null },
+      include: { user: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+  async updateTeamLeader(
+    clientId: string,
+    profileId: string,
+    dto: CreateTeamLeaderDto,
+  ) {
+    const profile = await this.prisma.teamLeaderProfile.findFirst({
+      where: { id: profileId, clientId, deletedAt: null },
+      select: { id: true, userId: true },
+    });
+    if (!profile) throw new NotFoundException('Team Leader not found.');
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await tx.user.update({
+          where: { id: profile.userId },
+          data: { name: dto.name.trim(), mobile: dto.mobile.trim() },
+        });
+        return tx.teamLeaderProfile.update({
+          where: { id: profileId },
+          data: {
+            employeeCode: dto.employeeCode?.trim() || null,
+            designation: dto.designation?.trim() || null,
+          },
+        });
+      });
     } catch (error) {
       if (this.unique(error))
         throw new ConflictException(

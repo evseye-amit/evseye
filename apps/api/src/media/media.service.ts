@@ -101,9 +101,26 @@ export class MediaService {
       throw new BadRequestException('Photo is not awaiting upload completion.');
     }
     await this.storage.assertObjectExists(photo.objectKey);
-    return this.prisma.photo.update({
-      where: { id: photo.id },
-      data: { status: PhotoStatus.COMPLETE, uploadedAt: new Date() },
+    // A new upload for a completed slot is a replacement, rather than another
+    // active image for the same fleet/component photo type. Keeping prior
+    // objects as DELETED retains an audit trail without letting stale evidence
+    // satisfy the onboarding requirement.
+    return this.prisma.$transaction(async (tx) => {
+      await tx.photo.updateMany({
+        where: {
+          clientId,
+          entityType: photo.entityType,
+          entityId: photo.entityId,
+          photoType: photo.photoType,
+          status: PhotoStatus.COMPLETE,
+          id: { not: photo.id },
+        },
+        data: { status: PhotoStatus.DELETED },
+      });
+      return tx.photo.update({
+        where: { id: photo.id },
+        data: { status: PhotoStatus.COMPLETE, uploadedAt: new Date() },
+      });
     });
   }
 

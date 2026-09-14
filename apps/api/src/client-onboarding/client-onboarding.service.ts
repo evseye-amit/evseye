@@ -38,11 +38,26 @@ export class ClientOnboardingService {
           companyCode: true,
           status: true,
           isActive: true,
+          agreement: {
+            select: {
+              rejectionReason: true,
+              rejectedAt: true,
+            },
+          },
         },
       }),
       this.progress(clientId),
     ]);
-    return { client, progress, route: this.routeFor(client.status) };
+    return {
+      client: {
+        ...client,
+        rejectionReason: client.agreement?.rejectionReason ?? null,
+        rejectedAt: client.agreement?.rejectedAt ?? null,
+        agreement: undefined,
+      },
+      progress,
+      route: this.routeFor(client.status),
+    };
   }
 
   async progress(clientId: string) {
@@ -69,7 +84,7 @@ export class ClientOnboardingService {
     step: ClientOnboardingStep,
     status: ClientOnboardingStepStatus,
   ) {
-    await this.assertCreated(clientId);
+    await this.assertEditable(clientId);
     if (
       status === ClientOnboardingStepStatus.SKIPPED &&
       !optionalSteps.has(step as 'TEAM_LEADERS' | 'RIDERS')
@@ -102,7 +117,7 @@ export class ClientOnboardingService {
   }
 
   async submit(clientId: string, actorId: string) {
-    await this.assertCreated(clientId);
+    await this.assertEditable(clientId);
     const [hubCount, managerCount, fleetCount] = await Promise.all([
       this.prisma.hub.count({ where: { clientId, deletedAt: null } }),
       this.prisma.user.count({
@@ -120,6 +135,14 @@ export class ClientOnboardingService {
       this.prisma.client.update({
         where: { id: clientId },
         data: { status: ClientStatus.PENDING_APPROVAL },
+      }),
+      this.prisma.clientAgreement.updateMany({
+        where: { clientId },
+        data: {
+          rejectedAt: null,
+          rejectedById: null,
+          rejectionReason: null,
+        },
       }),
       this.prisma.clientOnboardingProgress.update({
         where: { id: progress.id },
@@ -206,14 +229,17 @@ export class ClientOnboardingService {
     };
   }
 
-  private async assertCreated(clientId: string) {
+  private async assertEditable(clientId: string) {
     const client = await this.prisma.client.findUniqueOrThrow({
       where: { id: clientId },
       select: { status: true },
     });
-    if (client.status !== ClientStatus.CREATED)
+    if (
+      client.status !== ClientStatus.CREATED &&
+      client.status !== ClientStatus.REJECTED
+    )
       throw new ForbiddenException(
-        'Onboarding is read-only until the client workspace is returned to created.',
+        'Onboarding is read-only while the client workspace is under review or inactive.',
       );
   }
 
@@ -236,8 +262,12 @@ export class ClientOnboardingService {
 
   private routeFor(status: ClientStatus) {
     if (status === ClientStatus.ACTIVE) return 'DASHBOARD';
-    if (status === ClientStatus.CREATED) return 'ONBOARDING';
+    if (
+      status === ClientStatus.CREATED ||
+      status === ClientStatus.REJECTED
+    )
+      return 'ONBOARDING';
     if (status === ClientStatus.PENDING_APPROVAL) return 'WAITING';
-    return status === ClientStatus.REJECTED ? 'REJECTED' : 'SUSPENDED';
+    return 'SUSPENDED';
   }
 }

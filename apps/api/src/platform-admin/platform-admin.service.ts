@@ -1212,7 +1212,13 @@ export class PlatformAdminService {
     await this.prisma.$transaction([
       this.prisma.client.update({
         where: { id: clientId },
-        data: { status: ClientStatus.REJECTED, isActive: false },
+        // A rejected onboarding is returned to the Client Admin for correction,
+        // not disabled. SUSPENDED is the status that blocks workspace access.
+        data: { status: ClientStatus.REJECTED, isActive: true },
+      }),
+      this.prisma.user.updateMany({
+        where: { clientId, role: UserRole.CLIENT_ADMIN },
+        data: { isActive: true },
       }),
       this.prisma.clientAgreement.update({
         where: { clientId },

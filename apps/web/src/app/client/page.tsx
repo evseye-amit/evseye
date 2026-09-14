@@ -5,10 +5,17 @@ import { useEffect, useState, type FormEvent } from "react";
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
 const ACCESS_TOKEN_KEY = "evs-eye-access-token";
+const REFRESH_TOKEN_KEY = "evs-eye-refresh-token";
 
 type Bootstrap = {
-  client: { name: string; companyCode?: string; status: string };
-  route: "ONBOARDING" | "WAITING" | "REJECTED" | "SUSPENDED" | "DASHBOARD";
+  client: {
+    name: string;
+    companyCode?: string;
+    status: string;
+    rejectionReason?: string | null;
+    rejectedAt?: string | null;
+  };
+  route: "ONBOARDING" | "WAITING" | "SUSPENDED" | "DASHBOARD";
   progress: { currentStep: string; steps: { step: string; status: string }[] };
 };
 
@@ -54,6 +61,7 @@ export default function ClientHome() {
   const [dashboard, setDashboard] = useState<ClientDashboard | null>(null);
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
+  const [selectedStep, setSelectedStep] = useState<string | null>(null);
   useEffect(() => {
     const token = sessionStorage.getItem(ACCESS_TOKEN_KEY);
     if (!token) {
@@ -62,6 +70,7 @@ export default function ClientHome() {
     }
     fetch(`${API_URL}/client/bootstrap`, {
       headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
     })
       .then(async (response) => {
         const body = await response.json();
@@ -95,6 +104,11 @@ export default function ClientHome() {
         ),
       );
   }, [refresh]);
+  useEffect(() => {
+    if (data?.route === "DASHBOARD") {
+      window.location.replace("/?workspace=operations");
+    }
+  }, [data?.route]);
   if (error)
     return (
       <main className="client-gate">
@@ -121,22 +135,18 @@ export default function ClientHome() {
     RIDERS: "Rider creation",
     REVIEW: "Review & submit",
   };
-  const currentStepNumber =
-    data.progress.steps.findIndex(
-      (step) => step.step === data.progress.currentStep,
-    ) + 1;
+  const activeStep = selectedStep ?? data.progress.currentStep;
+  const activeStepNumber =
+    data.progress.steps.findIndex((step) => step.step === activeStep) + 1;
+  const refreshOnboarding = () => {
+    setSelectedStep(null);
+    setRefresh((value) => value + 1);
+  };
   if (data.route === "WAITING")
     return (
       <Gate
         title="Onboarding under review"
         text="Your onboarding submission is with EVs Eye for approval. We will notify your Client Admin once the workspace is activated."
-      />
-    );
-  if (data.route === "REJECTED")
-    return (
-      <Gate
-        title="Onboarding needs attention"
-        text="Your submission was returned for correction. Please contact EVs Eye support to have the Client workspace reopened."
       />
     );
   if (data.route === "SUSPENDED")
@@ -147,7 +157,12 @@ export default function ClientHome() {
       />
     );
   if (data.route === "DASHBOARD")
-    return <ClientDashboardView client={data.client} dashboard={dashboard} />;
+    return (
+      <Gate
+        title="Opening Operations workspace"
+        text="Your Client is active. Redirecting you to the live operations dashboard."
+      />
+    );
   return (
     <main className="client-workspace">
       <aside className="client-onboarding-sidebar">
@@ -162,43 +177,80 @@ export default function ClientHome() {
             <li
               key={step.step}
               className={
-                step.step === data.progress.currentStep
-                  ? "current"
-                  : step.status.toLowerCase()
+                step.step === activeStep ? "current" : step.status.toLowerCase()
               }
             >
-              <b>{index + 1}</b>
-              <strong>{labels[step.step]}</strong>
-              <span>{step.status.replaceAll("_", " ")}</span>
+              <button
+                type="button"
+                onClick={() => setSelectedStep(step.step)}
+                aria-label={`Open ${labels[step.step]}`}
+              >
+                <b>{index + 1}</b>
+                <strong>{labels[step.step]}</strong>
+                <span>{step.status.replaceAll("_", " ")}</span>
+              </button>
             </li>
           ))}
         </ol>
       </aside>
       <section className="client-onboarding-main">
+        {data.client.status === "REJECTED" ? (
+          <section className="client-rejection-note" role="status">
+            <strong>Changes requested by EVs Eye</strong>
+            <p>
+              {data.client.rejectionReason ||
+                "Please review and correct the requested onboarding information, then resubmit it for approval."}
+            </p>
+            <div className="client-rejection-actions">
+              <span>Open the relevant setup section to make corrections:</span>
+              <button type="button" onClick={() => setSelectedStep("HUBS")}>
+                Hubs
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedStep("FLEET_MANAGERS")}
+              >
+                Fleet Managers
+              </button>
+              <button type="button" onClick={() => setSelectedStep("FLEETS")}>
+                Fleets
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedStep("TEAM_LEADERS")}
+              >
+                Team Leaders
+              </button>
+              <button type="button" onClick={() => setSelectedStep("RIDERS")}>
+                Riders
+              </button>
+            </div>
+          </section>
+        ) : null}
         <header className="client-onboarding-context">
           <span>
-            Step {currentStepNumber} of {data.progress.steps.length}
+            Step {activeStepNumber} of {data.progress.steps.length}
           </span>
           <p>
-            {labels[data.progress.currentStep]} is in progress. Your creation
-            and bulk-import results are safely saved to this workflow.
+            {labels[activeStep]} is open. Your saved records remain intact; you
+            can return to any section to make corrections before resubmitting.
           </p>
         </header>
-        {data.progress.currentStep === "HUBS" ? (
-          <HubSetup onSaved={() => setRefresh((value) => value + 1)} />
-        ) : data.progress.currentStep === "FLEET_MANAGERS" ? (
-          <FleetManagerSetup onSaved={() => setRefresh((value) => value + 1)} />
-        ) : data.progress.currentStep === "TEAM_LEADERS" ? (
-          <TeamLeaderSetup onSaved={() => setRefresh((value) => value + 1)} />
-        ) : data.progress.currentStep === "FLEETS" ? (
-          <FleetSetup onSaved={() => setRefresh((value) => value + 1)} />
-        ) : data.progress.currentStep === "RIDERS" ? (
-          <RiderSetup onSaved={() => setRefresh((value) => value + 1)} />
-        ) : data.progress.currentStep === "REVIEW" ? (
-          <ReviewSubmit onSaved={() => setRefresh((value) => value + 1)} />
+        {activeStep === "HUBS" ? (
+          <HubSetup onSaved={refreshOnboarding} />
+        ) : activeStep === "FLEET_MANAGERS" ? (
+          <FleetManagerSetup onSaved={refreshOnboarding} />
+        ) : activeStep === "TEAM_LEADERS" ? (
+          <TeamLeaderSetup onSaved={refreshOnboarding} />
+        ) : activeStep === "FLEETS" ? (
+          <FleetSetup onSaved={refreshOnboarding} />
+        ) : activeStep === "RIDERS" ? (
+          <RiderSetup onSaved={refreshOnboarding} />
+        ) : activeStep === "REVIEW" ? (
+          <ReviewSubmit onSaved={refreshOnboarding} />
         ) : (
           <section className="client-next-step">
-            <strong>{labels[data.progress.currentStep]}</strong>
+            <strong>{labels[activeStep]}</strong>
             <p>
               This step is ready to continue. The matching single-create and
               bulk import workspace is the next onboarding delivery.
@@ -211,6 +263,10 @@ export default function ClientHome() {
 }
 
 function RiderSetup({ onSaved }: { onSaved: () => void }) {
+  const [existingRiders, setExistingRiders] = useState<
+    Record<string, unknown>[]
+  >([]);
+  const [editingRiderId, setEditingRiderId] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: "",
     mobile: "",
@@ -225,9 +281,25 @@ function RiderSetup({ onSaved }: { onSaved: () => void }) {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const token = () => sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? "";
-  const request = async (path: string, body?: unknown) => {
+  useEffect(() => {
+    fetch(`${API_URL}/riders?page=1&pageSize=50`, {
+      headers: { Authorization: `Bearer ${token()}` },
+    })
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok)
+          throw new Error(body.message ?? "Unable to load Riders.");
+        setExistingRiders(body.data?.items ?? []);
+      })
+      .catch((cause: unknown) =>
+        setMessage(
+          cause instanceof Error ? cause.message : "Unable to load Riders.",
+        ),
+      );
+  }, []);
+  const request = async (path: string, body?: unknown, method = "POST") => {
     const response = await fetch(`${API_URL}${path}`, {
-      method: "POST",
+      method,
       headers: {
         Authorization: `Bearer ${token()}`,
         "Content-Type": "application/json",
@@ -247,12 +319,18 @@ function RiderSetup({ onSaved }: { onSaved: () => void }) {
     setMessage("");
     try {
       await request(
-        "/riders",
+        editingRiderId ? `/riders/${editingRiderId}` : "/riders",
         Object.fromEntries(
           Object.entries(form).map(([key, value]) => [key, value || undefined]),
         ),
+        editingRiderId ? "PATCH" : "POST",
       );
-      setMessage("Rider created. Your onboarding review is ready.");
+      setMessage(
+        editingRiderId
+          ? "Rider updated successfully."
+          : "Rider created. Your onboarding review is ready.",
+      );
+      setEditingRiderId(null);
       onSaved();
     } catch (cause) {
       setMessage(
@@ -351,6 +429,19 @@ function RiderSetup({ onSaved }: { onSaved: () => void }) {
     anchor.click();
     URL.revokeObjectURL(anchor.href);
   };
+  const editRider = (rider: Record<string, unknown>) => {
+    setForm({
+      name: String(rider.name ?? ""),
+      mobile: String(rider.mobile ?? ""),
+      riderCode: String(rider.riderCode ?? ""),
+      city: String(rider.city ?? ""),
+      state: String(rider.state ?? ""),
+      emergencyContactName: String(rider.emergencyContactName ?? ""),
+      emergencyContactMobile: String(rider.emergencyContactMobile ?? ""),
+    });
+    setEditingRiderId(String(rider.id));
+    setMessage("");
+  };
   return (
     <section className="client-onboarding-action">
       <div className="client-action-title-row">
@@ -371,8 +462,38 @@ function RiderSetup({ onSaved }: { onSaved: () => void }) {
           Skip for now
         </button>
       </div>
+      {existingRiders.length ? (
+        <section className="client-existing-records">
+          <div>
+            <strong>Saved Riders</strong>
+            <span>Select a Rider to update their submitted details.</span>
+          </div>
+          {existingRiders.map((rider) => (
+            <button
+              key={String(rider.id)}
+              type="button"
+              onClick={() => editRider(rider)}
+            >
+              <b>{String(rider.name ?? "Rider")}</b>
+              <span>
+                {String(rider.mobile ?? "")} ·{" "}
+                {String(rider.riderCode ?? "No rider code")}
+              </span>
+              <i>Edit</i>
+            </button>
+          ))}
+        </section>
+      ) : null}
       <div className="client-onboarding-options">
         <form onSubmit={create} className="client-hub-form">
+          {editingRiderId ? (
+            <div className="client-editing-banner client-form-wide">
+              Editing an existing Rider.{" "}
+              <button type="button" onClick={() => setEditingRiderId(null)}>
+                Cancel edit
+              </button>
+            </div>
+          ) : null}
           <label>
             Name
             <input
@@ -446,7 +567,11 @@ function RiderSetup({ onSaved }: { onSaved: () => void }) {
             />
           </label>
           <button disabled={busy} type="submit">
-            {busy ? "Saving…" : "Create Rider"}
+            {busy
+              ? "Saving…"
+              : editingRiderId
+                ? "Update Rider"
+                : "Create Rider"}
           </button>
         </form>
         <div className="client-bulk-card">
@@ -534,6 +659,10 @@ function ReviewSubmit({ onSaved }: { onSaved: () => void }) {
 
 function FleetSetup({ onSaved }: { onSaved: () => void }) {
   const [hubs, setHubs] = useState<HubOption[]>([]);
+  const [existingFleets, setExistingFleets] = useState<
+    Record<string, unknown>[]
+  >([]);
+  const [editingFleetId, setEditingFleetId] = useState<string | null>(null);
   const [options, setOptions] = useState<FleetOnboardingOptions>({
     oems: [],
     vehicleCategories: [],
@@ -582,6 +711,11 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
     vehicleNumber?: string | null;
     chassisNumber: string;
   } | null>(null);
+  const [evidenceFleet, setEvidenceFleet] = useState<{
+    id: string;
+    vehicleNumber?: string | null;
+    chassisNumber: string;
+  } | null>(null);
   const [componentsReady, setComponentsReady] = useState(false);
   const token = () => sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? "";
   useEffect(() => {
@@ -592,11 +726,15 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
       fetch(`${API_URL}/fleets/onboarding-options`, {
         headers: { Authorization: `Bearer ${token()}` },
       }),
+      fetch(`${API_URL}/fleets?page=1&pageSize=50`, {
+        headers: { Authorization: `Bearer ${token()}` },
+      }),
     ])
-      .then(async ([hubsResponse, optionsResponse]) => {
-        const [hubsBody, optionsBody] = await Promise.all([
+      .then(async ([hubsResponse, optionsResponse, fleetsResponse]) => {
+        const [hubsBody, optionsBody, fleetsBody] = await Promise.all([
           hubsResponse.json(),
           optionsResponse.json(),
+          fleetsResponse.json(),
         ]);
         if (!hubsResponse.ok)
           throw new Error(hubsBody.message ?? "Unable to load Hubs.");
@@ -604,8 +742,11 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
           throw new Error(
             optionsBody.message ?? "Unable to load Fleet master data.",
           );
+        if (!fleetsResponse.ok)
+          throw new Error(fleetsBody.message ?? "Unable to load saved Fleets.");
         setHubs(hubsBody.data);
         setOptions(optionsBody.data);
+        setExistingFleets(fleetsBody.data?.items ?? []);
       })
       .catch((cause: unknown) =>
         setMessage(
@@ -613,9 +754,9 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
         ),
       );
   }, []);
-  const request = async (path: string, body: unknown) => {
+  const request = async (path: string, body: unknown, method = "POST") => {
     const response = await fetch(`${API_URL}${path}`, {
-      method: "POST",
+      method,
       headers: {
         Authorization: `Bearer ${token()}`,
         "Content-Type": "application/json",
@@ -634,7 +775,7 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
     setBusy(true);
     setMessage("");
     try {
-      const fleet = await request("/fleets", {
+      const payload = {
         ...form,
         fleetCode: form.fleetCode.trim() || undefined,
         vehicleNumber: form.vehicleNumber.trim().toUpperCase() || undefined,
@@ -663,11 +804,21 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
         insuranceEndDate: form.insuranceEndDate || undefined,
         fitnessCertificateNumber: form.fitnessCertificateNumber || undefined,
         fitnessExpiryDate: form.fitnessExpiryDate || undefined,
-      });
-      setCreatedFleet(fleet);
-      setMessage(
-        "Fleet created. Complete its required evidence before activation.",
+      };
+      const fleet = await request(
+        editingFleetId ? `/fleets/${editingFleetId}` : "/fleets",
+        payload,
+        editingFleetId ? "PATCH" : "POST",
       );
+      if (editingFleetId) {
+        setEditingFleetId(null);
+        setMessage("Fleet updated successfully.");
+      } else {
+        setCreatedFleet(fleet);
+        setMessage(
+          "Fleet created. Complete its required evidence before activation.",
+        );
+      }
     } catch (cause) {
       setMessage(
         cause instanceof Error ? cause.message : "Unable to create Fleet.",
@@ -742,6 +893,77 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
     anchor.click();
     URL.revokeObjectURL(anchor.href);
   };
+  const editFleet = async (fleetId: string) => {
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch(`${API_URL}/fleets/${fleetId}`, {
+        headers: { Authorization: `Bearer ${token()}` },
+      });
+      const result = await response.json();
+      if (!response.ok)
+        throw new Error(
+          result.error?.message ?? result.message ?? "Unable to load Fleet.",
+        );
+      const fleet = result.data as Record<string, unknown>;
+      const registration = (fleet.registration ?? {}) as Record<
+        string,
+        unknown
+      >;
+      const insurance = (fleet.insurance ?? {}) as Record<string, unknown>;
+      const fitness = (fleet.fitness ?? {}) as Record<string, unknown>;
+      const text = (value: unknown) =>
+        value === null || value === undefined ? "" : String(value);
+      const date = (value: unknown) => text(value).slice(0, 10);
+      setForm({
+        fleetCode: text(fleet.fleetCode),
+        vehicleNumber: text(fleet.vehicleNumber),
+        chassisNumber: text(fleet.chassisNumber),
+        vinNumber: text(fleet.vinNumber),
+        oemId: text(fleet.oemId),
+        vehicleCategoryId: text(fleet.vehicleCategoryId),
+        vehicleTypeId: text(fleet.vehicleTypeId),
+        speedType: text(fleet.speedType),
+        homeHubId: text(fleet.homeHubId),
+        modelName: text(fleet.modelName),
+        variantName: text(fleet.variantName),
+        colour: text(fleet.colour),
+        motorNumber: text(fleet.motorNumber),
+        manufacturingYear: text(fleet.manufacturingYear),
+        manufacturingMonth: text(fleet.manufacturingMonth),
+        ownershipType: text(fleet.ownershipType),
+        odometerKm: text(fleet.odometerKm),
+        registrationDate: date(registration.registrationDate),
+        registeringAuthority: text(registration.registeringAuthority),
+        rcExpiryDate: date(registration.rcExpiryDate),
+        insuranceProviderName: text(insurance.providerName),
+        insurancePolicyNumber: text(insurance.policyNumber),
+        insuranceType: text(insurance.insuranceType),
+        insuranceStartDate: date(insurance.startDate),
+        insuranceEndDate: date(insurance.endDate),
+        fitnessCertificateNumber: text(fitness.certificateNumber),
+        fitnessExpiryDate: date(fitness.expiryDate),
+      });
+      setEditingFleetId(fleetId);
+    } catch (cause) {
+      setMessage(
+        cause instanceof Error ? cause.message : "Unable to load Fleet.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (evidenceFleet) {
+    return (
+      <FleetEvidenceSetup
+        fleet={evidenceFleet}
+        onActivated={() => {
+          setEvidenceFleet(null);
+          onSaved();
+        }}
+      />
+    );
+  }
   if (createdFleet) {
     if (!componentsReady) {
       return (
@@ -763,8 +985,57 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
           current Hub is initialized from the selected home Hub.
         </p>
       </div>
+      {existingFleets.length ? (
+        <section className="client-existing-records">
+          <div>
+            <strong>Saved Fleets</strong>
+            <span>Select a submitted Fleet to update its details.</span>
+          </div>
+          {existingFleets.map((fleet) => (
+            <button
+              key={String(fleet.id)}
+              type="button"
+              onClick={() => editFleet(String(fleet.id))}
+            >
+              <b>
+                {String(
+                  fleet.fleetCode ?? fleet.vehicleNumber ?? fleet.chassisNumber,
+                )}
+              </b>
+              <span>
+                {String(fleet.vehicleNumber ?? "Unregistered")} ·{" "}
+                {String(
+                  (fleet.oem as Record<string, unknown> | undefined)
+                    ?.displayName ?? "",
+                )}
+              </span>
+              <i>Edit</i>
+            </button>
+          ))}
+        </section>
+      ) : null}
       <div className="client-onboarding-options">
         <form onSubmit={create} className="client-hub-form">
+          {editingFleetId ? (
+            <div className="client-editing-banner client-form-wide">
+              Editing an existing Fleet.{" "}
+              <button type="button" onClick={() => setEditingFleetId(null)}>
+                Cancel edit
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setEvidenceFleet({
+                    id: editingFleetId,
+                    vehicleNumber: form.vehicleNumber || null,
+                    chassisNumber: form.chassisNumber,
+                  })
+                }
+              >
+                Manage fleet, battery & controller photos
+              </button>
+            </div>
+          ) : null}
           <h3 className="client-form-section-title">Vehicle identity</h3>
           <label>
             Fleet code
@@ -1103,7 +1374,11 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
             />
           </label>
           <button disabled={busy} type="submit">
-            {busy ? "Saving…" : "Create Fleet"}
+            {busy
+              ? "Saving…"
+              : editingFleetId
+                ? "Update Fleet"
+                : "Create Fleet"}
           </button>
         </form>
         <div className="client-bulk-card">
@@ -1597,24 +1872,23 @@ function FleetEvidenceSetup({
                     >
                       <span>
                         {complete ? "✓" : "○"} {photoType.replaceAll("_", " ")}
+                        {complete ? " · Replace photo" : ""}
                       </span>
-                      {!complete ? (
-                        <input
-                          type="file"
-                          accept="image/jpeg,image/png,image/webp"
-                          disabled={busy}
-                          onChange={(event) => {
-                            const file = event.target.files?.[0];
-                            if (file)
-                              void upload(
-                                item.entityType,
-                                item.entityId,
-                                photoType,
-                                file,
-                              );
-                          }}
-                        />
-                      ) : null}
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        disabled={busy}
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          if (file)
+                            void upload(
+                              item.entityType,
+                              item.entityId,
+                              photoType,
+                              file,
+                            );
+                        }}
+                      />
                     </label>
                   );
                 })}
@@ -1646,6 +1920,10 @@ function FleetEvidenceSetup({
 }
 
 function TeamLeaderSetup({ onSaved }: { onSaved: () => void }) {
+  const [existingLeaders, setExistingLeaders] = useState<
+    Record<string, unknown>[]
+  >([]);
+  const [editingLeaderId, setEditingLeaderId] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: "",
     mobile: "",
@@ -1658,9 +1936,27 @@ function TeamLeaderSetup({ onSaved }: { onSaved: () => void }) {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const token = () => sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? "";
-  const request = async (path: string, body?: unknown) => {
+  useEffect(() => {
+    fetch(`${API_URL}/client/users/team-leaders`, {
+      headers: { Authorization: `Bearer ${token()}` },
+    })
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok)
+          throw new Error(body.message ?? "Unable to load Team Leaders.");
+        setExistingLeaders(body.data ?? []);
+      })
+      .catch((cause: unknown) =>
+        setMessage(
+          cause instanceof Error
+            ? cause.message
+            : "Unable to load Team Leaders.",
+        ),
+      );
+  }, []);
+  const request = async (path: string, body?: unknown, method = "POST") => {
     const response = await fetch(`${API_URL}${path}`, {
-      method: "POST",
+      method,
       headers: {
         Authorization: `Bearer ${token()}`,
         "Content-Type": "application/json",
@@ -1679,13 +1975,24 @@ function TeamLeaderSetup({ onSaved }: { onSaved: () => void }) {
     setBusy(true);
     setMessage("");
     try {
-      await request("/client/users/team-leaders", {
-        ...form,
-        email: form.email || undefined,
-        employeeCode: form.employeeCode || undefined,
-        designation: form.designation || undefined,
-      });
-      setMessage("Team Leader created. Fleet creation is available next.");
+      await request(
+        editingLeaderId
+          ? `/client/users/team-leaders/${editingLeaderId}`
+          : "/client/users/team-leaders",
+        {
+          ...form,
+          email: form.email || undefined,
+          employeeCode: form.employeeCode || undefined,
+          designation: form.designation || undefined,
+        },
+        editingLeaderId ? "PATCH" : "POST",
+      );
+      setMessage(
+        editingLeaderId
+          ? "Team Leader updated successfully."
+          : "Team Leader created. Fleet creation is available next.",
+      );
+      setEditingLeaderId(null);
       onSaved();
     } catch (cause) {
       setMessage(
@@ -1788,6 +2095,17 @@ function TeamLeaderSetup({ onSaved }: { onSaved: () => void }) {
     anchor.click();
     URL.revokeObjectURL(anchor.href);
   };
+  const editLeader = (leader: Record<string, unknown>) => {
+    const user = (leader.user ?? {}) as Record<string, unknown>;
+    setForm({
+      name: String(user.name ?? ""),
+      mobile: String(user.mobile ?? ""),
+      email: "",
+      employeeCode: String(leader.employeeCode ?? ""),
+      designation: String(leader.designation ?? ""),
+    });
+    setEditingLeaderId(String(leader.id));
+  };
   return (
     <section className="client-onboarding-action">
       <div className="client-action-title-row">
@@ -1808,8 +2126,41 @@ function TeamLeaderSetup({ onSaved }: { onSaved: () => void }) {
           Skip for now
         </button>
       </div>
+      {existingLeaders.length ? (
+        <section className="client-existing-records">
+          <div>
+            <strong>Saved Team Leaders</strong>
+            <span>Select a Team Leader to update their submitted details.</span>
+          </div>
+          {existingLeaders.map((leader) => {
+            const user = (leader.user ?? {}) as Record<string, unknown>;
+            return (
+              <button
+                key={String(leader.id)}
+                type="button"
+                onClick={() => editLeader(leader)}
+              >
+                <b>{String(user.name ?? "Team Leader")}</b>
+                <span>
+                  {String(user.mobile ?? "")} ·{" "}
+                  {String(leader.designation ?? "")}
+                </span>
+                <i>Edit</i>
+              </button>
+            );
+          })}
+        </section>
+      ) : null}
       <div className="client-onboarding-options">
         <form onSubmit={create} className="client-hub-form">
+          {editingLeaderId ? (
+            <div className="client-editing-banner client-form-wide">
+              Editing an existing Team Leader.{" "}
+              <button type="button" onClick={() => setEditingLeaderId(null)}>
+                Cancel edit
+              </button>
+            </div>
+          ) : null}
           <label>
             Name
             <input
@@ -1864,7 +2215,11 @@ function TeamLeaderSetup({ onSaved }: { onSaved: () => void }) {
             />
           </label>
           <button disabled={busy} type="submit">
-            {busy ? "Saving…" : "Create Team Leader"}
+            {busy
+              ? "Saving…"
+              : editingLeaderId
+                ? "Update Team Leader"
+                : "Create Team Leader"}
           </button>
         </form>
         <div className="client-bulk-card">
@@ -1911,6 +2266,10 @@ type HubOption = { id: string; code: string; name: string };
 
 function FleetManagerSetup({ onSaved }: { onSaved: () => void }) {
   const [hubs, setHubs] = useState<HubOption[]>([]);
+  const [existingManagers, setExistingManagers] = useState<
+    Record<string, unknown>[]
+  >([]);
+  const [editingManagerId, setEditingManagerId] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: "",
     mobile: "",
@@ -1924,14 +2283,27 @@ function FleetManagerSetup({ onSaved }: { onSaved: () => void }) {
   const [busy, setBusy] = useState(false);
   const token = () => sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? "";
   useEffect(() => {
-    fetch(`${API_URL}/hubs`, {
-      headers: { Authorization: `Bearer ${token()}` },
-    })
-      .then(async (response) => {
-        const body = await response.json();
-        if (!response.ok)
-          throw new Error(body.message ?? "Unable to load Hubs.");
-        setHubs(body.data);
+    Promise.all([
+      fetch(`${API_URL}/hubs`, {
+        headers: { Authorization: `Bearer ${token()}` },
+      }),
+      fetch(`${API_URL}/client/users/fleet-managers`, {
+        headers: { Authorization: `Bearer ${token()}` },
+      }),
+    ])
+      .then(async ([hubsResponse, managersResponse]) => {
+        const [hubsBody, managersBody] = await Promise.all([
+          hubsResponse.json(),
+          managersResponse.json(),
+        ]);
+        if (!hubsResponse.ok)
+          throw new Error(hubsBody.message ?? "Unable to load Hubs.");
+        if (!managersResponse.ok)
+          throw new Error(
+            managersBody.message ?? "Unable to load Fleet Managers.",
+          );
+        setHubs(hubsBody.data);
+        setExistingManagers(managersBody.data ?? []);
       })
       .catch((cause: unknown) =>
         setMessage(
@@ -1939,9 +2311,9 @@ function FleetManagerSetup({ onSaved }: { onSaved: () => void }) {
         ),
       );
   }, []);
-  const request = async (path: string, body: unknown) => {
+  const request = async (path: string, body: unknown, method = "POST") => {
     const response = await fetch(`${API_URL}${path}`, {
-      method: "POST",
+      method,
       headers: {
         Authorization: `Bearer ${token()}`,
         "Content-Type": "application/json",
@@ -1960,14 +2332,23 @@ function FleetManagerSetup({ onSaved }: { onSaved: () => void }) {
     setBusy(true);
     setMessage("");
     try {
-      await request("/client/users/fleet-managers", {
-        ...form,
-        email: form.email || undefined,
-        hubIds: selectedHubIds,
-      });
-      setMessage(
-        "Fleet Manager created. Team Leader creation is available next.",
+      await request(
+        editingManagerId
+          ? `/client/users/fleet-managers/${editingManagerId}`
+          : "/client/users/fleet-managers",
+        {
+          ...form,
+          email: form.email || undefined,
+          hubIds: selectedHubIds,
+        },
+        editingManagerId ? "PATCH" : "POST",
       );
+      setMessage(
+        editingManagerId
+          ? "Fleet Manager updated successfully."
+          : "Fleet Manager created. Team Leader creation is available next.",
+      );
+      setEditingManagerId(null);
       onSaved();
     } catch (cause) {
       setMessage(
@@ -2079,6 +2460,25 @@ function FleetManagerSetup({ onSaved }: { onSaved: () => void }) {
       setSelectedHubIds((current) => [...current, hubId]);
     }
   };
+  const editManager = (manager: Record<string, unknown>) => {
+    const assignments = (manager.hubAssignments ?? []) as Array<
+      Record<string, unknown>
+    >;
+    const hubIds = assignments.map((assignment) => String(assignment.hubId));
+    const primaryHubId = String(
+      assignments.find((assignment) => assignment.isPrimary)?.hubId ??
+        hubIds[0] ??
+        "",
+    );
+    setForm({
+      name: String(manager.name ?? ""),
+      mobile: String(manager.mobile ?? ""),
+      email: "",
+      primaryHubId,
+    });
+    setSelectedHubIds(hubIds);
+    setEditingManagerId(String(manager.id));
+  };
   return (
     <section className="client-onboarding-action">
       <div>
@@ -2089,8 +2489,65 @@ function FleetManagerSetup({ onSaved }: { onSaved: () => void }) {
           for each manager.
         </p>
       </div>
+      {existingManagers.length ? (
+        <section className="client-existing-records">
+          <div>
+            <strong>Saved Fleet Managers</strong>
+            <span>
+              Select a manager to update their details and Hub assignments.
+            </span>
+          </div>
+          {existingManagers.map((manager) => {
+            const assignments = (manager.hubAssignments ?? []) as Array<
+              Record<string, unknown>
+            >;
+            return (
+              <button
+                key={String(manager.id)}
+                type="button"
+                onClick={() => editManager(manager)}
+              >
+                <b>{String(manager.name)}</b>
+                <span>
+                  {String(manager.mobile)} ·{" "}
+                  {assignments
+                    .map((assignment) =>
+                      String(
+                        (assignment.hub as Record<string, unknown> | undefined)
+                          ?.code ?? "",
+                      ),
+                    )
+                    .filter(Boolean)
+                    .join(", ") || "No Hub"}
+                </span>
+                <i>Edit</i>
+              </button>
+            );
+          })}
+        </section>
+      ) : null}
       <div className="client-onboarding-options">
         <form onSubmit={create} className="client-hub-form">
+          {editingManagerId ? (
+            <div className="client-editing-banner client-form-wide">
+              Editing an existing Fleet Manager.{" "}
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingManagerId(null);
+                  setForm({
+                    name: "",
+                    mobile: "",
+                    email: "",
+                    primaryHubId: "",
+                  });
+                  setSelectedHubIds([]);
+                }}
+              >
+                Create a new Fleet Manager instead
+              </button>
+            </div>
+          ) : null}
           <label>
             Name
             <input
@@ -2158,7 +2615,11 @@ function FleetManagerSetup({ onSaved }: { onSaved: () => void }) {
             </select>
           </label>
           <button disabled={busy || !selectedHubIds.length} type="submit">
-            {busy ? "Saving…" : "Create Fleet Manager"}
+            {busy
+              ? "Saving…"
+              : editingManagerId
+                ? "Update Fleet Manager"
+                : "Create Fleet Manager"}
           </button>
         </form>
         <div className="client-bulk-card">
@@ -2239,14 +2700,36 @@ function HubSetup({ onSaved }: { onSaved: () => void }) {
     supportsPdi: false,
   };
   const [form, setForm] = useState(emptyForm);
+  const [existingHubs, setExistingHubs] = useState<Record<string, unknown>[]>(
+    [],
+  );
+  const [editingHubId, setEditingHubId] = useState<string | null>(null);
   const [rows, setRows] = useState<Record<string, string>[]>([]);
   const [filename, setFilename] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const token = () => sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? "";
-  const request = async (path: string, body: unknown) => {
+  const loadHubs = async () => {
+    const response = await fetch(`${API_URL}/hubs`, {
+      headers: { Authorization: `Bearer ${token()}` },
+    });
+    const result = await response.json();
+    if (!response.ok)
+      throw new Error(
+        result.error?.message ?? result.message ?? "Unable to load Hubs.",
+      );
+    setExistingHubs(result.data ?? []);
+  };
+  useEffect(() => {
+    loadHubs().catch((cause: unknown) =>
+      setMessage(
+        cause instanceof Error ? cause.message : "Unable to load Hubs.",
+      ),
+    );
+  }, []);
+  const request = async (path: string, body: unknown, method = "POST") => {
     const response = await fetch(`${API_URL}${path}`, {
-      method: "POST",
+      method,
       headers: {
         Authorization: `Bearer ${token()}`,
         "Content-Type": "application/json",
@@ -2265,7 +2748,7 @@ function HubSetup({ onSaved }: { onSaved: () => void }) {
     setBusy(true);
     setMessage("");
     try {
-      await request("/hubs", {
+      await request(editingHubId ? `/hubs/${editingHubId}` : "/hubs", {
         ...form,
         code: form.code.trim().toUpperCase(),
         latitude: form.latitude ? Number(form.latitude) : undefined,
@@ -2288,9 +2771,13 @@ function HubSetup({ onSaved }: { onSaved: () => void }) {
           : undefined,
       });
       setMessage(
-        "Hub created. You can now continue to Fleet Manager creation.",
+        editingHubId
+          ? "Hub updated successfully."
+          : "Hub created. You can now continue to Fleet Manager creation.",
       );
       setForm(emptyForm);
+      setEditingHubId(null);
+      await loadHubs();
       onSaved();
     } catch (cause) {
       setMessage(
@@ -2365,6 +2852,30 @@ function HubSetup({ onSaved }: { onSaved: () => void }) {
     anchor.click();
     URL.revokeObjectURL(anchor.href);
   };
+  const editHub = (hub: Record<string, unknown>) => {
+    const text = (value: unknown) =>
+      value === null || value === undefined ? "" : String(value);
+    setEditingHubId(String(hub.id));
+    setForm({
+      ...emptyForm,
+      ...hub,
+      latitude: text(hub.latitude),
+      longitude: text(hub.longitude),
+      vehicleCapacity: text(hub.vehicleCapacity),
+      riderCapacity: text(hub.riderCapacity),
+      batteryCapacity: text(hub.batteryCapacity),
+      parkingSlots: text(hub.parkingSlots),
+      chargingPoints: text(hub.chargingPoints),
+      swappingPoints: text(hub.swappingPoints),
+      is24x7: Boolean(hub.is24x7),
+      supportsCharging: Boolean(hub.supportsCharging),
+      supportsBatterySwapping: Boolean(hub.supportsBatterySwapping),
+      supportsMaintenance: Boolean(hub.supportsMaintenance),
+      supportsAllocation: Boolean(hub.supportsAllocation),
+      supportsDeallocation: Boolean(hub.supportsDeallocation),
+      supportsPdi: Boolean(hub.supportsPdi),
+    });
+  };
   return (
     <section className="client-onboarding-action">
       <div>
@@ -2375,8 +2886,43 @@ function HubSetup({ onSaved }: { onSaved: () => void }) {
           available at each Hub. Fields marked <strong>*</strong> are required.
         </p>
       </div>
+      {existingHubs.length ? (
+        <section className="client-existing-records">
+          <div>
+            <strong>Saved Hubs</strong>
+            <span>Select an existing Hub to update its submitted details.</span>
+          </div>
+          {existingHubs.map((hub) => (
+            <button
+              key={String(hub.id)}
+              type="button"
+              onClick={() => editHub(hub)}
+            >
+              <b>{String(hub.code)}</b>
+              <span>
+                {String(hub.name)} · {String(hub.city)}, {String(hub.state)}
+              </span>
+              <i>Edit</i>
+            </button>
+          ))}
+        </section>
+      ) : null}
       <div className="client-onboarding-options">
         <form onSubmit={create} className="client-hub-form">
+          {editingHubId ? (
+            <div className="client-editing-banner client-form-wide">
+              Editing an existing Hub.{" "}
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingHubId(null);
+                  setForm(emptyForm);
+                }}
+              >
+                Create a new Hub instead
+              </button>
+            </div>
+          ) : null}
           <h3 className="client-form-section-title">Hub identity</h3>
           <label>
             <span className="client-label-text">
@@ -2704,7 +3250,7 @@ function HubSetup({ onSaved }: { onSaved: () => void }) {
             ))}
           </fieldset>
           <button disabled={busy} type="submit">
-            {busy ? "Saving…" : "Create Hub"}
+            {busy ? "Saving…" : editingHubId ? "Update Hub" : "Create Hub"}
           </button>
         </form>
         <div className="client-bulk-card">
@@ -2794,7 +3340,7 @@ function ClientDashboardView({
           <h1>{client.name}</h1>
           <p>Live operational overview for your fleet workspace.</p>
         </div>
-        <a href="/">Operations workspace</a>
+        <a href="/?workspace=operations">Operations workspace</a>
       </header>
 
       {!dashboard ? (
@@ -2872,13 +3418,24 @@ function ClientDashboardView({
 }
 
 function Gate({ title, text }: { title: string; text: string }) {
+  const returnToLogin = () => {
+    sessionStorage.removeItem(ACCESS_TOKEN_KEY);
+    sessionStorage.removeItem(REFRESH_TOKEN_KEY);
+    window.location.assign("/");
+  };
   return (
     <main className="client-gate">
       <section>
         <p className="eyebrow">EVS EYE · CLIENT WORKSPACE</p>
         <h1>{title}</h1>
         <p>{text}</p>
-        <a href="/">Return to login</a>
+        <button
+          className="client-return-login"
+          type="button"
+          onClick={returnToLogin}
+        >
+          Return to login
+        </button>
       </section>
     </main>
   );

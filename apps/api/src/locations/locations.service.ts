@@ -34,6 +34,26 @@ export class LocationsService {
       throw error;
     }
   }
+  async updateHub(clientId: string, id: string, dto: CreateHubDto) {
+    if (dto.parentHubId === id)
+      throw new ConflictException('A Hub cannot be its own parent.');
+    await this.assertParent(clientId, dto.parentHubId);
+    const existing = await this.prisma.hub.findFirst({
+      where: { id, clientId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundException('Hub not found.');
+    try {
+      return await this.prisma.hub.update({
+        where: { id },
+        data: { ...dto, code: dto.code.trim().toUpperCase() },
+      });
+    } catch (error) {
+      if (this.unique(error))
+        throw new ConflictException('Hub code already exists.');
+      throw error;
+    }
+  }
   async bulkCreateHubs(
     clientId: string,
     actorId: string,

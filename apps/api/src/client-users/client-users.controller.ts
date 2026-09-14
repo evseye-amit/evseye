@@ -4,6 +4,7 @@ import {
   Get,
   Header,
   Param,
+  Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -39,6 +40,20 @@ export class ClientUsersController {
       .createFleetManager(this.clients.requireClientId(user), dto)
       .then((data) => ({ data }));
   }
+  @Get('fleet-managers') listFleetManagers(@CurrentUser() user: AuthUser) {
+    return this.users
+      .listFleetManagers(this.clients.requireClientId(user))
+      .then((data) => ({ data }));
+  }
+  @Patch('fleet-managers/:id') updateFleetManager(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: CreateFleetManagerDto,
+  ) {
+    return this.users
+      .updateFleetManager(this.clients.requireClientId(user), id, dto)
+      .then((data) => ({ data }));
+  }
   @Post('fleet-managers/bulk') bulk(
     @CurrentUser() user: AuthUser,
     @Body() dto: BulkFleetManagerDto,
@@ -71,6 +86,20 @@ export class ClientUsersController {
   ) {
     return this.users
       .createTeamLeader(this.clients.requireClientId(user), dto)
+      .then((data) => ({ data }));
+  }
+  @Get('team-leaders') listTeamLeaders(@CurrentUser() user: AuthUser) {
+    return this.users
+      .listTeamLeaders(this.clients.requireClientId(user))
+      .then((data) => ({ data }));
+  }
+  @Patch('team-leaders/:id') updateTeamLeader(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: CreateTeamLeaderDto,
+  ) {
+    return this.users
+      .updateTeamLeader(this.clients.requireClientId(user), id, dto)
       .then((data) => ({ data }));
   }
   @Post('team-leaders/bulk') bulkTeamLeaders(

@@ -184,9 +184,18 @@ export class RidersService {
   }
 
   async update(clientId: string, id: string, dto: UpdateRiderDto) {
-    await this.getById(clientId, id);
+    const existing = await this.getById(clientId, id);
     try {
-      return await this.prisma.rider.update({ where: { id }, data: dto });
+      return await this.prisma.$transaction(async (tx) => {
+        const rider = await tx.rider.update({ where: { id }, data: dto });
+        if (existing.userId && (dto.name !== undefined || dto.mobile !== undefined)) {
+          await tx.user.update({
+            where: { id: existing.userId },
+            data: { name: dto.name, mobile: dto.mobile },
+          });
+        }
+        return rider;
+      });
     } catch (error) {
       if (this.isUniqueViolation(error)) {
         throw new ConflictException(

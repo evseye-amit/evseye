@@ -4,6 +4,7 @@ import {
   Get,
   Header,
   Param,
+  Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -42,6 +43,19 @@ export class LocationsController {
     return {
       data: await this.locations.createHub(
         this.clients.requireClientId(user),
+        dto,
+      ),
+    };
+  }
+  @Patch('hubs/:id') async updateHub(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: CreateHubDto,
+  ) {
+    return {
+      data: await this.locations.updateHub(
+        this.clients.requireClientId(user),
+        id,
         dto,
       ),
     };

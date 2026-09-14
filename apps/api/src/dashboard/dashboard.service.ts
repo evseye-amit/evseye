@@ -50,7 +50,7 @@ export class DashboardService {
         where: { clientId, deallocatedAt: { gte: today } },
       }),
       this.prisma.vehicleCurrentState.count({
-        where: { clientId, lastHeartbeat: { gte: cutoff } },
+        where: { clientId, lastHeartbeatAt: { gte: cutoff } },
       }),
       this.prisma.vehicleCurrentState.count({ where: { clientId } }),
     ]);
