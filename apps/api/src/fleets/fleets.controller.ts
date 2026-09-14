@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Header,
+  Delete,
   Param,
   Patch,
   Post,
@@ -25,6 +26,7 @@ import {
   CreateControllerDto,
 } from './dto/create-component.dto.js';
 import { ChangeFleetStatusDto } from './dto/change-fleet-status.dto.js';
+import { UpdateFleetDto } from './dto/update-fleet.dto.js';
 import { FleetsService } from './fleets.service.js';
 import { ComponentsService } from './components.service.js';
 @Controller('fleets')
@@ -43,6 +45,9 @@ export class FleetsController {
   ) {}
   @Get() async list(@CurrentUser() u: AuthUser, @Query() q: ListFleetsDto) {
     return { data: await this.fleets.list(this.clients.requireClientId(u), q) };
+  }
+  @Get('onboarding-options') onboardingOptions() {
+    return this.fleets.onboardingOptions().then((data) => ({ data }));
   }
   @Post() async create(@CurrentUser() u: AuthUser, @Body() d: CreateFleetDto) {
     const clientId = this.clients.requireClientId(u);
@@ -100,6 +105,57 @@ export class FleetsController {
   @Get(':id') async get(@CurrentUser() u: AuthUser, @Param('id') id: string) {
     return { data: await this.fleets.get(this.clients.requireClientId(u), id) };
   }
+  @Patch(':id') async update(
+    @CurrentUser() u: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateFleetDto,
+  ) {
+    const clientId = this.clients.requireClientId(u);
+    const fleet = await this.fleets.update(clientId, id, dto);
+    await this.audit.record({
+      clientId,
+      actorId: u.id,
+      action: 'FLEET_UPDATED',
+      entityType: 'FLEET',
+      entityId: id,
+      newData: dto,
+    });
+    return { data: fleet };
+  }
+  @Post(':id/activate') async activate(
+    @CurrentUser() u: AuthUser,
+    @Param('id') id: string,
+  ) {
+    const clientId = this.clients.requireClientId(u);
+    const fleet = await this.fleets.activate(clientId, id, u.id);
+    await this.audit.record({
+      clientId,
+      actorId: u.id,
+      action: 'FLEET_ACTIVATED',
+      entityType: 'FLEET',
+      entityId: id,
+      newData: {
+        status: fleet.status,
+        onboardingStatus: fleet.onboardingStatus,
+      },
+    });
+    return { data: fleet };
+  }
+  @Delete(':id') async remove(
+    @CurrentUser() u: AuthUser,
+    @Param('id') id: string,
+  ) {
+    const clientId = this.clients.requireClientId(u);
+    await this.fleets.remove(clientId, id);
+    await this.audit.record({
+      clientId,
+      actorId: u.id,
+      action: 'FLEET_DELETED',
+      entityType: 'FLEET',
+      entityId: id,
+    });
+    return { data: { deleted: true } };
+  }
   @Get(':id/current-state') async currentState(
     @CurrentUser() u: AuthUser,
     @Param('id') id: string,
@@ -114,7 +170,13 @@ export class FleetsController {
     @Body() dto: ChangeFleetStatusDto,
   ) {
     const clientId = this.clients.requireClientId(u);
-    const fleet = await this.fleets.changeStatus(clientId, id, dto.status);
+    const fleet = await this.fleets.changeStatus(
+      clientId,
+      id,
+      dto.status,
+      u.id,
+      dto.reason,
+    );
     await this.audit.record({
       clientId,
       actorId: u.id,
@@ -159,7 +221,7 @@ export class FleetsController {
       action: 'CONTROLLER_ADDED',
       entityType: 'CONTROLLER',
       entityId: controller.id,
-      newData: { fleetId: id, serialNumber: controller.serialNumber },
+      newData: { fleetId: id, controllerNumber: controller.controllerNumber },
     });
     return {
       data: controller,

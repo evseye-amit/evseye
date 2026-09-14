@@ -126,6 +126,7 @@ enum KycStatus {
 }
 
 enum FleetStatus {
+  IN_TRANSIT
   AVAILABLE
   RESERVED
   ALLOCATION_IN_PROGRESS
@@ -135,7 +136,101 @@ enum FleetStatus {
   INSPECTION_PENDING
   MAINTENANCE
   OUT_OF_SERVICE
+}
+
+enum FleetOnboardingStatus {
+  DRAFT
+  IN_PROGRESS
+  PENDING_REVIEW
+  ACTIVE
+  REJECTED
+  ARCHIVED
+}
+
+enum VehicleSpeedType {
+  SLOW_SPEED
+  HIGH_SPEED
+}
+
+enum FleetOwnershipType {
+  CLIENT_OWNED
+  LEASED
+  ATTACHED
+  OEM_OWNED
+  THIRD_PARTY
+}
+
+enum BatteryType {
+  FIXED_SINGLE
+  FIXED_DOUBLE
+  SWAP_IF
+  SWAP_BS
+  SWAP_MOVING
+  SWAP_OTHER
+}
+
+enum BatteryStatus {
+  AVAILABLE
+  INSTALLED
+  CHARGING
+  IN_SWAP
+  UNDER_MAINTENANCE
+  DAMAGED
+  RETIRED
+}
+
+enum BatteryChemistry {
+  LFP
+  NMC
+  LTO
+  LEAD_ACID
+  OTHER
+}
+
+enum BatterySlot {
+  PRIMARY
+  SECONDARY
+  AUXILIARY
+}
+
+enum ControllerStatus {
+  AVAILABLE
+  INSTALLED
+  UNDER_MAINTENANCE
+  DAMAGED
+  RETIRED
+}
+
+enum InsuranceType {
+  THIRD_PARTY
+  COMPREHENSIVE
+  OWN_DAMAGE
+}
+
+enum FleetDocumentType {
+  RC
+  INSURANCE
+  FITNESS_CERTIFICATE
+  PERMIT
+  PUC
+  INVOICE
+  WARRANTY
+  OTHER
+}
+
+enum IoTDeviceStatus {
+  ACTIVE
+  INACTIVE
   OFFLINE
+  DAMAGED
+  UNASSIGNED
+}
+
+enum FleetTransferStatus {
+  INITIATED
+  IN_TRANSIT
+  RECEIVED
+  CANCELLED
 }
 
 enum AllocationStatus {
@@ -354,6 +449,10 @@ model Client {
   photos                     Photo[]
   hubs                       Hub[]
   fleets                     Fleet[]
+  batteries                  Battery[]
+  controllers                Controller[]
+  iotDevices                 IoTDevice[]
+  fleetTransfers             FleetTransfer[]
   auditLogs                  AuditLog[]
   businessProfile            ClientBusinessProfile?
   contacts                   ClientContact[]
@@ -388,6 +487,7 @@ model Oem {
   description   String?
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
+  fleets        Fleet[]
 
   @@index([status, displayName])
 }
@@ -402,6 +502,7 @@ model VehicleCategory {
   createdAt        DateTime                          @default(now())
   updatedAt        DateTime                          @updatedAt
   vehicleTypes     VehicleType[]
+  fleets           Fleet[]
   clientOperations ClientOperationsVehicleCategory[]
 
   @@index([status, displayOrder, name])
@@ -420,6 +521,7 @@ model VehicleType {
   status      MasterRecordStatus @default(ACTIVE)
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
+  fleets      Fleet[]
 
   @@index([categoryId, status, name])
 }
@@ -760,51 +862,53 @@ model FeatureUsage {
 }
 
 model Hub {
-  id                      String    @id @default(uuid())
+  id                      String          @id @default(uuid())
   clientId                String
-  client                  Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  code                    String    @db.VarChar(50)
-  name                    String    @db.VarChar(150)
-  type                    HubType   @default(OPERATIONS)
-  status                  HubStatus @default(ACTIVE)
-  addressLine1            String?   @db.VarChar(255)
-  addressLine2            String?   @db.VarChar(255)
-  landmark                String?   @db.VarChar(150)
-  city                    String    @default("") @db.VarChar(100)
-  district                String?   @db.VarChar(100)
-  state                   String    @default("") @db.VarChar(100)
-  country                 String    @default("India") @db.VarChar(100)
-  postalCode              String?   @db.VarChar(10)
-  latitude                Decimal?  @db.Decimal(10, 7)
-  longitude               Decimal?  @db.Decimal(10, 7)
+  client                  Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  code                    String          @db.VarChar(50)
+  name                    String          @db.VarChar(150)
+  type                    HubType         @default(OPERATIONS)
+  status                  HubStatus       @default(ACTIVE)
+  addressLine1            String?         @db.VarChar(255)
+  addressLine2            String?         @db.VarChar(255)
+  landmark                String?         @db.VarChar(150)
+  city                    String          @default("") @db.VarChar(100)
+  district                String?         @db.VarChar(100)
+  state                   String          @default("") @db.VarChar(100)
+  country                 String          @default("India") @db.VarChar(100)
+  postalCode              String?         @db.VarChar(10)
+  latitude                Decimal?        @db.Decimal(10, 7)
+  longitude               Decimal?        @db.Decimal(10, 7)
   parentHubId             String?
-  parentHub               Hub?      @relation("HubHierarchy", fields: [parentHubId], references: [id], onDelete: SetNull)
-  childHubs               Hub[]     @relation("HubHierarchy")
+  parentHub               Hub?            @relation("HubHierarchy", fields: [parentHubId], references: [id], onDelete: SetNull)
+  childHubs               Hub[]           @relation("HubHierarchy")
   vehicleCapacity         Int?
   riderCapacity           Int?
   batteryCapacity         Int?
   parkingSlots            Int?
   chargingPoints          Int?
   swappingPoints          Int?
-  contactName             String?   @db.VarChar(150)
-  contactPhone            String?   @db.VarChar(20)
-  contactEmail            String?   @db.VarChar(150)
-  openingTime             String?   @db.VarChar(5)
-  closingTime             String?   @db.VarChar(5)
-  is24x7                  Boolean   @default(false)
-  supportsCharging        Boolean   @default(false)
-  supportsBatterySwapping Boolean   @default(false)
-  supportsMaintenance     Boolean   @default(false)
-  supportsAllocation      Boolean   @default(true)
-  supportsDeallocation    Boolean   @default(true)
-  supportsPdi             Boolean   @default(false)
+  contactName             String?         @db.VarChar(150)
+  contactPhone            String?         @db.VarChar(20)
+  contactEmail            String?         @db.VarChar(150)
+  openingTime             String?         @db.VarChar(5)
+  closingTime             String?         @db.VarChar(5)
+  is24x7                  Boolean         @default(false)
+  supportsCharging        Boolean         @default(false)
+  supportsBatterySwapping Boolean         @default(false)
+  supportsMaintenance     Boolean         @default(false)
+  supportsAllocation      Boolean         @default(true)
+  supportsDeallocation    Boolean         @default(true)
+  supportsPdi             Boolean         @default(false)
   metadata                Json?
   deletedAt               DateTime?
   userHubs                UserHub[]
-  homeFleets              Fleet[]   @relation("FleetHomeHub")
-  currentFleets           Fleet[]   @relation("FleetCurrentHub")
-  createdAt               DateTime  @default(now())
-  updatedAt               DateTime  @updatedAt
+  homeFleets              Fleet[]         @relation("FleetHomeHub")
+  currentFleets           Fleet[]         @relation("FleetCurrentHub")
+  outboundFleetTransfers  FleetTransfer[] @relation("FleetTransferFromHub")
+  inboundFleetTransfers   FleetTransfer[] @relation("FleetTransferToHub")
+  createdAt               DateTime        @default(now())
+  updatedAt               DateTime        @updatedAt
 
   @@unique([clientId, code])
   @@index([clientId, status])
@@ -813,70 +917,167 @@ model Hub {
 }
 
 model Fleet {
-  id                 String       @id @default(uuid())
+  id                 String                   @id @default(uuid())
   clientId           String
-  client             Client       @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  client             Client                   @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  fleetCode          String                   @db.VarChar(50)
+  vehicleNumber      String?                  @db.VarChar(30)
+  chassisNumber      String                   @db.VarChar(100)
+  vinNumber          String?                  @db.VarChar(100)
+  oemId              String
+  oem                Oem                      @relation(fields: [oemId], references: [id], onDelete: Restrict)
+  vehicleCategoryId  String
+  vehicleCategory    VehicleCategory          @relation(fields: [vehicleCategoryId], references: [id], onDelete: Restrict)
+  vehicleTypeId      String
+  vehicleType        VehicleType              @relation(fields: [vehicleTypeId], references: [id], onDelete: Restrict)
+  speedType          VehicleSpeedType
+  modelName          String?                  @db.VarChar(100)
+  variantName        String?                  @db.VarChar(100)
+  colour             String?                  @db.VarChar(50)
+  manufacturingYear  Int?
+  manufacturingMonth Int?
+  motorNumber        String?                  @db.VarChar(100)
+  ownershipType      FleetOwnershipType       @default(CLIENT_OWNED)
+  status             FleetStatus              @default(IN_TRANSIT)
+  allocationEnabled  Boolean                  @default(true)
   homeHubId          String?
-  homeHub            Hub?         @relation("FleetHomeHub", fields: [homeHubId], references: [id], onDelete: SetNull)
+  homeHub            Hub?                     @relation("FleetHomeHub", fields: [homeHubId], references: [id], onDelete: SetNull)
   currentHubId       String?
-  currentHub         Hub?         @relation("FleetCurrentHub", fields: [currentHubId], references: [id], onDelete: SetNull)
-  vehicleNumber      String
-  chassisNumber      String
-  oem                String?
-  model              String?
-  colour             String?
-  vehicleType        String?
-  motorNumber        String?
-  registrationDate   DateTime?
-  insuranceStartDate DateTime?
-  insuranceEndDate   DateTime?
-  fitnessRenewalDate DateTime?
-  status             FleetStatus  @default(AVAILABLE)
-  operationalDetails Json?
-  batteries          Battery[]
-  controllers        Controller[]
+  currentHub         Hub?                     @relation("FleetCurrentHub", fields: [currentHubId], references: [id], onDelete: SetNull)
+  odometerKm         Decimal?                 @db.Decimal(12, 2)
+  iotDeviceId        String?                  @unique
+  iotDevice          IoTDevice?               @relation("FleetCurrentIoTDevice", fields: [iotDeviceId], references: [id], onDelete: SetNull)
+  onboardingStatus   FleetOnboardingStatus    @default(DRAFT)
+  onboardedAt        DateTime?
+  activatedAt        DateTime?
+  deactivatedAt      DateTime?
+  metadata           Json?
+  registration       FleetRegistration?
+  insurance          FleetInsurance?
+  fitness            FleetFitness?
+  documents          FleetDocument[]
   allocations        Allocation[]
-  device             IoTDevice?
+  batteryHistory     FleetBatteryHistory[]
+  controllerHistory  FleetControllerHistory[]
+  statusHistory      FleetStatusHistory[]
+  transfers          FleetTransfer[]
+  currentState       VehicleCurrentState?
   deletedAt          DateTime?
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
 
+  @@unique([clientId, fleetCode])
   @@unique([clientId, vehicleNumber])
   @@unique([clientId, chassisNumber])
+  @@unique([clientId, vinNumber])
   @@index([clientId, status])
-  @@index([clientId, homeHubId])
+  @@index([clientId, oemId])
+  @@index([clientId, vehicleCategoryId])
+  @@index([clientId, vehicleTypeId])
+  @@index([clientId, speedType])
   @@index([clientId, currentHubId])
-  @@index([clientId, insuranceEndDate])
+  @@index([clientId, homeHubId])
+  @@index([clientId, onboardingStatus])
+  @@index([clientId, allocationEnabled])
+}
+
+model FleetRegistration {
+  id                   String    @id @default(uuid())
+  fleetId              String    @unique
+  fleet                Fleet     @relation(fields: [fleetId], references: [id], onDelete: Cascade)
+  registrationDate     DateTime? @db.Date
+  registeringAuthority String?   @db.VarChar(150)
+  rcExpiryDate         DateTime? @db.Date
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+}
+
+model FleetInsurance {
+  id            String         @id @default(uuid())
+  fleetId       String         @unique
+  fleet         Fleet          @relation(fields: [fleetId], references: [id], onDelete: Cascade)
+  providerName  String?        @db.VarChar(150)
+  policyNumber  String?        @db.VarChar(100)
+  insuranceType InsuranceType?
+  startDate     DateTime?      @db.Date
+  endDate       DateTime?      @db.Date
+  idv           Decimal?       @db.Decimal(12, 2)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model FleetFitness {
+  id                String    @id @default(uuid())
+  fleetId           String    @unique
+  fleet             Fleet     @relation(fields: [fleetId], references: [id], onDelete: Cascade)
+  certificateNumber String?   @db.VarChar(100)
+  issueDate         DateTime? @db.Date
+  expiryDate        DateTime? @db.Date
+  renewalDate       DateTime? @db.Date
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
+model FleetDocument {
+  id             String            @id @default(uuid())
+  fleetId        String
+  fleet          Fleet             @relation(fields: [fleetId], references: [id], onDelete: Cascade)
+  type           FleetDocumentType
+  documentNumber String?           @db.VarChar(100)
+  objectKey      String            @db.VarChar(500)
+  issuedAt       DateTime?         @db.Date
+  expiresAt      DateTime?         @db.Date
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([fleetId, type])
+  @@index([expiresAt])
 }
 
 model IoTDevice {
-  id               String   @id @default(uuid())
+  id               String               @id @default(uuid())
   clientId         String
-  fleetId          String   @unique
-  fleet            Fleet    @relation(fields: [fleetId], references: [id], onDelete: Restrict)
-  deviceNumber     String
+  client           Client               @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  deviceNumber     String               @db.VarChar(100)
+  imei             String?              @db.VarChar(30)
+  simNumber        String?              @db.VarChar(30)
+  iccid            String?              @db.VarChar(30)
+  provider         String?              @db.VarChar(100)
+  model            String?              @db.VarChar(100)
   ingestSecretHash String
-  isActive         Boolean  @default(true)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  status           IoTDeviceStatus      @default(UNASSIGNED)
+  installedAt      DateTime?
+  activatedAt      DateTime?
+  lastHeartbeatAt  DateTime?
+  lastLocationAt   DateTime?
+  metadata         Json?
+  currentFleet     Fleet?               @relation("FleetCurrentIoTDevice")
+  currentState     VehicleCurrentState?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
 
   @@unique([clientId, deviceNumber])
+  @@index([clientId, status])
 }
 
 model VehicleCurrentState {
-  id            String    @id @default(uuid())
-  clientId      String
-  fleetId       String    @unique
-  deviceId      String    @unique
-  latitude      Decimal?  @db.Decimal(9, 6)
-  longitude     Decimal?  @db.Decimal(9, 6)
-  speedKph      Decimal?  @db.Decimal(6, 2)
-  ignition      Boolean?
-  lastHeartbeat DateTime?
-  lastLocation  DateTime?
-  updatedAt     DateTime  @updatedAt
+  id              String    @id @default(uuid())
+  clientId        String
+  fleetId         String    @unique
+  fleet           Fleet     @relation(fields: [fleetId], references: [id], onDelete: Cascade)
+  iotDeviceId     String    @unique
+  iotDevice       IoTDevice @relation(fields: [iotDeviceId], references: [id], onDelete: Cascade)
+  latitude        Decimal?  @db.Decimal(10, 7)
+  longitude       Decimal?  @db.Decimal(10, 7)
+  speedKph        Decimal?  @db.Decimal(8, 2)
+  ignition        Boolean?
+  batterySoc      Int?
+  lastHeartbeatAt DateTime?
+  lastLocationAt  DateTime?
+  isOnline        Boolean   @default(false)
+  updatedAt       DateTime  @updatedAt
 
-  @@index([clientId, lastHeartbeat])
+  @@index([clientId, lastHeartbeatAt])
 }
 
 model TelemetryEvent {
@@ -893,33 +1094,124 @@ model TelemetryEvent {
 }
 
 model Battery {
-  id           String   @id @default(uuid())
-  clientId     String
-  fleetId      String
-  fleet        Fleet    @relation(fields: [fleetId], references: [id], onDelete: Restrict)
-  serialNumber String
-  batteryType  String?
-  capacityWh   Int?
-  manufacturer String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                String                @id @default(uuid())
+  clientId          String
+  client            Client                @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  batteryCode       String?               @db.VarChar(50)
+  serialNumber      String                @db.VarChar(100)
+  manufacturer      String?               @db.VarChar(100)
+  model             String?               @db.VarChar(100)
+  chemistry         BatteryChemistry?
+  capacityKwh       Decimal?              @db.Decimal(8, 3)
+  voltage           Decimal?              @db.Decimal(8, 2)
+  ampHour           Decimal?              @db.Decimal(8, 2)
+  batteryType       BatteryType
+  status            BatteryStatus         @default(AVAILABLE)
+  manufacturingDate DateTime?             @db.Date
+  warrantyStartDate DateTime?             @db.Date
+  warrantyEndDate   DateTime?             @db.Date
+  currentSoc        Int?
+  currentSoh        Int?
+  metadata          Json?
+  fleetHistory      FleetBatteryHistory[]
+  deletedAt         DateTime?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
 
   @@unique([clientId, serialNumber])
-  @@index([clientId, fleetId])
+  @@unique([clientId, batteryCode])
+  @@index([clientId, status])
+}
+
+model FleetBatteryHistory {
+  id                  String      @id @default(uuid())
+  fleetId             String
+  fleet               Fleet       @relation(fields: [fleetId], references: [id], onDelete: Cascade)
+  batteryId           String
+  battery             Battery     @relation(fields: [batteryId], references: [id], onDelete: Restrict)
+  batterySlot         BatterySlot @default(PRIMARY)
+  installedAt         DateTime
+  removedAt           DateTime?
+  installedOdometerKm Decimal?    @db.Decimal(12, 2)
+  removedOdometerKm   Decimal?    @db.Decimal(12, 2)
+  reason              String?     @db.VarChar(255)
+  createdAt           DateTime    @default(now())
+
+  @@index([fleetId, installedAt])
+  @@index([batteryId, installedAt])
+  @@index([fleetId, batterySlot, removedAt])
 }
 
 model Controller {
-  id           String   @id @default(uuid())
-  clientId     String
-  fleetId      String
-  fleet        Fleet    @relation(fields: [fleetId], references: [id], onDelete: Restrict)
-  serialNumber String
-  manufacturer String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id               String                   @id @default(uuid())
+  clientId         String
+  client           Client                   @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  controllerNumber String                   @db.VarChar(100)
+  manufacturer     String?                  @db.VarChar(100)
+  model            String?                  @db.VarChar(100)
+  ratedVoltage     Decimal?                 @db.Decimal(8, 2)
+  ratedCurrent     Decimal?                 @db.Decimal(8, 2)
+  status           ControllerStatus         @default(AVAILABLE)
+  metadata         Json?
+  fleetHistory     FleetControllerHistory[]
+  deletedAt        DateTime?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
 
-  @@unique([clientId, serialNumber])
+  @@unique([clientId, controllerNumber])
+  @@index([clientId, status])
+}
+
+model FleetControllerHistory {
+  id           String     @id @default(uuid())
+  fleetId      String
+  fleet        Fleet      @relation(fields: [fleetId], references: [id], onDelete: Cascade)
+  controllerId String
+  controller   Controller @relation(fields: [controllerId], references: [id], onDelete: Restrict)
+  installedAt  DateTime
+  removedAt    DateTime?
+  reason       String?    @db.VarChar(255)
+  createdAt    DateTime   @default(now())
+
+  @@index([fleetId, installedAt])
+  @@index([controllerId, installedAt])
+}
+
+model FleetStatusHistory {
+  id              String       @id @default(uuid())
+  fleetId         String
+  fleet           Fleet        @relation(fields: [fleetId], references: [id], onDelete: Cascade)
+  fromStatus      FleetStatus?
+  toStatus        FleetStatus
+  changedByUserId String?
+  reason          String?      @db.VarChar(255)
+  createdAt       DateTime     @default(now())
+
+  @@index([fleetId, createdAt])
+}
+
+model FleetTransfer {
+  id            String              @id @default(uuid())
+  clientId      String
+  client        Client              @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  fleetId       String
+  fleet         Fleet               @relation(fields: [fleetId], references: [id], onDelete: Restrict)
+  fromHubId     String?
+  fromHub       Hub?                @relation("FleetTransferFromHub", fields: [fromHubId], references: [id], onDelete: SetNull)
+  toHubId       String
+  toHub         Hub                 @relation("FleetTransferToHub", fields: [toHubId], references: [id], onDelete: Restrict)
+  status        FleetTransferStatus @default(INITIATED)
+  initiatedById String?
+  initiatedAt   DateTime            @default(now())
+  receivedById  String?
+  receivedAt    DateTime?
+  notes         String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
   @@index([clientId, fleetId])
+  @@index([clientId, fromHubId])
+  @@index([clientId, toHubId])
 }
 
 model User {

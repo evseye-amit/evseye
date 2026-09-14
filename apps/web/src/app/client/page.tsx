@@ -23,6 +23,32 @@ type ClientDashboard = {
   riderByStatus: Record<string, number>;
 };
 
+type FleetOnboardingOptions = {
+  oems: { id: string; code: string; displayName: string }[];
+  vehicleCategories: { id: string; code: string; name: string }[];
+  vehicleTypes: {
+    id: string;
+    categoryId: string;
+    code: string;
+    name: string;
+    energyType: string;
+    usageType?: string | null;
+  }[];
+};
+
+type FleetEvidenceStatus = {
+  ready: boolean;
+  items: Array<{
+    entityType: string;
+    entityId: string;
+    label: string | null;
+    requiredPhotoTypes: string[];
+    completedPhotoTypes: string[];
+    missingPhotoTypes: string[];
+    ready: boolean;
+  }>;
+};
+
 export default function ClientHome() {
   const [data, setData] = useState<Bootstrap | null>(null);
   const [dashboard, setDashboard] = useState<ClientDashboard | null>(null);
@@ -508,29 +534,78 @@ function ReviewSubmit({ onSaved }: { onSaved: () => void }) {
 
 function FleetSetup({ onSaved }: { onSaved: () => void }) {
   const [hubs, setHubs] = useState<HubOption[]>([]);
+  const [options, setOptions] = useState<FleetOnboardingOptions>({
+    oems: [],
+    vehicleCategories: [],
+    vehicleTypes: [],
+  });
   const [form, setForm] = useState({
+    fleetCode: "",
     vehicleNumber: "",
     chassisNumber: "",
+    vinNumber: "",
+    oemId: "",
+    vehicleCategoryId: "",
+    vehicleTypeId: "",
+    speedType: "",
     homeHubId: "",
-    oem: "",
-    model: "",
-    vehicleType: "",
+    modelName: "",
+    variantName: "",
     colour: "",
+    motorNumber: "",
+    manufacturingYear: "",
+    manufacturingMonth: "",
+    ownershipType: "",
+    odometerKm: "",
+    registrationDate: "",
+    registeringAuthority: "",
+    rcExpiryDate: "",
+    insuranceProviderName: "",
+    insurancePolicyNumber: "",
+    insuranceType: "",
+    insuranceStartDate: "",
+    insuranceEndDate: "",
+    fitnessCertificateNumber: "",
+    fitnessExpiryDate: "",
   });
   const [rows, setRows] = useState<Record<string, string>[]>([]);
   const [filename, setFilename] = useState("");
+  const [importResult, setImportResult] = useState<{
+    status: string;
+    passedRows: number;
+    failedRows: number;
+  } | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [createdFleet, setCreatedFleet] = useState<{
+    id: string;
+    vehicleNumber?: string | null;
+    chassisNumber: string;
+  } | null>(null);
+  const [componentsReady, setComponentsReady] = useState(false);
   const token = () => sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? "";
   useEffect(() => {
-    fetch(`${API_URL}/hubs`, {
-      headers: { Authorization: `Bearer ${token()}` },
-    })
-      .then(async (response) => {
-        const body = await response.json();
-        if (!response.ok)
-          throw new Error(body.message ?? "Unable to load Hubs.");
-        setHubs(body.data);
+    Promise.all([
+      fetch(`${API_URL}/hubs`, {
+        headers: { Authorization: `Bearer ${token()}` },
+      }),
+      fetch(`${API_URL}/fleets/onboarding-options`, {
+        headers: { Authorization: `Bearer ${token()}` },
+      }),
+    ])
+      .then(async ([hubsResponse, optionsResponse]) => {
+        const [hubsBody, optionsBody] = await Promise.all([
+          hubsResponse.json(),
+          optionsResponse.json(),
+        ]);
+        if (!hubsResponse.ok)
+          throw new Error(hubsBody.message ?? "Unable to load Hubs.");
+        if (!optionsResponse.ok)
+          throw new Error(
+            optionsBody.message ?? "Unable to load Fleet master data.",
+          );
+        setHubs(hubsBody.data);
+        setOptions(optionsBody.data);
       })
       .catch((cause: unknown) =>
         setMessage(
@@ -559,19 +634,40 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
     setBusy(true);
     setMessage("");
     try {
-      await request("/fleets", {
+      const fleet = await request("/fleets", {
         ...form,
-        vehicleNumber: form.vehicleNumber.trim().toUpperCase(),
+        fleetCode: form.fleetCode.trim() || undefined,
+        vehicleNumber: form.vehicleNumber.trim().toUpperCase() || undefined,
         chassisNumber: form.chassisNumber.trim().toUpperCase(),
+        vinNumber: form.vinNumber.trim().toUpperCase() || undefined,
         homeHubId: form.homeHubId || undefined,
         currentHubId: form.homeHubId || undefined,
-        oem: form.oem || undefined,
-        model: form.model || undefined,
-        vehicleType: form.vehicleType || undefined,
+        modelName: form.modelName || undefined,
+        variantName: form.variantName || undefined,
         colour: form.colour || undefined,
+        motorNumber: form.motorNumber || undefined,
+        manufacturingYear: form.manufacturingYear
+          ? Number(form.manufacturingYear)
+          : undefined,
+        manufacturingMonth: form.manufacturingMonth
+          ? Number(form.manufacturingMonth)
+          : undefined,
+        odometerKm: form.odometerKm ? Number(form.odometerKm) : undefined,
+        registrationDate: form.registrationDate || undefined,
+        registeringAuthority: form.registeringAuthority || undefined,
+        rcExpiryDate: form.rcExpiryDate || undefined,
+        insuranceProviderName: form.insuranceProviderName || undefined,
+        insurancePolicyNumber: form.insurancePolicyNumber || undefined,
+        insuranceType: form.insuranceType || undefined,
+        insuranceStartDate: form.insuranceStartDate || undefined,
+        insuranceEndDate: form.insuranceEndDate || undefined,
+        fitnessCertificateNumber: form.fitnessCertificateNumber || undefined,
+        fitnessExpiryDate: form.fitnessExpiryDate || undefined,
       });
-      setMessage("Fleet created. Rider creation is available next.");
-      onSaved();
+      setCreatedFleet(fleet);
+      setMessage(
+        "Fleet created. Complete its required evidence before activation.",
+      );
     } catch (cause) {
       setMessage(
         cause instanceof Error ? cause.message : "Unable to create Fleet.",
@@ -607,30 +703,14 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
     setBusy(true);
     setMessage("");
     try {
-      const byCode = new Map(
-        hubs.map((hub) => [hub.code.toUpperCase(), hub.id]),
-      );
       const result = await request("/fleets/bulk", {
         filename,
-        rows: rows.map((row) => {
-          const hubId = byCode.get(
-            (row.homeHubCode ?? "").trim().toUpperCase(),
-          );
-          return {
-            vehicleNumber: row.vehicleNumber,
-            chassisNumber: row.chassisNumber,
-            homeHubId: hubId,
-            currentHubId: hubId,
-            oem: row.oem || undefined,
-            model: row.model || undefined,
-            vehicleType: row.vehicleType || undefined,
-            colour: row.colour || undefined,
-          };
-        }),
+        rows,
       });
       setMessage(
         `Import ${result.status.replaceAll("_", " ")}: ${result.passedRows} passed, ${result.failedRows} failed.`,
       );
+      setImportResult(result);
       if (result.failedRows && result.jobId) {
         const response = await fetch(
           `${API_URL}/fleets/imports/${result.jobId}/failed-records`,
@@ -645,7 +725,6 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
         anchor.click();
         URL.revokeObjectURL(anchor.href);
       }
-      onSaved();
     } catch (cause) {
       setMessage(
         cause instanceof Error ? cause.message : "Unable to import Fleets.",
@@ -656,29 +735,50 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
   };
   const downloadTemplate = () => {
     const csv =
-      "vehicleNumber,chassisNumber,homeHubCode,oem,model,vehicleType,colour\nDL01EV0001,ME4JF123456789001,HUB-DEL-01,Zelio,Gracy,2W,White\n";
+      "fleetCode,vehicleNumber,chassisNumber,vinNumber,oemCode,vehicleCategoryCode,vehicleTypeCode,speedType,homeHubCode,modelName,variantName,colour,motorNumber,manufacturingYear,manufacturingMonth,ownershipType,odometerKm,registrationDate,registeringAuthority,rcExpiryDate,insuranceProviderName,insurancePolicyNumber,insuranceType,insuranceStartDate,insuranceEndDate,fitnessCertificateNumber,fitnessExpiryDate\nFLT-0001,DL01EV0001,ME4JF123456789001,,ZELIO,2W,E_SCOOTER_ELECTRIC,HIGH_SPEED,HUB-DEL-01,Gracy,,White,,2025,6,CLIENT_OWNED,0,,,,,,,,,,\n";
     const anchor = document.createElement("a");
     anchor.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     anchor.download = "evs-eye-fleets-template.csv";
     anchor.click();
     URL.revokeObjectURL(anchor.href);
   };
+  if (createdFleet) {
+    if (!componentsReady) {
+      return (
+        <FleetComponentsSetup
+          fleet={createdFleet}
+          onContinue={() => setComponentsReady(true)}
+        />
+      );
+    }
+    return <FleetEvidenceSetup fleet={createdFleet} onActivated={onSaved} />;
+  }
   return (
     <section className="client-onboarding-action">
       <div>
         <p className="eyebrow">STEP 4 · FLEETS</p>
         <h2>Onboard your fleet</h2>
         <p>
-          Choose the home Hub for every vehicle. The current Hub is initialized
-          from that operational base.
+          Create a complete vehicle record using Evs Eye master data. The
+          current Hub is initialized from the selected home Hub.
         </p>
       </div>
       <div className="client-onboarding-options">
         <form onSubmit={create} className="client-hub-form">
+          <h3 className="client-form-section-title">Vehicle identity</h3>
+          <label>
+            Fleet code
+            <input
+              value={form.fleetCode}
+              onChange={(event) =>
+                setForm({ ...form, fleetCode: event.target.value })
+              }
+              placeholder="FLT-0001"
+            />
+          </label>
           <label>
             Vehicle number
             <input
-              required
               value={form.vehicleNumber}
               onChange={(event) =>
                 setForm({ ...form, vehicleNumber: event.target.value })
@@ -687,7 +787,7 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
             />
           </label>
           <label>
-            Chassis / VIN
+            Chassis number *
             <input
               required
               value={form.chassisNumber}
@@ -698,6 +798,88 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
             />
           </label>
           <label>
+            VIN number
+            <input
+              value={form.vinNumber}
+              onChange={(event) =>
+                setForm({ ...form, vinNumber: event.target.value })
+              }
+              placeholder="Vehicle identification number"
+            />
+          </label>
+          <label>
+            OEM *
+            <select
+              required
+              value={form.oemId}
+              onChange={(event) =>
+                setForm({ ...form, oemId: event.target.value })
+              }
+            >
+              <option value="">Select OEM</option>
+              {options.oems.map((oem) => (
+                <option key={oem.id} value={oem.id}>
+                  {oem.displayName} ({oem.code})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Vehicle category *
+            <select
+              required
+              value={form.vehicleCategoryId}
+              onChange={(event) =>
+                setForm({
+                  ...form,
+                  vehicleCategoryId: event.target.value,
+                  vehicleTypeId: "",
+                })
+              }
+            >
+              <option value="">Select vehicle category</option>
+              {options.vehicleCategories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name} ({category.code})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Vehicle type *
+            <select
+              required
+              value={form.vehicleTypeId}
+              disabled={!form.vehicleCategoryId}
+              onChange={(event) =>
+                setForm({ ...form, vehicleTypeId: event.target.value })
+              }
+            >
+              <option value="">Select vehicle type</option>
+              {options.vehicleTypes
+                .filter((type) => type.categoryId === form.vehicleCategoryId)
+                .map((type) => (
+                  <option key={type.id} value={type.id}>
+                    {type.name} ({type.energyType})
+                  </option>
+                ))}
+            </select>
+          </label>
+          <label>
+            Speed type *
+            <select
+              required
+              value={form.speedType}
+              onChange={(event) =>
+                setForm({ ...form, speedType: event.target.value })
+              }
+            >
+              <option value="">Select speed type</option>
+              <option value="HIGH_SPEED">High speed</option>
+              <option value="SLOW_SPEED">Slow speed</option>
+            </select>
+          </label>
+          <label>
             Home Hub
             <select
               value={form.homeHubId}
@@ -705,7 +887,7 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
                 setForm({ ...form, homeHubId: event.target.value })
               }
             >
-              <option value="">No Hub assigned</option>
+              <option value="">Select home Hub</option>
               {hubs.map((hub) => (
                 <option key={hub.id} value={hub.id}>
                   {hub.code} · {hub.name}
@@ -713,37 +895,28 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
               ))}
             </select>
           </label>
+          <h3 className="client-form-section-title">Vehicle details</h3>
           <label>
-            OEM
+            Model name
             <input
-              value={form.oem}
+              value={form.modelName}
               onChange={(event) =>
-                setForm({ ...form, oem: event.target.value })
-              }
-              placeholder="Zelio"
-            />
-          </label>
-          <label>
-            Model
-            <input
-              value={form.model}
-              onChange={(event) =>
-                setForm({ ...form, model: event.target.value })
+                setForm({ ...form, modelName: event.target.value })
               }
               placeholder="Gracy"
             />
           </label>
           <label>
-            Vehicle type
+            Variant name
             <input
-              value={form.vehicleType}
+              value={form.variantName}
               onChange={(event) =>
-                setForm({ ...form, vehicleType: event.target.value })
+                setForm({ ...form, variantName: event.target.value })
               }
-              placeholder="2W"
+              placeholder="Standard"
             />
           </label>
-          <label className="client-form-wide">
+          <label>
             Colour
             <input
               value={form.colour}
@@ -753,6 +926,182 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
               placeholder="White"
             />
           </label>
+          <label>
+            Motor number
+            <input
+              value={form.motorNumber}
+              onChange={(event) =>
+                setForm({ ...form, motorNumber: event.target.value })
+              }
+              placeholder="Motor serial number"
+            />
+          </label>
+          <label>
+            Manufacturing year
+            <input
+              type="number"
+              min="1900"
+              max="2100"
+              value={form.manufacturingYear}
+              onChange={(event) =>
+                setForm({ ...form, manufacturingYear: event.target.value })
+              }
+              placeholder="2025"
+            />
+          </label>
+          <label>
+            Manufacturing month
+            <input
+              type="number"
+              min="1"
+              max="12"
+              value={form.manufacturingMonth}
+              onChange={(event) =>
+                setForm({ ...form, manufacturingMonth: event.target.value })
+              }
+              placeholder="6"
+            />
+          </label>
+          <label>
+            Ownership type *
+            <select
+              required
+              value={form.ownershipType}
+              onChange={(event) =>
+                setForm({ ...form, ownershipType: event.target.value })
+              }
+            >
+              <option value="">Select ownership type</option>
+              <option value="CLIENT_OWNED">Client owned</option>
+              <option value="LEASED">Leased</option>
+              <option value="ATTACHED">Attached</option>
+              <option value="OEM_OWNED">OEM owned</option>
+              <option value="THIRD_PARTY">Third party</option>
+            </select>
+          </label>
+          <label>
+            Odometer (km)
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.odometerKm}
+              onChange={(event) =>
+                setForm({ ...form, odometerKm: event.target.value })
+              }
+              placeholder="0"
+            />
+          </label>
+          <h3 className="client-form-section-title">
+            Registration & compliance
+          </h3>
+          <label>
+            Registration date
+            <input
+              type="date"
+              value={form.registrationDate}
+              onChange={(event) =>
+                setForm({ ...form, registrationDate: event.target.value })
+              }
+            />
+          </label>
+          <label>
+            Registering authority
+            <input
+              value={form.registeringAuthority}
+              onChange={(event) =>
+                setForm({ ...form, registeringAuthority: event.target.value })
+              }
+              placeholder="RTO Delhi"
+            />
+          </label>
+          <label>
+            RC expiry date
+            <input
+              type="date"
+              value={form.rcExpiryDate}
+              onChange={(event) =>
+                setForm({ ...form, rcExpiryDate: event.target.value })
+              }
+            />
+          </label>
+          <label>
+            Insurance provider
+            <input
+              value={form.insuranceProviderName}
+              onChange={(event) =>
+                setForm({ ...form, insuranceProviderName: event.target.value })
+              }
+              placeholder="Insurance provider"
+            />
+          </label>
+          <label>
+            Insurance policy number
+            <input
+              value={form.insurancePolicyNumber}
+              onChange={(event) =>
+                setForm({ ...form, insurancePolicyNumber: event.target.value })
+              }
+              placeholder="Policy number"
+            />
+          </label>
+          <label>
+            Insurance type
+            <select
+              value={form.insuranceType}
+              onChange={(event) =>
+                setForm({ ...form, insuranceType: event.target.value })
+              }
+            >
+              <option value="">Select insurance type</option>
+              <option value="THIRD_PARTY">Third party</option>
+              <option value="COMPREHENSIVE">Comprehensive</option>
+              <option value="OWN_DAMAGE">Own damage</option>
+            </select>
+          </label>
+          <label>
+            Insurance start date
+            <input
+              type="date"
+              value={form.insuranceStartDate}
+              onChange={(event) =>
+                setForm({ ...form, insuranceStartDate: event.target.value })
+              }
+            />
+          </label>
+          <label>
+            Insurance end date
+            <input
+              type="date"
+              value={form.insuranceEndDate}
+              onChange={(event) =>
+                setForm({ ...form, insuranceEndDate: event.target.value })
+              }
+            />
+          </label>
+          <label>
+            Fitness certificate number
+            <input
+              value={form.fitnessCertificateNumber}
+              onChange={(event) =>
+                setForm({
+                  ...form,
+                  fitnessCertificateNumber: event.target.value,
+                })
+              }
+              placeholder="Fitness certificate number"
+            />
+          </label>
+          <label>
+            Fitness expiry date
+            <input
+              type="date"
+              value={form.fitnessExpiryDate}
+              onChange={(event) =>
+                setForm({ ...form, fitnessExpiryDate: event.target.value })
+              }
+            />
+          </label>
           <button disabled={busy} type="submit">
             {busy ? "Saving…" : "Create Fleet"}
           </button>
@@ -760,7 +1109,9 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
         <div className="client-bulk-card">
           <h3>Bulk upload</h3>
           <p>
-            Use Hub codes in the <code>homeHubCode</code> column.
+            Use master codes for <code>oemCode</code>,{" "}
+            <code>vehicleCategoryCode</code>, and <code>vehicleTypeCode</code>.
+            The matching home Hub is selected with <code>homeHubCode</code>.
           </p>
           <button
             type="button"
@@ -792,7 +1143,502 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
           >
             {busy ? "Importing…" : "Import Fleets"}
           </button>
+          {importResult ? (
+            <div className="client-import-result">
+              <strong>{importResult.status.replaceAll("_", " ")}</strong>
+              <span>
+                {importResult.passedRows} passed · {importResult.failedRows}{" "}
+                failed
+              </span>
+              <button type="button" onClick={onSaved}>
+                Continue to Rider creation
+              </button>
+            </div>
+          ) : null}
         </div>
+      </div>
+      {message ? <p className="client-action-message">{message}</p> : null}
+    </section>
+  );
+}
+
+function FleetComponentsSetup({
+  fleet,
+  onContinue,
+}: {
+  fleet: { id: string; vehicleNumber?: string | null; chassisNumber: string };
+  onContinue: () => void;
+}) {
+  const [battery, setBattery] = useState({
+    serialNumber: "",
+    batteryCode: "",
+    batteryType: "",
+    batterySlot: "PRIMARY",
+    manufacturer: "",
+    model: "",
+    capacityKwh: "",
+  });
+  const [controller, setController] = useState({
+    controllerNumber: "",
+    manufacturer: "",
+    model: "",
+  });
+  const [installed, setInstalled] = useState<string[]>([]);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const token = () => sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? "";
+  const request = async (path: string, body: unknown) => {
+    const response = await fetch(`${API_URL}${path}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token()}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(
+        result.error?.message ?? result.message ?? "Unable to save component.",
+      );
+    }
+    return result.data;
+  };
+  const addBattery = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setBusy(true);
+    setMessage("");
+    try {
+      const asset = await request(`/fleets/${fleet.id}/batteries`, {
+        ...battery,
+        batteryCode: battery.batteryCode || undefined,
+        batteryType: battery.batteryType || undefined,
+        manufacturer: battery.manufacturer || undefined,
+        model: battery.model || undefined,
+        capacityKwh: battery.capacityKwh
+          ? Number(battery.capacityKwh)
+          : undefined,
+      });
+      setInstalled((items) => [
+        ...items,
+        `Battery ${asset.serialNumber} installed in ${battery.batterySlot.toLowerCase()} slot.`,
+      ]);
+      setBattery({
+        serialNumber: "",
+        batteryCode: "",
+        batteryType: "",
+        batterySlot: "PRIMARY",
+        manufacturer: "",
+        model: "",
+        capacityKwh: "",
+      });
+    } catch (cause) {
+      setMessage(
+        cause instanceof Error ? cause.message : "Unable to add battery.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  const addController = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setBusy(true);
+    setMessage("");
+    try {
+      const asset = await request(`/fleets/${fleet.id}/controllers`, {
+        ...controller,
+        manufacturer: controller.manufacturer || undefined,
+        model: controller.model || undefined,
+      });
+      setInstalled((items) => [
+        ...items,
+        `Controller ${asset.controllerNumber} installed.`,
+      ]);
+      setController({ controllerNumber: "", manufacturer: "", model: "" });
+    } catch (cause) {
+      setMessage(
+        cause instanceof Error ? cause.message : "Unable to add controller.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="client-onboarding-action">
+      <div>
+        <p className="eyebrow">STEP 4 · COMPONENTS</p>
+        <h2>Install Fleet components</h2>
+        <p>
+          Add the battery and controller currently fitted to{" "}
+          {fleet.vehicleNumber || fleet.chassisNumber}. Component evidence will
+          be required before Fleet activation.
+        </p>
+      </div>
+      <div className="client-onboarding-options">
+        <form onSubmit={addBattery} className="client-hub-form">
+          <h3 className="client-form-section-title">Battery</h3>
+          <label>
+            Battery serial number *
+            <input
+              required
+              value={battery.serialNumber}
+              onChange={(event) =>
+                setBattery({ ...battery, serialNumber: event.target.value })
+              }
+              placeholder="BAT-001"
+            />
+          </label>
+          <label>
+            Battery slot *
+            <select
+              value={battery.batterySlot}
+              onChange={(event) =>
+                setBattery({ ...battery, batterySlot: event.target.value })
+              }
+            >
+              <option value="PRIMARY">Primary</option>
+              <option value="SECONDARY">Secondary</option>
+              <option value="AUXILIARY">Auxiliary</option>
+            </select>
+          </label>
+          <label>
+            Battery code
+            <input
+              value={battery.batteryCode}
+              onChange={(event) =>
+                setBattery({ ...battery, batteryCode: event.target.value })
+              }
+              placeholder="BAT-0001"
+            />
+          </label>
+          <label>
+            Battery type
+            <select
+              value={battery.batteryType}
+              onChange={(event) =>
+                setBattery({ ...battery, batteryType: event.target.value })
+              }
+            >
+              <option value="">Select battery type</option>
+              <option value="FIXED_SINGLE">Fixed single</option>
+              <option value="FIXED_DOUBLE">Fixed double</option>
+              <option value="SWAP_IF">Swappable IF</option>
+              <option value="SWAP_BS">Swappable BS</option>
+              <option value="SWAP_MOVING">Swappable moving</option>
+              <option value="SWAP_OTHER">Other swappable</option>
+            </select>
+          </label>
+          <label>
+            Manufacturer
+            <input
+              value={battery.manufacturer}
+              onChange={(event) =>
+                setBattery({ ...battery, manufacturer: event.target.value })
+              }
+              placeholder="Battery manufacturer"
+            />
+          </label>
+          <label>
+            Model
+            <input
+              value={battery.model}
+              onChange={(event) =>
+                setBattery({ ...battery, model: event.target.value })
+              }
+              placeholder="Battery model"
+            />
+          </label>
+          <label className="client-form-wide">
+            Capacity (kWh)
+            <input
+              type="number"
+              min="0"
+              step="0.001"
+              value={battery.capacityKwh}
+              onChange={(event) =>
+                setBattery({ ...battery, capacityKwh: event.target.value })
+              }
+              placeholder="2.500"
+            />
+          </label>
+          <button disabled={busy} type="submit">
+            {busy ? "Saving…" : "Install battery"}
+          </button>
+        </form>
+        <form onSubmit={addController} className="client-hub-form">
+          <h3 className="client-form-section-title">Controller</h3>
+          <label className="client-form-wide">
+            Controller number *
+            <input
+              required
+              value={controller.controllerNumber}
+              onChange={(event) =>
+                setController({
+                  ...controller,
+                  controllerNumber: event.target.value,
+                })
+              }
+              placeholder="CTRL-001"
+            />
+          </label>
+          <label>
+            Manufacturer
+            <input
+              value={controller.manufacturer}
+              onChange={(event) =>
+                setController({
+                  ...controller,
+                  manufacturer: event.target.value,
+                })
+              }
+              placeholder="Controller manufacturer"
+            />
+          </label>
+          <label>
+            Model
+            <input
+              value={controller.model}
+              onChange={(event) =>
+                setController({ ...controller, model: event.target.value })
+              }
+              placeholder="Controller model"
+            />
+          </label>
+          <button disabled={busy} type="submit">
+            {busy ? "Saving…" : "Install controller"}
+          </button>
+        </form>
+      </div>
+      {installed.length ? (
+        <ul className="client-component-list">
+          {installed.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      ) : null}
+      <div className="fleet-evidence-actions">
+        <button
+          className="secondary-button"
+          disabled={busy}
+          type="button"
+          onClick={onContinue}
+        >
+          Skip components for now
+        </button>
+        <button disabled={busy} type="button" onClick={onContinue}>
+          Continue to Fleet evidence
+        </button>
+      </div>
+      {message ? <p className="client-action-message">{message}</p> : null}
+    </section>
+  );
+}
+
+function FleetEvidenceSetup({
+  fleet,
+  onActivated,
+}: {
+  fleet: { id: string; vehicleNumber?: string | null; chassisNumber: string };
+  onActivated: () => void;
+}) {
+  const [evidence, setEvidence] = useState<FleetEvidenceStatus | null>(null);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const token = () => sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? "";
+  const reload = async () => {
+    const response = await fetch(
+      `${API_URL}/fleets/${fleet.id}/onboarding-status`,
+      { headers: { Authorization: `Bearer ${token()}` } },
+    );
+    const body = await response.json();
+    if (!response.ok) {
+      throw new Error(
+        body.error?.message ?? body.message ?? "Unable to load Fleet evidence.",
+      );
+    }
+    setEvidence(body.data);
+  };
+  useEffect(() => {
+    reload().catch((cause: unknown) =>
+      setMessage(
+        cause instanceof Error
+          ? cause.message
+          : "Unable to load Fleet evidence.",
+      ),
+    );
+  }, []);
+  const upload = async (
+    entityType: string,
+    entityId: string,
+    photoType: string,
+    file: File,
+  ) => {
+    if (file.size > 5 * 1024 * 1024) {
+      setMessage("Each photo must be 5 MB or smaller.");
+      return;
+    }
+    setBusy(true);
+    setMessage("");
+    try {
+      const intentResponse = await fetch(`${API_URL}/media/upload-intents`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          entityType,
+          entityId,
+          photoType,
+          mimeType: file.type,
+          fileName: file.name,
+          sizeBytes: file.size,
+        }),
+      });
+      const intentBody = await intentResponse.json();
+      if (!intentResponse.ok) {
+        throw new Error(
+          intentBody.error?.message ??
+            intentBody.message ??
+            "Unable to prepare photo upload.",
+        );
+      }
+      const uploadResponse = await fetch(intentBody.data.uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!uploadResponse.ok) {
+        throw new Error("The photo could not be uploaded to secure storage.");
+      }
+      const completeResponse = await fetch(
+        `${API_URL}/media/${intentBody.data.photo.id}/complete`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token()}` },
+        },
+      );
+      const completeBody = await completeResponse.json();
+      if (!completeResponse.ok) {
+        throw new Error(
+          completeBody.error?.message ??
+            completeBody.message ??
+            "Unable to confirm photo upload.",
+        );
+      }
+      await reload();
+      setMessage(`${photoType.replaceAll("_", " ")} photo uploaded.`);
+    } catch (cause) {
+      setMessage(
+        cause instanceof Error ? cause.message : "Unable to upload photo.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  const activate = async () => {
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch(`${API_URL}/fleets/${fleet.id}/activate`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token()}` },
+      });
+      const body = await response.json();
+      if (!response.ok) {
+        throw new Error(
+          body.error?.message ??
+            body.message ??
+            "Unable to activate the Fleet.",
+        );
+      }
+      onActivated();
+    } catch (cause) {
+      setMessage(
+        cause instanceof Error
+          ? cause.message
+          : "Unable to activate the Fleet.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="client-onboarding-action">
+      <div>
+        <p className="eyebrow">STEP 4 · FLEET EVIDENCE</p>
+        <h2>Activate {fleet.vehicleNumber || fleet.chassisNumber}</h2>
+        <p>
+          Upload every required photo. Your Fleet becomes available only after
+          its operational evidence has been verified.
+        </p>
+      </div>
+      {!evidence ? (
+        <p className="client-action-message">Loading required photo slots…</p>
+      ) : (
+        <div className="fleet-evidence-list">
+          {evidence.items.map((item) => (
+            <section className="fleet-evidence-card" key={item.entityId}>
+              <div>
+                <strong>{item.label || item.entityType}</strong>
+                <span>
+                  {item.ready
+                    ? "Evidence complete"
+                    : `${item.missingPhotoTypes.length} photo slot(s) remaining`}
+                </span>
+              </div>
+              <div className="fleet-photo-slots">
+                {item.requiredPhotoTypes.map((photoType) => {
+                  const complete = item.completedPhotoTypes.includes(photoType);
+                  return (
+                    <label
+                      className={complete ? "complete" : ""}
+                      key={photoType}
+                    >
+                      <span>
+                        {complete ? "✓" : "○"} {photoType.replaceAll("_", " ")}
+                      </span>
+                      {!complete ? (
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          disabled={busy}
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            if (file)
+                              void upload(
+                                item.entityType,
+                                item.entityId,
+                                photoType,
+                                file,
+                              );
+                          }}
+                        />
+                      ) : null}
+                    </label>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+      <div className="fleet-evidence-actions">
+        <button
+          className="secondary-button"
+          disabled={busy}
+          type="button"
+          onClick={() => void reload()}
+        >
+          Refresh evidence
+        </button>
+        <button
+          disabled={busy || !evidence?.ready}
+          type="button"
+          onClick={() => void activate()}
+        >
+          {busy ? "Working…" : "Activate Fleet"}
+        </button>
       </div>
       {message ? <p className="client-action-message">{message}</p> : null}
     </section>

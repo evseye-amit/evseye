@@ -1921,6 +1921,118 @@ th {
   background: transparent;
   color: #176c4d;
 }
+.client-import-result {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid #b8d8c6;
+  border-radius: 8px;
+  background: #fff;
+  color: #365445;
+  font-size: 12px;
+}
+.client-import-result strong {
+  color: #176c4d;
+  font-size: 13px;
+}
+.client-import-result button {
+  margin-top: 4px;
+}
+.client-component-list {
+  display: grid;
+  gap: 7px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.client-component-list li {
+  padding: 10px 12px;
+  border: 1px solid #b8d8c6;
+  border-radius: 8px;
+  background: #eff9f2;
+  color: #176c4d;
+  font-size: 13px;
+}
+.fleet-evidence-list {
+  display: grid;
+  gap: 14px;
+  margin-top: 22px;
+}
+.fleet-evidence-card {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid #dce8e0;
+  border-radius: 12px;
+  background: #fff;
+}
+.fleet-evidence-card > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+.fleet-evidence-card strong {
+  color: #203128;
+  font-size: 15px;
+}
+.fleet-evidence-card > div:first-child span {
+  color: #718077;
+  font-size: 12px;
+}
+.fleet-photo-slots {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+.fleet-photo-slots label {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 11px;
+  border: 1px dashed #b5cfbf;
+  border-radius: 8px;
+  color: #526258;
+  font-size: 12px;
+  font-weight: 700;
+}
+.fleet-photo-slots label.complete {
+  border-style: solid;
+  border-color: #a9d6b9;
+  background: #eff9f2;
+  color: #176c4d;
+}
+.fleet-photo-slots input {
+  max-width: 100%;
+  color: #68776e;
+  font: inherit;
+  font-size: 11px;
+}
+.fleet-evidence-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+.fleet-evidence-actions button {
+  min-height: 42px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: #176c4d;
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.fleet-evidence-actions button.secondary-button {
+  border: 1px solid #b8d8c6;
+  background: transparent;
+  color: #176c4d;
+}
+.fleet-evidence-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
 .client-file-input {
   padding: 9px 10px;
   border: 1px dashed #9fc6ae;
