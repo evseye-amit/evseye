@@ -9,12 +9,12 @@ export class RequestLoginOtpDto {
   @IsString()
   @Matches(/^[a-z0-9-]+$/)
   @MaxLength(80)
-  clientSlug?: string;
+  companyCode?: string;
 
-  /** @deprecated Use clientSlug. Retained temporarily for existing clients. */
+  /** @deprecated Use companyCode. Retained temporarily for existing clients. */
   @IsOptional()
   @IsString()
   @Matches(/^[a-z0-9-]+$/)
   @MaxLength(80)
-  tenantSlug?: string;
+  clientSlug?: string;
 }

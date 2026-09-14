@@ -19,9 +19,9 @@ import type { ListAllocationsDto } from './dto/list-allocations.dto.js';
 @Injectable()
 export class AllocationsService {
   constructor(private readonly prisma: PrismaService) {}
-  async list(tenantId: string, query: ListAllocationsDto) {
+  async list(clientId: string, query: ListAllocationsDto) {
     const where = {
-      tenantId,
+      clientId,
       ...(query.status ? { status: query.status as AllocationStatus } : {}),
       ...(query.riderId ? { riderId: query.riderId } : {}),
       ...(query.fleetId ? { fleetId: query.fleetId } : {}),
@@ -69,9 +69,9 @@ export class AllocationsService {
     };
   }
 
-  async get(tenantId: string, allocationId: string) {
+  async get(clientId: string, allocationId: string) {
     const allocation = await this.prisma.allocation.findFirst({
-      where: { id: allocationId, tenantId },
+      where: { id: allocationId, clientId },
       include: {
         rider: true,
         fleet: { include: { hub: true } },
@@ -83,7 +83,7 @@ export class AllocationsService {
   }
 
   async initiate(
-    tenantId: string,
+    clientId: string,
     fleetId: string,
     riderId: string,
     actorId: string,
@@ -91,7 +91,7 @@ export class AllocationsService {
   ) {
     return this.prisma.$transaction(async (tx) => {
       const rider = await tx.rider.findFirst({
-        where: { id: riderId, tenantId, deletedAt: null },
+        where: { id: riderId, clientId, deletedAt: null },
       });
       if (!rider) throw new NotFoundException('Rider not found.');
       if (rider.status !== RiderStatus.ACTIVE) {
@@ -100,7 +100,7 @@ export class AllocationsService {
       const reserved = await tx.fleet.updateMany({
         where: {
           id: fleetId,
-          tenantId,
+          clientId,
           status: FleetStatus.AVAILABLE,
           deletedAt: null,
         },
@@ -108,10 +108,10 @@ export class AllocationsService {
       });
       if (reserved.count !== 1)
         throw new ConflictException('Fleet is not available for allocation.');
-      await this.assertRequiredFleetPhotos(tx, tenantId, fleetId);
+      await this.assertRequiredFleetPhotos(tx, clientId, fleetId);
       const allocation = await tx.allocation.create({
         data: {
-          tenantId,
+          clientId,
           fleetId,
           riderId,
           initiatedById: actorId,
@@ -121,7 +121,7 @@ export class AllocationsService {
       });
       await tx.inspection.create({
         data: {
-          tenantId,
+          clientId,
           allocationId: allocation.id,
           type: InspectionType.PRE_ALLOCATION,
           status: InspectionStatus.DRAFT,
@@ -133,12 +133,12 @@ export class AllocationsService {
 
   private async assertRequiredFleetPhotos(
     tx: Prisma.TransactionClient,
-    tenantId: string,
+    clientId: string,
     fleetId: string,
   ) {
     const requirements = await tx.photoRequirement.findMany({
       where: {
-        tenantId,
+        clientId,
         entityType: PhotoEntityType.FLEET,
         isRequired: true,
       },
@@ -148,7 +148,7 @@ export class AllocationsService {
 
     const completedPhotos = await tx.photo.findMany({
       where: {
-        tenantId,
+        clientId,
         entityType: PhotoEntityType.FLEET,
         entityId: fleetId,
         status: PhotoStatus.COMPLETE,
@@ -170,12 +170,12 @@ export class AllocationsService {
       );
     }
   }
-  async activate(tenantId: string, allocationId: string) {
+  async activate(clientId: string, allocationId: string) {
     return this.prisma.$transaction(async (tx) => {
       const allocation = await tx.allocation.findFirst({
         where: {
           id: allocationId,
-          tenantId,
+          clientId,
           status: AllocationStatus.OTP_PENDING,
         },
       });
@@ -186,7 +186,7 @@ export class AllocationsService {
 
       const inspection = await tx.inspection.findFirst({
         where: {
-          tenantId,
+          clientId,
           allocationId,
           type: InspectionType.PRE_ALLOCATION,
           status: InspectionStatus.COMPLETED,
@@ -198,7 +198,7 @@ export class AllocationsService {
       const activated = await tx.allocation.updateMany({
         where: {
           id: allocationId,
-          tenantId,
+          clientId,
           status: AllocationStatus.OTP_PENDING,
         },
         data: { status: AllocationStatus.ACTIVE, allocatedAt: new Date() },
@@ -211,7 +211,7 @@ export class AllocationsService {
       const fleet = await tx.fleet.updateMany({
         where: {
           id: allocation.fleetId,
-          tenantId,
+          clientId,
           status: FleetStatus.RESERVED,
           deletedAt: null,
         },
@@ -225,10 +225,10 @@ export class AllocationsService {
       return { activated: true, allocationId };
     });
   }
-  async initiateDeallocation(tenantId: string, allocationId: string) {
+  async initiateDeallocation(clientId: string, allocationId: string) {
     return this.prisma.$transaction(async (tx) => {
       const allocation = await tx.allocation.findFirst({
-        where: { id: allocationId, tenantId, status: AllocationStatus.ACTIVE },
+        where: { id: allocationId, clientId, status: AllocationStatus.ACTIVE },
       });
       if (!allocation)
         throw new NotFoundException('Active allocation not found.');
@@ -239,7 +239,7 @@ export class AllocationsService {
       await tx.fleet.updateMany({
         where: {
           id: allocation.fleetId,
-          tenantId,
+          clientId,
           status: { in: [FleetStatus.ALLOCATED, FleetStatus.IN_USE] },
         },
         data: { status: FleetStatus.DEALLOCATION_IN_PROGRESS },
@@ -252,7 +252,7 @@ export class AllocationsService {
           },
         },
         create: {
-          tenantId,
+          clientId,
           allocationId: allocation.id,
           type: InspectionType.POST_DEALLOCATION,
           status: InspectionStatus.DRAFT,
@@ -262,12 +262,12 @@ export class AllocationsService {
       return { allocationId: allocation.id, inspectionId: inspection.id };
     });
   }
-  async completeDeallocation(tenantId: string, allocationId: string) {
+  async completeDeallocation(clientId: string, allocationId: string) {
     return this.prisma.$transaction(async (tx) => {
       const a = await tx.allocation.findFirst({
         where: {
           id: allocationId,
-          tenantId,
+          clientId,
           status: AllocationStatus.DEALLOCATION_INITIATED,
         },
       });
@@ -285,7 +285,7 @@ export class AllocationsService {
         );
       const otps = await tx.otpRequest.findMany({
         where: {
-          tenantId,
+          clientId,
           status: 'VERIFIED',
           purpose: { in: ['DEALLOCATION_RIDER', 'DEALLOCATION_OPERATOR'] },
         },

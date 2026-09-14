@@ -38,7 +38,7 @@ describe('FleetsService onboarding evidence', () => {
     const service = new FleetsService(prisma as never, {} as never);
 
     await expect(
-      service.onboardingStatus('tenant-a', 'fleet-1'),
+      service.onboardingStatus('client-a', 'fleet-1'),
     ).resolves.toEqual({
       ready: false,
       items: [

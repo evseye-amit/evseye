@@ -204,6 +204,7 @@ export class BulkCreatePackagesDto {
 
 export class CreateFeaturePricingTierDto {
   @IsInt() @Min(0) tierOrder!: number;
+  @IsOptional() @IsString() @MaxLength(100) tierName?: string;
   @IsInt() @Min(0) fromQuantity!: number;
   @IsOptional() @IsInt() @Min(0) toQuantity?: number;
   @IsNumber() @Min(0) unitPrice!: number;
@@ -212,9 +213,8 @@ export class CreateFeaturePricingTierDto {
 
 export class CreateFeaturePricingDto {
   @IsString() featureId!: string;
-  @IsOptional() @IsString() @MaxLength(150) pricingName?: string;
   @IsEnum(PricingModel) pricingModel!: PricingModel;
-  @IsString() @MaxLength(50) billingUnit!: string;
+  @IsEnum(FeatureBillingUnit) billingUnit!: FeatureBillingUnit;
   @IsOptional() @IsString() @Matches(/^[A-Z]{3}$/) currency?: string;
   @IsOptional() @IsNumber() @Min(0) basePrice?: number;
   @IsOptional() @IsNumber() @Min(0) unitPrice?: number;

@@ -14,7 +14,7 @@ import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
-import { TenantContextService } from '../auth/tenant-context.service.js';
+import { ClientContextService } from '../auth/client-context.service.js';
 import { AuthService } from '../auth/auth.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { AllocationsService } from './allocations.service.js';
@@ -25,7 +25,7 @@ import { VerifyDeallocationOtpDto } from './dto/verify-deallocation-otp.dto.js';
 @Controller('allocations')
 @UseGuards(AccessTokenGuard, RolesGuard)
 @Roles(
-  UserRole.TENANT_ADMIN,
+  UserRole.CLIENT_ADMIN,
   UserRole.OPERATIONS_MANAGER,
   UserRole.FLEET_MANAGER,
 )
@@ -34,19 +34,19 @@ export class AllocationsController {
     private readonly allocations: AllocationsService,
     private readonly auth: AuthService,
     private readonly audit: AuditService,
-    private readonly tenants: TenantContextService,
+    private readonly clients: ClientContextService,
   ) {}
   @Get() async list(
     @CurrentUser() u: AuthUser,
     @Query() query: ListAllocationsDto,
   ) {
     return {
-      data: await this.allocations.list(this.tenants.requireTenantId(u), query),
+      data: await this.allocations.list(this.clients.requireClientId(u), query),
     };
   }
   @Get(':id') async get(@CurrentUser() u: AuthUser, @Param('id') id: string) {
     return {
-      data: await this.allocations.get(this.tenants.requireTenantId(u), id),
+      data: await this.allocations.get(this.clients.requireClientId(u), id),
     };
   }
   @Post() async initiate(
@@ -54,16 +54,16 @@ export class AllocationsController {
     @Body() dto: CreateAllocationDto,
     @Headers('idempotency-key') key?: string,
   ) {
-    const tenantId = this.tenants.requireTenantId(u);
+    const clientId = this.clients.requireClientId(u);
     const allocation = await this.allocations.initiate(
-      tenantId,
+      clientId,
       dto.fleetId,
       dto.riderId,
       u.id,
       key,
     );
     await this.audit.record({
-      tenantId,
+      clientId,
       actorId: u.id,
       action: 'ALLOCATION_INITIATED',
       entityType: 'ALLOCATION',
@@ -82,10 +82,10 @@ export class AllocationsController {
     @CurrentUser() u: AuthUser,
     @Param('id') id: string,
   ) {
-    const tenantId = this.tenants.requireTenantId(u);
-    const activation = await this.allocations.activate(tenantId, id);
+    const clientId = this.clients.requireClientId(u);
+    const activation = await this.allocations.activate(clientId, id);
     await this.audit.record({
-      tenantId,
+      clientId,
       actorId: u.id,
       action: 'ALLOCATION_ACTIVATED',
       entityType: 'ALLOCATION',
@@ -100,13 +100,13 @@ export class AllocationsController {
     @CurrentUser() u: AuthUser,
     @Param('id') id: string,
   ) {
-    const tenantId = this.tenants.requireTenantId(u);
+    const clientId = this.clients.requireClientId(u);
     const deallocation = await this.allocations.initiateDeallocation(
-      tenantId,
+      clientId,
       id,
     );
     await this.audit.record({
-      tenantId,
+      clientId,
       actorId: u.id,
       action: 'DEALLOCATION_INITIATED',
       entityType: 'ALLOCATION',
@@ -124,7 +124,7 @@ export class AllocationsController {
   ) {
     return {
       data: await this.auth.requestDeallocationOtp(
-        this.tenants.requireTenantId(u),
+        this.clients.requireClientId(u),
         dto.phone,
         id,
         dto.party === 'RIDER'
@@ -139,7 +139,7 @@ export class AllocationsController {
   ) {
     return {
       data: await this.auth.verifyDeallocationOtp(
-        this.tenants.requireTenantId(u),
+        this.clients.requireClientId(u),
         dto.otpRequestId,
         dto.code,
       ),
@@ -149,13 +149,13 @@ export class AllocationsController {
     @CurrentUser() u: AuthUser,
     @Param('id') id: string,
   ) {
-    const tenantId = this.tenants.requireTenantId(u);
+    const clientId = this.clients.requireClientId(u);
     const completion = await this.allocations.completeDeallocation(
-      tenantId,
+      clientId,
       id,
     );
     await this.audit.record({
-      tenantId,
+      clientId,
       actorId: u.id,
       action: 'DEALLOCATION_COMPLETED',
       entityType: 'ALLOCATION',

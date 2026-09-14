@@ -9,7 +9,7 @@ datasource db {
 
 enum UserRole {
   SUPER_ADMIN
-  TENANT_ADMIN
+  CLIENT_ADMIN
   OPERATIONS_MANAGER
   FLEET_MANAGER
   KYC_OPERATOR
@@ -156,15 +156,71 @@ enum PricingModel {
   PER_VEHICLE
   PER_FLEET
   USAGE_BASED
+  PER_DEVICE
   ONE_TIME
   CUSTOM
 }
 
 enum BillingCycle {
+  ONCE
   MONTHLY
   QUARTERLY
   HALF_YEARLY
   YEARLY
+}
+
+enum ClientFeatureSource {
+  PACKAGE
+  ADD_ON
+  CUSTOM
+  PROMOTIONAL
+}
+
+enum ClientStatus {
+  DRAFT
+  PENDING_APPROVAL
+  ACTIVE
+  REJECTED
+  SUSPENDED
+}
+
+enum ClientContactRole {
+  PRIMARY
+  ACCOUNT_ADMIN
+  BILLING
+}
+
+enum ClientAddressType {
+  REGISTERED
+  BILLING
+}
+
+enum ClientDocumentType {
+  PAN_CARD
+  GST_CERTIFICATE
+  INCORPORATION_CERTIFICATE
+  FLEET_AGREEMENT
+  BUSINESS_AGREEMENT
+}
+
+enum DocumentVerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum FleetBusinessModel {
+  OWNED
+  LEASED
+  ATTACHED
+  MIXED
+}
+
+enum VehicleOwnership {
+  OWNED
+  LEASED
+  DRIVER_OWNED
+  MIXED
 }
 
 enum FeatureCategory {
@@ -215,25 +271,35 @@ enum FeatureBillingUnit {
   TRAINING
   DEVICE
   MONTH
+  LIFE_TIME
 }
 
-model Tenant {
+model Client {
   id                String                  @id @default(uuid())
   name              String
   slug              String                  @unique
+  companyCode       String?                 @unique
+  status            ClientStatus            @default(DRAFT)
   isActive          Boolean                 @default(true)
   users             User[]
   riders            Rider[]
   photos            Photo[]
-  zones             Zone[]
   hubs              Hub[]
   fleets            Fleet[]
   auditLogs         AuditLog[]
-  onboardingConfigs RiderOnboardingConfig[]
-  clientProfile     ClientProfile?
+  businessProfile   ClientBusinessProfile?
+  contacts          ClientContact[]
+  addresses         ClientAddress[]
+  operationsProfile ClientOperationsProfile?
+  billingProfile    ClientBillingProfile?
+  documents         ClientDocument[]
+  agreement         ClientAgreement?
   subscriptions     ClientSubscription[]
+  clientFeatures    ClientFeature[]
+  featureUsage      FeatureUsage[]
   createdAt         DateTime                @default(now())
   updatedAt         DateTime                @updatedAt
+
 }
 
 model Oem {
@@ -279,6 +345,7 @@ model VehicleType {
   status      MasterRecordStatus @default(ACTIVE)
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
+  clientOperations ClientOperationsProfile[]
 
   @@index([categoryId, status, name])
 }
@@ -317,6 +384,8 @@ model Feature {
   isActive     Boolean            @default(true)
   pricing      FeaturePricing[]
   packageLinks PackageFeature[]
+  clientLinks  ClientFeature[]
+  usage        FeatureUsage[]
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
 
@@ -345,13 +414,12 @@ model FeaturePricing {
   id             String                  @id @default(uuid())
   featureId      String
   feature        Feature                 @relation(fields: [featureId], references: [id], onDelete: Cascade)
-  pricingName    String?                 @db.VarChar(150)
   pricingModel   PricingModel
-  billingUnit    String                  @db.VarChar(50)
+  billingUnit    FeatureBillingUnit
   currency       String                  @default("INR") @db.Char(3)
-  basePrice      Decimal                 @default(0) @db.Decimal(12, 4)
-  unitPrice      Decimal                 @default(0) @db.Decimal(12, 4)
-  costPrice      Decimal                 @default(0) @db.Decimal(12, 4)
+  basePrice      Decimal                 @default(0) @db.Decimal(12, 3)
+  unitPrice      Decimal                 @default(0) @db.Decimal(12, 3)
+  costPrice      Decimal                 @default(0) @db.Decimal(12, 3)
   minimumCharge  Decimal?                @db.Decimal(12, 2)
   maximumCharge  Decimal?                @db.Decimal(12, 2)
   setupFee       Decimal                 @default(0) @db.Decimal(12, 2)
@@ -362,6 +430,7 @@ model FeaturePricing {
   isActive       Boolean                 @default(true)
   metadata       Json?
   tiers          FeaturePricingTier[]
+  clientPricing  ClientFeaturePricing[]
   createdAt      DateTime                @default(now())
   updatedAt      DateTime                @updatedAt
 
@@ -373,19 +442,20 @@ model FeaturePricingTier {
   featurePricingId String
   featurePricing   FeaturePricing @relation(fields: [featurePricingId], references: [id], onDelete: Cascade)
   tierOrder        Int
+  tierName         String?        @db.VarChar(100)
   fromQuantity     BigInt
   toQuantity       BigInt?
-  unitPrice        Decimal        @db.Decimal(12, 4)
-  costPrice        Decimal?       @db.Decimal(12, 4)
+  unitPrice        Decimal        @db.Decimal(12, 3)
+  costPrice        Decimal?       @db.Decimal(12, 3)
   createdAt        DateTime       @default(now())
 
   @@unique([featurePricingId, tierOrder])
 }
 
-model ClientProfile {
+model ClientBusinessProfile {
   id                     String   @id @default(uuid())
   clientId               String   @unique
-  client                 Tenant   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  client                 Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   legalCompanyName       String
   clientType             String
   businessType           String
@@ -395,145 +465,231 @@ model ClientProfile {
   cinOrLlpin             String?
   website                String?
   logoUrl                String?
-  primaryContactName     String
-  primaryContactTitle    String
-  primaryContactMobile   String
-  primaryContactEmail    String
-  alternateMobile        String?
-  registeredAddressLine1 String
-  registeredAddressLine2 String?
-  landmark               String?
-  city                   String
-  district               String
-  state                  String
-  country                String   @default("India")
-  pinCode                String
+  logoObjectKey          String?
+  yearEstablished        Int?
+  estimatedFleetSize     Int?
+  estimatedRiderCount    Int?
+  estimatedUserCount     Int?
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 }
 
-model ClientSubscription {
-  id               String             @id @default(uuid())
+model ClientContact {
+  id               String            @id @default(uuid())
   clientId         String
-  client           Tenant             @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  packageId        String
-  package          Package            @relation(fields: [packageId], references: [id], onDelete: Restrict)
-  billingCycle     BillingCycle
-  packageStartDate DateTime
-  trialApplicable  Boolean            @default(false)
-  trialDays        Int?
-  billingFrequency String
-  basePackagePrice Decimal            @db.Decimal(12, 2)
-  currency         String             @default("INR") @db.Char(3)
-  discountType     String?
-  discount         Decimal?           @db.Decimal(12, 2)
-  taxRate          Decimal            @default(18) @db.Decimal(5, 2)
-  autoRenewal      Boolean            @default(true)
-  paymentTerms     String?
-  poNumber         String?
-  status           MasterRecordStatus @default(ACTIVE)
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+  client           Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  role             ClientContactRole
+  name             String
+  designation      String?
+  mobile           String?
+  email            String?
+  alternateMobile  String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@unique([clientId, role])
+  @@index([clientId, role])
+}
+
+model ClientAddress {
+  id          String            @id @default(uuid())
+  clientId    String
+  client      Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  type        ClientAddressType
+  line1       String
+  line2       String?
+  landmark    String?
+  city        String
+  district    String?
+  state       String
+  country     String            @default("India")
+  pinCode     String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@unique([clientId, type])
+}
+
+model ClientOperationsProfile {
+  id                     String             @id @default(uuid())
+  clientId               String             @unique
+  client                 Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  fleetBusinessModel     FleetBusinessModel
+  numberOfFleets         Int
+  approximateRiderCount  Int
+  vehicleOwnership       VehicleOwnership
+  primaryVehicleTypeId   String
+  primaryVehicleType     VehicleType        @relation(fields: [primaryVehicleTypeId], references: [id], onDelete: Restrict)
+  operationalHubCount    Int?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  @@index([primaryVehicleTypeId])
+}
+
+model ClientBillingProfile {
+  id                 String   @id @default(uuid())
+  clientId           String   @unique
+  client             Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  billingContactName String
+  billingEmail       String
+  billingMobile      String?
+  purchaseOrderRequired Boolean @default(false)
+  poNumber           String?
+  paymentTerms       String?
+  taxApplicable      Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model ClientDocument {
+  id                 String                     @id @default(uuid())
+  clientId           String
+  client             Client                     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  documentType       ClientDocumentType
+  documentNumber     String?
+  issueDate          DateTime?                  @db.Date
+  expiryDate         DateTime?                  @db.Date
+  objectKey          String                     @unique
+  fileName           String
+  mimeType           String
+  sizeBytes          Int
+  verificationStatus DocumentVerificationStatus @default(PENDING)
+  uploadedAt         DateTime?
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+
+  @@index([clientId, documentType, verificationStatus])
+}
+
+model ClientAgreement {
+  id                       String   @id @default(uuid())
+  clientId                 String   @unique
+  client                   Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  authorizedSignatoryName  String
+  designation              String
+  termsAcceptedAt          DateTime
+  privacyAcceptedAt        DateTime
+  dataProcessingConsentAt  DateTime
+  kycConsentAt             DateTime?
+  marketingConsentAt       DateTime?
+  submittedAt              DateTime?
+  approvedAt               DateTime?
+  approvedById             String?
+  rejectedAt               DateTime?
+  rejectedById             String?
+  rejectionReason          String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+}
+
+model ClientSubscription {
+  id                String             @id @default(uuid())
+  clientId          String
+  client            Client             @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  packageId         String
+  package           Package            @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  features          ClientFeature[]
+  usage             FeatureUsage[]
+  billingCycle      BillingCycle
+  startDate         DateTime           @db.Date
+  endDate           DateTime?          @db.Date
+  status            MasterRecordStatus @default(ACTIVE)
+  currency          String             @default("INR") @db.VarChar(10)
+  listPrice         Decimal            @db.Decimal(14, 2)
+  discountType      String?            @db.VarChar(20)
+  discountValue     Decimal?           @db.Decimal(14, 2)
+  finalPackagePrice Decimal            @db.Decimal(14, 2)
+  autoRenew         Boolean            @default(true)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 
   @@index([clientId, status])
 }
 
-model OnboardingStepDefinition {
-  stepKey              String                      @id
-  displayName          String
-  description          String?
-  stage                Int
-  category             String
-  handlerClass         String
-  uiComponent          String
-  isLockable           Boolean                     @default(false)
-  supportsDocument     Boolean                     @default(false)
-  supportsRevalidation Boolean                     @default(false)
-  defaultEnabled       Boolean                     @default(false)
-  defaultMandatory     Boolean                     @default(true)
-  tenantEditable       Boolean                     @default(false)
-  requiresOpsApproval  Boolean                     @default(true)
-  schemaDefinition     Json
-  configSteps          RiderOnboardingConfigStep[]
-  createdAt            DateTime                    @default(now())
+model ClientFeature {
+  id               String             @id @default(uuid())
+  clientId         String
+  client           Client             @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  subscriptionId   String
+  subscription     ClientSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  featureId        String
+  feature          Feature            @relation(fields: [featureId], references: [id], onDelete: Restrict)
+  source           ClientFeatureSource @default(ADD_ON)
+  enabled          Boolean            @default(true)
+  includedQuantity Decimal            @default(0) @db.Decimal(14, 2)
+  usageLimit       Decimal?           @db.Decimal(14, 2)
+  unlimitedUsage   Boolean            @default(false)
+  effectiveFrom    DateTime           @db.Date
+  effectiveTo      DateTime?          @db.Date
+  configuration    Json?
+  pricing          ClientFeaturePricing[]
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@unique([subscriptionId, featureId])
+  @@index([clientId, enabled])
+  @@index([featureId, enabled])
 }
 
-model RiderOnboardingConfig {
-  id            String                      @id @default(uuid())
-  tenantId      String
-  tenant        Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  version       Int
-  status        String                      @default("DRAFT")
-  notes         String?
-  effectiveFrom DateTime?
-  activatedAt   DateTime?
-  createdAt     DateTime                    @default(now())
-  updatedAt     DateTime                    @updatedAt
-  steps         RiderOnboardingConfigStep[]
+model ClientFeaturePricing {
+  id               String         @id @default(uuid())
+  clientFeatureId  String
+  clientFeature    ClientFeature  @relation(fields: [clientFeatureId], references: [id], onDelete: Restrict)
+  featurePricingId String
+  featurePricing   FeaturePricing @relation(fields: [featurePricingId], references: [id], onDelete: Restrict)
+  currency         String         @default("INR") @db.VarChar(10)
+  listUnitPrice    Decimal        @db.Decimal(14, 4)
+  discountType     String?        @db.VarChar(20)
+  discountValue    Decimal?       @db.Decimal(14, 4)
+  finalUnitPrice   Decimal        @db.Decimal(14, 4)
+  setupFee         Decimal        @default(0) @db.Decimal(14, 2)
+  effectiveFrom    DateTime       @db.Date
+  effectiveTo      DateTime?      @db.Date
+  reason           String?        @db.VarChar(500)
+  approvedBy       String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 
-  @@unique([tenantId, version])
-  @@index([tenantId, status])
+  @@index([clientFeatureId, effectiveFrom])
+  @@index([featurePricingId, effectiveFrom])
 }
 
-model RiderOnboardingConfigStep {
-  id                       String                   @id @default(uuid())
-  configId                 String
-  config                   RiderOnboardingConfig    @relation(fields: [configId], references: [id], onDelete: Cascade)
-  stepKey                  String
-  definition               OnboardingStepDefinition @relation(fields: [stepKey], references: [stepKey], onDelete: Restrict)
-  enabled                  Boolean                  @default(false)
-  mandatory                Boolean                  @default(true)
-  blocking                 Boolean                  @default(true)
-  sequenceNo               Int
-  verificationMode         String                   @default("AUTO")
-  fallbackMode             String                   @default("MANUAL")
-  maxRetryAttempts         Int                      @default(3)
-  slaHours                 Int?
-  dependsOn                Json
-  applicableModels         Json?
-  params                   Json
-  revalidationIntervalDays Int?
-  expiryWarningDays        Int                      @default(15)
-  createdAt                DateTime                 @default(now())
-  updatedAt                DateTime                 @updatedAt
+model FeatureUsage {
+  id             String             @id @default(uuid())
+  clientId       String
+  client         Client             @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  subscriptionId String
+  subscription   ClientSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  featureId      String
+  feature        Feature            @relation(fields: [featureId], references: [id], onDelete: Restrict)
+  usageReference String?            @db.VarChar(150)
+  quantity       Decimal            @default(1) @db.Decimal(14, 4)
+  usageTimestamp DateTime
+  metadata       Json?
+  createdAt      DateTime           @default(now())
 
-  @@unique([configId, stepKey])
-  @@index([configId, sequenceNo])
-}
-
-model Zone {
-  id        String   @id @default(uuid())
-  tenantId  String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  name      String
-  code      String
-  hubs      Hub[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([tenantId, code])
+  @@index([subscriptionId, featureId, usageTimestamp])
+  @@index([clientId, usageTimestamp])
 }
 
 model Hub {
   id        String   @id @default(uuid())
-  tenantId  String
-  zoneId    String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  zone      Zone     @relation(fields: [zoneId], references: [id], onDelete: Restrict)
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Restrict)
   name      String
   code      String
   fleets    Fleet[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([tenantId, code])
-  @@index([tenantId, zoneId])
+  @@unique([clientId, code])
 }
 
 model Fleet {
   id                 String       @id @default(uuid())
-  tenantId           String
-  tenant             Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  clientId           String
+  client             Client       @relation(fields: [clientId], references: [id], onDelete: Restrict)
   hubId              String?
   hub                Hub?         @relation(fields: [hubId], references: [id], onDelete: SetNull)
   vehicleNumber      String
@@ -557,16 +713,16 @@ model Fleet {
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
-  @@unique([tenantId, vehicleNumber])
-  @@unique([tenantId, chassisNumber])
-  @@index([tenantId, status])
-  @@index([tenantId, hubId])
-  @@index([tenantId, insuranceEndDate])
+  @@unique([clientId, vehicleNumber])
+  @@unique([clientId, chassisNumber])
+  @@index([clientId, status])
+  @@index([clientId, hubId])
+  @@index([clientId, insuranceEndDate])
 }
 
 model IoTDevice {
   id               String   @id @default(uuid())
-  tenantId         String
+  clientId         String
   fleetId          String   @unique
   fleet            Fleet    @relation(fields: [fleetId], references: [id], onDelete: Restrict)
   deviceNumber     String
@@ -575,12 +731,12 @@ model IoTDevice {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  @@unique([tenantId, deviceNumber])
+  @@unique([clientId, deviceNumber])
 }
 
 model VehicleCurrentState {
   id            String    @id @default(uuid())
-  tenantId      String
+  clientId      String
   fleetId       String    @unique
   deviceId      String    @unique
   latitude      Decimal?  @db.Decimal(9, 6)
@@ -591,12 +747,12 @@ model VehicleCurrentState {
   lastLocation  DateTime?
   updatedAt     DateTime  @updatedAt
 
-  @@index([tenantId, lastHeartbeat])
+  @@index([clientId, lastHeartbeat])
 }
 
 model TelemetryEvent {
   id         BigInt       @id @default(autoincrement())
-  tenantId   String
+  clientId   String
   fleetId    String
   deviceId   String
   type       IoTEventType
@@ -604,12 +760,12 @@ model TelemetryEvent {
   payload    Json?
   ingestedAt DateTime     @default(now())
 
-  @@index([tenantId, fleetId, occurredAt])
+  @@index([clientId, fleetId, occurredAt])
 }
 
 model Battery {
   id           String   @id @default(uuid())
-  tenantId     String
+  clientId     String
   fleetId      String
   fleet        Fleet    @relation(fields: [fleetId], references: [id], onDelete: Restrict)
   serialNumber String
@@ -619,13 +775,13 @@ model Battery {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  @@unique([tenantId, serialNumber])
-  @@index([tenantId, fleetId])
+  @@unique([clientId, serialNumber])
+  @@index([clientId, fleetId])
 }
 
 model Controller {
   id           String   @id @default(uuid())
-  tenantId     String
+  clientId     String
   fleetId      String
   fleet        Fleet    @relation(fields: [fleetId], references: [id], onDelete: Restrict)
   serialNumber String
@@ -633,14 +789,14 @@ model Controller {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  @@unique([tenantId, serialNumber])
-  @@index([tenantId, fleetId])
+  @@unique([clientId, serialNumber])
+  @@index([clientId, fleetId])
 }
 
 model User {
   id        String     @id @default(uuid())
-  tenantId  String?
-  tenant    Tenant?    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  clientId  String?
+  client    Client?    @relation(fields: [clientId], references: [id], onDelete: Restrict)
   mobile    String
   name      String
   role      UserRole
@@ -651,14 +807,14 @@ model User {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
-  @@unique([tenantId, mobile])
-  @@index([tenantId, role, isActive])
+  @@unique([clientId, mobile])
+  @@index([clientId, role, isActive])
 }
 
 model Rider {
   id          String       @id @default(uuid())
-  tenantId    String
-  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  clientId    String
+  client      Client       @relation(fields: [clientId], references: [id], onDelete: Restrict)
   userId      String?      @unique
   user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
   name        String
@@ -671,14 +827,14 @@ model Rider {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
-  @@unique([tenantId, mobile])
-  @@index([tenantId, status])
-  @@index([tenantId, name])
+  @@unique([clientId, mobile])
+  @@index([clientId, status])
+  @@index([clientId, name])
 }
 
 model Allocation {
   id             String           @id @default(uuid())
-  tenantId       String
+  clientId       String
   fleetId        String
   fleet          Fleet            @relation(fields: [fleetId], references: [id], onDelete: Restrict)
   riderId        String
@@ -692,14 +848,14 @@ model Allocation {
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
-  @@unique([tenantId, idempotencyKey])
-  @@index([tenantId, fleetId, status])
-  @@index([tenantId, riderId, status])
+  @@unique([clientId, idempotencyKey])
+  @@index([clientId, fleetId, status])
+  @@index([clientId, riderId, status])
 }
 
 model Inspection {
   id           String           @id @default(uuid())
-  tenantId     String
+  clientId     String
   allocationId String
   allocation   Allocation       @relation(fields: [allocationId], references: [id], onDelete: Cascade)
   type         InspectionType
@@ -711,12 +867,12 @@ model Inspection {
   updatedAt    DateTime         @updatedAt
 
   @@unique([allocationId, type])
-  @@index([tenantId, status])
+  @@index([clientId, status])
 }
 
 model RiderKyc {
   id                String    @id @default(uuid())
-  tenantId          String
+  clientId          String
   riderId           String
   rider             Rider     @relation(fields: [riderId], references: [id], onDelete: Cascade)
   type              KycType
@@ -730,14 +886,14 @@ model RiderKyc {
   updatedAt         DateTime  @updatedAt
 
   @@unique([riderId, type])
-  @@index([tenantId, status])
+  @@index([clientId, status])
   @@index([provider, providerReference])
 }
 
 model Photo {
   id           String          @id @default(uuid())
-  tenantId     String
-  tenant       Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  clientId     String
+  client       Client          @relation(fields: [clientId], references: [id], onDelete: Restrict)
   entityType   PhotoEntityType
   entityId     String
   photoType    String
@@ -750,13 +906,13 @@ model Photo {
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
 
-  @@index([tenantId, entityType, entityId])
-  @@index([tenantId, status])
+  @@index([clientId, entityType, entityId])
+  @@index([clientId, status])
 }
 
 model PhotoRequirement {
   id         String          @id @default(uuid())
-  tenantId   String
+  clientId   String
   entityType PhotoEntityType
   photoType  String
   isRequired Boolean         @default(true)
@@ -764,8 +920,8 @@ model PhotoRequirement {
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
 
-  @@unique([tenantId, entityType, photoType])
-  @@index([tenantId, entityType, sortOrder])
+  @@unique([clientId, entityType, photoType])
+  @@index([clientId, entityType, sortOrder])
 }
 
 model Session {
@@ -783,8 +939,8 @@ model Session {
 
 model AuditLog {
   id           BigInt   @id @default(autoincrement())
-  tenantId     String?
-  tenant       Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  clientId     String?
+  client       Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
   actorId      String?
   actor        User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
   action       String
@@ -796,14 +952,14 @@ model AuditLog {
   ipAddress    String?
   createdAt    DateTime @default(now())
 
-  @@index([tenantId, entityType, entityId, createdAt])
-  @@index([tenantId, action, createdAt])
+  @@index([clientId, entityType, entityId, createdAt])
+  @@index([clientId, action, createdAt])
   @@index([actorId, createdAt])
 }
 
 model OtpRequest {
   id          String     @id @default(uuid())
-  tenantId    String?
+  clientId    String?
   purpose     OtpPurpose
   phone       String
   otpHash     String
@@ -817,5 +973,5 @@ model OtpRequest {
   createdAt   DateTime   @default(now())
 
   @@index([phone, purpose, createdAt])
-  @@index([tenantId, status])
+  @@index([clientId, status])
 }

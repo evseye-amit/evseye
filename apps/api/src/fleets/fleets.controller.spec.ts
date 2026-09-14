@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { FleetsController } from './fleets.controller.js';
 
 describe('FleetsController audit trail', () => {
-  it('records a fleet status transition for the tenant actor', async () => {
+  it('records a fleet status transition for the client actor', async () => {
     const fleets = {
       changeStatus: vi.fn().mockResolvedValue({
         id: 'fleet-1',
@@ -15,17 +15,17 @@ describe('FleetsController audit trail', () => {
       fleets as never,
       {} as never,
       audit as never,
-      { requireTenantId: vi.fn().mockReturnValue('tenant-a') } as never,
+      { requireClientId: vi.fn().mockReturnValue('client-a') } as never,
     );
 
     await controller.status(
-      { id: 'operator-1', tenantId: 'tenant-a', roles: [] },
+      { id: 'operator-1', clientId: 'client-a', roles: [] },
       'fleet-1',
       { status: FleetStatus.MAINTENANCE },
     );
 
     expect(audit.record).toHaveBeenCalledWith({
-      tenantId: 'tenant-a',
+      clientId: 'client-a',
       actorId: 'operator-1',
       action: 'FLEET_STATUS_CHANGED',
       entityType: 'FLEET',

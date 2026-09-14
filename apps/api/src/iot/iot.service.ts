@@ -22,14 +22,14 @@ export class IotService {
     private readonly config: ConfigService<Environment, true>,
   ) {}
 
-  async registerDevice(tenantId: string, fleetId: string, deviceNumber: string) {
-    const fleet = await this.prisma.fleet.findFirst({ where: { id: fleetId, tenantId, deletedAt: null } });
+  async registerDevice(clientId: string, fleetId: string, deviceNumber: string) {
+    const fleet = await this.prisma.fleet.findFirst({ where: { id: fleetId, clientId, deletedAt: null } });
     if (!fleet) throw new NotFoundException('Fleet not found.');
 
     const ingestSecret = randomBytes(32).toString('base64url');
     try {
       const device = await this.prisma.ioTDevice.create({
-        data: { tenantId, fleetId, deviceNumber, ingestSecretHash: this.hashSecret(ingestSecret) },
+        data: { clientId, fleetId, deviceNumber, ingestSecretHash: this.hashSecret(ingestSecret) },
       });
       return { device, ingestSecret };
     } catch (error) {
@@ -51,7 +51,7 @@ export class IotService {
     await this.prisma.vehicleCurrentState.upsert({
       where: { fleetId: device.fleetId },
       create: {
-        tenantId: device.tenantId, fleetId: device.fleetId, deviceId: device.id,
+        clientId: device.clientId, fleetId: device.fleetId, deviceId: device.id,
         latitude: payload.latitude, longitude: payload.longitude, speedKph: payload.speedKph, ignition: payload.ignition,
         lastHeartbeat: type === 'HEARTBEAT' ? occurredAt : undefined,
         lastLocation: type === 'LOCATION' ? occurredAt : undefined,
@@ -65,7 +65,7 @@ export class IotService {
     if (type === 'START' || type === 'STOP') {
       await this.prisma.telemetryEvent.create({
         data: {
-          tenantId: device.tenantId,
+          clientId: device.clientId,
           fleetId: device.fleetId,
           deviceId: device.id,
           type,

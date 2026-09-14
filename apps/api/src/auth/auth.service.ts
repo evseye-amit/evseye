@@ -38,25 +38,25 @@ export class AuthService {
 
   async requestLoginOtp(
     phone: string,
-    tenantSlug?: string,
+    companyCode?: string,
     requestedIp?: string,
   ) {
-    const tenant = tenantSlug
-      ? await this.prisma.tenant.findFirst({
-          where: { slug: tenantSlug, isActive: true },
+    const client = companyCode
+      ? await this.prisma.client.findFirst({
+          where: { companyCode, isActive: true, status: 'ACTIVE' },
           select: { id: true },
         })
       : null;
 
-    if (tenantSlug && !tenant) {
-      throw new UnauthorizedException('Invalid tenant or account.');
+    if (companyCode && !client) {
+      throw new UnauthorizedException('Invalid client or account.');
     }
 
     const user = await this.prisma.user.findFirst({
-      where: tenant
-        ? { tenantId: tenant.id, mobile: phone, isActive: true }
+      where: client
+        ? { clientId: client.id, mobile: phone, isActive: true }
         : {
-            tenantId: null,
+            clientId: null,
             mobile: phone,
             role: UserRole.SUPER_ADMIN,
             isActive: true,
@@ -65,7 +65,7 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('Invalid tenant or account.');
+      throw new UnauthorizedException('Invalid client or account.');
     }
 
     const cooldownAt = new Date(
@@ -73,7 +73,7 @@ export class AuthService {
     );
     const recent = await this.prisma.otpRequest.findFirst({
       where: {
-        tenantId: tenant?.id,
+        clientId: client?.id,
         phone,
         purpose: OtpPurpose.LOGIN,
         createdAt: { gte: cooldownAt },
@@ -95,7 +95,7 @@ export class AuthService {
     );
     const otpRequest = await this.prisma.otpRequest.create({
       data: {
-        tenantId: tenant?.id,
+        clientId: client?.id,
         purpose: OtpPurpose.LOGIN,
         phone,
         otpHash: this.hashSecret(code),
@@ -157,10 +157,10 @@ export class AuthService {
     }
 
     const user = await this.prisma.user.findFirst({
-      where: otp.tenantId
-        ? { tenantId: otp.tenantId, mobile: otp.phone, isActive: true }
+      where: otp.clientId
+        ? { clientId: otp.clientId, mobile: otp.phone, isActive: true }
         : {
-            tenantId: null,
+            clientId: null,
             mobile: otp.phone,
             role: UserRole.SUPER_ADMIN,
             isActive: true,
@@ -174,13 +174,13 @@ export class AuthService {
   }
 
   async requestDeallocationOtp(
-    tenantId: string,
+    clientId: string,
     phone: string,
     allocationId: string,
     purpose: OtpPurpose,
   ) {
     const allocation = await this.prisma.allocation.findFirst({
-      where: { id: allocationId, tenantId, status: 'DEALLOCATION_INITIATED' },
+      where: { id: allocationId, clientId, status: 'DEALLOCATION_INITIATED' },
       select: { id: true },
     });
     if (!allocation)
@@ -191,7 +191,7 @@ export class AuthService {
     );
     const recent = await this.prisma.otpRequest.findFirst({
       where: {
-        tenantId,
+        clientId,
         phone,
         purpose,
         status: OtpStatus.PENDING,
@@ -213,7 +213,7 @@ export class AuthService {
     );
     const otp = await this.prisma.otpRequest.create({
       data: {
-        tenantId,
+        clientId,
         purpose,
         phone,
         otpHash: this.hashSecret(code),
@@ -232,14 +232,14 @@ export class AuthService {
   }
 
   async verifyDeallocationOtp(
-    tenantId: string,
+    clientId: string,
     otpRequestId: string,
     code: string,
   ) {
     const otp = await this.prisma.otpRequest.findFirst({
       where: {
         id: otpRequestId,
-        tenantId,
+        clientId,
         status: OtpStatus.PENDING,
         purpose: {
           in: [OtpPurpose.DEALLOCATION_RIDER, OtpPurpose.DEALLOCATION_OPERATOR],
@@ -351,7 +351,7 @@ export class AuthService {
   private async issueTokens(user: User) {
     const authUser: AuthUser = {
       id: user.id,
-      tenantId: user.tenantId,
+      clientId: user.clientId,
       roles: [user.role],
     };
     const sessionId = randomUUID();

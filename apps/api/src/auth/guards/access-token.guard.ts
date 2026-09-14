@@ -36,7 +36,7 @@ export class AccessTokenGuard implements CanActivate {
 
       request.user = {
         id: payload.id,
-        tenantId: payload.tenantId,
+        clientId: payload.clientId,
         roles: payload.roles,
       };
       return true;

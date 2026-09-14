@@ -15,7 +15,7 @@ import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
-import { TenantContextService } from '../auth/tenant-context.service.js';
+import { ClientContextService } from '../auth/client-context.service.js';
 import { CreateFleetDto } from './dto/create-fleet.dto.js';
 import { ListFleetsDto } from './dto/list-fleets.dto.js';
 import {
@@ -28,7 +28,7 @@ import { ComponentsService } from './components.service.js';
 @Controller('fleets')
 @UseGuards(AccessTokenGuard, RolesGuard)
 @Roles(
-  UserRole.TENANT_ADMIN,
+  UserRole.CLIENT_ADMIN,
   UserRole.OPERATIONS_MANAGER,
   UserRole.FLEET_MANAGER,
 )
@@ -37,16 +37,16 @@ export class FleetsController {
     private readonly fleets: FleetsService,
     private readonly components: ComponentsService,
     private readonly audit: AuditService,
-    private readonly tenants: TenantContextService,
+    private readonly clients: ClientContextService,
   ) {}
   @Get() async list(@CurrentUser() u: AuthUser, @Query() q: ListFleetsDto) {
-    return { data: await this.fleets.list(this.tenants.requireTenantId(u), q) };
+    return { data: await this.fleets.list(this.clients.requireClientId(u), q) };
   }
   @Post() async create(@CurrentUser() u: AuthUser, @Body() d: CreateFleetDto) {
-    const tenantId = this.tenants.requireTenantId(u);
-    const fleet = await this.fleets.create(tenantId, d);
+    const clientId = this.clients.requireClientId(u);
+    const fleet = await this.fleets.create(clientId, d);
     await this.audit.record({
-      tenantId,
+      clientId,
       actorId: u.id,
       action: 'FLEET_CREATED',
       entityType: 'FLEET',
@@ -61,20 +61,20 @@ export class FleetsController {
   async onboardingStatus(@CurrentUser() u: AuthUser, @Param('id') id: string) {
     return {
       data: await this.fleets.onboardingStatus(
-        this.tenants.requireTenantId(u),
+        this.clients.requireClientId(u),
         id,
       ),
     };
   }
   @Get(':id') async get(@CurrentUser() u: AuthUser, @Param('id') id: string) {
-    return { data: await this.fleets.get(this.tenants.requireTenantId(u), id) };
+    return { data: await this.fleets.get(this.clients.requireClientId(u), id) };
   }
   @Get(':id/current-state') async currentState(
     @CurrentUser() u: AuthUser,
     @Param('id') id: string,
   ) {
     return {
-      data: await this.fleets.currentState(this.tenants.requireTenantId(u), id),
+      data: await this.fleets.currentState(this.clients.requireClientId(u), id),
     };
   }
   @Patch(':id/status') async status(
@@ -82,10 +82,10 @@ export class FleetsController {
     @Param('id') id: string,
     @Body() dto: ChangeFleetStatusDto,
   ) {
-    const tenantId = this.tenants.requireTenantId(u);
-    const fleet = await this.fleets.changeStatus(tenantId, id, dto.status);
+    const clientId = this.clients.requireClientId(u);
+    const fleet = await this.fleets.changeStatus(clientId, id, dto.status);
     await this.audit.record({
-      tenantId,
+      clientId,
       actorId: u.id,
       action: 'FLEET_STATUS_CHANGED',
       entityType: 'FLEET',
@@ -101,10 +101,10 @@ export class FleetsController {
     @Param('id') id: string,
     @Body() d: CreateBatteryDto,
   ) {
-    const tenantId = this.tenants.requireTenantId(u);
-    const battery = await this.components.addBattery(tenantId, id, d);
+    const clientId = this.clients.requireClientId(u);
+    const battery = await this.components.addBattery(clientId, id, d);
     await this.audit.record({
-      tenantId,
+      clientId,
       actorId: u.id,
       action: 'BATTERY_ADDED',
       entityType: 'BATTERY',
@@ -120,10 +120,10 @@ export class FleetsController {
     @Param('id') id: string,
     @Body() d: CreateControllerDto,
   ) {
-    const tenantId = this.tenants.requireTenantId(u);
-    const controller = await this.components.addController(tenantId, id, d);
+    const clientId = this.clients.requireClientId(u);
+    const controller = await this.components.addController(clientId, id, d);
     await this.audit.record({
-      tenantId,
+      clientId,
       actorId: u.id,
       action: 'CONTROLLER_ADDED',
       entityType: 'CONTROLLER',

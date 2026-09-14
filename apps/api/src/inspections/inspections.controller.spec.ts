@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { InspectionsController } from './inspections.controller.js';
 
 describe('InspectionsController audit trail', () => {
-  it('records inspection completion against the actor and tenant', async () => {
+  it('records inspection completion against the actor and client', async () => {
     const inspections = {
       complete: vi.fn().mockResolvedValue({
         id: 'inspection-1',
@@ -15,12 +15,12 @@ describe('InspectionsController audit trail', () => {
     const controller = new InspectionsController(
       inspections as never,
       audit as never,
-      { requireTenantId: vi.fn().mockReturnValue('tenant-a') } as never,
+      { requireClientId: vi.fn().mockReturnValue('client-a') } as never,
     );
 
     await expect(
       controller.complete(
-        { id: 'operator-1', tenantId: 'tenant-a', roles: [] },
+        { id: 'operator-1', clientId: 'client-a', roles: [] },
         'inspection-1',
       ),
     ).resolves.toEqual({
@@ -32,7 +32,7 @@ describe('InspectionsController audit trail', () => {
       },
     });
     expect(audit.record).toHaveBeenCalledWith({
-      tenantId: 'tenant-a',
+      clientId: 'client-a',
       actorId: 'operator-1',
       action: 'INSPECTION_COMPLETED',
       entityType: 'INSPECTION',

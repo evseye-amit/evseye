@@ -24,7 +24,7 @@ import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
-import { TenantContextService } from '../auth/tenant-context.service.js';
+import { ClientContextService } from '../auth/client-context.service.js';
 import { IotService, type TelemetryPacketType } from './iot.service.js';
 
 class RegisterDeviceDto {
@@ -66,11 +66,11 @@ class IngestTelemetryDto {
 
 @Controller('iot')
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(UserRole.TENANT_ADMIN, UserRole.FLEET_MANAGER)
+@Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
 export class IotController {
   constructor(
     private readonly iot: IotService,
-    private readonly tenants: TenantContextService,
+    private readonly clients: ClientContextService,
   ) {}
 
   @Post('devices')
@@ -81,7 +81,7 @@ export class IotController {
   ) {
     return {
       data: await this.iot.registerDevice(
-        this.tenants.requireTenantId(user),
+        this.clients.requireClientId(user),
         dto.fleetId,
         dto.deviceNumber,
       ),

@@ -24,12 +24,12 @@ describe('IotService', () => {
   it('returns a one-time ingestion secret and stores only its hash', async () => {
     const { prisma, service } = createService();
 
-    const result = await service.registerDevice('tenant-1', 'fleet-1', 'device-serial-1');
+    const result = await service.registerDevice('client-1', 'fleet-1', 'device-serial-1');
 
     expect(result.ingestSecret).toHaveLength(43);
     expect(prisma.ioTDevice.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        tenantId: 'tenant-1',
+        clientId: 'client-1',
         fleetId: 'fleet-1',
         deviceNumber: 'device-serial-1',
         ingestSecretHash: expect.stringMatching(/^[a-f0-9]{64}$/),
@@ -41,7 +41,7 @@ describe('IotService', () => {
   it('rejects an invalid secret before accepting telemetry', async () => {
     const { prisma, service } = createService();
     prisma.ioTDevice.findFirst.mockResolvedValue({
-      id: 'device-1', tenantId: 'tenant-1', fleetId: 'fleet-1', ingestSecretHash: '0'.repeat(64),
+      id: 'device-1', clientId: 'client-1', fleetId: 'fleet-1', ingestSecretHash: '0'.repeat(64),
     });
 
     await expect(service.ingest('device-serial-1', 'incorrect-secret', 'LOCATION', {})).rejects.toBeInstanceOf(
@@ -52,7 +52,7 @@ describe('IotService', () => {
 
   it('derives the fleet identity from authenticated device credentials', async () => {
     const { prisma, service } = createService();
-    const registration = await service.registerDevice('tenant-1', 'fleet-1', 'device-serial-1');
+    const registration = await service.registerDevice('client-1', 'fleet-1', 'device-serial-1');
     prisma.ioTDevice.findFirst.mockResolvedValue(registration.device);
 
     await expect(

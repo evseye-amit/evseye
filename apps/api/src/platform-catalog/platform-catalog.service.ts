@@ -54,7 +54,7 @@ export class PlatformCatalogService {
 
   dashboard() {
     return Promise.all([
-      this.prisma.tenant.count(),
+      this.prisma.client.count(),
       this.prisma.fleet.count(),
       this.prisma.rider.count(),
       this.prisma.package.count({ where: { isActive: true } }),
@@ -432,6 +432,22 @@ export class PlatformCatalogService {
     if (activeSubscriptions) {
       throw new ConflictException(
         'This feature is enabled in a package with an active client subscription and cannot be deleted.',
+      );
+    }
+    const assignedClientFeatures = await this.prisma.clientFeature.count({
+      where: { featureId: id },
+    });
+    if (assignedClientFeatures) {
+      throw new ConflictException(
+        'This feature is assigned to one or more clients and cannot be deleted.',
+      );
+    }
+    const recordedUsage = await this.prisma.featureUsage.count({
+      where: { featureId: id },
+    });
+    if (recordedUsage) {
+      throw new ConflictException(
+        'This feature has recorded usage and cannot be deleted.',
       );
     }
 

@@ -5,23 +5,23 @@ import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
-import { TenantContextService } from '../auth/tenant-context.service.js';
+import { ClientContextService } from '../auth/client-context.service.js';
 import { DashboardService } from './dashboard.service.js';
 @Controller('dashboard')
 @UseGuards(AccessTokenGuard, RolesGuard)
 @Roles(
-  UserRole.TENANT_ADMIN,
+  UserRole.CLIENT_ADMIN,
   UserRole.OPERATIONS_MANAGER,
   UserRole.FLEET_MANAGER,
 )
 export class DashboardController {
   constructor(
     private readonly dashboard: DashboardService,
-    private readonly tenants: TenantContextService,
+    private readonly clients: ClientContextService,
   ) {}
   @Get() async summary(@CurrentUser() u: AuthUser) {
     return {
-      data: await this.dashboard.summary(this.tenants.requireTenantId(u)),
+      data: await this.dashboard.summary(this.clients.requireClientId(u)),
     };
   }
 }

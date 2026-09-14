@@ -9,20 +9,20 @@ import type { UpdateRiderDto } from './dto/update-rider.dto.js';
 export class RidersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(tenantId: string, dto: CreateRiderDto) {
+  async create(clientId: string, dto: CreateRiderDto) {
     try {
-      return await this.prisma.rider.create({ data: { ...dto, tenantId } });
+      return await this.prisma.rider.create({ data: { ...dto, clientId } });
     } catch (error) {
       if (this.isUniqueViolation(error)) {
-        throw new ConflictException('A rider with this mobile number already exists in this tenant.');
+        throw new ConflictException('A rider with this mobile number already exists in this client.');
       }
       throw error;
     }
   }
 
-  async list(tenantId: string, query: ListRidersDto) {
+  async list(clientId: string, query: ListRidersDto) {
     const where = {
-      tenantId,
+      clientId,
       deletedAt: null,
       ...(query.status ? { status: query.status as RiderStatus } : {}),
       ...(query.search
@@ -47,9 +47,9 @@ export class RidersService {
     return { items, meta: { page: query.page, pageSize: query.pageSize, total } };
   }
 
-  async getById(tenantId: string, id: string) {
+  async getById(clientId: string, id: string) {
     const rider = await this.prisma.rider.findFirst({
-      where: { id, tenantId, deletedAt: null },
+      where: { id, clientId, deletedAt: null },
       include: {
         kycs: { orderBy: { updatedAt: 'desc' } },
         allocations: {
@@ -65,13 +65,13 @@ export class RidersService {
     return rider;
   }
 
-  async update(tenantId: string, id: string, dto: UpdateRiderDto) {
-    await this.getById(tenantId, id);
+  async update(clientId: string, id: string, dto: UpdateRiderDto) {
+    await this.getById(clientId, id);
     try {
       return await this.prisma.rider.update({ where: { id }, data: dto });
     } catch (error) {
       if (this.isUniqueViolation(error)) {
-        throw new ConflictException('A rider with this mobile number already exists in this tenant.');
+        throw new ConflictException('A rider with this mobile number already exists in this client.');
       }
       throw error;
     }

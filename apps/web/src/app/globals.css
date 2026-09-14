@@ -688,7 +688,15 @@ th {
 }
 .sa-sidebar nav {
   display: grid;
+  gap: 10px;
+}
+.sa-nav-group {
+  display: grid;
   gap: 4px;
+}
+.sa-nav-group .sa-nav-label {
+  margin-top: 10px;
+  margin-bottom: 3px;
 }
 .sa-sidebar nav button {
   display: flex;
@@ -709,6 +717,10 @@ th {
 .sa-sidebar nav button span {
   width: 16px;
   text-align: center;
+}
+.sa-sidebar nav button.sa-nav-child {
+  padding-left: 20px;
+  font-size: 13px;
 }
 .sa-user {
   display: flex;
@@ -1041,6 +1053,39 @@ body:has(.sa-dialog[open]) {
 .sa-dialog :focus-visible {
   outline: 3px solid #2a845f;
   outline-offset: 2px;
+}
+.sa-client-picker {
+  display: grid;
+  gap: 5px;
+  min-width: 250px;
+  color: #68736b;
+  font-size: 12px;
+  font-weight: 700;
+}
+.sa-client-picker select {
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid #dfe5df;
+  border-radius: 7px;
+  background: white;
+  color: #35423a;
+}
+.sa-entitlement-summary {
+  display: grid;
+  gap: 5px;
+  padding: 16px 18px;
+  border: 1px solid #d8ebdf;
+  border-radius: 10px;
+  background: #f2faf5;
+}
+.sa-entitlement-summary strong {
+  color: #1b6248;
+  font-size: 16px;
+}
+.sa-entitlement-summary span,
+.sa-entitlement-summary small {
+  color: #66746b;
+  font-size: 12px;
 }
 .sa-oem-bulk {
   display: flex;

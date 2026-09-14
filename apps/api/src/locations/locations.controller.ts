@@ -5,42 +5,25 @@ import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
-import { TenantContextService } from '../auth/tenant-context.service.js';
+import { ClientContextService } from '../auth/client-context.service.js';
 import { CreateHubDto } from './dto/create-hub.dto.js';
-import { CreateZoneDto } from './dto/create-zone.dto.js';
 import { LocationsService } from './locations.service.js';
 
 @Controller()
 @UseGuards(AccessTokenGuard, RolesGuard)
 @Roles(
-  UserRole.TENANT_ADMIN,
+  UserRole.CLIENT_ADMIN,
   UserRole.OPERATIONS_MANAGER,
   UserRole.FLEET_MANAGER,
 )
 export class LocationsController {
   constructor(
     private readonly locations: LocationsService,
-    private readonly tenants: TenantContextService,
+    private readonly clients: ClientContextService,
   ) {}
-  @Get('zones') async zones(@CurrentUser() user: AuthUser) {
-    return {
-      data: await this.locations.listZones(this.tenants.requireTenantId(user)),
-    };
-  }
-  @Post('zones') async createZone(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: CreateZoneDto,
-  ) {
-    return {
-      data: await this.locations.createZone(
-        this.tenants.requireTenantId(user),
-        dto,
-      ),
-    };
-  }
   @Get('hubs') async hubs(@CurrentUser() user: AuthUser) {
     return {
-      data: await this.locations.listHubs(this.tenants.requireTenantId(user)),
+      data: await this.locations.listHubs(this.clients.requireClientId(user)),
     };
   }
   @Post('hubs') async createHub(
@@ -49,7 +32,7 @@ export class LocationsController {
   ) {
     return {
       data: await this.locations.createHub(
-        this.tenants.requireTenantId(user),
+        this.clients.requireClientId(user),
         dto,
       ),
     };

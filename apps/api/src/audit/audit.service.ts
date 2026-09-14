@@ -5,22 +5,22 @@ import { PrismaService } from '../prisma/prisma.service.js';
 export class AuditService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(tenantId: string, page = 1, pageSize = 50) {
+  async list(clientId: string, page = 1, pageSize = 50) {
     const safePageSize = Math.min(Math.max(pageSize, 1), 100);
     const [items, total] = await this.prisma.$transaction([
       this.prisma.auditLog.findMany({
-        where: { tenantId },
+        where: { clientId },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * safePageSize,
         take: safePageSize,
       }),
-      this.prisma.auditLog.count({ where: { tenantId } }),
+      this.prisma.auditLog.count({ where: { clientId } }),
     ]);
     return { items, meta: { page, pageSize: safePageSize, total } };
   }
 
   record(input: {
-    tenantId?: string;
+    clientId?: string;
     actorId?: string;
     action: string;
     entityType: string;

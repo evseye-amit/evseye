@@ -1,10 +1,12 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
+  Patch,
+  Query,
   Post,
-  Put,
   UseGuards,
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
@@ -13,10 +15,26 @@ import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
-import { CreateOnboardingConfigDto } from './dto/create-onboarding-config.dto.js';
-import { CreateClientOnboardingDto } from './dto/create-client-onboarding.dto.js';
-import { CreateTenantDto } from './dto/create-tenant.dto.js';
-import { UpsertOnboardingConfigStepsDto } from './dto/upsert-onboarding-config-steps.dto.js';
+import {
+  CreateClientFeatureDto,
+  UpdateClientFeatureDto,
+} from './dto/client-feature.dto.js';
+import {
+  CreateClientFeaturePricingDto,
+  UpdateClientFeaturePricingDto,
+} from './dto/client-feature-pricing.dto.js';
+import { CreateFeatureUsageDto } from './dto/feature-usage.dto.js';
+import { CreateClientDto } from './dto/create-client.dto.js';
+import {
+  CreateClientDocumentUploadIntentDto,
+  CreateClientDraftDto,
+  UpdateClientAgreementDto,
+  UpdateClientBillingDto,
+  UpdateClientContactsAndAddressDto,
+  UpdateClientOperationsDto,
+  UpdateClientPackageSelectionDto,
+} from './dto/client-onboarding-steps.dto.js';
+import { RejectClientDto } from './dto/reject-client.dto.js';
 import { PlatformAdminService } from './platform-admin.service.js';
 
 @Controller('platform')
@@ -25,52 +43,248 @@ import { PlatformAdminService } from './platform-admin.service.js';
 export class PlatformAdminController {
   constructor(private readonly platform: PlatformAdminService) {}
   @Get('clients') listClients() {
-    return this.platform.listTenants().then((data) => ({ data }));
+    return this.platform.listClients().then((data) => ({ data }));
   }
   @Post('clients') createClient(
-    @Body() dto: CreateTenantDto,
+    @Body() dto: CreateClientDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.platform.createTenant(dto, user.id).then((data) => ({ data }));
+    return this.platform.createClient(dto, user.id).then((data) => ({ data }));
   }
-  @Post('clients/onboarding') onboardClient(
-    @Body() dto: CreateClientOnboardingDto,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.platform.onboardClient(dto, user.id).then((data) => ({ data }));
-  }
-  @Get('onboarding/step-definitions') stepDefinitions() {
-    return this.platform.listStepDefinitions().then((data) => ({ data }));
-  }
-  @Get('clients/:clientId/onboarding-configs') configs(
-    @Param('clientId') clientId: string,
-  ) {
-    return this.platform.listConfigs(clientId).then((data) => ({ data }));
-  }
-  @Post('clients/:clientId/onboarding-configs') createConfig(
-    @Param('clientId') clientId: string,
-    @Body() dto: CreateOnboardingConfigDto,
+  @Post('clients/drafts') createClientDraft(
+    @Body() dto: CreateClientDraftDto,
     @CurrentUser() user: AuthUser,
   ) {
     return this.platform
-      .createConfig(clientId, dto, user.id)
+      .createClientDraft(dto, user.id)
       .then((data) => ({ data }));
   }
-  @Put('onboarding-configs/:configId/steps') steps(
-    @Param('configId') configId: string,
-    @Body() dto: UpsertOnboardingConfigStepsDto,
-    @CurrentUser() user: AuthUser,
+  @Get('clients/:clientId') clientDetail(@Param('clientId') clientId: string) {
+    return this.platform.clientDetail(clientId).then((data) => ({ data }));
+  }
+  @Get('clients/:clientId/entitlements') clientEntitlements(
+    @Param('clientId') clientId: string,
   ) {
     return this.platform
-      .upsertConfigSteps(configId, dto, user.id)
+      .clientEntitlements(clientId)
       .then((data) => ({ data }));
   }
-  @Post('onboarding-configs/:configId/activate') activate(
-    @Param('configId') configId: string,
+  @Patch('clients/:clientId/contacts-addresses') contactsAndAddresses(
+    @Param('clientId') clientId: string,
+    @Body() dto: UpdateClientContactsAndAddressDto,
     @CurrentUser() user: AuthUser,
   ) {
     return this.platform
-      .activateConfig(configId, user.id)
+      .saveContactsAndAddress(clientId, dto, user.id)
+      .then((data) => ({ data }));
+  }
+  @Patch('clients/:clientId/fleet-operations') fleetOperations(
+    @Param('clientId') clientId: string,
+    @Body() dto: UpdateClientOperationsDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform
+      .saveOperations(clientId, dto, user.id)
+      .then((data) => ({ data }));
+  }
+  @Patch('clients/:clientId/package-selection') packageSelection(
+    @Param('clientId') clientId: string,
+    @Body() dto: UpdateClientPackageSelectionDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform
+      .savePackageSelection(clientId, dto, user.id)
+      .then((data) => ({ data }));
+  }
+  @Patch('clients/:clientId/billing') billing(
+    @Param('clientId') clientId: string,
+    @Body() dto: UpdateClientBillingDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform
+      .saveBilling(clientId, dto, user.id)
+      .then((data) => ({ data }));
+  }
+  @Post('clients/:clientId/documents/upload-intents') documentUploadIntent(
+    @Param('clientId') clientId: string,
+    @Body() dto: CreateClientDocumentUploadIntentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform
+      .createDocumentUploadIntent(clientId, dto, user.id)
+      .then((data) => ({ data }));
+  }
+  @Post('clients/:clientId/documents/:documentId/complete')
+  completeDocumentUpload(
+    @Param('clientId') clientId: string,
+    @Param('documentId') documentId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform
+      .completeDocumentUpload(clientId, documentId, user.id)
+      .then((data) => ({ data }));
+  }
+  @Get('clients/:clientId/documents/:documentId/download-url')
+  documentDownloadUrl(
+    @Param('clientId') clientId: string,
+    @Param('documentId') documentId: string,
+  ) {
+    return this.platform
+      .documentDownloadUrl(clientId, documentId)
+      .then((data) => ({ data }));
+  }
+  @Patch('clients/:clientId/agreement') agreement(
+    @Param('clientId') clientId: string,
+    @Body() dto: UpdateClientAgreementDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform
+      .saveAgreement(clientId, dto, user.id)
+      .then((data) => ({ data }));
+  }
+  @Post('clients/:clientId/submit') submitClient(
+    @Param('clientId') clientId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform
+      .submitClient(clientId, user.id)
+      .then((data) => ({ data }));
+  }
+  @Post('clients/:clientId/approve') approveClient(
+    @Param('clientId') clientId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform
+      .approveClient(clientId, user.id)
+      .then((data) => ({ data }));
+  }
+  @Post('clients/:clientId/reject') rejectClient(
+    @Param('clientId') clientId: string,
+    @Body() dto: RejectClientDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform
+      .rejectClient(clientId, dto.reason, user.id)
+      .then((data) => ({ data }));
+  }
+  @Get('clients/:clientId/features') clientFeatures(
+    @Param('clientId') clientId: string,
+  ) {
+    return this.platform
+      .listClientFeatures(clientId)
+      .then((data) => ({ data }));
+  }
+  @Post('clients/:clientId/features') addClientFeature(
+    @Param('clientId') clientId: string,
+    @Body() dto: CreateClientFeatureDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform
+      .createClientFeature(clientId, dto, user.id)
+      .then((data) => ({ data }));
+  }
+  @Patch('clients/:clientId/features/:clientFeatureId') updateClientFeature(
+    @Param('clientId') clientId: string,
+    @Param('clientFeatureId') clientFeatureId: string,
+    @Body() dto: UpdateClientFeatureDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform
+      .updateClientFeature(clientId, clientFeatureId, dto, user.id)
+      .then((data) => ({ data }));
+  }
+  @Delete('clients/:clientId/features/:clientFeatureId') deleteClientFeature(
+    @Param('clientId') clientId: string,
+    @Param('clientFeatureId') clientFeatureId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform
+      .deleteClientFeature(clientId, clientFeatureId, user.id)
+      .then(() => ({ data: { deleted: true } }));
+  }
+  @Get('clients/:clientId/features/:clientFeatureId/pricing')
+  clientFeaturePricing(
+    @Param('clientId') clientId: string,
+    @Param('clientFeatureId') clientFeatureId: string,
+  ) {
+    return this.platform
+      .listClientFeaturePricing(clientId, clientFeatureId)
+      .then((data) => ({ data }));
+  }
+  @Post('clients/:clientId/features/:clientFeatureId/pricing')
+  addClientFeaturePricing(
+    @Param('clientId') clientId: string,
+    @Param('clientFeatureId') clientFeatureId: string,
+    @Body() dto: CreateClientFeaturePricingDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform
+      .createClientFeaturePricing(clientId, clientFeatureId, dto, user.id)
+      .then((data) => ({ data }));
+  }
+  @Patch(
+    'clients/:clientId/features/:clientFeatureId/pricing/:clientFeaturePricingId',
+  )
+  updateClientFeaturePricing(
+    @Param('clientId') clientId: string,
+    @Param('clientFeatureId') clientFeatureId: string,
+    @Param('clientFeaturePricingId') clientFeaturePricingId: string,
+    @Body() dto: UpdateClientFeaturePricingDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform
+      .updateClientFeaturePricing(
+        clientId,
+        clientFeatureId,
+        clientFeaturePricingId,
+        dto,
+        user.id,
+      )
+      .then((data) => ({ data }));
+  }
+  @Delete(
+    'clients/:clientId/features/:clientFeatureId/pricing/:clientFeaturePricingId',
+  )
+  deleteClientFeaturePricing(
+    @Param('clientId') clientId: string,
+    @Param('clientFeatureId') clientFeatureId: string,
+    @Param('clientFeaturePricingId') clientFeaturePricingId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform
+      .deleteClientFeaturePricing(
+        clientId,
+        clientFeatureId,
+        clientFeaturePricingId,
+        user.id,
+      )
+      .then(() => ({ data: { deleted: true } }));
+  }
+  @Post('clients/:clientId/usage') recordFeatureUsage(
+    @Param('clientId') clientId: string,
+    @Body() dto: CreateFeatureUsageDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform
+      .recordFeatureUsage(clientId, dto, user.id)
+      .then((data) => ({ data }));
+  }
+  @Get('clients/:clientId/usage') clientFeatureUsage(
+    @Param('clientId') clientId: string,
+  ) {
+    return this.platform
+      .listClientFeatureUsage(clientId)
+      .then((data) => ({ data }));
+  }
+  @Get('clients/:clientId/subscriptions/:subscriptionId/billing-preview')
+  billingPreview(
+    @Param('clientId') clientId: string,
+    @Param('subscriptionId') subscriptionId: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+  ) {
+    return this.platform
+      .billingPreview(clientId, subscriptionId, from, to)
       .then((data) => ({ data }));
   }
 }
