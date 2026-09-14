@@ -1227,6 +1227,12 @@ function FleetManagerSetup({ onSaved }: { onSaved: () => void }) {
     );
     if (form.primaryHubId === hubId) setForm({ ...form, primaryHubId: "" });
   };
+  const selectPrimaryHub = (hubId: string) => {
+    setForm({ ...form, primaryHubId: hubId });
+    if (hubId && !selectedHubIds.includes(hubId)) {
+      setSelectedHubIds((current) => [...current, hubId]);
+    }
+  };
   return (
     <section className="client-onboarding-action">
       <div>
@@ -1294,18 +1300,15 @@ function FleetManagerSetup({ onSaved }: { onSaved: () => void }) {
             <select
               required
               value={form.primaryHubId}
-              onChange={(event) =>
-                setForm({ ...form, primaryHubId: event.target.value })
-              }
+              disabled={!hubs.length}
+              onChange={(event) => selectPrimaryHub(event.target.value)}
             >
               <option value="">Select primary Hub</option>
-              {hubs
-                .filter((hub) => selectedHubIds.includes(hub.id))
-                .map((hub) => (
-                  <option key={hub.id} value={hub.id}>
-                    {hub.code} · {hub.name}
-                  </option>
-                ))}
+              {hubs.map((hub) => (
+                <option key={hub.id} value={hub.id}>
+                  {hub.code} · {hub.name}
+                </option>
+              ))}
             </select>
           </label>
           <button disabled={busy || !selectedHubIds.length} type="submit">
