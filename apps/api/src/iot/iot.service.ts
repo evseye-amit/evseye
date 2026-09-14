@@ -1,6 +1,11 @@
-import { ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma } from '@prisma/client';
+import { IoTDeviceStatus, Prisma } from '@prisma/client';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Environment } from '../config/environment.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -22,51 +27,103 @@ export class IotService {
     private readonly config: ConfigService<Environment, true>,
   ) {}
 
-  async registerDevice(clientId: string, fleetId: string, deviceNumber: string) {
-    const fleet = await this.prisma.fleet.findFirst({ where: { id: fleetId, clientId, deletedAt: null } });
+  async registerDevice(
+    clientId: string,
+    fleetId: string,
+    deviceNumber: string,
+  ) {
+    const fleet = await this.prisma.fleet.findFirst({
+      where: { id: fleetId, clientId, deletedAt: null },
+    });
     if (!fleet) throw new NotFoundException('Fleet not found.');
 
     const ingestSecret = randomBytes(32).toString('base64url');
     try {
       const device = await this.prisma.ioTDevice.create({
-        data: { clientId, fleetId, deviceNumber, ingestSecretHash: this.hashSecret(ingestSecret) },
+        data: {
+          clientId,
+          deviceNumber,
+          ingestSecretHash: this.hashSecret(ingestSecret),
+          status: IoTDeviceStatus.ACTIVE,
+          activatedAt: new Date(),
+        },
+      });
+      await this.prisma.fleet.update({
+        where: { id: fleetId },
+        data: { iotDeviceId: device.id },
       });
       return { device, ingestSecret };
     } catch (error) {
-      if (typeof error === 'object' && error && 'code' in error && error.code === 'P2002') {
+      if (
+        typeof error === 'object' &&
+        error &&
+        'code' in error &&
+        error.code === 'P2002'
+      ) {
         throw new ConflictException('Device is already registered.');
       }
       throw error;
     }
   }
 
-  async ingest(deviceNumber: string, ingestSecret: string, type: TelemetryPacketType, payload: TelemetryPacket) {
-    const device = await this.prisma.ioTDevice.findFirst({ where: { deviceNumber, isActive: true } });
+  async ingest(
+    deviceNumber: string,
+    ingestSecret: string,
+    type: TelemetryPacketType,
+    payload: TelemetryPacket,
+  ) {
+    const device = await this.prisma.ioTDevice.findFirst({
+      where: { deviceNumber, status: IoTDeviceStatus.ACTIVE },
+      include: { currentFleet: { select: { id: true } } },
+    });
     if (!device) throw new NotFoundException('Device not found.');
     if (!this.matchesSecret(ingestSecret, device.ingestSecretHash)) {
       throw new UnauthorizedException('Invalid device credentials.');
     }
+    if (!device.currentFleet) {
+      throw new NotFoundException('Device is not assigned to a fleet.');
+    }
 
-    const occurredAt = payload.occurredAt ? new Date(payload.occurredAt) : new Date();
+    const occurredAt = payload.occurredAt
+      ? new Date(payload.occurredAt)
+      : new Date();
+    const fleetId = device.currentFleet.id;
     await this.prisma.vehicleCurrentState.upsert({
-      where: { fleetId: device.fleetId },
+      where: { fleetId },
       create: {
-        clientId: device.clientId, fleetId: device.fleetId, deviceId: device.id,
-        latitude: payload.latitude, longitude: payload.longitude, speedKph: payload.speedKph, ignition: payload.ignition,
-        lastHeartbeat: type === 'HEARTBEAT' ? occurredAt : undefined,
-        lastLocation: type === 'LOCATION' ? occurredAt : undefined,
+        clientId: device.clientId,
+        fleetId,
+        iotDeviceId: device.id,
+        latitude: payload.latitude,
+        longitude: payload.longitude,
+        speedKph: payload.speedKph,
+        ignition: payload.ignition,
+        lastHeartbeatAt: type === 'HEARTBEAT' ? occurredAt : undefined,
+        lastLocationAt: type === 'LOCATION' ? occurredAt : undefined,
+        isOnline: true,
       },
       update: {
-        latitude: payload.latitude, longitude: payload.longitude, speedKph: payload.speedKph, ignition: payload.ignition,
-        lastHeartbeat: type === 'HEARTBEAT' ? occurredAt : undefined,
-        lastLocation: type === 'LOCATION' ? occurredAt : undefined,
+        latitude: payload.latitude,
+        longitude: payload.longitude,
+        speedKph: payload.speedKph,
+        ignition: payload.ignition,
+        lastHeartbeatAt: type === 'HEARTBEAT' ? occurredAt : undefined,
+        lastLocationAt: type === 'LOCATION' ? occurredAt : undefined,
+        isOnline: true,
+      },
+    });
+    await this.prisma.ioTDevice.update({
+      where: { id: device.id },
+      data: {
+        lastHeartbeatAt: type === 'HEARTBEAT' ? occurredAt : undefined,
+        lastLocationAt: type === 'LOCATION' ? occurredAt : undefined,
       },
     });
     if (type === 'START' || type === 'STOP') {
       await this.prisma.telemetryEvent.create({
         data: {
           clientId: device.clientId,
-          fleetId: device.fleetId,
+          fleetId,
           deviceId: device.id,
           type,
           occurredAt,
@@ -74,16 +131,20 @@ export class IotService {
         },
       });
     }
-    return { fleetId: device.fleetId };
+    return { fleetId };
   }
 
   private hashSecret(value: string): string {
-    return createHmac('sha256', this.config.getOrThrow('OTP_HASH_SECRET')).update(value).digest('hex');
+    return createHmac('sha256', this.config.getOrThrow('OTP_HASH_SECRET'))
+      .update(value)
+      .digest('hex');
   }
 
   private matchesSecret(value: string, expectedHash: string): boolean {
     const actual = Buffer.from(this.hashSecret(value), 'hex');
     const expected = Buffer.from(expectedHash, 'hex');
-    return actual.length === expected.length && timingSafeEqual(actual, expected);
+    return (
+      actual.length === expected.length && timingSafeEqual(actual, expected)
+    );
   }
 }

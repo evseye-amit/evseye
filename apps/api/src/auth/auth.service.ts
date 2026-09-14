@@ -43,7 +43,20 @@ export class AuthService {
   ) {
     const client = companyCode
       ? await this.prisma.client.findFirst({
-          where: { companyCode, isActive: true, status: 'ACTIVE' },
+          where: {
+            companyCode,
+            isActive: true,
+            status: {
+              in: [
+                'DRAFT',
+                'CREATED',
+                'PENDING_APPROVAL',
+                'ACTIVE',
+                'REJECTED',
+                'SUSPENDED',
+              ],
+            },
+          },
           select: { id: true },
         })
       : null;

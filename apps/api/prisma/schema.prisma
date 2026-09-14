@@ -12,6 +12,7 @@ enum UserRole {
   CLIENT_ADMIN
   OPERATIONS_MANAGER
   FLEET_MANAGER
+  TEAM_LEAD
   KYC_OPERATOR
   RIDER
 }
@@ -32,10 +33,67 @@ enum OtpStatus {
 }
 
 enum RiderStatus {
-  PENDING
+  ONBOARDING
   ACTIVE
   INACTIVE
   BLOCKED
+  EXITED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+enum HubType {
+  OPERATIONS
+  PARKING
+  CHARGING
+  BATTERY_SWAP
+  MAINTENANCE
+  WAREHOUSE
+  DELIVERY
+  MIXED
+}
+
+enum HubStatus {
+  ACTIVE
+  INACTIVE
+  TEMPORARILY_CLOSED
+  UNDER_MAINTENANCE
+  FULL
+}
+
+enum ClientOnboardingStep {
+  HUBS
+  FLEET_MANAGERS
+  TEAM_LEADERS
+  FLEETS
+  RIDERS
+  REVIEW
+}
+
+enum ClientOnboardingStepStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+}
+
+enum ImportEntityType {
+  HUB
+  FLEET_MANAGER
+  TEAM_LEADER
+  FLEET
+  RIDER
+}
+
+enum ImportStatus {
+  PASS
+  PARTIAL_PASS
+  FAIL
 }
 
 enum PhotoEntityType {
@@ -68,6 +126,7 @@ enum KycStatus {
 }
 
 enum FleetStatus {
+  IN_TRANSIT
   AVAILABLE
   RESERVED
   ALLOCATION_IN_PROGRESS
@@ -77,7 +136,101 @@ enum FleetStatus {
   INSPECTION_PENDING
   MAINTENANCE
   OUT_OF_SERVICE
+}
+
+enum FleetOnboardingStatus {
+  DRAFT
+  IN_PROGRESS
+  PENDING_REVIEW
+  ACTIVE
+  REJECTED
+  ARCHIVED
+}
+
+enum VehicleSpeedType {
+  SLOW_SPEED
+  HIGH_SPEED
+}
+
+enum FleetOwnershipType {
+  CLIENT_OWNED
+  LEASED
+  ATTACHED
+  OEM_OWNED
+  THIRD_PARTY
+}
+
+enum BatteryType {
+  FIXED_SINGLE
+  FIXED_DOUBLE
+  SWAP_IF
+  SWAP_BS
+  SWAP_MOVING
+  SWAP_OTHER
+}
+
+enum BatteryStatus {
+  AVAILABLE
+  INSTALLED
+  CHARGING
+  IN_SWAP
+  UNDER_MAINTENANCE
+  DAMAGED
+  RETIRED
+}
+
+enum BatteryChemistry {
+  LFP
+  NMC
+  LTO
+  LEAD_ACID
+  OTHER
+}
+
+enum BatterySlot {
+  PRIMARY
+  SECONDARY
+  AUXILIARY
+}
+
+enum ControllerStatus {
+  AVAILABLE
+  INSTALLED
+  UNDER_MAINTENANCE
+  DAMAGED
+  RETIRED
+}
+
+enum InsuranceType {
+  THIRD_PARTY
+  COMPREHENSIVE
+  OWN_DAMAGE
+}
+
+enum FleetDocumentType {
+  RC
+  INSURANCE
+  FITNESS_CERTIFICATE
+  PERMIT
+  PUC
+  INVOICE
+  WARRANTY
+  OTHER
+}
+
+enum IoTDeviceStatus {
+  ACTIVE
+  INACTIVE
   OFFLINE
+  DAMAGED
+  UNASSIGNED
+}
+
+enum FleetTransferStatus {
+  INITIATED
+  IN_TRANSIT
+  RECEIVED
+  CANCELLED
 }
 
 enum AllocationStatus {
@@ -178,6 +331,7 @@ enum ClientFeatureSource {
 
 enum ClientStatus {
   DRAFT
+  CREATED
   PENDING_APPROVAL
   ACTIVE
   REJECTED
@@ -221,6 +375,15 @@ enum VehicleOwnership {
   LEASED
   DRIVER_OWNED
   MIXED
+}
+
+enum ClientIndustry {
+  LOGISTICS
+  LAST_MILE
+  DELIVERY
+  MOBILITY
+  RENTAL
+  OTHER
 }
 
 enum FeatureCategory {
@@ -275,31 +438,41 @@ enum FeatureBillingUnit {
 }
 
 model Client {
-  id                String                  @id @default(uuid())
-  name              String
-  slug              String                  @unique
-  companyCode       String?                 @unique
-  status            ClientStatus            @default(DRAFT)
-  isActive          Boolean                 @default(true)
-  users             User[]
-  riders            Rider[]
-  photos            Photo[]
-  hubs              Hub[]
-  fleets            Fleet[]
-  auditLogs         AuditLog[]
-  businessProfile   ClientBusinessProfile?
-  contacts          ClientContact[]
-  addresses         ClientAddress[]
-  operationsProfile ClientOperationsProfile?
-  billingProfile    ClientBillingProfile?
-  documents         ClientDocument[]
-  agreement         ClientAgreement?
-  subscriptions     ClientSubscription[]
-  clientFeatures    ClientFeature[]
-  featureUsage      FeatureUsage[]
-  createdAt         DateTime                @default(now())
-  updatedAt         DateTime                @updatedAt
-
+  id                         String                            @id @default(uuid())
+  name                       String
+  slug                       String                            @unique
+  companyCode                String?                           @unique
+  status                     ClientStatus                      @default(DRAFT)
+  isActive                   Boolean                           @default(true)
+  users                      User[]
+  riders                     Rider[]
+  photos                     Photo[]
+  hubs                       Hub[]
+  fleets                     Fleet[]
+  batteries                  Battery[]
+  controllers                Controller[]
+  iotDevices                 IoTDevice[]
+  fleetTransfers             FleetTransfer[]
+  auditLogs                  AuditLog[]
+  businessProfile            ClientBusinessProfile?
+  contacts                   ClientContact[]
+  addresses                  ClientAddress[]
+  operationsProfile          ClientOperationsProfile?
+  billingProfile             ClientBillingProfile?
+  documents                  ClientDocument[]
+  agreement                  ClientAgreement?
+  subscriptions              ClientSubscription[]
+  clientFeatures             ClientFeature[]
+  featureUsage               FeatureUsage[]
+  operationVehicleCategories ClientOperationsVehicleCategory[]
+  onboardingProgress         ClientOnboardingProgress?
+  onboardingSteps            ClientOnboardingStepRecord[]
+  importJobs                 ImportJob[]
+  userHubs                   UserHub[]
+  teamLeaderProfiles         TeamLeaderProfile[]
+  teamLeaderRiders           TeamLeaderRider[]
+  createdAt                  DateTime                          @default(now())
+  updatedAt                  DateTime                          @updatedAt
 }
 
 model Oem {
@@ -314,20 +487,23 @@ model Oem {
   description   String?
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
+  fleets        Fleet[]
 
   @@index([status, displayName])
 }
 
 model VehicleCategory {
-  id           String             @id @default(uuid())
-  code         String             @unique
-  name         String
-  description  String?
-  status       MasterRecordStatus @default(ACTIVE)
-  displayOrder Int                @default(0)
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
-  vehicleTypes VehicleType[]
+  id               String                            @id @default(uuid())
+  code             String                            @unique
+  name             String
+  description      String?
+  status           MasterRecordStatus                @default(ACTIVE)
+  displayOrder     Int                               @default(0)
+  createdAt        DateTime                          @default(now())
+  updatedAt        DateTime                          @updatedAt
+  vehicleTypes     VehicleType[]
+  fleets           Fleet[]
+  clientOperations ClientOperationsVehicleCategory[]
 
   @@index([status, displayOrder, name])
 }
@@ -345,7 +521,7 @@ model VehicleType {
   status      MasterRecordStatus @default(ACTIVE)
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
-  clientOperations ClientOperationsProfile[]
+  fleets      Fleet[]
 
   @@index([categoryId, status, name])
 }
@@ -393,46 +569,46 @@ model Feature {
 }
 
 model PackageFeature {
-  id               String                  @id @default(uuid())
+  id               String   @id @default(uuid())
   packageId        String
-  package          Package                 @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  package          Package  @relation(fields: [packageId], references: [id], onDelete: Cascade)
   featureId        String
-  feature          Feature                 @relation(fields: [featureId], references: [id], onDelete: Restrict)
-  enabled          Boolean                 @default(true)
+  feature          Feature  @relation(fields: [featureId], references: [id], onDelete: Restrict)
+  enabled          Boolean  @default(true)
   includedQuantity BigInt?
   usageLimit       BigInt?
-  unlimitedUsage   Boolean                 @default(false)
+  unlimitedUsage   Boolean  @default(false)
   configuration    Json?
-  displayOrder     Int                     @default(0)
-  createdAt        DateTime                @default(now())
-  updatedAt        DateTime                @updatedAt
+  displayOrder     Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   @@unique([packageId, featureId])
 }
 
 model FeaturePricing {
-  id             String                  @id @default(uuid())
-  featureId      String
-  feature        Feature                 @relation(fields: [featureId], references: [id], onDelete: Cascade)
-  pricingModel   PricingModel
-  billingUnit    FeatureBillingUnit
-  currency       String                  @default("INR") @db.Char(3)
-  basePrice      Decimal                 @default(0) @db.Decimal(12, 3)
-  unitPrice      Decimal                 @default(0) @db.Decimal(12, 3)
-  costPrice      Decimal                 @default(0) @db.Decimal(12, 3)
-  minimumCharge  Decimal?                @db.Decimal(12, 2)
-  maximumCharge  Decimal?                @db.Decimal(12, 2)
-  setupFee       Decimal                 @default(0) @db.Decimal(12, 2)
-  billingCycle   BillingCycle?
-  taxInclusive   Boolean                 @default(false)
-  effectiveFrom  DateTime                @default(now())
-  effectiveTo    DateTime?
-  isActive       Boolean                 @default(true)
-  metadata       Json?
-  tiers          FeaturePricingTier[]
-  clientPricing  ClientFeaturePricing[]
-  createdAt      DateTime                @default(now())
-  updatedAt      DateTime                @updatedAt
+  id            String                 @id @default(uuid())
+  featureId     String
+  feature       Feature                @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  pricingModel  PricingModel
+  billingUnit   FeatureBillingUnit
+  currency      String                 @default("INR") @db.Char(3)
+  basePrice     Decimal                @default(0) @db.Decimal(12, 3)
+  unitPrice     Decimal                @default(0) @db.Decimal(12, 3)
+  costPrice     Decimal                @default(0) @db.Decimal(12, 3)
+  minimumCharge Decimal?               @db.Decimal(12, 2)
+  maximumCharge Decimal?               @db.Decimal(12, 2)
+  setupFee      Decimal                @default(0) @db.Decimal(12, 2)
+  billingCycle  BillingCycle?
+  taxInclusive  Boolean                @default(false)
+  effectiveFrom DateTime               @default(now())
+  effectiveTo   DateTime?
+  isActive      Boolean                @default(true)
+  metadata      Json?
+  tiers         FeaturePricingTier[]
+  clientPricing ClientFeaturePricing[]
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
 
   @@index([featureId, isActive, effectiveFrom])
 }
@@ -453,93 +629,105 @@ model FeaturePricingTier {
 }
 
 model ClientBusinessProfile {
-  id                     String   @id @default(uuid())
-  clientId               String   @unique
-  client                 Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  legalCompanyName       String
-  clientType             String
-  businessType           String
-  industry               String?
-  gstin                  String?
-  pan                    String
-  cinOrLlpin             String?
-  website                String?
-  logoUrl                String?
-  logoObjectKey          String?
-  yearEstablished        Int?
-  estimatedFleetSize     Int?
-  estimatedRiderCount    Int?
-  estimatedUserCount     Int?
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  id                  String          @id @default(uuid())
+  clientId            String          @unique
+  client              Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  legalCompanyName    String
+  clientType          String
+  businessType        String
+  industry            ClientIndustry?
+  gstin               String?
+  pan                 String
+  cinOrLlpin          String?
+  website             String?
+  logoUrl             String?
+  logoObjectKey       String?
+  yearEstablished     Int?
+  estimatedFleetSize  Int?
+  estimatedRiderCount Int?
+  estimatedUserCount  Int?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
 }
 
 model ClientContact {
-  id               String            @id @default(uuid())
-  clientId         String
-  client           Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  role             ClientContactRole
-  name             String
-  designation      String?
-  mobile           String?
-  email            String?
-  alternateMobile  String?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  id              String            @id @default(uuid())
+  clientId        String
+  client          Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  role            ClientContactRole
+  name            String
+  designation     String?
+  mobile          String?
+  email           String?
+  alternateMobile String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 
   @@unique([clientId, role])
   @@index([clientId, role])
 }
 
 model ClientAddress {
-  id          String            @id @default(uuid())
-  clientId    String
-  client      Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  type        ClientAddressType
-  line1       String
-  line2       String?
-  landmark    String?
-  city        String
-  district    String?
-  state       String
-  country     String            @default("India")
-  pinCode     String
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  id        String            @id @default(uuid())
+  clientId  String
+  client    Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  type      ClientAddressType
+  line1     String
+  line2     String?
+  landmark  String?
+  city      String
+  district  String?
+  state     String
+  country   String            @default("India")
+  pinCode   String
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
 
   @@unique([clientId, type])
 }
 
 model ClientOperationsProfile {
-  id                     String             @id @default(uuid())
-  clientId               String             @unique
-  client                 Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  fleetBusinessModel     FleetBusinessModel
-  numberOfFleets         Int
-  approximateRiderCount  Int
-  vehicleOwnership       VehicleOwnership
-  primaryVehicleTypeId   String
-  primaryVehicleType     VehicleType        @relation(fields: [primaryVehicleTypeId], references: [id], onDelete: Restrict)
-  operationalHubCount    Int?
-  createdAt              DateTime           @default(now())
-  updatedAt              DateTime           @updatedAt
+  id                    String                            @id @default(uuid())
+  clientId              String                            @unique
+  client                Client                            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  fleetBusinessModel    FleetBusinessModel
+  numberOfFleets        Int
+  approximateRiderCount Int
+  vehicleOwnership      VehicleOwnership
+  operationalHubCount   Int?
+  vehicleCategories     ClientOperationsVehicleCategory[]
+  createdAt             DateTime                          @default(now())
+  updatedAt             DateTime                          @updatedAt
+}
 
-  @@index([primaryVehicleTypeId])
+model ClientOperationsVehicleCategory {
+  id                  String                  @id @default(uuid())
+  clientId            String
+  client              Client                  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  operationsProfileId String
+  operationsProfile   ClientOperationsProfile @relation(fields: [operationsProfileId], references: [id], onDelete: Cascade)
+  vehicleCategoryId   String
+  vehicleCategory     VehicleCategory         @relation(fields: [vehicleCategoryId], references: [id], onDelete: Restrict)
+  createdAt           DateTime                @default(now())
+
+  @@unique([operationsProfileId, vehicleCategoryId])
+  @@index([clientId, vehicleCategoryId])
+  @@index([vehicleCategoryId])
 }
 
 model ClientBillingProfile {
-  id                 String   @id @default(uuid())
-  clientId           String   @unique
-  client             Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  billingContactName String
-  billingEmail       String
-  billingMobile      String?
-  purchaseOrderRequired Boolean @default(false)
-  poNumber           String?
-  paymentTerms       String?
-  taxApplicable      Boolean  @default(true)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id                    String   @id @default(uuid())
+  clientId              String   @unique
+  client                Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  billingContactName    String
+  billingEmail          String
+  billingMobile         String?
+  purchaseOrderRequired Boolean  @default(false)
+  poNumber              String?
+  paymentTerms          String?
+  taxApplicable         Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 }
 
 model ClientDocument {
@@ -563,24 +751,24 @@ model ClientDocument {
 }
 
 model ClientAgreement {
-  id                       String   @id @default(uuid())
-  clientId                 String   @unique
-  client                   Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  authorizedSignatoryName  String
-  designation              String
-  termsAcceptedAt          DateTime
-  privacyAcceptedAt        DateTime
-  dataProcessingConsentAt  DateTime
-  kycConsentAt             DateTime?
-  marketingConsentAt       DateTime?
-  submittedAt              DateTime?
-  approvedAt               DateTime?
-  approvedById             String?
-  rejectedAt               DateTime?
-  rejectedById             String?
-  rejectionReason          String?
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
+  id                      String    @id @default(uuid())
+  clientId                String    @unique
+  client                  Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  authorizedSignatoryName String
+  designation             String
+  termsAcceptedAt         DateTime
+  privacyAcceptedAt       DateTime
+  dataProcessingConsentAt DateTime
+  kycConsentAt            DateTime?
+  marketingConsentAt      DateTime?
+  submittedAt             DateTime?
+  approvedAt              DateTime?
+  approvedById            String?
+  rejectedAt              DateTime?
+  rejectedById            String?
+  rejectionReason         String?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
 }
 
 model ClientSubscription {
@@ -608,24 +796,24 @@ model ClientSubscription {
 }
 
 model ClientFeature {
-  id               String             @id @default(uuid())
+  id               String                 @id @default(uuid())
   clientId         String
-  client           Client             @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  client           Client                 @relation(fields: [clientId], references: [id], onDelete: Restrict)
   subscriptionId   String
-  subscription     ClientSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  subscription     ClientSubscription     @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
   featureId        String
-  feature          Feature            @relation(fields: [featureId], references: [id], onDelete: Restrict)
-  source           ClientFeatureSource @default(ADD_ON)
-  enabled          Boolean            @default(true)
-  includedQuantity Decimal            @default(0) @db.Decimal(14, 2)
-  usageLimit       Decimal?           @db.Decimal(14, 2)
-  unlimitedUsage   Boolean            @default(false)
-  effectiveFrom    DateTime           @db.Date
-  effectiveTo      DateTime?          @db.Date
+  feature          Feature                @relation(fields: [featureId], references: [id], onDelete: Restrict)
+  source           ClientFeatureSource    @default(ADD_ON)
+  enabled          Boolean                @default(true)
+  includedQuantity Decimal                @default(0) @db.Decimal(14, 2)
+  usageLimit       Decimal?               @db.Decimal(14, 2)
+  unlimitedUsage   Boolean                @default(false)
+  effectiveFrom    DateTime               @db.Date
+  effectiveTo      DateTime?              @db.Date
   configuration    Json?
   pricing          ClientFeaturePricing[]
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
 
   @@unique([subscriptionId, featureId])
   @@index([clientId, enabled])
@@ -674,80 +862,222 @@ model FeatureUsage {
 }
 
 model Hub {
-  id        String   @id @default(uuid())
-  clientId  String
-  client    Client   @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  name      String
-  code      String
-  fleets    Fleet[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                      String          @id @default(uuid())
+  clientId                String
+  client                  Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  code                    String          @db.VarChar(50)
+  name                    String          @db.VarChar(150)
+  type                    HubType         @default(OPERATIONS)
+  status                  HubStatus       @default(ACTIVE)
+  addressLine1            String?         @db.VarChar(255)
+  addressLine2            String?         @db.VarChar(255)
+  landmark                String?         @db.VarChar(150)
+  city                    String          @default("") @db.VarChar(100)
+  district                String?         @db.VarChar(100)
+  state                   String          @default("") @db.VarChar(100)
+  country                 String          @default("India") @db.VarChar(100)
+  postalCode              String?         @db.VarChar(10)
+  latitude                Decimal?        @db.Decimal(10, 7)
+  longitude               Decimal?        @db.Decimal(10, 7)
+  parentHubId             String?
+  parentHub               Hub?            @relation("HubHierarchy", fields: [parentHubId], references: [id], onDelete: SetNull)
+  childHubs               Hub[]           @relation("HubHierarchy")
+  vehicleCapacity         Int?
+  riderCapacity           Int?
+  batteryCapacity         Int?
+  parkingSlots            Int?
+  chargingPoints          Int?
+  swappingPoints          Int?
+  contactName             String?         @db.VarChar(150)
+  contactPhone            String?         @db.VarChar(20)
+  contactEmail            String?         @db.VarChar(150)
+  openingTime             String?         @db.VarChar(5)
+  closingTime             String?         @db.VarChar(5)
+  is24x7                  Boolean         @default(false)
+  supportsCharging        Boolean         @default(false)
+  supportsBatterySwapping Boolean         @default(false)
+  supportsMaintenance     Boolean         @default(false)
+  supportsAllocation      Boolean         @default(true)
+  supportsDeallocation    Boolean         @default(true)
+  supportsPdi             Boolean         @default(false)
+  metadata                Json?
+  deletedAt               DateTime?
+  userHubs                UserHub[]
+  homeFleets              Fleet[]         @relation("FleetHomeHub")
+  currentFleets           Fleet[]         @relation("FleetCurrentHub")
+  outboundFleetTransfers  FleetTransfer[] @relation("FleetTransferFromHub")
+  inboundFleetTransfers   FleetTransfer[] @relation("FleetTransferToHub")
+  createdAt               DateTime        @default(now())
+  updatedAt               DateTime        @updatedAt
 
   @@unique([clientId, code])
+  @@index([clientId, status])
+  @@index([clientId, city])
+  @@index([parentHubId])
 }
 
 model Fleet {
-  id                 String       @id @default(uuid())
+  id                 String                   @id @default(uuid())
   clientId           String
-  client             Client       @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  hubId              String?
-  hub                Hub?         @relation(fields: [hubId], references: [id], onDelete: SetNull)
-  vehicleNumber      String
-  chassisNumber      String
-  oem                String?
-  model              String?
-  colour             String?
-  vehicleType        String?
-  motorNumber        String?
-  registrationDate   DateTime?
-  insuranceStartDate DateTime?
-  insuranceEndDate   DateTime?
-  fitnessRenewalDate DateTime?
-  status             FleetStatus  @default(AVAILABLE)
-  operationalDetails Json?
-  batteries          Battery[]
-  controllers        Controller[]
+  client             Client                   @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  fleetCode          String                   @db.VarChar(50)
+  vehicleNumber      String?                  @db.VarChar(30)
+  chassisNumber      String                   @db.VarChar(100)
+  vinNumber          String?                  @db.VarChar(100)
+  oemId              String
+  oem                Oem                      @relation(fields: [oemId], references: [id], onDelete: Restrict)
+  vehicleCategoryId  String
+  vehicleCategory    VehicleCategory          @relation(fields: [vehicleCategoryId], references: [id], onDelete: Restrict)
+  vehicleTypeId      String
+  vehicleType        VehicleType              @relation(fields: [vehicleTypeId], references: [id], onDelete: Restrict)
+  speedType          VehicleSpeedType
+  modelName          String?                  @db.VarChar(100)
+  variantName        String?                  @db.VarChar(100)
+  colour             String?                  @db.VarChar(50)
+  manufacturingYear  Int?
+  manufacturingMonth Int?
+  motorNumber        String?                  @db.VarChar(100)
+  ownershipType      FleetOwnershipType       @default(CLIENT_OWNED)
+  status             FleetStatus              @default(IN_TRANSIT)
+  allocationEnabled  Boolean                  @default(true)
+  homeHubId          String?
+  homeHub            Hub?                     @relation("FleetHomeHub", fields: [homeHubId], references: [id], onDelete: SetNull)
+  currentHubId       String?
+  currentHub         Hub?                     @relation("FleetCurrentHub", fields: [currentHubId], references: [id], onDelete: SetNull)
+  odometerKm         Decimal?                 @db.Decimal(12, 2)
+  iotDeviceId        String?                  @unique
+  iotDevice          IoTDevice?               @relation("FleetCurrentIoTDevice", fields: [iotDeviceId], references: [id], onDelete: SetNull)
+  onboardingStatus   FleetOnboardingStatus    @default(DRAFT)
+  onboardedAt        DateTime?
+  activatedAt        DateTime?
+  deactivatedAt      DateTime?
+  metadata           Json?
+  registration       FleetRegistration?
+  insurance          FleetInsurance?
+  fitness            FleetFitness?
+  documents          FleetDocument[]
   allocations        Allocation[]
-  device             IoTDevice?
+  batteryHistory     FleetBatteryHistory[]
+  controllerHistory  FleetControllerHistory[]
+  statusHistory      FleetStatusHistory[]
+  transfers          FleetTransfer[]
+  currentState       VehicleCurrentState?
   deletedAt          DateTime?
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
 
+  @@unique([clientId, fleetCode])
   @@unique([clientId, vehicleNumber])
   @@unique([clientId, chassisNumber])
+  @@unique([clientId, vinNumber])
   @@index([clientId, status])
-  @@index([clientId, hubId])
-  @@index([clientId, insuranceEndDate])
+  @@index([clientId, oemId])
+  @@index([clientId, vehicleCategoryId])
+  @@index([clientId, vehicleTypeId])
+  @@index([clientId, speedType])
+  @@index([clientId, currentHubId])
+  @@index([clientId, homeHubId])
+  @@index([clientId, onboardingStatus])
+  @@index([clientId, allocationEnabled])
+}
+
+model FleetRegistration {
+  id                   String    @id @default(uuid())
+  fleetId              String    @unique
+  fleet                Fleet     @relation(fields: [fleetId], references: [id], onDelete: Cascade)
+  registrationDate     DateTime? @db.Date
+  registeringAuthority String?   @db.VarChar(150)
+  rcExpiryDate         DateTime? @db.Date
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+}
+
+model FleetInsurance {
+  id            String         @id @default(uuid())
+  fleetId       String         @unique
+  fleet         Fleet          @relation(fields: [fleetId], references: [id], onDelete: Cascade)
+  providerName  String?        @db.VarChar(150)
+  policyNumber  String?        @db.VarChar(100)
+  insuranceType InsuranceType?
+  startDate     DateTime?      @db.Date
+  endDate       DateTime?      @db.Date
+  idv           Decimal?       @db.Decimal(12, 2)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model FleetFitness {
+  id                String    @id @default(uuid())
+  fleetId           String    @unique
+  fleet             Fleet     @relation(fields: [fleetId], references: [id], onDelete: Cascade)
+  certificateNumber String?   @db.VarChar(100)
+  issueDate         DateTime? @db.Date
+  expiryDate        DateTime? @db.Date
+  renewalDate       DateTime? @db.Date
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
+model FleetDocument {
+  id             String            @id @default(uuid())
+  fleetId        String
+  fleet          Fleet             @relation(fields: [fleetId], references: [id], onDelete: Cascade)
+  type           FleetDocumentType
+  documentNumber String?           @db.VarChar(100)
+  objectKey      String            @db.VarChar(500)
+  issuedAt       DateTime?         @db.Date
+  expiresAt      DateTime?         @db.Date
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([fleetId, type])
+  @@index([expiresAt])
 }
 
 model IoTDevice {
-  id               String   @id @default(uuid())
+  id               String               @id @default(uuid())
   clientId         String
-  fleetId          String   @unique
-  fleet            Fleet    @relation(fields: [fleetId], references: [id], onDelete: Restrict)
-  deviceNumber     String
+  client           Client               @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  deviceNumber     String               @db.VarChar(100)
+  imei             String?              @db.VarChar(30)
+  simNumber        String?              @db.VarChar(30)
+  iccid            String?              @db.VarChar(30)
+  provider         String?              @db.VarChar(100)
+  model            String?              @db.VarChar(100)
   ingestSecretHash String
-  isActive         Boolean  @default(true)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  status           IoTDeviceStatus      @default(UNASSIGNED)
+  installedAt      DateTime?
+  activatedAt      DateTime?
+  lastHeartbeatAt  DateTime?
+  lastLocationAt   DateTime?
+  metadata         Json?
+  currentFleet     Fleet?               @relation("FleetCurrentIoTDevice")
+  currentState     VehicleCurrentState?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
 
   @@unique([clientId, deviceNumber])
+  @@index([clientId, status])
 }
 
 model VehicleCurrentState {
-  id            String    @id @default(uuid())
-  clientId      String
-  fleetId       String    @unique
-  deviceId      String    @unique
-  latitude      Decimal?  @db.Decimal(9, 6)
-  longitude     Decimal?  @db.Decimal(9, 6)
-  speedKph      Decimal?  @db.Decimal(6, 2)
-  ignition      Boolean?
-  lastHeartbeat DateTime?
-  lastLocation  DateTime?
-  updatedAt     DateTime  @updatedAt
+  id              String    @id @default(uuid())
+  clientId        String
+  fleetId         String    @unique
+  fleet           Fleet     @relation(fields: [fleetId], references: [id], onDelete: Cascade)
+  iotDeviceId     String    @unique
+  iotDevice       IoTDevice @relation(fields: [iotDeviceId], references: [id], onDelete: Cascade)
+  latitude        Decimal?  @db.Decimal(10, 7)
+  longitude       Decimal?  @db.Decimal(10, 7)
+  speedKph        Decimal?  @db.Decimal(8, 2)
+  ignition        Boolean?
+  batterySoc      Int?
+  lastHeartbeatAt DateTime?
+  lastLocationAt  DateTime?
+  isOnline        Boolean   @default(false)
+  updatedAt       DateTime  @updatedAt
 
-  @@index([clientId, lastHeartbeat])
+  @@index([clientId, lastHeartbeatAt])
 }
 
 model TelemetryEvent {
@@ -764,72 +1094,288 @@ model TelemetryEvent {
 }
 
 model Battery {
-  id           String   @id @default(uuid())
-  clientId     String
-  fleetId      String
-  fleet        Fleet    @relation(fields: [fleetId], references: [id], onDelete: Restrict)
-  serialNumber String
-  batteryType  String?
-  capacityWh   Int?
-  manufacturer String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                String                @id @default(uuid())
+  clientId          String
+  client            Client                @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  batteryCode       String?               @db.VarChar(50)
+  serialNumber      String                @db.VarChar(100)
+  manufacturer      String?               @db.VarChar(100)
+  model             String?               @db.VarChar(100)
+  chemistry         BatteryChemistry?
+  capacityKwh       Decimal?              @db.Decimal(8, 3)
+  voltage           Decimal?              @db.Decimal(8, 2)
+  ampHour           Decimal?              @db.Decimal(8, 2)
+  batteryType       BatteryType
+  status            BatteryStatus         @default(AVAILABLE)
+  manufacturingDate DateTime?             @db.Date
+  warrantyStartDate DateTime?             @db.Date
+  warrantyEndDate   DateTime?             @db.Date
+  currentSoc        Int?
+  currentSoh        Int?
+  metadata          Json?
+  fleetHistory      FleetBatteryHistory[]
+  deletedAt         DateTime?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
 
   @@unique([clientId, serialNumber])
-  @@index([clientId, fleetId])
+  @@unique([clientId, batteryCode])
+  @@index([clientId, status])
+}
+
+model FleetBatteryHistory {
+  id                  String      @id @default(uuid())
+  fleetId             String
+  fleet               Fleet       @relation(fields: [fleetId], references: [id], onDelete: Cascade)
+  batteryId           String
+  battery             Battery     @relation(fields: [batteryId], references: [id], onDelete: Restrict)
+  batterySlot         BatterySlot @default(PRIMARY)
+  installedAt         DateTime
+  removedAt           DateTime?
+  installedOdometerKm Decimal?    @db.Decimal(12, 2)
+  removedOdometerKm   Decimal?    @db.Decimal(12, 2)
+  reason              String?     @db.VarChar(255)
+  createdAt           DateTime    @default(now())
+
+  @@index([fleetId, installedAt])
+  @@index([batteryId, installedAt])
+  @@index([fleetId, batterySlot, removedAt])
 }
 
 model Controller {
-  id           String   @id @default(uuid())
-  clientId     String
-  fleetId      String
-  fleet        Fleet    @relation(fields: [fleetId], references: [id], onDelete: Restrict)
-  serialNumber String
-  manufacturer String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id               String                   @id @default(uuid())
+  clientId         String
+  client           Client                   @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  controllerNumber String                   @db.VarChar(100)
+  manufacturer     String?                  @db.VarChar(100)
+  model            String?                  @db.VarChar(100)
+  ratedVoltage     Decimal?                 @db.Decimal(8, 2)
+  ratedCurrent     Decimal?                 @db.Decimal(8, 2)
+  status           ControllerStatus         @default(AVAILABLE)
+  metadata         Json?
+  fleetHistory     FleetControllerHistory[]
+  deletedAt        DateTime?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
 
-  @@unique([clientId, serialNumber])
+  @@unique([clientId, controllerNumber])
+  @@index([clientId, status])
+}
+
+model FleetControllerHistory {
+  id           String     @id @default(uuid())
+  fleetId      String
+  fleet        Fleet      @relation(fields: [fleetId], references: [id], onDelete: Cascade)
+  controllerId String
+  controller   Controller @relation(fields: [controllerId], references: [id], onDelete: Restrict)
+  installedAt  DateTime
+  removedAt    DateTime?
+  reason       String?    @db.VarChar(255)
+  createdAt    DateTime   @default(now())
+
+  @@index([fleetId, installedAt])
+  @@index([controllerId, installedAt])
+}
+
+model FleetStatusHistory {
+  id              String       @id @default(uuid())
+  fleetId         String
+  fleet           Fleet        @relation(fields: [fleetId], references: [id], onDelete: Cascade)
+  fromStatus      FleetStatus?
+  toStatus        FleetStatus
+  changedByUserId String?
+  reason          String?      @db.VarChar(255)
+  createdAt       DateTime     @default(now())
+
+  @@index([fleetId, createdAt])
+}
+
+model FleetTransfer {
+  id            String              @id @default(uuid())
+  clientId      String
+  client        Client              @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  fleetId       String
+  fleet         Fleet               @relation(fields: [fleetId], references: [id], onDelete: Restrict)
+  fromHubId     String?
+  fromHub       Hub?                @relation("FleetTransferFromHub", fields: [fromHubId], references: [id], onDelete: SetNull)
+  toHubId       String
+  toHub         Hub                 @relation("FleetTransferToHub", fields: [toHubId], references: [id], onDelete: Restrict)
+  status        FleetTransferStatus @default(INITIATED)
+  initiatedById String?
+  initiatedAt   DateTime            @default(now())
+  receivedById  String?
+  receivedAt    DateTime?
+  notes         String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
   @@index([clientId, fleetId])
+  @@index([clientId, fromHubId])
+  @@index([clientId, toHubId])
 }
 
 model User {
-  id        String     @id @default(uuid())
-  clientId  String?
-  client    Client?    @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  mobile    String
-  name      String
-  role      UserRole
-  isActive  Boolean    @default(true)
-  sessions  Session[]
-  rider     Rider?
-  auditLogs AuditLog[] @relation("AuditActor")
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id                String             @id @default(uuid())
+  clientId          String?
+  client            Client?            @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  mobile            String
+  name              String
+  role              UserRole
+  isActive          Boolean            @default(true)
+  sessions          Session[]
+  rider             Rider?
+  hubAssignments    UserHub[]
+  teamLeaderProfile TeamLeaderProfile?
+  auditLogs         AuditLog[]         @relation("AuditActor")
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 
   @@unique([clientId, mobile])
   @@index([clientId, role, isActive])
 }
 
 model Rider {
-  id          String       @id @default(uuid())
-  clientId    String
-  client      Client       @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  userId      String?      @unique
-  user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
-  name        String
-  mobile      String
-  address     String?
-  status      RiderStatus  @default(PENDING)
-  deletedAt   DateTime?
-  kycs        RiderKyc[]
-  allocations Allocation[]
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  id                     String            @id @default(uuid())
+  clientId               String
+  client                 Client            @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  userId                 String?           @unique
+  user                   User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name                   String
+  mobile                 String
+  address                String?
+  riderCode              String?           @db.VarChar(50)
+  dateOfBirth            DateTime?         @db.Date
+  gender                 Gender?
+  addressLine1           String?           @db.VarChar(255)
+  addressLine2           String?           @db.VarChar(255)
+  city                   String?           @db.VarChar(100)
+  state                  String?           @db.VarChar(100)
+  postalCode             String?           @db.VarChar(10)
+  emergencyContactName   String?           @db.VarChar(150)
+  emergencyContactMobile String?           @db.VarChar(20)
+  status                 RiderStatus       @default(ONBOARDING)
+  joiningDate            DateTime?         @db.Date
+  exitDate               DateTime?         @db.Date
+  metadata               Json?
+  deletedAt              DateTime?
+  kycs                   RiderKyc[]
+  allocations            Allocation[]
+  teamLeaders            TeamLeaderRider[]
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
 
   @@unique([clientId, mobile])
+  @@unique([clientId, riderCode])
   @@index([clientId, status])
   @@index([clientId, name])
+}
+
+model UserHub {
+  id        String   @id @default(uuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hubId     String
+  hub       Hub      @relation(fields: [hubId], references: [id], onDelete: Cascade)
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, hubId])
+  @@index([clientId, hubId])
+  @@index([clientId, userId])
+}
+
+model TeamLeaderProfile {
+  id           String            @id @default(uuid())
+  clientId     String
+  client       Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  userId       String            @unique
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  employeeCode String?           @db.VarChar(50)
+  designation  String?           @db.VarChar(100)
+  joiningDate  DateTime?         @db.Date
+  leavingDate  DateTime?         @db.Date
+  metadata     Json?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  deletedAt    DateTime?
+  riders       TeamLeaderRider[]
+
+  @@unique([clientId, employeeCode])
+  @@index([clientId, deletedAt])
+}
+
+model TeamLeaderRider {
+  id           String            @id @default(uuid())
+  clientId     String
+  client       Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  teamLeaderId String
+  teamLeader   TeamLeaderProfile @relation(fields: [teamLeaderId], references: [id], onDelete: Cascade)
+  riderId      String
+  rider        Rider             @relation(fields: [riderId], references: [id], onDelete: Cascade)
+  isPrimary    Boolean           @default(true)
+  isActive     Boolean           @default(true)
+  assignedAt   DateTime          @default(now())
+  removedAt    DateTime?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@unique([teamLeaderId, riderId])
+  @@index([clientId, teamLeaderId, isActive])
+  @@index([clientId, riderId, isActive])
+}
+
+model ClientOnboardingProgress {
+  id          String                       @id @default(uuid())
+  clientId    String                       @unique
+  client      Client                       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  currentStep ClientOnboardingStep         @default(HUBS)
+  submittedAt DateTime?
+  createdAt   DateTime                     @default(now())
+  updatedAt   DateTime                     @updatedAt
+  steps       ClientOnboardingStepRecord[]
+}
+
+model ClientOnboardingStepRecord {
+  id          String                     @id @default(uuid())
+  clientId    String
+  client      Client                     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  progressId  String
+  progress    ClientOnboardingProgress   @relation(fields: [progressId], references: [id], onDelete: Cascade)
+  step        ClientOnboardingStep
+  status      ClientOnboardingStepStatus @default(NOT_STARTED)
+  savedAt     DateTime?
+  completedAt DateTime?
+  skippedAt   DateTime?
+  updatedById String?
+  createdAt   DateTime                   @default(now())
+  updatedAt   DateTime                   @updatedAt
+
+  @@unique([progressId, step])
+  @@index([clientId, step, status])
+}
+
+model ImportJob {
+  id               String           @id @default(uuid())
+  clientId         String
+  client           Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  entityType       ImportEntityType
+  status           ImportStatus
+  originalFilename String
+  totalRows        Int              @default(0)
+  passedRows       Int              @default(0)
+  failedRows       Int              @default(0)
+  duplicateRows    Int              @default(0)
+  createdRows      Int              @default(0)
+  failureReportKey String?
+  createdById      String
+  createdAt        DateTime         @default(now())
+  completedAt      DateTime?
+  metadata         Json?
+
+  @@index([clientId, entityType, createdAt])
 }
 
 model Allocation {

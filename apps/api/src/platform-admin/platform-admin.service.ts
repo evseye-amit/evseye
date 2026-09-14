@@ -690,7 +690,7 @@ export class PlatformAdminService {
             slug: dto.companyCode,
             companyCode: dto.companyCode,
             status: ClientStatus.DRAFT,
-            isActive: false,
+            isActive: true,
           },
         });
         await tx.clientBusinessProfile.create({
@@ -734,7 +734,11 @@ export class PlatformAdminService {
         businessProfile: true,
         contacts: true,
         addresses: true,
-        operationsProfile: { include: { primaryVehicleType: true } },
+        operationsProfile: {
+          include: {
+            vehicleCategories: { include: { vehicleCategory: true } },
+          },
+        },
         billingProfile: true,
         documents: { orderBy: { createdAt: 'desc' } },
         agreement: true,
@@ -833,22 +837,38 @@ export class PlatformAdminService {
     actorId: string,
   ) {
     await this.requireDraftClient(clientId);
-    const vehicleType = await this.prisma.vehicleType.findFirst({
-      where: { id: dto.primaryVehicleTypeId, status: 'ACTIVE' },
+    const vehicleCategoryIds = [...new Set(dto.vehicleCategoryIds)];
+    const vehicleCategories = await this.prisma.vehicleCategory.findMany({
+      where: { id: { in: vehicleCategoryIds }, status: 'ACTIVE' },
     });
-    if (!vehicleType)
-      throw new NotFoundException('Select an active Vehicle Type.');
-    await this.prisma.clientOperationsProfile.upsert({
-      where: { clientId },
-      create: { clientId, ...dto },
-      update: { ...dto },
+    if (vehicleCategories.length !== vehicleCategoryIds.length)
+      throw new NotFoundException(
+        'Select one or more active Vehicle Categories.',
+      );
+    const { vehicleCategoryIds: _vehicleCategoryIds, ...operations } = dto;
+    await this.prisma.$transaction(async (tx) => {
+      const profile = await tx.clientOperationsProfile.upsert({
+        where: { clientId },
+        create: { clientId, ...operations },
+        update: operations,
+      });
+      await tx.clientOperationsVehicleCategory.deleteMany({
+        where: { operationsProfileId: profile.id },
+      });
+      await tx.clientOperationsVehicleCategory.createMany({
+        data: vehicleCategoryIds.map((vehicleCategoryId) => ({
+          clientId,
+          operationsProfileId: profile.id,
+          vehicleCategoryId,
+        })),
+      });
     });
     await this.audit.record({
       actorId,
       action: 'CLIENT_OPERATIONS_SAVED',
       entityType: 'Client',
       entityId: clientId,
-      newData: { primaryVehicleTypeId: dto.primaryVehicleTypeId },
+      newData: { vehicleCategoryIds },
     });
     return this.clientDetail(clientId);
   }
@@ -1126,16 +1146,12 @@ export class PlatformAdminService {
             name: admin.name,
             mobile: admin.mobile!,
             role: UserRole.CLIENT_ADMIN,
-            isActive: false,
+            isActive: true,
           },
         });
         await tx.client.update({
           where: { id: clientId },
-          data: { status: ClientStatus.PENDING_APPROVAL, isActive: false },
-        });
-        await tx.clientAgreement.update({
-          where: { clientId },
-          data: { submittedAt: new Date() },
+          data: { status: ClientStatus.CREATED, isActive: true },
         });
       });
     } catch (error) {
@@ -1147,7 +1163,7 @@ export class PlatformAdminService {
     }
     await this.audit.record({
       actorId,
-      action: 'CLIENT_SUBMITTED_FOR_APPROVAL',
+      action: 'CLIENT_CREATED',
       entityType: 'Client',
       entityId: clientId,
     });
@@ -1196,7 +1212,13 @@ export class PlatformAdminService {
     await this.prisma.$transaction([
       this.prisma.client.update({
         where: { id: clientId },
-        data: { status: ClientStatus.REJECTED, isActive: false },
+        // A rejected onboarding is returned to the Client Admin for correction,
+        // not disabled. SUSPENDED is the status that blocks workspace access.
+        data: { status: ClientStatus.REJECTED, isActive: true },
+      }),
+      this.prisma.user.updateMany({
+        where: { clientId, role: UserRole.CLIENT_ADMIN },
+        data: { isActive: true },
       }),
       this.prisma.clientAgreement.update({
         where: { clientId },

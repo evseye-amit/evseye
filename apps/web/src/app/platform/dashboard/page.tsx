@@ -158,8 +158,8 @@ const emptyClient = {
   businessFleetName: "",
   companyCode: "",
   legalEntityName: "",
-  clientType: "FLEET_OPERATOR",
-  businessType: "PVT_LTD",
+  clientType: "",
+  businessType: "",
   industry: "",
   gstin: "",
   pan: "",
@@ -196,14 +196,14 @@ const emptyClient = {
   billingState: "",
   billingCountry: "India",
   billingPinCode: "",
-  fleetBusinessModel: "OWNED",
+  fleetBusinessModel: "",
   numberOfFleets: "",
   approximateRiderCount: "",
-  vehicleOwnership: "OWNED",
-  primaryVehicleTypeId: "",
+  vehicleOwnership: "",
+  vehicleCategoryIds: [] as string[],
   operationalHubCount: "",
   packageId: "",
-  billingCycle: "MONTHLY",
+  billingCycle: "",
   startDate: new Date().toISOString().slice(0, 10),
   endDate: "",
   trialRequired: false,
@@ -243,7 +243,7 @@ const emptyVehicleType = {
   name: "",
   subCategory: "",
   description: "",
-  energyType: "ELECTRIC",
+  energyType: "",
   usageType: "",
   status: "ACTIVE",
 };
@@ -265,17 +265,17 @@ const emptyFeature = {
   code: "",
   name: "",
   description: "",
-  category: "RIDER_ONBOARDING",
-  featureType: "BOOLEAN",
-  billingUnit: "MONTH",
+  category: "",
+  featureType: "",
+  billingUnit: "",
   displayOrder: "0",
   isActive: true,
 };
 const emptyPricing = {
   featureId: "",
-  pricingName: "",
-  pricingModel: "PER_UNIT",
-  billingUnit: "VERIFICATION",
+  pricingModel: "",
+  billingUnit: "",
+
   currency: "INR",
   basePrice: "0",
   unitPrice: "",
@@ -283,7 +283,7 @@ const emptyPricing = {
   minimumCharge: "",
   maximumCharge: "",
   setupFee: "0",
-  billingCycle: "MONTHLY",
+  billingCycle: "",
   taxInclusive: false,
   effectiveFrom: new Date().toISOString().slice(0, 10),
   effectiveTo: "",
@@ -309,17 +309,19 @@ function Metric({
   label,
   value,
   tone,
+  detail,
 }: {
   label: string;
   value: string | number;
   tone: string;
+  detail?: string;
 }) {
   return (
     <article className="sa-metric">
       <span className={`sa-icon ${tone}`}>◈</span>
       <strong>{value}</strong>
       <small>{label}</small>
-      <em>Live</em>
+      <em>{detail ?? "Live"}</em>
     </article>
   );
 }
@@ -702,7 +704,6 @@ export default function SuperAdminDashboard() {
     if (item) {
       setPrice({
         featureId: item.featureId,
-        pricingName: item.pricingName ?? "",
         pricingModel: item.pricingModel,
         billingUnit: item.billingUnit,
         basePrice: String(item.basePrice ?? 0),
@@ -1394,6 +1395,9 @@ export default function SuperAdminDashboard() {
             `/platform/clients/${client.id}/contacts-addresses`,
             {
               method: "PATCH",
+              // This endpoint has a step-specific DTO. Send only contact and
+              // address fields so the API can keep its strict whitelist on.
+
               body: JSON.stringify({
                 primaryContactName: client.primaryContactName,
                 primaryDesignation: client.primaryDesignation,
@@ -1403,16 +1407,17 @@ export default function SuperAdminDashboard() {
                   ? { alternateMobile: client.alternateMobile }
                   : {}),
                 adminSameAsPrimary: client.adminSameAsPrimary,
-                ...(!client.adminSameAsPrimary
-                  ? {
+                ...(client.adminSameAsPrimary
+                  ? {}
+                  : {
                       adminName: client.adminName,
                       adminMobile: client.adminMobile,
                       adminEmail: client.adminEmail,
                       ...(client.adminDesignation
                         ? { adminDesignation: client.adminDesignation }
                         : {}),
-                    }
-                  : {}),
+                    }),
+
                 registeredAddressLine1: client.registeredAddressLine1,
                 ...(client.registeredAddressLine2
                   ? { registeredAddressLine2: client.registeredAddressLine2 }
@@ -1424,8 +1429,9 @@ export default function SuperAdminDashboard() {
                 ...(client.country ? { country: client.country } : {}),
                 pinCode: client.pinCode,
                 billingSameAsRegistered: client.billingSameAsRegistered,
-                ...(!client.billingSameAsRegistered
-                  ? {
+                ...(client.billingSameAsRegistered
+                  ? {}
+                  : {
                       billingAddressLine1: client.billingAddressLine1,
                       ...(client.billingAddressLine2
                         ? { billingAddressLine2: client.billingAddressLine2 }
@@ -1442,8 +1448,7 @@ export default function SuperAdminDashboard() {
                         ? { billingCountry: client.billingCountry }
                         : {}),
                       billingPinCode: client.billingPinCode,
-                    }
-                  : {}),
+                    }),
               }),
             },
             token,
@@ -1461,12 +1466,10 @@ export default function SuperAdminDashboard() {
                 numberOfFleets: Number(client.numberOfFleets),
                 approximateRiderCount: Number(client.approximateRiderCount),
                 vehicleOwnership: client.vehicleOwnership,
-                primaryVehicleTypeId: client.primaryVehicleTypeId,
-                ...(client.operationalHubCount
-                  ? {
-                      operationalHubCount: Number(client.operationalHubCount),
-                    }
-                  : {}),
+                vehicleCategoryIds: client.vehicleCategoryIds,
+                operationalHubCount: numberOrUndefined(
+                  client.operationalHubCount,
+                ),
               }),
             },
             token,
@@ -1565,7 +1568,7 @@ export default function SuperAdminDashboard() {
         );
       },
       clientStep === 6
-        ? "Client submitted for Super Admin approval."
+        ? "Client workspace created. The Client Admin can now sign in."
         : "Draft saved.",
       () => {
         if (clientStep === 6) {
@@ -1582,6 +1585,34 @@ export default function SuperAdminDashboard() {
     await submit(
       () => request(path, { method: "DELETE" }, token),
       `${label} deleted.`,
+    );
+  }
+  async function approveClient(clientId: string) {
+    await submit(
+      () =>
+        request(
+          `/platform/clients/${clientId}/approve`,
+          { method: "POST" },
+          token,
+        ),
+      "Client approved and activated.",
+    );
+  }
+  async function rejectClient(clientId: string) {
+    const reason = window.prompt("Enter the reason for rejecting this Client.");
+    if (reason === null) return;
+    if (!reason.trim()) {
+      setError("A rejection reason is required.");
+      return;
+    }
+    await submit(
+      () =>
+        request(
+          `/platform/clients/${clientId}/reject`,
+          { method: "POST", body: JSON.stringify({ reason: reason.trim() }) },
+          token,
+        ),
+      "Client rejected. The Client Admin will see the correction message.",
     );
   }
   async function submit(
@@ -1605,7 +1636,136 @@ export default function SuperAdminDashboard() {
     }
   }
   function changeClient(key: string, value: unknown) {
-    setClient((current) => ({ ...current, [key]: value }));
+    const normalizedValue =
+      typeof value === "string" && (key === "pan" || key === "gstin")
+        ? value.toUpperCase()
+        : value;
+    setClient((current) => ({ ...current, [key]: normalizedValue }));
+  }
+  async function editClientDraft(
+    clientId: string,
+    trigger?: HTMLButtonElement,
+  ) {
+    if (trigger) clientTriggerRef.current = trigger;
+    await submit(async () => {
+      const detail = (await request(
+        `/platform/clients/${clientId}`,
+        {},
+        token,
+      )) as Item;
+      const profile = (detail.businessProfile ?? {}) as Item;
+      const contacts = (detail.contacts ?? []) as Item[];
+      const addresses = (detail.addresses ?? []) as Item[];
+      const primary = contacts.find((item) => item.role === "PRIMARY") ?? {};
+      const admin =
+        contacts.find((item) => item.role === "ACCOUNT_ADMIN") ?? {};
+      const registered =
+        addresses.find((item) => item.type === "REGISTERED") ?? {};
+      const billing = addresses.find((item) => item.type === "BILLING") ?? {};
+      const operations = (detail.operationsProfile ?? {}) as Item;
+      const subscription = ((detail.subscriptions ?? []) as Item[])[0] ?? {};
+      const billingProfile = (detail.billingProfile ?? {}) as Item;
+      const agreement = (detail.agreement ?? {}) as Item;
+      const sameAdmin =
+        !admin.id ||
+        (admin.name === primary.name &&
+          admin.mobile === primary.mobile &&
+          admin.email === primary.email);
+      const sameBilling =
+        !billing.id ||
+        (billing.line1 === registered.line1 &&
+          billing.city === registered.city &&
+          billing.state === registered.state &&
+          billing.pinCode === registered.pinCode);
+      const dateValue = (value: unknown) =>
+        value ? String(value).slice(0, 10) : "";
+
+      setClient((current) => ({
+        ...current,
+        id: detail.id,
+        businessFleetName: detail.name ?? "",
+        companyCode: detail.companyCode ?? detail.slug ?? "",
+        legalEntityName: profile.legalCompanyName ?? "",
+        clientType: profile.clientType ?? "",
+        businessType: profile.businessType ?? "",
+        industry: profile.industry ?? "",
+        gstin: profile.gstin ?? "",
+        pan: profile.pan ?? "",
+        cinOrLlpin: profile.cinOrLlpin ?? "",
+        website: profile.website ?? "",
+        yearEstablished: profile.yearEstablished ?? "",
+        estimatedFleetSize: profile.estimatedFleetSize ?? "",
+        estimatedRiderCount: profile.estimatedRiderCount ?? "",
+        estimatedUserCount: profile.estimatedUserCount ?? "",
+        primaryContactName: primary.name ?? "",
+        primaryDesignation: primary.designation ?? "",
+        primaryMobile: primary.mobile ?? "",
+        primaryEmail: primary.email ?? "",
+        alternateMobile: primary.alternateMobile ?? "",
+        adminSameAsPrimary: sameAdmin,
+        adminName: sameAdmin ? "" : (admin.name ?? ""),
+        adminDesignation: sameAdmin ? "" : (admin.designation ?? ""),
+        adminMobile: sameAdmin ? "" : (admin.mobile ?? ""),
+        adminEmail: sameAdmin ? "" : (admin.email ?? ""),
+        registeredAddressLine1: registered.line1 ?? "",
+        registeredAddressLine2: registered.line2 ?? "",
+        landmark: registered.landmark ?? "",
+        city: registered.city ?? "",
+        district: registered.district ?? "",
+        state: registered.state ?? "",
+        country: registered.country ?? "India",
+        pinCode: registered.pinCode ?? "",
+        billingSameAsRegistered: sameBilling,
+        billingAddressLine1: sameBilling ? "" : (billing.line1 ?? ""),
+        billingAddressLine2: sameBilling ? "" : (billing.line2 ?? ""),
+        billingLandmark: sameBilling ? "" : (billing.landmark ?? ""),
+        billingCity: sameBilling ? "" : (billing.city ?? ""),
+        billingDistrict: sameBilling ? "" : (billing.district ?? ""),
+        billingState: sameBilling ? "" : (billing.state ?? ""),
+        billingCountry: sameBilling ? "India" : (billing.country ?? "India"),
+        billingPinCode: sameBilling ? "" : (billing.pinCode ?? ""),
+        fleetBusinessModel: operations.fleetBusinessModel ?? "",
+        numberOfFleets: operations.numberOfFleets ?? "",
+        approximateRiderCount: operations.approximateRiderCount ?? "",
+        vehicleOwnership: operations.vehicleOwnership ?? "",
+        vehicleCategoryIds: (operations.vehicleCategories ?? []).map(
+          (item: Item) => item.vehicleCategoryId,
+        ),
+        operationalHubCount: operations.operationalHubCount ?? "",
+        packageId: subscription.packageId ?? "",
+        billingCycle: subscription.billingCycle ?? "",
+        startDate: dateValue(subscription.startDate) || current.startDate,
+        endDate: dateValue(subscription.endDate),
+        autoRenew: subscription.autoRenew ?? true,
+        billingContactName: billingProfile.billingContactName ?? "",
+        billingEmail: billingProfile.billingEmail ?? "",
+        billingMobile: billingProfile.billingMobile ?? "",
+        purchaseOrderRequired: billingProfile.purchaseOrderRequired ?? false,
+        poNumber: billingProfile.poNumber ?? "",
+        paymentTerms: billingProfile.paymentTerms ?? "",
+        authorizedSignatoryName: agreement.authorizedSignatoryName ?? "",
+        signatoryDesignation: agreement.designation ?? "",
+        termsAccepted: Boolean(agreement.termsAcceptedAt),
+        privacyAccepted: Boolean(agreement.privacyAcceptedAt),
+        dataProcessingConsent: Boolean(agreement.dataProcessingConsentAt),
+        kycConsent: Boolean(agreement.kycConsentAt),
+        marketingConsent: Boolean(agreement.marketingConsentAt),
+        uploadedDocuments: detail.documents ?? [],
+      }));
+      setClientDocumentFiles({});
+      setShowClientForm(true);
+      setClientStep(
+        !primary.id || !registered.id
+          ? 2
+          : !operations.id
+            ? 3
+            : !subscription.id
+              ? 4
+              : !billingProfile.id
+                ? 5
+                : 6,
+      );
+    }, "Draft loaded. Continue from the next incomplete step.");
   }
   if (!token)
     return (
@@ -1738,7 +1898,6 @@ export default function SuperAdminDashboard() {
           <DashboardView
             summary={summary}
             clients={clients}
-            packages={packages}
             oems={oems}
             setTab={setTab}
           />
@@ -1747,7 +1906,7 @@ export default function SuperAdminDashboard() {
           <ClientsView
             clients={clients}
             packages={packages}
-            vehicleTypes={vehicleTypes}
+            vehicleCategories={vehicleCategories}
             showForm={showClientForm}
             setShowForm={setShowClientForm}
             client={client}
@@ -1762,6 +1921,9 @@ export default function SuperAdminDashboard() {
             closeDialog={closeClientModal}
             documentFiles={clientDocumentFiles}
             setDocumentFiles={setClientDocumentFiles}
+            approveClient={approveClient}
+            rejectClient={rejectClient}
+            editClient={editClientDraft}
           />
         )}
         {tab === "clientFeaturesPricing" && (
@@ -1855,6 +2017,7 @@ export default function SuperAdminDashboard() {
                     Cancel
                   </button>
                   <button type="submit" disabled={loading}>
+
                     {editingOemId ? "Update OEM" : "Save OEM"}
                   </button>
                 </>
@@ -2178,6 +2341,7 @@ export default function SuperAdminDashboard() {
                       className="secondary"
                       onClick={closeVehicleTypeModal}
                       disabled={loading}
+
                     >
                       Cancel
                     </button>
@@ -2190,7 +2354,9 @@ export default function SuperAdminDashboard() {
                 }
               >
                 <label>
-                  Vehicle Category
+                  <span className="sa-label-text">
+                    Vehicle Category <span className="sa-required-star">*</span>
+                  </span>
                   <select
                     required
                     value={vehicleType.categoryId}
@@ -2207,6 +2373,7 @@ export default function SuperAdminDashboard() {
                       .map((item) => (
                         <option key={item.id} value={item.id}>
                           {item.code} · {item.name}
+
                         </option>
                       ))}
                   </select>
@@ -2431,16 +2598,21 @@ export default function SuperAdminDashboard() {
                   ]}
                 />
                 <label>
-                  Feature category
+                  <span className="sa-label-text">
+                    Feature category <span className="sa-required-star">*</span>
+                  </span>
                   <select
+                    required
                     value={feature.category}
                     onChange={(event) =>
+
                       setFeature((current) => ({
                         ...current,
                         category: event.target.value,
                       }))
                     }
                   >
+                    <option value="">Select feature category</option>
                     {featureCategories.map(([value, label]) => (
                       <option key={value} value={value}>
                         {label}
@@ -2449,6 +2621,7 @@ export default function SuperAdminDashboard() {
                   </select>
                 </label>
                 <Select
+                  label="Feature type"
                   value={feature.featureType}
                   change={(value) =>
                     setFeature((current) => ({
@@ -2457,8 +2630,10 @@ export default function SuperAdminDashboard() {
                     }))
                   }
                   options={featureTypes}
+                  required
                 />
                 <Select
+                  label="Billing unit"
                   value={feature.billingUnit}
                   change={(value) =>
                     setFeature((current) => ({
@@ -2467,17 +2642,20 @@ export default function SuperAdminDashboard() {
                     }))
                   }
                   options={featureBillingUnits}
+                  required
                 />
                 <label className="sa-toggle">
                   <input
                     type="checkbox"
                     checked={feature.isActive}
                     onChange={(event) =>
+
                       setFeature((current) => ({
                         ...current,
                         isActive: event.target.checked,
                       }))
                     }
+
                   />
                   Active feature
                 </label>
@@ -2675,7 +2853,12 @@ export default function SuperAdminDashboard() {
                           checked={packageFeatures.some(
                             (item) => item.featureId === feature.id,
                           )}
-                          disabled={!feature.isActive}
+                          disabled={
+                            !feature.isActive &&
+                            !packageFeatures.some(
+                              (item) => item.featureId === feature.id,
+                            )
+                          }
                           onChange={(event) =>
                             setPackageFeatures((current) =>
                               event.target.checked
@@ -2872,7 +3055,11 @@ export default function SuperAdminDashboard() {
           <PackageFeaturesView packages={packages} />
         )}
         {tab === "pricingTiers" && (
-          <FeaturePricingTiersView pricing={pricing} />
+          <FeaturePricingTiersView
+            pricing={pricing}
+            token={token}
+            onSaved={() => void load()}
+          />
         )}
         {tab === "pricing" && (
           <>
@@ -2914,6 +3101,7 @@ export default function SuperAdminDashboard() {
                       className="secondary"
                       onClick={closePricingModal}
                       disabled={loading}
+
                     >
                       Cancel
                     </button>
@@ -2926,7 +3114,9 @@ export default function SuperAdminDashboard() {
                 }
               >
                 <label>
-                  Feature
+                  <span className="sa-label-text">
+                    Feature <span className="sa-required-star">*</span>
+                  </span>
                   <select
                     value={price.featureId}
                     onChange={(event) => {
@@ -2966,6 +3156,7 @@ export default function SuperAdminDashboard() {
                     }))
                   }
                   options={pricingModels}
+                  required
                 />
                 <TextFields
                   value={price}
@@ -2973,7 +3164,6 @@ export default function SuperAdminDashboard() {
                     setPrice((current) => ({ ...current, [key]: value }))
                   }
                   fields={[
-                    ["pricingName", "Pricing name"],
                     ["billingUnit", "Billing unit"],
                     ["basePrice", "Base price"],
                     ["unitPrice", "Unit price"],
@@ -3001,6 +3191,7 @@ export default function SuperAdminDashboard() {
                   <select
                     value={price.currency}
                     onChange={(event) =>
+
 
                       setPrice((current) => ({
                         ...current,
@@ -3101,6 +3292,11 @@ export default function SuperAdminDashboard() {
                             ["unitPrice", "Unit price"],
                             ["costPrice", "Cost price"],
                           ]}
+                          requiredKeys={[
+                            "tierOrder",
+                            "fromQuantity",
+                            "unitPrice",
+                          ]}
                         />
                         <button
                           type="button"
@@ -3123,20 +3319,20 @@ export default function SuperAdminDashboard() {
                 )}
               </CatalogFormDialog>
 
+
               {pricing.length ? (
                 <DataTable
                   headings={[
                     "Feature",
-                    "Price name",
                     "Model",
                     "Price",
                     "Effective from",
                     "Status",
                     "",
+                    "",
                   ]}
                   rows={pricing.map((item) => [
                     item.feature?.name,
-                    item.pricingName ?? "—",
                     item.pricingModel,
                     `${item.currency} ${item.unitPrice}`,
                     new Date(item.effectiveFrom).toLocaleDateString(),
@@ -3195,58 +3391,159 @@ export default function SuperAdminDashboard() {
 function DashboardView({
   summary,
   clients,
-  packages,
   oems,
   setTab,
 }: {
   summary: Item;
   clients: Item[];
-  packages: Item[];
   oems: Item[];
   setTab: (tab: Tab) => void;
 }) {
+  const fleetStatus = summary.fleetsByStatus ?? {};
+  const riderStatus = summary.ridersByStatus ?? {};
+  const clientStatus = summary.clientsByStatus ?? {};
+  const clientSlices = [
+    ["Created", Number(clientStatus.CREATED ?? 0), "#367eb5"],
+    ["Active", Number(clientStatus.ACTIVE ?? 0), "#2d8662"],
+    ["Pending", Number(clientStatus.PENDING_APPROVAL ?? 0), "#d5913a"],
+    ["Draft", Number(clientStatus.DRAFT ?? 0), "#8092a2"],
+    ["Rejected", Number(clientStatus.REJECTED ?? 0), "#c15e5e"],
+    ["Suspended", Number(clientStatus.SUSPENDED ?? 0), "#d26551"],
+  ] as const;
+  const clientTotal = clientSlices.reduce(
+    (total, [, count]) => total + count,
+    0,
+  );
+  let cursor = 0;
+  const clientGradient = clientSlices
+    .filter(([, count]) => count > 0)
+    .map(([, count, color]) => {
+      const start = (cursor / Math.max(clientTotal, 1)) * 100;
+      cursor += count;
+      const end = (cursor / Math.max(clientTotal, 1)) * 100;
+      return `${color} ${start}% ${end}%`;
+    })
+    .join(", ");
+  const fleetBars = [
+    ["Available", Number(fleetStatus.AVAILABLE ?? 0), "#2d8662"],
+    [
+      "Allocated",
+      Number(fleetStatus.ALLOCATED ?? 0) + Number(fleetStatus.IN_USE ?? 0),
+      "#367eb5",
+    ],
+    ["Maintenance", Number(fleetStatus.MAINTENANCE ?? 0), "#d5913a"],
+    [
+      "Offline",
+      Number(fleetStatus.OFFLINE ?? 0) +
+        Number(fleetStatus.OUT_OF_SERVICE ?? 0),
+      "#d26551",
+    ],
+  ] as const;
+  const maxFleetBar = Math.max(...fleetBars.map(([, count]) => count), 1);
+  const catalogItems = [
+    [
+      "Vehicle categories",
+      Number(summary.vehicleCategories ?? 0),
+      "vehicleCategories",
+    ],
+    ["Vehicle types", Number(summary.vehicleTypes ?? 0), "vehicleTypes"],
+    ["OEMs", Number(summary.oems ?? oems.length), "oems"],
+    ["Features", Number(summary.features ?? 0), "features"],
+    ["Price rules", Number(summary.pricing ?? 0), "pricing"],
+  ] as const;
+
   return (
     <>
       <section className="sa-metrics">
         <Metric
-          label="Total clients"
-          value={summary.clients ?? 0}
+          label="Active clients"
+          value={summary.activeClients ?? 0}
+          detail={`${summary.pendingClients ?? 0} pending`}
           tone="green"
         />
         <Metric
-          label="Active vehicles"
+          label="Total fleet"
           value={summary.fleets ?? 0}
+          detail={`${fleetStatus.AVAILABLE ?? 0} available`}
+          tone="blue"
+        />
+        <Metric
+          label="Active riders"
+          value={riderStatus.ACTIVE ?? 0}
+          detail={`${summary.riders ?? 0} total`}
+          tone="gold"
+        />
+        <Metric
+          label="Live subscriptions"
+          value={summary.subscriptions ?? 0}
+          detail={`${summary.packages ?? 0} packages`}
+          tone="purple"
+        />
+      </section>
+      <section className="sa-metrics sa-metrics-secondary">
+        <Metric
+          label="Approval pending"
+          value={summary.pendingClients ?? 0}
+          detail="Clients awaiting decision"
+          tone="gold"
+        />
+        <Metric
+          label="Client pipeline"
+          value={summary.clients ?? 0}
+          detail={`${summary.pendingClients ?? 0} awaiting review`}
           tone="coral"
         />
-        <Metric label="Active riders" value={summary.riders ?? 0} tone="gold" />
         <Metric
-          label="Active packages"
-          value={summary.packages ?? 0}
-          tone="green"
+          label="Platform OEMs"
+          value={summary.oems ?? oems.length}
+          detail="Master controlled"
+          tone="blue"
+        />
+        <Metric
+          label="Billable features"
+          value={summary.pricing ?? 0}
+          detail={`${summary.features ?? 0} catalog features`}
+          tone="gold"
+        />
+        <Metric
+          label="Riders awaiting activation"
+          value={riderStatus.PENDING ?? 0}
+          detail={`${riderStatus.BLOCKED ?? 0} blocked`}
+          tone="coral"
         />
       </section>
       <section className="sa-dashboard-grid">
-        <article className="sa-card sa-revenue">
+        <article className="sa-card sa-fleet-chart">
           <div className="sa-card-head">
             <div>
-              <h3>Platform revenue</h3>
-              <p>Commercial catalogue health</p>
+              <h3>Fleet operational health</h3>
+              <p>Current fleet availability across all clients</p>
             </div>
-            <button className="secondary" onClick={() => setTab("packages")}>
-              Manage packages
+            <button className="secondary" onClick={() => setTab("clients")}>
+              View clients
             </button>
           </div>
-          <div className="sa-revenue-bars">
-            {["Jan", "Feb", "Mar", "Apr", "May", "Jun"].map((month, index) => (
-              <div key={month}>
-                <span style={{ height: `${35 + index * 9}%` }}></span>
-                <small>{month}</small>
+          <div className="sa-health-bars">
+            {fleetBars.map(([label, count, color]) => (
+              <div key={label}>
+                <div className="sa-health-label">
+                  <span>{label}</span>
+                  <strong>{count}</strong>
+                </div>
+                <span className="sa-health-track">
+                  <i
+                    style={{
+                      width: `${(count / maxFleetBar) * 100}%`,
+                      background: color,
+                    }}
+                  />
+                </span>
               </div>
             ))}
           </div>
           <p className="sa-footnote">
-            Pricing and usage reporting begins as clients activate
-            subscriptions.
+            {summary.fleets ?? 0} active fleet records are monitored from one
+            platform view.
           </p>
         </article>
         <article className="sa-card">
@@ -3281,23 +3578,57 @@ function DashboardView({
         <article className="sa-card">
           <div className="sa-card-head">
             <div>
-              <h3>Platform catalogue</h3>
-              <p>Master data available to all clients</p>
+              <h3>Client lifecycle</h3>
+              <p>Onboarding and account-status distribution</p>
             </div>
           </div>
-          <div className="sa-summary-list">
-            <button onClick={() => setTab("oems")}>
-              <strong>{summary.oems ?? oems.length}</strong>
-              <span>OEMs</span>
+          <div className="sa-lifecycle">
+            <div
+              className="sa-donut"
+              style={{
+                background: clientGradient
+                  ? `conic-gradient(${clientGradient})`
+                  : "#edf1ee",
+              }}
+            >
+              <div>
+                <strong>{clientTotal}</strong>
+                <small>clients</small>
+              </div>
+            </div>
+            <div className="sa-legend">
+              {clientSlices.map(([label, count, color]) => (
+                <div key={label}>
+                  <i style={{ background: color }} />
+                  <span>{label}</span>
+                  <strong>{count}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
+        </article>
+        <article className="sa-card sa-catalog-card">
+          <div className="sa-card-head">
+            <div>
+              <h3>Platform catalogue</h3>
+              <p>Master records ready for client configuration</p>
+            </div>
+            <button className="secondary" onClick={() => setTab("features")}>
+              Manage
             </button>
-            <button onClick={() => setTab("packages")}>
-              <strong>{packages.length}</strong>
-              <span>Packages</span>
-            </button>
-            <button onClick={() => setTab("pricing")}>
-              <strong>₹</strong>
-              <span>Feature pricing</span>
-            </button>
+          </div>
+          <div className="sa-catalog-coverage">
+            {catalogItems.map(([label, count, target]) => (
+              <button key={label} onClick={() => setTab(target as Tab)}>
+                <span>
+                  <strong>{count}</strong>
+                  <small>{label}</small>
+                </span>
+                <i
+                  style={{ width: `${Math.min(100, Math.max(8, count * 8))}%` }}
+                />
+              </button>
+            ))}
           </div>
         </article>
         <article className="sa-card">
@@ -3309,9 +3640,21 @@ function DashboardView({
             <span className="sa-live">● Live</span>
           </div>
           <ul className="sa-activity">
-            <li>Client catalogue is ready for commercial onboarding</li>
-            <li>Rider onboarding master workflow is active</li>
-            <li>Package and feature pricing are platform controlled</li>
+            <li>
+              {summary.pendingClients ?? 0} client application
+              {Number(summary.pendingClients ?? 0) === 1 ? " is" : "s are"}{" "}
+              awaiting review
+            </li>
+            <li>
+              {summary.subscriptions ?? 0} active subscription
+              {Number(summary.subscriptions ?? 0) === 1 ? " is" : "s are"} using
+              platform pricing
+            </li>
+            <li>
+              {summary.pricing ?? 0} feature price rule
+              {Number(summary.pricing ?? 0) === 1 ? " is" : "s are"} available
+              for commercial configuration
+            </li>
           </ul>
         </article>
       </section>
@@ -3322,7 +3665,7 @@ function DashboardView({
 function ClientsView({
   clients,
   packages,
-  vehicleTypes,
+  vehicleCategories,
   showForm,
   setShowForm,
   client,
@@ -3337,6 +3680,9 @@ function ClientsView({
   closeDialog,
   documentFiles,
   setDocumentFiles,
+  approveClient,
+  rejectClient,
+  editClient,
 }: any) {
   const stepHeadingRef = useRef<HTMLHeadingElement>(null);
   const stepHeadingId = useId();
@@ -3350,13 +3696,13 @@ function ClientsView({
     wasOpenRef.current = showForm;
   }, [showForm, step]);
 
+
   const fields =
     step === 1
       ? [
           ["businessFleetName", "Business / fleet name"],
           ["companyCode", "Company code (client login)"],
           ["legalEntityName", "Legal entity name"],
-          ["industry", "Industry"],
           ["pan", "PAN"],
           ["gstin", "GSTIN"],
           ["cinOrLlpin", "CIN / LLPIN"],
@@ -3424,7 +3770,6 @@ function ClientsView({
     "pinCode",
     "numberOfFleets",
     "approximateRiderCount",
-    "primaryVehicleTypeId",
     "packageId",
     "startDate",
     "billingContactName",
@@ -3442,7 +3787,29 @@ function ClientsView({
     billingEmail: "email",
     billingMobile: "tel",
   } as const;
+  const panPattern = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+  const gstinPattern = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+  const softWarnings = {
+    ...(client.pan && !panPattern.test(String(client.pan).trim().toUpperCase())
+      ? { pan: "PAN format looks unusual. Expected: ABCDE1234F." }
+      : {}),
+    ...(client.gstin &&
+    !gstinPattern.test(String(client.gstin).trim().toUpperCase())
+      ? { gstin: "GSTIN format looks unusual. Expected: 22ABCDE1234F1Z5." }
+      : {}),
+  };
+  const uploadedDocumentTypes = new Set(
+    ((client.uploadedDocuments ?? []) as Item[]).map(
+      (document) => document.documentType,
+    ),
+  );
   const progress = Math.round((step / clientStepLabels.length) * 100);
+  const eligiblePackages = packages.filter(
+    (item: Item) =>
+      item.isActive &&
+      item.monthlyPrice !== null &&
+      item.monthlyPrice !== undefined,
+  );
 
   return (
     <>
@@ -3460,7 +3827,7 @@ function ClientsView({
       <CatalogFormDialog
         open={showForm}
         title="Client onboarding"
-        description="Onboard a client through six saved steps, then submit it for approval."
+        description="Onboard a client through six saved steps, then create its workspace."
         error={error}
         busy={loading}
         size="wide"
@@ -3489,7 +3856,7 @@ function ClientsView({
               </button>
             )}
             <button type="submit" disabled={loading}>
-              {step === 6 ? "Submit for onboarding" : "Save & continue"}
+              {step === 6 ? "Create client workspace" : "Save & continue"}
             </button>
           </>
         }
@@ -3551,11 +3918,26 @@ function ClientsView({
                 value={client}
                 change={change}
                 fields={fields}
-                requiredFields={requiredFields}
+                requiredKeys={requiredFields}
                 inputTypes={inputTypes}
+                softWarnings={step === 1 ? softWarnings : undefined}
               />
               {step === 1 && (
                 <>
+                  <Select
+                    label="Industry"
+                    value={client.industry}
+                    change={(value) => change("industry", value)}
+                    allowEmpty
+                    options={[
+                      "LOGISTICS",
+                      "LAST_MILE",
+                      "DELIVERY",
+                      "MOBILITY",
+                      "RENTAL",
+                      "OTHER",
+                    ]}
+                  />
                   <Select
                     label="Client type"
                     value={client.clientType}
@@ -3570,6 +3952,7 @@ function ClientsView({
                       "ENTERPRISE",
                       "OTHER",
                     ]}
+                    required
                   />
                   <Select
                     label="Business type"
@@ -3584,6 +3967,7 @@ function ClientsView({
                       "INDIVIDUAL",
                       "OTHER",
                     ]}
+                    required
                   />
                 </>
               )}
@@ -3609,7 +3993,7 @@ function ClientsView({
                         ["adminMobile", "Admin mobile"],
                         ["adminEmail", "Admin email"],
                       ]}
-                      requiredFields={[
+                      requiredKeys={[
                         "adminName",
                         "adminMobile",
                         "adminEmail",
@@ -3641,7 +4025,7 @@ function ClientsView({
                         ["billingCountry", "Billing country"],
                         ["billingPinCode", "Billing PIN code"],
                       ]}
-                      requiredFields={[
+                      requiredKeys={[
                         "billingAddressLine1",
                         "billingCity",
                         "billingState",
@@ -3658,24 +4042,35 @@ function ClientsView({
                     value={client.fleetBusinessModel}
                     change={(value) => change("fleetBusinessModel", value)}
                     options={["OWNED", "LEASED", "ATTACHED", "MIXED"]}
+                    required
                   />
                   <Select
                     label="Vehicle ownership"
                     value={client.vehicleOwnership}
                     change={(value) => change("vehicleOwnership", value)}
                     options={["OWNED", "LEASED", "DRIVER_OWNED", "MIXED"]}
+                    required
                   />
                   <label>
-                    Primary vehicle type
+                    <span className="sa-label-text">
+                      Vehicle categories{" "}
+                      <span className="sa-required-star">*</span>
+                    </span>
                     <select
                       required
-                      value={client.primaryVehicleTypeId}
+                      multiple
+                      value={client.vehicleCategoryIds ?? []}
                       onChange={(event) =>
-                        change("primaryVehicleTypeId", event.target.value)
+                        change(
+                          "vehicleCategoryIds",
+                          Array.from(
+                            event.target.selectedOptions,
+                            (option) => option.value,
+                          ),
+                        )
                       }
                     >
-                      <option value="">Select vehicle type</option>
-                      {vehicleTypes
+                      {vehicleCategories
                         .filter((item: Item) => item.status === "ACTIVE")
                         .map((item: Item) => (
                           <option key={item.id} value={item.id}>
@@ -3683,13 +4078,16 @@ function ClientsView({
                           </option>
                         ))}
                     </select>
+                    <small>Select one or more vehicle categories.</small>
                   </label>
                 </>
               )}
               {step === 4 && (
                 <>
                   <label>
-                    Package
+                    <span className="sa-label-text">
+                      Package <span className="sa-required-star">*</span>
+                    </span>
                     <select
                       value={client.packageId}
                       onChange={(event) =>
@@ -3697,17 +4095,16 @@ function ClientsView({
                       }
                       required
                     >
-                      <option value="">Select package</option>
-                      {packages
-                        .filter(
-                          (item: Item) =>
-                            item.isActive && item.monthlyPrice !== null,
-                        )
-                        .map((item: Item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.name} · ₹{item.monthlyPrice}/month
-                          </option>
-                        ))}
+                      <option value="">
+                        {eligiblePackages.length
+                          ? "Select package"
+                          : "No eligible packages available"}
+                      </option>
+                      {eligiblePackages.map((item: Item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name} · ₹{item.monthlyPrice}/month
+                        </option>
+                      ))}
                     </select>
                   </label>
                   <label>
@@ -3718,6 +4115,7 @@ function ClientsView({
                         change("billingCycle", event.target.value)
                       }
                     >
+                      <option value="">Select billing cycle</option>
                       <option>MONTHLY</option>
                       <option>QUARTERLY</option>
                       <option>HALF_YEARLY</option>
@@ -3779,6 +4177,10 @@ function ClientsView({
                       {documentFiles[type] && (
                         <small>{documentFiles[type]?.name}</small>
                       )}
+                      {!documentFiles[type] &&
+                        uploadedDocumentTypes.has(type) && (
+                          <small>Previously uploaded</small>
+                        )}
                     </label>
                   ))}
                 </>
@@ -3787,8 +4189,8 @@ function ClientsView({
                 <>
                   <p className="muted">
                     Review the saved Client profile, contacts, operations,
-                    package, billing, and uploaded documents. Submission locks
-                    the draft and sends it to Super Admin approval.
+                    package, billing, and uploaded documents. Creating the
+                    workspace makes it available to the Client Admin.
                   </p>
                   <label className="sa-toggle">
                     <input
@@ -3846,13 +4248,36 @@ function ClientsView({
           </section>
         </div>
       </CatalogFormDialog>
+
       <DataTable
-        headings={["Client", "Workspace", "Riders", "Status"]}
+        headings={["Client", "Workspace", "Riders", "Status", "Actions"]}
         rows={clients.map((item: Item) => [
           item.name,
           item.companyCode ?? item.slug,
           item._count?.riders ?? 0,
           item.status ?? (item.isActive ? "ACTIVE" : "INACTIVE"),
+          item.status === "DRAFT" ? (
+            <span className="sa-client-actions" key={item.id}>
+              <button type="button" onClick={(event) => void editClient(item.id, event.currentTarget)}>
+                Edit & resume
+              </button>
+            </span>
+          ) : item.status === "PENDING_APPROVAL" ? (
+            <span className="sa-client-actions" key={item.id}>
+              <button type="button" onClick={() => void approveClient(item.id)}>
+                Approve
+              </button>
+              <button
+                type="button"
+                className="danger"
+                onClick={() => void rejectClient(item.id)}
+              >
+                Reject
+              </button>
+            </span>
+          ) : (
+            "—"
+          ),
         ])}
       />
     </>
@@ -3862,25 +4287,37 @@ function TextFields({
   value,
   change,
   fields,
-  requiredFields,
+  requiredKeys,
   inputTypes,
+  softWarnings,
 }: {
   value: Item;
   change: (key: string, value: string) => void;
   fields: string[][];
-  requiredFields?: string[];
+  requiredKeys?: string[];
   inputTypes?: Record<string, "email" | "tel" | "url">;
+  softWarnings?: Record<string, string>;
 }) {
-  const requiredKeys = requiredFields ?? [
+  const defaultRequiredFields = [
     "code",
     "name",
     "displayName",
-    "monthlyPrice",
+    "businessFleetName",
+    "companyCode",
     "legalCompanyName",
+    "legalEntityName",
+    "monthlyPrice",
     "pan",
+    "estimatedFleetSize",
+    "estimatedRiderCount",
+    "numberOfFleets",
+    "approximateRiderCount",
     "primaryContactName",
+    "primaryDesignation",
     "primaryContactMobile",
     "primaryContactEmail",
+    "primaryMobile",
+    "primaryEmail",
     "adminName",
     "adminEmail",
     "adminMobile",
@@ -3889,16 +4326,26 @@ function TextFields({
     "district",
     "state",
     "pinCode",
-    "packageStartDate",
+    "startDate",
     "effectiveFrom",
+    "billingUnit",
+    "billingContactName",
+    "billingEmail",
+    "authorizedSignatoryName",
+    "signatoryDesignation",
   ];
+  const required = new Set(requiredKeys ?? defaultRequiredFields);
   return (
     <>
       {fields.map(([key, label]) => {
         const normalizedKey = key.toLowerCase();
+        const isRequired = required.has(key);
         return (
           <label key={key}>
-            {label}
+            <span className="sa-label-text">
+              {label}
+              {isRequired && <span className="sa-required-star">*</span>}
+            </span>
             <input
               value={value[key] ?? ""}
               type={
@@ -3928,9 +4375,11 @@ function TextFields({
                   : undefined
               }
               onChange={(event) => change(key, event.target.value)}
-              required={requiredKeys.includes(key)}
-
+              required={isRequired}
             />
+            {softWarnings?.[key] && (
+              <small className="sa-field-warning">{softWarnings[key]}</small>
+            )}
           </label>
         );
       })}
@@ -3942,21 +4391,64 @@ function Select({
   value,
   change,
   options,
+  allowEmpty = false,
+  required = false,
 }: {
   label?: string;
   value: string;
   change: (value: string) => void;
   options: string[];
+  allowEmpty?: boolean;
+  required?: boolean;
 }) {
   return (
     <label>
-      {label}
-      <select value={value} onChange={(event) => change(event.target.value)}>
+      <span className="sa-label-text">
+        {label}
+        {required && <span className="sa-required-star">*</span>}
+      </span>
+      <select
+        required={required}
+        value={value}
+        onChange={(event) => change(event.target.value)}
+      >
+        {(allowEmpty || label.toLowerCase() !== "status") && (
+          <option value="">Select {label.toLowerCase()}</option>
+        )}
         {options.map((option) => (
-          <option key={option}>{option}</option>
+          <option key={option} value={option}>
+            {enumLabel(option)}
+          </option>
         ))}
       </select>
     </label>
+  );
+}
+
+function enumLabel(value: string) {
+  const labels: Record<string, string> = {
+    LOGISTICS: "Logistics",
+    LAST_MILE: "Last-mile",
+    DELIVERY: "Delivery",
+    MOBILITY: "Mobility",
+    RENTAL: "Rental",
+    OTHER: "Other",
+    PVT_LTD: "Pvt Ltd",
+    DRIVER_OWNED: "Driver Owned",
+    FLEET_OWNER: "Fleet Owner",
+    FLEET_OPERATOR: "Fleet Operator",
+    LOGISTICS_COMPANY: "Logistics Company",
+    DELIVERY_PARTNER: "Delivery Partner",
+    LEASING_COMPANY: "Leasing Company",
+    VEHICLE_AGGREGATOR: "Vehicle Aggregator",
+  };
+  return (
+    labels[value] ??
+    value
+      .toLowerCase()
+      .split("_")
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ")
   );
 }
 function BulkUploadPanel({
@@ -4038,21 +4530,226 @@ function PackageFeaturesView({ packages }: { packages: Item[] }) {
   );
 }
 
-function FeaturePricingTiersView({ pricing }: { pricing: Item[] }) {
+function FeaturePricingTiersView({
+  pricing,
+  token,
+  onSaved,
+}: {
+  pricing: Item[];
+  token: string;
+  onSaved: () => void;
+}) {
   const tiered = pricing.filter(
-    (item) => item.pricingModel === "TIERED" || item.tiers?.length,
+    (item) =>
+      item.pricingModel === "TIERED" ||
+      item.pricingModel === "VOLUME" ||
+      item.tiers?.length,
   );
+  const [selectedId, setSelectedId] = useState("");
+  const [tiers, setTiers] = useState<PricingTierInput[]>([]);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const selected = tiered.find((item) => item.id === selectedId) ?? tiered[0];
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (!selected) {
+      setTiers([]);
+      return;
+    }
+    setSelectedId(selected.id);
+    setTiers(
+      (selected.tiers ?? []).map((tier: Item) => ({
+        tierOrder: String(tier.tierOrder),
+        tierName: tier.tierName ?? "",
+        fromQuantity: String(tier.fromQuantity),
+        toQuantity:
+          tier.toQuantity === null ? "" : String(tier.toQuantity ?? ""),
+        unitPrice: String(tier.unitPrice),
+        costPrice: tier.costPrice === null ? "" : String(tier.costPrice ?? ""),
+      })),
+    );
+  }, [selected]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+  const updateTier = (
+    index: number,
+    key: keyof PricingTierInput,
+    value: string,
+  ) =>
+    setTiers((current) =>
+      current.map((tier, tierIndex) =>
+        tierIndex === index ? { ...tier, [key]: value } : tier,
+      ),
+    );
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!selected) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await request(
+        `/platform/feature-pricing/${selected.id}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            featureId: selected.featureId,
+            pricingModel: selected.pricingModel,
+            billingUnit: selected.billingUnit,
+            currency: selected.currency,
+            basePrice: Number(selected.basePrice ?? 0),
+            unitPrice: Number(selected.unitPrice ?? 0),
+            costPrice: Number(selected.costPrice ?? 0),
+            minimumCharge:
+              selected.minimumCharge === null
+                ? undefined
+                : Number(selected.minimumCharge),
+            maximumCharge:
+              selected.maximumCharge === null
+                ? undefined
+                : Number(selected.maximumCharge),
+            setupFee: Number(selected.setupFee ?? 0),
+            billingCycle: selected.billingCycle ?? undefined,
+            taxInclusive: selected.taxInclusive,
+            effectiveFrom: new Date(selected.effectiveFrom).toISOString(),
+            effectiveTo: selected.effectiveTo
+              ? new Date(selected.effectiveTo).toISOString()
+              : undefined,
+            isActive: selected.isActive,
+            metadata: selected.metadata ?? undefined,
+            tiers: tiers.map((tier) => ({
+              tierOrder: Number(tier.tierOrder),
+              tierName: tier.tierName || undefined,
+              fromQuantity: Number(tier.fromQuantity),
+              toQuantity: tier.toQuantity ? Number(tier.toQuantity) : undefined,
+              unitPrice: Number(tier.unitPrice),
+              costPrice: tier.costPrice ? Number(tier.costPrice) : undefined,
+            })),
+          }),
+        },
+        token,
+      );
+      setMessage(
+        `Saved ${response.tiers?.length ?? tiers.length} pricing tier(s).`,
+      );
+      onSaved();
+    } catch (cause) {
+      setMessage(
+        cause instanceof Error
+          ? cause.message
+          : "Unable to save pricing tiers.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <>
       <section className="sa-page-head">
         <div>
           <h2>Feature Pricing Tiered</h2>
           <p>
-            Review tiered master pricing. Tiers are configured while creating or
-            editing Feature Pricing.
+            Create and edit the quantity tiers for each tiered Feature Price.
           </p>
         </div>
       </section>
+      {tiered.length ? (
+        <form className="sa-form sa-tier-editor" onSubmit={save}>
+          <label>
+            Tiered Feature Price
+            <select
+              value={selected?.id ?? ""}
+              onChange={(event) => setSelectedId(event.target.value)}
+            >
+              {tiered.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.feature?.name ?? "Feature"} ·{" "}
+                  {enumLabel(item.pricingModel)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="sa-tier-editor-head">
+            <div>
+              <strong>{selected?.feature?.name}</strong>
+              <small>
+                {selected?.currency} {selected?.unitPrice} base unit price ·{" "}
+                {enumLabel(selected?.billingUnit ?? "")}
+              </small>
+            </div>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() =>
+                setTiers((current) => [
+                  ...current,
+                  {
+                    tierOrder: String(current.length + 1),
+                    tierName: "",
+                    fromQuantity: current.length ? "" : "0",
+                    toQuantity: "",
+                    unitPrice: "",
+                    costPrice: "",
+                  },
+                ])
+              }
+            >
+              + Add tier
+            </button>
+          </div>
+          {tiers.length ? (
+            <div className="sa-tier-grid">
+              {tiers.map((tier, index) => (
+                <section
+                  key={`${tier.tierOrder}-${index}`}
+                  className="sa-price-override"
+                >
+                  <TextFields
+                    value={tier}
+                    change={(key, value) =>
+                      updateTier(index, key as keyof PricingTierInput, value)
+                    }
+                    fields={[
+                      ["tierOrder", "Tier order"],
+                      ["tierName", "Tier name"],
+                      ["fromQuantity", "From quantity"],
+                      ["toQuantity", "To quantity"],
+                      ["unitPrice", "Unit price"],
+                      ["costPrice", "Cost price"],
+                    ]}
+                    requiredKeys={["tierOrder", "fromQuantity", "unitPrice"]}
+                  />
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() =>
+                      setTiers((current) =>
+                        current.filter((_, tierIndex) => tierIndex !== index),
+                      )
+                    }
+                  >
+                    Remove tier
+                  </button>
+                </section>
+              ))}
+            </div>
+          ) : (
+            <p className="muted">
+              No tiers configured. Add the first tier to begin.
+            </p>
+          )}
+          <button disabled={busy || !tiers.length}>
+            {busy ? "Saving…" : "Save tiers"}
+          </button>
+          {message && <p className="notice">{message}</p>}
+        </form>
+      ) : (
+        <section className="sa-empty-catalog">
+          <h3>No tiered Feature Pricing yet</h3>
+          <p>
+            Create a Feature Price with the TIERED or VOLUME model, then return
+            here to configure its tiers.
+          </p>
+        </section>
+      )}
       <section className="sa-management oem-table-only">
         <DataTable
           headings={[
