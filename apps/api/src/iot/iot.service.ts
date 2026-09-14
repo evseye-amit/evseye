@@ -66,6 +66,26 @@ export class IotService {
     }
   }
 
+  listDevices(clientId: string) {
+    return this.prisma.ioTDevice.findMany({
+      where: { clientId },
+      include: {
+        currentFleet: {
+          select: { id: true, fleetCode: true, vehicleNumber: true },
+        },
+        currentState: {
+          select: {
+            isOnline: true,
+            lastHeartbeatAt: true,
+            lastLocationAt: true,
+            batterySoc: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   async ingest(
     deviceNumber: string,
     ingestSecret: string,

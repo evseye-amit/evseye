@@ -49,6 +49,13 @@ export class FleetsController {
   @Get('onboarding-options') onboardingOptions() {
     return this.fleets.onboardingOptions().then((data) => ({ data }));
   }
+  @Get('batteries') async listBatteries(@CurrentUser() u: AuthUser) {
+    return {
+      data: await this.components.listBatteries(
+        this.clients.requireClientId(u),
+      ),
+    };
+  }
   @Post() async create(@CurrentUser() u: AuthUser, @Body() d: CreateFleetDto) {
     const clientId = this.clients.requireClientId(u);
     const fleet = await this.fleets.create(clientId, d);

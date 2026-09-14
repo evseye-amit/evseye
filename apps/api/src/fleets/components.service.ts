@@ -14,6 +14,26 @@ import { PrismaService } from '../prisma/prisma.service.js';
 @Injectable()
 export class ComponentsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  listBatteries(clientId: string) {
+    return this.prisma.battery.findMany({
+      where: { clientId, deletedAt: null },
+      include: {
+        fleetHistory: {
+          where: { removedAt: null },
+          select: {
+            batterySlot: true,
+            installedAt: true,
+            fleet: {
+              select: { id: true, fleetCode: true, vehicleNumber: true },
+            },
+          },
+          take: 1,
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
   private async fleet(clientId: string, fleetId: string) {
     const f = await this.prisma.fleet.findFirst({
       where: { id: fleetId, clientId, deletedAt: null },

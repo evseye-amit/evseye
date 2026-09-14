@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   Header,
   Headers,
   HttpCode,
@@ -72,6 +73,14 @@ export class IotController {
     private readonly iot: IotService,
     private readonly clients: ClientContextService,
   ) {}
+
+  @Get('devices')
+  @Header('Cache-Control', 'no-store')
+  async list(@CurrentUser() user: AuthUser) {
+    return {
+      data: await this.iot.listDevices(this.clients.requireClientId(user)),
+    };
+  }
 
   @Post('devices')
   @Header('Cache-Control', 'no-store')

@@ -124,6 +124,10 @@ const ACTIVE_CLIENT_TABS = new Set<Tab>([
   "audit",
   "locations",
   "evidence",
+  "fleet-managers",
+  "team-leads",
+  "iot-devices",
+  "batteries",
 ]);
 
 function oemLabel(value: unknown, fallback = "—") {
@@ -567,7 +571,39 @@ export default function Home() {
         setDashboard(
           normalizeDashboard(await request("/dashboard", {}, token)),
         );
-      else if (nextTab === "locations") {
+      else if (nextTab === "fleet-managers") {
+        const fleetManagers = (await request(
+          "/client/users/fleet-managers",
+          {},
+          token,
+        )) as RecordItem[];
+        setItems(fleetManagers);
+        setMeta({ page: 1, pageSize: 20, total: fleetManagers.length });
+      } else if (nextTab === "team-leads") {
+        const teamLeaders = (await request(
+          "/client/users/team-leaders",
+          {},
+          token,
+        )) as RecordItem[];
+        setItems(teamLeaders);
+        setMeta({ page: 1, pageSize: 20, total: teamLeaders.length });
+      } else if (nextTab === "iot-devices") {
+        const devices = (await request(
+          "/iot/devices",
+          {},
+          token,
+        )) as RecordItem[];
+        setItems(devices);
+        setMeta({ page: 1, pageSize: 20, total: devices.length });
+      } else if (nextTab === "batteries") {
+        const batteries = (await request(
+          "/fleets/batteries",
+          {},
+          token,
+        )) as RecordItem[];
+        setItems(batteries);
+        setMeta({ page: 1, pageSize: 20, total: batteries.length });
+      } else if (nextTab === "locations") {
         setHubs((await request("/hubs", {}, token)) as RecordItem[]);
       } else if (nextTab === "evidence") {
         await loadPhotoRequirements(photoRequirementEntityType);
@@ -1805,7 +1841,11 @@ export default function Home() {
           tab !== "dashboard" &&
           tab !== "audit" &&
           tab !== "locations" &&
-          tab !== "evidence" && (
+          tab !== "evidence" &&
+          tab !== "fleet-managers" &&
+          tab !== "team-leads" &&
+          tab !== "iot-devices" &&
+          tab !== "batteries" && (
             <form
               className="list-filters"
               onSubmit={(event) => {
@@ -2887,6 +2927,34 @@ export default function Home() {
                           <th>Actor</th>
                           <th>When</th>
                         </>
+                      ) : tab === "fleet-managers" ? (
+                        <>
+                          <th>Fleet Manager</th>
+                          <th>Mobile</th>
+                          <th>Assigned Hubs</th>
+                          <th>Status</th>
+                        </>
+                      ) : tab === "team-leads" ? (
+                        <>
+                          <th>Team Lead</th>
+                          <th>Mobile</th>
+                          <th>Employee code</th>
+                          <th>Designation</th>
+                        </>
+                      ) : tab === "iot-devices" ? (
+                        <>
+                          <th>Device</th>
+                          <th>Fleet</th>
+                          <th>Status</th>
+                          <th>Last heartbeat</th>
+                        </>
+                      ) : tab === "batteries" ? (
+                        <>
+                          <th>Battery</th>
+                          <th>Type</th>
+                          <th>Fleet</th>
+                          <th>Status</th>
+                        </>
                       ) : tab === "fleets" ? (
                         <>
                           <th>Vehicle</th>
@@ -2925,6 +2993,100 @@ export default function Home() {
                           <td>{String(item.actorId ?? "System")}</td>
                           <td>
                             {new Date(String(item.createdAt)).toLocaleString()}
+                          </td>
+                        </tr>
+                      ) : tab === "fleet-managers" ? (
+                        <tr key={String(item.id)}>
+                          <td>{String(item.name)}</td>
+                          <td>{String(item.mobile)}</td>
+                          <td>
+                            {((item.hubAssignments as RecordItem[]) ?? [])
+                              .map(
+                                (assignment) =>
+                                  (assignment.hub as RecordItem | undefined)
+                                    ?.name,
+                              )
+                              .filter(Boolean)
+                              .map(String)
+                              .join(", ") || "—"}
+                          </td>
+                          <td>
+                            <Status
+                              value={
+                                item.isActive === false ? "INACTIVE" : "ACTIVE"
+                              }
+                            />
+                          </td>
+                        </tr>
+                      ) : tab === "team-leads" ? (
+                        <tr key={String(item.id)}>
+                          <td>
+                            {String(
+                              (item.user as RecordItem | undefined)?.name ??
+                                "—",
+                            )}
+                          </td>
+                          <td>
+                            {String(
+                              (item.user as RecordItem | undefined)?.mobile ??
+                                "—",
+                            )}
+                          </td>
+                          <td>{String(item.employeeCode ?? "—")}</td>
+                          <td>{String(item.designation ?? "—")}</td>
+                        </tr>
+                      ) : tab === "iot-devices" ? (
+                        <tr key={String(item.id)}>
+                          <td>{String(item.deviceNumber)}</td>
+                          <td>
+                            {String(
+                              (item.currentFleet as RecordItem | undefined)
+                                ?.fleetCode ??
+                                (item.currentFleet as RecordItem | undefined)
+                                  ?.vehicleNumber ??
+                                "Unassigned",
+                            )}
+                          </td>
+                          <td>
+                            <Status value={String(item.status)} />
+                          </td>
+                          <td>
+                            {(() => {
+                              const state = item.currentState as
+                                | RecordItem
+                                | undefined;
+                              const heartbeat =
+                                state?.lastHeartbeatAt ?? item.lastHeartbeatAt;
+                              return heartbeat
+                                ? new Date(String(heartbeat)).toLocaleString()
+                                : "Not received";
+                            })()}
+                          </td>
+                        </tr>
+                      ) : tab === "batteries" ? (
+                        <tr key={String(item.id)}>
+                          <td>
+                            {String(item.batteryCode ?? item.serialNumber)}
+                          </td>
+                          <td>
+                            {String(item.batteryType).replaceAll("_", " ")}
+                          </td>
+                          <td>
+                            {(() => {
+                              const assignment =
+                                ((item.fleetHistory as RecordItem[]) ?? [])[0];
+                              const fleet = assignment?.fleet as
+                                | RecordItem
+                                | undefined;
+                              return String(
+                                fleet?.fleetCode ??
+                                  fleet?.vehicleNumber ??
+                                  "Unassigned",
+                              );
+                            })()}
+                          </td>
+                          <td>
+                            <Status value={String(item.status)} />
                           </td>
                         </tr>
                       ) : tab === "fleets" ? (
