@@ -4996,6 +4996,10 @@ function DataTable({ headings, rows }: { headings: string[]; rows: any[][] }) {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
+  const [sort, setSort] = useState<{
+    columnIndex: number;
+    direction: "ascending" | "descending";
+  } | null>(null);
   const normalizedQuery = query.trim().toLowerCase();
   const filteredRows = normalizedQuery
     ? rows.filter((row) =>
@@ -5006,10 +5010,42 @@ function DataTable({ headings, rows }: { headings: string[]; rows: any[][] }) {
         ),
       )
     : rows;
-  const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const isMissing = (value: unknown) =>
+    value === null ||
+    value === undefined ||
+    (typeof value === "string" &&
+      (value.trim().length === 0 || value === "—")) ||
+    (typeof value !== "string" && typeof value !== "number") ||
+    (typeof value === "number" && Number.isNaN(value));
+  const sortedRows = sort
+    ? filteredRows
+        .map((row, index) => ({ row, index }))
+        .sort((left, right) => {
+          const leftValue = left.row[sort.columnIndex];
+          const rightValue = right.row[sort.columnIndex];
+          const leftMissing = isMissing(leftValue);
+          const rightMissing = isMissing(rightValue);
+          let comparison = 0;
+          if (leftMissing !== rightMissing) {
+            comparison = leftMissing ? 1 : -1;
+          } else if (!leftMissing && !rightMissing) {
+            comparison =
+              typeof leftValue === "number" &&
+              typeof rightValue === "number"
+                ? leftValue - rightValue
+                : String(leftValue).localeCompare(String(rightValue), undefined, {
+                    numeric: true,
+                    sensitivity: "base",
+                  });
+          }
+          if (comparison === 0) return left.index - right.index;
+          return sort.direction === "ascending" ? comparison : -comparison;
+        })
+        .map(({ row }) => row)
+    : filteredRows;
+  const pageCount = Math.max(1, Math.ceil(sortedRows.length / pageSize));
   const currentPage = Math.min(page, pageCount);
-  const pageRows = filteredRows.slice(
-
+  const pageRows = sortedRows.slice(
     (currentPage - 1) * pageSize,
     currentPage * pageSize,
   );
@@ -5074,9 +5110,50 @@ function DataTable({ headings, rows }: { headings: string[]; rows: any[][] }) {
         <table>
           <thead>
             <tr>
-              {headings.map((heading) => (
-                <th key={heading}>{heading}</th>
-              ))}
+              {headings.map((heading, headingIndex) => {
+                const sortable = heading.trim().length > 0;
+                const active = sort?.columnIndex === headingIndex;
+                const direction = active ? sort.direction : "none";
+                const nextDirection =
+                  active && sort.direction === "ascending"
+                    ? "descending"
+                    : "ascending";
+                return (
+                  <th
+                    key={`${heading}-${headingIndex}`}
+                    aria-sort={sortable ? direction : undefined}
+                  >
+                    {sortable ? (
+                      <button
+                        type="button"
+                        className="sa-table-sort"
+                        aria-label={`Sort by ${heading} ${nextDirection}`}
+                        title={`Sort by ${heading} ${nextDirection}`}
+                        onClick={() => {
+                          setSort((current) => ({
+                            columnIndex: headingIndex,
+                            direction:
+                              current?.columnIndex === headingIndex &&
+                              current.direction === "ascending"
+                                ? "descending"
+                                : "ascending",
+                          }));
+                          setPage(1);
+                        }}
+                      >
+                        <span>{heading}</span>
+                        <span className="sa-table-sort-indicator" aria-hidden="true">
+                          {active
+                            ? sort.direction === "ascending"
+                              ? "↑"
+                              : "↓"
+                            : "↕"}
+                        </span>
+                      </button>
+                    ) : null}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>

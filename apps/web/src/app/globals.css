@@ -1725,6 +1725,39 @@ body:has(.sa-dialog[open]) {
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
+.sa-table-sort {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 20px;
+  padding: 0;
+  border-radius: 4px;
+  color: inherit;
+  background: transparent;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  text-transform: inherit;
+}
+.sa-table-sort:hover {
+  color: #2a6f52;
+  background: #eef5f0;
+}
+.sa-table-sort:focus-visible {
+  outline: 2px solid #2a845f;
+  outline-offset: 2px;
+}
+.sa-table-sort-indicator {
+  display: inline-grid;
+  width: 1em;
+  flex: 0 0 1em;
+  place-items: center;
+  font-size: 12px;
+  line-height: 1;
+}
 .sa-table-wrap td {
   color: #4b554e;
 }
