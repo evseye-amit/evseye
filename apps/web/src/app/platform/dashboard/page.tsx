@@ -11,6 +11,14 @@ import {
   useState,
 } from "react";
 import Link from "next/link";
+import {
+  filterRows,
+  getSelectOptions,
+  hasInvalidNumberRange,
+  type ColumnFilterSpec,
+  type ColumnFilterState,
+  type ColumnFilterStateMap,
+} from "./data-table-filter";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
@@ -2070,7 +2078,17 @@ export default function SuperAdminDashboard() {
             <section className="sa-management oem-table-only">
               {oems.length ? (
                 <DataTable
-                  headings={["Code", "OEM", "Status", ""]}
+                  headings={["Code", "OEM", "Status", "", ""]}
+                  columnFilters={[
+                    { type: "text" },
+                    { type: "text" },
+                    {
+                      type: "select",
+                      options: ["ACTIVE", "INACTIVE", "SUSPENDED"],
+                    },
+                    null,
+                    null,
+                  ]}
                   rows={oems.map((item) => [
                     item.code,
                     item.displayName,
@@ -2232,6 +2250,18 @@ export default function SuperAdminDashboard() {
                     "Order",
                     "",
                     "",
+                  ]}
+                  columnFilters={[
+                    { type: "text" },
+                    { type: "text" },
+                    { type: "text" },
+                    {
+                      type: "select",
+                      options: ["ACTIVE", "INACTIVE", "SUSPENDED"],
+                    },
+                    { type: "number" },
+                    null,
+                    null,
                   ]}
                   rows={vehicleCategories.map((item) => [
                     item.code,
@@ -2469,6 +2499,16 @@ export default function SuperAdminDashboard() {
                   "",
                   "",
                 ]}
+                columnFilters={[
+                  { type: "text" },
+                  { type: "text" },
+                  { type: "text" },
+                  { type: "select" },
+                  { type: "select" },
+                  { type: "select" },
+                  null,
+                  null,
+                ]}
                 rows={vehicleTypes.map((item) => [
                   item.code,
                   item.name,
@@ -2671,6 +2711,18 @@ export default function SuperAdminDashboard() {
                     "Active",
                     "Order",
                     "",
+                    "",
+                  ]}
+                  columnFilters={[
+                    { type: "text" },
+                    { type: "text" },
+                    { type: "select" },
+                    { type: "select" },
+                    { type: "select" },
+                    { type: "select" },
+                    { type: "number" },
+                    null,
+                    null,
                   ]}
                   rows={features.map((item) => [
                     item.code,
@@ -3002,6 +3054,17 @@ export default function SuperAdminDashboard() {
                     "Status",
                     "Features",
                     "",
+                    "",
+                  ]}
+                  columnFilters={[
+                    { type: "text" },
+                    { type: "text" },
+                    { type: "text" },
+                    { type: "text" },
+                    { type: "select" },
+                    { type: "number" },
+                    null,
+                    null,
                   ]}
                   rows={packages.map((item) => [
                     item.code,
@@ -3330,6 +3393,15 @@ export default function SuperAdminDashboard() {
                     "Status",
                     "",
                     "",
+                  ]}
+                  columnFilters={[
+                    { type: "text" },
+                    { type: "select" },
+                    { type: "text" },
+                    { type: "text" },
+                    { type: "select" },
+                    null,
+                    null,
                   ]}
                   rows={pricing.map((item) => [
                     item.feature?.name,
@@ -4251,6 +4323,13 @@ function ClientsView({
 
       <DataTable
         headings={["Client", "Workspace", "Riders", "Status", "Actions"]}
+        columnFilters={[
+          { type: "text" },
+          { type: "text" },
+          { type: "number" },
+          { type: "select" },
+          null,
+        ]}
         rows={clients.map((item: Item) => [
           item.name,
           item.companyCode ?? item.slug,
@@ -4503,6 +4582,13 @@ function PackageFeaturesView({ packages }: { packages: Item[] }) {
               "Included",
               "Usage limit",
               "Status",
+            ]}
+            columnFilters={[
+              { type: "text" },
+              { type: "text" },
+              { type: "text" },
+              { type: "text" },
+              { type: "select" },
             ]}
             rows={packages.flatMap((pack) =>
               (pack.features ?? []).map((link: Item) => [
@@ -4761,6 +4847,15 @@ function FeaturePricingTiersView({
             "Unit price",
             "Cost price",
           ]}
+          columnFilters={[
+            { type: "text" },
+            { type: "number" },
+            { type: "text" },
+            { type: "number" },
+            { type: "text" },
+            { type: "text" },
+            { type: "text" },
+          ]}
           rows={tiered.flatMap((item) =>
             (item.tiers ?? []).map((tier: Item) => [
               item.feature?.name ?? "—",
@@ -4906,6 +5001,13 @@ function ClientFeaturesPricingView({
               "Current price",
               "Pricing model",
             ]}
+            columnFilters={[
+              { type: "text" },
+              { type: "select" },
+              { type: "text" },
+              { type: "text" },
+              { type: "select" },
+            ]}
             rows={rows}
           />
         </section>
@@ -4977,6 +5079,13 @@ function ClientFeatureUsageView({
       <section className="sa-management oem-table-only">
         <DataTable
           headings={["Feature", "Package", "Reference", "Quantity", "Used at"]}
+          columnFilters={[
+            { type: "text" },
+            { type: "text" },
+            { type: "text" },
+            { type: "number" },
+            { type: "text" },
+          ]}
           rows={usage.map((entry) => [
             entry.feature?.name ?? "—",
             entry.subscription?.package?.name ?? "—",
@@ -4990,12 +5099,22 @@ function ClientFeatureUsageView({
   );
 }
 
-function DataTable({ headings, rows }: { headings: string[]; rows: any[][] }) {
+function DataTable({
+  headings,
+  rows,
+  columnFilters = [],
+}: {
+  headings: string[];
+  rows: any[][];
+  columnFilters?: readonly ColumnFilterSpec[];
+}) {
   const [pageSize, setPageSize] = useState(10);
   const searchId = useId();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
+  const [columnFilterStates, setColumnFilterStates] =
+    useState<ColumnFilterStateMap>({});
   const [sort, setSort] = useState<{
     columnIndex: number;
     direction: "ascending" | "descending";
@@ -5010,21 +5129,33 @@ function DataTable({ headings, rows }: { headings: string[]; rows: any[][] }) {
         ),
       )
     : rows;
-  const isMissing = (value: unknown) =>
-    value === null ||
-    value === undefined ||
-    (typeof value === "string" &&
-      (value.trim().length === 0 || value === "—")) ||
-    (typeof value !== "string" && typeof value !== "number") ||
-    (typeof value === "number" && Number.isNaN(value));
+  const columnFilterResult = filterRows(
+    filteredRows,
+    columnFilters,
+    columnFilterStates,
+  );
+  const filteredColumnRows = columnFilterResult.rows;
+  const activeFilterCount = columnFilterResult.activeCount;
   const sortedRows = sort
-    ? filteredRows
+    ? filteredColumnRows
         .map((row, index) => ({ row, index }))
         .sort((left, right) => {
           const leftValue = left.row[sort.columnIndex];
           const rightValue = right.row[sort.columnIndex];
-          const leftMissing = isMissing(leftValue);
-          const rightMissing = isMissing(rightValue);
+          const leftMissing =
+            leftValue === null ||
+            leftValue === undefined ||
+            (typeof leftValue === "string" &&
+              (leftValue.trim().length === 0 || leftValue === "—")) ||
+            (typeof leftValue !== "string" && typeof leftValue !== "number") ||
+            (typeof leftValue === "number" && Number.isNaN(leftValue));
+          const rightMissing =
+            rightValue === null ||
+            rightValue === undefined ||
+            (typeof rightValue === "string" &&
+              (rightValue.trim().length === 0 || rightValue === "—")) ||
+            (typeof rightValue !== "string" && typeof rightValue !== "number") ||
+            (typeof rightValue === "number" && Number.isNaN(rightValue));
           let comparison = 0;
           if (leftMissing !== rightMissing) {
             comparison = leftMissing ? 1 : -1;
@@ -5042,13 +5173,124 @@ function DataTable({ headings, rows }: { headings: string[]; rows: any[][] }) {
           return sort.direction === "ascending" ? comparison : -comparison;
         })
         .map(({ row }) => row)
-    : filteredRows;
+    : filteredColumnRows;
   const pageCount = Math.max(1, Math.ceil(sortedRows.length / pageSize));
   const currentPage = Math.min(page, pageCount);
   const pageRows = sortedRows.slice(
     (currentPage - 1) * pageSize,
     currentPage * pageSize,
   );
+  const hasColumnFilters = columnFilters.some(Boolean);
+  const updateColumnFilter = (
+    columnIndex: number,
+    state: ColumnFilterState,
+  ) => {
+    setColumnFilterStates((current) => ({
+      ...current,
+      [columnIndex]: state,
+    }));
+    setPage(1);
+  };
+  const renderColumnFilter = (columnIndex: number, mobile: boolean) => {
+    const spec = columnFilters[columnIndex];
+    if (!spec) return null;
+    const heading = headings[columnIndex] || `Column ${columnIndex + 1}`;
+    const state = columnFilterStates[columnIndex] ?? {};
+    const id = `${searchId}-filter-${columnIndex}-${mobile ? "mobile" : "desktop"}`;
+    if (spec.type === "text") {
+      return (
+        <label className="sa-table-filter-field" htmlFor={id}>
+          <span>Filter by {heading}</span>
+          <input
+            id={id}
+            type="text"
+            value={state.text ?? ""}
+            aria-label={`Filter by ${heading}`}
+            onChange={(event) =>
+              updateColumnFilter(columnIndex, { text: event.currentTarget.value })
+            }
+          />
+        </label>
+      );
+    }
+    if (spec.type === "select") {
+      const options = getSelectOptions(rows, columnIndex, spec);
+      return (
+        <label className="sa-table-filter-field" htmlFor={id}>
+          <span>Filter by {heading}</span>
+          <select
+            id={id}
+            value={state.value ?? ""}
+            aria-label={`Filter by ${heading}`}
+            onChange={(event) =>
+              updateColumnFilter(columnIndex, { value: event.currentTarget.value })
+            }
+          >
+            <option value="">All {heading}</option>
+            {options.map((option, optionIndex) => (
+              <option key={`${String(option)}-${optionIndex}`} value={String(option)}>
+                {String(option)}
+              </option>
+            ))}
+          </select>
+        </label>
+      );
+    }
+    const invalidRange = hasInvalidNumberRange(state);
+    const minId = `${id}-min`;
+    const maxId = `${id}-max`;
+    return (
+      <fieldset
+        className="sa-table-filter-field sa-table-filter-number"
+        aria-label={`Filter by ${heading}`}
+      >
+        <legend>Filter by {heading}</legend>
+        <div className="sa-table-filter-range">
+          <label htmlFor={minId}>
+            <span>Minimum {heading}</span>
+            <input
+              id={minId}
+              type="number"
+              step="any"
+              placeholder="Min"
+              value={state.min ?? ""}
+              aria-label={`Minimum ${heading}`}
+              aria-invalid={invalidRange || undefined}
+              onChange={(event) =>
+                updateColumnFilter(columnIndex, {
+                  ...state,
+                  min: event.currentTarget.value,
+                })
+              }
+            />
+          </label>
+          <label htmlFor={maxId}>
+            <span>Maximum {heading}</span>
+            <input
+              id={maxId}
+              type="number"
+              step="any"
+              placeholder="Max"
+              value={state.max ?? ""}
+              aria-label={`Maximum ${heading}`}
+              aria-invalid={invalidRange || undefined}
+              onChange={(event) =>
+                updateColumnFilter(columnIndex, {
+                  ...state,
+                  max: event.currentTarget.value,
+                })
+              }
+            />
+          </label>
+        </div>
+        {invalidRange && (
+          <span className="sa-table-filter-error" role="alert">
+            Minimum must not exceed maximum.
+          </span>
+        )}
+      </fieldset>
+    );
+  };
 
   return (
     <div>
@@ -5084,9 +5326,13 @@ function DataTable({ headings, rows }: { headings: string[]; rows: any[][] }) {
           </div>
         </div>
         <div className="sa-table-toolbar-meta">
-          <span className="sa-table-result-count">
-            {filteredRows.length}{" "}
-            {filteredRows.length === 1 ? "result" : "results"}
+          <span
+            className="sa-table-result-count"
+            role="status"
+            aria-live="polite"
+          >
+            {filteredColumnRows.length}{" "}
+            {filteredColumnRows.length === 1 ? "result" : "results"}
           </span>
           <label className="sa-table-page-size">
             Rows per page
@@ -5104,8 +5350,46 @@ function DataTable({ headings, rows }: { headings: string[]; rows: any[][] }) {
               ))}
             </select>
           </label>
+          {activeFilterCount > 0 && (
+            <button
+              type="button"
+              className="secondary sa-table-filter-clear"
+              onClick={() => {
+                setColumnFilterStates({});
+                setPage(1);
+              }}
+            >
+              Clear all ({activeFilterCount})
+            </button>
+          )}
         </div>
       </div>
+      {hasColumnFilters && (
+        <details className="sa-table-filter-panel">
+          <summary>
+            Filters{activeFilterCount ? ` (${activeFilterCount})` : ""}
+          </summary>
+          <div className="sa-table-filter-panel-fields">
+            {headings.map((heading, columnIndex) => (
+              <div key={`${heading}-${columnIndex}`}>
+                {renderColumnFilter(columnIndex, true)}
+              </div>
+            ))}
+            {activeFilterCount > 0 && (
+              <button
+                type="button"
+                className="secondary sa-table-filter-clear"
+                onClick={() => {
+                  setColumnFilterStates({});
+                  setPage(1);
+                }}
+              >
+                Clear all ({activeFilterCount})
+              </button>
+            )}
+          </div>
+        </details>
+      )}
       <div className="sa-table-wrap">
         <table>
           <thead>
@@ -5155,6 +5439,15 @@ function DataTable({ headings, rows }: { headings: string[]; rows: any[][] }) {
                 );
               })}
             </tr>
+            {hasColumnFilters && (
+              <tr className="sa-table-filter-row">
+                {headings.map((heading, columnIndex) => (
+                  <th key={`${heading}-${columnIndex}`}>
+                    {renderColumnFilter(columnIndex, false)}
+                  </th>
+                ))}
+              </tr>
+            )}
           </thead>
           <tbody>
             {pageRows.length ? (
@@ -5175,12 +5468,12 @@ function DataTable({ headings, rows }: { headings: string[]; rows: any[][] }) {
           </tbody>
         </table>
       </div>
-      {filteredRows.length > pageSize && (
+      {filteredColumnRows.length > pageSize && (
         <div className="sa-pagination" aria-label="Table pagination">
           <span>
             Showing {(currentPage - 1) * pageSize + 1}–
-            {Math.min(currentPage * pageSize, filteredRows.length)} of{" "}
-            {filteredRows.length}
+            {Math.min(currentPage * pageSize, filteredColumnRows.length)} of{" "}
+            {filteredColumnRows.length}
           </span>
           <div>
             <button
