@@ -58,7 +58,7 @@ jobs:
 
       - name: Verify migration job image
         run: |
-          docker compose up -d postgres
+          docker compose up -d --wait postgres
           docker compose run --rm --no-deps migrate
 
       - name: Clean up Compose services
