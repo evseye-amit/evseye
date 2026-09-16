@@ -1375,6 +1375,9 @@ th {
 .sa-management.oem-table-only {
   grid-template-columns: 1fr;
 }
+.sa-management.oem-table-only > div {
+  min-width: 0;
+}
 body:has(.sa-dialog[open]) {
   overflow: hidden;
 }
@@ -1749,6 +1752,7 @@ body:has(.sa-dialog[open]) {
   align-items: flex-end;
   justify-content: space-between;
   flex-wrap: wrap;
+  min-width: 0;
   gap: 12px;
   margin-bottom: 10px;
 }
@@ -1797,6 +1801,7 @@ body:has(.sa-dialog[open]) {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex: 0 0 auto;
 }
 .sa-table-page-size {
   display: flex;
