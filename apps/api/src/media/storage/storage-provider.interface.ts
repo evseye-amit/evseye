@@ -4,9 +4,20 @@ export interface CreateUploadUrlInput {
   sizeBytes: number;
 }
 
+export interface StorageTarget {
+  url: string;
+  headers: Readonly<Record<string, string>>;
+}
+
+export function normalizeStorageTarget(
+  target: StorageTarget | string,
+): StorageTarget {
+  return typeof target === 'string' ? { url: target, headers: {} } : target;
+}
+
 export interface StorageProvider {
-  createUploadUrl(input: CreateUploadUrlInput): Promise<string>;
-  createDownloadUrl(objectKey: string): Promise<string>;
+  createUploadUrl(input: CreateUploadUrlInput): Promise<StorageTarget>;
+  createDownloadUrl(objectKey: string): Promise<StorageTarget>;
   assertObjectExists(objectKey: string): Promise<void>;
 }
 

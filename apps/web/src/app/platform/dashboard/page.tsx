@@ -11,6 +11,7 @@ import {
   useState,
 } from "react";
 import Link from "next/link";
+import { uploadFile } from "@/lib/upload";
 import {
   filterRows,
   getSelectOptions,
@@ -884,12 +885,7 @@ export default function SuperAdminDashboard() {
       },
       token,
     );
-    const upload = await fetch(intent.uploadUrl, {
-      method: "PUT",
-      headers: { "Content-Type": file.type },
-      body: file,
-    });
-    if (!upload.ok) throw new Error("The OEM logo could not be uploaded.");
+    await uploadFile(intent, file, { apiUrl: API_URL, accessToken: token });
     await request(
       `/platform/oems/${oemId}/logo-upload-complete`,
       { method: "POST", body: JSON.stringify({ objectKey: intent.objectKey }) },
@@ -1537,13 +1533,10 @@ export default function SuperAdminDashboard() {
               },
               token,
             );
-            const upload = await fetch(intent.uploadUrl, {
-              method: "PUT",
-              headers: { "Content-Type": file.type },
-              body: file,
+            await uploadFile(intent, file, {
+              apiUrl: API_URL,
+              accessToken: token,
             });
-            if (!upload.ok)
-              throw new Error(`Unable to upload ${documentType}.`);
             await request(
               `/platform/clients/${client.id}/documents/${intent.document.id}/complete`,
               { method: "POST" },

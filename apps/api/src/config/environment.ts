@@ -33,6 +33,8 @@ const environmentSchema = z.object({
     .max(3_600_000)
     .default(60_000),
   IOT_OFFLINE_THRESHOLD_SECONDS: z.coerce.number().int().positive().default(60),
+  OBJECT_STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
+  LOCAL_STORAGE_ROOT: z.string().min(1).default('.local-storage'),
   S3_BUCKET: z.string().optional(),
   S3_ENDPOINT: z.string().url().optional(),
   S3_PUBLIC_ENDPOINT: z.string().url().optional(),
@@ -75,6 +77,12 @@ export function validateEnvironment(
   }
   if (result.data.NODE_ENV === 'production' && !result.data.S3_BUCKET) {
     throw new Error('S3_BUCKET must be configured in production.');
+  }
+  if (
+    result.data.NODE_ENV === 'production' &&
+    result.data.OBJECT_STORAGE_DRIVER !== 's3'
+  ) {
+    throw new Error('OBJECT_STORAGE_DRIVER must be s3 in production.');
   }
   if (
     result.data.NODE_ENV === 'production' &&

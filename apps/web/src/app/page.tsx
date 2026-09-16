@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { uploadFile } from "@/lib/upload";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
@@ -1046,13 +1047,7 @@ export default function Home() {
         },
         token,
       )) as { photo: { id: string }; uploadUrl: string };
-      const upload = await fetch(intent.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      if (!upload.ok)
-        throw new Error("Object storage rejected the file upload.");
+      await uploadFile(intent, file, { apiUrl: API_URL, accessToken: token });
       await request(
         `/media/${intent.photo.id}/complete`,
         { method: "POST" },
@@ -1375,13 +1370,7 @@ export default function Home() {
         },
         token,
       )) as { photo: { id: string }; uploadUrl: string };
-      const result = await fetch(intent.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      if (!result.ok)
-        throw new Error("Object storage rejected the file upload.");
+      await uploadFile(intent, file, { apiUrl: API_URL, accessToken: token });
       await request(
         `/media/${intent.photo.id}/complete`,
         { method: "POST" },
@@ -1430,13 +1419,7 @@ export default function Home() {
         },
         token,
       )) as { photo: { id: string }; uploadUrl: string };
-      const result = await fetch(intent.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      if (!result.ok)
-        throw new Error("Object storage rejected the file upload.");
+      await uploadFile(intent, file, { apiUrl: API_URL, accessToken: token });
       await request(
         `/media/${intent.photo.id}/complete`,
         { method: "POST" },
@@ -1490,13 +1473,7 @@ export default function Home() {
         },
         token,
       )) as { photo: { id: string }; uploadUrl: string };
-      const result = await fetch(intent.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      if (!result.ok)
-        throw new Error("Object storage rejected the file upload.");
+      await uploadFile(intent, file, { apiUrl: API_URL, accessToken: token });
       await request(
         `/media/${intent.photo.id}/complete`,
         { method: "POST" },

@@ -3,6 +3,53 @@ import { describe, expect, it, vi } from 'vitest';
 import { MediaService } from './media.service.js';
 
 describe('MediaService photo requirements', () => {
+  it('maps upload and download targets while retaining legacy URL fields', async () => {
+    const photo = {
+      id: 'photo-1',
+      objectKey: 'clients/client-a/fleet/fleet-1/photo-1.jpg',
+      status: 'COMPLETE',
+    };
+    const uploadTarget = {
+      url: '/api/v1/storage/local/upload',
+      headers: { 'X-Upload-Token': 'upload-token' },
+    };
+    const downloadTarget = {
+      url: '/api/v1/storage/local/download',
+      headers: { 'X-Download-Token': 'download-token' },
+    };
+    const storage = {
+      createUploadUrl: vi.fn().mockResolvedValue(uploadTarget),
+      createDownloadUrl: vi.fn().mockResolvedValue(downloadTarget),
+    };
+    const prisma = {
+      fleet: { findFirst: vi.fn().mockResolvedValue({ id: 'fleet-1' }) },
+      photo: {
+        create: vi.fn().mockResolvedValue(photo),
+        findFirst: vi.fn().mockResolvedValue(photo),
+      },
+    };
+    const service = new MediaService(prisma as never, storage as never);
+
+    await expect(
+      service.createUploadIntent('client-a', 'operator-1', {
+        entityType: 'FLEET',
+        entityId: 'fleet-1',
+        photoType: 'FRONT',
+        mimeType: 'image/jpeg',
+        fileName: 'photo.jpg',
+        sizeBytes: 3,
+      }),
+    ).resolves.toMatchObject({
+      photo,
+      uploadUrl: uploadTarget.url,
+      uploadHeaders: uploadTarget.headers,
+    });
+    await expect(service.downloadUrl('client-a', 'photo-1')).resolves.toEqual({
+      url: downloadTarget.url,
+      headers: downloadTarget.headers,
+    });
+  });
+
   it('queries configurable requirements within the caller client only', async () => {
     const prisma = {
       photoRequirement: {

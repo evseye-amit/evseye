@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import { uploadFile } from "@/lib/upload";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
@@ -1778,14 +1779,10 @@ function FleetEvidenceSetup({
             "Unable to prepare photo upload.",
         );
       }
-      const uploadResponse = await fetch(intentBody.data.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
+      await uploadFile(intentBody.data, file, {
+        apiUrl: API_URL,
+        accessToken: token(),
       });
-      if (!uploadResponse.ok) {
-        throw new Error("The photo could not be uploaded to secure storage.");
-      }
       const completeResponse = await fetch(
         `${API_URL}/media/${intentBody.data.photo.id}/complete`,
         {

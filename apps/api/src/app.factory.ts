@@ -13,6 +13,8 @@ import type { AuthUser } from './auth/interfaces/auth-user.interface.js';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
 import type { Environment } from './config/environment.js';
 
+const LOCAL_UPLOAD_BODY_LIMIT = 10 * 1024 * 1024;
+
 export async function createApplication(): Promise<NestFastifyApplication> {
   const requestStartedAt = new WeakMap<FastifyRequest, number>();
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -20,7 +22,12 @@ export async function createApplication(): Promise<NestFastifyApplication> {
     new FastifyAdapter({
       logger: {
         redact: {
-          paths: ['req.headers.authorization', 'req.headers.cookie'],
+          paths: [
+            'req.headers.authorization',
+            'req.headers.cookie',
+            'req.headers.x-upload-token',
+            'req.headers.x-download-token',
+          ],
           remove: true,
         },
       },
@@ -39,6 +46,18 @@ export async function createApplication(): Promise<NestFastifyApplication> {
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
   const fastify = app.getHttpAdapter().getInstance() as FastifyInstance;
+  for (const contentType of [
+    'application/pdf',
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+  ]) {
+    fastify.addContentTypeParser(
+      contentType,
+      { parseAs: 'buffer', bodyLimit: LOCAL_UPLOAD_BODY_LIMIT },
+      (_request, body, done) => done(null, body),
+    );
+  }
   fastify.addHook('onRequest', (request, reply, done) => {
     requestStartedAt.set(request, Date.now());
     reply.header('x-request-id', request.id);

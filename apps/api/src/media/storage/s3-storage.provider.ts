@@ -12,6 +12,7 @@ import type { Environment } from '../../config/environment.js';
 import type {
   CreateUploadUrlInput,
   StorageProvider,
+  StorageTarget,
 } from './storage-provider.interface.js';
 
 @Injectable()
@@ -43,9 +44,9 @@ export class S3StorageProvider implements StorageProvider {
     this.serverSideEncryption = config.get('S3_SERVER_SIDE_ENCRYPTION');
   }
 
-  async createUploadUrl(input: CreateUploadUrlInput): Promise<string> {
+  async createUploadUrl(input: CreateUploadUrlInput): Promise<StorageTarget> {
     const bucket = this.bucket();
-    return getSignedUrl(
+    const url = await getSignedUrl(
       this.signingClient,
       new PutObjectCommand({
         Bucket: bucket,
@@ -58,14 +59,26 @@ export class S3StorageProvider implements StorageProvider {
       }),
       { expiresIn: this.config.getOrThrow('S3_SIGNED_URL_TTL_SECONDS') },
     );
+    return {
+      url,
+      headers: {
+        'Content-Type': input.mimeType,
+        ...(this.serverSideEncryption
+          ? {
+              'x-amz-server-side-encryption': this.serverSideEncryption,
+            }
+          : {}),
+      },
+    };
   }
 
-  async createDownloadUrl(objectKey: string): Promise<string> {
-    return getSignedUrl(
+  async createDownloadUrl(objectKey: string): Promise<StorageTarget> {
+    const url = await getSignedUrl(
       this.signingClient,
       new GetObjectCommand({ Bucket: this.bucket(), Key: objectKey }),
       { expiresIn: this.config.getOrThrow('S3_SIGNED_URL_TTL_SECONDS') },
     );
+    return { url, headers: {} };
   }
 
   async assertObjectExists(objectKey: string): Promise<void> {

@@ -38,6 +38,7 @@ import type {
 } from './dto/client-onboarding-steps.dto.js';
 import {
   STORAGE_PROVIDER,
+  normalizeStorageTarget,
   type StorageProvider,
 } from '../media/storage/storage-provider.interface.js';
 
@@ -1027,6 +1028,13 @@ export class PlatformAdminService {
         'File extension does not match its MIME type.',
       );
     const objectKey = `clients/${clientId}/documents/${randomUUID()}.${extension}`;
+    const uploadTarget = normalizeStorageTarget(
+      await this.storage.createUploadUrl({
+        objectKey,
+        mimeType: dto.mimeType,
+        sizeBytes: dto.sizeBytes,
+      }),
+    );
     const document = await this.prisma.clientDocument.create({
       data: {
         clientId,
@@ -1040,11 +1048,6 @@ export class PlatformAdminService {
         sizeBytes: dto.sizeBytes,
       },
     });
-    const uploadUrl = await this.storage.createUploadUrl({
-      objectKey,
-      mimeType: dto.mimeType,
-      sizeBytes: dto.sizeBytes,
-    });
     await this.audit.record({
       actorId,
       action: 'CLIENT_DOCUMENT_UPLOAD_REQUESTED',
@@ -1052,7 +1055,11 @@ export class PlatformAdminService {
       entityId: document.id,
       newData: { clientId, documentType: document.documentType },
     });
-    return { document, uploadUrl };
+    return {
+      document,
+      uploadUrl: uploadTarget.url,
+      uploadHeaders: uploadTarget.headers,
+    };
   }
 
   async completeDocumentUpload(
@@ -1084,7 +1091,10 @@ export class PlatformAdminService {
       where: { id: documentId, clientId, uploadedAt: { not: null } },
     });
     if (!document) throw new NotFoundException('Client document not found.');
-    return { url: await this.storage.createDownloadUrl(document.objectKey) };
+    const target = normalizeStorageTarget(
+      await this.storage.createDownloadUrl(document.objectKey),
+    );
+    return { url: target.url, headers: target.headers };
   }
 
   async submitClient(clientId: string, actorId: string) {

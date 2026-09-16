@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import type { CreateUploadIntentDto } from './dto/create-upload-intent.dto.js';
 import {
   STORAGE_PROVIDER,
+  normalizeStorageTarget,
   type StorageProvider,
 } from './storage/storage-provider.interface.js';
 
@@ -29,6 +30,13 @@ export class MediaService {
     this.assertExtensionMatchesMime(dto.fileName, dto.mimeType);
 
     const objectKey = `clients/${clientId}/${dto.entityType.toLowerCase()}/${dto.entityId}/${randomUUID()}.${this.extensionFor(dto.mimeType)}`;
+    const uploadTarget = normalizeStorageTarget(
+      await this.storage.createUploadUrl({
+        objectKey,
+        mimeType: dto.mimeType,
+        sizeBytes: dto.sizeBytes,
+      }),
+    );
     const photo = await this.prisma.photo.create({
       data: {
         clientId,
@@ -41,13 +49,12 @@ export class MediaService {
         uploadedById,
       },
     });
-    const uploadUrl = await this.storage.createUploadUrl({
-      objectKey,
-      mimeType: dto.mimeType,
-      sizeBytes: dto.sizeBytes,
-    });
 
-    return { photo, uploadUrl };
+    return {
+      photo,
+      uploadUrl: uploadTarget.url,
+      uploadHeaders: uploadTarget.headers,
+    };
   }
 
   async requirements(clientId: string, entityType: PhotoEntityType) {
@@ -129,7 +136,10 @@ export class MediaService {
     if (photo.status !== PhotoStatus.COMPLETE) {
       throw new BadRequestException('Photo is not available.');
     }
-    return { url: await this.storage.createDownloadUrl(photo.objectKey) };
+    const target = normalizeStorageTarget(
+      await this.storage.createDownloadUrl(photo.objectKey),
+    );
+    return { url: target.url, headers: target.headers };
   }
 
   private async getPhoto(clientId: string, photoId: string) {

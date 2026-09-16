@@ -10,6 +10,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   STORAGE_PROVIDER,
+  normalizeStorageTarget,
   type StorageProvider,
 } from '../media/storage/storage-provider.interface.js';
 import {
@@ -155,12 +156,18 @@ export class PlatformCatalogService {
   ) {
     await this.exists('oem', id);
     const objectKey = `platform/oems/${id}/logo/${randomUUID()}.${this.extensionFor(dto.mimeType)}`;
-    const uploadUrl = await this.storage.createUploadUrl({
+    const uploadTarget = normalizeStorageTarget(
+      await this.storage.createUploadUrl({
+        objectKey,
+        mimeType: dto.mimeType,
+        sizeBytes: dto.sizeBytes,
+      }),
+    );
+    return {
       objectKey,
-      mimeType: dto.mimeType,
-      sizeBytes: dto.sizeBytes,
-    });
-    return { objectKey, uploadUrl };
+      uploadUrl: uploadTarget.url,
+      uploadHeaders: uploadTarget.headers,
+    };
   }
   async completeOemLogoUpload(
     id: string,

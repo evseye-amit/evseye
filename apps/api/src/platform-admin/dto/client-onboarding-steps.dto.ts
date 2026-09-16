@@ -18,6 +18,7 @@ import {
   IsString,
   IsUrl,
   Matches,
+  Max,
   MaxLength,
   Min,
   ValidateIf,
@@ -175,5 +176,5 @@ export class CreateClientDocumentUploadIntentDto {
   @IsString()
   @IsIn(['application/pdf', 'image/jpeg', 'image/png'])
   mimeType!: string;
-  @IsInt() @Min(1) sizeBytes!: number;
+  @IsInt() @Min(1) @Max(10 * 1024 * 1024) sizeBytes!: number;
 }
