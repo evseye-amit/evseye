@@ -1581,6 +1581,120 @@ body:has(.sa-dialog[open]) {
   border-radius: 8px;
   background: #f8fbf9;
 }
+.sa-table-logo {
+  display: block;
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  padding: 3px;
+  border: 1px solid #dce3dd;
+  border-radius: 6px;
+  background: #f8fbf9;
+}
+.sa-bulk-workspace {
+  display: grid;
+  gap: 24px;
+  max-width: 1180px;
+}
+.sa-bulk-workspace-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 18px;
+}
+.sa-bulk-workspace-head h2,
+.sa-bulk-section-head h3,
+.sa-bulk-upload-card h3 {
+  margin: 0;
+  color: #203129;
+}
+.sa-bulk-workspace-head p,
+.sa-bulk-section-head p,
+.sa-bulk-upload-card p {
+  margin: 6px 0 0;
+  color: #738076;
+}
+.sa-eyebrow {
+  margin: 0 0 7px !important;
+  color: #2a7b58 !important;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+.sa-bulk-history,
+.sa-bulk-upload-card {
+  padding: 22px;
+  border: 1px solid #dfe9e2;
+  border-radius: 12px;
+  background: #fff;
+}
+.sa-bulk-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.sa-bulk-section-head > span {
+  padding: 5px 9px;
+  border-radius: 999px;
+  color: #286b4d;
+  background: #eaf6ee;
+  font-size: 13px;
+  font-weight: 700;
+}
+.sa-bulk-upload-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.6fr);
+  gap: 20px;
+  align-items: center;
+  border-style: dashed;
+  border-color: #a8cdb5;
+  background: #f8fcf9;
+}
+.sa-bulk-help {
+  font-size: 13px;
+}
+.sa-bulk-file-picker {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid #c9ddcf;
+  border-radius: 8px;
+  color: #3a5143;
+  background: #fff;
+  font-weight: 700;
+}
+.sa-bulk-file-picker input {
+  max-width: 100%;
+  color: #65746a;
+  font-weight: 400;
+}
+.sa-bulk-upload-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.sa-import-status {
+  display: inline-flex;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+}
+.sa-import-status.pass {
+  color: #216344;
+  background: #e4f5ea;
+}
+.sa-import-status.partial_pass {
+  color: #9a6514;
+  background: #fff2d9;
+}
+.sa-import-status.fail {
+  color: #a74638;
+  background: #fde7e4;
+}
 .sa-checkbox-list {
   display: grid;
   gap: 7px;

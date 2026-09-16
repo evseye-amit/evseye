@@ -39,6 +39,24 @@ type Tab =
   | "clientFeaturesPricing"
   | "clientFeatureUsage";
 type Item = Record<string, any>;
+type BulkImportEntity =
+  | "oem"
+  | "vehicle-category"
+  | "vehicle-type"
+  | "feature"
+  | "package";
+type BulkImportHistoryEntry = {
+  id: string;
+  entity: BulkImportEntity;
+  fileName: string;
+  status: "PASS" | "PARTIAL_PASS" | "FAIL";
+  totalRows: number;
+  passedRows: number;
+  failedRows: number;
+  createdAt: string;
+  error?: string;
+};
+const BULK_IMPORT_HISTORY_KEY = "evs-eye-platform-bulk-import-history";
 type PricingTierInput = {
   tierOrder: string;
   tierName: string;
@@ -459,7 +477,19 @@ export default function SuperAdminDashboard() {
   const [editingOemId, setEditingOemId] = useState<string | null>(null);
   const [showOemForm, setShowOemForm] = useState(false);
   const oemTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const [showOemBulk, setShowOemBulk] = useState(false);
+  const [bulkImportEntity, setBulkImportEntity] =
+    useState<BulkImportEntity | null>(null);
+  const [bulkImportHistory, setBulkImportHistory] = useState<
+    BulkImportHistoryEntry[]
+  >(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = localStorage.getItem(BULK_IMPORT_HISTORY_KEY);
+      return saved ? (JSON.parse(saved) as BulkImportHistoryEntry[]) : [];
+    } catch {
+      return [];
+    }
+  });
   const [oemLogoFile, setOemLogoFile] = useState<File | null>(null);
   const [oemLogoPreview, setOemLogoPreview] = useState("");
   const [vehicleCategory, setVehicleCategory] = useState(emptyVehicleCategory);
@@ -468,24 +498,20 @@ export default function SuperAdminDashboard() {
   >(null);
   const [showVehicleCategoryForm, setShowVehicleCategoryForm] = useState(false);
   const vehicleCategoryTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const [showVehicleCategoryBulk, setShowVehicleCategoryBulk] = useState(false);
   const [vehicleType, setVehicleType] = useState(emptyVehicleType);
   const [editingVehicleTypeId, setEditingVehicleTypeId] = useState<
     string | null
   >(null);
   const [showVehicleTypeForm, setShowVehicleTypeForm] = useState(false);
   const vehicleTypeTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const [showVehicleTypeBulk, setShowVehicleTypeBulk] = useState(false);
   const [feature, setFeature] = useState(emptyFeature);
   const [editingFeatureId, setEditingFeatureId] = useState<string | null>(null);
   const [showFeatureForm, setShowFeatureForm] = useState(false);
   const featureTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const [showFeatureBulk, setShowFeatureBulk] = useState(false);
   const [pack, setPack] = useState(emptyPackage);
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
   const [showPackageForm, setShowPackageForm] = useState(false);
   const packageTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const [showPackageBulk, setShowPackageBulk] = useState(false);
   const [packageFeatures, setPackageFeatures] = useState<PackageFeatureInput[]>(
     [],
   );
@@ -551,7 +577,7 @@ export default function SuperAdminDashboard() {
     oemTriggerRef.current = trigger;
     setError("");
     setNotice("");
-    setShowOemBulk(false);
+    setBulkImportEntity(null);
     if (item) {
       setOem({
         code: item.code,
@@ -581,7 +607,7 @@ export default function SuperAdminDashboard() {
   ) {
     vehicleCategoryTriggerRef.current = trigger;
     setError("");
-    if (hideBulk) setShowVehicleCategoryBulk(false);
+    if (hideBulk) setBulkImportEntity(null);
     if (item) {
       setVehicleCategory({
         code: item.code,
@@ -608,7 +634,7 @@ export default function SuperAdminDashboard() {
   ) {
     vehicleTypeTriggerRef.current = trigger;
     setError("");
-    if (hideBulk) setShowVehicleTypeBulk(false);
+    if (hideBulk) setBulkImportEntity(null);
     if (item) {
       setVehicleType({
         categoryId: item.categoryId,
@@ -638,7 +664,7 @@ export default function SuperAdminDashboard() {
   ) {
     featureTriggerRef.current = trigger;
     setError("");
-    if (hideBulk) setShowFeatureBulk(false);
+    if (hideBulk) setBulkImportEntity(null);
     if (item) {
       setFeature({
         code: item.code,
@@ -664,7 +690,7 @@ export default function SuperAdminDashboard() {
   function openPackageModal(trigger: HTMLButtonElement, item?: Item) {
     packageTriggerRef.current = trigger;
     setError("");
-    setShowPackageBulk(false);
+    setBulkImportEntity(null);
     if (item) {
       setPack({
         code: item.code,
@@ -907,6 +933,37 @@ export default function SuperAdminDashboard() {
     link.click();
     URL.revokeObjectURL(url);
   }
+  function recordBulkImport(
+    entity: BulkImportEntity,
+    fileName: string,
+    totalRows: number,
+    result: { created?: number; failedRows?: number; status?: string } = {},
+    error?: string,
+  ) {
+    const passedRows = result.created ?? 0;
+    const failedRows = result.failedRows ?? (error ? totalRows : 0);
+    const status = error
+      ? "FAIL"
+      : result.status === "PARTIAL_PASS" || failedRows > 0
+        ? "PARTIAL_PASS"
+        : "PASS";
+    const entry: BulkImportHistoryEntry = {
+      id: crypto.randomUUID(),
+      entity,
+      fileName,
+      status,
+      totalRows,
+      passedRows,
+      failedRows,
+      createdAt: new Date().toISOString(),
+      ...(error ? { error } : {}),
+    };
+    setBulkImportHistory((current) => {
+      const next = [entry, ...current].slice(0, 50);
+      localStorage.setItem(BULK_IMPORT_HISTORY_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
   async function uploadOemCsv(file: File) {
     setLoading(true);
     setError("");
@@ -955,12 +1012,14 @@ export default function SuperAdminDashboard() {
       setNotice(
         `${result.created} OEM${result.created === 1 ? "" : "s"} imported successfully.`,
       );
-      setShowOemBulk(false);
+      recordBulkImport("oem", file.name, rows.length, result);
+      setBulkImportEntity(null);
       await load();
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Unable to import OEMs.",
-      );
+      const message =
+        cause instanceof Error ? cause.message : "Unable to import OEMs.";
+      recordBulkImport("oem", file.name, 0, {}, message);
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -975,6 +1034,7 @@ export default function SuperAdminDashboard() {
   }
   async function uploadBulkCsv(
     file: File,
+    entity: BulkImportEntity,
     expectedHeaders: string[],
     endpoint: string,
     label: string,
@@ -1010,14 +1070,16 @@ export default function SuperAdminDashboard() {
       setNotice(
         `${result.created} ${label}${result.created === 1 ? "" : "s"} imported successfully.`,
       );
+      recordBulkImport(entity, file.name, rows.length, result);
       complete();
       await load();
     } catch (cause) {
-      setError(
+      const message =
         cause instanceof Error
           ? cause.message
-          : `Unable to import ${label.toLowerCase()}s.`,
-      );
+          : `Unable to import ${label.toLowerCase()}s.`;
+      recordBulkImport(entity, file.name, 0, {}, message);
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -1031,6 +1093,7 @@ export default function SuperAdminDashboard() {
   async function uploadVehicleCategoryCsv(file: File) {
     await uploadBulkCsv(
       file,
+      "vehicle-category",
       ["code", "name", "description", "status", "display_order"],
       "/platform/vehicle-categories/bulk",
       "Vehicle Category",
@@ -1041,7 +1104,7 @@ export default function SuperAdminDashboard() {
         status,
         displayOrder,
       }),
-      () => setShowVehicleCategoryBulk(false),
+      () => setBulkImportEntity(null),
     );
   }
   function downloadVehicleTypeTemplate() {
@@ -1053,6 +1116,7 @@ export default function SuperAdminDashboard() {
   async function uploadVehicleTypeCsv(file: File) {
     await uploadBulkCsv(
       file,
+      "vehicle-type",
       [
         "category_code",
         "code",
@@ -1084,7 +1148,7 @@ export default function SuperAdminDashboard() {
         usageType,
         status,
       }),
-      () => setShowVehicleTypeBulk(false),
+      () => setBulkImportEntity(null),
     );
   }
   function downloadPackageTemplate() {
@@ -1096,6 +1160,7 @@ export default function SuperAdminDashboard() {
   async function uploadPackageCsv(file: File) {
     await uploadBulkCsv(
       file,
+      "package",
       [
         "code",
         "name",
@@ -1139,7 +1204,7 @@ export default function SuperAdminDashboard() {
         isActive,
         description,
       }),
-      () => setShowPackageBulk(false),
+      () => setBulkImportEntity(null),
     );
   }
   async function submitFeature(event: FormEvent) {
@@ -1237,12 +1302,14 @@ export default function SuperAdminDashboard() {
       setNotice(
         `${result.created} feature${result.created === 1 ? "" : "s"} imported successfully.`,
       );
-      setShowFeatureBulk(false);
+      recordBulkImport("feature", file.name, rows.length, result);
+      setBulkImportEntity(null);
       await load();
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Unable to import Features.",
-      );
+      const message =
+        cause instanceof Error ? cause.message : "Unable to import Features.";
+      recordBulkImport("feature", file.name, 0, {}, message);
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -1846,6 +1913,41 @@ export default function SuperAdminDashboard() {
     showPricingForm ||
     showClientForm;
   const nav = navGroups.flatMap((group) => group.items);
+  const bulkImportConfig = bulkImportEntity
+    ? {
+        oem: {
+          title: "OEM",
+          requiredColumns: "oem_code, oem_name, display_name, status",
+          downloadTemplate: downloadOemTemplate,
+          upload: uploadOemCsv,
+        },
+        "vehicle-category": {
+          title: "Vehicle Category",
+          requiredColumns: "code, name, status",
+          downloadTemplate: downloadVehicleCategoryTemplate,
+          upload: uploadVehicleCategoryCsv,
+        },
+        "vehicle-type": {
+          title: "Vehicle Type",
+          requiredColumns: "category_code, code, name, energy_type, status",
+          downloadTemplate: downloadVehicleTypeTemplate,
+          upload: uploadVehicleTypeCsv,
+        },
+        feature: {
+          title: "Feature",
+          requiredColumns:
+            "feature_code, feature_name, feature_category, feature_type, billing_unit",
+          downloadTemplate: downloadFeatureTemplate,
+          upload: uploadFeatureCsv,
+        },
+        package: {
+          title: "Package",
+          requiredColumns: "code, name, currency, is_custom, is_active",
+          downloadTemplate: downloadPackageTemplate,
+          upload: uploadPackageCsv,
+        },
+      }[bulkImportEntity]
+    : null;
 
   return (
     <main className="sa-shell">
@@ -1869,6 +1971,7 @@ export default function SuperAdminDashboard() {
                   className={`${tab === key ? "active" : ""} ${groupIndex ? "sa-nav-child" : ""}`}
                   onClick={() => {
                     setTab(key);
+                    setBulkImportEntity(null);
                     setShowClientForm(false);
                     setNotice("");
                   }}
@@ -1920,6 +2023,24 @@ export default function SuperAdminDashboard() {
         </header>
         {notice && <p className="notice">{notice}</p>}
         {error && !catalogDialogOpen && <p className="error">{error}</p>}
+        {bulkImportEntity && bulkImportConfig ? (
+          <BulkImportWorkspace
+            entity={bulkImportEntity}
+            title={bulkImportConfig.title}
+            requiredColumns={bulkImportConfig.requiredColumns}
+            history={bulkImportHistory.filter(
+              (entry) => entry.entity === bulkImportEntity,
+            )}
+            busy={loading}
+            onBack={() => {
+              setBulkImportEntity(null);
+              setError("");
+            }}
+            onDownloadTemplate={bulkImportConfig.downloadTemplate}
+            onUpload={(file) => void bulkImportConfig.upload(file)}
+          />
+        ) : (
+          <>
         {tab === "dashboard" && (
           <DashboardView
             summary={summary}
@@ -1979,13 +2100,10 @@ export default function SuperAdminDashboard() {
                 </p>
               </div>
               <div className="sa-actions">
-                <button className="secondary" onClick={downloadOemTemplate}>
-                  Download template
-                </button>
                 <button
                   className="secondary"
                   onClick={() => {
-                    setShowOemBulk(!showOemBulk);
+                    setBulkImportEntity("oem");
                     setShowOemForm(false);
                   }}
                 >
@@ -1998,30 +2116,6 @@ export default function SuperAdminDashboard() {
                 </button>
               </div>
             </section>
-            {showOemBulk && (
-              <section className="sa-oem-bulk">
-                <div>
-                  <h3>Bulk upload OEMs</h3>
-                  <p>
-                    Download the CSV template, complete one OEM per row, and
-                    upload it. The entire file is rejected if any row is invalid
-                    or duplicates an existing code.
-                  </p>
-                </div>
-                <label className="sa-file-input">
-                  Choose completed CSV
-                  <input
-                    type="file"
-                    accept=".csv,text/csv"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      if (file) void uploadOemCsv(file);
-                      event.currentTarget.value = "";
-                    }}
-                  />
-                </label>
-              </section>
-            )}
             <CatalogFormDialog
               open={showOemForm}
               title={editingOemId ? "Edit OEM" : "Add OEM"}
@@ -2096,8 +2190,20 @@ export default function SuperAdminDashboard() {
             <section className="sa-management oem-table-only">
               {oems.length ? (
                 <DataTable
-                  headings={["Code", "OEM", "Status", "", ""]}
+                  headings={[
+                    "Logo",
+                    "Code",
+                    "OEM",
+                    "Legal Name",
+                    "Description",
+                    "Status",
+                    "",
+                    "",
+                  ]}
                   columnFilters={[
+                    null,
+                    { type: "text" },
+                    { type: "text" },
                     { type: "text" },
                     { type: "text" },
                     {
@@ -2108,8 +2214,20 @@ export default function SuperAdminDashboard() {
                     null,
                   ]}
                   rows={oems.map((item) => [
+                    item.logoUrl ? (
+                      <img
+                        key="logo"
+                        className="sa-table-logo"
+                        src={item.logoUrl}
+                        alt={`${item.displayName ?? item.name} logo`}
+                      />
+                    ) : (
+                      "—"
+                    ),
                     item.code,
                     item.displayName,
+                    item.name,
+                    item.description ?? "—",
                     item.status,
                     <button
                       key="edit"
@@ -2146,7 +2264,7 @@ export default function SuperAdminDashboard() {
                     </button>
                     <button
                       className="secondary"
-                      onClick={() => setShowOemBulk(true)}
+                      onClick={() => setBulkImportEntity("oem")}
                     >
                       Bulk upload
                     </button>
@@ -2169,14 +2287,8 @@ export default function SuperAdminDashboard() {
               <div className="sa-actions">
                 <button
                   className="secondary"
-                  onClick={downloadVehicleCategoryTemplate}
-                >
-                  Download template
-                </button>
-                <button
-                  className="secondary"
                   onClick={() => {
-                    setShowVehicleCategoryBulk(!showVehicleCategoryBulk);
+                    setBulkImportEntity("vehicle-category");
                     setShowVehicleCategoryForm(false);
                   }}
                 >
@@ -2191,13 +2303,6 @@ export default function SuperAdminDashboard() {
                 </button>
               </div>
             </section>
-            {showVehicleCategoryBulk && (
-              <BulkUploadPanel
-                title="Bulk upload Vehicle Categories"
-                description="Download the CSV template, complete one Vehicle Category per row, and upload it. The entire file is rejected if a row is invalid or a code already exists."
-                onChoose={(file) => void uploadVehicleCategoryCsv(file)}
-              />
-            )}
             <section className="sa-management oem-table-only">
               <CatalogFormDialog
                 open={showVehicleCategoryForm}
@@ -2335,14 +2440,8 @@ export default function SuperAdminDashboard() {
               <div className="sa-actions">
                 <button
                   className="secondary"
-                  onClick={downloadVehicleTypeTemplate}
-                >
-                  Download template
-                </button>
-                <button
-                  className="secondary"
                   onClick={() => {
-                    setShowVehicleTypeBulk(!showVehicleTypeBulk);
+                    setBulkImportEntity("vehicle-type");
                     setShowVehicleTypeForm(false);
                   }}
                 >
@@ -2357,13 +2456,6 @@ export default function SuperAdminDashboard() {
                 </button>
               </div>
             </section>
-            {showVehicleTypeBulk && (
-              <BulkUploadPanel
-                title="Bulk upload Vehicle Types"
-                description="Download the CSV template. Each Vehicle Type references its Vehicle Category by category code. The entire file is rejected if a category or controlled value is invalid."
-                onChoose={(file) => void uploadVehicleTypeCsv(file)}
-              />
-            )}
             <section className="sa-management oem-table-only">
               <CatalogFormDialog
                 open={showVehicleTypeForm}
@@ -2507,7 +2599,9 @@ export default function SuperAdminDashboard() {
                 headings={[
                   "Code",
                   "Vehicle Type",
+                  "Sub-category",
                   "Category",
+                  "Description",
                   "Energy",
                   "Usage",
                   "Status",
@@ -2515,6 +2609,8 @@ export default function SuperAdminDashboard() {
                   "",
                 ]}
                 columnFilters={[
+                  { type: "text" },
+                  { type: "text" },
                   { type: "text" },
                   { type: "text" },
                   { type: "text" },
@@ -2527,7 +2623,9 @@ export default function SuperAdminDashboard() {
                 rows={vehicleTypes.map((item) => [
                   item.code,
                   item.name,
+                  item.subCategory ?? "—",
                   item.category?.name,
+                  item.description ?? "—",
                   item.energyType,
                   item.usageType ?? "—",
                   item.status,
@@ -2568,13 +2666,10 @@ export default function SuperAdminDashboard() {
                 </p>
               </div>
               <div className="sa-actions">
-                <button className="secondary" onClick={downloadFeatureTemplate}>
-                  Download template
-                </button>
                 <button
                   className="secondary"
                   onClick={() => {
-                    setShowFeatureBulk(!showFeatureBulk);
+                    setBulkImportEntity("feature");
                     setShowFeatureForm(false);
                   }}
                 >
@@ -2589,30 +2684,6 @@ export default function SuperAdminDashboard() {
                 </button>
               </div>
             </section>
-            {showFeatureBulk && (
-              <section className="sa-oem-bulk">
-                <div>
-                  <h3>Bulk upload Features</h3>
-                  <p>
-                    Download the CSV template, complete one Feature per row, and
-                    upload it. The entire file is rejected if any row has an
-                    invalid controlled value or duplicate code.
-                  </p>
-                </div>
-                <label className="sa-file-input">
-                  Choose completed CSV
-                  <input
-                    type="file"
-                    accept=".csv,text/csv"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      if (file) void uploadFeatureCsv(file);
-                      event.currentTarget.value = "";
-                    }}
-                  />
-                </label>
-              </section>
-            )}
             <section className="sa-management oem-table-only">
               <CatalogFormDialog
                 open={showFeatureForm}
@@ -2783,7 +2854,7 @@ export default function SuperAdminDashboard() {
                     </button>
                     <button
                       className="secondary"
-                      onClick={() => setShowFeatureBulk(true)}
+                      onClick={() => setBulkImportEntity("feature")}
                     >
                       Bulk upload
                     </button>
@@ -2804,13 +2875,10 @@ export default function SuperAdminDashboard() {
                 </p>
               </div>
               <div className="sa-actions">
-                <button className="secondary" onClick={downloadPackageTemplate}>
-                  Download template
-                </button>
                 <button
                   className="secondary"
                   onClick={() => {
-                    setShowPackageBulk(!showPackageBulk);
+                    setBulkImportEntity("package");
                     setShowPackageForm(false);
                   }}
                 >
@@ -2823,13 +2891,6 @@ export default function SuperAdminDashboard() {
                 </button>
               </div>
             </section>
-            {showPackageBulk && (
-              <BulkUploadPanel
-                title="Bulk upload Packages"
-                description="Download the CSV template to create base package and commercial settings. Package Features can be configured after import."
-                onChoose={(file) => void uploadPackageCsv(file)}
-              />
-            )}
             <section className="sa-management oem-table-only">
               <CatalogFormDialog
                 open={showPackageForm}
@@ -3467,6 +3528,8 @@ export default function SuperAdminDashboard() {
           </>
         )}
         {loading && <p className="platform-loading">Working…</p>}
+          </>
+        )}
       </section>
     </main>
   );
@@ -4542,33 +4605,138 @@ function enumLabel(value: string) {
       .join(" ")
   );
 }
-function BulkUploadPanel({
+function BulkImportWorkspace({
+  entity,
   title,
-  description,
-  onChoose,
+  requiredColumns,
+  history,
+  busy,
+  onBack,
+  onDownloadTemplate,
+  onUpload,
 }: {
+  entity: BulkImportEntity;
   title: string;
-  description: string;
-  onChoose: (file: File) => void;
+  requiredColumns: string;
+  history: BulkImportHistoryEntry[];
+  busy: boolean;
+  onBack: () => void;
+  onDownloadTemplate: () => void;
+  onUpload: (file: File) => void;
 }) {
+  const [file, setFile] = useState<File | null>(null);
+  const downloadFailureReport = (entry: BulkImportHistoryEntry) => {
+    const csv = [
+      "file_name,outcome,failure_reason",
+      [entry.fileName, entry.status, entry.error ?? "Row-level validation failed."]
+        .map((value) => `"${value.replaceAll('"', '""')}"`)
+        .join(","),
+    ].join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${entity}-failed-records.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
   return (
-    <section className="sa-oem-bulk">
-      <div>
-        <h3>{title}</h3>
-        <p>{description}</p>
+    <section className="sa-bulk-workspace">
+      <div className="sa-bulk-workspace-head">
+        <button className="secondary" type="button" onClick={onBack}>
+          ← Back to {title}
+        </button>
+        <div>
+          <p className="sa-eyebrow">PLATFORM DATA IMPORT</p>
+          <h2>Bulk import {title}</h2>
+          <p>Use the template to add master data safely and consistently.</p>
+        </div>
+        <button className="secondary" type="button" onClick={onDownloadTemplate}>
+          Download template
+        </button>
       </div>
-      <label className="sa-file-input">
-        Choose completed CSV
-        <input
-          type="file"
-          accept=".csv,text/csv"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) onChoose(file);
-            event.currentTarget.value = "";
-          }}
-        />
-      </label>
+
+      {history.length > 0 && (
+        <section className="sa-bulk-history">
+          <div className="sa-bulk-section-head">
+            <div>
+              <h3>Import history</h3>
+              <p>Previous uploads for {title}.</p>
+            </div>
+            <span>{history.length} upload{history.length === 1 ? "" : "s"}</span>
+          </div>
+          <div className="sa-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Imported on</th>
+                  <th>File name</th>
+                  <th>Outcome</th>
+                  <th>Records</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((entry) => (
+                  <tr key={entry.id}>
+                    <td>{new Date(entry.createdAt).toLocaleString()}</td>
+                    <td>{entry.fileName}</td>
+                    <td>
+                      <span className={`sa-import-status ${entry.status.toLowerCase()}`}>
+                        {entry.status === "PARTIAL_PASS"
+                          ? "Partial pass"
+                          : entry.status === "PASS"
+                            ? "Passed"
+                            : "Failed"}
+                      </span>
+                    </td>
+                    <td>{entry.passedRows} / {entry.totalRows}</td>
+                    <td>
+                      {entry.status !== "PASS" && (
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() => downloadFailureReport(entry)}
+                        >
+                          Download failures
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      <section className="sa-bulk-upload-card">
+        <div>
+          <p className="sa-eyebrow">{history.length ? "IMPORT ANOTHER FILE" : "GET STARTED"}</p>
+          <h3>Upload a CSV</h3>
+          <p>Required columns: {requiredColumns}.</p>
+          <p className="sa-bulk-help">CSV only · Maximum 5 MB · Files are validated before records are saved.</p>
+        </div>
+        <label className="sa-bulk-file-picker">
+          <span>{file ? file.name : "Choose CSV file"}</span>
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            onChange={(event) => setFile(event.currentTarget.files?.[0] ?? null)}
+          />
+        </label>
+        <div className="sa-bulk-upload-actions">
+          <button className="secondary" type="button" onClick={onDownloadTemplate}>
+            Download template
+          </button>
+          <button
+            type="button"
+            disabled={!file || busy}
+            onClick={() => file && onUpload(file)}
+          >
+            {busy ? "Importing…" : `Import ${title}`}
+          </button>
+        </div>
+      </section>
     </section>
   );
 }
