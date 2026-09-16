@@ -13,6 +13,7 @@ import {
 import Link from "next/link";
 import {
   filterRows,
+  getColumnFilterOptions,
   getSelectOptions,
   hasInvalidNumberRange,
   type ColumnFilterSpec,
@@ -1820,6 +1821,22 @@ export default function SuperAdminDashboard() {
       ],
     },
   ];
+  const pageSubtitles: Partial<Record<Tab, string>> = {
+    oems: "Create and manage manufacturers visible across the platform.",
+    vehicleCategories:
+      "Define platform-wide vehicle classifications used in fleet onboarding and reporting.",
+    vehicleTypes:
+      "Define vehicle types by category, energy source, and usage.",
+    features: "Manage the platform feature catalog and entitlement definitions.",
+    pricing: "Configure catalog pricing for billable platform features.",
+    pricingTiers: "Set quantity-based pricing tiers for eligible features.",
+    packages: "Create packages and define the commercial limits available to clients.",
+    packageFeatures: "Choose the features included with each platform package.",
+    clients: "Manage onboarding drafts, approvals, subscriptions, and documents.",
+    clientFeaturesPricing:
+      "Review client entitlements and negotiated feature pricing.",
+    clientFeatureUsage: "Review recorded feature consumption across clients.",
+  };
   const catalogDialogOpen =
     showOemForm ||
     showVehicleCategoryForm ||
@@ -1882,7 +1899,8 @@ export default function SuperAdminDashboard() {
             <p>
               {tab === "dashboard"
                 ? "Complete platform overview · Updated just now"
-                : "Platform-owned catalog and commercial controls"}
+                : pageSubtitles[tab] ??
+                  "Platform-owned catalog and commercial controls"}
             </p>
           </div>
           <div>
@@ -2247,7 +2265,6 @@ export default function SuperAdminDashboard() {
                     "Category",
                     "Description",
                     "Status",
-                    "Order",
                     "",
                     "",
                   ]}
@@ -2259,7 +2276,6 @@ export default function SuperAdminDashboard() {
                       type: "select",
                       options: ["ACTIVE", "INACTIVE", "SUSPENDED"],
                     },
-                    { type: "number" },
                     null,
                     null,
                   ]}
@@ -2268,7 +2284,6 @@ export default function SuperAdminDashboard() {
                     item.name,
                     item.description ?? "—",
                     item.status,
-                    item.displayOrder,
                     <button
                       key="edit"
                       className="secondary"
@@ -2709,7 +2724,6 @@ export default function SuperAdminDashboard() {
                     "Type",
                     "Billing unit",
                     "Active",
-                    "Order",
                     "",
                     "",
                   ]}
@@ -2720,7 +2734,6 @@ export default function SuperAdminDashboard() {
                     { type: "select" },
                     { type: "select" },
                     { type: "select" },
-                    { type: "number" },
                     null,
                     null,
                   ]}
@@ -2733,7 +2746,6 @@ export default function SuperAdminDashboard() {
                     item.featureType,
                     item.billingUnit,
                     item.isActive ? "YES" : "NO",
-                    item.displayOrder,
                     <button
                       key="edit"
                       className="secondary"
@@ -5103,10 +5115,14 @@ function DataTable({
   headings,
   rows,
   columnFilters = [],
+  columnFiltersMinimumRows = 10,
+  disablePageSizeAtOrBelow = 10,
 }: {
   headings: string[];
   rows: any[][];
   columnFilters?: readonly ColumnFilterSpec[];
+  columnFiltersMinimumRows?: number;
+  disablePageSizeAtOrBelow?: number;
 }) {
   const [pageSize, setPageSize] = useState(10);
   const searchId = useId();
@@ -5115,6 +5131,12 @@ function DataTable({
   const [page, setPage] = useState(1);
   const [columnFilterStates, setColumnFilterStates] =
     useState<ColumnFilterStateMap>({});
+  const [columnFilterSearches, setColumnFilterSearches] = useState<
+    Record<number, string>
+  >({});
+  const [openColumnFilter, setOpenColumnFilter] = useState<number | null>(
+    null,
+  );
   const [sort, setSort] = useState<{
     columnIndex: number;
     direction: "ascending" | "descending";
@@ -5129,9 +5151,17 @@ function DataTable({
         ),
       )
     : rows;
+  const effectiveColumnFilters =
+    rows.length > columnFiltersMinimumRows
+      ? columnFilters.map((filter, columnIndex) =>
+          headings[columnIndex]?.trim().toLowerCase() === "description"
+            ? null
+            : filter,
+        )
+      : [];
   const columnFilterResult = filterRows(
     filteredRows,
-    columnFilters,
+    effectiveColumnFilters,
     columnFilterStates,
   );
   const filteredColumnRows = columnFilterResult.rows;
@@ -5180,7 +5210,7 @@ function DataTable({
     (currentPage - 1) * pageSize,
     currentPage * pageSize,
   );
-  const hasColumnFilters = columnFilters.some(Boolean);
+  const hasColumnFilters = effectiveColumnFilters.some(Boolean);
   const updateColumnFilter = (
     columnIndex: number,
     state: ColumnFilterState,
@@ -5191,49 +5221,125 @@ function DataTable({
     }));
     setPage(1);
   };
+  const clearColumnFilter = (columnIndex: number) => {
+    updateColumnFilter(columnIndex, {});
+    setColumnFilterSearches((current) => ({ ...current, [columnIndex]: "" }));
+    setOpenColumnFilter(null);
+  };
   const renderColumnFilter = (columnIndex: number, mobile: boolean) => {
-    const spec = columnFilters[columnIndex];
+    const spec = effectiveColumnFilters[columnIndex];
     if (!spec) return null;
     const heading = headings[columnIndex] || `Column ${columnIndex + 1}`;
     const state = columnFilterStates[columnIndex] ?? {};
     const id = `${searchId}-filter-${columnIndex}-${mobile ? "mobile" : "desktop"}`;
-    if (spec.type === "text") {
-      return (
-        <label className="sa-table-filter-field" htmlFor={id}>
-          <span>Filter by {heading}</span>
-          <input
-            id={id}
-            type="text"
-            value={state.text ?? ""}
-            aria-label={`Filter by ${heading}`}
-            onChange={(event) =>
-              updateColumnFilter(columnIndex, { text: event.currentTarget.value })
-            }
-          />
-        </label>
+    if (spec.type === "text" || spec.type === "select") {
+      const selectedValues = state.values ??
+        (state.text ? [state.text] : state.value ? [state.value] : []);
+      const filterQuery = columnFilterSearches[columnIndex] ?? "";
+      const allOptions =
+        spec.type === "select"
+          ? getSelectOptions(rows, columnIndex, spec)
+          : getColumnFilterOptions(rows, columnIndex);
+      const options = allOptions.filter((option) =>
+        String(option).toLowerCase().includes(filterQuery.trim().toLowerCase()),
       );
-    }
-    if (spec.type === "select") {
-      const options = getSelectOptions(rows, columnIndex, spec);
+      const toggleValue = (value: string) => {
+        const nextValues = selectedValues.includes(value)
+          ? selectedValues.filter((selected) => selected !== value)
+          : [...selectedValues, value];
+        updateColumnFilter(columnIndex, { values: nextValues });
+      };
       return (
-        <label className="sa-table-filter-field" htmlFor={id}>
+        <div className="sa-table-filter-field sa-table-multiselect">
           <span>Filter by {heading}</span>
-          <select
-            id={id}
-            value={state.value ?? ""}
-            aria-label={`Filter by ${heading}`}
-            onChange={(event) =>
-              updateColumnFilter(columnIndex, { value: event.currentTarget.value })
-            }
-          >
-            <option value="">All {heading}</option>
-            {options.map((option, optionIndex) => (
-              <option key={`${String(option)}-${optionIndex}`} value={String(option)}>
-                {String(option)}
-              </option>
-            ))}
-          </select>
-        </label>
+          <div className="sa-table-multiselect-control">
+            <input
+              id={id}
+              type="search"
+              value={filterQuery}
+              placeholder={`Select ${heading}`}
+              aria-label={`Search ${heading} filter options`}
+              aria-expanded={openColumnFilter === columnIndex}
+              onFocus={() => setOpenColumnFilter(columnIndex)}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setColumnFilterSearches((current) => ({
+                  ...current,
+                  [columnIndex]: value,
+                }));
+                setOpenColumnFilter(columnIndex);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.currentTarget.blur();
+                  setOpenColumnFilter(null);
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="sa-table-filter-toggle"
+              aria-label={`${openColumnFilter === columnIndex ? "Hide" : "Show"} ${heading} filter options`}
+              aria-expanded={openColumnFilter === columnIndex}
+              onClick={() =>
+                setOpenColumnFilter((current) =>
+                  current === columnIndex ? null : columnIndex,
+                )
+              }
+            >
+              {openColumnFilter === columnIndex ? "⌃" : "⌄"}
+            </button>
+            {selectedValues.length > 0 && (
+              <button
+                type="button"
+                className="sa-table-filter-clear-one"
+                aria-label={`Clear ${heading} filter`}
+                onClick={() => clearColumnFilter(columnIndex)}
+              >
+                ×
+              </button>
+            )}
+          </div>
+          {selectedValues.length > 0 && (
+            <div className="sa-table-filter-values">
+              {selectedValues.map((value) => (
+                <button
+                  type="button"
+                  key={value}
+                  aria-label={`Remove ${value} from ${heading} filter`}
+                  onClick={() => toggleValue(value)}
+                >
+                  {value} ×
+                </button>
+              ))}
+            </div>
+          )}
+          {openColumnFilter === columnIndex && (
+            <div className="sa-table-filter-options" role="listbox" aria-label={`${heading} options`}>
+              {options.length ? (
+                options.map((option) => {
+                  const value = String(option);
+                  const selected = selectedValues.includes(value);
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      role="option"
+                      aria-selected={selected}
+                      className={selected ? "selected" : ""}
+                      onClick={() => toggleValue(value)}
+                    >
+                      <span>{selected ? "✓" : ""}</span>
+                      {value}
+                    </button>
+                  );
+                })
+              ) : (
+                <span className="sa-table-filter-empty">No matches</span>
+              )}
+            </div>
+          )}
+        </div>
       );
     }
     const invalidRange = hasInvalidNumberRange(state);
@@ -5338,6 +5444,10 @@ function DataTable({
             Rows per page
             <select
               value={pageSize}
+              disabled={
+                disablePageSizeAtOrBelow !== undefined &&
+                rows.length <= disablePageSizeAtOrBelow
+              }
               onChange={(event) => {
                 setPageSize(Number(event.currentTarget.value));
                 setPage(1);
@@ -5395,7 +5505,12 @@ function DataTable({
           <thead>
             <tr>
               {headings.map((heading, headingIndex) => {
-                const sortable = heading.trim().length > 0;
+                const normalizedHeading = heading.trim().toLowerCase();
+                const sortable =
+                  normalizedHeading.length > 0 &&
+                  normalizedHeading !== "description" &&
+                  normalizedHeading !== "order" &&
+                  normalizedHeading !== "display order";
                 const active = sort?.columnIndex === headingIndex;
                 const direction = active ? sort.direction : "none";
                 const nextDirection =
@@ -5434,7 +5549,9 @@ function DataTable({
                             : "↕"}
                         </span>
                       </button>
-                    ) : null}
+                    ) : (
+                      <span>{heading}</span>
+                    )}
                   </th>
                 );
               })}

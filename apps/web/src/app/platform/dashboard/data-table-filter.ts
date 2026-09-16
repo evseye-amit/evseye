@@ -7,6 +7,7 @@ export type ColumnFilterSpec =
   | null;
 
 export type ColumnFilterState = {
+  values?: string[];
   text?: string;
   value?: string;
   min?: string;
@@ -62,8 +63,11 @@ function isActive(
   state: ColumnFilterState | undefined,
 ) {
   if (!spec || !state) return false;
-  if (spec.type === "text") return Boolean(state.text?.trim());
-  if (spec.type === "select") return Boolean(state.value);
+  if (spec.type === "text" || spec.type === "select") {
+    return Boolean(
+      state.values?.length || state.text?.trim() || state.value,
+    );
+  }
   return Boolean(state.min?.trim() || state.max?.trim());
 }
 
@@ -74,6 +78,14 @@ function matches(
 ): boolean {
   const scalar = asScalar(value);
   if (spec.type === "text") {
+    if (state.values?.length) {
+      return (
+        scalar !== undefined &&
+        state.values.some(
+          (selected) => String(scalar).toLowerCase() === selected.toLowerCase(),
+        )
+      );
+    }
     const query = state.text?.trim().toLowerCase();
     return (
       !query ||
@@ -81,6 +93,11 @@ function matches(
     );
   }
   if (spec.type === "select") {
+    if (state.values?.length) {
+      return (
+        scalar !== undefined && state.values.includes(String(scalar))
+      );
+    }
     return (
       !state.value || (scalar !== undefined && String(scalar) === state.value)
     );
@@ -138,4 +155,11 @@ export function getSelectOptions<Row extends readonly unknown[]>(
     options.push(value);
   }
   return options;
+}
+
+export function getColumnFilterOptions<Row extends readonly unknown[]>(
+  rows: readonly Row[],
+  columnIndex: number,
+): FilterableScalar[] {
+  return getSelectOptions(rows, columnIndex, { type: "select" });
 }

@@ -32,6 +32,19 @@ test("filters text, select, and inclusive numeric ranges with AND semantics", ()
   assert.equal(result.activeCount, 3);
 });
 
+test("text and select filters support multiple selected values", () => {
+  const result = filterRows(rows, specs, {
+    0: { values: ["Alpha", "beta"] },
+    1: { values: ["ACTIVE", "INACTIVE"] },
+  });
+
+  assert.deepEqual(
+    result.rows.map((row) => row[0]),
+    ["Alpha", "beta"],
+  );
+  assert.equal(result.activeCount, 2);
+});
+
 test("missing and non-numeric values do not match number filters", () => {
   const result = filterRows(rows, specs, { 2: { min: "0", max: "50" } });
 
