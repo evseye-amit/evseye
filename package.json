@@ -12,8 +12,8 @@
     "test:e2e": "pnpm --filter @evs-eye/api test:e2e",
     "typecheck": "pnpm -r typecheck",
     "verify": "pnpm typecheck && pnpm test && pnpm build",
-    "db:generate": "pnpm --filter @evs-eye/api prisma generate",
-    "db:migrate": "pnpm --filter @evs-eye/api prisma migrate dev",
+    "db:generate": "pnpm --filter @evs-eye/api exec prisma generate",
+    "db:migrate": "pnpm --filter @evs-eye/api exec prisma migrate dev",
     "db:seed": "node --env-file=.env apps/api/prisma/seed.mjs"
   },
   "devDependencies": {

@@ -1,8 +1,24 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import {
+  FormEvent,
+  ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
+import {
+  filterRows,
+  getSelectOptions,
+  hasInvalidNumberRange,
+  type ColumnFilterSpec,
+  type ColumnFilterState,
+  type ColumnFilterStateMap,
+} from "./data-table-filter";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
@@ -145,6 +161,83 @@ const emptyOem = {
   website: "",
   description: "",
 };
+const emptyClient = {
+  id: "",
+  businessFleetName: "",
+  companyCode: "",
+  legalEntityName: "",
+  clientType: "",
+  businessType: "",
+  industry: "",
+  gstin: "",
+  pan: "",
+  cinOrLlpin: "",
+  website: "",
+  yearEstablished: "",
+  estimatedFleetSize: "",
+  estimatedRiderCount: "",
+  estimatedUserCount: "",
+  primaryContactName: "",
+  primaryDesignation: "",
+  primaryMobile: "",
+  primaryEmail: "",
+  alternateMobile: "",
+  adminSameAsPrimary: true,
+  adminName: "",
+  adminEmail: "",
+  adminMobile: "",
+  adminDesignation: "",
+  registeredAddressLine1: "",
+  registeredAddressLine2: "",
+  landmark: "",
+  city: "",
+  district: "",
+  state: "",
+  country: "India",
+  pinCode: "",
+  billingSameAsRegistered: true,
+  billingAddressLine1: "",
+  billingAddressLine2: "",
+  billingLandmark: "",
+  billingCity: "",
+  billingDistrict: "",
+  billingState: "",
+  billingCountry: "India",
+  billingPinCode: "",
+  fleetBusinessModel: "",
+  numberOfFleets: "",
+  approximateRiderCount: "",
+  vehicleOwnership: "",
+  vehicleCategoryIds: [] as string[],
+  operationalHubCount: "",
+  packageId: "",
+  billingCycle: "",
+  startDate: new Date().toISOString().slice(0, 10),
+  endDate: "",
+  trialRequired: false,
+  autoRenew: true,
+  billingContactName: "",
+  billingEmail: "",
+  billingMobile: "",
+  purchaseOrderRequired: false,
+  poNumber: "",
+  paymentTerms: "",
+  authorizedSignatoryName: "",
+  signatoryDesignation: "",
+  termsAccepted: false,
+  privacyAccepted: false,
+  dataProcessingConsent: false,
+  kycConsent: false,
+  marketingConsent: false,
+};
+const clientStepLabels = [
+  "Business Details",
+  "Contacts & Address",
+  "Fleet Operations",
+  "Package Selection",
+  "Billing & Documents",
+  "Review & Submit",
+] as const;
 const emptyVehicleCategory = {
   code: "",
   name: "",
@@ -190,6 +283,7 @@ const emptyPricing = {
   featureId: "",
   pricingModel: "",
   billingUnit: "",
+
   currency: "INR",
   basePrice: "0",
   unitPrice: "",
@@ -240,6 +334,107 @@ function Metric({
   );
 }
 
+type CatalogFormDialogProps = Readonly<{
+  open: boolean;
+  title: string;
+  description: string;
+  error: string;
+  busy: boolean;
+  size?: "default" | "wide";
+  triggerRef: { current: HTMLButtonElement | null };
+  onClose: () => void;
+  onDialogClose: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>;
+  actions: ReactNode;
+  children: ReactNode;
+}>;
+
+function CatalogFormDialog({
+  open,
+  title,
+  description,
+  error,
+  busy,
+  size = "default",
+  triggerRef,
+  onClose,
+  onDialogClose,
+  onSubmit,
+  actions,
+  children,
+}: CatalogFormDialogProps) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const dialogId = useId();
+  const wasOpenRef = useRef(false);
+  const titleId = `${dialogId}-title`;
+  const descriptionId = `${dialogId}-description`;
+  const errorId = `${dialogId}-error`;
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+
+    let frame = 0;
+    if (open) {
+      if (!dialog.open) dialog.showModal();
+      frame = window.requestAnimationFrame(() => {
+        dialog
+          .querySelector<HTMLElement>(
+            '[data-dialog-initial-focus], input:not([type="file"]):not([type="hidden"]), select, textarea',
+          )
+          ?.focus();
+      });
+    } else {
+      if (dialog.open) dialog.close();
+      if (wasOpenRef.current) {
+        frame = window.requestAnimationFrame(() => {
+          triggerRef.current?.focus();
+        });
+      }
+    }
+    wasOpenRef.current = open;
+
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [open, triggerRef]);
+
+  return (
+    <dialog
+      ref={dialogRef}
+      className={`sa-dialog sa-dialog-${size}`}
+      aria-labelledby={titleId}
+      aria-describedby={error ? `${descriptionId} ${errorId}` : descriptionId}
+      aria-modal="true"
+      onCancel={(event) => {
+        event.preventDefault();
+        if (!busy) onClose();
+      }}
+      onClose={onDialogClose}
+    >
+      <form
+        className="sa-form sa-dialog-surface"
+        onSubmit={onSubmit}
+        aria-busy={busy}
+      >
+        <header className="sa-dialog-head">
+          <div>
+            <h2 id={titleId}>{title}</h2>
+            <p id={descriptionId}>{description}</p>
+          </div>
+        </header>
+        {error && (
+          <p id={errorId} className="error sa-dialog-error" role="alert">
+            {error}
+          </p>
+        )}
+        {children}
+        <footer className="sa-dialog-actions">{actions}</footer>
+      </form>
+    </dialog>
+  );
+}
+
 export default function SuperAdminDashboard() {
   const [token, setToken] = useState(() =>
     typeof window === "undefined"
@@ -262,6 +457,7 @@ export default function SuperAdminDashboard() {
   const [oem, setOem] = useState(emptyOem);
   const [editingOemId, setEditingOemId] = useState<string | null>(null);
   const [showOemForm, setShowOemForm] = useState(false);
+  const oemTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [showOemBulk, setShowOemBulk] = useState(false);
   const [oemLogoFile, setOemLogoFile] = useState<File | null>(null);
   const [oemLogoPreview, setOemLogoPreview] = useState("");
@@ -270,20 +466,24 @@ export default function SuperAdminDashboard() {
     string | null
   >(null);
   const [showVehicleCategoryForm, setShowVehicleCategoryForm] = useState(false);
+  const vehicleCategoryTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [showVehicleCategoryBulk, setShowVehicleCategoryBulk] = useState(false);
   const [vehicleType, setVehicleType] = useState(emptyVehicleType);
   const [editingVehicleTypeId, setEditingVehicleTypeId] = useState<
     string | null
   >(null);
   const [showVehicleTypeForm, setShowVehicleTypeForm] = useState(false);
+  const vehicleTypeTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [showVehicleTypeBulk, setShowVehicleTypeBulk] = useState(false);
   const [feature, setFeature] = useState(emptyFeature);
   const [editingFeatureId, setEditingFeatureId] = useState<string | null>(null);
   const [showFeatureForm, setShowFeatureForm] = useState(false);
+  const featureTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [showFeatureBulk, setShowFeatureBulk] = useState(false);
   const [pack, setPack] = useState(emptyPackage);
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
   const [showPackageForm, setShowPackageForm] = useState(false);
+  const packageTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [showPackageBulk, setShowPackageBulk] = useState(false);
   const [packageFeatures, setPackageFeatures] = useState<PackageFeatureInput[]>(
     [],
@@ -291,77 +491,11 @@ export default function SuperAdminDashboard() {
   const [price, setPrice] = useState(emptyPricing);
   const [editingPricingId, setEditingPricingId] = useState<string | null>(null);
   const [showPricingForm, setShowPricingForm] = useState(false);
+  const pricingTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [clientStep, setClientStep] = useState(1);
   const [showClientForm, setShowClientForm] = useState(false);
-  const [client, setClient] = useState<Item>({
-    id: "",
-    businessFleetName: "",
-    companyCode: "",
-    legalEntityName: "",
-    clientType: "",
-    businessType: "",
-    industry: "",
-    gstin: "",
-    pan: "",
-    cinOrLlpin: "",
-    website: "",
-    yearEstablished: "",
-    estimatedFleetSize: "",
-    estimatedRiderCount: "",
-    estimatedUserCount: "",
-    primaryContactName: "",
-    primaryDesignation: "",
-    primaryMobile: "",
-    primaryEmail: "",
-    alternateMobile: "",
-    adminSameAsPrimary: true,
-    adminName: "",
-    adminEmail: "",
-    adminMobile: "",
-    adminDesignation: "",
-    registeredAddressLine1: "",
-    registeredAddressLine2: "",
-    landmark: "",
-    city: "",
-    district: "",
-    state: "",
-    country: "India",
-    pinCode: "",
-    billingSameAsRegistered: true,
-    billingAddressLine1: "",
-    billingAddressLine2: "",
-    billingLandmark: "",
-    billingCity: "",
-    billingDistrict: "",
-    billingState: "",
-    billingCountry: "India",
-    billingPinCode: "",
-    fleetBusinessModel: "",
-    numberOfFleets: "",
-    approximateRiderCount: "",
-    vehicleOwnership: "",
-    vehicleCategoryIds: [] as string[],
-    operationalHubCount: "",
-    packageId: "",
-    billingCycle: "",
-    startDate: new Date().toISOString().slice(0, 10),
-    endDate: "",
-    trialRequired: false,
-    autoRenew: true,
-    billingContactName: "",
-    billingEmail: "",
-    billingMobile: "",
-    purchaseOrderRequired: false,
-    poNumber: "",
-    paymentTerms: "",
-    authorizedSignatoryName: "",
-    signatoryDesignation: "",
-    termsAccepted: false,
-    privacyAccepted: false,
-    dataProcessingConsent: false,
-    kycConsent: false,
-    marketingConsent: false,
-  });
+  const clientTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const [client, setClient] = useState<Item>(emptyClient);
   const [clientDocumentFiles, setClientDocumentFiles] = useState<
     Record<string, File | undefined>
   >({});
@@ -412,6 +546,228 @@ export default function SuperAdminDashboard() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (token) void load();
   }, [token, load]);
+  function openOemModal(trigger: HTMLButtonElement, item?: Item) {
+    oemTriggerRef.current = trigger;
+    setError("");
+    setNotice("");
+    setShowOemBulk(false);
+    if (item) {
+      setOem({
+        code: item.code,
+        name: item.name,
+        displayName: item.displayName,
+        status: item.status,
+        website: item.website ?? "",
+        description: item.description ?? "",
+      });
+      setEditingOemId(item.id);
+    } else {
+      setOem(emptyOem);
+      setEditingOemId(null);
+    }
+    setOemLogoFile(null);
+    setOemLogoPreview("");
+    setShowOemForm(true);
+  }
+  function closeOemModal() {
+    setError("");
+    setShowOemForm(false);
+  }
+  function openVehicleCategoryModal(
+    trigger: HTMLButtonElement,
+    item?: Item,
+    hideBulk = false,
+  ) {
+    vehicleCategoryTriggerRef.current = trigger;
+    setError("");
+    if (hideBulk) setShowVehicleCategoryBulk(false);
+    if (item) {
+      setVehicleCategory({
+        code: item.code,
+        name: item.name,
+        description: item.description ?? "",
+        status: item.status,
+        displayOrder: String(item.displayOrder ?? 0),
+      });
+      setEditingVehicleCategoryId(item.id);
+    } else {
+      setVehicleCategory(emptyVehicleCategory);
+      setEditingVehicleCategoryId(null);
+    }
+    setShowVehicleCategoryForm(true);
+  }
+  function closeVehicleCategoryModal() {
+    setError("");
+    setShowVehicleCategoryForm(false);
+  }
+  function openVehicleTypeModal(
+    trigger: HTMLButtonElement,
+    item?: Item,
+    hideBulk = false,
+  ) {
+    vehicleTypeTriggerRef.current = trigger;
+    setError("");
+    if (hideBulk) setShowVehicleTypeBulk(false);
+    if (item) {
+      setVehicleType({
+        categoryId: item.categoryId,
+        code: item.code,
+        name: item.name,
+        subCategory: item.subCategory ?? "",
+        description: item.description ?? "",
+        energyType: item.energyType,
+        usageType: item.usageType ?? "",
+        status: item.status,
+      });
+      setEditingVehicleTypeId(item.id);
+    } else {
+      setVehicleType(emptyVehicleType);
+      setEditingVehicleTypeId(null);
+    }
+    setShowVehicleTypeForm(true);
+  }
+  function closeVehicleTypeModal() {
+    setError("");
+    setShowVehicleTypeForm(false);
+  }
+  function openFeatureModal(
+    trigger: HTMLButtonElement,
+    item?: Item,
+    hideBulk = false,
+  ) {
+    featureTriggerRef.current = trigger;
+    setError("");
+    if (hideBulk) setShowFeatureBulk(false);
+    if (item) {
+      setFeature({
+        code: item.code,
+        name: item.name,
+        description: item.description ?? "",
+        category: item.category,
+        featureType: item.featureType,
+        billingUnit: item.billingUnit,
+        displayOrder: String(item.displayOrder),
+        isActive: item.isActive,
+      });
+      setEditingFeatureId(item.id);
+    } else {
+      setFeature(emptyFeature);
+      setEditingFeatureId(null);
+    }
+    setShowFeatureForm(true);
+  }
+  function closeFeatureModal() {
+    setError("");
+    setShowFeatureForm(false);
+  }
+  function openPackageModal(trigger: HTMLButtonElement, item?: Item) {
+    packageTriggerRef.current = trigger;
+    setError("");
+    setShowPackageBulk(false);
+    if (item) {
+      setPack({
+        code: item.code,
+        name: item.name,
+        monthlyPrice: item.monthlyPrice ? String(item.monthlyPrice) : "",
+        yearlyPrice: item.yearlyPrice ? String(item.yearlyPrice) : "",
+        currency: item.currency,
+        description: item.description ?? "",
+        maxFleets: item.maxFleets ? String(item.maxFleets) : "",
+        maxRiders: item.maxRiders ? String(item.maxRiders) : "",
+        trialDays: String(item.trialDays ?? 0),
+        displayOrder: String(item.displayOrder ?? 0),
+        isCustom: item.isCustom,
+        isActive: item.isActive,
+      });
+      setPackageFeatures(
+        (item.features ?? []).map((link: Item, index: number) => ({
+          featureId: link.featureId,
+          enabled: link.enabled,
+          includedQuantity: link.includedQuantity
+            ? String(link.includedQuantity)
+            : "",
+          usageLimit: link.usageLimit ? String(link.usageLimit) : "",
+          unlimitedUsage: link.unlimitedUsage,
+          configuration: link.configuration
+            ? JSON.stringify(link.configuration, null, 2)
+            : "",
+          displayOrder: String(link.displayOrder ?? index),
+        })),
+      );
+      setEditingPackageId(item.id);
+    } else {
+      setPack(emptyPackage);
+      setPackageFeatures([]);
+      setEditingPackageId(null);
+    }
+    setShowPackageForm(true);
+  }
+  function closePackageModal() {
+    setError("");
+    setShowPackageForm(false);
+  }
+  function openPricingModal(trigger: HTMLButtonElement, item?: Item) {
+    pricingTriggerRef.current = trigger;
+    setError("");
+    if (item) {
+      setPrice({
+        featureId: item.featureId,
+        pricingModel: item.pricingModel,
+        billingUnit: item.billingUnit,
+        basePrice: String(item.basePrice ?? 0),
+        unitPrice: String(item.unitPrice),
+        costPrice: String(item.costPrice ?? 0),
+        minimumCharge: item.minimumCharge
+          ? String(item.minimumCharge)
+          : "",
+        maximumCharge: item.maximumCharge
+          ? String(item.maximumCharge)
+          : "",
+        setupFee: String(item.setupFee ?? 0),
+        currency: item.currency,
+        billingCycle: item.billingCycle ?? "MONTHLY",
+        taxInclusive: item.taxInclusive ?? false,
+        effectiveFrom: item.effectiveFrom.slice(0, 10),
+        effectiveTo: item.effectiveTo ? item.effectiveTo.slice(0, 10) : "",
+        isActive: item.isActive,
+        metadata: item.metadata
+          ? JSON.stringify(item.metadata, null, 2)
+          : "",
+        tiers: (item.tiers ?? []).map((tier: Item) => ({
+          tierOrder: String(tier.tierOrder),
+          tierName: tier.tierName ?? "",
+          fromQuantity: String(tier.fromQuantity),
+          toQuantity: tier.toQuantity ? String(tier.toQuantity) : "",
+          unitPrice: String(tier.unitPrice),
+          costPrice: tier.costPrice ? String(tier.costPrice) : "",
+        })),
+      });
+      setEditingPricingId(item.id);
+    } else {
+      setPrice(emptyPricing);
+      setEditingPricingId(null);
+    }
+    setShowPricingForm(true);
+  }
+  function closePricingModal() {
+    setError("");
+    setShowPricingForm(false);
+  }
+  function openClientModal(trigger: HTMLButtonElement) {
+    clientTriggerRef.current = trigger;
+    if (!client.id) {
+      setClient(emptyClient);
+      setClientDocumentFiles({});
+      setClientStep(1);
+    }
+    setError("");
+    setNotice("");
+    setShowClientForm(true);
+  }
+  function closeClientModal() {
+    setError("");
+    setShowClientForm(false);
+  }
   async function submitOem(event: FormEvent) {
     event.preventDefault();
     await submit(
@@ -421,6 +777,7 @@ export default function SuperAdminDashboard() {
           { method: editingOemId ? "PUT" : "POST", body: JSON.stringify(oem) },
           token,
         );
+        if (!editingOemId) setEditingOemId(saved.id);
         if (oemLogoFile) await uploadOemLogo(saved.id, oemLogoFile);
       },
       editingOemId ? "OEM updated." : "OEM created.",
@@ -1048,6 +1405,7 @@ export default function SuperAdminDashboard() {
               method: "PATCH",
               // This endpoint has a step-specific DTO. Send only contact and
               // address fields so the API can keep its strict whitelist on.
+
               body: JSON.stringify({
                 primaryContactName: client.primaryContactName,
                 primaryDesignation: client.primaryDesignation,
@@ -1067,6 +1425,7 @@ export default function SuperAdminDashboard() {
                         ? { adminDesignation: client.adminDesignation }
                         : {}),
                     }),
+
                 registeredAddressLine1: client.registeredAddressLine1,
                 ...(client.registeredAddressLine2
                   ? { registeredAddressLine2: client.registeredAddressLine2 }
@@ -1220,7 +1579,12 @@ export default function SuperAdminDashboard() {
         ? "Client workspace created. The Client Admin can now sign in."
         : "Draft saved.",
       () => {
-        if (clientStep === 6) setShowClientForm(false);
+        if (clientStep === 6) {
+          setClient(emptyClient);
+          setClientDocumentFiles({});
+          setClientStep(1);
+          setShowClientForm(false);
+        }
       },
     );
   }
@@ -1286,7 +1650,11 @@ export default function SuperAdminDashboard() {
         : value;
     setClient((current) => ({ ...current, [key]: normalizedValue }));
   }
-  async function editClientDraft(clientId: string) {
+  async function editClientDraft(
+    clientId: string,
+    trigger?: HTMLButtonElement,
+  ) {
+    if (trigger) clientTriggerRef.current = trigger;
     await submit(async () => {
       const detail = (await request(
         `/platform/clients/${clientId}`,
@@ -1452,7 +1820,16 @@ export default function SuperAdminDashboard() {
       ],
     },
   ];
+  const catalogDialogOpen =
+    showOemForm ||
+    showVehicleCategoryForm ||
+    showVehicleTypeForm ||
+    showFeatureForm ||
+    showPackageForm ||
+    showPricingForm ||
+    showClientForm;
   const nav = navGroups.flatMap((group) => group.items);
+
   return (
     <main className="sa-shell">
       <aside className="sa-sidebar">
@@ -1524,12 +1901,11 @@ export default function SuperAdminDashboard() {
           </div>
         </header>
         {notice && <p className="notice">{notice}</p>}
-        {error && <p className="error">{error}</p>}
+        {error && !catalogDialogOpen && <p className="error">{error}</p>}
         {tab === "dashboard" && (
           <DashboardView
             summary={summary}
             clients={clients}
-            packages={packages}
             oems={oems}
             setTab={setTab}
           />
@@ -1546,6 +1922,11 @@ export default function SuperAdminDashboard() {
             step={clientStep}
             setStep={setClientStep}
             submit={submitClient}
+            error={error}
+            loading={loading}
+            triggerRef={clientTriggerRef}
+            openDialog={openClientModal}
+            closeDialog={closeClientModal}
             documentFiles={clientDocumentFiles}
             setDocumentFiles={setClientDocumentFiles}
             approveClient={approveClient}
@@ -1567,6 +1948,7 @@ export default function SuperAdminDashboard() {
             selectedClientId={selectedClientId}
             setSelectedClientId={setSelectedClientId}
             token={token}
+
           />
         )}
         {tab === "oems" && (
@@ -1592,10 +1974,7 @@ export default function SuperAdminDashboard() {
                   Bulk upload
                 </button>
                 <button
-                  onClick={() => {
-                    setShowOemForm(!showOemForm);
-                    setShowOemBulk(false);
-                  }}
+                  onClick={(event) => openOemModal(event.currentTarget)}
                 >
                   + Add OEM
                 </button>
@@ -1625,63 +2004,91 @@ export default function SuperAdminDashboard() {
                 </label>
               </section>
             )}
-            <section
-              className={`sa-management ${showOemForm ? "" : "oem-table-only"}`}
-            >
-              {showOemForm && (
-                <form className="sa-form" onSubmit={submitOem}>
-                  <h3>Add OEM</h3>
-                  <TextFields
-                    value={oem}
-                    change={(key, value) =>
-                      setOem((current) => ({ ...current, [key]: value }))
-                    }
-                    fields={[
-                      ["code", "OEM code"],
-                      ["name", "Legal name"],
-                      ["displayName", "Display name"],
-                      ["website", "Website"],
-                      ["description", "Description"],
-                    ]}
-                  />
-                  <Select
-                    label="Status"
-                    value={oem.status}
-                    change={(value) =>
-                      setOem((current) => ({ ...current, status: value }))
-                    }
-                    options={["ACTIVE", "INACTIVE", "SUSPENDED"]}
-                  />
-                  <label className="sa-logo-input">
-                    OEM logo{" "}
-                    <span>
-                      PNG, JPEG, or WebP · max 1 MB · max 200 × 200 px
-                    </span>
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp"
-                      onChange={(event) => {
-                        const file = event.target.files?.[0];
-                        if (file) void selectOemLogo(file);
-                        event.currentTarget.value = "";
-                      }}
-                    />
-                  </label>
-                  {oemLogoPreview && (
-                    <img
-                      className="sa-logo-preview"
-                      src={oemLogoPreview}
-                      alt="OEM logo preview"
-                    />
-                  )}
-                  <button disabled={loading}>
+            <CatalogFormDialog
+              open={showOemForm}
+              title={editingOemId ? "Edit OEM" : "Add OEM"}
+              description="Enter the manufacturer details shown across the platform."
+              error={error}
+              busy={loading}
+              triggerRef={oemTriggerRef}
+              onClose={closeOemModal}
+              onDialogClose={() => setShowOemForm(false)}
+              onSubmit={submitOem}
+              actions={
+                <>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={closeOemModal}
+                    disabled={loading}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" disabled={loading}>
+
                     {editingOemId ? "Update OEM" : "Save OEM"}
                   </button>
-                </form>
+                </>
+              }
+            >
+              <TextFields
+                value={oem}
+                change={(key, value) =>
+                  setOem((current) => ({ ...current, [key]: value }))
+                }
+                fields={[
+                  ["code", "OEM code"],
+                  ["name", "Legal name"],
+                  ["displayName", "Display name"],
+                  ["website", "Website"],
+                  ["description", "Description"],
+                ]}
+              />
+              <Select
+                label="Status"
+                value={oem.status}
+                change={(value) =>
+                  setOem((current) => ({ ...current, status: value }))
+                }
+                options={["ACTIVE", "INACTIVE", "SUSPENDED"]}
+              />
+              <label className="sa-logo-input">
+                OEM logo{" "}
+                <span>
+                  PNG, JPEG, or WebP · max 1 MB · max 200 × 200 px
+                </span>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void selectOemLogo(file);
+                    event.currentTarget.value = "";
+                  }}
+                />
+              </label>
+              {oemLogoPreview && (
+                <img
+                  className="sa-logo-preview"
+                  src={oemLogoPreview}
+                  alt="OEM logo preview"
+                />
               )}
+            </CatalogFormDialog>
+            <section className="sa-management oem-table-only">
               {oems.length ? (
                 <DataTable
-                  headings={["Code", "OEM", "Status", ""]}
+                  headings={["Code", "OEM", "Status", "", ""]}
+                  columnFilters={[
+                    { type: "text" },
+                    { type: "text" },
+                    {
+                      type: "select",
+                      options: ["ACTIVE", "INACTIVE", "SUSPENDED"],
+                    },
+                    null,
+                    null,
+                  ]}
                   rows={oems.map((item) => [
                     item.code,
                     item.displayName,
@@ -1689,20 +2096,9 @@ export default function SuperAdminDashboard() {
                     <button
                       key="edit"
                       className="secondary"
-                      onClick={() => {
-                        setOem({
-                          code: item.code,
-                          name: item.name,
-                          displayName: item.displayName,
-                          status: item.status,
-                          website: item.website ?? "",
-                          description: item.description ?? "",
-                        });
-                        setEditingOemId(item.id);
-                        setShowOemForm(true);
-                        setOemLogoFile(null);
-                        setOemLogoPreview("");
-                      }}
+                      onClick={(event) =>
+                        openOemModal(event.currentTarget, item)
+                      }
                     >
                       Edit
                     </button>,
@@ -1725,7 +2121,9 @@ export default function SuperAdminDashboard() {
                     template.
                   </p>
                   <div>
-                    <button onClick={() => setShowOemForm(true)}>
+                    <button
+                      onClick={(event) => openOemModal(event.currentTarget)}
+                    >
                       Add OEM
                     </button>
                     <button
@@ -1767,12 +2165,9 @@ export default function SuperAdminDashboard() {
                   Bulk upload
                 </button>
                 <button
-                  onClick={() => {
-                    setVehicleCategory(emptyVehicleCategory);
-                    setEditingVehicleCategoryId(null);
-                    setShowVehicleCategoryForm(!showVehicleCategoryForm);
-                    setShowVehicleCategoryBulk(false);
-                  }}
+                  onClick={(event) =>
+                    openVehicleCategoryModal(event.currentTarget, undefined, true)
+                  }
                 >
                   + Add Vehicle Category
                 </button>
@@ -1785,49 +2180,66 @@ export default function SuperAdminDashboard() {
                 onChoose={(file) => void uploadVehicleCategoryCsv(file)}
               />
             )}
-            <section
-              className={`sa-management ${showVehicleCategoryForm ? "" : "oem-table-only"}`}
-            >
-              {showVehicleCategoryForm && (
-                <form className="sa-form" onSubmit={submitVehicleCategory}>
-                  <h3>
-                    {editingVehicleCategoryId
-                      ? "Edit Vehicle Category"
-                      : "Add Vehicle Category"}
-                  </h3>
-                  <TextFields
-                    value={vehicleCategory}
-                    change={(key, value) =>
-                      setVehicleCategory((current) => ({
-                        ...current,
-                        [key]: value,
-                      }))
-                    }
-                    fields={[
-                      ["code", "Category code"],
-                      ["name", "Category name"],
-                      ["description", "Description"],
-                      ["displayOrder", "Display order"],
-                    ]}
-                  />
-                  <Select
-                    label="Status"
-                    value={vehicleCategory.status}
-                    change={(value) =>
-                      setVehicleCategory((current) => ({
-                        ...current,
-                        status: value,
-                      }))
-                    }
-                    options={["ACTIVE", "INACTIVE", "SUSPENDED"]}
-                  />
-                  <button disabled={loading}>
-                    {editingVehicleCategoryId
-                      ? "Update Vehicle Category"
-                      : "Save Vehicle Category"}
-                  </button>
-                </form>
-              )}
+            <section className="sa-management oem-table-only">
+              <CatalogFormDialog
+                open={showVehicleCategoryForm}
+                title={
+                  editingVehicleCategoryId
+                    ? "Edit Vehicle Category"
+                    : "Add Vehicle Category"
+                }
+                description="Define a platform-wide vehicle classification used in fleet onboarding and reporting."
+                error={error}
+                busy={loading}
+                triggerRef={vehicleCategoryTriggerRef}
+                onClose={closeVehicleCategoryModal}
+                onDialogClose={() => setShowVehicleCategoryForm(false)}
+                onSubmit={submitVehicleCategory}
+                actions={
+                  <>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={closeVehicleCategoryModal}
+                      disabled={loading}
+                    >
+                      Cancel
+                    </button>
+                    <button type="submit" disabled={loading}>
+                      {editingVehicleCategoryId
+                        ? "Update Vehicle Category"
+                        : "Save Vehicle Category"}
+                    </button>
+                  </>
+                }
+              >
+                <TextFields
+                  value={vehicleCategory}
+                  change={(key, value) =>
+                    setVehicleCategory((current) => ({
+                      ...current,
+                      [key]: value,
+                    }))
+                  }
+                  fields={[
+                    ["code", "Category code"],
+                    ["name", "Category name"],
+                    ["description", "Description"],
+                    ["displayOrder", "Display order"],
+                  ]}
+                />
+                <Select
+                  label="Status"
+                  value={vehicleCategory.status}
+                  change={(value) =>
+                    setVehicleCategory((current) => ({
+                      ...current,
+                      status: value,
+                    }))
+                  }
+                  options={["ACTIVE", "INACTIVE", "SUSPENDED"]}
+                />
+              </CatalogFormDialog>
               {vehicleCategories.length ? (
                 <DataTable
                   headings={[
@@ -1839,6 +2251,18 @@ export default function SuperAdminDashboard() {
                     "",
                     "",
                   ]}
+                  columnFilters={[
+                    { type: "text" },
+                    { type: "text" },
+                    { type: "text" },
+                    {
+                      type: "select",
+                      options: ["ACTIVE", "INACTIVE", "SUSPENDED"],
+                    },
+                    { type: "number" },
+                    null,
+                    null,
+                  ]}
                   rows={vehicleCategories.map((item) => [
                     item.code,
                     item.name,
@@ -1848,17 +2272,9 @@ export default function SuperAdminDashboard() {
                     <button
                       key="edit"
                       className="secondary"
-                      onClick={() => {
-                        setVehicleCategory({
-                          code: item.code,
-                          name: item.name,
-                          description: item.description ?? "",
-                          status: item.status,
-                          displayOrder: String(item.displayOrder ?? 0),
-                        });
-                        setEditingVehicleCategoryId(item.id);
-                        setShowVehicleCategoryForm(true);
-                      }}
+                      onClick={(event) =>
+                        openVehicleCategoryModal(event.currentTarget, item)
+                      }
                     >
                       Edit
                     </button>,
@@ -1880,7 +2296,11 @@ export default function SuperAdminDashboard() {
                 <section className="sa-empty-catalog">
                   <h3>No Vehicle Categories yet</h3>
                   <p>Create your first platform-wide vehicle classification.</p>
-                  <button onClick={() => setShowVehicleCategoryForm(true)}>
+                  <button
+                    onClick={(event) =>
+                      openVehicleCategoryModal(event.currentTarget)
+                    }
+                  >
                     Add Vehicle Category
                   </button>
                 </section>
@@ -1914,12 +2334,9 @@ export default function SuperAdminDashboard() {
                   Bulk upload
                 </button>
                 <button
-                  onClick={() => {
-                    setVehicleType(emptyVehicleType);
-                    setEditingVehicleTypeId(null);
-                    setShowVehicleTypeForm(!showVehicleTypeForm);
-                    setShowVehicleTypeBulk(false);
-                  }}
+                  onClick={(event) =>
+                    openVehicleTypeModal(event.currentTarget, undefined, true)
+                  }
                 >
                   + Add Vehicle Type
                 </button>
@@ -1932,129 +2349,145 @@ export default function SuperAdminDashboard() {
                 onChoose={(file) => void uploadVehicleTypeCsv(file)}
               />
             )}
-            <section
-              className={`sa-management ${showVehicleTypeForm ? "" : "oem-table-only"}`}
-            >
-              {showVehicleTypeForm && (
-                <form className="sa-form" onSubmit={submitVehicleType}>
-                  <h3>
-                    {editingVehicleTypeId
-                      ? "Edit Vehicle Type"
-                      : "Add Vehicle Type"}
-                  </h3>
-                  <label>
-                    <span className="sa-label-text">
-                      Vehicle Category{" "}
-                      <span className="sa-required-star">*</span>
-                    </span>
-                    <select
-                      required
-                      value={vehicleType.categoryId}
-                      onChange={(event) =>
-                        setVehicleType((current) => ({
-                          ...current,
-                          categoryId: event.target.value,
-                        }))
-                      }
+            <section className="sa-management oem-table-only">
+              <CatalogFormDialog
+                open={showVehicleTypeForm}
+                title={
+                  editingVehicleTypeId
+                    ? "Edit Vehicle Type"
+                    : "Add Vehicle Type"
+                }
+                description="Define a vehicle type by category, energy source, and usage."
+                error={error}
+                busy={loading}
+                triggerRef={vehicleTypeTriggerRef}
+                onClose={closeVehicleTypeModal}
+                onDialogClose={() => setShowVehicleTypeForm(false)}
+                onSubmit={submitVehicleType}
+                actions={
+                  <>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={closeVehicleTypeModal}
+                      disabled={loading}
+
                     >
-                      <option value="">Select vehicle category</option>
-                      {vehicleCategories
-                        .filter((item) => item.status === "ACTIVE")
-                        .map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.code} · {item.name}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                  <TextFields
-                    value={vehicleType}
-                    change={(key, value) =>
+                      Cancel
+                    </button>
+                    <button type="submit" disabled={loading}>
+                      {editingVehicleTypeId
+                        ? "Update Vehicle Type"
+                        : "Save Vehicle Type"}
+                    </button>
+                  </>
+                }
+              >
+                <label>
+                  <span className="sa-label-text">
+                    Vehicle Category <span className="sa-required-star">*</span>
+                  </span>
+                  <select
+                    required
+                    value={vehicleType.categoryId}
+                    onChange={(event) =>
                       setVehicleType((current) => ({
                         ...current,
-                        [key]: value,
+                        categoryId: event.target.value,
                       }))
                     }
-                    fields={[
-                      ["code", "Type code"],
-                      ["name", "Type name"],
-                      ["subCategory", "Sub-category"],
-                      ["description", "Description"],
-                    ]}
-                  />
-                  <Select
-                    label="Energy type"
-                    value={vehicleType.energyType}
-                    change={(value) =>
-                      setVehicleType((current) => ({
-                        ...current,
-                        energyType: value,
-                      }))
-                    }
-                    options={[
-                      "ELECTRIC",
-                      "HYBRID",
-                      "PETROL",
-                      "DIESEL",
-                      "CNG",
-                      "HYDROGEN",
-                      "OTHER",
-                      "LPG",
-                    ]}
-                  />
-                  <label>
-                    Usage type
-                    <select
-                      value={vehicleType.usageType}
-                      onChange={(event) =>
-                        setVehicleType((current) => ({
-                          ...current,
-                          usageType: event.target.value,
-                        }))
-                      }
-                    >
-                      <option value="">Select usage type</option>
-                      {[
-                        "PRIVATE",
-                        "PASSENGER",
-                        "GOODS",
-                        "DELIVERY",
-                        "SHARED_MOBILITY",
-                        "PUBLIC_TRANSPORT",
-                        "STAFF_TRANSPORT",
-                        "SCHOOL_TRANSPORT",
-                        "EMERGENCY",
-                        "AGRICULTURAL",
-                        "CONSTRUCTION",
-                        "INDUSTRIAL",
-                        "RENTAL",
-                        "GOVERNMENT",
-                        "SPECIAL_PURPOSE",
-                      ].map((option) => (
-                        <option key={option} value={option}>
-                          {enumLabel(option)}
+                  >
+                    <option value="">Select vehicle category</option>
+                    {vehicleCategories
+                      .filter((item) => item.status === "ACTIVE")
+                      .map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.code} · {item.name}
+
                         </option>
                       ))}
-                    </select>
-                  </label>
-                  <Select
-                    label="Status"
-                    value={vehicleType.status}
-                    change={(value) =>
+                  </select>
+                </label>
+                <TextFields
+                  value={vehicleType}
+                  change={(key, value) =>
+                    setVehicleType((current) => ({
+                      ...current,
+                      [key]: value,
+                    }))
+                  }
+                  fields={[
+                    ["code", "Type code"],
+                    ["name", "Type name"],
+                    ["subCategory", "Sub-category"],
+                    ["description", "Description"],
+                  ]}
+                />
+                <Select
+                  label="Energy type"
+                  value={vehicleType.energyType}
+                  change={(value) =>
+                    setVehicleType((current) => ({
+                      ...current,
+                      energyType: value,
+                    }))
+                  }
+                  options={[
+                    "ELECTRIC",
+                    "HYBRID",
+                    "PETROL",
+                    "DIESEL",
+                    "CNG",
+                    "HYDROGEN",
+                    "OTHER",
+                    "LPG",
+                  ]}
+                />
+                <label>
+                  Usage type
+                  <select
+                    value={vehicleType.usageType}
+                    onChange={(event) =>
                       setVehicleType((current) => ({
                         ...current,
-                        status: value,
+                        usageType: event.target.value,
                       }))
                     }
-                    options={["ACTIVE", "INACTIVE", "SUSPENDED"]}
-                  />
-                  <button disabled={loading}>
-                    {editingVehicleTypeId
-                      ? "Update Vehicle Type"
-                      : "Save Vehicle Type"}
-                  </button>
-                </form>
-              )}
+                  >
+                    <option value="">Not specified</option>
+                    {[
+                      "PRIVATE",
+                      "PASSENGER",
+                      "GOODS",
+                      "DELIVERY",
+                      "SHARED_MOBILITY",
+                      "PUBLIC_TRANSPORT",
+                      "STAFF_TRANSPORT",
+                      "SCHOOL_TRANSPORT",
+                      "EMERGENCY",
+                      "AGRICULTURAL",
+                      "CONSTRUCTION",
+                      "INDUSTRIAL",
+                      "RENTAL",
+                      "GOVERNMENT",
+                      "SPECIAL_PURPOSE",
+                    ].map((option) => (
+                      <option key={option}>{option}</option>
+                    ))}
+                  </select>
+                </label>
+                <Select
+                  label="Status"
+                  value={vehicleType.status}
+                  change={(value) =>
+                    setVehicleType((current) => ({
+                      ...current,
+                      status: value,
+                    }))
+                  }
+                  options={["ACTIVE", "INACTIVE", "SUSPENDED"]}
+                />
+              </CatalogFormDialog>
               <DataTable
                 headings={[
                   "Code",
@@ -2066,6 +2499,16 @@ export default function SuperAdminDashboard() {
                   "",
                   "",
                 ]}
+                columnFilters={[
+                  { type: "text" },
+                  { type: "text" },
+                  { type: "text" },
+                  { type: "select" },
+                  { type: "select" },
+                  { type: "select" },
+                  null,
+                  null,
+                ]}
                 rows={vehicleTypes.map((item) => [
                   item.code,
                   item.name,
@@ -2076,20 +2519,9 @@ export default function SuperAdminDashboard() {
                   <button
                     key="edit"
                     className="secondary"
-                    onClick={() => {
-                      setVehicleType({
-                        categoryId: item.categoryId,
-                        code: item.code,
-                        name: item.name,
-                        subCategory: item.subCategory ?? "",
-                        description: item.description ?? "",
-                        energyType: item.energyType,
-                        usageType: item.usageType ?? "",
-                        status: item.status,
-                      });
-                      setEditingVehicleTypeId(item.id);
-                      setShowVehicleTypeForm(true);
-                    }}
+                    onClick={(event) =>
+                      openVehicleTypeModal(event.currentTarget, item)
+                    }
                   >
                     Edit
                   </button>,
@@ -2134,12 +2566,9 @@ export default function SuperAdminDashboard() {
                   Bulk upload
                 </button>
                 <button
-                  onClick={() => {
-                    setFeature(emptyFeature);
-                    setEditingFeatureId(null);
-                    setShowFeatureForm(!showFeatureForm);
-                    setShowFeatureBulk(false);
-                  }}
+                  onClick={(event) =>
+                    openFeatureModal(event.currentTarget, undefined, true)
+                  }
                 >
                   + Add Feature
                 </button>
@@ -2169,89 +2598,108 @@ export default function SuperAdminDashboard() {
                 </label>
               </section>
             )}
-            <section
-              className={`sa-management ${showFeatureForm ? "" : "oem-table-only"}`}
-            >
-              {showFeatureForm && (
-                <form className="sa-form" onSubmit={submitFeature}>
-                  <h3>{editingFeatureId ? "Edit Feature" : "Add Feature"}</h3>
-                  <TextFields
-                    value={feature}
-                    change={(key, value) =>
-                      setFeature((current) => ({ ...current, [key]: value }))
-                    }
-                    fields={[
-                      ["code", "Feature code"],
-                      ["name", "Feature name"],
-                      ["description", "Description"],
-                      ["displayOrder", "Display order"],
-                    ]}
-                  />
-                  <label>
-                    <span className="sa-label-text">
-                      Feature category{" "}
-                      <span className="sa-required-star">*</span>
-                    </span>
-                    <select
-                      required
-                      value={feature.category}
-                      onChange={(event) =>
-                        setFeature((current) => ({
-                          ...current,
-                          category: event.target.value,
-                        }))
-                      }
+            <section className="sa-management oem-table-only">
+              <CatalogFormDialog
+                open={showFeatureForm}
+                title={editingFeatureId ? "Edit Feature" : "Add Feature"}
+                description="Define platform capabilities that can be included in packages and priced commercially."
+                error={error}
+                busy={loading}
+                triggerRef={featureTriggerRef}
+                onClose={closeFeatureModal}
+                onDialogClose={() => setShowFeatureForm(false)}
+                onSubmit={submitFeature}
+                actions={
+                  <>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={closeFeatureModal}
+                      disabled={loading}
                     >
-                      <option value="">Select feature category</option>
-                      {featureCategories.map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <Select
-                    label="Feature type"
-                    value={feature.featureType}
-                    change={(value) =>
+                      Cancel
+                    </button>
+                    <button type="submit" disabled={loading}>
+                      {editingFeatureId ? "Update Feature" : "Save Feature"}
+                    </button>
+                  </>
+                }
+              >
+                <TextFields
+                  value={feature}
+                  change={(key, value) =>
+                    setFeature((current) => ({ ...current, [key]: value }))
+                  }
+                  fields={[
+                    ["code", "Feature code"],
+                    ["name", "Feature name"],
+                    ["description", "Description"],
+                    ["displayOrder", "Display order"],
+                  ]}
+                />
+                <label>
+                  <span className="sa-label-text">
+                    Feature category <span className="sa-required-star">*</span>
+                  </span>
+                  <select
+                    required
+                    value={feature.category}
+                    onChange={(event) =>
+
                       setFeature((current) => ({
                         ...current,
-                        featureType: value,
+                        category: event.target.value,
                       }))
                     }
-                    options={featureTypes}
-                    required
-                  />
-                  <Select
-                    label="Billing unit"
-                    value={feature.billingUnit}
-                    change={(value) =>
+                  >
+                    <option value="">Select feature category</option>
+                    {featureCategories.map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <Select
+                  label="Feature type"
+                  value={feature.featureType}
+                  change={(value) =>
+                    setFeature((current) => ({
+                      ...current,
+                      featureType: value,
+                    }))
+                  }
+                  options={featureTypes}
+                  required
+                />
+                <Select
+                  label="Billing unit"
+                  value={feature.billingUnit}
+                  change={(value) =>
+                    setFeature((current) => ({
+                      ...current,
+                      billingUnit: value,
+                    }))
+                  }
+                  options={featureBillingUnits}
+                  required
+                />
+                <label className="sa-toggle">
+                  <input
+                    type="checkbox"
+                    checked={feature.isActive}
+                    onChange={(event) =>
+
                       setFeature((current) => ({
                         ...current,
-                        billingUnit: value,
+                        isActive: event.target.checked,
                       }))
                     }
-                    options={featureBillingUnits}
-                    required
+
                   />
-                  <label className="sa-toggle">
-                    <input
-                      type="checkbox"
-                      checked={feature.isActive}
-                      onChange={(event) =>
-                        setFeature((current) => ({
-                          ...current,
-                          isActive: event.target.checked,
-                        }))
-                      }
-                    />
-                    Active feature
-                  </label>
-                  <button disabled={loading}>
-                    {editingFeatureId ? "Update Feature" : "Save Feature"}
-                  </button>
-                </form>
-              )}
+                  Active feature
+                </label>
+              </CatalogFormDialog>
               {features.length ? (
                 <DataTable
                   headings={[
@@ -2263,6 +2711,18 @@ export default function SuperAdminDashboard() {
                     "Active",
                     "Order",
                     "",
+                    "",
+                  ]}
+                  columnFilters={[
+                    { type: "text" },
+                    { type: "text" },
+                    { type: "select" },
+                    { type: "select" },
+                    { type: "select" },
+                    { type: "select" },
+                    { type: "number" },
+                    null,
+                    null,
                   ]}
                   rows={features.map((item) => [
                     item.code,
@@ -2277,21 +2737,9 @@ export default function SuperAdminDashboard() {
                     <button
                       key="edit"
                       className="secondary"
-                      onClick={() => {
-                        setFeature({
-                          code: item.code,
-                          name: item.name,
-                          description: item.description ?? "",
-                          category: item.category,
-                          featureType: item.featureType,
-                          billingUnit: item.billingUnit,
-                          displayOrder: String(item.displayOrder),
-                          isActive: item.isActive,
-                        });
-                        setEditingFeatureId(item.id);
-                        setShowFeatureForm(true);
-                        setShowFeatureBulk(false);
-                      }}
+                      onClick={(event) =>
+                        openFeatureModal(event.currentTarget, item, true)
+                      }
                     >
                       Edit
                     </button>,
@@ -2314,7 +2762,11 @@ export default function SuperAdminDashboard() {
                     completed template.
                   </p>
                   <div>
-                    <button onClick={() => setShowFeatureForm(true)}>
+                    <button
+                      onClick={(event) =>
+                        openFeatureModal(event.currentTarget)
+                      }
+                    >
                       Add Feature
                     </button>
                     <button
@@ -2353,13 +2805,7 @@ export default function SuperAdminDashboard() {
                   Bulk upload
                 </button>
                 <button
-                  onClick={() => {
-                    setPack(emptyPackage);
-                    setPackageFeatures([]);
-                    setEditingPackageId(null);
-                    setShowPackageForm(!showPackageForm);
-                    setShowPackageBulk(false);
-                  }}
+                  onClick={(event) => openPackageModal(event.currentTarget)}
                 >
                   + Add Package
                 </button>
@@ -2372,209 +2818,232 @@ export default function SuperAdminDashboard() {
                 onChoose={(file) => void uploadPackageCsv(file)}
               />
             )}
-            <section
-              className={`sa-management ${showPackageForm ? "" : "oem-table-only"}`}
-            >
-              {showPackageForm && (
-                <form className="sa-form" onSubmit={submitPackage}>
-                  <h3>{editingPackageId ? "Edit Package" : "Add Package"}</h3>
-                  <TextFields
-                    value={pack}
-                    change={(key, value) =>
-                      setPack((current) => ({ ...current, [key]: value }))
+            <section className="sa-management oem-table-only">
+              <CatalogFormDialog
+                open={showPackageForm}
+                title={editingPackageId ? "Edit Package" : "Add Package"}
+                description="Define commercial packages, limits, trial settings, and their enabled platform features."
+                error={error}
+                busy={loading}
+                size="wide"
+                triggerRef={packageTriggerRef}
+                onClose={closePackageModal}
+                onDialogClose={() => setShowPackageForm(false)}
+                onSubmit={submitPackage}
+                actions={
+                  <>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={closePackageModal}
+                      disabled={loading}
+                    >
+                      Cancel
+                    </button>
+                    <button type="submit" disabled={loading}>
+                      {editingPackageId ? "Update Package" : "Save Package"}
+                    </button>
+                  </>
+                }
+              >
+                <TextFields
+                  value={pack}
+                  change={(key, value) =>
+                    setPack((current) => ({ ...current, [key]: value }))
+                  }
+                  fields={[
+                    ["code", "Package code"],
+                    ["name", "Package name"],
+                    ["description", "Description"],
+                    ["monthlyPrice", "Monthly price"],
+                    ["yearlyPrice", "Yearly price"],
+                    ["maxFleets", "Maximum fleets"],
+                    ["maxRiders", "Maximum riders"],
+                    ["trialDays", "Trial days"],
+                    ["displayOrder", "Display order"],
+                  ]}
+                />
+                <label className="sa-toggle">
+                  <input
+                    type="checkbox"
+                    checked={pack.isCustom}
+                    onChange={(event) =>
+                      setPack((current) => ({
+                        ...current,
+                        isCustom: event.target.checked,
+                      }))
                     }
-                    fields={[
-                      ["code", "Package code"],
-                      ["name", "Package name"],
-                      ["description", "Description"],
-                      ["monthlyPrice", "Monthly price"],
-                      ["yearlyPrice", "Yearly price"],
-                      ["maxFleets", "Maximum fleets"],
-                      ["maxRiders", "Maximum riders"],
-                      ["trialDays", "Trial days"],
-                      ["displayOrder", "Display order"],
-                    ]}
                   />
-                  <label className="sa-toggle">
-                    <input
-                      type="checkbox"
-                      checked={pack.isCustom}
-                      onChange={(event) =>
-                        setPack((current) => ({
-                          ...current,
-                          isCustom: event.target.checked,
-                        }))
-                      }
-                    />
-                    Custom package
-                  </label>
-                  <label className="sa-toggle">
-                    <input
-                      type="checkbox"
-                      checked={pack.isActive}
-                      onChange={(event) =>
-                        setPack((current) => ({
-                          ...current,
-                          isActive: event.target.checked,
-                        }))
-                      }
-                    />
-                    Active package
-                  </label>
-                  <div className="sa-checkbox-list">
-                    {features
-                      .filter(
-                        (feature) =>
-                          feature.isActive ||
-                          packageFeatures.some(
+                  Custom package
+                </label>
+                <label className="sa-toggle">
+                  <input
+                    type="checkbox"
+                    checked={pack.isActive}
+                    onChange={(event) =>
+                      setPack((current) => ({
+                        ...current,
+                        isActive: event.target.checked,
+                      }))
+                    }
+                  />
+                  Active package
+                </label>
+                <div className="sa-checkbox-list">
+                  {features
+                    .filter(
+                      (feature) =>
+                        feature.isActive ||
+                        packageFeatures.some(
+                          (item) => item.featureId === feature.id,
+                        ),
+                    )
+                    .map((feature) => (
+                      <label key={feature.id}>
+                        <input
+                          type="checkbox"
+                          checked={packageFeatures.some(
                             (item) => item.featureId === feature.id,
-                          ),
-                      )
-                      .map((feature) => (
-                        <label key={feature.id}>
+                          )}
+                          disabled={
+                            !feature.isActive &&
+                            !packageFeatures.some(
+                              (item) => item.featureId === feature.id,
+                            )
+                          }
+                          onChange={(event) =>
+                            setPackageFeatures((current) =>
+                              event.target.checked
+                                ? [
+                                    ...current,
+                                    emptyPackageFeature(
+                                      feature.id,
+                                      current.length,
+                                    ),
+                                  ]
+                                : current.filter(
+                                    (item) => item.featureId !== feature.id,
+                                  ),
+                            )
+                          }
+                        />
+                        {feature.name}
+                        {!feature.isActive ? " (inactive)" : ""}
+                      </label>
+                    ))}
+                </div>
+                {packageFeatures.map((packageFeature, featureIndex) => {
+                  const linkedFeature = features.find(
+                    (item) => item.id === packageFeature.featureId,
+                  );
+                  const updatePackageFeature = (
+                    field: keyof PackageFeatureInput,
+                    value: string | boolean,
+                  ) =>
+                    setPackageFeatures((current) =>
+                      current.map((item, index) =>
+                        index === featureIndex
+                          ? { ...item, [field]: value }
+                          : item,
+                      ),
+                    );
+                  return (
+                    <div
+                      className="sa-package-feature"
+                      key={packageFeature.featureId}
+                    >
+                      <strong>{linkedFeature?.name ?? "Feature"}</strong>
+                      <div className="sa-feature-fields">
+                        <label className="sa-toggle">
                           <input
                             type="checkbox"
-                            checked={packageFeatures.some(
-                              (item) => item.featureId === feature.id,
-                            )}
-                            disabled={!feature.isActive}
+                            checked={packageFeature.enabled}
                             onChange={(event) =>
-                              setPackageFeatures((current) =>
-                                event.target.checked
-                                  ? [
-                                      ...current,
-                                      emptyPackageFeature(
-                                        feature.id,
-                                        current.length,
-                                      ),
-                                    ]
-                                  : current.filter(
-                                      (item) => item.featureId !== feature.id,
-                                    ),
+                              updatePackageFeature(
+                                "enabled",
+                                event.target.checked,
                               )
                             }
                           />
-                          {feature.name}
-                          {!feature.isActive ? " (inactive)" : ""}
+                          Enabled
                         </label>
-                      ))}
-                  </div>
-                  {packageFeatures.map((packageFeature, featureIndex) => {
-                    const linkedFeature = features.find(
-                      (item) => item.id === packageFeature.featureId,
-                    );
-                    const updatePackageFeature = (
-                      field: keyof PackageFeatureInput,
-                      value: string | boolean,
-                    ) =>
-                      setPackageFeatures((current) =>
-                        current.map((item, index) =>
-                          index === featureIndex
-                            ? { ...item, [field]: value }
-                            : item,
-                        ),
-                      );
-                    return (
-                      <div
-                        className="sa-package-feature"
-                        key={packageFeature.featureId}
-                      >
-                        <strong>{linkedFeature?.name ?? "Feature"}</strong>
-                        <div className="sa-feature-fields">
-                          <label className="sa-toggle">
-                            <input
-                              type="checkbox"
-                              checked={packageFeature.enabled}
-                              onChange={(event) =>
-                                updatePackageFeature(
-                                  "enabled",
-                                  event.target.checked,
-                                )
-                              }
-                            />
-                            Enabled
-                          </label>
-                          <label className="sa-toggle">
-                            <input
-                              type="checkbox"
-                              checked={packageFeature.unlimitedUsage}
-                              onChange={(event) =>
-                                updatePackageFeature(
-                                  "unlimitedUsage",
-                                  event.target.checked,
-                                )
-                              }
-                            />
-                            Unlimited usage
-                          </label>
-                          <label>
-                            Included quantity
-                            <input
-                              type="number"
-                              min="0"
-                              step="1"
-                              value={packageFeature.includedQuantity}
-                              onChange={(event) =>
-                                updatePackageFeature(
-                                  "includedQuantity",
-                                  event.target.value,
-                                )
-                              }
-                            />
-                          </label>
-                          <label>
-                            Usage limit
-                            <input
-                              type="number"
-                              min="0"
-                              step="1"
-                              disabled={packageFeature.unlimitedUsage}
-                              value={packageFeature.usageLimit}
-                              onChange={(event) =>
-                                updatePackageFeature(
-                                  "usageLimit",
-                                  event.target.value,
-                                )
-                              }
-                            />
-                          </label>
-                          <label>
-                            Display order
-                            <input
-                              type="number"
-                              min="0"
-                              step="1"
-                              value={packageFeature.displayOrder}
-                              onChange={(event) =>
-                                updatePackageFeature(
-                                  "displayOrder",
-                                  event.target.value,
-                                )
-                              }
-                            />
-                          </label>
-                        </div>
-                        <label>
-                          Feature configuration (optional JSON)
-                          <textarea
-                            value={packageFeature.configuration}
-                            placeholder={'{"workflow": "standard"}'}
+                        <label className="sa-toggle">
+                          <input
+                            type="checkbox"
+                            checked={packageFeature.unlimitedUsage}
                             onChange={(event) =>
                               updatePackageFeature(
-                                "configuration",
+                                "unlimitedUsage",
+                                event.target.checked,
+                              )
+                            }
+                          />
+                          Unlimited usage
+                        </label>
+                        <label>
+                          Included quantity
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={packageFeature.includedQuantity}
+                            onChange={(event) =>
+                              updatePackageFeature(
+                                "includedQuantity",
+                                event.target.value,
+                              )
+                            }
+                          />
+                        </label>
+                        <label>
+                          Usage limit
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            disabled={packageFeature.unlimitedUsage}
+                            value={packageFeature.usageLimit}
+                            onChange={(event) =>
+                              updatePackageFeature(
+                                "usageLimit",
+                                event.target.value,
+                              )
+                            }
+                          />
+                        </label>
+                        <label>
+                          Display order
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={packageFeature.displayOrder}
+                            onChange={(event) =>
+                              updatePackageFeature(
+                                "displayOrder",
                                 event.target.value,
                               )
                             }
                           />
                         </label>
                       </div>
-                    );
-                  })}
-                  <button disabled={loading}>
-                    {editingPackageId ? "Update Package" : "Save Package"}
-                  </button>
-                </form>
-              )}
+                      <label>
+                        Feature configuration (optional JSON)
+                        <textarea
+                          value={packageFeature.configuration}
+                          placeholder={'{"workflow": "standard"}'}
+                          onChange={(event) =>
+                            updatePackageFeature(
+                              "configuration",
+                              event.target.value,
+                            )
+                          }
+                        />
+                      </label>
+                    </div>
+                  );
+                })}
+              </CatalogFormDialog>
               {packages.length ? (
                 <DataTable
                   headings={[
@@ -2585,6 +3054,17 @@ export default function SuperAdminDashboard() {
                     "Status",
                     "Features",
                     "",
+                    "",
+                  ]}
+                  columnFilters={[
+                    { type: "text" },
+                    { type: "text" },
+                    { type: "text" },
+                    { type: "text" },
+                    { type: "select" },
+                    { type: "number" },
+                    null,
+                    null,
                   ]}
                   rows={packages.map((item) => [
                     item.code,
@@ -2596,51 +3076,9 @@ export default function SuperAdminDashboard() {
                     <button
                       key="edit"
                       className="secondary"
-                      onClick={() => {
-                        setPack({
-                          code: item.code,
-                          name: item.name,
-                          monthlyPrice: item.monthlyPrice
-                            ? String(item.monthlyPrice)
-                            : "",
-                          yearlyPrice: item.yearlyPrice
-                            ? String(item.yearlyPrice)
-                            : "",
-                          currency: item.currency,
-                          description: item.description ?? "",
-                          maxFleets: item.maxFleets
-                            ? String(item.maxFleets)
-                            : "",
-                          maxRiders: item.maxRiders
-                            ? String(item.maxRiders)
-                            : "",
-                          trialDays: String(item.trialDays ?? 0),
-                          displayOrder: String(item.displayOrder ?? 0),
-                          isCustom: item.isCustom,
-                          isActive: item.isActive,
-                        });
-                        setPackageFeatures(
-                          (item.features ?? []).map(
-                            (link: Item, index: number) => ({
-                              featureId: link.featureId,
-                              enabled: link.enabled,
-                              includedQuantity: link.includedQuantity
-                                ? String(link.includedQuantity)
-                                : "",
-                              usageLimit: link.usageLimit
-                                ? String(link.usageLimit)
-                                : "",
-                              unlimitedUsage: link.unlimitedUsage,
-                              configuration: link.configuration
-                                ? JSON.stringify(link.configuration, null, 2)
-                                : "",
-                              displayOrder: String(link.displayOrder ?? index),
-                            }),
-                          ),
-                        );
-                        setEditingPackageId(item.id);
-                        setShowPackageForm(true);
-                      }}
+                      onClick={(event) =>
+                        openPackageModal(event.currentTarget, item)
+                      }
                     >
                       Edit
                     </button>,
@@ -2663,7 +3101,11 @@ export default function SuperAdminDashboard() {
                     pricing.
                   </p>
                   <div>
-                    <button onClick={() => setShowPackageForm(true)}>
+                    <button
+                      onClick={(event) =>
+                        openPackageModal(event.currentTarget)
+                      }
+                    >
                       Add Package
                     </button>
                   </div>
@@ -2693,239 +3135,254 @@ export default function SuperAdminDashboard() {
               </div>
               <div className="sa-actions">
                 <button
-                  onClick={() => {
-                    setPrice(emptyPricing);
-                    setEditingPricingId(null);
-                    setShowPricingForm(!showPricingForm);
-                  }}
+                  onClick={(event) => openPricingModal(event.currentTarget)}
                 >
                   + Add Feature Price
                 </button>
               </div>
             </section>
-            <section
-              className={`sa-management ${showPricingForm ? "" : "oem-table-only"}`}
-            >
-              {showPricingForm && (
-                <form className="sa-form" onSubmit={submitPricing}>
-                  <h3>
-                    {editingPricingId
-                      ? "Edit Feature Price"
-                      : "Add Feature Price"}
-                  </h3>
-                  <label>
-                    <span className="sa-label-text">
-                      Feature <span className="sa-required-star">*</span>
-                    </span>
-                    <select
-                      value={price.featureId}
-                      onChange={(event) => {
-                        const selectedFeature = features.find(
-                          (feature) => feature.id === event.target.value,
-                        );
-                        setPrice((current) => ({
-                          ...current,
-                          featureId: event.target.value,
-                          billingUnit:
-                            selectedFeature?.billingUnit ?? current.billingUnit,
-                        }));
-                      }}
-                      required
+            <section className="sa-management oem-table-only">
+              <CatalogFormDialog
+                open={showPricingForm}
+                title={
+                  editingPricingId
+                    ? "Edit Feature Price"
+                    : "Add Feature Price"
+                }
+                description="Define the platform-owned commercial terms for every feature."
+                error={error}
+                busy={loading}
+                size="wide"
+                triggerRef={pricingTriggerRef}
+                onClose={closePricingModal}
+                onDialogClose={() => setShowPricingForm(false)}
+                onSubmit={submitPricing}
+                actions={
+                  <>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={closePricingModal}
+                      disabled={loading}
+
                     >
-                      <option value="">Select feature</option>
-                      {features
-                        .filter(
-                          (feature) =>
-                            feature.isActive || feature.id === price.featureId,
-                        )
-                        .map((feature) => (
-                          <option key={feature.id} value={feature.id}>
-                            {feature.name}
-                            {!feature.isActive ? " (inactive)" : ""}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                  <Select
-                    label="Pricing model"
-                    value={price.pricingModel}
-                    change={(value) =>
+                      Cancel
+                    </button>
+                    <button type="submit" disabled={loading}>
+                      {editingPricingId
+                        ? "Update Feature Price"
+                        : "Save Feature Price"}
+                    </button>
+                  </>
+                }
+              >
+                <label>
+                  <span className="sa-label-text">
+                    Feature <span className="sa-required-star">*</span>
+                  </span>
+                  <select
+                    value={price.featureId}
+                    onChange={(event) => {
+                      const selectedFeature = features.find(
+                        (feature) => feature.id === event.target.value,
+                      );
                       setPrice((current) => ({
                         ...current,
-                        pricingModel: value,
-                      }))
-                    }
-                    options={pricingModels}
+                        featureId: event.target.value,
+                        billingUnit:
+                          selectedFeature?.billingUnit ?? current.billingUnit,
+                      }));
+                    }}
                     required
-                  />
-                  <TextFields
-                    value={price}
-                    change={(key, value) =>
-                      setPrice((current) => ({ ...current, [key]: value }))
-                    }
-                    fields={[
-                      ["billingUnit", "Billing unit"],
-                      ["basePrice", "Base price"],
-                      ["unitPrice", "Unit price"],
-                      ["costPrice", "Cost price"],
-                      ["minimumCharge", "Minimum charge"],
-                      ["maximumCharge", "Maximum charge"],
-                      ["setupFee", "Setup fee"],
-                      ["effectiveFrom", "Effective from"],
-                      ["effectiveTo", "Effective to"],
-                    ]}
-                  />
-                  <Select
-                    label="Billing cycle"
-                    value={price.billingCycle}
-                    change={(value) =>
+                  >
+                    <option value="">Select feature</option>
+                    {features
+                      .filter(
+                        (feature) =>
+                          feature.isActive || feature.id === price.featureId,
+                      )
+                      .map((feature) => (
+                        <option key={feature.id} value={feature.id}>
+                          {feature.name}
+                          {!feature.isActive ? " (inactive)" : ""}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <Select
+                  label="Pricing model"
+                  value={price.pricingModel}
+                  change={(value) =>
+                    setPrice((current) => ({
+                      ...current,
+                      pricingModel: value,
+                    }))
+                  }
+                  options={pricingModels}
+                  required
+                />
+                <TextFields
+                  value={price}
+                  change={(key, value) =>
+                    setPrice((current) => ({ ...current, [key]: value }))
+                  }
+                  fields={[
+                    ["billingUnit", "Billing unit"],
+                    ["basePrice", "Base price"],
+                    ["unitPrice", "Unit price"],
+                    ["costPrice", "Cost price"],
+                    ["minimumCharge", "Minimum charge"],
+                    ["maximumCharge", "Maximum charge"],
+                    ["setupFee", "Setup fee"],
+                    ["effectiveFrom", "Effective from"],
+                    ["effectiveTo", "Effective to"],
+                  ]}
+                />
+                <Select
+                  label="Billing cycle"
+                  value={price.billingCycle}
+                  change={(value) =>
+                    setPrice((current) => ({
+                      ...current,
+                      billingCycle: value,
+                    }))
+                  }
+                  options={["MONTHLY", "QUARTERLY", "HALF_YEARLY", "YEARLY"]}
+                />
+                <label>
+                  Currency
+                  <select
+                    value={price.currency}
+                    onChange={(event) =>
+
+
                       setPrice((current) => ({
                         ...current,
-                        billingCycle: value,
+                        currency: event.target.value,
                       }))
                     }
-                    options={[
-                      "ONCE",
-                      "MONTHLY",
-                      "QUARTERLY",
-                      "HALF_YEARLY",
-                      "YEARLY",
-                    ]}
+                  >
+                    <option value="INR">INR</option>
+                  </select>
+                </label>
+                <label>
+                  Pricing metadata (optional JSON)
+                  <textarea
+                    value={price.metadata}
+                    placeholder={'{"includedQuantity": 100}'}
+                    onChange={(event) =>
+                      setPrice((current) => ({
+                        ...current,
+                        metadata: event.target.value,
+                      }))
+                    }
+
                   />
-                  <label>
-                    Currency
-                    <select
-                      value={price.currency}
-                      onChange={(event) =>
-                        setPrice((current) => ({
-                          ...current,
-                          currency: event.target.value,
-                        }))
-                      }
-                    >
-                      <option value="INR">INR</option>
-                    </select>
-                  </label>
-                  <label>
-                    Pricing metadata (optional JSON)
-                    <textarea
-                      value={price.metadata}
-                      placeholder={'{"includedQuantity": 100}'}
-                      onChange={(event) =>
-                        setPrice((current) => ({
-                          ...current,
-                          metadata: event.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="sa-check">
-                    <input
-                      type="checkbox"
-                      checked={price.taxInclusive}
-                      onChange={(event) =>
-                        setPrice((current) => ({
-                          ...current,
-                          taxInclusive: event.target.checked,
-                        }))
-                      }
-                    />
-                    Tax inclusive
-                  </label>
-                  <label className="sa-check">
-                    <input
-                      type="checkbox"
-                      checked={price.isActive}
-                      onChange={(event) =>
-                        setPrice((current) => ({
-                          ...current,
-                          isActive: event.target.checked,
-                        }))
-                      }
-                    />
-                    Active
-                  </label>
-                  {(price.pricingModel === "TIERED" ||
-                    price.pricingModel === "VOLUME") && (
-                    <div className="sa-package-feature-pricing">
-                      <div>
-                        <strong>Pricing tiers</strong>
+                </label>
+                <label className="sa-check">
+                  <input
+                    type="checkbox"
+                    checked={price.taxInclusive}
+                    onChange={(event) =>
+                      setPrice((current) => ({
+                        ...current,
+                        taxInclusive: event.target.checked,
+                      }))
+                    }
+                  />
+                  Tax inclusive
+                </label>
+                <label className="sa-check">
+                  <input
+                    type="checkbox"
+                    checked={price.isActive}
+                    onChange={(event) =>
+                      setPrice((current) => ({
+                        ...current,
+                        isActive: event.target.checked,
+                      }))
+                    }
+                  />
+                  Active
+                </label>
+                {(price.pricingModel === "TIERED" ||
+                  price.pricingModel === "VOLUME") && (
+                  <div className="sa-package-feature-pricing">
+                    <div>
+                      <strong>Pricing tiers</strong>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() =>
+                          setPrice((current) => ({
+                            ...current,
+                            tiers: [
+                              ...current.tiers,
+                              {
+                                tierOrder: String(current.tiers.length + 1),
+                                tierName: "",
+                                fromQuantity: "0",
+                                toQuantity: "",
+                                unitPrice: "",
+                                costPrice: "",
+                              },
+                            ],
+                          }))
+                        }
+                      >
+                        + Add tier
+                      </button>
+                    </div>
+                    {price.tiers.map((tier, tierIndex) => (
+                      <div className="sa-price-override" key={tierIndex}>
+                        <TextFields
+                          value={tier}
+                          change={(key, value) =>
+                            setPrice((current) => ({
+                              ...current,
+                              tiers: current.tiers.map((item, index) =>
+                                index === tierIndex
+                                  ? { ...item, [key]: value }
+                                  : item,
+                              ),
+                            }))
+                          }
+                          fields={[
+                            ["tierOrder", "Tier order"],
+                            ["tierName", "Tier name"],
+                            ["fromQuantity", "From quantity"],
+                            ["toQuantity", "To quantity"],
+                            ["unitPrice", "Unit price"],
+                            ["costPrice", "Cost price"],
+                          ]}
+                          requiredKeys={[
+                            "tierOrder",
+                            "fromQuantity",
+                            "unitPrice",
+                          ]}
+                        />
                         <button
                           type="button"
-                          className="secondary"
+                          className="danger"
                           onClick={() =>
                             setPrice((current) => ({
                               ...current,
-                              tiers: [
-                                ...current.tiers,
-                                {
-                                  tierOrder: String(current.tiers.length + 1),
-                                  tierName: "",
-                                  fromQuantity: "0",
-                                  toQuantity: "",
-                                  unitPrice: "",
-                                  costPrice: "",
-                                },
-                              ],
+                              tiers: current.tiers.filter(
+                                (_, index) => index !== tierIndex,
+                              ),
+
                             }))
                           }
                         >
-                          + Add tier
+                          Remove tier
                         </button>
                       </div>
-                      {price.tiers.map((tier, tierIndex) => (
-                        <div className="sa-price-override" key={tierIndex}>
-                          <TextFields
-                            value={tier}
-                            change={(key, value) =>
-                              setPrice((current) => ({
-                                ...current,
-                                tiers: current.tiers.map((item, index) =>
-                                  index === tierIndex
-                                    ? { ...item, [key]: value }
-                                    : item,
-                                ),
-                              }))
-                            }
-                            fields={[
-                              ["tierOrder", "Tier order"],
-                              ["tierName", "Tier name"],
-                              ["fromQuantity", "From quantity"],
-                              ["toQuantity", "To quantity"],
-                              ["unitPrice", "Unit price"],
-                              ["costPrice", "Cost price"],
-                            ]}
-                            requiredKeys={[
-                              "tierOrder",
-                              "fromQuantity",
-                              "unitPrice",
-                            ]}
-                          />
-                          <button
-                            type="button"
-                            className="danger"
-                            onClick={() =>
-                              setPrice((current) => ({
-                                ...current,
-                                tiers: current.tiers.filter(
-                                  (_, index) => index !== tierIndex,
-                                ),
-                              }))
-                            }
-                          >
-                            Remove tier
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <button disabled={loading}>
-                    {editingPricingId
-                      ? "Update Feature Price"
-                      : "Save Feature Price"}
-                  </button>
-                </form>
-              )}
+                    ))}
+                  </div>
+                )}
+              </CatalogFormDialog>
+
+
               {pricing.length ? (
                 <DataTable
                   headings={[
@@ -2935,6 +3392,16 @@ export default function SuperAdminDashboard() {
                     "Effective from",
                     "Status",
                     "",
+                    "",
+                  ]}
+                  columnFilters={[
+                    { type: "text" },
+                    { type: "select" },
+                    { type: "text" },
+                    { type: "text" },
+                    { type: "select" },
+                    null,
+                    null,
                   ]}
                   rows={pricing.map((item) => [
                     item.feature?.name,
@@ -2945,48 +3412,10 @@ export default function SuperAdminDashboard() {
                     <button
                       key="edit"
                       className="secondary"
-                      onClick={() => {
-                        setPrice({
-                          featureId: item.featureId,
-                          pricingModel: item.pricingModel,
-                          billingUnit: item.billingUnit,
-                          basePrice: String(item.basePrice ?? 0),
-                          unitPrice: String(item.unitPrice),
-                          costPrice: String(item.costPrice ?? 0),
-                          minimumCharge: item.minimumCharge
-                            ? String(item.minimumCharge)
-                            : "",
-                          maximumCharge: item.maximumCharge
-                            ? String(item.maximumCharge)
-                            : "",
-                          setupFee: String(item.setupFee ?? 0),
-                          currency: item.currency,
-                          billingCycle: item.billingCycle ?? "MONTHLY",
-                          taxInclusive: item.taxInclusive ?? false,
-                          effectiveFrom: item.effectiveFrom.slice(0, 10),
-                          effectiveTo: item.effectiveTo
-                            ? item.effectiveTo.slice(0, 10)
-                            : "",
-                          isActive: item.isActive,
-                          metadata: item.metadata
-                            ? JSON.stringify(item.metadata, null, 2)
-                            : "",
-                          tiers: (item.tiers ?? []).map((tier: Item) => ({
-                            tierOrder: String(tier.tierOrder),
-                            tierName: tier.tierName ?? "",
-                            fromQuantity: String(tier.fromQuantity),
-                            toQuantity: tier.toQuantity
-                              ? String(tier.toQuantity)
-                              : "",
-                            unitPrice: String(tier.unitPrice),
-                            costPrice: tier.costPrice
-                              ? String(tier.costPrice)
-                              : "",
-                          })),
-                        });
-                        setEditingPricingId(item.id);
-                        setShowPricingForm(true);
-                      }}
+                      onClick={(event) =>
+                        openPricingModal(event.currentTarget, item)
+                      }
+
                     >
                       Edit
                     </button>,
@@ -3012,7 +3441,11 @@ export default function SuperAdminDashboard() {
                     effective dates, and commercial amounts.
                   </p>
                   <div>
-                    <button onClick={() => setShowPricingForm(true)}>
+                    <button
+                      onClick={(event) =>
+                        openPricingModal(event.currentTarget)
+                      }
+                    >
                       Add Feature Price
                     </button>
                   </div>
@@ -3030,13 +3463,11 @@ export default function SuperAdminDashboard() {
 function DashboardView({
   summary,
   clients,
-  packages,
   oems,
   setTab,
 }: {
   summary: Item;
   clients: Item[];
-  packages: Item[];
   oems: Item[];
   setTab: (tab: Tab) => void;
 }) {
@@ -3044,9 +3475,11 @@ function DashboardView({
   const riderStatus = summary.ridersByStatus ?? {};
   const clientStatus = summary.clientsByStatus ?? {};
   const clientSlices = [
+    ["Created", Number(clientStatus.CREATED ?? 0), "#367eb5"],
     ["Active", Number(clientStatus.ACTIVE ?? 0), "#2d8662"],
     ["Pending", Number(clientStatus.PENDING_APPROVAL ?? 0), "#d5913a"],
     ["Draft", Number(clientStatus.DRAFT ?? 0), "#8092a2"],
+    ["Rejected", Number(clientStatus.REJECTED ?? 0), "#c15e5e"],
     ["Suspended", Number(clientStatus.SUSPENDED ?? 0), "#d26551"],
   ] as const;
   const clientTotal = clientSlices.reduce(
@@ -3312,36 +3745,30 @@ function ClientsView({
   step,
   setStep,
   submit,
+  error,
+  loading,
+  triggerRef,
+  openDialog,
+  closeDialog,
   documentFiles,
   setDocumentFiles,
   approveClient,
   rejectClient,
   editClient,
 }: any) {
-  const panPattern = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
-  const gstinPattern = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
-  const softWarnings = {
-    ...(client.pan && !panPattern.test(String(client.pan).trim().toUpperCase())
-      ? { pan: "PAN format looks unusual. Expected: ABCDE1234F." }
-      : {}),
-    ...(client.gstin &&
-    !gstinPattern.test(String(client.gstin).trim().toUpperCase())
-      ? { gstin: "GSTIN format looks unusual. Expected: 22ABCDE1234F1Z5." }
-      : {}),
-  };
-  const uploadedDocumentTypes = new Set(
-    ((client.uploadedDocuments ?? []) as Item[]).map(
-      (document) => document.documentType,
-    ),
-  );
-  const headings = [
-    "Business Details",
-    "Contacts & Address",
-    "Fleet Operations",
-    "Package Selection",
-    "Billing & Documents",
-    "Review & Submit",
-  ];
+  const stepHeadingRef = useRef<HTMLHeadingElement>(null);
+  const stepHeadingId = useId();
+  const wasOpenRef = useRef(showForm);
+  const previousStepRef = useRef(step);
+  useEffect(() => {
+    if (showForm && wasOpenRef.current && previousStepRef.current !== step) {
+      stepHeadingRef.current?.focus();
+    }
+    previousStepRef.current = step;
+    wasOpenRef.current = showForm;
+  }, [showForm, step]);
+
+
   const fields =
     step === 1
       ? [
@@ -3396,6 +3823,66 @@ function ClientsView({
                   ["authorizedSignatoryName", "Authorized signatory name"],
                   ["signatoryDesignation", "Signatory designation"],
                 ];
+  const requiredFields = [
+    "businessFleetName",
+    "companyCode",
+    "legalEntityName",
+    "businessType",
+    "clientType",
+    "pan",
+    "estimatedFleetSize",
+    "estimatedRiderCount",
+    "primaryContactName",
+    "primaryDesignation",
+    "primaryMobile",
+    "primaryEmail",
+    "registeredAddressLine1",
+    "city",
+    "state",
+    "pinCode",
+    "numberOfFleets",
+    "approximateRiderCount",
+    "packageId",
+    "startDate",
+    "billingContactName",
+    "billingEmail",
+    "authorizedSignatoryName",
+    "signatoryDesignation",
+  ];
+  const inputTypes = {
+    website: "url",
+    primaryMobile: "tel",
+    primaryEmail: "email",
+    alternateMobile: "tel",
+    adminEmail: "email",
+    adminMobile: "tel",
+    billingEmail: "email",
+    billingMobile: "tel",
+  } as const;
+  const panPattern = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+  const gstinPattern = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+  const softWarnings = {
+    ...(client.pan && !panPattern.test(String(client.pan).trim().toUpperCase())
+      ? { pan: "PAN format looks unusual. Expected: ABCDE1234F." }
+      : {}),
+    ...(client.gstin &&
+    !gstinPattern.test(String(client.gstin).trim().toUpperCase())
+      ? { gstin: "GSTIN format looks unusual. Expected: 22ABCDE1234F1Z5." }
+      : {}),
+  };
+  const uploadedDocumentTypes = new Set(
+    ((client.uploadedDocuments ?? []) as Item[]).map(
+      (document) => document.documentType,
+    ),
+  );
+  const progress = Math.round((step / clientStepLabels.length) * 100);
+  const eligiblePackages = packages.filter(
+    (item: Item) =>
+      item.isActive &&
+      item.monthlyPrice !== null &&
+      item.monthlyPrice !== undefined,
+  );
+
   return (
     <>
       <section className="sa-page-head">
@@ -3405,31 +3892,106 @@ function ClientsView({
             Manage onboarding drafts, approvals, subscriptions, and documents.
           </p>
         </div>
-        <button
-          onClick={() => {
-            setShowForm(!showForm);
-            setStep(1);
-          }}
-        >
+        <button onClick={(event) => openDialog(event.currentTarget)}>
           + Onboard client
         </button>
       </section>
-      {showForm && (
-        <form className="sa-wizard" onSubmit={submit}>
-          <header>
-            <span>Client onboarding</span>
-            <strong>Step {step} of 6</strong>
-          </header>
-          <div className="sa-wizard-progress">
-            <span style={{ width: `${(step / 6) * 100}%` }} />
-          </div>
-          <section>
-            <h3>{headings[step - 1]}</h3>
+      <CatalogFormDialog
+        open={showForm}
+        title="Client onboarding"
+        description="Onboard a client through six saved steps, then create its workspace."
+        error={error}
+        busy={loading}
+        size="wide"
+        triggerRef={triggerRef}
+        onClose={closeDialog}
+        onDialogClose={() => setShowForm(false)}
+        onSubmit={submit}
+        actions={
+          <>
+            <button
+              type="button"
+              className="secondary"
+              onClick={closeDialog}
+              disabled={loading}
+            >
+              Cancel
+            </button>
+            {step > 2 && (
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setStep(step - 1)}
+                disabled={loading}
+              >
+                Back
+              </button>
+            )}
+            <button type="submit" disabled={loading}>
+              {step === 6 ? "Create client workspace" : "Save & continue"}
+            </button>
+          </>
+        }
+      >
+        <div className="sa-client-wizard">
+          <nav className="sa-client-stepper" aria-label="Client onboarding steps">
+            <ol>
+              {clientStepLabels.map((label, index) => {
+                const stepNumber = index + 1;
+                const state =
+                  stepNumber < step
+                    ? "completed"
+                    : stepNumber === step
+                      ? "current"
+                      : "future";
+                return (
+                  <li
+                    key={label}
+                    className={`sa-client-step ${state}`}
+                    aria-current={stepNumber === step ? "step" : undefined}
+                  >
+                    <span className="sa-client-step-number" aria-hidden="true">
+                      {stepNumber}
+                    </span>
+                    <span>{label}</span>
+                  </li>
+                );
+              })}
+            </ol>
+            <div className="sa-client-progress">
+              <div className="sa-client-progress-label">
+                <span>
+                  Step {step} of {clientStepLabels.length}
+                </span>
+                <strong>{progress}%</strong>
+              </div>
+              <div
+                className="sa-client-progress-track"
+                role="progressbar"
+                aria-label="Client onboarding progress"
+                aria-valuemin={1}
+                aria-valuemax={clientStepLabels.length}
+                aria-valuenow={step}
+                aria-valuetext={`Step ${step} of ${clientStepLabels.length}, ${progress}% complete`}
+              >
+                <span style={{ width: `${progress}%` }} />
+              </div>
+            </div>
+          </nav>
+          <section
+            className="sa-client-step-content"
+            aria-labelledby={stepHeadingId}
+          >
+            <h3 id={stepHeadingId} ref={stepHeadingRef} tabIndex={-1}>
+              {clientStepLabels[step - 1]}
+            </h3>
             <div className="sa-field-grid">
               <TextFields
                 value={client}
                 change={change}
                 fields={fields}
+                requiredKeys={requiredFields}
+                inputTypes={inputTypes}
                 softWarnings={step === 1 ? softWarnings : undefined}
               />
               {step === 1 && (
@@ -3503,6 +4065,12 @@ function ClientsView({
                         ["adminMobile", "Admin mobile"],
                         ["adminEmail", "Admin email"],
                       ]}
+                      requiredKeys={[
+                        "adminName",
+                        "adminMobile",
+                        "adminEmail",
+                      ]}
+                      inputTypes={inputTypes}
                     />
                   )}
                   <label className="sa-toggle">
@@ -3528,6 +4096,12 @@ function ClientsView({
                         ["billingState", "Billing state"],
                         ["billingCountry", "Billing country"],
                         ["billingPinCode", "Billing PIN code"],
+                      ]}
+                      requiredKeys={[
+                        "billingAddressLine1",
+                        "billingCity",
+                        "billingState",
+                        "billingPinCode",
                       ]}
                     />
                   )}
@@ -3593,17 +4167,16 @@ function ClientsView({
                       }
                       required
                     >
-                      <option value="">Select package</option>
-                      {packages
-                        .filter(
-                          (item: Item) =>
-                            item.isActive && item.monthlyPrice !== null,
-                        )
-                        .map((item: Item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.name} · ₹{item.monthlyPrice}/month
-                          </option>
-                        ))}
+                      <option value="">
+                        {eligiblePackages.length
+                          ? "Select package"
+                          : "No eligible packages available"}
+                      </option>
+                      {eligiblePackages.map((item: Item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name} · ₹{item.monthlyPrice}/month
+                        </option>
+                      ))}
                     </select>
                   </label>
                   <label>
@@ -3688,8 +4261,8 @@ function ClientsView({
                 <>
                   <p className="muted">
                     Review the saved Client profile, contacts, operations,
-                    package, billing, and uploaded documents. Submission locks
-                    the draft and sends it to Super Admin approval.
+                    package, billing, and uploaded documents. Creating the
+                    workspace makes it available to the Client Admin.
                   </p>
                   <label className="sa-toggle">
                     <input
@@ -3745,24 +4318,18 @@ function ClientsView({
               )}
             </div>
           </section>
-          <footer>
-            {step > 1 && (
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => setStep(step - 1)}
-              >
-                Back
-              </button>
-            )}
-            <button>
-              {step === 6 ? "Create client workspace" : "Save & continue"}
-            </button>
-          </footer>
-        </form>
-      )}
+        </div>
+      </CatalogFormDialog>
+
       <DataTable
         headings={["Client", "Workspace", "Riders", "Status", "Actions"]}
+        columnFilters={[
+          { type: "text" },
+          { type: "text" },
+          { type: "number" },
+          { type: "select" },
+          null,
+        ]}
         rows={clients.map((item: Item) => [
           item.name,
           item.companyCode ?? item.slug,
@@ -3770,7 +4337,7 @@ function ClientsView({
           item.status ?? (item.isActive ? "ACTIVE" : "INACTIVE"),
           item.status === "DRAFT" ? (
             <span className="sa-client-actions" key={item.id}>
-              <button type="button" onClick={() => void editClient(item.id)}>
+              <button type="button" onClick={(event) => void editClient(item.id, event.currentTarget)}>
                 Edit & resume
               </button>
             </span>
@@ -3800,12 +4367,14 @@ function TextFields({
   change,
   fields,
   requiredKeys,
+  inputTypes,
   softWarnings,
 }: {
   value: Item;
   change: (key: string, value: string) => void;
   fields: string[][];
   requiredKeys?: string[];
+  inputTypes?: Record<string, "email" | "tel" | "url">;
   softWarnings?: Record<string, string>;
 }) {
   const defaultRequiredFields = [
@@ -3844,22 +4413,23 @@ function TextFields({
     "authorizedSignatoryName",
     "signatoryDesignation",
   ];
-  const requiredFields = new Set(requiredKeys ?? defaultRequiredFields);
+  const required = new Set(requiredKeys ?? defaultRequiredFields);
   return (
     <>
       {fields.map(([key, label]) => {
         const normalizedKey = key.toLowerCase();
-        const required = requiredFields.has(key);
+        const isRequired = required.has(key);
         return (
           <label key={key}>
             <span className="sa-label-text">
               {label}
-              {required && <span className="sa-required-star">*</span>}
+              {isRequired && <span className="sa-required-star">*</span>}
             </span>
             <input
               value={value[key] ?? ""}
               type={
-                normalizedKey.includes("date") ||
+                inputTypes?.[key] ??
+                (normalizedKey.includes("date") ||
                 normalizedKey.includes("effective")
                   ? "date"
                   : normalizedKey.includes("price") ||
@@ -3867,7 +4437,7 @@ function TextFields({
                       normalizedKey.includes("fee") ||
                       key === "discountValue"
                     ? "number"
-                    : "text"
+                    : "text")
               }
               step={
                 normalizedKey.includes("price") ||
@@ -3884,7 +4454,7 @@ function TextFields({
                   : undefined
               }
               onChange={(event) => change(key, event.target.value)}
-              required={required}
+              required={isRequired}
             />
             {softWarnings?.[key] && (
               <small className="sa-field-warning">{softWarnings[key]}</small>
@@ -4013,6 +4583,13 @@ function PackageFeaturesView({ packages }: { packages: Item[] }) {
               "Usage limit",
               "Status",
             ]}
+            columnFilters={[
+              { type: "text" },
+              { type: "text" },
+              { type: "text" },
+              { type: "text" },
+              { type: "select" },
+            ]}
             rows={packages.flatMap((pack) =>
               (pack.features ?? []).map((link: Item) => [
                 pack.name,
@@ -4059,6 +4636,7 @@ function FeaturePricingTiersView({
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const selected = tiered.find((item) => item.id === selectedId) ?? tiered[0];
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!selected) {
       setTiers([]);
@@ -4076,7 +4654,8 @@ function FeaturePricingTiersView({
         costPrice: tier.costPrice === null ? "" : String(tier.costPrice ?? ""),
       })),
     );
-  }, [selected?.id]);
+  }, [selected]);
+  /* eslint-enable react-hooks/set-state-in-effect */
   const updateTier = (
     index: number,
     key: keyof PricingTierInput,
@@ -4268,6 +4847,15 @@ function FeaturePricingTiersView({
             "Unit price",
             "Cost price",
           ]}
+          columnFilters={[
+            { type: "text" },
+            { type: "number" },
+            { type: "text" },
+            { type: "number" },
+            { type: "text" },
+            { type: "text" },
+            { type: "text" },
+          ]}
           rows={tiered.flatMap((item) =>
             (item.tiers ?? []).map((tier: Item) => [
               item.feature?.name ?? "—",
@@ -4413,6 +5001,13 @@ function ClientFeaturesPricingView({
               "Current price",
               "Pricing model",
             ]}
+            columnFilters={[
+              { type: "text" },
+              { type: "select" },
+              { type: "text" },
+              { type: "text" },
+              { type: "select" },
+            ]}
             rows={rows}
           />
         </section>
@@ -4484,6 +5079,13 @@ function ClientFeatureUsageView({
       <section className="sa-management oem-table-only">
         <DataTable
           headings={["Feature", "Package", "Reference", "Quantity", "Used at"]}
+          columnFilters={[
+            { type: "text" },
+            { type: "text" },
+            { type: "text" },
+            { type: "number" },
+            { type: "text" },
+          ]}
           rows={usage.map((entry) => [
             entry.feature?.name ?? "—",
             entry.subscription?.package?.name ?? "—",
@@ -4497,26 +5099,355 @@ function ClientFeatureUsageView({
   );
 }
 
-function DataTable({ headings, rows }: { headings: string[]; rows: any[][] }) {
-  const pageSize = 10;
-  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+function DataTable({
+  headings,
+  rows,
+  columnFilters = [],
+}: {
+  headings: string[];
+  rows: any[][];
+  columnFilters?: readonly ColumnFilterSpec[];
+}) {
+  const [pageSize, setPageSize] = useState(10);
+  const searchId = useId();
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
+  const [columnFilterStates, setColumnFilterStates] =
+    useState<ColumnFilterStateMap>({});
+  const [sort, setSort] = useState<{
+    columnIndex: number;
+    direction: "ascending" | "descending";
+  } | null>(null);
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredRows = normalizedQuery
+    ? rows.filter((row) =>
+        row.some(
+          (cell) =>
+            (typeof cell === "string" || typeof cell === "number") &&
+            String(cell).toLowerCase().includes(normalizedQuery),
+        ),
+      )
+    : rows;
+  const columnFilterResult = filterRows(
+    filteredRows,
+    columnFilters,
+    columnFilterStates,
+  );
+  const filteredColumnRows = columnFilterResult.rows;
+  const activeFilterCount = columnFilterResult.activeCount;
+  const sortedRows = sort
+    ? filteredColumnRows
+        .map((row, index) => ({ row, index }))
+        .sort((left, right) => {
+          const leftValue = left.row[sort.columnIndex];
+          const rightValue = right.row[sort.columnIndex];
+          const leftMissing =
+            leftValue === null ||
+            leftValue === undefined ||
+            (typeof leftValue === "string" &&
+              (leftValue.trim().length === 0 || leftValue === "—")) ||
+            (typeof leftValue !== "string" && typeof leftValue !== "number") ||
+            (typeof leftValue === "number" && Number.isNaN(leftValue));
+          const rightMissing =
+            rightValue === null ||
+            rightValue === undefined ||
+            (typeof rightValue === "string" &&
+              (rightValue.trim().length === 0 || rightValue === "—")) ||
+            (typeof rightValue !== "string" && typeof rightValue !== "number") ||
+            (typeof rightValue === "number" && Number.isNaN(rightValue));
+          let comparison = 0;
+          if (leftMissing !== rightMissing) {
+            comparison = leftMissing ? 1 : -1;
+          } else if (!leftMissing && !rightMissing) {
+            comparison =
+              typeof leftValue === "number" &&
+              typeof rightValue === "number"
+                ? leftValue - rightValue
+                : String(leftValue).localeCompare(String(rightValue), undefined, {
+                    numeric: true,
+                    sensitivity: "base",
+                  });
+          }
+          if (comparison === 0) return left.index - right.index;
+          return sort.direction === "ascending" ? comparison : -comparison;
+        })
+        .map(({ row }) => row)
+    : filteredColumnRows;
+  const pageCount = Math.max(1, Math.ceil(sortedRows.length / pageSize));
   const currentPage = Math.min(page, pageCount);
-  const pageRows = rows.slice(
+  const pageRows = sortedRows.slice(
     (currentPage - 1) * pageSize,
     currentPage * pageSize,
   );
+  const hasColumnFilters = columnFilters.some(Boolean);
+  const updateColumnFilter = (
+    columnIndex: number,
+    state: ColumnFilterState,
+  ) => {
+    setColumnFilterStates((current) => ({
+      ...current,
+      [columnIndex]: state,
+    }));
+    setPage(1);
+  };
+  const renderColumnFilter = (columnIndex: number, mobile: boolean) => {
+    const spec = columnFilters[columnIndex];
+    if (!spec) return null;
+    const heading = headings[columnIndex] || `Column ${columnIndex + 1}`;
+    const state = columnFilterStates[columnIndex] ?? {};
+    const id = `${searchId}-filter-${columnIndex}-${mobile ? "mobile" : "desktop"}`;
+    if (spec.type === "text") {
+      return (
+        <label className="sa-table-filter-field" htmlFor={id}>
+          <span>Filter by {heading}</span>
+          <input
+            id={id}
+            type="text"
+            value={state.text ?? ""}
+            aria-label={`Filter by ${heading}`}
+            onChange={(event) =>
+              updateColumnFilter(columnIndex, { text: event.currentTarget.value })
+            }
+          />
+        </label>
+      );
+    }
+    if (spec.type === "select") {
+      const options = getSelectOptions(rows, columnIndex, spec);
+      return (
+        <label className="sa-table-filter-field" htmlFor={id}>
+          <span>Filter by {heading}</span>
+          <select
+            id={id}
+            value={state.value ?? ""}
+            aria-label={`Filter by ${heading}`}
+            onChange={(event) =>
+              updateColumnFilter(columnIndex, { value: event.currentTarget.value })
+            }
+          >
+            <option value="">All {heading}</option>
+            {options.map((option, optionIndex) => (
+              <option key={`${String(option)}-${optionIndex}`} value={String(option)}>
+                {String(option)}
+              </option>
+            ))}
+          </select>
+        </label>
+      );
+    }
+    const invalidRange = hasInvalidNumberRange(state);
+    const minId = `${id}-min`;
+    const maxId = `${id}-max`;
+    return (
+      <fieldset
+        className="sa-table-filter-field sa-table-filter-number"
+        aria-label={`Filter by ${heading}`}
+      >
+        <legend>Filter by {heading}</legend>
+        <div className="sa-table-filter-range">
+          <label htmlFor={minId}>
+            <span>Minimum {heading}</span>
+            <input
+              id={minId}
+              type="number"
+              step="any"
+              placeholder="Min"
+              value={state.min ?? ""}
+              aria-label={`Minimum ${heading}`}
+              aria-invalid={invalidRange || undefined}
+              onChange={(event) =>
+                updateColumnFilter(columnIndex, {
+                  ...state,
+                  min: event.currentTarget.value,
+                })
+              }
+            />
+          </label>
+          <label htmlFor={maxId}>
+            <span>Maximum {heading}</span>
+            <input
+              id={maxId}
+              type="number"
+              step="any"
+              placeholder="Max"
+              value={state.max ?? ""}
+              aria-label={`Maximum ${heading}`}
+              aria-invalid={invalidRange || undefined}
+              onChange={(event) =>
+                updateColumnFilter(columnIndex, {
+                  ...state,
+                  max: event.currentTarget.value,
+                })
+              }
+            />
+          </label>
+        </div>
+        {invalidRange && (
+          <span className="sa-table-filter-error" role="alert">
+            Minimum must not exceed maximum.
+          </span>
+        )}
+      </fieldset>
+    );
+  };
 
   return (
     <div>
+      <div className="sa-table-toolbar">
+        <div className="sa-table-search">
+          <label htmlFor={searchId}>Search this table</label>
+          <div className="sa-table-search-control">
+            <input
+              id={searchId}
+              ref={searchInputRef}
+              type="search"
+              value={query}
+              placeholder="Search this table"
+              onChange={(event) => {
+                setQuery(event.currentTarget.value);
+                setPage(1);
+              }}
+            />
+            {normalizedQuery && (
+              <button
+                type="button"
+                className="secondary sa-table-search-clear"
+                aria-label="Clear table search"
+                onClick={() => {
+                  setQuery("");
+                  setPage(1);
+                  searchInputRef.current?.focus();
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="sa-table-toolbar-meta">
+          <span
+            className="sa-table-result-count"
+            role="status"
+            aria-live="polite"
+          >
+            {filteredColumnRows.length}{" "}
+            {filteredColumnRows.length === 1 ? "result" : "results"}
+          </span>
+          <label className="sa-table-page-size">
+            Rows per page
+            <select
+              value={pageSize}
+              onChange={(event) => {
+                setPageSize(Number(event.currentTarget.value));
+                setPage(1);
+              }}
+            >
+              {[10, 25, 50, 100].map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </label>
+          {activeFilterCount > 0 && (
+            <button
+              type="button"
+              className="secondary sa-table-filter-clear"
+              onClick={() => {
+                setColumnFilterStates({});
+                setPage(1);
+              }}
+            >
+              Clear all ({activeFilterCount})
+            </button>
+          )}
+        </div>
+      </div>
+      {hasColumnFilters && (
+        <details className="sa-table-filter-panel">
+          <summary>
+            Filters{activeFilterCount ? ` (${activeFilterCount})` : ""}
+          </summary>
+          <div className="sa-table-filter-panel-fields">
+            {headings.map((heading, columnIndex) => (
+              <div key={`${heading}-${columnIndex}`}>
+                {renderColumnFilter(columnIndex, true)}
+              </div>
+            ))}
+            {activeFilterCount > 0 && (
+              <button
+                type="button"
+                className="secondary sa-table-filter-clear"
+                onClick={() => {
+                  setColumnFilterStates({});
+                  setPage(1);
+                }}
+              >
+                Clear all ({activeFilterCount})
+              </button>
+            )}
+          </div>
+        </details>
+      )}
       <div className="sa-table-wrap">
         <table>
           <thead>
             <tr>
-              {headings.map((heading) => (
-                <th key={heading}>{heading}</th>
-              ))}
+              {headings.map((heading, headingIndex) => {
+                const sortable = heading.trim().length > 0;
+                const active = sort?.columnIndex === headingIndex;
+                const direction = active ? sort.direction : "none";
+                const nextDirection =
+                  active && sort.direction === "ascending"
+                    ? "descending"
+                    : "ascending";
+                return (
+                  <th
+                    key={`${heading}-${headingIndex}`}
+                    aria-sort={sortable ? direction : undefined}
+                  >
+                    {sortable ? (
+                      <button
+                        type="button"
+                        className="sa-table-sort"
+                        aria-label={`Sort by ${heading} ${nextDirection}`}
+                        title={`Sort by ${heading} ${nextDirection}`}
+                        onClick={() => {
+                          setSort((current) => ({
+                            columnIndex: headingIndex,
+                            direction:
+                              current?.columnIndex === headingIndex &&
+                              current.direction === "ascending"
+                                ? "descending"
+                                : "ascending",
+                          }));
+                          setPage(1);
+                        }}
+                      >
+                        <span>{heading}</span>
+                        <span className="sa-table-sort-indicator" aria-hidden="true">
+                          {active
+                            ? sort.direction === "ascending"
+                              ? "↑"
+                              : "↓"
+                            : "↕"}
+                        </span>
+                      </button>
+                    ) : null}
+                  </th>
+                );
+              })}
             </tr>
+            {hasColumnFilters && (
+              <tr className="sa-table-filter-row">
+                {headings.map((heading, columnIndex) => (
+                  <th key={`${heading}-${columnIndex}`}>
+                    {renderColumnFilter(columnIndex, false)}
+                  </th>
+                ))}
+              </tr>
+            )}
           </thead>
           <tbody>
             {pageRows.length ? (
@@ -4529,17 +5460,20 @@ function DataTable({ headings, rows }: { headings: string[]; rows: any[][] }) {
               ))
             ) : (
               <tr>
-                <td colSpan={headings.length}>No records yet.</td>
+                <td colSpan={headings.length}>
+                  {rows.length ? "No matching records." : "No records yet."}
+                </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
-      {rows.length > pageSize && (
+      {filteredColumnRows.length > pageSize && (
         <div className="sa-pagination" aria-label="Table pagination">
           <span>
             Showing {(currentPage - 1) * pageSize + 1}–
-            {Math.min(currentPage * pageSize, rows.length)} of {rows.length}
+            {Math.min(currentPage * pageSize, filteredColumnRows.length)} of{" "}
+            {filteredColumnRows.length}
           </span>
           <div>
             <button
