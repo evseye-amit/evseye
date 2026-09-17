@@ -9,7 +9,7 @@ function setup() {
   };
   const storage = { createUploadUrl: vi.fn().mockResolvedValue('upload-url'), createDownloadUrl: vi.fn().mockResolvedValue('logo-url'), assertObjectExists: vi.fn().mockResolvedValue(undefined) };
   const audit = { record: vi.fn() };
-  return { prisma, storage, audit, service: new PlatformAdminService(prisma as never, audit as never, storage as never) };
+  return { prisma, storage, audit, service: new PlatformAdminService(prisma as never, audit as never, storage as never, {} as never) };
 }
 
 describe('Client logos', () => {

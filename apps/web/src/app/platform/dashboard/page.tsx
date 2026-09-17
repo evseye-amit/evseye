@@ -1652,7 +1652,7 @@ export default function SuperAdminDashboard() {
           },
           token,
         );
-        await request(
+        return request(
           `/platform/clients/${client.id}/submit`,
           { method: "POST" },
           token,
@@ -1724,9 +1724,9 @@ export default function SuperAdminDashboard() {
     setLoading(true);
     setError("");
     try {
-      await operation();
+      const result = await operation() as { welcomeEmail?: { message: string } } | undefined;
       done?.();
-      setNotice(success);
+      setNotice([success, result?.welcomeEmail?.message].filter(Boolean).join(" "));
       await load();
     } catch (cause) {
       setError(

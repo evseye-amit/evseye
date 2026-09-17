@@ -14,6 +14,7 @@ import {
   Prisma,
   UserRole,
 } from '@prisma/client';
+import { ClientWelcomeService } from '../email/client-welcome.service.js';
 import { randomUUID } from 'node:crypto';
 import { AuditService } from '../audit/audit.service.js';
 import { assertUserMobileAvailable, normalizeIndianMobile, USER_MOBILE_CONFLICT_MESSAGE } from '../common/phone.js';
@@ -50,6 +51,7 @@ export class PlatformAdminService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
+    private readonly welcome: ClientWelcomeService,
   ) {}
 
   async clientBranding(clientId?: string, companyCode?: string) {
@@ -705,7 +707,11 @@ export class PlatformAdminService {
         entityId: client.id,
         newData: { name: client.name, slug: client.slug },
       });
-      return client;
+      const welcomeEmail = await this.welcome.send({
+        clientId: client.id, clientName: dto.adminName, companyName: client.name,
+        companyCode: client.companyCode ?? client.slug, mobile: normalizeIndianMobile(dto.adminMobile), email: dto.adminEmail,
+      }, actorId);
+      return { ...client, welcomeEmail };
     } catch (error) {
       if (this.unique(error))
         throw new ConflictException(
@@ -1282,7 +1288,11 @@ export class PlatformAdminService {
       entityType: 'Client',
       entityId: clientId,
     });
-    return this.clientDetail(clientId);
+    const welcomeEmail = await this.welcome.send({
+      clientId, clientName: admin.name, companyName: client.name,
+      companyCode: client.companyCode ?? client.slug, mobile: normalizeIndianMobile(admin.mobile!), email: admin.email,
+    }, actorId);
+    return { ...await this.clientDetail(clientId), welcomeEmail };
   }
 
   async approveClient(clientId: string, actorId: string) {

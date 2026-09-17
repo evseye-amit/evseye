@@ -41,3 +41,11 @@ Run Prisma migrations once as a deployment job before rolling out API replicas:
 Run `pnpm typecheck`, `pnpm test`, and `pnpm build` before review or release.
 For the complete deployment and acceptance procedure, see `docs/release-checklist.md`.
 For the local end-to-end manual test flow, see `docs/manual-acceptance.md`.
+
+### Client welcome email (MSG91)
+
+After successful Super Admin client onboarding (not draft saves), the Account Admin receives the welcome email. Use `docs/email/client-welcome.html` as the MSG91 HTML template, with subject **Welcome to EVs Eye — Your account is ready**. Register the five variables exactly as written: `client_name`, `company_name`, `company_code`, `registered_mobile_number`, and `login_url`. The greeting uses the Account Admin's name.
+
+Configure `EMAIL_PROVIDER=msg91`, `MSG91_AUTH_KEY` in your secret manager, `MSG91_EMAIL_DOMAIN`, `MSG91_EMAIL_FROM`, `MSG91_WELCOME_TEMPLATE_ID`, and `CLIENT_LOGIN_URL` (the public HTTPS Client Operations login URL in production). MSG91 requires a verified sending domain and sender and a published template. Development defaults to `EMAIL_PROVIDER=disabled` to avoid sending to real clients; the HTML file can be opened locally to review layout. No SMTP server is required.
+
+Email is attempted after the client transaction commits. The API returns `welcomeEmail` status, the onboarding confirmation displays it, and `CLIENT_WELCOME_EMAIL` audit entries record the result. Provider acceptance is not proof of inbox delivery; use MSG91 logs for delivery/bounce status. Failures do not roll back or duplicate the client. Automatic retries are not enabled; check MSG91 logs before manually sending a failed welcome email to avoid duplicates following a timeout.

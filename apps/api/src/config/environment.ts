@@ -48,6 +48,12 @@ const environmentSchema = z.object({
   AWS_REGION: z.string().default('ap-south-1'),
   AWS_ACCESS_KEY_ID: z.string().optional(),
   AWS_SECRET_ACCESS_KEY: z.string().optional(),
+  EMAIL_PROVIDER: z.enum(['disabled', 'msg91']).default('disabled'),
+  MSG91_AUTH_KEY: z.string().optional(),
+  MSG91_EMAIL_DOMAIN: z.string().optional(),
+  MSG91_EMAIL_FROM: z.string().email().optional(),
+  MSG91_WELCOME_TEMPLATE_ID: z.string().optional(),
+  CLIENT_LOGIN_URL: z.string().url().refine((value) => /^https?:\/\//.test(value), 'Must use HTTP or HTTPS').optional(),
   SMS_PROVIDER: z.string().default('console'),
   KYC_PROVIDER: z.string().default('sandbox'),
 });
