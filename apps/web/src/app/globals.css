@@ -573,6 +573,10 @@ td {
   text-align: left;
   border-bottom: 1px solid #e8eeea;
   font-size: 16px;
+  max-width: 80ch;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  vertical-align: top;
 }
 th {
   color: var(--muted);
@@ -1843,7 +1847,10 @@ body:has(.sa-dialog[open]) {
   padding: 13px;
   text-align: left;
   border-bottom: 1px solid #edf0ed;
-  white-space: nowrap;
+  max-width: 80ch;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  vertical-align: top;
 }
 .sa-table-wrap th {
   color: #818a82;
@@ -1851,6 +1858,23 @@ body:has(.sa-dialog[open]) {
   font-size: 12px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+}
+.sa-table-cell-content {
+  max-inline-size: 80ch;
+  overflow-wrap: anywhere;
+}
+.sa-table-wrap th.sa-table-action-cell,
+.sa-table-wrap td.sa-table-action-cell {
+  width: 1%;
+  min-width: 80px;
+  max-width: none;
+  white-space: nowrap;
+}
+.sa-table-action-cell .sa-table-cell-content,
+.sa-table-action-cell button {
+  max-inline-size: none;
+  white-space: nowrap;
+  overflow-wrap: normal;
 }
 .sa-table-sort {
   display: inline-flex;

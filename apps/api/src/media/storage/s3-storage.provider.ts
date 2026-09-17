@@ -68,6 +68,23 @@ export class S3StorageProvider implements StorageProvider {
     );
   }
 
+  createPublicUrl(objectKey: string): string {
+    const baseUrl =
+      this.config.get('MEDIA_PUBLIC_BASE_URL') ??
+      (this.config.get('S3_PUBLIC_ENDPOINT')
+        ? `${this.config.getOrThrow('S3_PUBLIC_ENDPOINT')}/${this.bucket()}`
+        : undefined);
+    if (!baseUrl) {
+      throw new ServiceUnavailableException(
+        'Public media delivery is not configured.',
+      );
+    }
+    return `${baseUrl.replace(/\/$/, '')}/${objectKey
+      .split('/')
+      .map(encodeURIComponent)
+      .join('/')}`;
+  }
+
   async assertObjectExists(objectKey: string): Promise<void> {
     await this.client.send(
       new HeadObjectCommand({ Bucket: this.bucket(), Key: objectKey }),

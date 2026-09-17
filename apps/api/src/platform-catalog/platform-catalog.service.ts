@@ -123,21 +123,24 @@ export class PlatformCatalogService {
     };
   }
 
-  listOems() {
-    return this.prisma.oem.findMany({
+  async listOems() {
+    const oems = await this.prisma.oem.findMany({
       orderBy: [{ status: 'asc' }, { displayName: 'asc' }],
     });
+    return oems.map((oem) => this.serializeOem(oem));
   }
   async createOem(dto: CreateOemDto, actorId: string) {
-    return this.createWithAudit('OEM_CREATED', 'OEM', actorId, () =>
+    const oem = await this.createWithAudit('OEM_CREATED', 'OEM', actorId, () =>
       this.prisma.oem.create({ data: dto }),
     );
+    return this.serializeOem(oem);
   }
   async updateOem(id: string, dto: UpdateOemDto, actorId: string) {
     await this.exists('oem', id);
-    return this.updateWithAudit('OEM_UPDATED', 'OEM', id, actorId, () =>
+    const oem = await this.updateWithAudit('OEM_UPDATED', 'OEM', id, actorId, () =>
       this.prisma.oem.update({ where: { id }, data: dto }),
     );
+    return this.serializeOem(oem);
   }
   async deleteOem(id: string, actorId: string) {
     await this.exists('oem', id);
@@ -184,7 +187,7 @@ export class PlatformCatalogService {
       entityType: 'OEM',
       entityId: id,
     });
-    return updated;
+    return this.serializeOem(updated);
   }
   async bulkCreateOems(dto: BulkCreateOemsDto, actorId: string) {
     const validStatuses = new Set(Object.values(MasterRecordStatus));
@@ -233,6 +236,17 @@ export class PlatformCatalogService {
         );
       throw error;
     }
+  }
+
+  private serializeOem<T extends { logoObjectKey: string | null }>(oem: T) {
+    return {
+      ...oem,
+      // Persist only the portable object key. The delivery URL is calculated
+      // here so it can differ safely between local MinIO and production CDN.
+      logoUrl: oem.logoObjectKey
+        ? this.storage.createPublicUrl(oem.logoObjectKey)
+        : null,
+    };
   }
 
   listVehicleCategories() {

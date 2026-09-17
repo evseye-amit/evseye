@@ -481,7 +481,6 @@ model Oem {
   name          String
   displayName   String
   status        MasterRecordStatus @default(ACTIVE)
-  logoUrl       String?
   logoObjectKey String?
   website       String?
   description   String?
@@ -640,7 +639,6 @@ model ClientBusinessProfile {
   pan                 String
   cinOrLlpin          String?
   website             String?
-  logoUrl             String?
   logoObjectKey       String?
   yearEstablished     Int?
   estimatedFleetSize  Int?

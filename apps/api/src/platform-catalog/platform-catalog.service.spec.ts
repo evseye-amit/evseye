@@ -80,4 +80,33 @@ describe('PlatformCatalogService feature pricing validation', () => {
       }),
     ).toThrow('Pricing tier order must be unique.');
   });
+
+  it('returns a public delivery URL for an OEM logo without persisting one', async () => {
+    const prisma = {
+      oem: {
+        findMany: async () => [
+          {
+            id: 'oem-1',
+            logoObjectKey: 'platform/oems/oem-1/logo/logo.webp',
+          },
+        ],
+      },
+    };
+    const catalog = new PlatformCatalogService(
+      prisma as never,
+      {} as never,
+      {
+        createPublicUrl: (key: string) => `https://media.evseye.io/${key}`,
+      } as never,
+    );
+
+    await expect(catalog.listOems()).resolves.toEqual([
+      {
+        id: 'oem-1',
+        logoObjectKey: 'platform/oems/oem-1/logo/logo.webp',
+        logoUrl:
+          'https://media.evseye.io/platform/oems/oem-1/logo/logo.webp',
+      },
+    ]);
+  });
 });

@@ -1,4 +1,6 @@
+import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { PrismaClient, UserRole } from '@prisma/client';
+import { readFile } from 'node:fs/promises';
 import { oemCatalog } from './catalog/oems.mjs';
 import { featureCatalog } from './catalog/features.mjs';
 import { packageCatalog } from './catalog/packages.mjs';
@@ -10,6 +12,40 @@ import {
 } from './catalog/feature-pricing-tier.mjs';
 
 const prisma = new PrismaClient();
+
+const storage = new S3Client({
+  region: process.env.AWS_REGION ?? 'ap-south-1',
+  ...(process.env.S3_ENDPOINT
+    ? { endpoint: process.env.S3_ENDPOINT, forcePathStyle: true }
+    : {}),
+});
+
+async function seedOemLogo(id, code) {
+  const bucket = process.env.S3_BUCKET;
+  if (!bucket) throw new Error('S3_BUCKET is required to seed OEM logos.');
+  let extension = 'png';
+  let image;
+  try {
+    image = await readFile(
+      new URL(`./catalog/assets/oem/${code}.png`, import.meta.url),
+    );
+  } catch {
+    extension = 'svg';
+    image = await readFile(
+      new URL(`./catalog/assets/oem/${code}.svg`, import.meta.url),
+    );
+  }
+  const objectKey = `platform/oems/${id}/logo/seed.${extension}`;
+  await storage.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: objectKey,
+      Body: image,
+      ContentType: extension === 'svg' ? 'image/svg+xml' : 'image/png',
+    }),
+  );
+  return objectKey;
+}
 
 async function main() {
   const existingSuperAdmin = await prisma.user.findFirst({
@@ -51,13 +87,19 @@ async function main() {
   });
 
   await Promise.all(
-    oemCatalog.map((oem) =>
-      prisma.oem.upsert({
+    oemCatalog.map(async ({ logoSourceUrl: _logoSourceUrl, ...oem }) => {
+      const existing = await prisma.oem.findUnique({
         where: { code: oem.code },
-        create: oem,
-        update: oem,
-      }),
-    ),
+        select: { id: true, logoObjectKey: true },
+      });
+      const id = existing?.id ?? crypto.randomUUID();
+      const logoObjectKey = await seedOemLogo(id, oem.code);
+      return prisma.oem.upsert({
+        where: { code: oem.code },
+        create: { id, ...oem, logoObjectKey },
+        update: { ...oem, logoObjectKey },
+      });
+    }),
   );
 
   const vehicleCategories = await Promise.all(

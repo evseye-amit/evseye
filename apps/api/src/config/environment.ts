@@ -36,6 +36,8 @@ const environmentSchema = z.object({
   S3_BUCKET: z.string().optional(),
   S3_ENDPOINT: z.string().url().optional(),
   S3_PUBLIC_ENDPOINT: z.string().url().optional(),
+  // CDN/origin URL used only for public, non-sensitive assets such as OEM logos.
+  MEDIA_PUBLIC_BASE_URL: z.string().url().optional(),
   S3_SERVER_SIDE_ENCRYPTION: z.enum(['AES256', 'aws:kms']).optional(),
   S3_SIGNED_URL_TTL_SECONDS: z.coerce
     .number()
@@ -75,6 +77,14 @@ export function validateEnvironment(
   }
   if (result.data.NODE_ENV === 'production' && !result.data.S3_BUCKET) {
     throw new Error('S3_BUCKET must be configured in production.');
+  }
+  if (
+    result.data.NODE_ENV === 'production' &&
+    !result.data.MEDIA_PUBLIC_BASE_URL
+  ) {
+    throw new Error(
+      'MEDIA_PUBLIC_BASE_URL must be configured in production for public media delivery.',
+    );
   }
   if (
     result.data.NODE_ENV === 'production' &&

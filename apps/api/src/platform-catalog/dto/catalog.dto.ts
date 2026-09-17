@@ -34,7 +34,6 @@ export class CreateOemDto {
   @IsString() @MaxLength(160) name!: string;
   @IsString() @MaxLength(120) displayName!: string;
   @IsEnum(MasterRecordStatus) status!: MasterRecordStatus;
-  @IsOptional() @IsUrl() logoUrl?: string;
   @IsOptional() @IsUrl() website?: string;
   @IsOptional() @IsString() @MaxLength(1000) description?: string;
 }
@@ -98,7 +97,6 @@ export class BulkCreateOemsDto {
     name: string;
     displayName: string;
     status: MasterRecordStatus;
-    logoUrl?: string;
     website?: string;
     description?: string;
   }>;

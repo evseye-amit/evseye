@@ -149,7 +149,7 @@ export const oemCatalog = dataRows
       name,
       displayName,
       status,
-      logoUrl: optionalUrl(rawLogoUrl, rowNumber, 'Logo'),
+      logoSourceUrl: optionalUrl(rawLogoUrl, rowNumber, 'Logo'),
       website: optionalUrl(rawWebsite, rowNumber, 'Website'),
       description: rawDescription.trim() || null,
     };

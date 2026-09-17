@@ -7,6 +7,8 @@ export interface CreateUploadUrlInput {
 export interface StorageProvider {
   createUploadUrl(input: CreateUploadUrlInput): Promise<string>;
   createDownloadUrl(objectKey: string): Promise<string>;
+  /** Returns a stable delivery URL for non-sensitive public assets. */
+  createPublicUrl(objectKey: string): string;
   assertObjectExists(objectKey: string): Promise<void>;
 }
 

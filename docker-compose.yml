@@ -57,6 +57,7 @@ services:
         mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
         mc mb --ignore-existing local/evs-eye-local
         mc anonymous set none local/evs-eye-local
+        mc anonymous set download local/evs-eye-local/platform/oems
 
   api:
     image: evseye-api:local
@@ -70,6 +71,7 @@ services:
       S3_BUCKET: evs-eye-local
       S3_ENDPOINT: http://minio:9000
       S3_PUBLIC_ENDPOINT: http://localhost:9000
+      MEDIA_PUBLIC_BASE_URL: http://localhost:9000/evs-eye-local
       AWS_ACCESS_KEY_ID: evseye-minio
       AWS_SECRET_ACCESS_KEY: evseye-minio-local-password
     ports:
@@ -113,9 +115,16 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://evseye:evseye@postgres:5432/evseye?schema=public
+      S3_BUCKET: evs-eye-local
+      S3_ENDPOINT: http://minio:9000
+      AWS_REGION: ap-south-1
+      AWS_ACCESS_KEY_ID: evseye-minio
+      AWS_SECRET_ACCESS_KEY: evseye-minio-local-password
     command: ["node", "apps/api/prisma/seed.mjs"]
     depends_on:
       migrate:
+        condition: service_completed_successfully
+      minio-init:
         condition: service_completed_successfully
 
   web:

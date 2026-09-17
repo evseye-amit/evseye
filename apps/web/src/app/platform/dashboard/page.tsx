@@ -925,7 +925,7 @@ export default function SuperAdminDashboard() {
   }
   function downloadOemTemplate() {
     const csv =
-      "oem_code,oem_name,display_name,status,logo_url,website,description\nZELIO,Zelio Auto Private Limited,Zelio,ACTIVE,,,\n";
+      "oem_code,oem_name,display_name,status,website,description\nZELIO,Zelio Auto Private Limited,Zelio,ACTIVE,,\n";
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     const link = document.createElement("a");
     link.href = url;
@@ -979,7 +979,6 @@ export default function SuperAdminDashboard() {
         "oem_name",
         "display_name",
         "status",
-        "logo_url",
         "website",
         "description",
       ];
@@ -991,14 +990,13 @@ export default function SuperAdminDashboard() {
           "Use the OEM template. Header names or their order do not match.",
         );
       const rows = lines.map((line) => {
-        const [code, name, displayName, status, logoUrl, website, description] =
+        const [code, name, displayName, status, website, description] =
           parseCsvLine(line);
         return {
           code,
           name,
           displayName,
           status,
-          ...(logoUrl ? { logoUrl } : {}),
           ...(website ? { website } : {}),
           ...(description ? { description } : {}),
         };
@@ -5279,6 +5277,40 @@ function ClientFeatureUsageView({
   );
 }
 
+const TABLE_CELL_LINE_LIMIT = 80;
+
+function renderTableCellContent(cell: ReactNode) {
+  if (typeof cell !== "string" || cell.length <= TABLE_CELL_LINE_LIMIT) {
+    return cell;
+  }
+
+  const lines: string[] = [];
+  let currentLine = "";
+
+  for (const word of cell.trim().split(/\s+/)) {
+    if (
+      currentLine.length > 0 &&
+      currentLine.length + word.length + 1 > TABLE_CELL_LINE_LIMIT
+    ) {
+      lines.push(currentLine);
+      currentLine = word;
+    } else {
+      currentLine = currentLine ? `${currentLine} ${word}` : word;
+    }
+  }
+
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+
+  return lines.map((line, index) => (
+    <span key={`${index}-${line}`}>
+      {line}
+      {index < lines.length - 1 && <br />}
+    </span>
+  ));
+}
+
 function DataTable({
   headings,
   rows,
@@ -5674,6 +5706,7 @@ function DataTable({
             <tr>
               {headings.map((heading, headingIndex) => {
                 const normalizedHeading = heading.trim().toLowerCase();
+                const isActionColumn = normalizedHeading.length === 0;
                 const sortable =
                   normalizedHeading.length > 0 &&
                   normalizedHeading !== "description" &&
@@ -5688,6 +5721,9 @@ function DataTable({
                 return (
                   <th
                     key={`${heading}-${headingIndex}`}
+                    className={
+                      isActionColumn ? "sa-table-action-cell" : undefined
+                    }
                     aria-sort={sortable ? direction : undefined}
                   >
                     {sortable ? (
@@ -5739,7 +5775,18 @@ function DataTable({
               pageRows.map((row, index) => (
                 <tr key={(currentPage - 1) * pageSize + index}>
                   {row.map((cell, cellIndex) => (
-                    <td key={cellIndex}>{cell}</td>
+                    <td
+                      key={cellIndex}
+                      className={
+                        headings[cellIndex]?.trim().length === 0
+                          ? "sa-table-action-cell"
+                          : undefined
+                      }
+                    >
+                      <div className="sa-table-cell-content">
+                        {renderTableCellContent(cell)}
+                      </div>
+                    </td>
                   ))}
                 </tr>
               ))
