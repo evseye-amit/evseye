@@ -1,4 +1,5 @@
 import { Type } from 'class-transformer';
+import { INDIAN_MOBILE_INPUT_PATTERN } from '../../common/phone.js';
 import {
   ArrayMaxSize,
   IsBoolean,
@@ -14,7 +15,7 @@ import {
 
 export class CreateFleetManagerDto {
   @IsString() @MaxLength(150) name!: string;
-  @Matches(/^\+?[1-9]\d{7,14}$/) mobile!: string;
+  @Matches(INDIAN_MOBILE_INPUT_PATTERN) mobile!: string;
   @IsOptional() @IsEmail() @MaxLength(150) email?: string;
   @IsArray() @ArrayMaxSize(50) @IsUUID('4', { each: true }) hubIds!: string[];
   @IsUUID() primaryHubId!: string;
@@ -32,7 +33,7 @@ export class BulkFleetManagerDto {
 
 export class CreateTeamLeaderDto {
   @IsString() @MaxLength(150) name!: string;
-  @Matches(/^\+?[1-9]\d{7,14}$/) mobile!: string;
+  @Matches(INDIAN_MOBILE_INPUT_PATTERN) mobile!: string;
   @IsOptional() @IsEmail() @MaxLength(150) email?: string;
   @IsOptional() @IsString() @MaxLength(50) employeeCode?: string;
   @IsOptional() @IsString() @MaxLength(100) designation?: string;

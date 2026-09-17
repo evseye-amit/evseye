@@ -13,7 +13,7 @@ import {
   UserRole,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { normalizeIndianMobile } from '../common/phone.js';
+import { assertUserMobileAvailable, normalizeIndianMobile, USER_MOBILE_CONFLICT_MESSAGE } from '../common/phone.js';
 import type { CreateRiderDto } from './dto/create-rider.dto.js';
 import type { ListRidersDto } from './dto/list-riders.dto.js';
 import type { UpdateRiderDto } from './dto/update-rider.dto.js';
@@ -23,6 +23,7 @@ export class RidersService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(clientId: string, dto: CreateRiderDto) {
+    await assertUserMobileAvailable(this.prisma, dto.mobile);
     try {
       const rider = await this.prisma.$transaction(async (tx) => {
         const user = await tx.user.create({
@@ -33,14 +34,14 @@ export class RidersService {
             role: UserRole.RIDER,
           },
         });
-        return tx.rider.create({ data: { ...dto, clientId, userId: user.id } });
+        return tx.rider.create({ data: { ...dto, mobile: normalizeIndianMobile(dto.mobile), clientId, userId: user.id } });
       });
       await this.completeOnboardingStep(clientId);
       return rider;
     } catch (error) {
       if (this.isUniqueViolation(error)) {
         throw new ConflictException(
-          'A rider with this mobile number already exists in this client.',
+          USER_MOBILE_CONFLICT_MESSAGE,
         );
       }
       throw error;
@@ -62,7 +63,8 @@ export class RidersService {
     const seen = new Set<string>();
     let created = 0;
     for (const [index, row] of rows.entries()) {
-      if (seen.has(row.mobile)) {
+      const canonicalMobile = normalizeIndianMobile(row.mobile);
+      if (seen.has(canonicalMobile)) {
         failures.push({
           ...row,
           row_number: index + 2,
@@ -71,7 +73,7 @@ export class RidersService {
         });
         continue;
       }
-      seen.add(row.mobile);
+      seen.add(canonicalMobile);
       try {
         await this.create(clientId, row);
         created += 1;
@@ -186,9 +188,11 @@ export class RidersService {
 
   async update(clientId: string, id: string, dto: UpdateRiderDto) {
     const existing = await this.getById(clientId, id);
+    if (dto.mobile !== undefined)
+      await assertUserMobileAvailable(this.prisma, dto.mobile, existing.userId ?? undefined);
     try {
       return await this.prisma.$transaction(async (tx) => {
-        const rider = await tx.rider.update({ where: { id }, data: dto });
+        const rider = await tx.rider.update({ where: { id }, data: { ...dto, ...(dto.mobile !== undefined ? { mobile: normalizeIndianMobile(dto.mobile) } : {}) } });
         if (existing.userId && (dto.name !== undefined || dto.mobile !== undefined)) {
           await tx.user.update({
             where: { id: existing.userId },
@@ -205,7 +209,7 @@ export class RidersService {
     } catch (error) {
       if (this.isUniqueViolation(error)) {
         throw new ConflictException(
-          'A rider with this mobile number already exists in this client.',
+          USER_MOBILE_CONFLICT_MESSAGE,
         );
       }
       throw error;

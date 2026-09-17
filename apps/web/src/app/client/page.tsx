@@ -495,7 +495,7 @@ function RiderSetup({ onSaved }: { onSaved: () => void }) {
             </div>
           ) : null}
           <label>
-            Name
+            Name *
             <input
               required
               value={form.name}
@@ -506,7 +506,7 @@ function RiderSetup({ onSaved }: { onSaved: () => void }) {
             />
           </label>
           <label>
-            Mobile
+            Mobile *
             <input
               required
               value={form.mobile}
@@ -1059,7 +1059,7 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
           </label>
           <label>
             Chassis number *
-            <input
+           <input
               required
               value={form.chassisNumber}
               onChange={(event) =>
@@ -1080,7 +1080,7 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
           </label>
           <label>
             OEM *
-            <select
+           <select
               required
               value={form.oemId}
               onChange={(event) =>
@@ -1097,7 +1097,7 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
           </label>
           <label>
             Vehicle category *
-            <select
+           <select
               required
               value={form.vehicleCategoryId}
               onChange={(event) =>
@@ -1118,7 +1118,7 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
           </label>
           <label>
             Vehicle type *
-            <select
+           <select
               required
               value={form.vehicleTypeId}
               disabled={!form.vehicleCategoryId}
@@ -1138,7 +1138,7 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
           </label>
           <label>
             Speed type *
-            <select
+           <select
               required
               value={form.speedType}
               onChange={(event) =>
@@ -1235,7 +1235,7 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
           </label>
           <label>
             Ownership type *
-            <select
+           <select
               required
               value={form.ownershipType}
               onChange={(event) =>
@@ -1554,7 +1554,7 @@ function FleetComponentsSetup({
           <h3 className="client-form-section-title">Battery</h3>
           <label>
             Battery serial number *
-            <input
+           <input
               required
               value={battery.serialNumber}
               onChange={(event) =>
@@ -1565,7 +1565,7 @@ function FleetComponentsSetup({
           </label>
           <label>
             Battery slot *
-            <select
+           <select
               value={battery.batterySlot}
               onChange={(event) =>
                 setBattery({ ...battery, batterySlot: event.target.value })
@@ -1644,7 +1644,7 @@ function FleetComponentsSetup({
           <h3 className="client-form-section-title">Controller</h3>
           <label className="client-form-wide">
             Controller number *
-            <input
+           <input
               required
               value={controller.controllerNumber}
               onChange={(event) =>
@@ -2162,7 +2162,7 @@ function TeamLeaderSetup({ onSaved }: { onSaved: () => void }) {
             </div>
           ) : null}
           <label>
-            Name
+            Name *
             <input
               required
               value={form.name}
@@ -2173,7 +2173,7 @@ function TeamLeaderSetup({ onSaved }: { onSaved: () => void }) {
             />
           </label>
           <label>
-            Mobile
+            Mobile *
             <input
               required
               value={form.mobile}
@@ -2549,7 +2549,7 @@ function FleetManagerSetup({ onSaved }: { onSaved: () => void }) {
             </div>
           ) : null}
           <label>
-            Name
+            Name *
             <input
               required
               value={form.name}
@@ -2560,7 +2560,7 @@ function FleetManagerSetup({ onSaved }: { onSaved: () => void }) {
             />
           </label>
           <label>
-            Mobile
+            Mobile *
             <input
               required
               value={form.mobile}
@@ -2599,7 +2599,7 @@ function FleetManagerSetup({ onSaved }: { onSaved: () => void }) {
             )}
           </fieldset>
           <label className="client-form-wide">
-            Primary Hub
+            Primary Hub *
             <select
               required
               value={form.primaryHubId}

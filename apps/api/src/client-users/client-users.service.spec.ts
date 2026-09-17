@@ -41,7 +41,7 @@ describe('ClientUsersService Fleet Manager status', () => {
   it('updates status while preserving selected and primary hubs', async () => {
     const prisma = {
       hub: { count: vi.fn().mockResolvedValue(2) },
-      user: { findFirst: vi.fn().mockResolvedValue({ id: 'manager-1' }), update: vi.fn().mockResolvedValue({ id: 'manager-1', isActive: false }) },
+      user: { findFirst: vi.fn().mockResolvedValueOnce({ id: 'manager-1' }).mockResolvedValueOnce(null), update: vi.fn().mockResolvedValue({ id: 'manager-1', isActive: false }) },
       userHub: { deleteMany: vi.fn(), createMany: vi.fn() },
       $transaction: vi.fn().mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback(prisma)),
     };

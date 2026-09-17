@@ -22,6 +22,7 @@ import {
   Min,
   ValidateIf,
 } from 'class-validator';
+import { INDIAN_MOBILE_INPUT_PATTERN } from '../../common/phone.js';
 
 const phone = /^\+?[1-9]\d{7,14}$/;
 
@@ -81,7 +82,7 @@ export class UpdateClientContactsAndAddressDto extends ActiveClientEditApprovalD
   adminName?: string;
   @ValidateIf((dto) => !dto.adminSameAsPrimary)
   @IsString()
-  @Matches(phone)
+  @Matches(INDIAN_MOBILE_INPUT_PATTERN)
   adminMobile?: string;
   @ValidateIf((dto) => !dto.adminSameAsPrimary)
   @IsEmail()

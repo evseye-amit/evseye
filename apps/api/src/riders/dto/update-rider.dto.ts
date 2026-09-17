@@ -1,5 +1,6 @@
 import { IsEnum, IsIn, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 import { Gender } from '@prisma/client';
+import { INDIAN_MOBILE_INPUT_PATTERN } from '../../common/phone.js';
 
 export class UpdateRiderDto {
   @IsOptional()
@@ -9,7 +10,7 @@ export class UpdateRiderDto {
 
   @IsOptional()
   @IsString()
-  @Matches(/^\+?[1-9]\d{7,14}$/)
+  @Matches(INDIAN_MOBILE_INPUT_PATTERN)
   mobile?: string;
 
   @IsOptional()

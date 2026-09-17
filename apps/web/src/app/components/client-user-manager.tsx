@@ -15,7 +15,7 @@ function HubMultiSelect({ hubs, selectedIds, onChange }: {
   onChange: (ids: string[]) => void;
 }) {
   return <div className="client-hub-multiselect-field">
-    <span>Assigned hubs</span>
+    <span>Assigned hubs *</span>
     <details className="client-hub-multiselect">
       <summary>{selectedIds.length ? `${selectedIds.length} hub${selectedIds.length === 1 ? "" : "s"} selected` : "Select assigned hubs"}</summary>
       <div className="client-hub-options">
@@ -109,11 +109,11 @@ export function ClientUserManager({ kind, rows, hubs, columns, request, refresh,
       <section className="sa-page-head client-page-head"><div className="sa-actions"><button type="button" className="secondary" onClick={onBulk}>Bulk upload</button><button type="button" onClick={() => start()} disabled={busy}>+ Add {title}</button></div></section>
       {open && <ClientFormDialog title={`${editing ? "Edit" : "Add"} ${title}`} error={formError} busy={busy} onClose={() => setOpen(false)}><form className="form-stack" onSubmit={(event) => void submit(event)}>
         <h2>{editing ? "Edit" : "Add"} {title}</h2>
-        <label>Name<input required maxLength={150} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
-        <label>Mobile number<input required inputMode="tel" value={draft.mobile} onChange={(event) => setDraft({ ...draft, mobile: event.target.value })} /></label>
+        <label>Name *<input required maxLength={150} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
+        <label>Mobile number *<input required inputMode="tel" value={draft.mobile} onChange={(event) => setDraft({ ...draft, mobile: event.target.value })} /></label>
         {isFleetManager ? <>
           <HubMultiSelect hubs={hubs} selectedIds={draft.hubIds} onChange={(hubIds) => setDraft((current) => ({ ...current, hubIds, primaryHubId: hubIds.includes(current.primaryHubId) ? current.primaryHubId : hubIds[0] ?? "" }))} />
-          <label>Primary hub<select required value={draft.primaryHubId} onChange={(event) => setDraft({ ...draft, primaryHubId: event.target.value })}><option value="">Select hub</option>{hubs.filter((hub) => draft.hubIds.includes(String(hub.id))).map((hub) => <option key={String(hub.id)} value={String(hub.id)}>{String(hub.name)} ({String(hub.code)})</option>)}</select></label>
+          <label>Primary hub *<select required value={draft.primaryHubId} onChange={(event) => setDraft({ ...draft, primaryHubId: event.target.value })}><option value="">Select hub</option>{hubs.filter((hub) => draft.hubIds.includes(String(hub.id))).map((hub) => <option key={String(hub.id)} value={String(hub.id)}>{String(hub.name)} ({String(hub.code)})</option>)}</select></label>
           <label>Status<select value={draft.isActive ? "ACTIVE" : "INACTIVE"} onChange={(event) => setDraft({ ...draft, isActive: event.target.value === "ACTIVE" })}><option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option></select></label>
         </> : <><label>Employee code<input value={draft.employeeCode} onChange={(event) => setDraft({ ...draft, employeeCode: event.target.value })} /></label><label>Designation<input value={draft.designation} onChange={(event) => setDraft({ ...draft, designation: event.target.value })} /></label></>}
         <div className="form-actions"><button disabled={busy || (isFleetManager && !draft.hubIds.length)}>Save {title}</button><button type="button" className="secondary" onClick={() => setOpen(false)}>Cancel</button></div>

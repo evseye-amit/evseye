@@ -98,8 +98,8 @@ export default function PlatformPage() {
         {!otpRequestId ? (
           <form className="auth-form" onSubmit={sendOtp}>
             <label>
-              Mobile number
-              <span className="auth-input">
+              Mobile number *
+             <span className="auth-input">
                 <UiIcon name="phone" />
                 <input value={phone} onChange={(event) => setPhone(indianMobileInput(event.target.value))} placeholder="10-digit mobile number" type="tel" inputMode="numeric" autoComplete="tel" maxLength={10} pattern="[6-9][0-9]{9}" required />
               </span>
@@ -112,7 +112,7 @@ export default function PlatformPage() {
         ) : (
           <form className="auth-form" onSubmit={verifyOtp}>
             <label className="otp-code-label">
-              <span>Six-digit OTP</span>
+              <span>Six-digit OTP <span className="sa-required-star" aria-hidden="true">*</span></span>
               <span className="otp-code-hint">One digit per box. You can type, paste, or use SMS auto-fill.</span>
               <OtpCodeInput value={code} onChange={setCode} disabled={loading} />
             </label>

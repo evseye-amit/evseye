@@ -12,7 +12,7 @@ import {
   UserRole,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { normalizeIndianMobile } from '../common/phone.js';
+import { assertUserMobileAvailable, normalizeIndianMobile, USER_MOBILE_CONFLICT_MESSAGE } from '../common/phone.js';
 import type {
   AssignTeamLeaderRidersDto,
   CreateFleetManagerDto,
@@ -38,6 +38,7 @@ export class ClientUsersService {
   }
   async createFleetManager(clientId: string, dto: CreateFleetManagerDto) {
     await this.assertHubs(clientId, dto.hubIds, dto.primaryHubId);
+    await assertUserMobileAvailable(this.prisma, dto.mobile);
     try {
       const user = await this.prisma.$transaction(async (tx) => {
         const user = await tx.user.create({
@@ -68,7 +69,7 @@ export class ClientUsersService {
     } catch (error) {
       if (this.unique(error))
         throw new ConflictException(
-          'A user with this mobile number already exists in this client.',
+          USER_MOBILE_CONFLICT_MESSAGE,
         );
       throw error;
     }
@@ -89,6 +90,7 @@ export class ClientUsersService {
       select: { id: true },
     });
     if (!user) throw new NotFoundException('Fleet Manager not found.');
+    await assertUserMobileAvailable(this.prisma, dto.mobile, userId);
     try {
       return await this.prisma.$transaction(async (tx) => {
         const updated = await tx.user.update({
@@ -109,7 +111,7 @@ export class ClientUsersService {
     } catch (error) {
       if (this.unique(error))
         throw new ConflictException(
-          'A user with this mobile number already exists in this client.',
+          USER_MOBILE_CONFLICT_MESSAGE,
         );
       throw error;
     }
@@ -141,7 +143,8 @@ export class ClientUsersService {
     const seen = new Set<string>();
     let created = 0;
     for (const [index, row] of rows.entries()) {
-      if (seen.has(row.mobile)) {
+      const canonicalMobile = normalizeIndianMobile(row.mobile);
+      if (seen.has(canonicalMobile)) {
         failures.push({
           ...row,
           row_number: index + 2,
@@ -150,7 +153,7 @@ export class ClientUsersService {
         });
         continue;
       }
-      seen.add(row.mobile);
+      seen.add(canonicalMobile);
       try {
         await this.createFleetManager(clientId, row);
         created += 1;
@@ -208,6 +211,7 @@ export class ClientUsersService {
     return (job.metadata as { failures?: unknown[] } | null)?.failures ?? [];
   }
   async createTeamLeader(clientId: string, dto: CreateTeamLeaderDto) {
+    await assertUserMobileAvailable(this.prisma, dto.mobile);
     try {
       const profile = await this.prisma.$transaction(async (tx) => {
         const user = await tx.user.create({
@@ -236,7 +240,7 @@ export class ClientUsersService {
     } catch (error) {
       if (this.unique(error))
         throw new ConflictException(
-          'A Team Leader with this mobile or employee code already exists in this client.',
+          'This mobile number is already assigned to another user or role, or the employee code is already used.',
         );
       throw error;
     }
@@ -258,6 +262,7 @@ export class ClientUsersService {
       select: { id: true, userId: true },
     });
     if (!profile) throw new NotFoundException('Team Leader not found.');
+    await assertUserMobileAvailable(this.prisma, dto.mobile, profile.userId);
     try {
       return await this.prisma.$transaction(async (tx) => {
         await tx.user.update({
@@ -275,7 +280,7 @@ export class ClientUsersService {
     } catch (error) {
       if (this.unique(error))
         throw new ConflictException(
-          'A Team Leader with this mobile or employee code already exists in this client.',
+          'This mobile number is already assigned to another user or role, or the employee code is already used.',
         );
       throw error;
     }
@@ -311,7 +316,8 @@ export class ClientUsersService {
     const seen = new Set<string>();
     let created = 0;
     for (const [index, row] of rows.entries()) {
-      if (seen.has(row.mobile)) {
+      const canonicalMobile = normalizeIndianMobile(row.mobile);
+      if (seen.has(canonicalMobile)) {
         failures.push({
           ...row,
           row_number: index + 2,
@@ -320,7 +326,7 @@ export class ClientUsersService {
         });
         continue;
       }
-      seen.add(row.mobile);
+      seen.add(canonicalMobile);
       try {
         await this.createTeamLeader(clientId, row);
         created += 1;

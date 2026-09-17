@@ -1920,8 +1920,8 @@ export default function Home() {
             {!otpRequestId ? (
               <form onSubmit={sendOtp} className="auth-form">
                 <label>
-                  Company code
-                  <span className="auth-input">
+                  Company code *
+                 <span className="auth-input">
                     <UiIcon name="building" />
                     <input
                       value={companyCode}
@@ -1933,8 +1933,8 @@ export default function Home() {
                   </span>
                 </label>
                 <label>
-                  Mobile number
-                  <span className="auth-input">
+                  Mobile number *
+                 <span className="auth-input">
                     <UiIcon name="phone" />
                     <input
                       value={phone}
@@ -1957,7 +1957,7 @@ export default function Home() {
             ) : (
               <form onSubmit={verifyOtp} className="auth-form">
                 <label className="otp-code-label">
-                  <span>Six-digit OTP</span>
+                  <span>Six-digit OTP <span className="sa-required-star" aria-hidden="true">*</span></span>
                   <span className="otp-code-hint">One digit per box. You can type, paste, or use SMS auto-fill.</span>
                   <OtpCodeInput value={code} onChange={setCode} disabled={loading} />
                 </label>
@@ -2083,8 +2083,8 @@ export default function Home() {
         {!loading && (tab === "fleets" || tab === "riders") && <section className="sa-page-head client-page-head"><div className="sa-actions"><button className="secondary" onClick={() => openBulkImport(tab)}>Bulk upload</button><button onClick={() => tab === "fleets" ? void openFleetForm() : (setError(""), setShowRiderForm(true))}>+ Add {tab === "fleets" ? "Fleet" : "Rider"}</button></div></section>}
         {tab === "iot-devices" && showIotForm && <ClientFormDialog title="Register IoT device" busy={loading} error={error} onClose={() => setShowIotForm(false)}><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void registerIotDevice(iotFleetId); }}>
           <h2>Register IoT device</h2>
-          <label>Fleet<select required value={iotFleetId} onChange={(event) => setIotFleetId(event.target.value)}><option value="">Select fleet</option>{iotFleetOptions.map((fleet) => <option key={String(fleet.id)} value={String(fleet.id)}>{String(fleet.vehicleNumber ?? fleet.fleetCode ?? fleet.id)}</option>)}</select></label>
-          <label>Device number<input required value={iotDeviceNumber} onChange={(event) => setIotDeviceNumber(event.target.value)} /></label>
+          <label>Fleet *<select required value={iotFleetId} onChange={(event) => setIotFleetId(event.target.value)}><option value="">Select fleet</option>{iotFleetOptions.map((fleet) => <option key={String(fleet.id)} value={String(fleet.id)}>{String(fleet.vehicleNumber ?? fleet.fleetCode ?? fleet.id)}</option>)}</select></label>
+          <label>Device number *<input required value={iotDeviceNumber} onChange={(event) => setIotDeviceNumber(event.target.value)} /></label>
           <div className="form-actions"><button>Register device</button><button type="button" className="secondary" onClick={() => setShowIotForm(false)}>Cancel</button></div>
         </form></ClientFormDialog>}
         {!loading && tab === "iot-devices" && ingestSecret && <section className="action-card"><strong>Ingestion secret (shown once)</strong><p><code>{ingestSecret}</code></p></section>}
@@ -2184,7 +2184,7 @@ export default function Home() {
             </div>
             <form className="form-stack" onSubmit={createAllocation}>
               <label>
-                Available fleet
+                Available fleet *
                 <select
                   value={allocationFleetId}
                   onChange={(e) => setAllocationFleetId(e.target.value)}
@@ -2200,7 +2200,7 @@ export default function Home() {
                 </select>
               </label>
               <label>
-                Active rider
+                Active rider *
                 <select
                   value={allocationRiderId}
                   onChange={(e) => setAllocationRiderId(e.target.value)}
@@ -2235,7 +2235,7 @@ export default function Home() {
             <h2>Create rider</h2>
             <form className="form-stack" onSubmit={createRider}>
               <label>
-                Name
+                Name *
                 <input
                   value={newRiderName}
                   onChange={(event) => setNewRiderName(event.target.value)}
@@ -2243,7 +2243,7 @@ export default function Home() {
                 />
               </label>
               <label>
-                Mobile
+                Mobile *
                 <input
                   value={newRiderMobile}
                   onChange={(event) => setNewRiderMobile(event.target.value)}
@@ -2283,6 +2283,7 @@ export default function Home() {
               ).map((field) => (
                 <label key={field}>
                   {field.replace(/([A-Z])/g, " $1")}
+                  {field === "vehicleNumber" || field === "chassisNumber" ? " *" : ""}
                   <input
                     value={newFleet[field]}
                     onChange={(event) =>
@@ -2565,7 +2566,7 @@ export default function Home() {
             <div className="form-actions"><button type="button" className="secondary" onClick={() => setEditingFleet((value) => !value)}>{editingFleet ? "Cancel edit" : "Edit fleet"}</button><button type="button" className="danger" onClick={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(String(fleetDetail.id)) })}>Delete fleet</button></div>
             {editingFleet && <form className="form-stack" onSubmit={(event) => void saveFleet(event)}>
               <label>Vehicle number<input value={fleetDraft.vehicleNumber} onChange={(event) => setFleetDraft({ ...fleetDraft, vehicleNumber: event.target.value })} /></label>
-              <label>Chassis number<input required value={fleetDraft.chassisNumber} onChange={(event) => setFleetDraft({ ...fleetDraft, chassisNumber: event.target.value })} /></label>
+              <label>Chassis number *<input required value={fleetDraft.chassisNumber} onChange={(event) => setFleetDraft({ ...fleetDraft, chassisNumber: event.target.value })} /></label>
               <label>Model<input value={fleetDraft.modelName} onChange={(event) => setFleetDraft({ ...fleetDraft, modelName: event.target.value })} /></label>
               <label>Colour<input value={fleetDraft.colour} onChange={(event) => setFleetDraft({ ...fleetDraft, colour: event.target.value })} /></label>
               <label>Motor number<input value={fleetDraft.motorNumber} onChange={(event) => setFleetDraft({ ...fleetDraft, motorNumber: event.target.value })} /></label>
@@ -2819,7 +2820,7 @@ export default function Home() {
             {editingRider && (
               <form className="form-stack" onSubmit={updateRider}>
                 <label>
-                  Name
+                  Name *
                   <input
                     value={riderDraft.name}
                     onChange={(event) =>
@@ -2832,7 +2833,7 @@ export default function Home() {
                   />
                 </label>
                 <label>
-                  Mobile
+                  Mobile *
                   <input
                     value={riderDraft.mobile}
                     onChange={(event) =>
@@ -3004,7 +3005,7 @@ export default function Home() {
                 <h2>{editingHubId ? "Edit hub" : "Create hub"}</h2>
                 <form className="form-stack" onSubmit={createHub}>
                   <label>
-                    Hub name
+                    Hub name *
                     <input
                       value={newHub.name}
                       onChange={(event) =>
@@ -3017,7 +3018,7 @@ export default function Home() {
                     />
                   </label>
                   <label>
-                    Hub code
+                    Hub code *
                     <input
                       value={newHub.code}
                       onChange={(event) =>
@@ -3030,15 +3031,15 @@ export default function Home() {
                       required
                     />
                   </label>
-                  <label>City<input required value={newHub.city} onChange={(event) => setNewHub((current) => ({ ...current, city: event.target.value }))} /></label>
-                  <label>State<input required value={newHub.state} onChange={(event) => setNewHub((current) => ({ ...current, state: event.target.value }))} /></label>
+                  <label>City *<input required value={newHub.city} onChange={(event) => setNewHub((current) => ({ ...current, city: event.target.value }))} /></label>
+                  <label>State *<input required value={newHub.state} onChange={(event) => setNewHub((current) => ({ ...current, state: event.target.value }))} /></label>
                   <div className="form-actions"><button>{editingHubId ? "Save hub" : "Create hub"}</button><button type="button" className="secondary" onClick={() => { setEditingHubId(""); setNewHub({ name: "", code: "", city: "", state: "" }); setShowHubForm(false); }}>Cancel</button></div>
                 </form>
         </ClientFormDialog>}
         {tab === "evidence" && showPhotoTypeForm && <ClientFormDialog title="Add photo type" busy={loading} error={error} onClose={() => setShowPhotoTypeForm(false)}><h2>Add photo type</h2>
               <form className="form-stack" onSubmit={addPhotoRequirement}>
                 <label>
-                  New photo type
+                  New photo type *
                   <input
                     value={newRequirementType}
                     onChange={(event) =>
@@ -3062,8 +3063,8 @@ export default function Home() {
                 </label>
                 <div className="form-actions"><button disabled={loading}>Add photo type</button><button type="button" className="secondary" onClick={() => setShowPhotoTypeForm(false)}>Cancel</button></div>
               </form></ClientFormDialog>}
-        {fleetDetail && showDetailIotForm && <ClientFormDialog title="Register IoT device" busy={loading} error={error} onClose={() => setShowDetailIotForm(false)}><h2>Register IoT device</h2><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void registerIotDevice(String(fleetDetail.id)); }}><label>Device number<input required value={iotDeviceNumber} onChange={(event) => setIotDeviceNumber(event.target.value)} /></label><div className="form-actions"><button disabled={loading}>Register device</button><button type="button" className="secondary" onClick={() => setShowDetailIotForm(false)}>Cancel</button></div></form></ClientFormDialog>}
-        {fleetDetail && componentForm && <ClientFormDialog title={`Add ${componentForm === "batteries" ? "battery" : "controller"}`} busy={loading} error={error} onClose={() => setComponentForm(null)}><h2>Add {componentForm === "batteries" ? "battery" : "controller"}</h2><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void addFleetComponent(String(fleetDetail.id), componentForm, componentSerial.trim()); }}><label>Serial number<input required value={componentSerial} onChange={(event) => setComponentSerial(event.target.value)} /></label><div className="form-actions"><button disabled={loading || !componentSerial.trim()}>Add {componentForm === "batteries" ? "battery" : "controller"}</button><button type="button" className="secondary" onClick={() => setComponentForm(null)}>Cancel</button></div></form></ClientFormDialog>}
+        {fleetDetail && showDetailIotForm && <ClientFormDialog title="Register IoT device" busy={loading} error={error} onClose={() => setShowDetailIotForm(false)}><h2>Register IoT device</h2><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void registerIotDevice(String(fleetDetail.id)); }}><label>Device number *<input required value={iotDeviceNumber} onChange={(event) => setIotDeviceNumber(event.target.value)} /></label><div className="form-actions"><button disabled={loading}>Register device</button><button type="button" className="secondary" onClick={() => setShowDetailIotForm(false)}>Cancel</button></div></form></ClientFormDialog>}
+        {fleetDetail && componentForm && <ClientFormDialog title={`Add ${componentForm === "batteries" ? "battery" : "controller"}`} busy={loading} error={error} onClose={() => setComponentForm(null)}><h2>Add {componentForm === "batteries" ? "battery" : "controller"}</h2><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void addFleetComponent(String(fleetDetail.id), componentForm, componentSerial.trim()); }}><label>Serial number *<input required value={componentSerial} onChange={(event) => setComponentSerial(event.target.value)} /></label><div className="form-actions"><button disabled={loading || !componentSerial.trim()}>Add {componentForm === "batteries" ? "battery" : "controller"}</button><button type="button" className="secondary" onClick={() => setComponentForm(null)}>Cancel</button></div></form></ClientFormDialog>}
         <ClientDeleteDialog confirmation={deleteConfirmation} busy={loading} onClose={() => setDeleteConfirmation(null)} />
         <footer className="client-operations-footer">Powered by EV Spares India Pvt Ltd</footer>
       </section>

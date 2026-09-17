@@ -16,7 +16,7 @@ import {
 } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { AuditService } from '../audit/audit.service.js';
-import { normalizeIndianMobile } from '../common/phone.js';
+import { assertUserMobileAvailable, normalizeIndianMobile, USER_MOBILE_CONFLICT_MESSAGE } from '../common/phone.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type {
   CreateClientFeatureDto,
@@ -646,6 +646,7 @@ export class PlatformAdminService {
   }
 
   async createClient(dto: CreateClientDto, actorId: string) {
+    await assertUserMobileAvailable(this.prisma, dto.adminMobile);
     try {
       const client = await this.prisma.$transaction(async (tx) => {
         const created = await tx.client.create({
@@ -1220,6 +1221,7 @@ export class PlatformAdminService {
       throw new UnprocessableEntityException(
         'Account Admin mobile number is required.',
       );
+    await assertUserMobileAvailable(this.prisma, admin.mobile);
     try {
       await this.prisma.$transaction(async (tx) => {
         await tx.user.create({
@@ -1239,7 +1241,7 @@ export class PlatformAdminService {
     } catch (error) {
       if (this.unique(error))
         throw new ConflictException(
-          'The Account Admin mobile number is already registered for this client.',
+          USER_MOBILE_CONFLICT_MESSAGE,
         );
       throw error;
     }
