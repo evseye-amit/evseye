@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Header,
   Param,
@@ -136,5 +137,13 @@ export class RidersController {
       },
     });
     return { data: rider };
+  }
+  @Delete(':id')
+  @Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+  async remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const clientId = this.clientContext.requireClientId(user);
+    const data = await this.ridersService.remove(clientId, id);
+    await this.audit.record({ clientId, actorId: user.id, action: 'RIDER_DELETED', entityType: 'RIDER', entityId: id });
+    return { data };
   }
 }

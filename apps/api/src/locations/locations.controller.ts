@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Header,
   Param,
@@ -59,6 +60,12 @@ export class LocationsController {
         dto,
       ),
     };
+  }
+  @Delete('hubs/:id') async deleteHub(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    return { data: await this.locations.deleteHub(this.clients.requireClientId(user), id) };
   }
   @Post('hubs/bulk') async bulkHubs(
     @CurrentUser() user: AuthUser,

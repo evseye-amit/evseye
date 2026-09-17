@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { OtpCodeInput } from "../components/otp-code-input";
+import { UiIcon } from "../components/ui-icon";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
 const ACCESS_TOKEN_KEY = "evs-eye-access-token";
@@ -99,12 +100,13 @@ export default function PlatformPage() {
             <label>
               Mobile number
               <span className="auth-input">
-                <span className="auth-phone-icon" aria-hidden="true">📱</span>
+                <UiIcon name="phone" />
                 <input value={phone} onChange={(event) => setPhone(indianMobileInput(event.target.value))} placeholder="10-digit mobile number" type="tel" inputMode="numeric" autoComplete="tel" maxLength={10} pattern="[6-9][0-9]{9}" required />
               </span>
             </label>
             <button className="auth-submit" disabled={loading}>
               {loading ? "Sending code…" : "Send OTP"}
+              <UiIcon name="arrowRight" />
             </button>
           </form>
         ) : (
@@ -116,6 +118,7 @@ export default function PlatformPage() {
             </label>
             <button className="auth-submit" disabled={loading || code.length !== 6}>
               {loading ? "Verifying…" : "Verify OTP"}
+              <UiIcon name="arrowRight" />
             </button>
           </form>
         )}

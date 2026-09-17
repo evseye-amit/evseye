@@ -54,6 +54,27 @@ export class LocationsService {
       throw error;
     }
   }
+  async deleteHub(clientId: string, id: string) {
+    const hub = await this.prisma.hub.findFirst({
+      where: { id, clientId, deletedAt: null },
+      select: { _count: { select: {
+        userHubs: { where: { user: { isActive: true } } },
+        homeFleets: { where: { deletedAt: null } },
+        currentFleets: { where: { deletedAt: null } },
+        childHubs: { where: { deletedAt: null } },
+      } } },
+    });
+    if (!hub) throw new NotFoundException('Hub not found.');
+    if (Object.values(hub._count).some((count) => count > 0)) {
+      throw new ConflictException('Move assigned managers, fleets, and child hubs before deleting this hub.');
+    }
+    const result = await this.prisma.hub.updateMany({
+      where: { id, clientId, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+    if (!result.count) throw new NotFoundException('Hub not found.');
+    return { deleted: true };
+  }
   async bulkCreateHubs(
     clientId: string,
     actorId: string,

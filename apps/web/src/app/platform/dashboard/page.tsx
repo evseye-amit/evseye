@@ -11,6 +11,7 @@ import {
   useState,
 } from "react";
 import Link from "next/link";
+import { UiIcon, type IconName } from "../../components/ui-icon";
 import {
   filterRows,
   getColumnFilterOptions,
@@ -513,12 +514,7 @@ export default function SuperAdminDashboard() {
   const [approvalEmailReference, setApprovalEmailReference] = useState("");
   const [expandedNavGroups, setExpandedNavGroups] = useState<
     Record<string, boolean>
-  >({
-    "Vehicle Management": true,
-    "Feature Management": true,
-    "Package Management": true,
-    "Client Management": true,
-  });
+  >({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1871,38 +1867,38 @@ export default function SuperAdminDashboard() {
     );
   const navGroups: Array<{
     label?: string;
-    items: Array<[Tab, string, string]>;
+    items: Array<[Tab, string, IconName]>;
   }> = [
-    { items: [["dashboard", "Dashboard", "▦"]] },
+    { items: [["dashboard", "Dashboard", "dashboard"]] },
     {
       label: "Vehicle Management",
       items: [
-        ["vehicleCategories", "Vehicle Category", "▤"],
-        ["vehicleTypes", "Vehicle Type", "▧"],
-        ["oems", "OEM", "▣"],
+        ["vehicleCategories", "Vehicle Category", "category"],
+        ["vehicleTypes", "Vehicle Type", "vehicle"],
+        ["oems", "OEM", "factory"],
       ],
     },
     {
       label: "Feature Management",
       items: [
-        ["features", "Feature", "◇"],
-        ["pricing", "Pricing", "₹"],
-        ["pricingTiers", "Tiered Pricing", "≋"],
+        ["features", "Feature", "feature"],
+        ["pricing", "Pricing", "pricing"],
+        ["pricingTiers", "Tiered Pricing", "tiers"],
       ],
     },
     {
       label: "Package Management",
       items: [
-        ["packages", "Package", "◫"],
-        ["packageFeatures", "Package Feature", "⊞"],
+        ["packages", "Package", "package"],
+        ["packageFeatures", "Package Feature", "packageFeature"],
       ],
     },
     {
       label: "Client Management",
       items: [
-        ["clients", "Client", "♙"],
-        ["clientFeaturesPricing", "Features & Pricing", "₹"],
-        ["clientFeatureUsage", "Feature Usage", "◷"],
+        ["clients", "Client", "users"],
+        ["clientFeaturesPricing", "Features & Pricing", "pricing"],
+        ["clientFeatureUsage", "Feature Usage", "usage"],
       ],
     },
   ];
@@ -1971,7 +1967,7 @@ export default function SuperAdminDashboard() {
     <main className="sa-shell">
       <aside className="sa-sidebar">
         <div className="sa-brand">
-          <span>◉</span>
+          <span><UiIcon name="eye" /></span>
           <div>
             <strong>Evs Eye</strong>
             <small>PRO</small>
@@ -1984,33 +1980,35 @@ export default function SuperAdminDashboard() {
                 <button
                   type="button"
                   className="sa-nav-group-toggle"
-                  aria-expanded={expandedNavGroups[group.label] ?? true}
+                  aria-expanded={expandedNavGroups[group.label] ?? false}
                   onClick={() =>
                     setExpandedNavGroups((current) => ({
                       ...current,
-                      [group.label!]: !(current[group.label!] ?? true),
+                      [group.label!]: !(current[group.label!] ?? false),
                     }))
                   }
                 >
                   <span>{group.label}</span>
-                  <span aria-hidden="true">
-                    {(expandedNavGroups[group.label] ?? true) ? "⌄" : "›"}
-                  </span>
+                  <UiIcon
+                    name="chevron"
+                    className={(expandedNavGroups[group.label] ?? false) ? "" : "is-collapsed"}
+                  />
                 </button>
               ) : null}
-              {(!group.label || (expandedNavGroups[group.label] ?? true)) &&
+              {(!group.label || (expandedNavGroups[group.label] ?? false)) &&
                 group.items.map(([key, label, icon]) => (
                 <button
                   key={key}
                   className={`${tab === key ? "active" : ""} ${groupIndex ? "sa-nav-child" : ""}`}
                   onClick={() => {
                     setTab(key);
+                    if (key === "dashboard") setExpandedNavGroups({});
                     setBulkImportEntity(null);
                     setShowClientForm(false);
                     setNotice("");
                   }}
                 >
-                  <span>{icon}</span>
+                  <UiIcon name={icon} />
                   {label}
                 </button>
               ))}
@@ -4676,7 +4674,7 @@ function BulkImportWorkspace({
         </button>
       </div>
 
-      <div className={`sa-bulk-workspace-body ${history.length ? "has-history" : ""}`}>
+      <div className="sa-bulk-workspace-body has-history">
       <section className="sa-bulk-upload-card">
         <div>
           <p className="sa-eyebrow">{history.length ? "IMPORT ANOTHER FILE" : "GET STARTED"}</p>
@@ -4705,8 +4703,7 @@ function BulkImportWorkspace({
           </button>
         </div>
       </section>
-      {history.length > 0 && (
-        <section className="sa-bulk-history">
+      <section className="sa-bulk-history">
           <div className="sa-bulk-section-head">
             <div>
               <h3>Import history</h3>
@@ -4731,7 +4728,6 @@ function BulkImportWorkspace({
             ])}
           />
         </section>
-      )}
       </div>
     </section>
   );

@@ -22,9 +22,16 @@ import type {
 @Injectable()
 export class ClientUsersService {
   constructor(private readonly prisma: PrismaService) {}
+  listImportHistory(clientId: string, entityType: ImportEntityType) {
+    return this.prisma.importJob.findMany({
+      where: { clientId, entityType },
+      select: { id: true, originalFilename: true, status: true, totalRows: true, passedRows: true, failedRows: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
   listFleetManagers(clientId: string) {
     return this.prisma.user.findMany({
-      where: { clientId, role: UserRole.FLEET_MANAGER, isActive: true },
+      where: { clientId, role: UserRole.FLEET_MANAGER, deletedAt: null },
       include: { hubAssignments: { include: { hub: true } } },
       orderBy: { name: 'asc' },
     });
@@ -39,6 +46,7 @@ export class ClientUsersService {
             name: dto.name,
             mobile: normalizeIndianMobile(dto.mobile),
             role: UserRole.FLEET_MANAGER,
+            isActive: dto.isActive ?? true,
           },
         });
         await tx.userHub.createMany({
@@ -76,7 +84,7 @@ export class ClientUsersService {
         id: userId,
         clientId,
         role: UserRole.FLEET_MANAGER,
-        isActive: true,
+        deletedAt: null,
       },
       select: { id: true },
     });
@@ -85,7 +93,7 @@ export class ClientUsersService {
       return await this.prisma.$transaction(async (tx) => {
         const updated = await tx.user.update({
           where: { id: userId },
-          data: { name: dto.name.trim(), mobile: normalizeIndianMobile(dto.mobile) },
+          data: { name: dto.name.trim(), mobile: normalizeIndianMobile(dto.mobile), isActive: dto.isActive ?? true },
         });
         await tx.userHub.deleteMany({ where: { userId, clientId } });
         await tx.userHub.createMany({
@@ -105,6 +113,17 @@ export class ClientUsersService {
         );
       throw error;
     }
+  }
+  async deleteFleetManager(clientId: string, userId: string) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, clientId, role: UserRole.FLEET_MANAGER, deletedAt: null }, select: { id: true },
+    });
+    if (!user) throw new NotFoundException('Fleet Manager not found.');
+    await this.prisma.$transaction([
+      this.prisma.userHub.deleteMany({ where: { userId, clientId } }),
+      this.prisma.user.update({ where: { id: userId }, data: { isActive: false, deletedAt: new Date() } }),
+    ]);
+    return { deleted: true };
   }
   async bulkCreateFleetManagers(
     clientId: string,
@@ -260,6 +279,21 @@ export class ClientUsersService {
         );
       throw error;
     }
+  }
+  async deleteTeamLeader(clientId: string, profileId: string) {
+    const profile = await this.prisma.teamLeaderProfile.findFirst({
+      where: { id: profileId, clientId, deletedAt: null }, select: { userId: true },
+    });
+    if (!profile) throw new NotFoundException('Team Leader not found.');
+    await this.prisma.$transaction([
+      this.prisma.teamLeaderRider.updateMany({
+        where: { clientId, teamLeaderId: profileId, isActive: true },
+        data: { isActive: false, removedAt: new Date() },
+      }),
+      this.prisma.teamLeaderProfile.update({ where: { id: profileId }, data: { deletedAt: new Date() } }),
+      this.prisma.user.update({ where: { id: profile.userId }, data: { isActive: false } }),
+    ]);
+    return { deleted: true };
   }
   async bulkCreateTeamLeaders(
     clientId: string,

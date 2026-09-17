@@ -1,13 +1,16 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Header,
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import { ImportEntityType, UserRole } from '@prisma/client';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
@@ -32,6 +35,16 @@ export class ClientUsersController {
     private readonly users: ClientUsersService,
     private readonly clients: ClientContextService,
   ) {}
+  @Get('import-history') importHistory(
+    @CurrentUser() user: AuthUser,
+    @Query('entityType') entityType: ImportEntityType,
+  ) {
+    if (!Object.values(ImportEntityType).includes(entityType))
+      throw new BadRequestException('Valid entityType is required.');
+    return this.users
+      .listImportHistory(this.clients.requireClientId(user), entityType)
+      .then((data) => ({ data }));
+  }
   @Post('fleet-managers') create(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateFleetManagerDto,
@@ -53,6 +66,12 @@ export class ClientUsersController {
     return this.users
       .updateFleetManager(this.clients.requireClientId(user), id, dto)
       .then((data) => ({ data }));
+  }
+  @Delete('fleet-managers/:id') deleteFleetManager(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    return this.users.deleteFleetManager(this.clients.requireClientId(user), id).then((data) => ({ data }));
   }
   @Post('fleet-managers/bulk') bulk(
     @CurrentUser() user: AuthUser,
@@ -101,6 +120,12 @@ export class ClientUsersController {
     return this.users
       .updateTeamLeader(this.clients.requireClientId(user), id, dto)
       .then((data) => ({ data }));
+  }
+  @Delete('team-leaders/:id') deleteTeamLeader(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    return this.users.deleteTeamLeader(this.clients.requireClientId(user), id).then((data) => ({ data }));
   }
   @Post('team-leaders/bulk') bulkTeamLeaders(
     @CurrentUser() user: AuthUser,

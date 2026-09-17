@@ -1220,6 +1220,7 @@ model User {
   name              String
   role              UserRole
   isActive          Boolean            @default(true)
+  deletedAt         DateTime?
   sessions          Session[]
   rider             Rider?
   hubAssignments    UserHub[]

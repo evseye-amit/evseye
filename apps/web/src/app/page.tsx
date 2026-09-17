@@ -2,6 +2,12 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { OtpCodeInput } from "./components/otp-code-input";
+import { UiIcon, type IconName } from "./components/ui-icon";
+import { ClientDataTable, type ClientColumn } from "./components/client-data-table";
+import { ClientUserManager, parseCsv } from "./components/client-user-manager";
+import { ClientBulkImportWorkspace, type ClientImportHistoryEntry } from "./components/client-bulk-import-workspace";
+import { ClientDeleteDialog, type ClientDeleteConfirmation } from "./components/client-delete-dialog";
+import { ClientFormDialog } from "./components/client-form-dialog";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
@@ -40,6 +46,14 @@ type PhotoRequirementEntityType =
   | "CONTROLLER"
   | "INSPECTION";
 type RecordItem = Record<string, unknown>;
+type ClientBulkTab = "fleet-managers" | "team-leads" | "locations" | "fleets" | "riders";
+const CLIENT_BULK_CONFIG: Record<ClientBulkTab, { title: string; requiredColumns: string; template: string; resource: string; entityType: string }> = {
+  "fleet-managers": { title: "Fleet Managers", requiredColumns: "name, mobile, hubCodes, primaryHubCode", template: "name,mobile,hubCodes,primaryHubCode\n", resource: "/client/users/fleet-managers", entityType: "FLEET_MANAGER" },
+  "team-leads": { title: "Team Leads", requiredColumns: "name, mobile", template: "name,mobile,employeeCode,designation\n", resource: "/client/users/team-leaders", entityType: "TEAM_LEADER" },
+  locations: { title: "Hubs", requiredColumns: "name, code, city, state", template: "name,code,city,state\n", resource: "/hubs", entityType: "HUB" },
+  fleets: { title: "Fleets", requiredColumns: "chassisNumber, oemId, vehicleCategoryId, vehicleTypeId, speedType", template: "chassisNumber,oemId,vehicleCategoryId,vehicleTypeId,speedType,vehicleNumber\n", resource: "/fleets", entityType: "FLEET" },
+  riders: { title: "Riders", requiredColumns: "name, mobile", template: "name,mobile,address\n", resource: "/riders", entityType: "RIDER" },
+};
 
 const CLIENT_NAVIGATION: Array<{
   label: string;
@@ -117,6 +131,31 @@ const CLIENT_TAB_TITLES: Record<Tab, string> = {
   zones: "Zone",
   reports: "Reports",
   "feature-usage": "Feature Usage",
+};
+
+const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
+  dashboard: "dashboard",
+  fleets: "vehicle",
+  riders: "user",
+  allocations: "allocation",
+  audit: "audit",
+  locations: "location",
+  evidence: "camera",
+  "fleet-managers": "users",
+  "team-leads": "teamLead",
+  "cluster-managers": "clusterManager",
+  "iot-devices": "iot",
+  batteries: "battery",
+  "fleet-iot-mapping": "link",
+  "fleet-battery-mapping": "link",
+  deallocations: "allocation",
+  wallet: "wallet",
+  "rider-fleet-mapping": "link",
+  "rider-vendor-mapping": "link",
+  "rider-earnings": "earnings",
+  zones: "zone",
+  reports: "reports",
+  "feature-usage": "usage",
 };
 
 const ACTIVE_CLIENT_TABS = new Set<Tab>([
@@ -279,7 +318,7 @@ function Metric({ label, value }: { label: string; value: number }) {
   );
 }
 
-function OperationsDashboardVisuals({ dashboard }: { dashboard: Dashboard }) {
+function FleetHealthCard({ dashboard }: { dashboard: Dashboard }) {
   const fleetRows = [
     ["Available", dashboard.fleet.AVAILABLE ?? 0, "#21865d"],
     ["Allocated", dashboard.fleet.ALLOCATED ?? 0, "#2f80ed"],
@@ -289,6 +328,32 @@ function OperationsDashboardVisuals({ dashboard }: { dashboard: Dashboard }) {
     ["Out of service", dashboard.fleet.OUT_OF_SERVICE ?? 0, "#6b7280"],
   ] as const;
   const maxFleet = Math.max(1, ...fleetRows.map(([, value]) => value));
+
+  return (
+    <article className="operations-chart-card operations-fleet-chart operations-fleet-overview">
+      <header>
+        <div>
+          <p className="eyebrow">FLEET HEALTH</p>
+          <h2>Fleet status distribution</h2>
+        </div>
+        <span>{Object.values(dashboard.fleet).reduce((sum, value) => sum + value, 0)} total</span>
+      </header>
+      <div className="bar-chart-list">
+        {fleetRows.map(([label, value, color]) => (
+          <div className="bar-chart-row" key={label}>
+            <span>{label}</span>
+            <div>
+              <i style={{ width: `${(value / maxFleet) * 100}%`, background: color }} />
+            </div>
+            <b>{value}</b>
+          </div>
+        ))}
+      </div>
+    </article>
+  );
+}
+
+function OperationsDashboardVisuals({ dashboard }: { dashboard: Dashboard }) {
   const riderTotal = Object.values(dashboard.riders).reduce(
     (sum, value) => sum + value,
     0,
@@ -313,33 +378,6 @@ function OperationsDashboardVisuals({ dashboard }: { dashboard: Dashboard }) {
       className="operations-visual-grid"
       aria-label="Operations visual summary"
     >
-      <article className="operations-chart-card operations-fleet-chart">
-        <header>
-          <div>
-            <p className="eyebrow">FLEET HEALTH</p>
-            <h2>Fleet status distribution</h2>
-          </div>
-          <span>
-            {fleetRows.reduce((sum, [, value]) => sum + value, 0)} total
-          </span>
-        </header>
-        <div className="bar-chart-list">
-          {fleetRows.map(([label, value, color]) => (
-            <div className="bar-chart-row" key={label}>
-              <span>{label}</span>
-              <div>
-                <i
-                  style={{
-                    width: `${(value / maxFleet) * 100}%`,
-                    background: color,
-                  }}
-                />
-              </div>
-              <b>{value}</b>
-            </div>
-          ))}
-        </div>
-      </article>
       <article className="operations-chart-card operations-readiness-chart">
         <header>
           <div>
@@ -427,6 +465,73 @@ function Status({ value }: { value: string }) {
   );
 }
 
+function clientColumns(tab: Tab): ClientColumn<RecordItem>[] {
+  const text = (key: string, label: string, value: (row: RecordItem) => unknown): ClientColumn<RecordItem> => ({
+    key, label, value: (row) => String(value(row) ?? "—"),
+  });
+  const status = (key: string, label: string, value: (row: RecordItem) => unknown): ClientColumn<RecordItem> => ({
+    key, label, value: (row) => String(value(row) ?? "—"),
+    render: (row) => <Status value={String(value(row) ?? "—")} />,
+  });
+  switch (tab) {
+    case "audit": return [
+      text("action", "Action", (row) => row.action),
+      text("entity", "Entity", (row) => `${row.entityType ?? "—"}${row.entityId ? ` · ${row.entityId}` : ""}`),
+      text("actor", "Actor", (row) => row.actorId ?? "System"),
+      text("when", "When", (row) => new Date(String(row.createdAt)).toLocaleString()),
+    ];
+    case "fleet-managers": return [
+      text("name", "Fleet Manager", (row) => row.name),
+      text("mobile", "Mobile", (row) => row.mobile),
+      text("hubs", "Assigned Hubs", (row) => ((row.hubAssignments as RecordItem[]) ?? []).map((assignment) => (assignment.hub as RecordItem | undefined)?.name).filter(Boolean).join(", ") || "—"),
+      status("status", "Status", (row) => row.isActive === false ? "INACTIVE" : "ACTIVE"),
+    ];
+    case "team-leads": return [
+      text("name", "Team Lead", (row) => (row.user as RecordItem | undefined)?.name),
+      text("mobile", "Mobile", (row) => (row.user as RecordItem | undefined)?.mobile),
+      text("employeeCode", "Employee code", (row) => row.employeeCode),
+      text("designation", "Designation", (row) => row.designation),
+    ];
+    case "iot-devices": return [
+      text("device", "Device", (row) => row.deviceNumber),
+      text("fleet", "Fleet", (row) => (row.currentFleet as RecordItem | undefined)?.fleetCode ?? (row.currentFleet as RecordItem | undefined)?.vehicleNumber ?? "Unassigned"),
+      status("status", "Status", (row) => row.status),
+      text("heartbeat", "Last heartbeat", (row) => {
+        const state = row.currentState as RecordItem | undefined;
+        const heartbeat = state?.lastHeartbeatAt ?? row.lastHeartbeatAt;
+        return heartbeat ? new Date(String(heartbeat)).toLocaleString() : "Not received";
+      }),
+    ];
+    case "batteries": return [
+      text("battery", "Battery", (row) => row.batteryCode ?? row.serialNumber),
+      text("type", "Type", (row) => String(row.batteryType ?? "—").replaceAll("_", " ")),
+      text("fleet", "Fleet", (row) => {
+        const assignment = ((row.fleetHistory as RecordItem[]) ?? [])[0];
+        const fleet = assignment?.fleet as RecordItem | undefined;
+        return fleet?.fleetCode ?? fleet?.vehicleNumber ?? "Unassigned";
+      }),
+      status("status", "Status", (row) => row.status),
+    ];
+    case "fleets": return [
+      text("vehicle", "Vehicle", (row) => row.vehicleNumber),
+      text("oem", "OEM", (row) => oemLabel(row.oem)),
+      status("status", "Status", (row) => row.status),
+      text("hub", "Hub", (row) => (row.hub as RecordItem | undefined)?.name),
+    ];
+    case "riders": return [
+      text("name", "Rider", (row) => row.name),
+      text("mobile", "Mobile", (row) => row.mobile),
+      status("status", "Status", (row) => row.status),
+    ];
+    default: return [
+      text("fleet", "Fleet", (row) => (row.fleet as RecordItem | undefined)?.vehicleNumber),
+      text("rider", "Rider", (row) => (row.rider as RecordItem | undefined)?.name),
+      status("status", "Status", (row) => row.status),
+      text("created", "Created", (row) => new Date(String(row.createdAt)).toLocaleDateString()),
+    ];
+  }
+}
+
 export default function Home() {
   const [phone, setPhone] = useState("");
   const [companyCode, setCompanyCode] = useState("");
@@ -434,10 +539,9 @@ export default function Home() {
   const [code, setCode] = useState("");
   const [token, setToken] = useState("");
   const [tab, setTab] = useState<Tab>("dashboard");
+  const [expandedClientNavGroups, setExpandedClientNavGroups] = useState<Record<string, boolean>>({});
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [items, setItems] = useState<RecordItem[]>([]);
-  const [page, setPage] = useState(1);
-  const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0 });
   const [availableFleets, setAvailableFleets] = useState<RecordItem[]>([]);
   const [activeRiders, setActiveRiders] = useState<RecordItem[]>([]);
   const [allocationFleetId, setAllocationFleetId] = useState("");
@@ -449,7 +553,13 @@ export default function Home() {
   const [newRiderAddress, setNewRiderAddress] = useState("");
   const [showFleetForm, setShowFleetForm] = useState(false);
   const [hubs, setHubs] = useState<RecordItem[]>([]);
-  const [newHub, setNewHub] = useState({ name: "", code: "" });
+  const [newHub, setNewHub] = useState({ name: "", code: "", city: "", state: "" });
+  const [editingHubId, setEditingHubId] = useState("");
+  const [showHubForm, setShowHubForm] = useState(false);
+  const [bulkImportTab, setBulkImportTab] = useState<ClientBulkTab | null>(null);
+  const [bulkHistory, setBulkHistory] = useState<Array<ClientImportHistoryEntry & { tab: ClientBulkTab }>>([]);
+  const [bulkHistoryLoading, setBulkHistoryLoading] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState<ClientDeleteConfirmation | null>(null);
   const [newFleet, setNewFleet] = useState({
     vehicleNumber: "",
     chassisNumber: "",
@@ -498,6 +608,8 @@ export default function Home() {
     status: "PENDING",
   });
   const [fleetDetail, setFleetDetail] = useState<RecordItem | null>(null);
+  const [editingFleet, setEditingFleet] = useState(false);
+  const [fleetDraft, setFleetDraft] = useState({ vehicleNumber: "", chassisNumber: "", modelName: "", colour: "", motorNumber: "" });
   const [fleetOnboardingStatus, setFleetOnboardingStatus] =
     useState<RecordItem | null>(null);
   const [fleetPhotoRequirements, setFleetPhotoRequirements] = useState<
@@ -512,9 +624,14 @@ export default function Home() {
   const [uploadedComponentPhotoTypes, setUploadedComponentPhotoTypes] =
     useState<Record<string, string[]>>({});
   const [iotDeviceNumber, setIotDeviceNumber] = useState("");
+  const [iotFleetId, setIotFleetId] = useState("");
+  const [iotFleetOptions, setIotFleetOptions] = useState<RecordItem[]>([]);
+  const [showIotForm, setShowIotForm] = useState(false);
+  const [componentForm, setComponentForm] = useState<"batteries" | "controllers" | null>(null);
+  const [componentSerial, setComponentSerial] = useState("");
+  const [showDetailIotForm, setShowDetailIotForm] = useState(false);
+  const [showPhotoTypeForm, setShowPhotoTypeForm] = useState(false);
   const [ingestSecret, setIngestSecret] = useState("");
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -559,7 +676,7 @@ export default function Home() {
     void loadView(tab);
     // Loading belongs to the selected view and intentionally runs after sign-in/tab change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, tab, page]);
+  }, [token, tab]);
 
   async function loadView(nextTab: Tab) {
     if (!ACTIVE_CLIENT_TABS.has(nextTab)) {
@@ -575,13 +692,12 @@ export default function Home() {
           normalizeDashboard(await request("/dashboard", {}, token)),
         );
       else if (nextTab === "fleet-managers") {
-        const fleetManagers = (await request(
-          "/client/users/fleet-managers",
-          {},
-          token,
-        )) as RecordItem[];
+        const [fleetManagers, hubList] = await Promise.all([
+          request("/client/users/fleet-managers", {}, token),
+          request("/hubs", {}, token),
+        ]) as [RecordItem[], RecordItem[]];
         setItems(fleetManagers);
-        setMeta({ page: 1, pageSize: 20, total: fleetManagers.length });
+        setHubs(hubList);
       } else if (nextTab === "team-leads") {
         const teamLeaders = (await request(
           "/client/users/team-leaders",
@@ -589,15 +705,19 @@ export default function Home() {
           token,
         )) as RecordItem[];
         setItems(teamLeaders);
-        setMeta({ page: 1, pageSize: 20, total: teamLeaders.length });
       } else if (nextTab === "iot-devices") {
-        const devices = (await request(
-          "/iot/devices",
-          {},
-          token,
-        )) as RecordItem[];
+        const [devices, firstFleets] = await Promise.all([
+          request("/iot/devices", {}, token),
+          request("/fleets?page=1&pageSize=100", {}, token),
+        ]) as [RecordItem[], { items: RecordItem[]; meta: { total: number } }];
+        const fleets = [...firstFleets.items];
+        for (let fleetPage = 2; fleets.length < firstFleets.meta.total; fleetPage += 1) {
+          const result = await request(`/fleets?page=${fleetPage}&pageSize=100`, {}, token) as { items: RecordItem[] };
+          if (!result.items.length) break;
+          fleets.push(...result.items);
+        }
         setItems(devices);
-        setMeta({ page: 1, pageSize: 20, total: devices.length });
+        setIotFleetOptions(fleets);
       } else if (nextTab === "batteries") {
         const batteries = (await request(
           "/fleets/batteries",
@@ -605,29 +725,21 @@ export default function Home() {
           token,
         )) as RecordItem[];
         setItems(batteries);
-        setMeta({ page: 1, pageSize: 20, total: batteries.length });
       } else if (nextTab === "locations") {
         setHubs((await request("/hubs", {}, token)) as RecordItem[]);
       } else if (nextTab === "evidence") {
         await loadPhotoRequirements(photoRequirementEntityType);
       } else {
-        const query = new URLSearchParams({
-          page: String(page),
-          pageSize: "20",
-        });
-        if (search) query.set("search", search);
-        if (statusFilter) query.set("status", statusFilter);
         const resource = nextTab === "audit" ? "/audit-logs" : `/${nextTab}`;
-        const result = (await request(
-          `${resource}?${query.toString()}`,
-          {},
-          token,
-        )) as {
-          items: RecordItem[];
-          meta: { page: number; pageSize: number; total: number };
-        };
-        setItems(result.items);
-        setMeta(result.meta);
+        const first = (await request(`${resource}?page=1&pageSize=100`, {}, token)) as { items: RecordItem[]; meta: { total: number } };
+        const all = [...first.items];
+        const pageCount = Math.ceil(first.meta.total / 100);
+        for (let start = 2; start <= pageCount; start += 5) {
+          const pages = await Promise.all(Array.from({ length: Math.min(5, pageCount - start + 1) }, (_, index) =>
+            request(`${resource}?page=${start + index}&pageSize=100`, {}, token) as Promise<{ items: RecordItem[] }>));
+          pages.forEach((result) => all.push(...result.items));
+        }
+        setItems(all);
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to load data.");
@@ -637,9 +749,16 @@ export default function Home() {
   }
 
   function navigateTo(nextTab: Tab) {
+    if (nextTab === "dashboard") setExpandedClientNavGroups({});
     setShowAllocationForm(false);
     setShowRiderForm(false);
     setShowFleetForm(false);
+    setShowIotForm(false);
+    setComponentForm(null);
+    setShowDetailIotForm(false);
+    setShowPhotoTypeForm(false);
+    setShowHubForm(false);
+    setBulkImportTab(null);
     setInspectionId("");
     setDeallocationId("");
     setRiderDetail(null);
@@ -647,9 +766,6 @@ export default function Home() {
     setFleetOnboardingStatus(null);
     setEditingRider(false);
     setIngestSecret("");
-    setSearch("");
-    setStatusFilter("");
-    setPage(1);
     setNotice("");
     setError("");
     setTab(nextTab);
@@ -837,12 +953,14 @@ export default function Home() {
     setError("");
     try {
       await request(
-        "/hubs",
-        { method: "POST", body: JSON.stringify(newHub) },
+        editingHubId ? `/hubs/${editingHubId}` : "/hubs",
+        { method: editingHubId ? "PATCH" : "POST", body: JSON.stringify(newHub) },
         token,
       );
-      setNewHub({ name: "", code: "" });
-      setNotice("Hub created.");
+      setNewHub({ name: "", code: "", city: "", state: "" });
+      setEditingHubId("");
+      setShowHubForm(false);
+      setNotice(editingHubId ? "Hub updated." : "Hub created.");
       await loadView("locations");
     } catch (cause) {
       setError(
@@ -851,6 +969,74 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function loadBulkHistory(kind: ClientBulkTab) {
+    setBulkHistoryLoading(true);
+    try {
+      const jobs = await request(`/client/users/import-history?entityType=${CLIENT_BULK_CONFIG[kind].entityType}`, {}, token) as Array<{ id: string; originalFilename: string; createdAt: string; status: string; totalRows: number; passedRows: number; failedRows: number }>;
+      setBulkHistory((current) => [...current.filter((entry) => entry.tab !== kind), ...jobs.map((job) => ({ id: job.id, tab: kind, jobId: job.id, fileName: job.originalFilename, createdAt: job.createdAt, status: job.status, totalRows: job.totalRows, passedRows: job.passedRows, failedRows: job.failedRows }))]);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load import history."); }
+    finally { setBulkHistoryLoading(false); }
+  }
+
+  function openBulkImport(kind: ClientBulkTab) {
+    setError(""); setNotice(""); setBulkImportTab(kind);
+    void loadBulkHistory(kind);
+  }
+
+  async function uploadBulkRecords(kind: ClientBulkTab, file: File) {
+    setLoading(true); setError("");
+    try {
+      if (file.size > 5 * 1024 * 1024) throw new Error("CSV must be 5 MB or smaller.");
+      const csv = parseCsv(await file.text());
+      const headers = csv.shift()?.map((field) => field.trim()) ?? [];
+      const required = CLIENT_BULK_CONFIG[kind].requiredColumns.split(", ");
+      if (!required.every((field) => headers.includes(field))) throw new Error(`CSV requires columns: ${required.join(", ")}.`);
+      let rows = csv.map((values) => Object.fromEntries(headers.map((field, index) => [field, values[index]?.trim() ?? ""]).filter(([, value]) => value !== "")));
+      if (!rows.length) throw new Error("CSV contains no records.");
+      if (rows.length > 1000) throw new Error("Import up to 1,000 rows at a time.");
+      if (kind === "fleet-managers") {
+        const byCode = new Map(hubs.map((hub) => [String(hub.code).trim().toUpperCase(), String(hub.id)]));
+        rows = rows.map((row, index) => {
+          const codes = String(row.hubCodes ?? "").split(";").map((code) => code.trim().toUpperCase()).filter(Boolean);
+          const primaryCode = String(row.primaryHubCode ?? "").trim().toUpperCase();
+          const unknown = codes.filter((code) => !byCode.has(code));
+          if (unknown.length) throw new Error(`Row ${index + 2}: Unknown hub code ${unknown.join(", ")}.`);
+          if (!codes.includes(primaryCode)) throw new Error(`Row ${index + 2}: Primary hub code must be one of the assigned hub codes.`);
+          return { name: row.name, mobile: row.mobile, hubIds: codes.map((code) => byCode.get(code)), primaryHubId: byCode.get(primaryCode) };
+        });
+      }
+      const result = await request(`${CLIENT_BULK_CONFIG[kind].resource}/bulk`, { method: "POST", body: JSON.stringify({ filename: file.name, rows }) }, token) as RecordItem;
+      const passedRows = Number(result.passedRows ?? result.createdRows ?? 0);
+      const failedRows = Number(result.failedRows ?? 0);
+      await Promise.all([loadView(kind), loadBulkHistory(kind)]);
+      setNotice(`Bulk upload complete: ${passedRows} passed, ${failedRows} failed.`);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to import CSV."); }
+    finally { setLoading(false); }
+  }
+
+  async function downloadBulkFailures(kind: ClientBulkTab, jobId: string) {
+    setError("");
+    try {
+      const path = `${CLIENT_BULK_CONFIG[kind].resource}/imports/${jobId}/failed-records`;
+      let response = await fetch(`${API_URL}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (response.status === 401) {
+        const refreshed = await refreshAccessToken();
+        if (refreshed) response = await fetch(`${API_URL}${path}`, { headers: { Authorization: `Bearer ${refreshed}` } });
+      }
+      if (!response.ok) throw new Error("Unable to download failed records.");
+      const url = URL.createObjectURL(new Blob([await response.text()], { type: "text/csv" }));
+      const link = document.createElement("a"); link.href = url; link.download = `${kind}-failed-records.csv`; link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to download failed records."); }
+  }
+
+  async function deleteHub(id: string) {
+    setLoading(true); setError("");
+    try { await request(`/hubs/${id}`, { method: "DELETE" }, token); await loadView("locations"); setNotice("Hub deleted."); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to delete hub."); }
+    finally { setLoading(false); }
   }
 
   async function savePhotoRequirement(
@@ -878,12 +1064,14 @@ export default function Home() {
           String(item.photoType) === photoType ? requirement : item,
         );
       });
+      return true;
     } catch (cause) {
       setError(
         cause instanceof Error
           ? cause.message
           : "Unable to save photo requirement.",
       );
+      return false;
     } finally {
       setLoading(false);
     }
@@ -893,13 +1081,16 @@ export default function Home() {
     event.preventDefault();
     const photoType = newRequirementType.trim().toUpperCase();
     if (!photoType) return;
-    await savePhotoRequirement(
+    const saved = await savePhotoRequirement(
       photoType,
       newRequirementRequired,
       configuredRequirements.length,
     );
-    setNewRequirementType("");
-    setNewRequirementRequired(true);
+    if (saved) {
+      setNewRequirementType("");
+      setNewRequirementRequired(true);
+      setShowPhotoTypeForm(false);
+    }
   }
 
   async function loadPhotoRequirements(entityType: PhotoRequirementEntityType) {
@@ -942,6 +1133,8 @@ export default function Home() {
         `${component === "batteries" ? "Battery" : "Controller"} added.`,
       );
       await openFleetDetail(fleetId);
+      setComponentForm(null);
+      setComponentSerial("");
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "Unable to add component.",
@@ -968,6 +1161,8 @@ export default function Home() {
       setNotice(
         "IoT device registered. Save the ingestion secret now; it is shown only once.",
       );
+      if (tab === "iot-devices") { setShowIotForm(false); await loadView("iot-devices"); }
+      setShowDetailIotForm(false);
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -1297,6 +1492,8 @@ export default function Home() {
             token,
           ) as Promise<RecordItem[]>,
         ]);
+      setFleetDraft({ vehicleNumber: String(fleet.vehicleNumber ?? ""), chassisNumber: String(fleet.chassisNumber ?? ""), modelName: String(fleet.modelName ?? ""), colour: String(fleet.colour ?? ""), motorNumber: String(fleet.motorNumber ?? "") });
+      setEditingFleet(false);
       setFleetDetail(fleet);
       setVehicleState(currentState);
       setFleetOnboardingStatus(onboardingStatus);
@@ -1371,6 +1568,31 @@ export default function Home() {
         token,
       )) as RecordItem,
     );
+  }
+
+  async function saveFleet(event: FormEvent) {
+    event.preventDefault();
+    if (!fleetDetail) return;
+    setLoading(true); setError("");
+    try {
+      await request(`/fleets/${String(fleetDetail.id)}`, { method: "PATCH", body: JSON.stringify(fleetDraft) }, token);
+      await openFleetDetail(String(fleetDetail.id)); await loadView("fleets");
+      setNotice("Fleet updated.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to update fleet."); }
+    finally { setLoading(false); }
+  }
+
+  async function deleteFleet(id: string) {
+    setLoading(true); setError("");
+    try { await request(`/fleets/${id}`, { method: "DELETE" }, token); setFleetDetail(null); await loadView("fleets"); setNotice("Fleet deleted."); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to delete fleet."); }
+    finally { setLoading(false); }
+  }
+  async function deleteRider(id: string) {
+    setLoading(true); setError("");
+    try { await request(`/riders/${id}`, { method: "DELETE" }, token); setRiderDetail(null); await loadView("riders"); setNotice("Rider deleted."); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to delete rider."); }
+    finally { setLoading(false); }
   }
 
   async function startKyc(
@@ -1684,13 +1906,10 @@ export default function Home() {
 
   if (!token)
     return (
-      <main className="auth-shell">
-        <section
-          className="auth-hero"
-          aria-label="EVs Eye fleet operations platform"
-        />
+      <main className="auth-shell client-login">
+        <section className="auth-hero" aria-label="EVs Eye fleet operations platform" />
         <section className="auth-panel">
-          <div className="auth-card">
+          <div className="auth-card platform-login-card">
             <p className="eyebrow">SECURE OPERATIONS ACCESS</p>
             <h2>{otpRequestId ? "Verify your number" : "Welcome back"}</h2>
             <p className="muted">
@@ -1703,7 +1922,7 @@ export default function Home() {
                 <label>
                   Company code
                   <span className="auth-input">
-                    <span aria-hidden="true">⌂</span>
+                    <UiIcon name="building" />
                     <input
                       value={companyCode}
                       onChange={(e) => setCompanyCode(e.target.value)}
@@ -1716,7 +1935,7 @@ export default function Home() {
                 <label>
                   Mobile number
                   <span className="auth-input">
-                    <span className="auth-phone-icon" aria-hidden="true">📱</span>
+                    <UiIcon name="phone" />
                     <input
                       value={phone}
                       onChange={(e) => setPhone(indianMobileInput(e.target.value))}
@@ -1732,7 +1951,7 @@ export default function Home() {
                 </label>
                 <button className="auth-submit" disabled={loading}>
                   {loading ? "Sending code…" : "Send OTP"}
-                  <span aria-hidden="true">→</span>
+                  <UiIcon name="arrowRight" />
                 </button>
               </form>
             ) : (
@@ -1744,7 +1963,7 @@ export default function Home() {
                 </label>
                 <button className="auth-submit" disabled={loading || code.length !== 6}>
                   {loading ? "Verifying…" : "Verify OTP"}
-                  <span aria-hidden="true">→</span>
+                  <UiIcon name="arrowRight" />
                 </button>
                 <button
                   type="button"
@@ -1763,53 +1982,82 @@ export default function Home() {
             {notice && <p className="notice auth-message">{notice}</p>}
             {error && <p className="error auth-message">{error}</p>}
             <p className="auth-security-note">
-              <span aria-hidden="true">◈</span> Protected by OTP verification
+              <UiIcon name="shield" /> Protected by OTP verification
             </p>
-            <a className="platform-back-link" href="/platform">
-              Platform Super Admin sign in
-            </a>
+            <p className="client-powered-by">Powered by EV Spares India Pvt Ltd</p>
           </div>
         </section>
       </main>
     );
 
   const title = CLIENT_TAB_TITLES[tab];
-  const isComingSoon = !ACTIVE_CLIENT_TABS.has(tab);
+  const isNotIncluded = !ACTIVE_CLIENT_TABS.has(tab);
   return (
-    <main className="app-shell">
-      <aside className="sidebar">
-        <div>
-          <p className="eyebrow">EVS EYE</p>
-          <h2>Operations</h2>
+    <main className="sa-shell client-operations-shell">
+      <aside className="sa-sidebar">
+        <div className="sa-brand">
+          <span><UiIcon name="eye" /></span>
+          <div>
+            <strong>Evs Eye</strong>
+            <small>OPERATIONS</small>
+          </div>
         </div>
         <nav className="client-navigation" aria-label="Client operations">
           {CLIENT_NAVIGATION.map((section, index) => (
             <div
-              className="client-nav-section"
+              className="sa-nav-group client-nav-section"
               key={`${section.label}-${index}`}
             >
-              {section.label && <p>{section.label}</p>}
-              {section.items.map((item) => (
+              {section.label && (
                 <button
-                  key={item.id}
-                  className={tab === item.id ? "nav-active" : ""}
-                  onClick={() => navigateTo(item.id)}
+                  type="button"
+                  className="sa-nav-group-toggle"
+                  aria-expanded={expandedClientNavGroups[section.label] ?? false}
+                  aria-controls={`client-nav-group-${index}`}
+                  onClick={() => setExpandedClientNavGroups((current) => ({
+                    ...current,
+                    [section.label]: !(current[section.label] ?? false),
+                  }))}
                 >
-                  {item.label}
+                  <span>{section.label}</span>
+                  <UiIcon
+                    name="chevron"
+                    className={(expandedClientNavGroups[section.label] ?? false) ? "" : "is-collapsed"}
+                  />
                 </button>
-              ))}
+              )}
+              <div
+                id={`client-nav-group-${index}`}
+                className="client-nav-items"
+                hidden={Boolean(section.label) && !(expandedClientNavGroups[section.label] ?? false)}
+              >
+                {section.items.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`${tab === item.id ? "active" : ""} ${section.label ? "sa-nav-child" : ""}`}
+                    onClick={() => navigateTo(item.id)}
+                  >
+                    {item.id === "cluster-managers" || item.id === "team-leads" || item.id === "fleet-managers"
+                      ? <span aria-hidden="true" className={`client-role-art client-role-art-${item.id}`} />
+                      : <UiIcon name={CLIENT_TAB_ICONS[item.id]} />}
+                    {item.label}
+                  </button>
+                ))}
+              </div>
             </div>
           ))}
         </nav>
-        <button className="sign-out" onClick={signOut}>
-          Sign out
-        </button>
+        <div className="sa-user client-sidebar-footer">
+          <span aria-hidden="true">C</span>
+          <div><strong>Client Operations</strong><small>EVs Eye workspace</small></div>
+        </div>
       </aside>
-      <section className="workspace">
-        <header>
+      <section className="sa-main workspace client-operations-main">
+        <header className="sa-topbar">
           <div>
-            <p className="eyebrow">CLIENT WORKSPACE</p>
             <h1>{title}</h1>
+            <p>Client operations workspace</p>
           </div>
           <div className="header-actions">
             {tab === "allocations" && (
@@ -1817,129 +2065,39 @@ export default function Home() {
                 New allocation
               </button>
             )}
-            {tab === "riders" && (
-              <button onClick={() => setShowRiderForm(true)}>New rider</button>
-            )}
-            {tab === "fleets" && (
-              <button onClick={() => void openFleetForm()}>New fleet</button>
-            )}
+            {tab === "iot-devices" && <button onClick={() => { setError(""); setShowIotForm(true); }}>Register device</button>}
             <button className="secondary" onClick={() => void loadView(tab)}>
-              Refresh
+              ↻ Refresh
             </button>
+            <button onClick={signOut}>Sign out</button>
           </div>
         </header>
-        {!isComingSoon &&
-          tab !== "dashboard" &&
-          tab !== "audit" &&
-          tab !== "locations" &&
-          tab !== "evidence" &&
-          tab !== "fleet-managers" &&
-          tab !== "team-leads" &&
-          tab !== "iot-devices" &&
-          tab !== "batteries" && (
-            <form
-              className="list-filters"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void loadView(tab);
-              }}
-            >
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder={
-                  tab === "fleets"
-                    ? "Search vehicle, chassis, OEM"
-                    : tab === "riders"
-                      ? "Search rider or mobile"
-                      : "Filter by fleet or rider ID"
-                }
-              />
-              <select
-                value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value)}
-              >
-                <option value="">All statuses</option>
-                {(tab === "fleets"
-                  ? ["AVAILABLE", "ALLOCATED", "MAINTENANCE", "OFFLINE"]
-                  : tab === "riders"
-                    ? ["ACTIVE", "PENDING", "BLOCKED"]
-                    : [
-                        "INSPECTION_PENDING",
-                        "OTP_PENDING",
-                        "ACTIVE",
-                        "DEALLOCATION_INITIATED",
-                        "COMPLETED",
-                      ]
-                ).map((status) => (
-                  <option key={status} value={status}>
-                    {status.replaceAll("_", " ")}
-                  </option>
-                ))}
-              </select>
-              <button>Apply</button>
-            </form>
-          )}
+        {bulkImportTab === tab && bulkImportTab ? <>
+          {notice && <p className="notice">{notice}</p>}
+          {error && <p className="error">{error}</p>}
+          <ClientBulkImportWorkspace key={bulkImportTab} title={CLIENT_BULK_CONFIG[bulkImportTab].title} requiredColumns={CLIENT_BULK_CONFIG[bulkImportTab].requiredColumns} template={CLIENT_BULK_CONFIG[bulkImportTab].template} history={bulkHistory.filter((entry) => entry.tab === bulkImportTab)} historyLoading={bulkHistoryLoading} busy={loading} onBack={() => { setBulkImportTab(null); setError(""); setNotice(""); }} onUpload={(file) => uploadBulkRecords(bulkImportTab, file)} onDownloadFailures={(jobId) => downloadBulkFailures(bulkImportTab, jobId)} help={bulkImportTab === "fleet-managers" ? <><p className="sa-bulk-help">Use hub codes separated by semicolons. Primary hub code must match one of them.</p><p className="sa-bulk-help">Available hubs: {hubs.map((hub) => `${String(hub.code)} (${String(hub.name)})`).join(", ") || "Create a hub first."}</p></> : undefined} />
+        </> : <>
         {notice && <p className="notice">{notice}</p>}
         {error && <p className="error">{error}</p>}
         {loading && <p className="muted">Loading current data…</p>}
+        {!loading && (tab === "fleets" || tab === "riders") && <section className="sa-page-head client-page-head"><div className="sa-actions"><button className="secondary" onClick={() => openBulkImport(tab)}>Bulk upload</button><button onClick={() => tab === "fleets" ? void openFleetForm() : (setError(""), setShowRiderForm(true))}>+ Add {tab === "fleets" ? "Fleet" : "Rider"}</button></div></section>}
+        {tab === "iot-devices" && showIotForm && <ClientFormDialog title="Register IoT device" busy={loading} error={error} onClose={() => setShowIotForm(false)}><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void registerIotDevice(iotFleetId); }}>
+          <h2>Register IoT device</h2>
+          <label>Fleet<select required value={iotFleetId} onChange={(event) => setIotFleetId(event.target.value)}><option value="">Select fleet</option>{iotFleetOptions.map((fleet) => <option key={String(fleet.id)} value={String(fleet.id)}>{String(fleet.vehicleNumber ?? fleet.fleetCode ?? fleet.id)}</option>)}</select></label>
+          <label>Device number<input required value={iotDeviceNumber} onChange={(event) => setIotDeviceNumber(event.target.value)} /></label>
+          <div className="form-actions"><button>Register device</button><button type="button" className="secondary" onClick={() => setShowIotForm(false)}>Cancel</button></div>
+        </form></ClientFormDialog>}
+        {!loading && tab === "iot-devices" && ingestSecret && <section className="action-card"><strong>Ingestion secret (shown once)</strong><p><code>{ingestSecret}</code></p></section>}
         {!loading && tab === "locations" && (
           <>
-            <div className="detail-grid">
-              <section className="action-card">
-                <p className="eyebrow">LOCATION SETUP</p>
-                <h2>Create hub</h2>
-                <form className="form-stack" onSubmit={createHub}>
-                  <label>
-                    Hub name
-                    <input
-                      value={newHub.name}
-                      onChange={(event) =>
-                        setNewHub((current) => ({
-                          ...current,
-                          name: event.target.value,
-                        }))
-                      }
-                      required
-                    />
-                  </label>
-                  <label>
-                    Hub code
-                    <input
-                      value={newHub.code}
-                      onChange={(event) =>
-                        setNewHub((current) => ({
-                          ...current,
-                          code: event.target.value.toUpperCase(),
-                        }))
-                      }
-                      pattern="[A-Z0-9_-]+"
-                      required
-                    />
-                  </label>
-                  <button>Create hub</button>
-                </form>
-              </section>
-            </div>
-            <section className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Hub</th>
-                    <th>Code</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {hubs.map((hub) => (
-                    <tr key={String(hub.id)}>
-                      <td>{String(hub.name)}</td>
-                      <td>{String(hub.code)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {hubs.length === 0 && <p className="empty">No hubs yet.</p>}
-            </section>
+            <section className="sa-page-head client-page-head"><div className="sa-actions"><button className="secondary" onClick={() => openBulkImport("locations")}>Bulk upload</button><button onClick={() => { setError(""); setEditingHubId(""); setNewHub({ name: "", code: "", city: "", state: "" }); setShowHubForm(true); }}>+ Add Hub</button></div></section>
+            <ClientDataTable key="hubs" rows={hubs} getRowId={(hub) => String(hub.id)}
+              columns={[
+                { key: "name", label: "Hub", value: (hub) => String(hub.name ?? "—") },
+                { key: "code", label: "Code", value: (hub) => String(hub.code ?? "—") },
+                { key: "city", label: "City", value: (hub) => String(hub.city ?? "—") },
+                { key: "state", label: "State", value: (hub) => String(hub.state ?? "—") },
+              ]} emptyMessage="No hubs yet." actions={(hub) => <><button className="secondary table-action" onClick={() => { setEditingHubId(String(hub.id)); setNewHub({ name: String(hub.name ?? ""), code: String(hub.code ?? ""), city: String(hub.city ?? ""), state: String(hub.state ?? "") }); setShowHubForm(true); }}>Edit</button><button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Hub?", description: "The hub will be removed from the active list if it has no assigned managers, fleets, or child hubs. Existing history is retained.", confirmLabel: "Delete Hub", onConfirm: () => deleteHub(String(hub.id)) })}>Delete</button></>} />
           </>
         )}
         {!loading && tab === "evidence" && (
@@ -1970,32 +2128,7 @@ export default function Home() {
                   <option value="INSPECTION">Allocation inspection</option>
                 </select>
               </label>
-              <form className="form-stack" onSubmit={addPhotoRequirement}>
-                <label>
-                  New photo type
-                  <input
-                    value={newRequirementType}
-                    onChange={(event) =>
-                      setNewRequirementType(event.target.value.toUpperCase())
-                    }
-                    placeholder="e.g. DAMAGE_CLOSEUP"
-                    pattern="[A-Z0-9_-]{1,80}"
-                    maxLength={80}
-                    required
-                  />
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={newRequirementRequired}
-                    onChange={(event) =>
-                      setNewRequirementRequired(event.target.checked)
-                    }
-                  />{" "}
-                  Required for completion
-                </label>
-                <button disabled={loading}>Add photo type</button>
-              </form>
+              <button type="button" onClick={() => { setError(""); setShowPhotoTypeForm(true); }}>+ Add photo type</button>
             </section>
             <div className="table-wrap">
               <table>
@@ -2040,7 +2173,7 @@ export default function Home() {
           </>
         )}
         {showAllocationForm && (
-          <section className="action-card">
+          <ClientFormDialog title="Create allocation" busy={loading} error={error} onClose={() => setShowAllocationForm(false)}>
             <div>
               <p className="eyebrow">ALLOCATION</p>
               <h2>Assign an available vehicle</h2>
@@ -2094,10 +2227,10 @@ export default function Home() {
                 </button>
               </div>
             </form>
-          </section>
+          </ClientFormDialog>
         )}
         {showRiderForm && (
-          <section className="action-card">
+          <ClientFormDialog title="Create rider" busy={loading} error={error} onClose={() => setShowRiderForm(false)}>
             <p className="eyebrow">RIDER ONBOARDING</p>
             <h2>Create rider</h2>
             <form className="form-stack" onSubmit={createRider}>
@@ -2138,10 +2271,10 @@ export default function Home() {
                 </button>
               </div>
             </form>
-          </section>
+          </ClientFormDialog>
         )}
         {showFleetForm && (
-          <section className="action-card">
+          <ClientFormDialog title="Create fleet" busy={loading} error={error} wide onClose={() => setShowFleetForm(false)}>
             <p className="eyebrow">FLEET ONBOARDING</p>
             <h2>Create fleet</h2>
             <form className="form-stack" onSubmit={createFleet}>
@@ -2232,7 +2365,7 @@ export default function Home() {
                 </button>
               </div>
             </form>
-          </section>
+          </ClientFormDialog>
         )}
         {inspectionId && (
           <section className="action-card">
@@ -2429,6 +2562,15 @@ export default function Home() {
           <section className="action-card detail-card">
             <p className="eyebrow">FLEET DETAIL</p>
             <h2>{String(fleetDetail.vehicleNumber)}</h2>
+            <div className="form-actions"><button type="button" className="secondary" onClick={() => setEditingFleet((value) => !value)}>{editingFleet ? "Cancel edit" : "Edit fleet"}</button><button type="button" className="danger" onClick={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(String(fleetDetail.id)) })}>Delete fleet</button></div>
+            {editingFleet && <form className="form-stack" onSubmit={(event) => void saveFleet(event)}>
+              <label>Vehicle number<input value={fleetDraft.vehicleNumber} onChange={(event) => setFleetDraft({ ...fleetDraft, vehicleNumber: event.target.value })} /></label>
+              <label>Chassis number<input required value={fleetDraft.chassisNumber} onChange={(event) => setFleetDraft({ ...fleetDraft, chassisNumber: event.target.value })} /></label>
+              <label>Model<input value={fleetDraft.modelName} onChange={(event) => setFleetDraft({ ...fleetDraft, modelName: event.target.value })} /></label>
+              <label>Colour<input value={fleetDraft.colour} onChange={(event) => setFleetDraft({ ...fleetDraft, colour: event.target.value })} /></label>
+              <label>Motor number<input value={fleetDraft.motorNumber} onChange={(event) => setFleetDraft({ ...fleetDraft, motorNumber: event.target.value })} /></label>
+              <button>Save fleet</button>
+            </form>}
             {fleetOnboardingStatus && (
               <div
                 className={
@@ -2606,19 +2748,7 @@ export default function Home() {
               }),
             )}
             <h3>IoT device</h3>
-            <div className="form-actions">
-              <input
-                value={iotDeviceNumber}
-                onChange={(event) => setIotDeviceNumber(event.target.value)}
-                placeholder="Device number"
-              />
-              <button
-                disabled={loading || !iotDeviceNumber}
-                onClick={() => void registerIotDevice(String(fleetDetail.id))}
-              >
-                Register device
-              </button>
-            </div>
+            <button type="button" onClick={() => { setError(""); setShowDetailIotForm(true); }}>Register device</button>
             {ingestSecret && (
               <p className="notice">
                 Save this ingestion secret now: <code>{ingestSecret}</code>{" "}
@@ -2633,36 +2763,8 @@ export default function Home() {
               </p>
             )}
             <div className="form-actions">
-              <input id="battery-serial" placeholder="Battery serial" />
-              <button
-                onClick={() => {
-                  const input = document.getElementById(
-                    "battery-serial",
-                  ) as HTMLInputElement;
-                  void addFleetComponent(
-                    String(fleetDetail.id),
-                    "batteries",
-                    input.value,
-                  );
-                }}
-              >
-                Add battery
-              </button>
-              <input id="controller-serial" placeholder="Controller serial" />
-              <button
-                onClick={() => {
-                  const input = document.getElementById(
-                    "controller-serial",
-                  ) as HTMLInputElement;
-                  void addFleetComponent(
-                    String(fleetDetail.id),
-                    "controllers",
-                    input.value,
-                  );
-                }}
-              >
-                Add controller
-              </button>
+              <button type="button" onClick={() => { setError(""); setComponentSerial(""); setComponentForm("batteries"); }}>Add battery</button>
+              <button type="button" onClick={() => { setError(""); setComponentSerial(""); setComponentForm("controllers"); }}>Add controller</button>
             </div>
             <button
               className="secondary"
@@ -2825,47 +2927,20 @@ export default function Home() {
             </button>
           </section>
         )}
-        {!loading && isComingSoon && (
-          <section className="coming-soon-card">
+        {!loading && isNotIncluded && (
+          <section className="package-not-included-card">
             <p className="eyebrow">CLIENT OPERATIONS</p>
-            <h2>{title} is coming soon</h2>
+            <h2>{title} is not included in your package</h2>
             <p>
-              This workspace is planned for a future release. Your current
-              client data and operational workflows remain unchanged.
+              This feature is not included in your package. Please contact your
+              administrator for more information.
             </p>
           </section>
         )}
         {!loading && tab === "dashboard" && dashboard && (
           <>
+            <FleetHealthCard dashboard={dashboard} />
             <div className="dashboard-grid">
-              <Metric
-                label="Total fleet"
-                value={Object.values(dashboard.fleet).reduce(
-                  (sum, value) => sum + value,
-                  0,
-                )}
-              />
-              <Metric
-                label="Available"
-                value={dashboard.fleet.AVAILABLE ?? 0}
-              />
-              <Metric
-                label="Allocated"
-                value={dashboard.fleet.ALLOCATED ?? 0}
-              />
-              <Metric label="In use" value={dashboard.fleet.IN_USE ?? 0} />
-              <Metric
-                label="Maintenance"
-                value={dashboard.fleet.MAINTENANCE ?? 0}
-              />
-              <Metric
-                label="Fleet offline"
-                value={dashboard.fleet.OFFLINE ?? 0}
-              />
-              <Metric
-                label="Out of service"
-                value={dashboard.fleet.OUT_OF_SERVICE ?? 0}
-              />
               <Metric
                 label="Total riders"
                 value={Object.values(dashboard.riders).reduce(
@@ -2902,310 +2977,95 @@ export default function Home() {
           </>
         )}
         {!loading &&
-          !isComingSoon &&
+          !isNotIncluded &&
           tab !== "dashboard" &&
           tab !== "locations" &&
           tab !== "evidence" && (
             <>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      {tab === "audit" ? (
-                        <>
-                          <th>Action</th>
-                          <th>Entity</th>
-                          <th>Actor</th>
-                          <th>When</th>
-                        </>
-                      ) : tab === "fleet-managers" ? (
-                        <>
-                          <th>Fleet Manager</th>
-                          <th>Mobile</th>
-                          <th>Assigned Hubs</th>
-                          <th>Status</th>
-                        </>
-                      ) : tab === "team-leads" ? (
-                        <>
-                          <th>Team Lead</th>
-                          <th>Mobile</th>
-                          <th>Employee code</th>
-                          <th>Designation</th>
-                        </>
-                      ) : tab === "iot-devices" ? (
-                        <>
-                          <th>Device</th>
-                          <th>Fleet</th>
-                          <th>Status</th>
-                          <th>Last heartbeat</th>
-                        </>
-                      ) : tab === "batteries" ? (
-                        <>
-                          <th>Battery</th>
-                          <th>Type</th>
-                          <th>Fleet</th>
-                          <th>Status</th>
-                        </>
-                      ) : tab === "fleets" ? (
-                        <>
-                          <th>Vehicle</th>
-                          <th>OEM</th>
-                          <th>Status</th>
-                          <th>Hub</th>
-                          <th />
-                        </>
-                      ) : tab === "riders" ? (
-                        <>
-                          <th>Rider</th>
-                          <th>Mobile</th>
-                          <th>Status</th>
-                          <th />
-                        </>
-                      ) : (
-                        <>
-                          <th>Fleet</th>
-                          <th>Rider</th>
-                          <th>Status</th>
-                          <th>Created</th>
-                          <th />
-                        </>
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {items.map((item) =>
-                      tab === "audit" ? (
-                        <tr key={String(item.id)}>
-                          <td>{String(item.action)}</td>
-                          <td>
-                            {String(item.entityType)}
-                            {item.entityId ? ` · ${String(item.entityId)}` : ""}
-                          </td>
-                          <td>{String(item.actorId ?? "System")}</td>
-                          <td>
-                            {new Date(String(item.createdAt)).toLocaleString()}
-                          </td>
-                        </tr>
-                      ) : tab === "fleet-managers" ? (
-                        <tr key={String(item.id)}>
-                          <td>{String(item.name)}</td>
-                          <td>{String(item.mobile)}</td>
-                          <td>
-                            {((item.hubAssignments as RecordItem[]) ?? [])
-                              .map(
-                                (assignment) =>
-                                  (assignment.hub as RecordItem | undefined)
-                                    ?.name,
-                              )
-                              .filter(Boolean)
-                              .map(String)
-                              .join(", ") || "—"}
-                          </td>
-                          <td>
-                            <Status
-                              value={
-                                item.isActive === false ? "INACTIVE" : "ACTIVE"
-                              }
-                            />
-                          </td>
-                        </tr>
-                      ) : tab === "team-leads" ? (
-                        <tr key={String(item.id)}>
-                          <td>
-                            {String(
-                              (item.user as RecordItem | undefined)?.name ??
-                                "—",
-                            )}
-                          </td>
-                          <td>
-                            {String(
-                              (item.user as RecordItem | undefined)?.mobile ??
-                                "—",
-                            )}
-                          </td>
-                          <td>{String(item.employeeCode ?? "—")}</td>
-                          <td>{String(item.designation ?? "—")}</td>
-                        </tr>
-                      ) : tab === "iot-devices" ? (
-                        <tr key={String(item.id)}>
-                          <td>{String(item.deviceNumber)}</td>
-                          <td>
-                            {String(
-                              (item.currentFleet as RecordItem | undefined)
-                                ?.fleetCode ??
-                                (item.currentFleet as RecordItem | undefined)
-                                  ?.vehicleNumber ??
-                                "Unassigned",
-                            )}
-                          </td>
-                          <td>
-                            <Status value={String(item.status)} />
-                          </td>
-                          <td>
-                            {(() => {
-                              const state = item.currentState as
-                                | RecordItem
-                                | undefined;
-                              const heartbeat =
-                                state?.lastHeartbeatAt ?? item.lastHeartbeatAt;
-                              return heartbeat
-                                ? new Date(String(heartbeat)).toLocaleString()
-                                : "Not received";
-                            })()}
-                          </td>
-                        </tr>
-                      ) : tab === "batteries" ? (
-                        <tr key={String(item.id)}>
-                          <td>
-                            {String(item.batteryCode ?? item.serialNumber)}
-                          </td>
-                          <td>
-                            {String(item.batteryType).replaceAll("_", " ")}
-                          </td>
-                          <td>
-                            {(() => {
-                              const assignment =
-                                ((item.fleetHistory as RecordItem[]) ?? [])[0];
-                              const fleet = assignment?.fleet as
-                                | RecordItem
-                                | undefined;
-                              return String(
-                                fleet?.fleetCode ??
-                                  fleet?.vehicleNumber ??
-                                  "Unassigned",
-                              );
-                            })()}
-                          </td>
-                          <td>
-                            <Status value={String(item.status)} />
-                          </td>
-                        </tr>
-                      ) : tab === "fleets" ? (
-                        <tr key={String(item.id)}>
-                          <td>{String(item.vehicleNumber)}</td>
-                          <td>{oemLabel(item.oem)}</td>
-                          <td>
-                            <Status value={String(item.status)} />
-                          </td>
-                          <td>
-                            {((item.hub as RecordItem | null)
-                              ?.name as string) ?? "—"}
-                          </td>
-                          <td>
-                            <button
-                              className="secondary table-action"
-                              onClick={() =>
-                                void openFleetDetail(String(item.id))
-                              }
-                            >
-                              View
-                            </button>
-                          </td>
-                        </tr>
-                      ) : tab === "riders" ? (
-                        <tr key={String(item.id)}>
-                          <td>{String(item.name)}</td>
-                          <td>{String(item.mobile)}</td>
-                          <td>
-                            <Status value={String(item.status)} />
-                          </td>
-                          <td>
-                            <button
-                              className="secondary table-action"
-                              onClick={() =>
-                                void openRiderDetail(String(item.id))
-                              }
-                            >
-                              View
-                            </button>
-                          </td>
-                        </tr>
-                      ) : (
-                        <tr key={String(item.id)}>
-                          <td>
-                            {String(
-                              (item.fleet as RecordItem)?.vehicleNumber ?? "—",
-                            )}
-                          </td>
-                          <td>
-                            {String((item.rider as RecordItem)?.name ?? "—")}
-                          </td>
-                          <td>
-                            <Status value={String(item.status)} />
-                          </td>
-                          <td>
-                            {new Date(
-                              String(item.createdAt),
-                            ).toLocaleDateString()}
-                          </td>
-                          <td>
-                            <div className="row-actions">
-                              <button
-                                className="secondary table-action"
-                                onClick={() =>
-                                  void openAllocationDetail(String(item.id))
-                                }
-                              >
-                                View
-                              </button>
-                              <button
-                                className="secondary table-action"
-                                onClick={() => void openInspection(item)}
-                              >
-                                Inspect
-                              </button>
-                              {item.status === "OTP_PENDING" && (
-                                <button
-                                  className="table-action"
-                                  onClick={() =>
-                                    void activateAllocation(String(item.id))
-                                  }
-                                >
-                                  Activate
-                                </button>
-                              )}
-                              {item.status === "ACTIVE" && (
-                                <button
-                                  className="table-action"
-                                  onClick={() =>
-                                    void initiateDeallocation(item)
-                                  }
-                                >
-                                  Deallocate
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ),
-                    )}
-                  </tbody>
-                </table>
-                {items.length === 0 && (
-                  <p className="empty">No records match this view.</p>
-                )}
-              </div>
-              <div className="form-actions pagination">
-                <button
-                  className="secondary"
-                  disabled={page === 1}
-                  onClick={() => setPage(page - 1)}
-                >
-                  Previous
-                </button>
-                <span>
-                  Page {meta.page} · {meta.total} records
-                </span>
-                <button
-                  className="secondary"
-                  disabled={page * meta.pageSize >= meta.total}
-                  onClick={() => setPage(page + 1)}
-                >
-                  Next
-                </button>
-              </div>
+              {(tab === "fleet-managers" || tab === "team-leads") ? <ClientUserManager key={tab} kind={tab} rows={items} hubs={hubs} columns={clientColumns(tab)}
+                request={(path, options) => request(path, options ?? {}, token)}
+                refresh={() => loadView(tab)}
+                report={(message, failed) => { if (failed) setError(message); else { setError(""); setNotice(message); } }} onBulk={() => openBulkImport(tab)} /> :
+              <ClientDataTable key={tab} rows={items} columns={clientColumns(tab)}
+                getRowId={(item) => String(item.id)}
+                actions={tab === "fleets" ? (item) => <><button className="secondary table-action" onClick={() => void openFleetDetail(String(item.id))}>View / Edit</button><button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(String(item.id)) })}>Delete</button></>
+                  : tab === "riders" ? (item) => <><button className="secondary table-action" onClick={() => void openRiderDetail(String(item.id))}>View / Edit</button><button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Rider?", description: "This rider will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Rider", onConfirm: () => deleteRider(String(item.id)) })}>Delete</button></>
+                  : tab === "allocations" ? (item) => <>
+                    <button className="secondary table-action" onClick={() => void openAllocationDetail(String(item.id))}>View</button>
+                    <button className="secondary table-action" onClick={() => void openInspection(item)}>Inspect</button>
+                    {item.status === "OTP_PENDING" && <button className="table-action" onClick={() => void activateAllocation(String(item.id))}>Activate</button>}
+                    {item.status === "ACTIVE" && <button className="table-action" onClick={() => void initiateDeallocation(item)}>Deallocate</button>}
+                  </> : undefined} />}
             </>
           )}
+        </>}
+        {tab === "locations" && showHubForm && <ClientFormDialog title={editingHubId ? "Edit hub" : "Add hub"} busy={loading} error={error} onClose={() => setShowHubForm(false)}>
+                <p className="eyebrow">LOCATION SETUP</p>
+                <h2>{editingHubId ? "Edit hub" : "Create hub"}</h2>
+                <form className="form-stack" onSubmit={createHub}>
+                  <label>
+                    Hub name
+                    <input
+                      value={newHub.name}
+                      onChange={(event) =>
+                        setNewHub((current) => ({
+                          ...current,
+                          name: event.target.value,
+                        }))
+                      }
+                      required
+                    />
+                  </label>
+                  <label>
+                    Hub code
+                    <input
+                      value={newHub.code}
+                      onChange={(event) =>
+                        setNewHub((current) => ({
+                          ...current,
+                          code: event.target.value.toUpperCase(),
+                        }))
+                      }
+                      pattern="[A-Z0-9_-]+"
+                      required
+                    />
+                  </label>
+                  <label>City<input required value={newHub.city} onChange={(event) => setNewHub((current) => ({ ...current, city: event.target.value }))} /></label>
+                  <label>State<input required value={newHub.state} onChange={(event) => setNewHub((current) => ({ ...current, state: event.target.value }))} /></label>
+                  <div className="form-actions"><button>{editingHubId ? "Save hub" : "Create hub"}</button><button type="button" className="secondary" onClick={() => { setEditingHubId(""); setNewHub({ name: "", code: "", city: "", state: "" }); setShowHubForm(false); }}>Cancel</button></div>
+                </form>
+        </ClientFormDialog>}
+        {tab === "evidence" && showPhotoTypeForm && <ClientFormDialog title="Add photo type" busy={loading} error={error} onClose={() => setShowPhotoTypeForm(false)}><h2>Add photo type</h2>
+              <form className="form-stack" onSubmit={addPhotoRequirement}>
+                <label>
+                  New photo type
+                  <input
+                    value={newRequirementType}
+                    onChange={(event) =>
+                      setNewRequirementType(event.target.value.toUpperCase())
+                    }
+                    placeholder="e.g. DAMAGE_CLOSEUP"
+                    pattern="[A-Z0-9_-]{1,80}"
+                    maxLength={80}
+                    required
+                  />
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={newRequirementRequired}
+                    onChange={(event) =>
+                      setNewRequirementRequired(event.target.checked)
+                    }
+                  />{" "}
+                  Required for completion
+                </label>
+                <div className="form-actions"><button disabled={loading}>Add photo type</button><button type="button" className="secondary" onClick={() => setShowPhotoTypeForm(false)}>Cancel</button></div>
+              </form></ClientFormDialog>}
+        {fleetDetail && showDetailIotForm && <ClientFormDialog title="Register IoT device" busy={loading} error={error} onClose={() => setShowDetailIotForm(false)}><h2>Register IoT device</h2><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void registerIotDevice(String(fleetDetail.id)); }}><label>Device number<input required value={iotDeviceNumber} onChange={(event) => setIotDeviceNumber(event.target.value)} /></label><div className="form-actions"><button disabled={loading}>Register device</button><button type="button" className="secondary" onClick={() => setShowDetailIotForm(false)}>Cancel</button></div></form></ClientFormDialog>}
+        {fleetDetail && componentForm && <ClientFormDialog title={`Add ${componentForm === "batteries" ? "battery" : "controller"}`} busy={loading} error={error} onClose={() => setComponentForm(null)}><h2>Add {componentForm === "batteries" ? "battery" : "controller"}</h2><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void addFleetComponent(String(fleetDetail.id), componentForm, componentSerial.trim()); }}><label>Serial number<input required value={componentSerial} onChange={(event) => setComponentSerial(event.target.value)} /></label><div className="form-actions"><button disabled={loading || !componentSerial.trim()}>Add {componentForm === "batteries" ? "battery" : "controller"}</button><button type="button" className="secondary" onClick={() => setComponentForm(null)}>Cancel</button></div></form></ClientFormDialog>}
+        <ClientDeleteDialog confirmation={deleteConfirmation} busy={loading} onClose={() => setDeleteConfirmation(null)} />
+        <footer className="client-operations-footer">Powered by EV Spares India Pvt Ltd</footer>
       </section>
     </main>
   );

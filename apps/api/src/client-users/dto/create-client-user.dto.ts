@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  IsBoolean,
   IsArray,
   IsEmail,
   IsOptional,
@@ -17,6 +18,7 @@ export class CreateFleetManagerDto {
   @IsOptional() @IsEmail() @MaxLength(150) email?: string;
   @IsArray() @ArrayMaxSize(50) @IsUUID('4', { each: true }) hubIds!: string[];
   @IsUUID() primaryHubId!: string;
+  @IsOptional() @IsBoolean() isActive?: boolean;
 }
 
 export class BulkFleetManagerDto {

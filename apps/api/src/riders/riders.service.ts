@@ -211,6 +211,19 @@ export class RidersService {
       throw error;
     }
   }
+  async remove(clientId: string, id: string) {
+    const rider = await this.prisma.rider.findFirst({
+      where: { id, clientId, deletedAt: null },
+      select: { id: true, userId: true, allocations: { where: { status: { in: ['INSPECTION_PENDING', 'OTP_PENDING', 'ACTIVE', 'DEALLOCATION_INITIATED'] } }, select: { id: true }, take: 1 } },
+    });
+    if (!rider) throw new NotFoundException('Rider not found.');
+    if (rider.allocations.length) throw new ConflictException('An active allocation prevents rider deletion.');
+    await this.prisma.$transaction(async (tx) => {
+      await tx.rider.update({ where: { id }, data: { deletedAt: new Date() } });
+      if (rider.userId) await tx.user.update({ where: { id: rider.userId }, data: { isActive: false } });
+    });
+    return { deleted: true };
+  }
 
   private isUniqueViolation(error: unknown): boolean {
     return (
