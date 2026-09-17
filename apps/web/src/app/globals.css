@@ -792,6 +792,24 @@ th {
   color: #71867b;
   opacity: 1;
 }
+.platform-login-card .auth-submit {
+  border: 1px solid #83d6a5;
+  color: #fff;
+  background: #2f8b5f;
+  box-shadow: 0 10px 22px #021a117a;
+  font-size: 16px;
+  font-weight: 800;
+}
+.platform-login-card .auth-submit:hover:not(:disabled) {
+  background: #1c7048;
+}
+.platform-login-card .auth-submit:disabled {
+  color: #fff;
+  border-color: #83d6a5;
+  background: #2f8b5f;
+  opacity: 1;
+  cursor: not-allowed;
+}
 .platform-login-card .otp-code-hint {
   color: #c4e5d6;
 }

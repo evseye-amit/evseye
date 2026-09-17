@@ -1743,7 +1743,7 @@ export default function Home() {
                   <OtpCodeInput value={code} onChange={setCode} disabled={loading} />
                 </label>
                 <button className="auth-submit" disabled={loading || code.length !== 6}>
-                  {loading ? "Verifying…" : "Verify and enter"}
+                  {loading ? "Verifying…" : "Verify OTP"}
                   <span aria-hidden="true">→</span>
                 </button>
                 <button
