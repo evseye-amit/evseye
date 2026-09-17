@@ -147,23 +147,24 @@ export function ClientUserManager({ kind, rows, hubs, columns, request, refresh,
           <label>Designation (optional)<input maxLength={100} value={draft.designation} onChange={(event) => setDraft({ ...draft, designation: event.target.value })} /></label>
           <label>Joining date (optional)<input type="date" value={draft.joiningDate} onChange={(event) => setDraft({ ...draft, joiningDate: event.target.value })} /></label>
           <label>Status *<select required value={draft.isActive ? "ACTIVE" : "INACTIVE"} onChange={(event) => setDraft({ ...draft, isActive: event.target.value === "ACTIVE" })}><option value="ACTIVE">Active</option><option value="INACTIVE" disabled={Boolean(editing && Number(((editing._count as Row | undefined)?.riders) ?? 0))}>Inactive</option></select></label>
-          {editing && Number(((editing._count as Row | undefined)?.riders) ?? 0) > 0 && <p className="muted">Use Reassign to transfer riders before deactivating this Team Lead.</p>}
+          {editing && Number(((editing._count as Row | undefined)?.riders) ?? 0) > 0 && <p className="muted">Use Resign to transfer riders before deactivating this Team Lead.</p>}
         </>}
         <div className="form-actions"><button disabled={busy || (isFleetManager && !draft.hubIds.length)}>Save {title}</button><button type="button" className="secondary" onClick={() => setOpen(false)}>Cancel</button></div>
       </form></ClientFormDialog>}
-      {reassigning && <ClientFormDialog title={`Reassign ${String((reassigning.user as Row | undefined)?.name ?? "Team Lead")}`} error={reassignError} busy={busy} onClose={() => setReassigning(null)}>
-        <h2>Reassign riders</h2>
+      {reassigning && <ClientFormDialog title={`Resign ${String((reassigning.user as Row | undefined)?.name ?? "Team Lead")}`} error={reassignError} busy={busy} onClose={() => setReassigning(null)}>
+        <h2>Resign Team Lead</h2>
+        <p>Record that this Team Lead has left the job. Their riders must be reassigned before the account is deactivated.</p>
         <p>{assignedRiders ? `${assignedRiders} rider${assignedRiders === 1 ? "" : "s"} will be moved to another Team Lead before this account is deactivated.` : "This Team Lead has no assigned riders. The account will be deactivated."}</p>
         <form className="form-stack" onSubmit={(event) => void reassign(event)}>
           {assignedRiders > 0 && <label>Receiving Team Lead *<select required value={targetTeamLeaderId} onChange={(event) => setTargetTeamLeaderId(event.target.value)}><option value="">Select an active Team Lead</option>{eligibleLeaders.map((leader) => <option key={String(leader.id)} value={String(leader.id)}>{String((leader.user as Row | undefined)?.name ?? "Team Lead")} · {String((leader.user as Row | undefined)?.mobile ?? "")}</option>)}</select></label>}
           {assignedRiders > 0 && !eligibleLeaders.length && <p className="error">Add or activate another Team Lead before reassignment.</p>}
-          <div className="form-actions"><button type="button" className="secondary" onClick={() => setReassigning(null)}>Cancel</button><button disabled={busy || (assignedRiders > 0 && (!targetTeamLeaderId || !eligibleLeaders.length))}>Reassign and deactivate</button></div>
+          <div className="form-actions"><button type="button" className="secondary" onClick={() => setReassigning(null)}>Cancel</button><button className="danger" disabled={busy || (assignedRiders > 0 && (!targetTeamLeaderId || !eligibleLeaders.length))}>Confirm resignation</button></div>
         </form>
       </ClientFormDialog>}
       <ClientDataTable rows={rows} columns={columns} getRowId={(row) => String(row.id)} actions={(row) => <>
         <button type="button" className="secondary table-action" disabled={busy} onClick={() => start(row)}>Edit</button>
         {isFleetManager ? <button type="button" className="danger table-action" disabled={busy} onClick={() => setDeleteConfirmation({ title: `Delete ${title}?`, description: `This ${title.toLowerCase()} will be removed from the active list. Existing history is retained.`, confirmLabel: `Delete ${title}`, onConfirm: () => remove(row) })}>Delete</button>
-          : <button type="button" className="secondary table-action" disabled={busy || (row.user as Row | undefined)?.isActive === false} onClick={() => { setReassigning(row); setTargetTeamLeaderId(""); setReassignError(""); }}>Reassign</button>}
+          : <button type="button" className="danger table-action" disabled={busy || (row.user as Row | undefined)?.isActive === false} onClick={() => { setReassigning(row); setTargetTeamLeaderId(""); setReassignError(""); }}>Resign</button>}
       </>} />
       <ClientDeleteDialog confirmation={deleteConfirmation} busy={busy} onClose={() => setDeleteConfirmation(null)} />
     </section>

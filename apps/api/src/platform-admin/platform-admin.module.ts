@@ -4,10 +4,11 @@ import { AuthModule } from '../auth/auth.module.js';
 import { MediaModule } from '../media/media.module.js';
 import { PlatformAdminController } from './platform-admin.controller.js';
 import { PlatformAdminService } from './platform-admin.service.js';
+import { ClientBrandingController } from './client-branding.controller.js';
 
 @Module({
   imports: [AuthModule, AuditModule, MediaModule],
-  controllers: [PlatformAdminController],
+  controllers: [PlatformAdminController, ClientBrandingController],
   providers: [PlatformAdminService],
 })
 export class PlatformAdminModule {}

@@ -28,6 +28,8 @@ the next Super Admin slice.
 
 For production, use real SMS and KYC adapters, a private S3 bucket, IAM-based AWS credentials, and non-development token secrets. The API rejects the console SMS provider, sandbox KYC provider, and an unset S3 bucket in production.
 
+Client logos use presigned upload (PUT) and download (GET) URLs. Local Docker Compose uses MinIO: the API accesses `http://minio:9000` and browser URLs use `http://localhost:9000`. In production, set `S3_BUCKET` and `AWS_REGION` for the private AWS S3 bucket, provide IAM permissions, and leave `S3_ENDPOINT` and `S3_PUBLIC_ENDPOINT` unset. Allow the deployed web origin in the bucket CORS configuration for browser PUT/GET requests with the `Content-Type` header. Client logos do not require public bucket access or `MEDIA_PUBLIC_BASE_URL`; URL validity is controlled by `S3_SIGNED_URL_TTL_SECONDS`.
+
 Run Prisma migrations once as a deployment job before rolling out API replicas:
 
 ```sh

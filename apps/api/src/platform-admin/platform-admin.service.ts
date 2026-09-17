@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto';
 import { AuditService } from '../audit/audit.service.js';
 import { assertUserMobileAvailable, normalizeIndianMobile, USER_MOBILE_CONFLICT_MESSAGE } from '../common/phone.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import type { ClientLogoUploadDto, CompleteClientLogoDto } from './dto/client-logo.dto.js';
 import type {
   CreateClientFeatureDto,
   UpdateClientFeatureDto,
@@ -50,6 +51,36 @@ export class PlatformAdminService {
     private readonly audit: AuditService,
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
   ) {}
+
+  async clientBranding(clientId?: string, companyCode?: string) {
+    if (!clientId && (!companyCode || !/^[a-z0-9-]{1,80}$/.test(companyCode))) return null;
+    const client = await this.prisma.client.findFirst({
+      where: { ...(clientId ? { id: clientId } : { companyCode }), isActive: true },
+      select: { name: true, businessProfile: { select: { logoObjectKey: true } } },
+    });
+    if (!client) return null;
+    return { name: client.name, logoUrl: client.businessProfile?.logoObjectKey ? await this.storage.createDownloadUrl(client.businessProfile.logoObjectKey) : null };
+  }
+
+  async createClientLogoUpload(clientId: string, dto: ClientLogoUploadDto) {
+    await this.requireEditableClient(clientId, dto.approvalEmailReference);
+    const extensions: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
+    if (!extensions[dto.mimeType] || dto.sizeBytes <= 0 || dto.sizeBytes > 2 * 1024 * 1024)
+      throw new BadRequestException('Choose a PNG, JPEG, or WebP logo up to 2 MB.');
+    const objectKey = `clients/${clientId}/logo/${randomUUID()}.${extensions[dto.mimeType]}`;
+    return { objectKey, uploadUrl: await this.storage.createUploadUrl({ objectKey, mimeType: dto.mimeType, sizeBytes: dto.sizeBytes }) };
+  }
+
+  async completeClientLogoUpload(clientId: string, dto: CompleteClientLogoDto, actorId: string) {
+    const editable = await this.requireEditableClient(clientId, dto.approvalEmailReference);
+    const prefix = `clients/${clientId}/logo/`;
+    if (!dto.objectKey.startsWith(prefix) || !/^[a-f0-9-]{36}\.(png|jpg|webp)$/.test(dto.objectKey.slice(prefix.length)))
+      throw new BadRequestException('Invalid client logo upload.');
+    await this.storage.assertObjectExists(dto.objectKey);
+    await this.prisma.clientBusinessProfile.update({ where: { clientId }, data: { logoObjectKey: dto.objectKey } });
+    await this.audit.record({ actorId, action: 'CLIENT_LOGO_UPDATED', entityType: 'Client', entityId: clientId, newData: { logoObjectKey: dto.objectKey, ...this.activeEditAuditData(editable, dto.approvalEmailReference) } });
+    return { logoUrl: await this.storage.createDownloadUrl(dto.objectKey) };
+  }
 
   listClients() {
     return this.prisma.client.findMany({
@@ -752,7 +783,7 @@ export class PlatformAdminService {
       },
     });
     if (!client) throw new NotFoundException('Client not found.');
-    return client;
+    return { ...client, logoUrl: client.businessProfile?.logoObjectKey ? await this.storage.createDownloadUrl(client.businessProfile.logoObjectKey) : null };
   }
 
   async saveBusinessDetails(

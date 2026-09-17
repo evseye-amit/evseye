@@ -11,6 +11,7 @@ import {
   useState,
 } from "react";
 import Link from "next/link";
+import { ClientLogoUpload } from "../../components/client-logo-upload";
 import { UiIcon, type IconName } from "../../components/ui-icon";
 import {
   filterRows,
@@ -507,6 +508,7 @@ export default function SuperAdminDashboard() {
   const [showClientForm, setShowClientForm] = useState(false);
   const clientTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [client, setClient] = useState<Item>(emptyClient);
+  const [clientLogoFile, setClientLogoFile] = useState<File | null>(null);
   const [clientDocumentFiles, setClientDocumentFiles] = useState<
     Record<string, File | undefined>
   >({});
@@ -757,6 +759,7 @@ export default function SuperAdminDashboard() {
     clientTriggerRef.current = trigger;
     if (!client.id) {
       setClient(emptyClient);
+      setClientLogoFile(null);
       setClientDocumentFiles({});
       setClientStep(1);
     }
@@ -1380,6 +1383,21 @@ export default function SuperAdminDashboard() {
       },
     );
   }
+  async function uploadClientLogo(clientId: string) {
+    if (!clientLogoFile) return;
+    const approval = activeClientEdit ? { approvalEmailReference: approvalEmailReference.trim() } : {};
+    const intent = await request(`/platform/clients/${clientId}/logo-upload-intents`, {
+      method: "POST", body: JSON.stringify({ mimeType: clientLogoFile.type, sizeBytes: clientLogoFile.size, ...approval }),
+    }, token);
+    const uploaded = await fetch(intent.uploadUrl, { method: "PUT", headers: { "Content-Type": clientLogoFile.type }, body: clientLogoFile });
+    if (!uploaded.ok) throw new Error("The client logo could not be uploaded. Please retry.");
+    const completed = await request(`/platform/clients/${clientId}/logo-upload-complete`, {
+      method: "POST", body: JSON.stringify({ objectKey: intent.objectKey, ...approval }),
+    }, token);
+    setClient((current) => ({ ...current, logoUrl: completed.logoUrl }));
+    setClientLogoFile(null);
+  }
+
   async function submitClient(event: FormEvent) {
     event.preventDefault();
     await submit(
@@ -1395,7 +1413,7 @@ export default function SuperAdminDashboard() {
           );
         }
         if (clientStep === 1) {
-          if (activeClientEdit && client.id) {
+          if (client.id) {
             await request(
               `/platform/clients/${client.id}/business-details`,
               {
@@ -1421,6 +1439,8 @@ export default function SuperAdminDashboard() {
               },
               token,
             );
+            await uploadClientLogo(client.id);
+            if (!activeClientEdit) setClientStep(2);
             return;
           }
           const created = await request(
@@ -1449,6 +1469,7 @@ export default function SuperAdminDashboard() {
             token,
           );
           setClient((current) => ({ ...current, id: created.id }));
+          await uploadClientLogo(created.id);
           setClientStep(2);
           return;
         }
@@ -1763,6 +1784,7 @@ export default function SuperAdminDashboard() {
       setClient((current) => ({
         ...current,
         id: detail.id,
+        logoUrl: detail.logoUrl ?? "",
         businessFleetName: detail.name ?? "",
         companyCode: detail.companyCode ?? detail.slug ?? "",
         legalEntityName: profile.legalCompanyName ?? "",
@@ -1834,6 +1856,7 @@ export default function SuperAdminDashboard() {
       }));
       setClientDocumentFiles({});
       const isActiveClient = detail.status === "ACTIVE";
+      setClientLogoFile(null);
       setActiveClientEdit(isActiveClient);
       setApprovalEmailReference("");
       setShowClientForm(true);
@@ -2100,6 +2123,8 @@ export default function SuperAdminDashboard() {
             closeDialog={closeClientModal}
             documentFiles={clientDocumentFiles}
             setDocumentFiles={setClientDocumentFiles}
+            logoFile={clientLogoFile}
+            setLogoFile={setClientLogoFile}
             approveClient={approveClient}
             rejectClient={rejectClient}
             editClient={editClientDraft}
@@ -3775,6 +3800,8 @@ function ClientsView({
   closeDialog,
   documentFiles,
   setDocumentFiles,
+  logoFile,
+  setLogoFile,
   approveClient,
   rejectClient,
   editClient,
@@ -4067,6 +4094,7 @@ function ClientsView({
               />
               {step === 1 && (
                 <>
+                  <ClientLogoUpload file={logoFile} savedUrl={client.logoUrl} onChange={setLogoFile} />
                   <Select
                     label="Industry"
                     value={client.industry}

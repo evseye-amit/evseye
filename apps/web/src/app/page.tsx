@@ -8,6 +8,7 @@ import { ClientUserManager, parseCsv } from "./components/client-user-manager";
 import { ClientBulkImportWorkspace, type ClientImportHistoryEntry } from "./components/client-bulk-import-workspace";
 import { ClientDeleteDialog, type ClientDeleteConfirmation } from "./components/client-delete-dialog";
 import { ClientFormDialog } from "./components/client-form-dialog";
+import { ClientBrand } from "./components/client-brand";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
@@ -1912,6 +1913,7 @@ export default function Home() {
         <section className="auth-hero" aria-label="EVs Eye fleet operations platform" />
         <section className="auth-panel">
           <div className="auth-card platform-login-card">
+            <ClientBrand companyCode={companyCode} landing />
             <p className="eyebrow">SECURE OPERATIONS ACCESS</p>
             <h2>{otpRequestId ? "Verify your number" : "Welcome back"}</h2>
             <p className="muted">
@@ -1997,13 +1999,7 @@ export default function Home() {
   return (
     <main className="sa-shell client-operations-shell">
       <aside className="sa-sidebar">
-        <div className="sa-brand">
-          <span><UiIcon name="eye" /></span>
-          <div>
-            <strong>Evs Eye</strong>
-            <small>OPERATIONS</small>
-          </div>
-        </div>
+        <ClientBrand token={token} />
         <nav className="client-navigation" aria-label="Client operations">
           {CLIENT_NAVIGATION.map((section, index) => (
             <div

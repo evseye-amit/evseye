@@ -2834,6 +2834,18 @@ body:has(.sa-dialog[open]) {
   color: #cf4c42;
   font-weight: 800;
 }
+.client-logo-upload {
+  grid-column: 1 / -1;
+  padding: 16px;
+  border: 1px solid #dce7df;
+  border-radius: 10px;
+  background: #f7faf8;
+}
+.client-logo-upload p { margin: 10px 0 0; }
+.client-logo-upload .sa-logo-preview { object-fit: contain; background: white; }
+.client-brand-logo { width: 44px; height: 44px; object-fit: contain; border-radius: 6px; background: white; }
+.client-landing-brand { margin-bottom: 22px; }
+.client-landing-brand strong { color: inherit; }
 .sa-label-text,
 .client-label-text {
   display: inline-flex;
@@ -2875,8 +2887,18 @@ body:has(.sa-dialog[open]) {
 }
 .sa-client-step-jump:hover,
 .sa-client-step-jump:focus-visible {
-  color: #14734d;
+  color: #174c36;
+  background: transparent;
   text-decoration: underline;
+}
+.sa-client-step-jump:focus-visible {
+  outline: 2px solid #27865f;
+  outline-offset: 3px;
+}
+.sa-client-step:has(.sa-client-step-jump:hover),
+.sa-client-step:has(.sa-client-step-jump:focus-visible) {
+  color: #174c36;
+  background: #e4f2e9;
 }
 .sa-client-stepper {
   display: grid;

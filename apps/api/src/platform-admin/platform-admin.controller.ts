@@ -37,12 +37,23 @@ import {
 } from './dto/client-onboarding-steps.dto.js';
 import { RejectClientDto } from './dto/reject-client.dto.js';
 import { PlatformAdminService } from './platform-admin.service.js';
+import { ClientLogoUploadDto, CompleteClientLogoDto } from './dto/client-logo.dto.js';
 
 @Controller('platform')
 @UseGuards(AccessTokenGuard, RolesGuard)
 @Roles(UserRole.SUPER_ADMIN)
 export class PlatformAdminController {
   constructor(private readonly platform: PlatformAdminService) {}
+  @Post('clients/:clientId/logo-upload-intents') logoUploadIntent(
+    @Param('clientId') clientId: string, @Body() dto: ClientLogoUploadDto,
+  ) {
+    return this.platform.createClientLogoUpload(clientId, dto).then((data) => ({ data }));
+  }
+  @Post('clients/:clientId/logo-upload-complete') completeLogoUpload(
+    @Param('clientId') clientId: string, @Body() dto: CompleteClientLogoDto, @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform.completeClientLogoUpload(clientId, dto, user.id).then((data) => ({ data }));
+  }
   @Get('clients') listClients() {
     return this.platform.listClients().then((data) => ({ data }));
   }
