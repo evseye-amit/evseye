@@ -157,6 +157,19 @@ export class CreatePackageFeatureDto {
   @IsOptional() @IsInt() @Min(0) displayOrder?: number;
 }
 
+export class CreatePackageFeatureAssignmentDto extends CreatePackageFeatureDto {
+  @IsString() packageId!: string;
+}
+
+export class UpdatePackageFeatureDto {
+  @IsOptional() @IsBoolean() enabled?: boolean;
+  @IsOptional() @IsInt() @Min(0) includedQuantity?: number;
+  @IsOptional() @IsInt() @Min(0) usageLimit?: number;
+  @IsOptional() @IsBoolean() unlimitedUsage?: boolean;
+  @IsOptional() @IsObject() configuration?: Record<string, unknown>;
+  @IsOptional() @IsInt() @Min(0) displayOrder?: number;
+}
+
 export class CreatePackageDto {
   @IsString() @Matches(/^[A-Z0-9_-]+$/) @MaxLength(50) code!: string;
   @IsString() @MaxLength(100) name!: string;

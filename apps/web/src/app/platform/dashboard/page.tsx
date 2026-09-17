@@ -56,6 +56,12 @@ type BulkImportHistoryEntry = {
   createdAt: string;
   error?: string;
 };
+type DeleteConfirmation = {
+  title: string;
+  description: string;
+  confirmLabel: string;
+  onConfirm: () => Promise<void>;
+};
 const BULK_IMPORT_HISTORY_KEY = "evs-eye-platform-bulk-import-history";
 type PricingTierInput = {
   tierOrder: string;
@@ -64,15 +70,6 @@ type PricingTierInput = {
   toQuantity: string;
   unitPrice: string;
   costPrice: string;
-};
-type PackageFeatureInput = {
-  featureId: string;
-  enabled: boolean;
-  includedQuantity: string;
-  usageLimit: string;
-  unlimitedUsage: boolean;
-  configuration: string;
-  displayOrder: string;
 };
 
 const featureCategories = [
@@ -319,19 +316,6 @@ const emptyPricing = {
   tiers: [] as PricingTierInput[],
 };
 
-const emptyPackageFeature = (
-  featureId: string,
-  displayOrder: number,
-): PackageFeatureInput => ({
-  featureId,
-  enabled: true,
-  includedQuantity: "",
-  usageLimit: "",
-  unlimitedUsage: true,
-  configuration: "",
-  displayOrder: String(displayOrder),
-});
-
 function Metric({
   label,
   value,
@@ -464,6 +448,8 @@ export default function SuperAdminDashboard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [deleteConfirmation, setDeleteConfirmation] =
+    useState<DeleteConfirmation | null>(null);
   const [summary, setSummary] = useState<Item>({});
   const [clients, setClients] = useState<Item[]>([]);
   const [oems, setOems] = useState<Item[]>([]);
@@ -512,9 +498,6 @@ export default function SuperAdminDashboard() {
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
   const [showPackageForm, setShowPackageForm] = useState(false);
   const packageTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const [packageFeatures, setPackageFeatures] = useState<PackageFeatureInput[]>(
-    [],
-  );
   const [price, setPrice] = useState(emptyPricing);
   const [editingPricingId, setEditingPricingId] = useState<string | null>(null);
   const [showPricingForm, setShowPricingForm] = useState(false);
@@ -716,25 +699,9 @@ export default function SuperAdminDashboard() {
         isCustom: item.isCustom,
         isActive: item.isActive,
       });
-      setPackageFeatures(
-        (item.features ?? []).map((link: Item, index: number) => ({
-          featureId: link.featureId,
-          enabled: link.enabled,
-          includedQuantity: link.includedQuantity
-            ? String(link.includedQuantity)
-            : "",
-          usageLimit: link.usageLimit ? String(link.usageLimit) : "",
-          unlimitedUsage: link.unlimitedUsage,
-          configuration: link.configuration
-            ? JSON.stringify(link.configuration, null, 2)
-            : "",
-          displayOrder: String(link.displayOrder ?? index),
-        })),
-      );
       setEditingPackageId(item.id);
     } else {
       setPack(emptyPackage);
-      setPackageFeatures([]);
       setEditingPackageId(null);
     }
     setShowPackageForm(true);
@@ -1328,27 +1295,6 @@ export default function SuperAdminDashboard() {
   }
   async function submitPackage(event: FormEvent) {
     event.preventDefault();
-    let configuredFeatures: Item[];
-    try {
-      configuredFeatures = packageFeatures.map((feature) => ({
-        featureId: feature.featureId,
-        enabled: feature.enabled,
-        unlimitedUsage: feature.unlimitedUsage,
-        displayOrder: Number(feature.displayOrder || 0),
-        ...(feature.includedQuantity
-          ? { includedQuantity: Number(feature.includedQuantity) }
-          : {}),
-        ...(feature.usageLimit
-          ? { usageLimit: Number(feature.usageLimit) }
-          : {}),
-        ...(feature.configuration
-          ? { configuration: JSON.parse(feature.configuration) }
-          : {}),
-      }));
-    } catch {
-      setError("Package Feature configuration must be valid JSON.");
-      return;
-    }
     await submit(
       () =>
         request(
@@ -1369,7 +1315,6 @@ export default function SuperAdminDashboard() {
               ...(pack.maxRiders ? { maxRiders: Number(pack.maxRiders) } : {}),
               trialDays: Number(pack.trialDays || 0),
               displayOrder: Number(pack.displayOrder || 0),
-              packageFeatures: configuredFeatures,
             }),
           },
           token,
@@ -1377,7 +1322,6 @@ export default function SuperAdminDashboard() {
       editingPackageId ? "Package updated." : "Package created.",
       () => {
         setPack(emptyPackage);
-        setPackageFeatures([]);
         setEditingPackageId(null);
         setShowPackageForm(false);
       },
@@ -1715,11 +1659,17 @@ export default function SuperAdminDashboard() {
     );
   }
   async function remove(path: string, label: string) {
-    if (!window.confirm(`Delete this ${label}?`)) return;
-    await submit(
-      () => request(path, { method: "DELETE" }, token),
-      `${label} deleted.`,
-    );
+    setDeleteConfirmation({
+      title: `Delete ${label}?`,
+      description: `This permanently removes this ${label}. This action cannot be undone.`,
+      confirmLabel: `Delete ${label}`,
+      onConfirm: async () => {
+        await submit(
+          () => request(path, { method: "DELETE" }, token),
+          `${label} deleted.`,
+        );
+      },
+    });
   }
   async function approveClient(clientId: string) {
     await submit(
@@ -2957,8 +2907,7 @@ export default function SuperAdminDashboard() {
               <div>
                 <h2>Package</h2>
                 <p>
-                  Define commercial packages, limits, trial settings, and their
-                  enabled platform features.
+                  Define commercial packages, limits, and trial settings.
                 </p>
               </div>
               <div className="sa-actions">
@@ -2982,7 +2931,7 @@ export default function SuperAdminDashboard() {
               <CatalogFormDialog
                 open={showPackageForm}
                 title={editingPackageId ? "Edit Package" : "Add Package"}
-                description="Define commercial packages, limits, trial settings, and their enabled platform features."
+                description="Define commercial package details. Assign Features separately from Package Feature."
                 error={error}
                 busy={loading}
                 size="wide"
@@ -3049,160 +2998,6 @@ export default function SuperAdminDashboard() {
                   />
                   Active package
                 </label>
-                <div className="sa-checkbox-list">
-                  {features
-                    .filter(
-                      (feature) =>
-                        feature.isActive ||
-                        packageFeatures.some(
-                          (item) => item.featureId === feature.id,
-                        ),
-                    )
-                    .map((feature) => (
-                      <label key={feature.id}>
-                        <input
-                          type="checkbox"
-                          checked={packageFeatures.some(
-                            (item) => item.featureId === feature.id,
-                          )}
-                          disabled={
-                            !feature.isActive &&
-                            !packageFeatures.some(
-                              (item) => item.featureId === feature.id,
-                            )
-                          }
-                          onChange={(event) =>
-                            setPackageFeatures((current) =>
-                              event.target.checked
-                                ? [
-                                    ...current,
-                                    emptyPackageFeature(
-                                      feature.id,
-                                      current.length,
-                                    ),
-                                  ]
-                                : current.filter(
-                                    (item) => item.featureId !== feature.id,
-                                  ),
-                            )
-                          }
-                        />
-                        {feature.name}
-                        {!feature.isActive ? " (inactive)" : ""}
-                      </label>
-                    ))}
-                </div>
-                {packageFeatures.map((packageFeature, featureIndex) => {
-                  const linkedFeature = features.find(
-                    (item) => item.id === packageFeature.featureId,
-                  );
-                  const updatePackageFeature = (
-                    field: keyof PackageFeatureInput,
-                    value: string | boolean,
-                  ) =>
-                    setPackageFeatures((current) =>
-                      current.map((item, index) =>
-                        index === featureIndex
-                          ? { ...item, [field]: value }
-                          : item,
-                      ),
-                    );
-                  return (
-                    <div
-                      className="sa-package-feature"
-                      key={packageFeature.featureId}
-                    >
-                      <strong>{linkedFeature?.name ?? "Feature"}</strong>
-                      <div className="sa-feature-fields">
-                        <label className="sa-toggle">
-                          <input
-                            type="checkbox"
-                            checked={packageFeature.enabled}
-                            onChange={(event) =>
-                              updatePackageFeature(
-                                "enabled",
-                                event.target.checked,
-                              )
-                            }
-                          />
-                          Enabled
-                        </label>
-                        <label className="sa-toggle">
-                          <input
-                            type="checkbox"
-                            checked={packageFeature.unlimitedUsage}
-                            onChange={(event) =>
-                              updatePackageFeature(
-                                "unlimitedUsage",
-                                event.target.checked,
-                              )
-                            }
-                          />
-                          Unlimited usage
-                        </label>
-                        <label>
-                          Included quantity
-                          <input
-                            type="number"
-                            min="0"
-                            step="1"
-                            value={packageFeature.includedQuantity}
-                            onChange={(event) =>
-                              updatePackageFeature(
-                                "includedQuantity",
-                                event.target.value,
-                              )
-                            }
-                          />
-                        </label>
-                        <label>
-                          Usage limit
-                          <input
-                            type="number"
-                            min="0"
-                            step="1"
-                            disabled={packageFeature.unlimitedUsage}
-                            value={packageFeature.usageLimit}
-                            onChange={(event) =>
-                              updatePackageFeature(
-                                "usageLimit",
-                                event.target.value,
-                              )
-                            }
-                          />
-                        </label>
-                        <label>
-                          Display order
-                          <input
-                            type="number"
-                            min="0"
-                            step="1"
-                            value={packageFeature.displayOrder}
-                            onChange={(event) =>
-                              updatePackageFeature(
-                                "displayOrder",
-                                event.target.value,
-                              )
-                            }
-                          />
-                        </label>
-                      </div>
-                      <label>
-                        Feature configuration (optional JSON)
-                        <textarea
-                          value={packageFeature.configuration}
-                          placeholder={'{"workflow": "standard"}'}
-                          onChange={(event) =>
-                            updatePackageFeature(
-                              "configuration",
-                              event.target.value,
-                            )
-                          }
-                        />
-                      </label>
-                    </div>
-                  );
-                })}
               </CatalogFormDialog>
               {packages.length ? (
                 <DataTable
@@ -3275,7 +3070,13 @@ export default function SuperAdminDashboard() {
           </>
         )}
         {tab === "packageFeatures" && (
-          <PackageFeaturesView packages={packages} />
+          <PackageFeaturesView
+            packages={packages}
+            features={features}
+            token={token}
+            onSaved={() => void load()}
+            onDelete={(path, label) => void remove(path, label)}
+          />
         )}
         {tab === "pricingTiers" && (
           <FeaturePricingTiersView
@@ -3618,7 +3419,69 @@ export default function SuperAdminDashboard() {
           </>
         )}
       </section>
+      <DeleteConfirmationDialog
+        confirmation={deleteConfirmation}
+        busy={loading}
+        onClose={() => setDeleteConfirmation(null)}
+      />
     </main>
+  );
+}
+
+function DeleteConfirmationDialog({
+  confirmation,
+  busy,
+  onClose,
+}: {
+  confirmation: DeleteConfirmation | null;
+  busy: boolean;
+  onClose: () => void;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (confirmation && !dialog.open) {
+      dialog.showModal();
+      window.requestAnimationFrame(() => confirmRef.current?.focus());
+    }
+    if (!confirmation && dialog.open) dialog.close();
+  }, [confirmation]);
+  const confirm = async () => {
+    if (!confirmation) return;
+    await confirmation.onConfirm();
+    onClose();
+  };
+  return (
+    <dialog
+      ref={dialogRef}
+      className="sa-dialog sa-delete-dialog"
+      onCancel={(event) => {
+        event.preventDefault();
+        if (!busy) onClose();
+      }}
+      onClose={() => {
+        if (confirmation) onClose();
+      }}
+    >
+      <div className="sa-dialog-surface sa-delete-dialog-surface">
+        <span className="sa-delete-dialog-icon" aria-hidden="true">!</span>
+        <div>
+          <p className="sa-eyebrow">CONFIRM DELETION</p>
+          <h2>{confirmation?.title}</h2>
+          <p>{confirmation?.description}</p>
+        </div>
+        <div className="sa-dialog-actions">
+          <button type="button" className="secondary" onClick={onClose} disabled={busy}>
+            Keep it
+          </button>
+          <button ref={confirmRef} type="button" className="danger" onClick={() => void confirm()} disabled={busy}>
+            {busy ? "Deleting…" : confirmation?.confirmLabel ?? "Delete"}
+          </button>
+        </div>
+      </div>
+    </dialog>
   );
 }
 
@@ -4813,60 +4676,7 @@ function BulkImportWorkspace({
         </button>
       </div>
 
-      {history.length > 0 && (
-        <section className="sa-bulk-history">
-          <div className="sa-bulk-section-head">
-            <div>
-              <h3>Import history</h3>
-              <p>Previous uploads for {title}.</p>
-            </div>
-            <span>{history.length} upload{history.length === 1 ? "" : "s"}</span>
-          </div>
-          <div className="sa-table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Imported on</th>
-                  <th>File name</th>
-                  <th>Outcome</th>
-                  <th>Records</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((entry) => (
-                  <tr key={entry.id}>
-                    <td>{new Date(entry.createdAt).toLocaleString()}</td>
-                    <td>{entry.fileName}</td>
-                    <td>
-                      <span className={`sa-import-status ${entry.status.toLowerCase()}`}>
-                        {entry.status === "PARTIAL_PASS"
-                          ? "Partial pass"
-                          : entry.status === "PASS"
-                            ? "Passed"
-                            : "Failed"}
-                      </span>
-                    </td>
-                    <td>{entry.passedRows} / {entry.totalRows}</td>
-                    <td>
-                      {entry.status !== "PASS" && (
-                        <button
-                          type="button"
-                          className="secondary"
-                          onClick={() => downloadFailureReport(entry)}
-                        >
-                          Download failures
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
+      <div className={`sa-bulk-workspace-body ${history.length ? "has-history" : ""}`}>
       <section className="sa-bulk-upload-card">
         <div>
           <p className="sa-eyebrow">{history.length ? "IMPORT ANOTHER FILE" : "GET STARTED"}</p>
@@ -4895,24 +4705,205 @@ function BulkImportWorkspace({
           </button>
         </div>
       </section>
+      {history.length > 0 && (
+        <section className="sa-bulk-history">
+          <div className="sa-bulk-section-head">
+            <div>
+              <h3>Import history</h3>
+              <p>Previous uploads for {title}.</p>
+            </div>
+            <span>{history.length} upload{history.length === 1 ? "" : "s"}</span>
+          </div>
+          <DataTable
+            headings={["Imported on", "File name", "Outcome", "Records", ""]}
+            rows={history.map((entry) => [
+              new Date(entry.createdAt).toLocaleString(),
+              entry.fileName,
+              <span key="status" className={`sa-import-status ${entry.status.toLowerCase()}`}>
+                {entry.status === "PARTIAL_PASS" ? "Partial pass" : entry.status === "PASS" ? "Passed" : "Failed"}
+              </span>,
+              `${entry.passedRows} / ${entry.totalRows}`,
+              entry.status !== "PASS" ? (
+                <button key="failures" type="button" className="secondary" onClick={() => downloadFailureReport(entry)}>
+                  Download failures
+                </button>
+              ) : "—",
+            ])}
+          />
+        </section>
+      )}
+      </div>
     </section>
   );
 }
 
-function PackageFeaturesView({ packages }: { packages: Item[] }) {
+function PackageFeaturesView({
+  packages,
+  features,
+  token,
+  onSaved,
+  onDelete,
+}: {
+  packages: Item[];
+  features: Item[];
+  token: string;
+  onSaved: () => void;
+  onDelete: (path: string, label: string) => void;
+}) {
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const [editing, setEditing] = useState<Item | null>(null);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [form, setForm] = useState<Item>({
+    packageId: "",
+    featureId: "",
+    enabled: true,
+    unlimitedUsage: false,
+    includedQuantity: "",
+    usageLimit: "",
+    displayOrder: "0",
+    configuration: "",
+  });
+  const links = packages.flatMap((pack) =>
+    (pack.features ?? []).map((link: Item) => ({ ...link, package: pack })),
+  );
+  const openForm = (trigger: HTMLButtonElement, item?: Item) => {
+    triggerRef.current = trigger;
+    setError("");
+    setEditing(item ?? null);
+    setForm(
+      item
+        ? {
+            packageId: item.packageId,
+            featureId: item.featureId,
+            enabled: item.enabled,
+            unlimitedUsage: item.unlimitedUsage,
+            includedQuantity: item.includedQuantity ?? "",
+            usageLimit: item.usageLimit ?? "",
+            displayOrder: String(item.displayOrder ?? 0),
+            configuration: item.configuration
+              ? JSON.stringify(item.configuration, null, 2)
+              : "",
+          }
+        : {
+            packageId: "",
+            featureId: "",
+            enabled: true,
+            unlimitedUsage: false,
+            includedQuantity: "",
+            usageLimit: "",
+            displayOrder: String(links.length),
+            configuration: "",
+          },
+    );
+    setOpen(true);
+  };
+  const close = () => {
+    setError("");
+    setOpen(false);
+  };
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    let configuration: Record<string, unknown> | undefined;
+    try {
+      configuration = form.configuration ? JSON.parse(form.configuration) : undefined;
+    } catch {
+      setError("Feature configuration must be valid JSON.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const payload = {
+        ...(!editing ? { packageId: form.packageId, featureId: form.featureId } : {}),
+        enabled: Boolean(form.enabled),
+        unlimitedUsage: Boolean(form.unlimitedUsage),
+        displayOrder: Number(form.displayOrder || 0),
+        ...(form.includedQuantity !== ""
+          ? { includedQuantity: Number(form.includedQuantity) }
+          : {}),
+        ...(form.usageLimit !== "" && !form.unlimitedUsage
+          ? { usageLimit: Number(form.usageLimit) }
+          : {}),
+        ...(configuration ? { configuration } : {}),
+      };
+      await request(
+        editing
+          ? `/platform/package-features/${editing.id}`
+          : "/platform/package-features",
+        { method: editing ? "PUT" : "POST", body: JSON.stringify(payload) },
+        token,
+      );
+      close();
+      onSaved();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to save Package Feature.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const removeLink = (item: Item) =>
+    onDelete(
+      `/platform/package-features/${item.id}`,
+      `${item.feature?.name ?? "Feature"} from ${item.package?.name ?? "Package"}`,
+    );
+  const assignedToSelectedPackage = new Set(
+    links.filter((link) => link.packageId === form.packageId).map((link) => link.featureId),
+  );
   return (
     <>
       <section className="sa-page-head">
         <div>
           <h2>Package Feature</h2>
           <p>
-            Review the features, included quantities, and usage limits supplied
-            by each package.
+            Add and manage the Features supplied by each Package.
           </p>
         </div>
+        <div className="sa-actions">
+          <button onClick={(event) => openForm(event.currentTarget)}>
+            + Add Package Feature
+          </button>
+        </div>
       </section>
+      <CatalogFormDialog
+        open={open}
+        title={editing ? "Edit Package Feature" : "Add Package Feature"}
+        description="Feature assignment is managed independently from Package details."
+        error={error}
+        busy={busy}
+        triggerRef={triggerRef}
+        onClose={close}
+        onDialogClose={() => setOpen(false)}
+        onSubmit={save}
+        actions={<><button type="button" className="secondary" onClick={close} disabled={busy}>Cancel</button><button type="submit" disabled={busy}>{editing ? "Save changes" : "Add Feature"}</button></>}
+      >
+        <label>
+          Package <span className="required">*</span>
+          <select disabled={Boolean(editing)} value={form.packageId} onChange={(event) => setForm((current) => ({ ...current, packageId: event.target.value, featureId: "" }))} required>
+            <option value="">Select Package</option>
+            {packages.filter((item) => item.isActive).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+        </label>
+        <label>
+          Feature <span className="required">*</span>
+          <select disabled={Boolean(editing) || !form.packageId} value={form.featureId} onChange={(event) => setForm((current) => ({ ...current, featureId: event.target.value }))} required>
+            <option value="">Select Feature</option>
+            {features.filter((item) => item.isActive && (editing?.featureId === item.id || !assignedToSelectedPackage.has(item.id))).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+        </label>
+        <div className="sa-feature-fields">
+          <label className="sa-toggle"><input type="checkbox" checked={form.enabled} onChange={(event) => setForm((current) => ({ ...current, enabled: event.target.checked }))} /> Enabled</label>
+          <label className="sa-toggle"><input type="checkbox" checked={form.unlimitedUsage} onChange={(event) => setForm((current) => ({ ...current, unlimitedUsage: event.target.checked }))} /> Unlimited usage</label>
+          <label>Included quantity<input type="number" min="0" step="1" value={form.includedQuantity} onChange={(event) => setForm((current) => ({ ...current, includedQuantity: event.target.value }))} /></label>
+          <label>Usage limit<input type="number" min="0" step="1" disabled={form.unlimitedUsage} value={form.usageLimit} onChange={(event) => setForm((current) => ({ ...current, usageLimit: event.target.value }))} /></label>
+          <label>Display order<input type="number" min="0" step="1" value={form.displayOrder} onChange={(event) => setForm((current) => ({ ...current, displayOrder: event.target.value }))} /></label>
+        </div>
+        <label>Feature configuration (optional JSON)<textarea value={form.configuration} placeholder={'{"workflow":"standard"}'} onChange={(event) => setForm((current) => ({ ...current, configuration: event.target.value }))} /></label>
+      </CatalogFormDialog>
+      {error && !open ? <p className="error">{error}</p> : null}
       <section className="sa-management oem-table-only">
-        {packages.length ? (
+        {links.length ? (
           <DataTable
             headings={[
               "Package",
@@ -4920,6 +4911,9 @@ function PackageFeaturesView({ packages }: { packages: Item[] }) {
               "Included",
               "Usage limit",
               "Status",
+              "Order",
+              "",
+              "",
             ]}
             columnFilters={[
               { type: "text" },
@@ -4927,25 +4921,28 @@ function PackageFeaturesView({ packages }: { packages: Item[] }) {
               { type: "text" },
               { type: "text" },
               { type: "select" },
+              { type: "number" },
+              null,
+              null,
             ]}
-            rows={packages.flatMap((pack) =>
-              (pack.features ?? []).map((link: Item) => [
-                pack.name,
+            rows={links.map((link) => [
+                link.package?.name ?? "—",
                 link.feature?.name ?? "—",
                 link.unlimitedUsage
                   ? "Unlimited"
                   : (link.includedQuantity ?? "0"),
                 link.usageLimit ?? "—",
                 link.enabled ? "ENABLED" : "DISABLED",
-              ]),
-            )}
+                link.displayOrder ?? 0,
+                <button key="edit" className="secondary" onClick={(event) => openForm(event.currentTarget, link)}>Edit</button>,
+                <button key="delete" className="danger" onClick={() => void removeLink(link)}>Delete</button>,
+              ])}
           />
         ) : (
           <section className="sa-empty-catalog">
             <h3>No Package Features yet</h3>
             <p>
-              Create a Package and select its included Features to populate this
-              view.
+            Add Features to a Package to configure its entitlements.
             </p>
           </section>
         )}

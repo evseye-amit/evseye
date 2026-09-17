@@ -3,10 +3,13 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
+import { OtpCodeInput } from "../components/otp-code-input";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
 const ACCESS_TOKEN_KEY = "evs-eye-access-token";
 const REFRESH_TOKEN_KEY = "evs-eye-refresh-token";
+const indianMobileInput = (value: string) =>
+  value.replace(/\D/g, "").slice(-10);
 
 async function api(path: string, options: RequestInit = {}) {
   const response = await fetch(`${API_URL}${path}`, {
@@ -52,7 +55,7 @@ export default function PlatformPage() {
         body: JSON.stringify({ phone }),
       })) as { otpRequestId: string };
       setOtpRequestId(data.otpRequestId);
-      setNotice("OTP sent. Enter the six-digit code to continue.");
+      setNotice("OTP sent successfully. Enter the six-digit code below to continue.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to request OTP.");
     } finally {
@@ -88,7 +91,7 @@ export default function PlatformPage() {
         <h1>{otpRequestId ? "Verify your number" : "Super Admin"}</h1>
         <p className="muted">
           {otpRequestId
-            ? `Enter the OTP sent to ${phone}.`
+            ? `Enter the six-digit code sent to ${phone}. Your browser may fill it automatically from your SMS.`
             : "Secure access for EVs Eye platform administrators."}
         </p>
         {!otpRequestId ? (
@@ -96,8 +99,8 @@ export default function PlatformPage() {
             <label>
               Mobile number
               <span className="auth-input">
-                <span>⌕</span>
-                <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+91 91000 00000" type="tel" required />
+                <span className="auth-phone-icon" aria-hidden="true">📱</span>
+                <input value={phone} onChange={(event) => setPhone(indianMobileInput(event.target.value))} placeholder="10-digit mobile number" type="tel" inputMode="numeric" autoComplete="tel" maxLength={10} pattern="[6-9][0-9]{9}" required />
               </span>
             </label>
             <button className="auth-submit" disabled={loading}>
@@ -106,21 +109,19 @@ export default function PlatformPage() {
           </form>
         ) : (
           <form className="auth-form" onSubmit={verifyOtp}>
-            <label>
-              Six-digit OTP
-              <span className="auth-input auth-otp-input">
-                <span>#</span>
-                <input value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} inputMode="numeric" maxLength={6} required autoFocus />
-              </span>
+            <label className="otp-code-label">
+              <span>Six-digit OTP</span>
+              <span className="otp-code-hint">One digit per box. You can type, paste, or use SMS auto-fill.</span>
+              <OtpCodeInput value={code} onChange={setCode} disabled={loading} />
             </label>
-            <button className="auth-submit" disabled={loading}>
+            <button className="auth-submit" disabled={loading || code.length !== 6}>
               {loading ? "Verifying…" : "Verify and enter"}
             </button>
           </form>
         )}
         {notice && <p className="notice auth-message">{notice}</p>}
         {error && <p className="error auth-message">{error}</p>}
-        <Link className="platform-back-link" href="/">Client operations login</Link>
+        <Link className="platform-back-link" href="/">Client Operations Panel Login</Link>
       </section>
     </main>
   );

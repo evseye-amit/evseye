@@ -13,6 +13,7 @@ import {
   UserRole,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { normalizeIndianMobile } from '../common/phone.js';
 import type { CreateRiderDto } from './dto/create-rider.dto.js';
 import type { ListRidersDto } from './dto/list-riders.dto.js';
 import type { UpdateRiderDto } from './dto/update-rider.dto.js';
@@ -28,7 +29,7 @@ export class RidersService {
           data: {
             clientId,
             name: dto.name,
-            mobile: dto.mobile,
+            mobile: normalizeIndianMobile(dto.mobile),
             role: UserRole.RIDER,
           },
         });
@@ -191,7 +192,12 @@ export class RidersService {
         if (existing.userId && (dto.name !== undefined || dto.mobile !== undefined)) {
           await tx.user.update({
             where: { id: existing.userId },
-            data: { name: dto.name, mobile: dto.mobile },
+            data: {
+              ...(dto.name !== undefined ? { name: dto.name } : {}),
+              ...(dto.mobile !== undefined
+                ? { mobile: normalizeIndianMobile(dto.mobile) }
+                : {}),
+            },
           });
         }
         return rider;

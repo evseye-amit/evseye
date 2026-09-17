@@ -31,6 +31,7 @@ import type {
   CreateOemLogoUploadIntentDto,
   CreateFeatureDto,
   CreatePackageFeatureDto,
+  CreatePackageFeatureAssignmentDto,
   CreateFeaturePricingDto,
   CreateOemDto,
   CreatePackageDto,
@@ -40,6 +41,7 @@ import type {
   UpdateFeaturePricingDto,
   UpdateOemDto,
   UpdatePackageDto,
+  UpdatePackageFeatureDto,
   UpdateVehicleCategoryDto,
   UpdateVehicleTypeDto,
 } from './dto/catalog.dto.js';
@@ -623,9 +625,7 @@ export class PlatformCatalogService {
       .then((packages) => this.jsonSafe(packages));
   }
   async createPackage(dto: CreatePackageDto, actorId: string) {
-    const { featureIds = [], packageFeatures, ...data } = dto;
-    const features = this.normalizePackageFeatures(packageFeatures, featureIds);
-    await this.validatePackageFeatures(features);
+    const { featureIds: _featureIds, packageFeatures: _packageFeatures, ...data } = dto;
     const created = await this.createWithAudit(
       'PACKAGE_CREATED',
       'Package',
@@ -633,14 +633,7 @@ export class PlatformCatalogService {
       () =>
         this.prisma.$transaction(async (tx) => {
           return tx.package.create({
-            data: {
-              ...data,
-              features: {
-                create: features.map((feature) =>
-                  this.packageFeatureData(feature),
-                ),
-              },
-            },
+            data,
             include: {
               features: {
                 include: {
@@ -655,32 +648,14 @@ export class PlatformCatalogService {
   }
   async updatePackage(id: string, dto: UpdatePackageDto, actorId: string) {
     await this.exists('package', id);
-    const { featureIds, packageFeatures, ...data } = dto;
-    const features = packageFeatures
-      ? this.normalizePackageFeatures(packageFeatures, [])
-      : featureIds
-        ? this.normalizePackageFeatures(undefined, featureIds)
-        : undefined;
-    if (features) await this.validatePackageFeatures(features);
+    const { featureIds: _featureIds, packageFeatures: _packageFeatures, ...data } = dto;
     const updated = await this.updateWithAudit(
       'PACKAGE_UPDATED',
       'Package',
       id,
       actorId,
       () =>
-        this.prisma.$transaction(async (tx) => {
-          if (features) {
-            await tx.packageFeature.deleteMany({ where: { packageId: id } });
-            for (const feature of features) {
-              await tx.packageFeature.create({
-                data: {
-                  packageId: id,
-                  ...this.packageFeatureData(feature),
-                },
-              });
-            }
-          }
-          return tx.package.update({
+        this.prisma.package.update({
             where: { id },
             data,
             include: {
@@ -690,10 +665,75 @@ export class PlatformCatalogService {
                 },
               },
             },
-          });
+          }),
+    );
+    return this.jsonSafe(updated);
+  }
+  listPackageFeatures() {
+    return this.prisma.packageFeature
+      .findMany({
+        include: { package: true, feature: true },
+        orderBy: [{ package: { name: 'asc' } }, { displayOrder: 'asc' }],
+      })
+      .then((links) => this.jsonSafe(links));
+  }
+  async createPackageFeature(
+    dto: CreatePackageFeatureAssignmentDto,
+    actorId: string,
+  ) {
+    await this.exists('package', dto.packageId);
+    await this.exists('feature', dto.featureId);
+    const { packageId, featureId, ...feature } = dto;
+    try {
+      const created = await this.createWithAudit(
+        'PACKAGE_FEATURE_CREATED',
+        'PackageFeature',
+        actorId,
+        () =>
+          this.prisma.packageFeature.create({
+            data: { packageId, featureId, ...this.packageFeatureData(feature) },
+            include: { package: true, feature: true },
+          }),
+      );
+      return this.jsonSafe(created);
+    } catch (error) {
+      if (this.unique(error)) {
+        throw new ConflictException('This Feature is already assigned to the selected Package.');
+      }
+      throw error;
+    }
+  }
+  async updatePackageFeature(
+    id: string,
+    dto: UpdatePackageFeatureDto,
+    actorId: string,
+  ) {
+    const existing = await this.prisma.packageFeature.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Package Feature not found.');
+    const updated = await this.updateWithAudit(
+      'PACKAGE_FEATURE_UPDATED',
+      'PackageFeature',
+      id,
+      actorId,
+      () =>
+        this.prisma.packageFeature.update({
+          where: { id },
+          data: this.packageFeatureData(dto),
+          include: { package: true, feature: true },
         }),
     );
     return this.jsonSafe(updated);
+  }
+  async deletePackageFeature(id: string, actorId: string) {
+    const existing = await this.prisma.packageFeature.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Package Feature not found.');
+    await this.prisma.packageFeature.delete({ where: { id } });
+    await this.audit.record({
+      actorId,
+      action: 'PACKAGE_FEATURE_DELETED',
+      entityType: 'PackageFeature',
+      entityId: id,
+    });
   }
   async deletePackage(id: string, actorId: string) {
     await this.exists('package', id);
@@ -924,7 +964,10 @@ export class PlatformCatalogService {
     }
   }
 
-  private packageFeatureData(feature: CreatePackageFeatureDto) {
+  private packageFeatureData(
+    feature: Omit<CreatePackageFeatureDto, 'featureId'> &
+      Partial<Pick<CreatePackageFeatureDto, 'featureId'>>,
+  ) {
     const { configuration, ...data } = feature;
     return {
       ...data,

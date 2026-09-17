@@ -26,12 +26,14 @@ import {
   CreateFeaturePricingDto,
   CreateOemDto,
   CreatePackageDto,
+  CreatePackageFeatureAssignmentDto,
   CreateVehicleCategoryDto,
   CreateVehicleTypeDto,
   UpdateFeatureDto,
   UpdateFeaturePricingDto,
   UpdateOemDto,
   UpdatePackageDto,
+  UpdatePackageFeatureDto,
   UpdateVehicleCategoryDto,
   UpdateVehicleTypeDto,
 } from './dto/catalog.dto.js';
@@ -230,6 +232,34 @@ export class PlatformCatalogController {
   ) {
     return this.catalog
       .deletePackage(id, user.id)
+      .then(() => ({ data: { deleted: true } }));
+  }
+  @Get('package-features') packageFeatures() {
+    return this.catalog.listPackageFeatures().then((data) => ({ data }));
+  }
+  @Post('package-features') createPackageFeature(
+    @Body() dto: CreatePackageFeatureAssignmentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.catalog
+      .createPackageFeature(dto, user.id)
+      .then((data) => ({ data }));
+  }
+  @Put('package-features/:id') updatePackageFeature(
+    @Param('id') id: string,
+    @Body() dto: UpdatePackageFeatureDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.catalog
+      .updatePackageFeature(id, dto, user.id)
+      .then((data) => ({ data }));
+  }
+  @Delete('package-features/:id') deletePackageFeature(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.catalog
+      .deletePackageFeature(id, user.id)
       .then(() => ({ data: { deleted: true } }));
   }
   @Get('feature-pricing') pricing() {

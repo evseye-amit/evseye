@@ -16,6 +16,7 @@ import {
 } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { AuditService } from '../audit/audit.service.js';
+import { normalizeIndianMobile } from '../common/phone.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type {
   CreateClientFeatureDto,
@@ -659,7 +660,7 @@ export class PlatformAdminService {
           data: {
             clientId: created.id,
             name: dto.adminName,
-            mobile: dto.adminMobile,
+            mobile: normalizeIndianMobile(dto.adminMobile),
             role: UserRole.CLIENT_ADMIN,
           },
         });
@@ -1225,7 +1226,7 @@ export class PlatformAdminService {
           data: {
             clientId: clientId,
             name: admin.name,
-            mobile: admin.mobile!,
+            mobile: normalizeIndianMobile(admin.mobile!),
             role: UserRole.CLIENT_ADMIN,
             isActive: true,
           },

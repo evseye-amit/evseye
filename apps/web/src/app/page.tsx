@@ -1,12 +1,15 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { OtpCodeInput } from "./components/otp-code-input";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
 const ACCESS_TOKEN_KEY = "evs-eye-access-token";
 const REFRESH_TOKEN_KEY = "evs-eye-refresh-token";
 const AUTH_CHANGED_EVENT = "evs-eye-auth-changed";
+const indianMobileInput = (value: string) =>
+  value.replace(/\D/g, "").slice(-10);
 type Tab =
   | "dashboard"
   | "fleets"
@@ -662,7 +665,7 @@ export default function Home() {
         body: JSON.stringify({ phone, companyCode }),
       })) as { otpRequestId: string };
       setOtpRequestId(data.otpRequestId);
-      setNotice("OTP sent. Enter the six-digit code to continue.");
+      setNotice("OTP sent successfully. Enter the six-digit code below to continue.");
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "Unable to request OTP.",
@@ -1713,14 +1716,16 @@ export default function Home() {
                 <label>
                   Mobile number
                   <span className="auth-input">
-                    <span aria-hidden="true">⌕</span>
+                    <span className="auth-phone-icon" aria-hidden="true">📱</span>
                     <input
                       value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      placeholder="+91 99999 99999"
+                      onChange={(e) => setPhone(indianMobileInput(e.target.value))}
+                      placeholder="10-digit mobile number"
                       type="tel"
-                      inputMode="tel"
+                      inputMode="numeric"
                       autoComplete="tel"
+                      maxLength={10}
+                      pattern="[6-9][0-9]{9}"
                       required
                     />
                   </span>
@@ -1732,26 +1737,12 @@ export default function Home() {
               </form>
             ) : (
               <form onSubmit={verifyOtp} className="auth-form">
-                <label>
-                  Six-digit OTP
-                  <span className="auth-input auth-otp-input">
-                    <span aria-hidden="true">#</span>
-                    <input
-                      value={code}
-                      onChange={(e) =>
-                        setCode(e.target.value.replace(/\D/g, ""))
-                      }
-                      placeholder="Enter verification code"
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      pattern="[0-9]{6}"
-                      maxLength={6}
-                      required
-                      autoFocus
-                    />
-                  </span>
+                <label className="otp-code-label">
+                  <span>Six-digit OTP</span>
+                  <span className="otp-code-hint">One digit per box. You can type, paste, or use SMS auto-fill.</span>
+                  <OtpCodeInput value={code} onChange={setCode} disabled={loading} />
                 </label>
-                <button className="auth-submit" disabled={loading}>
+                <button className="auth-submit" disabled={loading || code.length !== 6}>
                   {loading ? "Verifying…" : "Verify and enter"}
                   <span aria-hidden="true">→</span>
                 </button>

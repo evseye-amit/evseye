@@ -128,8 +128,52 @@ h2 {
 .auth-input input::placeholder {
   color: #a0aaa4;
 }
+.auth-phone-icon {
+  flex: 0 0 auto;
+  font-size: 20px;
+  line-height: 1;
+}
 .auth-otp-input input {
   letter-spacing: 0.18em;
+}
+.otp-code-label {
+  gap: 7px !important;
+}
+.otp-code-hint {
+  color: #63766c;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.42;
+}
+.otp-code-input {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 9px;
+  width: 100%;
+}
+.otp-code-input input {
+  width: 100%;
+  min-width: 0;
+  height: 54px;
+  padding: 0;
+  border: 1px solid #c7d7cd;
+  border-radius: 9px;
+  outline: 0;
+  color: #1f362a;
+  background: #fff;
+  font-size: 23px;
+  font-weight: 800;
+  line-height: 1;
+  text-align: center;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+.otp-code-input input:focus {
+  border-color: #27845e;
+  box-shadow: 0 0 0 3px #2d865d24;
+}
+.otp-code-input input:disabled {
+  cursor: wait;
+  background: #eef3ef;
 }
 .auth-submit {
   display: flex;
@@ -735,8 +779,39 @@ th {
 .platform-login-card .muted {
   color: #b8ded0;
 }
+.platform-login-card .auth-form label {
+  color: #e7f8ef;
+  font-size: 16px;
+  font-weight: 800;
+}
 .platform-login-card .auth-input {
+  color: #39755e;
   background: #ffffffeb;
+}
+.platform-login-card .auth-input input::placeholder {
+  color: #71867b;
+  opacity: 1;
+}
+.platform-login-card .otp-code-hint {
+  color: #c4e5d6;
+}
+.platform-login-card .auth-message.notice {
+  padding: 11px 13px;
+  border: 1px solid #57af82;
+  border-radius: 8px;
+  color: #e0f9e9;
+  background: #15533f;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.platform-login-card .auth-message.error {
+  padding: 11px 13px;
+  border: 1px solid #f1a19a;
+  border-radius: 8px;
+  color: #ffe4df;
+  background: #732b28;
+  font-weight: 700;
+  line-height: 1.4;
 }
 .platform-back-link {
   display: block;
@@ -744,6 +819,9 @@ th {
   color: #d4f4e2;
   font-size: 15px;
   text-align: center;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .platform-shell {
   min-height: 100vh;
@@ -1466,6 +1544,48 @@ body:has(.sa-dialog[open]) {
   outline: 3px solid #2a845f;
   outline-offset: 2px;
 }
+.sa-delete-dialog {
+  width: min(460px, calc(100vw - 32px));
+  background: #fff !important;
+  opacity: 1 !important;
+}
+.sa-delete-dialog .sa-delete-dialog-surface {
+  display: grid;
+  grid-template-columns: 46px 1fr;
+  gap: 16px;
+  padding: 28px !important;
+  color: #1d3026;
+  background: #ffffff !important;
+  box-shadow: 0 24px 70px #071d2640;
+  isolation: isolate;
+}
+.sa-delete-dialog-icon {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  border-radius: 50%;
+  color: #b64135;
+  background: #fce5e1;
+  font-size: 23px;
+  font-weight: 800;
+}
+.sa-delete-dialog-surface h2 {
+  margin: 0;
+  color: #1e3529;
+  font-size: 22px;
+  line-height: 1.25;
+}
+.sa-delete-dialog-surface > div:nth-child(2) > p:last-child {
+  margin: 10px 0 0;
+  color: #536258;
+  font-size: 15px;
+  line-height: 1.55;
+}
+.sa-delete-dialog-surface .sa-dialog-actions {
+  grid-column: 1 / -1;
+  margin-top: 8px;
+}
 .sa-client-picker {
   display: grid;
   gap: 5px;
@@ -1625,7 +1745,8 @@ body:has(.sa-dialog[open]) {
 .sa-bulk-workspace {
   display: grid;
   gap: 24px;
-  max-width: 1180px;
+  width: 100%;
+  max-width: none;
 }
 .sa-bulk-workspace-head {
   display: grid;
@@ -1658,6 +1779,20 @@ body:has(.sa-dialog[open]) {
   border: 1px solid #dfe9e2;
   border-radius: 12px;
   background: #fff;
+}
+.sa-bulk-workspace-body {
+  display: grid;
+  gap: 20px;
+}
+.sa-bulk-workspace-body.has-history {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+.sa-bulk-workspace-body .sa-bulk-upload-card {
+  height: 100%;
+}
+.sa-bulk-history .sa-table-wrap {
+  margin: 0;
 }
 .sa-bulk-section-head {
   display: flex;
@@ -1706,6 +1841,11 @@ body:has(.sa-dialog[open]) {
   grid-column: 1 / -1;
   justify-content: flex-end;
   gap: 10px;
+}
+@media (max-width: 980px) {
+  .sa-bulk-workspace-body.has-history {
+    grid-template-columns: 1fr;
+  }
 }
 .sa-import-status {
   display: inline-flex;

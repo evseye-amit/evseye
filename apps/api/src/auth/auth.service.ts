@@ -15,6 +15,7 @@ import {
   timingSafeEqual,
 } from 'node:crypto';
 import type { Environment } from '../config/environment.js';
+import { indianMobileVariants } from '../common/phone.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from './interfaces/auth-user.interface.js';
 import {
@@ -41,6 +42,7 @@ export class AuthService {
     companyCode?: string,
     requestedIp?: string,
   ) {
+    const mobileCandidates = indianMobileVariants(phone);
     const client = companyCode
       ? await this.prisma.client.findFirst({
           where: {
@@ -67,19 +69,22 @@ export class AuthService {
 
     const user = await this.prisma.user.findFirst({
       where: client
-        ? { clientId: client.id, mobile: phone, isActive: true }
+        ? { clientId: client.id, mobile: { in: mobileCandidates }, isActive: true }
         : {
             clientId: null,
-            mobile: phone,
+            mobile: { in: mobileCandidates },
             role: UserRole.SUPER_ADMIN,
             isActive: true,
           },
-      select: { id: true },
+      select: { id: true, mobile: true },
     });
 
     if (!user) {
       throw new UnauthorizedException('Invalid client or account.');
     }
+    // Use the stored representation for OTP audit and dispatch. This supports
+    // existing records saved as +91XXXXXXXXXX, 0XXXXXXXXXX, or XXXXXXXXXX.
+    phone = user.mobile;
 
     const cooldownAt = new Date(
       Date.now() - this.config.getOrThrow('OTP_RESEND_COOLDOWN_SECONDS') * 1000,

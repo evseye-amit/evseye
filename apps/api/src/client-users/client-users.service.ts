@@ -12,6 +12,7 @@ import {
   UserRole,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { normalizeIndianMobile } from '../common/phone.js';
 import type {
   AssignTeamLeaderRidersDto,
   CreateFleetManagerDto,
@@ -36,7 +37,7 @@ export class ClientUsersService {
           data: {
             clientId,
             name: dto.name,
-            mobile: dto.mobile,
+            mobile: normalizeIndianMobile(dto.mobile),
             role: UserRole.FLEET_MANAGER,
           },
         });
@@ -84,7 +85,7 @@ export class ClientUsersService {
       return await this.prisma.$transaction(async (tx) => {
         const updated = await tx.user.update({
           where: { id: userId },
-          data: { name: dto.name.trim(), mobile: dto.mobile.trim() },
+          data: { name: dto.name.trim(), mobile: normalizeIndianMobile(dto.mobile) },
         });
         await tx.userHub.deleteMany({ where: { userId, clientId } });
         await tx.userHub.createMany({
@@ -194,7 +195,7 @@ export class ClientUsersService {
           data: {
             clientId,
             name: dto.name,
-            mobile: dto.mobile,
+            mobile: normalizeIndianMobile(dto.mobile),
             role: UserRole.TEAM_LEAD,
           },
         });
@@ -242,7 +243,7 @@ export class ClientUsersService {
       return await this.prisma.$transaction(async (tx) => {
         await tx.user.update({
           where: { id: profile.userId },
-          data: { name: dto.name.trim(), mobile: dto.mobile.trim() },
+          data: { name: dto.name.trim(), mobile: normalizeIndianMobile(dto.mobile) },
         });
         return tx.teamLeaderProfile.update({
           where: { id: profileId },
