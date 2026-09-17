@@ -1927,9 +1927,10 @@ function TeamLeaderSetup({ onSaved }: { onSaved: () => void }) {
   const [form, setForm] = useState({
     name: "",
     mobile: "",
-    email: "",
     employeeCode: "",
     designation: "",
+    joiningDate: "",
+    isActive: true,
   });
   const [rows, setRows] = useState<Record<string, string>[]>([]);
   const [filename, setFilename] = useState("");
@@ -1981,9 +1982,10 @@ function TeamLeaderSetup({ onSaved }: { onSaved: () => void }) {
           : "/client/users/team-leaders",
         {
           ...form,
-          email: form.email || undefined,
           employeeCode: form.employeeCode || undefined,
           designation: form.designation || undefined,
+          joiningDate: form.joiningDate || undefined,
+          isActive: form.isActive,
         },
         editingLeaderId ? "PATCH" : "POST",
       );
@@ -2100,12 +2102,16 @@ function TeamLeaderSetup({ onSaved }: { onSaved: () => void }) {
     setForm({
       name: String(user.name ?? ""),
       mobile: String(user.mobile ?? ""),
-      email: "",
       employeeCode: String(leader.employeeCode ?? ""),
       designation: String(leader.designation ?? ""),
+      joiningDate: leader.joiningDate ? String(leader.joiningDate).slice(0, 10) : "",
+      isActive: user.isActive !== false,
     });
     setEditingLeaderId(String(leader.id));
   };
+  const editingLeaderRiderCount = Number(
+    ((existingLeaders.find((leader) => String(leader.id) === editingLeaderId)?._count as Record<string, unknown> | undefined)?.riders) ?? 0,
+  );
   return (
     <section className="client-onboarding-action">
       <div className="client-action-title-row">
@@ -2184,17 +2190,6 @@ function TeamLeaderSetup({ onSaved }: { onSaved: () => void }) {
             />
           </label>
           <label>
-            Email (optional)
-            <input
-              type="email"
-              value={form.email}
-              onChange={(event) =>
-                setForm({ ...form, email: event.target.value })
-              }
-              placeholder="leader@company.com"
-            />
-          </label>
-          <label>
             Employee code (optional)
             <input
               value={form.employeeCode}
@@ -2214,6 +2209,18 @@ function TeamLeaderSetup({ onSaved }: { onSaved: () => void }) {
               placeholder="Delivery Lead"
             />
           </label>
+          <label>
+            Joining date (optional)
+            <input type="date" value={form.joiningDate} onChange={(event) => setForm({ ...form, joiningDate: event.target.value })} />
+          </label>
+          <label>
+            Status *
+            <select required value={form.isActive ? "ACTIVE" : "INACTIVE"} onChange={(event) => setForm({ ...form, isActive: event.target.value === "ACTIVE" })}>
+              <option value="ACTIVE">Active</option>
+              <option value="INACTIVE" disabled={editingLeaderRiderCount > 0}>Inactive</option>
+            </select>
+          </label>
+          {editingLeaderRiderCount > 0 && <p className="muted">Reassign this Team Leader’s riders in the operations panel before deactivating the account.</p>}
           <button disabled={busy} type="submit">
             {busy
               ? "Saving…"

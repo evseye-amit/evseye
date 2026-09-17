@@ -25,6 +25,7 @@ import {
   CreateTeamLeaderDto,
   AssignTeamLeaderRidersDto,
   CreateFleetManagerDto,
+  ReassignTeamLeaderDto,
 } from './dto/create-client-user.dto.js';
 
 @Controller('client/users')
@@ -121,11 +122,12 @@ export class ClientUsersController {
       .updateTeamLeader(this.clients.requireClientId(user), id, dto)
       .then((data) => ({ data }));
   }
-  @Delete('team-leaders/:id') deleteTeamLeader(
+  @Post('team-leaders/:id/reassign') reassignTeamLeader(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
+    @Body() dto: ReassignTeamLeaderDto,
   ) {
-    return this.users.deleteTeamLeader(this.clients.requireClientId(user), id).then((data) => ({ data }));
+    return this.users.reassignTeamLeader(this.clients.requireClientId(user), id, dto.targetTeamLeaderId).then((data) => ({ data }));
   }
   @Post('team-leaders/bulk') bulkTeamLeaders(
     @CurrentUser() user: AuthUser,

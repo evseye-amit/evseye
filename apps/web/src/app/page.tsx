@@ -491,6 +491,8 @@ function clientColumns(tab: Tab): ClientColumn<RecordItem>[] {
       text("mobile", "Mobile", (row) => (row.user as RecordItem | undefined)?.mobile),
       text("employeeCode", "Employee code", (row) => row.employeeCode),
       text("designation", "Designation", (row) => row.designation),
+      text("joiningDate", "Joining date", (row) => row.joiningDate ? String(row.joiningDate).slice(0, 10) : "—"),
+      status("status", "Status", (row) => (row.user as RecordItem | undefined)?.isActive === false ? "INACTIVE" : "ACTIVE"),
     ];
     case "iot-devices": return [
       text("device", "Device", (row) => row.deviceNumber),

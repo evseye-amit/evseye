@@ -220,6 +220,7 @@ export class ClientUsersService {
             name: dto.name,
             mobile: normalizeIndianMobile(dto.mobile),
             role: UserRole.TEAM_LEAD,
+            isActive: dto.isActive ?? true,
           },
         });
         return tx.teamLeaderProfile.create({
@@ -228,6 +229,7 @@ export class ClientUsersService {
             userId: user.id,
             employeeCode: dto.employeeCode,
             designation: dto.designation,
+            joiningDate: dto.joiningDate ? new Date(`${dto.joiningDate}T00:00:00.000Z`) : null,
           },
         });
       });
@@ -248,7 +250,7 @@ export class ClientUsersService {
   listTeamLeaders(clientId: string) {
     return this.prisma.teamLeaderProfile.findMany({
       where: { clientId, deletedAt: null },
-      include: { user: true },
+      include: { user: true, _count: { select: { riders: { where: { isActive: true } } } } },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -265,15 +267,22 @@ export class ClientUsersService {
     await assertUserMobileAvailable(this.prisma, dto.mobile, profile.userId);
     try {
       return await this.prisma.$transaction(async (tx) => {
+        if (dto.isActive === false) {
+          const assigned = await tx.teamLeaderRider.count({
+            where: { clientId, teamLeaderId: profileId, isActive: true },
+          });
+          if (assigned) throw new ConflictException('Reassign this Team Leader’s riders before deactivating the account.');
+        }
         await tx.user.update({
           where: { id: profile.userId },
-          data: { name: dto.name.trim(), mobile: normalizeIndianMobile(dto.mobile) },
+          data: { name: dto.name.trim(), mobile: normalizeIndianMobile(dto.mobile), isActive: dto.isActive ?? true },
         });
         return tx.teamLeaderProfile.update({
           where: { id: profileId },
           data: {
             employeeCode: dto.employeeCode?.trim() || null,
             designation: dto.designation?.trim() || null,
+            joiningDate: dto.joiningDate ? new Date(`${dto.joiningDate}T00:00:00.000Z`) : null,
           },
         });
       });
@@ -285,20 +294,58 @@ export class ClientUsersService {
       throw error;
     }
   }
-  async deleteTeamLeader(clientId: string, profileId: string) {
-    const profile = await this.prisma.teamLeaderProfile.findFirst({
-      where: { id: profileId, clientId, deletedAt: null }, select: { userId: true },
-    });
-    if (!profile) throw new NotFoundException('Team Leader not found.');
-    await this.prisma.$transaction([
-      this.prisma.teamLeaderRider.updateMany({
+  async reassignTeamLeader(clientId: string, profileId: string, targetTeamLeaderId?: string) {
+    if (targetTeamLeaderId === profileId)
+      throw new ConflictException('Choose a different Team Leader for reassignment.');
+    return this.prisma.$transaction(async (tx) => {
+      const source = await tx.teamLeaderProfile.findFirst({
+        where: { id: profileId, clientId, deletedAt: null, user: { isActive: true, deletedAt: null } },
+        select: { userId: true },
+      });
+      if (!source) throw new NotFoundException('Active Team Leader not found.');
+      const assignments = await tx.teamLeaderRider.findMany({
         where: { clientId, teamLeaderId: profileId, isActive: true },
-        data: { isActive: false, removedAt: new Date() },
-      }),
-      this.prisma.teamLeaderProfile.update({ where: { id: profileId }, data: { deletedAt: new Date() } }),
-      this.prisma.user.update({ where: { id: profile.userId }, data: { isActive: false } }),
-    ]);
-    return { deleted: true };
+        select: { riderId: true, isPrimary: true },
+      });
+      if (assignments.length && !targetTeamLeaderId)
+        throw new ConflictException('Select an active Team Leader to receive these riders.');
+      if (targetTeamLeaderId) {
+        const target = await tx.teamLeaderProfile.findFirst({
+          where: { id: targetTeamLeaderId, clientId, deletedAt: null, user: { isActive: true, deletedAt: null } },
+          select: { id: true },
+        });
+        if (!target) throw new NotFoundException('Receiving Team Leader is not active or is outside this client.');
+        for (const assignment of assignments) {
+          const existing = await tx.teamLeaderRider.findUnique({
+            where: { teamLeaderId_riderId: { teamLeaderId: target.id, riderId: assignment.riderId } },
+            select: { isActive: true, isPrimary: true },
+          });
+          if (assignment.isPrimary) {
+            await tx.teamLeaderRider.updateMany({
+              where: { clientId, riderId: assignment.riderId, isActive: true, isPrimary: true },
+              data: { isPrimary: false },
+            });
+          }
+          await tx.teamLeaderRider.upsert({
+            where: { teamLeaderId_riderId: { teamLeaderId: target.id, riderId: assignment.riderId } },
+            create: { clientId, teamLeaderId: target.id, riderId: assignment.riderId, isPrimary: assignment.isPrimary },
+            update: { isActive: true, isPrimary: assignment.isPrimary || (existing?.isActive && existing.isPrimary) || false, assignedAt: new Date(), removedAt: null },
+          });
+        }
+      }
+      const removedAt = new Date();
+      await tx.teamLeaderRider.updateMany({
+        where: { clientId, teamLeaderId: profileId, isActive: true },
+        data: { isActive: false, isPrimary: false, removedAt },
+      });
+      const deactivated = await tx.user.updateMany({
+        where: { id: source.userId, isActive: true, deletedAt: null },
+        data: { isActive: false },
+      });
+      if (deactivated.count !== 1)
+        throw new ConflictException('This Team Leader has already been deactivated. Refresh the table.');
+      return { reassigned: assignments.length, deactivated: true };
+    });
   }
   async bulkCreateTeamLeaders(
     clientId: string,
@@ -376,10 +423,6 @@ export class ClientUsersService {
     teamLeaderId: string,
     dto: AssignTeamLeaderRidersDto,
   ) {
-    const leader = await this.prisma.teamLeaderProfile.findFirst({
-      where: { id: teamLeaderId, clientId, deletedAt: null },
-    });
-    if (!leader) throw new NotFoundException('Team Leader not found.');
     const riderCount = await this.prisma.rider.count({
       where: { id: { in: dto.riderIds }, clientId, deletedAt: null },
     });
@@ -388,6 +431,10 @@ export class ClientUsersService {
         'One or more Riders do not belong to this client.',
       );
     return this.prisma.$transaction(async (tx) => {
+      const leader = await tx.teamLeaderProfile.findFirst({
+        where: { id: teamLeaderId, clientId, deletedAt: null, user: { isActive: true, deletedAt: null } },
+      });
+      if (!leader) throw new NotFoundException('Active Team Leader not found.');
       if (dto.isPrimary !== false)
         await tx.teamLeaderRider.updateMany({
           where: {

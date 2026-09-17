@@ -4,6 +4,7 @@ import {
   ArrayMaxSize,
   IsBoolean,
   IsArray,
+  IsDateString,
   IsEmail,
   IsOptional,
   IsString,
@@ -37,6 +38,12 @@ export class CreateTeamLeaderDto {
   @IsOptional() @IsEmail() @MaxLength(150) email?: string;
   @IsOptional() @IsString() @MaxLength(50) employeeCode?: string;
   @IsOptional() @IsString() @MaxLength(100) designation?: string;
+  @IsOptional() @IsDateString() @Matches(/^\d{4}-\d{2}-\d{2}$/) joiningDate?: string;
+  @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
+export class ReassignTeamLeaderDto {
+  @IsOptional() @IsUUID('4') targetTeamLeaderId?: string;
 }
 
 export class BulkTeamLeaderDto {
