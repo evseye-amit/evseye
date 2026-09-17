@@ -1,3 +1,4 @@
+import { ClientResolutionModule } from '../client-identity/client-resolution.module.js';
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -11,7 +12,7 @@ import { ClientContextService } from './client-context.service.js';
 import type { Environment } from '../config/environment.js';
 
 @Module({
-  imports: [JwtModule.register({})],
+  imports: [JwtModule.register({}), ClientResolutionModule],
   controllers: [AuthController],
   providers: [
     AuthService,
@@ -34,6 +35,7 @@ import type { Environment } from '../config/environment.js';
   ],
   exports: [
     JwtModule,
+    ClientResolutionModule,
     AuthService,
     AccessTokenGuard,
     RolesGuard,

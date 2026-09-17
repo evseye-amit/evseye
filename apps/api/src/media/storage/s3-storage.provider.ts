@@ -6,7 +6,7 @@ import {
   ServerSideEncryption,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Environment } from '../../config/environment.js';
 import type {
@@ -85,10 +85,20 @@ export class S3StorageProvider implements StorageProvider {
       .join('/')}`;
   }
 
-  async assertObjectExists(objectKey: string): Promise<void> {
-    await this.client.send(
+  async assertObjectExists(objectKey: string, image?: { maxBytes: number }): Promise<void> {
+    const metadata = await this.client.send(
       new HeadObjectCommand({ Bucket: this.bucket(), Key: objectKey }),
     );
+    if (image) {
+      const expected = objectKey.endsWith('.png') ? 'image/png' : objectKey.endsWith('.jpg') ? 'image/jpeg' : 'image/webp';
+      if (!metadata.ContentLength || metadata.ContentLength > image.maxBytes || metadata.ContentType !== expected) throw new BadRequestException('Uploaded image has an invalid size or content type.');
+      const object = await this.client.send(new GetObjectCommand({ Bucket: this.bucket(), Key: objectKey, Range: 'bytes=0-11' }));
+      const bytes = Buffer.from(await object.Body!.transformToByteArray());
+      const valid = expected === 'image/png' ? bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))
+        : expected === 'image/jpeg' ? bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
+        : bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP';
+      if (!valid) throw new BadRequestException('Uploaded file is not a supported image.');
+    }
   }
 
   private bucket(): string {

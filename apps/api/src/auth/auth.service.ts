@@ -41,6 +41,7 @@ export class AuthService {
     phone: string,
     companyCode?: string,
     requestedIp?: string,
+    expectedClientId?: string,
   ) {
     const mobileCandidates = indianMobileVariants(phone);
     const client = companyCode
@@ -50,12 +51,10 @@ export class AuthService {
             isActive: true,
             status: {
               in: [
-                'DRAFT',
                 'CREATED',
                 'PENDING_APPROVAL',
                 'ACTIVE',
                 'REJECTED',
-                'SUSPENDED',
               ],
             },
           },
@@ -63,8 +62,8 @@ export class AuthService {
         })
       : null;
 
-    if (companyCode && !client) {
-      throw new UnauthorizedException('Invalid client or account.');
+    if ((companyCode && !client) || (expectedClientId && client?.id !== expectedClientId)) {
+      return { otpRequestId: randomUUID(), expiresAt: new Date(Date.now() + this.config.getOrThrow('OTP_TTL_SECONDS') * 1000) };
     }
 
     const user = await this.prisma.user.findFirst({
@@ -80,7 +79,7 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('Invalid client or account.');
+      return { otpRequestId: randomUUID(), expiresAt: new Date(Date.now() + this.config.getOrThrow('OTP_TTL_SECONDS') * 1000) };
     }
     // Use the stored representation for OTP audit and dispatch. This supports
     // existing records saved as +91XXXXXXXXXX, 0XXXXXXXXXX, or XXXXXXXXXX.
@@ -101,10 +100,8 @@ export class AuthService {
     });
 
     if (recent) {
-      throw new HttpException(
-        'Please wait before requesting another OTP.',
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
+      // Use the same accepted shape for unknown accounts and cooldown requests.
+      return { otpRequestId: randomUUID(), expiresAt: new Date(Date.now() + this.config.getOrThrow('OTP_TTL_SECONDS') * 1000) };
     }
 
     const code = this.generateOtpCode();
@@ -133,12 +130,13 @@ export class AuthService {
     return { otpRequestId: otpRequest.id, expiresAt: otpRequest.expiresAt };
   }
 
-  async verifyLoginOtp(otpRequestId: string, code: string) {
+  async verifyLoginOtp(otpRequestId: string, code: string, expectedClientId?: string) {
     const otp = await this.prisma.otpRequest.findUnique({
       where: { id: otpRequestId },
     });
     if (
       !otp ||
+      (expectedClientId && otp.clientId !== expectedClientId) ||
       otp.purpose !== OtpPurpose.LOGIN ||
       otp.status !== OtpStatus.PENDING
     ) {
@@ -219,10 +217,7 @@ export class AuthService {
       select: { id: true },
     });
     if (recent) {
-      throw new HttpException(
-        'Please wait before requesting another OTP.',
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
+      throw new HttpException('Please wait before requesting another OTP.', HttpStatus.TOO_MANY_REQUESTS);
     }
 
     const code = this.generateOtpCode();
@@ -299,7 +294,7 @@ export class AuthService {
     return { verified: true };
   }
 
-  async refresh(refreshToken: string) {
+  async refresh(refreshToken: string, expectedClientId?: string) {
     let payload: RefreshPayload;
     try {
       payload = await this.jwtService.verifyAsync<RefreshPayload>(
@@ -312,7 +307,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid or expired refresh token.');
     }
 
-    if (payload.typ !== 'refresh' || !payload.sid) {
+    if (payload.typ !== 'refresh' || !payload.sid || (expectedClientId && payload.clientId !== expectedClientId)) {
       throw new UnauthorizedException('Invalid refresh token.');
     }
 
@@ -331,14 +326,15 @@ export class AuthService {
       throw new UnauthorizedException('Refresh session is unavailable.');
     }
 
-    await this.prisma.session.update({
-      where: { id: session.id },
+    const consumed = await this.prisma.session.updateMany({
+      where: { id: session.id, revokedAt: null, expiresAt: { gt: new Date() } },
       data: { revokedAt: new Date() },
     });
+    if (consumed.count !== 1) throw new UnauthorizedException('Refresh session has already been used.');
     const user = await this.prisma.user.findFirst({
       where: { id: payload.id, isActive: true },
     });
-    if (!user) {
+    if (!user || user.clientId !== (payload.clientId ?? null) || (expectedClientId && user.clientId !== expectedClientId)) {
       throw new UnauthorizedException('Account is unavailable.');
     }
 
@@ -351,14 +347,15 @@ export class AuthService {
       : randomInt(100_000, 1_000_000).toString();
   }
 
-  async revokeSession(refreshToken: string): Promise<void> {
+  async revokeSession(refreshToken: string, expectedClientId?: string): Promise<void> {
     const payload = await this.jwtService.verifyAsync<RefreshPayload>(
       refreshToken,
       {
         secret: this.config.getOrThrow('JWT_REFRESH_SECRET'),
       },
     );
-    if (payload.typ === 'refresh') {
+    if (expectedClientId && payload.clientId !== expectedClientId) throw new UnauthorizedException('Invalid refresh token.');
+    if (payload.typ === 'refresh' && payload.sid && payload.id) {
       await this.prisma.session.updateMany({
         where: { id: payload.sid, userId: payload.id, revokedAt: null },
         data: { revokedAt: new Date() },
@@ -367,6 +364,8 @@ export class AuthService {
   }
 
   private async issueTokens(user: User) {
+    if (user.deletedAt) throw new UnauthorizedException('Account is unavailable.');
+    if (user.clientId && !await this.prisma.client.findFirst({ where: { id: user.clientId, isActive: true, status: { notIn: ['DRAFT', 'SUSPENDED'] } }, select: { id: true } })) throw new UnauthorizedException('Account is unavailable.');
     const authUser: AuthUser = {
       id: user.id,
       clientId: user.clientId,
@@ -374,7 +373,7 @@ export class AuthService {
     };
     const sessionId = randomUUID();
     const accessToken = await this.jwtService.signAsync(
-      { ...authUser, typ: 'access' },
+      { ...authUser, sid: sessionId, typ: 'access' },
       {
         secret: this.config.getOrThrow('JWT_ACCESS_SECRET'),
         expiresIn: this.config.getOrThrow('JWT_ACCESS_TTL'),

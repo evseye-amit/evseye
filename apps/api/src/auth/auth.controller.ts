@@ -1,5 +1,8 @@
+import type { FastifyRequest } from 'fastify';
+import { ClientResolverService } from '../client-identity/client-resolver.service.js';
 import {
   Body,
+  Req,
   Controller,
   Get,
   Header,
@@ -18,40 +21,60 @@ import type { AuthUser } from './interfaces/auth-user.interface.js';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly clientsResolver: ClientResolverService,
+  ) {}
 
   @Header('Cache-Control', 'no-store')
   @Post('otp/request')
   @HttpCode(202)
-  async requestLoginOtp(@Body() dto: RequestLoginOtpDto, @Ip() ip: string) {
+  async requestLoginOtp(
+    @Body() dto: RequestLoginOtpDto,
+    @Ip() ip: string,
+    @Req() request: FastifyRequest,
+  ) {
+    const clientContext = await this.clientsResolver.fromRequest(request);
     const data = await this.authService.requestLoginOtp(
       dto.phone,
-      dto.companyCode ?? dto.clientSlug ?? dto.clientSlug,
+      clientContext?.companyCode ?? dto.companyCode ?? dto.clientSlug,
       ip,
+      clientContext?.clientId,
     );
     return { data };
   }
 
   @Header('Cache-Control', 'no-store')
   @Post('otp/verify')
-  async verifyLoginOtp(@Body() dto: VerifyOtpDto) {
+  async verifyLoginOtp(
+    @Body() dto: VerifyOtpDto,
+    @Req() request: FastifyRequest,
+  ) {
     return {
-      data: await this.authService.verifyLoginOtp(dto.otpRequestId, dto.code),
+      data: await this.authService.verifyLoginOtp(
+        dto.otpRequestId,
+        dto.code,
+        (await this.clientsResolver.fromRequest(request))?.clientId,
+      ),
     };
   }
 
   @Header('Cache-Control', 'no-store')
   @Post('refresh')
-  async refresh(@Body() dto: RefreshTokenDto) {
-    return { data: await this.authService.refresh(dto.refreshToken) };
+  async refresh(@Body() dto: RefreshTokenDto, @Req() request: FastifyRequest) {
+    return {
+      data: await this.authService.refresh(
+        dto.refreshToken,
+        (await this.clientsResolver.fromRequest(request))?.clientId,
+      ),
+    };
   }
 
   @Header('Cache-Control', 'no-store')
   @Post('logout')
   @HttpCode(204)
-  @UseGuards(AccessTokenGuard)
-  async logout(@Body() dto: RefreshTokenDto): Promise<void> {
-    await this.authService.revokeSession(dto.refreshToken);
+  async logout(@Body() dto: RefreshTokenDto, @Req() request: FastifyRequest): Promise<void> {
+    await this.authService.revokeSession(dto.refreshToken, (await this.clientsResolver.fromRequest(request))?.clientId);
   }
 
   @Header('Cache-Control', 'no-store')

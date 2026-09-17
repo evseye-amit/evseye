@@ -8,13 +8,15 @@
     "dev:web": "pnpm --filter @evs-eye/web dev",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
-    "test": "pnpm --filter @evs-eye/api test",
+    "test": "pnpm --filter @evs-eye/api test && pnpm test:gateway",
     "test:e2e": "pnpm --filter @evs-eye/api test:e2e",
     "typecheck": "pnpm -r typecheck",
     "verify": "pnpm typecheck && pnpm test && pnpm build",
     "db:generate": "pnpm --filter @evs-eye/api exec prisma generate",
     "db:migrate": "pnpm --filter @evs-eye/api exec prisma migrate dev",
-    "db:seed": "node --env-file=.env apps/api/prisma/seed.mjs"
+    "db:seed": "node --env-file=.env apps/api/prisma/seed.mjs",
+    "test:client-access": "node --env-file=.env scripts/test-client-access.mjs",
+    "test:gateway": "node --test scripts/gateway-security.test.mjs"
   },
   "devDependencies": {
     "prettier": "3.5.3"

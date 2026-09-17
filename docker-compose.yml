@@ -68,6 +68,9 @@ services:
     environment:
       DATABASE_URL: postgresql://evseye:evseye@postgres:5432/evseye?schema=public
       REDIS_URL: redis://redis:6379
+      APP_BASE_DOMAINS: localhost
+      APP_GENERIC_HOSTS: localhost,127.0.0.1
+      CLIENT_PROXY_SECRET: ${CLIENT_PROXY_SECRET:-local-client-gateway-development-secret-please-change}
       S3_BUCKET: evs-eye-local
       S3_ENDPOINT: http://minio:9000
       S3_PUBLIC_ENDPOINT: http://localhost:9000
@@ -134,6 +137,9 @@ services:
       dockerfile: apps/web/Dockerfile
     environment:
       NODE_ENV: production
+      API_INTERNAL_URL: http://api:3000/api/v1
+      CLIENT_PROXY_SECRET: ${CLIENT_PROXY_SECRET:-local-client-gateway-development-secret-please-change}
+      SESSION_COOKIE_SECURE: "false"
       PORT: 3001
     ports:
       - "3001:3001"

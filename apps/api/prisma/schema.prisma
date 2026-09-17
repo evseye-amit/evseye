@@ -444,6 +444,8 @@ model Client {
   companyCode                String?                           @unique
   status                     ClientStatus                      @default(DRAFT)
   isActive                   Boolean                           @default(true)
+  domains                    ClientDomain[]
+  branding                   ClientBranding?
   users                      User[]
   riders                     Rider[]
   photos                     Photo[]
@@ -1520,4 +1522,41 @@ model OtpRequest {
 
   @@index([phone, purpose, createdAt])
   @@index([clientId, status])
+}
+
+enum ClientDomainType {
+  EVSEYE_SUBDOMAIN
+  CUSTOM_DOMAIN
+}
+
+model ClientDomain {
+  id                String           @id @default(uuid())
+  clientId          String
+  client            Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  hostname          String           @unique
+  type              ClientDomainType
+  isPrimary         Boolean          @default(false)
+  isVerified        Boolean          @default(false)
+  verificationToken String           @default(uuid())
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@index([clientId])
+}
+
+model ClientBranding {
+  id               String   @id @default(uuid())
+  clientId         String   @unique
+  client           Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  logoObjectKey    String?
+  faviconObjectKey String?
+  primaryColor     String   @default("#176b4c")
+  secondaryColor   String   @default("#e4f2e9")
+  accentColor      String   @default("#27865f")
+  loginTitle       String   @default("Welcome back")
+  loginSubtitle    String   @default("Sign in to your EV fleet workspace.")
+  supportEmail     String?
+  supportPhone     String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 }

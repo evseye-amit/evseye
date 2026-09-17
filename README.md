@@ -49,3 +49,9 @@ After successful Super Admin client onboarding (not draft saves), the Account Ad
 Configure `EMAIL_PROVIDER=msg91`, `MSG91_AUTH_KEY` in your secret manager, `MSG91_EMAIL_DOMAIN`, `MSG91_EMAIL_FROM`, `MSG91_WELCOME_TEMPLATE_ID`, and `CLIENT_LOGIN_URL` (the public HTTPS Client Operations login URL in production). MSG91 requires a verified sending domain and sender and a published template. Development defaults to `EMAIL_PROVIDER=disabled` to avoid sending to real clients; the HTML file can be opened locally to review layout. No SMTP server is required.
 
 Email is attempted after the client transaction commits. The API returns `welcomeEmail` status, the onboarding confirmation displays it, and `CLIENT_WELCOME_EMAIL` audit entries record the result. Provider acceptance is not proof of inbox delivery; use MSG91 logs for delivery/bounce status. Failures do not roll back or duplicate the client. Automatic retries are not enabled; check MSG91 logs before manually sending a failed welcome email to avoid duplicates following a timeout.
+
+### Client subdomains and branding
+
+See [Client branding and domains](docs/clients/branding-and-domains.md) for the additive migration, local ACME/Blue Mobility demo setup, Client Admin branding settings, domain verification, security review and production deployment requirements. Browser API calls now use the same-origin gateway; configure `API_INTERNAL_URL` and `CLIENT_PROXY_SECRET` on the Next server and the matching gateway secret on the API.
+
+Client-access security regression checks: `pnpm test:client-access` (local demo clients required). For optional HTTPS/Secure-cookie verification, see [the client deployment guide](docs/clients/branding-and-domains.md#production-hardening-local-workflow).

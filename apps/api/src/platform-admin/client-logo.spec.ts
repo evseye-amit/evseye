@@ -5,6 +5,7 @@ import { PlatformAdminService } from './platform-admin.service.js';
 function setup() {
   const prisma = {
     client: { findUnique: vi.fn().mockResolvedValue({ id: 'client-1', status: 'DRAFT' }), findFirst: vi.fn() },
+    clientBranding: { upsert: vi.fn() },
     clientBusinessProfile: { update: vi.fn().mockResolvedValue({}) },
   };
   const storage = { createUploadUrl: vi.fn().mockResolvedValue('upload-url'), createDownloadUrl: vi.fn().mockResolvedValue('logo-url'), assertObjectExists: vi.fn().mockResolvedValue(undefined) };

@@ -47,3 +47,21 @@ describe('Presigned client logo storage', () => {
     }
   });
 });
+
+describe('stored branding image validation', () => {
+  it('rejects oversized files before reading their bytes', async () => {
+    const provider = storage();
+    const send = vi.spyOn(provider['client'], 'send').mockResolvedValue({ ContentLength: 3 * 1024 * 1024, ContentType: 'image/png' } as never);
+    await expect(provider.assertObjectExists('image.png', { maxBytes: 2 * 1024 * 1024 })).rejects.toThrow('invalid size');
+    expect(send).toHaveBeenCalledTimes(1);
+    send.mockRestore();
+  });
+  it('rejects an HTML payload labelled as a PNG', async () => {
+    const provider = storage();
+    const send = vi.spyOn(provider['client'], 'send')
+      .mockResolvedValueOnce({ ContentLength: 100, ContentType: 'image/png' } as never)
+      .mockResolvedValueOnce({ Body: { transformToByteArray: async () => Buffer.from('<html>unsafe') } } as never);
+    await expect(provider.assertObjectExists('image.png', { maxBytes: 2 * 1024 * 1024 })).rejects.toThrow('not a supported image');
+    send.mockRestore();
+  });
+});

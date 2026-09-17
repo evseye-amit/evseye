@@ -1,4 +1,5 @@
 "use client";
+import { sessionFetch as fetch } from "../lib/session-fetch";
 
 import { FormEvent, useEffect, useState } from "react";
 import { OtpCodeInput } from "./components/otp-code-input";
@@ -8,12 +9,14 @@ import { ClientUserManager, parseCsv } from "./components/client-user-manager";
 import { ClientBulkImportWorkspace, type ClientImportHistoryEntry } from "./components/client-bulk-import-workspace";
 import { ClientDeleteDialog, type ClientDeleteConfirmation } from "./components/client-delete-dialog";
 import { ClientFormDialog } from "./components/client-form-dialog";
+import { useClientAppearance } from "./components/client-provider";
+import { ClientBrandingSettings } from "./components/client-branding-settings";
 import { ClientBrand } from "./components/client-brand";
 
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
-const ACCESS_TOKEN_KEY = "evs-eye-access-token";
-const REFRESH_TOKEN_KEY = "evs-eye-refresh-token";
+  "/api/v1";
+const ACCESS_TOKEN_KEY = "evs-eye-session-present";
+const REFRESH_TOKEN_KEY = "evs-eye-session-refreshable";
 const AUTH_CHANGED_EVENT = "evs-eye-auth-changed";
 const indianMobileInput = (value: string) =>
   value.replace(/\D/g, "").slice(-10);
@@ -207,8 +210,7 @@ interface ApiBody {
 }
 
 interface TokenPair {
-  accessToken: string;
-  refreshToken: string;
+  authenticated: boolean;
 }
 
 let refreshInFlight: Promise<string | null> | null = null;
@@ -263,17 +265,17 @@ async function refreshAccessToken(): Promise<string | null> {
       body: JSON.stringify({ refreshToken }),
     });
     const tokens = body.data as Partial<TokenPair> | undefined;
-    if (!response.ok || !tokens?.accessToken || !tokens.refreshToken) {
+    if (!response.ok || !tokens?.authenticated) {
       sessionStorage.removeItem(ACCESS_TOKEN_KEY);
       sessionStorage.removeItem(REFRESH_TOKEN_KEY);
       window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
       return null;
     }
 
-    sessionStorage.setItem(ACCESS_TOKEN_KEY, tokens.accessToken);
-    sessionStorage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
+    sessionStorage.setItem(ACCESS_TOKEN_KEY, "cookie-session");
+    sessionStorage.setItem(REFRESH_TOKEN_KEY, "cookie-session");
     window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
-    return tokens.accessToken;
+    return "cookie-session";
   })().finally(() => {
     refreshInFlight = null;
   });
@@ -536,6 +538,7 @@ function clientColumns(tab: Tab): ClientColumn<RecordItem>[] {
 }
 
 export default function Home() {
+  const { appearance, hostClient } = useClientAppearance();
   const [phone, setPhone] = useState("");
   const [companyCode, setCompanyCode] = useState("");
   const [otpRequestId, setOtpRequestId] = useState("");
@@ -781,7 +784,7 @@ export default function Home() {
     try {
       const data = (await request("/auth/otp/request", {
         method: "POST",
-        body: JSON.stringify({ phone, companyCode }),
+        body: JSON.stringify({ phone, ...(hostClient ? {} : { companyCode }) }),
       })) as { otpRequestId: string };
       setOtpRequestId(data.otpRequestId);
       setNotice("OTP sent successfully. Enter the six-digit code below to continue.");
@@ -803,9 +806,12 @@ export default function Home() {
         method: "POST",
         body: JSON.stringify({ otpRequestId, code }),
       })) as TokenPair;
-      sessionStorage.setItem(ACCESS_TOKEN_KEY, data.accessToken);
-      sessionStorage.setItem(REFRESH_TOKEN_KEY, data.refreshToken);
-      const identity = (await request("/auth/me", {}, data.accessToken)) as {
+      if (!data.authenticated) throw new Error("Sign-in failed.");
+      sessionStorage.removeItem("evs-eye-access-token");
+      sessionStorage.removeItem("evs-eye-refresh-token");
+      sessionStorage.setItem(ACCESS_TOKEN_KEY, "cookie-session");
+      sessionStorage.setItem(REFRESH_TOKEN_KEY, "cookie-session");
+      const identity = (await request("/auth/me", {}, "cookie-session")) as {
         clientId: string | null;
         roles: string[];
       };
@@ -817,7 +823,7 @@ export default function Home() {
         window.location.replace("/client");
         return;
       }
-      setToken(data.accessToken);
+      setToken("cookie-session");
       setNotice("");
     } catch (cause) {
       setError(
@@ -1915,15 +1921,17 @@ export default function Home() {
           <div className="auth-card platform-login-card">
             <ClientBrand companyCode={companyCode} landing />
             <p className="eyebrow">SECURE OPERATIONS ACCESS</p>
-            <h2>{otpRequestId ? "Verify your number" : "Welcome back"}</h2>
+            <h2>{otpRequestId ? "Verify your number" : appearance.branding.loginTitle}</h2>
             <p className="muted">
               {otpRequestId
                 ? `Enter the six-digit code sent to ${phone}.`
-                : "Sign in to your EV fleet workspace."}
+                : appearance.branding.loginSubtitle}
             </p>
+            {appearance.branding.supportEmail && <p><a href={`mailto:${appearance.branding.supportEmail}`}>Contact support</a></p>}
+            {appearance.branding.supportPhone && <p>Support: {appearance.branding.supportPhone}</p>}
             {!otpRequestId ? (
               <form onSubmit={sendOtp} className="auth-form">
-                <label>
+                {!hostClient && <label>
                   Company code *
                  <span className="auth-input">
                     <UiIcon name="building" />
@@ -1935,7 +1943,7 @@ export default function Home() {
                       required
                     />
                   </span>
-                </label>
+                </label>}
                 <label>
                   Mobile number *
                  <span className="auth-input">
@@ -2046,6 +2054,7 @@ export default function Home() {
             </div>
           ))}
         </nav>
+        <ClientBrandingSettings token={token} />
         <div className="sa-user client-sidebar-footer">
           <span aria-hidden="true">C</span>
           <div><strong>Client Operations</strong><small>EVs Eye workspace</small></div>

@@ -1,4 +1,5 @@
 "use client";
+import { sessionFetch as fetch } from "../../../lib/session-fetch";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import {
@@ -11,6 +12,7 @@ import {
   useState,
 } from "react";
 import Link from "next/link";
+import { ClientDomainSettings } from "../../components/client-domain-settings";
 import { ClientLogoUpload } from "../../components/client-logo-upload";
 import { UiIcon, type IconName } from "../../components/ui-icon";
 import {
@@ -24,9 +26,9 @@ import {
 } from "./data-table-filter";
 
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
-const ACCESS_TOKEN_KEY = "evs-eye-access-token";
-const REFRESH_TOKEN_KEY = "evs-eye-refresh-token";
+  "/api/v1";
+const ACCESS_TOKEN_KEY = "evs-eye-session-present";
+const REFRESH_TOKEN_KEY = "evs-eye-session-refreshable";
 type Tab =
   | "dashboard"
   | "clients"
@@ -2066,7 +2068,8 @@ export default function SuperAdminDashboard() {
               ↻ Refresh
             </button>
             <button
-              onClick={() => {
+              onClick={async () => {
+                await fetch("/api/v1/auth/logout", { method: "POST" }).catch(() => undefined);
                 sessionStorage.removeItem(ACCESS_TOKEN_KEY);
                 sessionStorage.removeItem(REFRESH_TOKEN_KEY);
                 setToken("");
@@ -4472,6 +4475,7 @@ function ClientsView({
               >
                 Edit client
               </button>
+              <ClientDomainSettings clientId={item.id} clientName={item.name} />
             </span>
           ) : (
             "—"
@@ -5128,6 +5132,7 @@ function FeaturePricingTiersView({
               item.isActive ? "ACTIVE" : "INACTIVE",
               item.tiers?.length ?? 0,
               <button
+                key={item.id}
                 type="button"
                 onClick={() => setSelectedId(item.id)}
               >

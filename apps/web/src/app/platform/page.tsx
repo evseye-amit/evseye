@@ -1,4 +1,5 @@
 "use client";
+import { sessionFetch as fetch } from "../../lib/session-fetch";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -6,9 +7,9 @@ import { FormEvent, useEffect, useState } from "react";
 import { OtpCodeInput } from "../components/otp-code-input";
 import { UiIcon } from "../components/ui-icon";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
-const ACCESS_TOKEN_KEY = "evs-eye-access-token";
-const REFRESH_TOKEN_KEY = "evs-eye-refresh-token";
+const API_URL = "/api/v1";
+const ACCESS_TOKEN_KEY = "evs-eye-session-present";
+const REFRESH_TOKEN_KEY = "evs-eye-session-refreshable";
 const indianMobileInput = (value: string) =>
   value.replace(/\D/g, "").slice(-10);
 
@@ -72,9 +73,12 @@ export default function PlatformPage() {
       const data = (await api("/auth/otp/verify", {
         method: "POST",
         body: JSON.stringify({ otpRequestId, code }),
-      })) as { accessToken: string; refreshToken: string };
-      sessionStorage.setItem(ACCESS_TOKEN_KEY, data.accessToken);
-      sessionStorage.setItem(REFRESH_TOKEN_KEY, data.refreshToken);
+      })) as { authenticated: boolean };
+      if (!data.authenticated) throw new Error("Sign-in failed.");
+      sessionStorage.removeItem("evs-eye-access-token");
+      sessionStorage.removeItem("evs-eye-refresh-token");
+      sessionStorage.setItem(ACCESS_TOKEN_KEY, "cookie-session");
+      sessionStorage.setItem(REFRESH_TOKEN_KEY, "cookie-session");
       router.replace("/platform/dashboard");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to verify OTP.");

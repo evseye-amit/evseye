@@ -1,10 +1,17 @@
 import { z } from 'zod';
+import { normalizeHostname } from '../client-identity/hostname.js';
+const hostList = z.string().refine(value => {
+  try { return value.split(',').every(host => host.trim() === normalizeHostname(host.trim()) && !host.includes(':')); } catch { return false; }
+}, 'Use comma-separated lowercase hostnames without schemes, paths or ports.');
 
 const environmentSchema = z.object({
   NODE_ENV: z
     .enum(['development', 'test', 'production'])
     .default('development'),
   API_PORT: z.coerce.number().int().positive().default(3000),
+  APP_BASE_DOMAINS: hostList.default('localhost'),
+  APP_GENERIC_HOSTS: hostList.default('localhost,127.0.0.1'),
+  CLIENT_PROXY_SECRET: z.string().min(32).optional(),
   CORS_ORIGINS: z.string().default('http://localhost:3001'),
   DATABASE_URL: z.string().url().optional(),
   REDIS_URL: z.string().url().optional(),
@@ -107,5 +114,19 @@ export function validateEnvironment(
     );
   }
 
+  if (result.data.NODE_ENV === 'production' && (!result.data.CLIENT_PROXY_SECRET || result.data.CLIENT_PROXY_SECRET.includes('development'))) {
+    throw new Error('Configure a random CLIENT_PROXY_SECRET for the client gateway in production.');
+  }
+  if (result.data.NODE_ENV === 'production') {
+    const secrets = [result.data.JWT_ACCESS_SECRET, result.data.JWT_REFRESH_SECRET, result.data.OTP_HASH_SECRET, result.data.CLIENT_PROXY_SECRET];
+    if (new Set(secrets).size !== secrets.length) throw new Error('Production authentication and gateway secrets must be distinct.');
+    const hosts = `${result.data.APP_BASE_DOMAINS},${result.data.APP_GENERIC_HOSTS}`.split(',');
+    if (hosts.some(host => host.includes('localhost') || /^\d+(\.\d+){3}$/.test(host))) throw new Error('Configure public application hostnames in production.');
+    for (const origin of result.data.CORS_ORIGINS.split(',')) {
+      const url = new URL(origin.trim());
+      if (url.protocol !== 'https:' || url.origin !== origin.trim()) throw new Error('Production CORS origins must be exact HTTPS origins.');
+    }
+    if (!result.data.DATABASE_URL) throw new Error('DATABASE_URL is required in production.');
+  }
   return result.data;
 }

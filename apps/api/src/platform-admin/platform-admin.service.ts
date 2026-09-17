@@ -1,3 +1,4 @@
+import { validClientSlug } from '../client-identity/hostname.js';
 import {
   BadRequestException,
   ConflictException,
@@ -58,10 +59,11 @@ export class PlatformAdminService {
     if (!clientId && (!companyCode || !/^[a-z0-9-]{1,80}$/.test(companyCode))) return null;
     const client = await this.prisma.client.findFirst({
       where: { ...(clientId ? { id: clientId } : { companyCode }), isActive: true },
-      select: { name: true, businessProfile: { select: { logoObjectKey: true } } },
+      select: { name: true, branding: { select: { logoObjectKey: true } }, businessProfile: { select: { logoObjectKey: true } } },
     });
     if (!client) return null;
-    return { name: client.name, logoUrl: client.businessProfile?.logoObjectKey ? await this.storage.createDownloadUrl(client.businessProfile.logoObjectKey) : null };
+    const logoKey = client.branding?.logoObjectKey ?? client.businessProfile?.logoObjectKey;
+    return { name: client.name, logoUrl: logoKey ? await this.storage.createDownloadUrl(logoKey) : null };
   }
 
   async createClientLogoUpload(clientId: string, dto: ClientLogoUploadDto) {
@@ -78,8 +80,9 @@ export class PlatformAdminService {
     const prefix = `clients/${clientId}/logo/`;
     if (!dto.objectKey.startsWith(prefix) || !/^[a-f0-9-]{36}\.(png|jpg|webp)$/.test(dto.objectKey.slice(prefix.length)))
       throw new BadRequestException('Invalid client logo upload.');
-    await this.storage.assertObjectExists(dto.objectKey);
+    await this.storage.assertObjectExists(dto.objectKey, { maxBytes: 2 * 1024 * 1024 });
     await this.prisma.clientBusinessProfile.update({ where: { clientId }, data: { logoObjectKey: dto.objectKey } });
+    await this.prisma.clientBranding.upsert({ where: { clientId }, create: { clientId, logoObjectKey: dto.objectKey }, update: { logoObjectKey: dto.objectKey } });
     await this.audit.record({ actorId, action: 'CLIENT_LOGO_UPDATED', entityType: 'Client', entityId: clientId, newData: { logoObjectKey: dto.objectKey, ...this.activeEditAuditData(editable, dto.approvalEmailReference) } });
     return { logoUrl: await this.storage.createDownloadUrl(dto.objectKey) };
   }
@@ -679,6 +682,7 @@ export class PlatformAdminService {
   }
 
   async createClient(dto: CreateClientDto, actorId: string) {
+    if (!validClientSlug(dto.slug)) throw new BadRequestException('Use a URL-safe client slug that is not reserved.');
     await assertUserMobileAvailable(this.prisma, dto.adminMobile);
     try {
       const client = await this.prisma.$transaction(async (tx) => {
@@ -722,6 +726,7 @@ export class PlatformAdminService {
   }
 
   async createClientDraft(dto: CreateClientDraftDto, actorId: string) {
+    if (!validClientSlug(dto.companyCode)) throw new BadRequestException('Use a URL-safe company code that is not reserved.');
     try {
       const client = await this.prisma.$transaction(async (tx) => {
         const created = await tx.client.create({
@@ -772,6 +777,7 @@ export class PlatformAdminService {
       where: { id: clientId },
       include: {
         businessProfile: true,
+        branding: true,
         contacts: true,
         addresses: true,
         operationsProfile: {
@@ -789,7 +795,8 @@ export class PlatformAdminService {
       },
     });
     if (!client) throw new NotFoundException('Client not found.');
-    return { ...client, logoUrl: client.businessProfile?.logoObjectKey ? await this.storage.createDownloadUrl(client.businessProfile.logoObjectKey) : null };
+    const logoKey = client.branding?.logoObjectKey ?? client.businessProfile?.logoObjectKey;
+    return { ...client, logoUrl: logoKey ? await this.storage.createDownloadUrl(logoKey) : null };
   }
 
   async saveBusinessDetails(

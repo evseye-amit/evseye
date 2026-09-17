@@ -1,11 +1,14 @@
 "use client";
+import { sessionFetch as fetch } from "../../lib/session-fetch";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { ClientBrand } from "../components/client-brand";
+import Link from "next/link";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
-const ACCESS_TOKEN_KEY = "evs-eye-access-token";
-const REFRESH_TOKEN_KEY = "evs-eye-refresh-token";
+  "/api/v1";
+const ACCESS_TOKEN_KEY = "evs-eye-session-present";
+const REFRESH_TOKEN_KEY = "evs-eye-session-refreshable";
 
 type Bootstrap = {
   client: {
@@ -57,6 +60,7 @@ type FleetEvidenceStatus = {
 };
 
 export default function ClientHome() {
+  const [brandingToken, setBrandingToken] = useState("");
   const [data, setData] = useState<Bootstrap | null>(null);
   const [dashboard, setDashboard] = useState<ClientDashboard | null>(null);
   const [error, setError] = useState("");
@@ -80,6 +84,7 @@ export default function ClientHome() {
               body.message ??
               "Unable to load client workspace.",
           );
+        setBrandingToken(token);
         setData(body.data);
         if (body.data.route === "DASHBOARD") {
           const dashboardResponse = await fetch(`${API_URL}/client/dashboard`, {
@@ -115,7 +120,7 @@ export default function ClientHome() {
         <section>
           <h1>Unable to open workspace</h1>
           <p>{error}</p>
-          <a href="/">Return to login</a>
+          <Link href="/">Return to login</Link>
         </section>
       </main>
     );
@@ -166,6 +171,7 @@ export default function ClientHome() {
   return (
     <main className="client-workspace">
       <aside className="client-onboarding-sidebar">
+        <ClientBrand token={brandingToken} />
         <p className="eyebrow">CLIENT ONBOARDING</p>
         <h1>Set up {data.client.name}</h1>
         <p>
@@ -1720,10 +1726,10 @@ function FleetEvidenceSetup({
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const token = () => sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? "";
-  const reload = async () => {
+  const fetchEvidence = useCallback(async () => {
     const response = await fetch(
       `${API_URL}/fleets/${fleet.id}/onboarding-status`,
-      { headers: { Authorization: `Bearer ${token()}` } },
+      { headers: { Authorization: `Bearer ${sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? ""}` } },
     );
     const body = await response.json();
     if (!response.ok) {
@@ -1731,17 +1737,18 @@ function FleetEvidenceSetup({
         body.error?.message ?? body.message ?? "Unable to load Fleet evidence.",
       );
     }
-    setEvidence(body.data);
-  };
+    return body.data as FleetEvidenceStatus;
+  }, [fleet.id]);
+  const reload = async () => setEvidence(await fetchEvidence());
   useEffect(() => {
-    reload().catch((cause: unknown) =>
+    fetchEvidence().then(setEvidence).catch((cause: unknown) =>
       setMessage(
         cause instanceof Error
           ? cause.message
           : "Unable to load Fleet evidence.",
       ),
     );
-  }, []);
+  }, [fetchEvidence]);
   const upload = async (
     entityType: string,
     entityId: string,
@@ -2716,24 +2723,25 @@ function HubSetup({ onSaved }: { onSaved: () => void }) {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const token = () => sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? "";
-  const loadHubs = async () => {
+  const fetchHubs = useCallback(async () => {
     const response = await fetch(`${API_URL}/hubs`, {
-      headers: { Authorization: `Bearer ${token()}` },
+      headers: { Authorization: `Bearer ${sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? ""}` },
     });
     const result = await response.json();
     if (!response.ok)
       throw new Error(
         result.error?.message ?? result.message ?? "Unable to load Hubs.",
       );
-    setExistingHubs(result.data ?? []);
-  };
+    return result.data ?? [];
+  }, []);
+  const loadHubs = async () => setExistingHubs(await fetchHubs());
   useEffect(() => {
-    loadHubs().catch((cause: unknown) =>
+    fetchHubs().then(setExistingHubs).catch((cause: unknown) =>
       setMessage(
         cause instanceof Error ? cause.message : "Unable to load Hubs.",
       ),
     );
-  }, []);
+  }, [fetchHubs]);
   const request = async (path: string, body: unknown, method = "POST") => {
     const response = await fetch(`${API_URL}${path}`, {
       method,
@@ -3347,7 +3355,7 @@ function ClientDashboardView({
           <h1>{client.name}</h1>
           <p>Live operational overview for your fleet workspace.</p>
         </div>
-        <a href="/?workspace=operations">Operations workspace</a>
+        <Link href="/?workspace=operations">Operations workspace</Link>
       </header>
 
       {!dashboard ? (
@@ -3425,7 +3433,8 @@ function ClientDashboardView({
 }
 
 function Gate({ title, text }: { title: string; text: string }) {
-  const returnToLogin = () => {
+  const returnToLogin = async () => {
+    await fetch("/api/v1/auth/logout", { method: "POST" }).catch(() => undefined);
     sessionStorage.removeItem(ACCESS_TOKEN_KEY);
     sessionStorage.removeItem(REFRESH_TOKEN_KEY);
     window.location.assign("/");

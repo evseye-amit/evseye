@@ -1,3 +1,4 @@
+import { ClientResolverService } from './client-identity/client-resolver.service.js';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import { ValidationPipe } from '@nestjs/common';
@@ -20,7 +21,7 @@ export async function createApplication(): Promise<NestFastifyApplication> {
     new FastifyAdapter({
       logger: {
         redact: {
-          paths: ['req.headers.authorization', 'req.headers.cookie'],
+          paths: ['req.headers.authorization', 'req.headers.cookie', 'req.headers["x-client-proxy-secret"]'],
           remove: true,
         },
       },
@@ -34,8 +35,17 @@ export async function createApplication(): Promise<NestFastifyApplication> {
 
   await app.register(helmet as never);
   await app.register(cors as never, {
-    credentials: true,
-    origin: origins,
+    credentials: false,
+    origin: async (origin: string | undefined) => {
+      if (!origin) return true;
+      try {
+        const url = new URL(origin);
+        if (config.get('NODE_ENV') === 'production' && url.protocol !== 'https:') return false;
+        if (!['https:', 'http:'].includes(url.protocol) || url.origin !== origin) return false;
+        if (origins.includes(origin)) return true;
+        return Boolean(await app.get(ClientResolverService).resolve(url.host));
+      } catch { return false; }
+    },
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
   const fastify = app.getHttpAdapter().getInstance() as FastifyInstance;

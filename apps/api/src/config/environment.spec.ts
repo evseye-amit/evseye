@@ -71,3 +71,14 @@ describe('validateEnvironment', () => {
     ).toThrow();
   });
 });
+
+describe('client deployment configuration', () => {
+  it('rejects malformed configured base domains', () => {
+    expect(() => validateEnvironment({ APP_BASE_DOMAINS: 'https://example.com/path' })).toThrow();
+    expect(() => validateEnvironment({ APP_BASE_DOMAINS: 'example.com:443' })).toThrow();
+    expect(validateEnvironment({ APP_BASE_DOMAINS: 'example.com,localhost' }).APP_BASE_DOMAINS).toBe('example.com,localhost');
+  });
+  it('rejects shared production signing secrets', () => {
+    expect(() => validateEnvironment({ NODE_ENV: 'production', S3_BUCKET: 'private', MEDIA_PUBLIC_BASE_URL: 'https://media.example.com', KYC_PROVIDER: 'live', SMS_PROVIDER: 'live', JWT_ACCESS_SECRET: 'a'.repeat(40), JWT_REFRESH_SECRET: 'a'.repeat(40), OTP_HASH_SECRET: 'c'.repeat(40), CLIENT_PROXY_SECRET: 'd'.repeat(40) })).toThrow('must be distinct');
+  });
+});

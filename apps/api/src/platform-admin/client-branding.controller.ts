@@ -1,4 +1,4 @@
-import { Controller, Get, Header, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Header, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
@@ -10,8 +10,9 @@ export class ClientBrandingController {
 
   @Get('public')
   @Header('Cache-Control', 'no-store')
-  async publicBranding(@Query('companyCode') companyCode: string) {
-    return { data: await this.platform.clientBranding(undefined, companyCode) };
+  async publicBranding() {
+    // Legacy company-code discovery is disabled; resolve public branding by host instead.
+    return { data: null };
   }
 
   @Get()

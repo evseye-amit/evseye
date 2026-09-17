@@ -3956,3 +3956,20 @@ body:has(.sa-dialog[open]) {
     width: 100%;
   }
 }
+
+.client-theme-root { min-height: 100vh; }
+.client-theme-root .client-login .auth-submit,
+.client-theme-root .client-operations-shell .sa-actions > button:not(.secondary):not(.danger),
+.client-theme-root .client-operations-shell .form-actions > button:not(.secondary):not(.danger) { background-color: var(--client-primary); color: var(--client-on-primary); }
+.client-theme-root .client-operations-shell .secondary,
+.client-theme-root .client-operations-shell .sa-sidebar nav button.active { background-color: var(--client-secondary); color: var(--client-on-secondary); }
+.client-theme-root .client-login input:focus,
+.client-theme-root .client-operations-shell input:focus { outline-color: var(--client-accent); }
+.client-branding-settings { max-width: 760px; }
+.client-branding-settings .branding-colors { display: flex; flex-wrap: wrap; gap: 20px; }
+.client-branding-settings input[type="color"] { width: 80px; height: 44px; }
+
+.client-domain-list { display: grid; gap: 1rem; margin: 1rem 0; }
+.client-domain-card { border: 1px solid var(--border, #dce6df); border-radius: 10px; padding: 1rem; }
+.client-domain-card code { overflow-wrap: anywhere; font-size: .85rem; }
+.client-domain-card h3 { margin-top: 0; overflow-wrap: anywhere; }

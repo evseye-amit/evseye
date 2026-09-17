@@ -1,3 +1,4 @@
+import { ClientIdentityModule } from './client-identity/client-identity.module.js';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
@@ -39,6 +40,7 @@ import { ClientUsersModule } from './client-users/client-users.module.js';
       ],
     }),
     PrismaModule,
+    ClientIdentityModule,
     AuthModule,
     RidersModule,
     PlatformAdminModule,
