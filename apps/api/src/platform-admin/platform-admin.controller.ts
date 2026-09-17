@@ -30,6 +30,7 @@ import {
   CreateClientDraftDto,
   UpdateClientAgreementDto,
   UpdateClientBillingDto,
+  UpdateClientBusinessDetailsDto,
   UpdateClientContactsAndAddressDto,
   UpdateClientOperationsDto,
   UpdateClientPackageSelectionDto,
@@ -61,6 +62,16 @@ export class PlatformAdminController {
   }
   @Get('clients/:clientId') clientDetail(@Param('clientId') clientId: string) {
     return this.platform.clientDetail(clientId).then((data) => ({ data }));
+  }
+  @Patch('clients/:clientId/business-details')
+  businessDetails(
+    @Param('clientId') clientId: string,
+    @Body() dto: UpdateClientBusinessDetailsDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform
+      .saveBusinessDetails(clientId, dto, user.id)
+      .then((data) => ({ data }));
   }
   @Get('clients/:clientId/entitlements') clientEntitlements(
     @Param('clientId') clientId: string,

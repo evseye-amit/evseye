@@ -25,6 +25,18 @@ import {
 
 const phone = /^\+?[1-9]\d{7,14}$/;
 
+/**
+ * Required only when a Super Admin edits an ACTIVE client.  The platform does
+ * not send or validate email itself; this reference links the audited change
+ * to the approval retained by the operations team.
+ */
+class ActiveClientEditApprovalDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  approvalEmailReference?: string;
+}
+
 export class CreateClientDraftDto {
   @IsString() @MaxLength(120) businessFleetName!: string;
   @IsString() @Matches(/^[a-z0-9-]+$/) @MaxLength(80) companyCode!: string;
@@ -56,7 +68,7 @@ export class CreateClientDraftDto {
   @IsOptional() @IsInt() @Min(0) estimatedUserCount?: number;
 }
 
-export class UpdateClientContactsAndAddressDto {
+export class UpdateClientContactsAndAddressDto extends ActiveClientEditApprovalDto {
   @IsString() @MaxLength(120) primaryContactName!: string;
   @IsString() @MaxLength(100) primaryDesignation!: string;
   @IsString() @Matches(phone) primaryMobile!: string;
@@ -123,7 +135,7 @@ export class UpdateClientContactsAndAddressDto {
   billingPinCode?: string;
 }
 
-export class UpdateClientOperationsDto {
+export class UpdateClientOperationsDto extends ActiveClientEditApprovalDto {
   @IsEnum(FleetBusinessModel) fleetBusinessModel!: FleetBusinessModel;
   @IsInt() @Min(1) numberOfFleets!: number;
   @IsInt() @Min(0) approximateRiderCount!: number;
@@ -135,7 +147,7 @@ export class UpdateClientOperationsDto {
   @IsOptional() @IsInt() @Min(0) operationalHubCount?: number;
 }
 
-export class UpdateClientPackageSelectionDto {
+export class UpdateClientPackageSelectionDto extends ActiveClientEditApprovalDto {
   @IsString() packageId!: string;
   @IsEnum(BillingCycle) billingCycle!: BillingCycle;
   @IsDateString() startDate!: string;
@@ -144,7 +156,7 @@ export class UpdateClientPackageSelectionDto {
   @IsBoolean() autoRenew!: boolean;
 }
 
-export class UpdateClientBillingDto {
+export class UpdateClientBillingDto extends ActiveClientEditApprovalDto {
   @IsString() @MaxLength(120) billingContactName!: string;
   @IsEmail() @MaxLength(180) billingEmail!: string;
   @IsOptional() @IsString() @Matches(phone) billingMobile?: string;
@@ -156,7 +168,7 @@ export class UpdateClientBillingDto {
   @IsOptional() @IsString() @MaxLength(200) paymentTerms?: string;
 }
 
-export class UpdateClientAgreementDto {
+export class UpdateClientAgreementDto extends ActiveClientEditApprovalDto {
   @IsString() @MaxLength(120) authorizedSignatoryName!: string;
   @IsString() @MaxLength(100) designation!: string;
   @IsBoolean() termsAccepted!: boolean;
@@ -166,7 +178,7 @@ export class UpdateClientAgreementDto {
   @IsOptional() @IsBoolean() marketingConsent?: boolean;
 }
 
-export class CreateClientDocumentUploadIntentDto {
+export class CreateClientDocumentUploadIntentDto extends ActiveClientEditApprovalDto {
   @IsString() documentType!: string;
   @IsOptional() @IsString() @MaxLength(100) documentNumber?: string;
   @IsOptional() @IsDateString() issueDate?: string;
@@ -176,4 +188,31 @@ export class CreateClientDocumentUploadIntentDto {
   @IsIn(['application/pdf', 'image/jpeg', 'image/png'])
   mimeType!: string;
   @IsInt() @Min(1) sizeBytes!: number;
+}
+
+export class UpdateClientBusinessDetailsDto extends ActiveClientEditApprovalDto {
+  @IsString() @MaxLength(120) businessFleetName!: string;
+  @IsString() @MaxLength(180) legalEntityName!: string;
+  @IsString() @MaxLength(60) businessType!: string;
+  @IsString() @MaxLength(60) clientType!: string;
+  @IsOptional() @IsEnum(ClientIndustry) industry?: ClientIndustry;
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toUpperCase() : value,
+  )
+  @IsString()
+  @MaxLength(20)
+  pan!: string;
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toUpperCase() : value,
+  )
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  gstin?: string;
+  @IsOptional() @IsString() @MaxLength(30) cinOrLlpin?: string;
+  @IsOptional() @IsUrl() website?: string;
+  @IsOptional() @IsInt() @Min(1800) yearEstablished?: number;
+  @IsInt() @Min(0) estimatedFleetSize!: number;
+  @IsInt() @Min(0) estimatedRiderCount!: number;
+  @IsOptional() @IsInt() @Min(0) estimatedUserCount?: number;
 }

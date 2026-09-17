@@ -526,6 +526,8 @@ export default function SuperAdminDashboard() {
   const [clientDocumentFiles, setClientDocumentFiles] = useState<
     Record<string, File | undefined>
   >({});
+  const [activeClientEdit, setActiveClientEdit] = useState(false);
+  const [approvalEmailReference, setApprovalEmailReference] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -787,12 +789,16 @@ export default function SuperAdminDashboard() {
       setClientDocumentFiles({});
       setClientStep(1);
     }
+    setActiveClientEdit(false);
+    setApprovalEmailReference("");
     setError("");
     setNotice("");
     setShowClientForm(true);
   }
   function closeClientModal() {
     setError("");
+    setActiveClientEdit(false);
+    setApprovalEmailReference("");
     setShowClientForm(false);
   }
   async function submitOem(event: FormEvent) {
@@ -1432,7 +1438,43 @@ export default function SuperAdminDashboard() {
       async () => {
         const numberOrUndefined = (value: unknown) =>
           value === "" || value === undefined ? undefined : Number(value);
+        const activeEditApproval = activeClientEdit
+          ? { approvalEmailReference: approvalEmailReference.trim() }
+          : {};
+        if (activeClientEdit && !approvalEmailReference.trim()) {
+          throw new Error(
+            "Enter the approved email reference before saving an active Client.",
+          );
+        }
         if (clientStep === 1) {
+          if (activeClientEdit && client.id) {
+            await request(
+              `/platform/clients/${client.id}/business-details`,
+              {
+                method: "PATCH",
+                body: JSON.stringify({
+                  businessFleetName: client.businessFleetName,
+                  legalEntityName: client.legalEntityName,
+                  businessType: client.businessType,
+                  clientType: client.clientType,
+                  industry: client.industry || undefined,
+                  pan: client.pan,
+                  gstin: client.gstin || undefined,
+                  cinOrLlpin: client.cinOrLlpin || undefined,
+                  website: client.website || undefined,
+                  yearEstablished: numberOrUndefined(client.yearEstablished),
+                  estimatedFleetSize: Number(client.estimatedFleetSize),
+                  estimatedRiderCount: Number(client.estimatedRiderCount),
+                  estimatedUserCount: numberOrUndefined(
+                    client.estimatedUserCount,
+                  ),
+                  ...activeEditApproval,
+                }),
+              },
+              token,
+            );
+            return;
+          }
           const created = await request(
             "/platform/clients/drafts",
             {
@@ -1503,6 +1545,7 @@ export default function SuperAdminDashboard() {
                 ...(client.country ? { country: client.country } : {}),
                 pinCode: client.pinCode,
                 billingSameAsRegistered: client.billingSameAsRegistered,
+                ...activeEditApproval,
                 ...(client.billingSameAsRegistered
                   ? {}
                   : {
@@ -1544,6 +1587,7 @@ export default function SuperAdminDashboard() {
                 operationalHubCount: numberOrUndefined(
                   client.operationalHubCount,
                 ),
+                ...activeEditApproval,
               }),
             },
             token,
@@ -1563,6 +1607,7 @@ export default function SuperAdminDashboard() {
                 endDate: client.endDate || undefined,
                 trialRequired: client.trialRequired,
                 autoRenew: client.autoRenew,
+                ...activeEditApproval,
               }),
             },
             token,
@@ -1582,6 +1627,7 @@ export default function SuperAdminDashboard() {
                 purchaseOrderRequired: client.purchaseOrderRequired,
                 poNumber: client.poNumber || undefined,
                 paymentTerms: client.paymentTerms || undefined,
+                ...activeEditApproval,
               }),
             },
             token,
@@ -1599,6 +1645,7 @@ export default function SuperAdminDashboard() {
                   fileName: file.name,
                   mimeType: file.type,
                   sizeBytes: file.size,
+                  ...activeEditApproval,
                 }),
               },
               token,
@@ -1619,6 +1666,7 @@ export default function SuperAdminDashboard() {
           setClientStep(6);
           return;
         }
+        if (activeClientEdit) return;
         await request(
           `/platform/clients/${client.id}/agreement`,
           {
@@ -1642,13 +1690,17 @@ export default function SuperAdminDashboard() {
         );
       },
       clientStep === 6
-        ? "Client workspace created. The Client Admin can now sign in."
+        ? activeClientEdit
+          ? "Approved Client changes saved."
+          : "Client workspace created. The Client Admin can now sign in."
         : "Draft saved.",
       () => {
         if (clientStep === 6) {
           setClient(emptyClient);
           setClientDocumentFiles({});
           setClientStep(1);
+          setActiveClientEdit(false);
+          setApprovalEmailReference("");
           setShowClientForm(false);
         }
       },
@@ -1827,9 +1879,14 @@ export default function SuperAdminDashboard() {
         uploadedDocuments: detail.documents ?? [],
       }));
       setClientDocumentFiles({});
+      const isActiveClient = detail.status === "ACTIVE";
+      setActiveClientEdit(isActiveClient);
+      setApprovalEmailReference("");
       setShowClientForm(true);
       setClientStep(
-        !primary.id || !registered.id
+        isActiveClient
+          ? 1
+          : !primary.id || !registered.id
           ? 2
           : !operations.id
             ? 3
@@ -1839,7 +1896,7 @@ export default function SuperAdminDashboard() {
                 ? 5
                 : 6,
       );
-    }, "Draft loaded. Continue from the next incomplete step.");
+    }, "Client loaded.");
   }
   if (!token)
     return (
@@ -2069,6 +2126,9 @@ export default function SuperAdminDashboard() {
             approveClient={approveClient}
             rejectClient={rejectClient}
             editClient={editClientDraft}
+            activeClientEdit={activeClientEdit}
+            approvalEmailReference={approvalEmailReference}
+            setApprovalEmailReference={setApprovalEmailReference}
           />
         )}
         {tab === "clientFeaturesPricing" && (
@@ -3828,6 +3888,9 @@ function ClientsView({
   approveClient,
   rejectClient,
   editClient,
+  activeClientEdit,
+  approvalEmailReference,
+  setApprovalEmailReference,
 }: any) {
   const stepHeadingRef = useRef<HTMLHeadingElement>(null);
   const stepHeadingId = useId();
@@ -3971,8 +4034,12 @@ function ClientsView({
       </section>
       <CatalogFormDialog
         open={showForm}
-        title="Client onboarding"
-        description="Onboard a client through six saved steps, then create its workspace."
+        title={activeClientEdit ? "Edit active Client" : "Client onboarding"}
+        description={
+          activeClientEdit
+            ? "Save only changes covered by the approved email reference. Every update is recorded in the audit log."
+            : "Onboard a client through six saved steps, then create its workspace."
+        }
         error={error}
         busy={loading}
         size="wide"
@@ -4001,12 +4068,40 @@ function ClientsView({
               </button>
             )}
             <button type="submit" disabled={loading}>
-              {step === 6 ? "Create client workspace" : "Save & continue"}
+              {step === 6
+                ? activeClientEdit
+                  ? "Finish"
+                  : "Create client workspace"
+                : activeClientEdit
+                  ? "Save approved changes"
+                  : "Save & continue"}
             </button>
           </>
         }
       >
-        <div className="sa-client-wizard">
+        <>
+          {activeClientEdit && (
+            <label className="sa-active-client-approval">
+              <span className="sa-label-text">
+                Approved email reference
+                <span className="sa-required-star">*</span>
+              </span>
+              <input
+                value={approvalEmailReference}
+                onChange={(event) =>
+                  setApprovalEmailReference(event.target.value)
+                }
+                placeholder="Email subject, ticket ID, or approval date"
+                required
+                maxLength={500}
+              />
+              <small>
+                Keep the approval email in your records. This reference is stored
+                with each Client change in the audit log.
+              </small>
+            </label>
+          )}
+          <div className="sa-client-wizard">
           <nav className="sa-client-stepper" aria-label="Client onboarding steps">
             <ol>
               {clientStepLabels.map((label, index) => {
@@ -4026,7 +4121,17 @@ function ClientsView({
                     <span className="sa-client-step-number" aria-hidden="true">
                       {stepNumber}
                     </span>
-                    <span>{label}</span>
+                    {activeClientEdit ? (
+                      <button
+                        type="button"
+                        className="sa-client-step-jump"
+                        onClick={() => setStep(stepNumber)}
+                      >
+                        {label}
+                      </button>
+                    ) : (
+                      <span>{label}</span>
+                    )}
                   </li>
                 );
               })}
@@ -4066,6 +4171,9 @@ function ClientsView({
                 requiredKeys={requiredFields}
                 inputTypes={inputTypes}
                 softWarnings={step === 1 ? softWarnings : undefined}
+                disabledKeys={
+                  activeClientEdit && step === 1 ? ["companyCode"] : undefined
+                }
               />
               {step === 1 && (
                 <>
@@ -4331,7 +4439,14 @@ function ClientsView({
                 </>
               )}
               {step === 6 && (
-                <>
+                activeClientEdit ? (
+                  <p className="muted">
+                    Review the approved updates, then select Finish. The Client
+                    remains active and every saved change is linked to the email
+                    reference above.
+                  </p>
+                ) : (
+                  <>
                   <p className="muted">
                     Review the saved Client profile, contacts, operations,
                     package, billing, and uploaded documents. Creating the
@@ -4387,11 +4502,13 @@ function ClientsView({
                     />{" "}
                     Marketing consent
                   </label>
-                </>
+                  </>
+                )
               )}
             </div>
           </section>
-        </div>
+          </div>
+        </>
       </CatalogFormDialog>
 
       <DataTable
@@ -4427,6 +4544,17 @@ function ClientsView({
                 Reject
               </button>
             </span>
+          ) : item.status === "ACTIVE" ? (
+            <span className="sa-client-actions" key={item.id}>
+              <button
+                type="button"
+                onClick={(event) =>
+                  void editClient(item.id, event.currentTarget)
+                }
+              >
+                Edit client
+              </button>
+            </span>
           ) : (
             "—"
           ),
@@ -4442,6 +4570,7 @@ function TextFields({
   requiredKeys,
   inputTypes,
   softWarnings,
+  disabledKeys,
 }: {
   value: Item;
   change: (key: string, value: string) => void;
@@ -4449,6 +4578,7 @@ function TextFields({
   requiredKeys?: string[];
   inputTypes?: Record<string, "email" | "tel" | "url">;
   softWarnings?: Record<string, string>;
+  disabledKeys?: string[];
 }) {
   const defaultRequiredFields = [
     "code",
@@ -4528,6 +4658,7 @@ function TextFields({
               }
               onChange={(event) => change(key, event.target.value)}
               required={isRequired}
+              disabled={disabledKeys?.includes(key)}
             />
             {softWarnings?.[key] && (
               <small className="sa-field-warning">{softWarnings[key]}</small>

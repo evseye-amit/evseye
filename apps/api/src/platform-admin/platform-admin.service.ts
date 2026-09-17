@@ -32,6 +32,7 @@ import type {
   CreateClientDraftDto,
   UpdateClientAgreementDto,
   UpdateClientBillingDto,
+  UpdateClientBusinessDetailsDto,
   UpdateClientContactsAndAddressDto,
   UpdateClientOperationsDto,
   UpdateClientPackageSelectionDto,
@@ -752,12 +753,58 @@ export class PlatformAdminService {
     return client;
   }
 
+  async saveBusinessDetails(
+    clientId: string,
+    dto: UpdateClientBusinessDetailsDto,
+    actorId: string,
+  ) {
+    const editable = await this.requireEditableClient(
+      clientId,
+      dto.approvalEmailReference,
+    );
+    const { approvalEmailReference: _approvalEmailReference, ...profile } = dto;
+    await this.prisma.$transaction([
+      this.prisma.client.update({
+        where: { id: clientId },
+        data: { name: dto.businessFleetName },
+      }),
+      this.prisma.clientBusinessProfile.update({
+        where: { clientId },
+        data: {
+          legalCompanyName: profile.legalEntityName,
+          clientType: profile.clientType,
+          businessType: profile.businessType,
+          industry: profile.industry,
+          gstin: profile.gstin,
+          pan: profile.pan,
+          cinOrLlpin: profile.cinOrLlpin,
+          website: profile.website,
+          yearEstablished: profile.yearEstablished,
+          estimatedFleetSize: profile.estimatedFleetSize,
+          estimatedRiderCount: profile.estimatedRiderCount,
+          estimatedUserCount: profile.estimatedUserCount,
+        },
+      }),
+    ]);
+    await this.audit.record({
+      actorId,
+      action: 'CLIENT_BUSINESS_DETAILS_UPDATED',
+      entityType: 'Client',
+      entityId: clientId,
+      newData: this.activeEditAuditData(editable, dto.approvalEmailReference),
+    });
+    return this.clientDetail(clientId);
+  }
+
   async saveContactsAndAddress(
     clientId: string,
     dto: UpdateClientContactsAndAddressDto,
     actorId: string,
   ) {
-    await this.requireDraftClient(clientId);
+    const editable = await this.requireEditableClient(
+      clientId,
+      dto.approvalEmailReference,
+    );
     const primary = {
       name: dto.primaryContactName,
       designation: dto.primaryDesignation,
@@ -827,6 +874,7 @@ export class PlatformAdminService {
       action: 'CLIENT_CONTACTS_AND_ADDRESS_SAVED',
       entityType: 'Client',
       entityId: clientId,
+      newData: this.activeEditAuditData(editable, dto.approvalEmailReference),
     });
     return this.clientDetail(clientId);
   }
@@ -836,7 +884,10 @@ export class PlatformAdminService {
     dto: UpdateClientOperationsDto,
     actorId: string,
   ) {
-    await this.requireDraftClient(clientId);
+    const editable = await this.requireEditableClient(
+      clientId,
+      dto.approvalEmailReference,
+    );
     const vehicleCategoryIds = [...new Set(dto.vehicleCategoryIds)];
     const vehicleCategories = await this.prisma.vehicleCategory.findMany({
       where: { id: { in: vehicleCategoryIds }, status: 'ACTIVE' },
@@ -845,7 +896,11 @@ export class PlatformAdminService {
       throw new NotFoundException(
         'Select one or more active Vehicle Categories.',
       );
-    const { vehicleCategoryIds: _vehicleCategoryIds, ...operations } = dto;
+    const {
+      vehicleCategoryIds: _vehicleCategoryIds,
+      approvalEmailReference: _approvalEmailReference,
+      ...operations
+    } = dto;
     await this.prisma.$transaction(async (tx) => {
       const profile = await tx.clientOperationsProfile.upsert({
         where: { clientId },
@@ -868,7 +923,10 @@ export class PlatformAdminService {
       action: 'CLIENT_OPERATIONS_SAVED',
       entityType: 'Client',
       entityId: clientId,
-      newData: { vehicleCategoryIds },
+      newData: {
+        vehicleCategoryIds,
+        ...this.activeEditAuditData(editable, dto.approvalEmailReference),
+      },
     });
     return this.clientDetail(clientId);
   }
@@ -878,7 +936,10 @@ export class PlatformAdminService {
     dto: UpdateClientPackageSelectionDto,
     actorId: string,
   ) {
-    await this.requireDraftClient(clientId);
+    const editable = await this.requireEditableClient(
+      clientId,
+      dto.approvalEmailReference,
+    );
     const packageRecord = await this.prisma.package.findFirst({
       where: { id: dto.packageId, isActive: true },
     });
@@ -916,7 +977,11 @@ export class PlatformAdminService {
       action: 'CLIENT_PACKAGE_SELECTED',
       entityType: 'Client',
       entityId: clientId,
-      newData: { packageId: dto.packageId, billingCycle: dto.billingCycle },
+      newData: {
+        packageId: dto.packageId,
+        billingCycle: dto.billingCycle,
+        ...this.activeEditAuditData(editable, dto.approvalEmailReference),
+      },
     });
     return this.clientDetail(clientId);
   }
@@ -926,11 +991,15 @@ export class PlatformAdminService {
     dto: UpdateClientBillingDto,
     actorId: string,
   ) {
-    await this.requireDraftClient(clientId);
+    const editable = await this.requireEditableClient(
+      clientId,
+      dto.approvalEmailReference,
+    );
+    const { approvalEmailReference: _approvalEmailReference, ...billing } = dto;
     await this.prisma.clientBillingProfile.upsert({
       where: { clientId },
-      create: { clientId, ...dto },
-      update: dto,
+      create: { clientId, ...billing },
+      update: billing,
     });
     await this.prisma.clientContact.upsert({
       where: { clientId_role: { clientId, role: ClientContactRole.BILLING } },
@@ -952,6 +1021,7 @@ export class PlatformAdminService {
       action: 'CLIENT_BILLING_SAVED',
       entityType: 'Client',
       entityId: clientId,
+      newData: this.activeEditAuditData(editable, dto.approvalEmailReference),
     });
     return this.clientDetail(clientId);
   }
@@ -961,7 +1031,10 @@ export class PlatformAdminService {
     dto: UpdateClientAgreementDto,
     actorId: string,
   ) {
-    await this.requireDraftClient(clientId);
+    const editable = await this.requireEditableClient(
+      clientId,
+      dto.approvalEmailReference,
+    );
     if (
       !dto.termsAccepted ||
       !dto.privacyAccepted ||
@@ -998,6 +1071,7 @@ export class PlatformAdminService {
       action: 'CLIENT_AGREEMENT_SAVED',
       entityType: 'Client',
       entityId: clientId,
+      newData: this.activeEditAuditData(editable, dto.approvalEmailReference),
     });
     return this.clientDetail(clientId);
   }
@@ -1007,7 +1081,10 @@ export class PlatformAdminService {
     dto: CreateClientDocumentUploadIntentDto,
     actorId: string,
   ) {
-    await this.requireDraftClient(clientId);
+    const editable = await this.requireEditableClient(
+      clientId,
+      dto.approvalEmailReference,
+    );
     if (dto.sizeBytes > 10 * 1024 * 1024)
       throw new BadRequestException('Document size must not exceed 10 MB.');
     if (
@@ -1050,7 +1127,11 @@ export class PlatformAdminService {
       action: 'CLIENT_DOCUMENT_UPLOAD_REQUESTED',
       entityType: 'ClientDocument',
       entityId: document.id,
-      newData: { clientId, documentType: document.documentType },
+      newData: {
+        clientId,
+        documentType: document.documentType,
+        ...this.activeEditAuditData(editable, dto.approvalEmailReference),
+      },
     });
     return { document, uploadUrl };
   }
@@ -1239,15 +1320,40 @@ export class PlatformAdminService {
     return this.clientDetail(clientId);
   }
 
-  private async requireDraftClient(clientId: string) {
+  private async requireEditableClient(
+    clientId: string,
+    approvalEmailReference?: string,
+  ) {
     const client = await this.prisma.client.findUnique({
       where: { id: clientId },
     });
     if (!client) throw new NotFoundException('Client not found.');
-    if (client.status !== ClientStatus.DRAFT) {
-      throw new BadRequestException('Only a draft client can be edited.');
+    if (
+      client.status !== ClientStatus.DRAFT &&
+      client.status !== ClientStatus.ACTIVE
+    ) {
+      throw new BadRequestException(
+        'Only draft or active clients can be edited.',
+      );
+    }
+    if (
+      client.status === ClientStatus.ACTIVE &&
+      !approvalEmailReference?.trim()
+    ) {
+      throw new BadRequestException(
+        'An approved email reference is required to update an active client.',
+      );
     }
     return client;
+  }
+
+  private activeEditAuditData(
+    client: { status: ClientStatus },
+    approvalEmailReference?: string,
+  ) {
+    return client.status === ClientStatus.ACTIVE
+      ? { approvalEmailReference: approvalEmailReference?.trim() }
+      : {};
   }
 
   private async requireClient(clientId: string) {
