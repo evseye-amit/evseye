@@ -528,6 +528,14 @@ export default function SuperAdminDashboard() {
   >({});
   const [activeClientEdit, setActiveClientEdit] = useState(false);
   const [approvalEmailReference, setApprovalEmailReference] = useState("");
+  const [expandedNavGroups, setExpandedNavGroups] = useState<
+    Record<string, boolean>
+  >({
+    "Vehicle Management": true,
+    "Feature Management": true,
+    "Package Management": true,
+    "Client Management": true,
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1925,11 +1933,16 @@ export default function SuperAdminDashboard() {
       ],
     },
     {
-      label: "Package Management",
+      label: "Feature Management",
       items: [
         ["features", "Feature", "◇"],
-        ["pricing", "Feature Pricing", "₹"],
-        ["pricingTiers", "Feature Pricing Tiered", "≋"],
+        ["pricing", "Pricing", "₹"],
+        ["pricingTiers", "Tiered Pricing", "≋"],
+      ],
+    },
+    {
+      label: "Package Management",
+      items: [
         ["packages", "Package", "◫"],
         ["packageFeatures", "Package Feature", "⊞"],
       ],
@@ -2018,9 +2031,25 @@ export default function SuperAdminDashboard() {
           {navGroups.map((group, groupIndex) => (
             <div className="sa-nav-group" key={group.label ?? "root"}>
               {group.label ? (
-                <p className="sa-nav-label">{group.label}</p>
+                <button
+                  type="button"
+                  className="sa-nav-group-toggle"
+                  aria-expanded={expandedNavGroups[group.label] ?? true}
+                  onClick={() =>
+                    setExpandedNavGroups((current) => ({
+                      ...current,
+                      [group.label!]: !(current[group.label!] ?? true),
+                    }))
+                  }
+                >
+                  <span>{group.label}</span>
+                  <span aria-hidden="true">
+                    {(expandedNavGroups[group.label] ?? true) ? "⌄" : "›"}
+                  </span>
+                </button>
               ) : null}
-              {group.items.map(([key, label, icon]) => (
+              {(!group.label || (expandedNavGroups[group.label] ?? true)) &&
+                group.items.map(([key, label, icon]) => (
                 <button
                   key={key}
                   className={`${tab === key ? "active" : ""} ${groupIndex ? "sa-nav-child" : ""}`}
@@ -4944,14 +4973,13 @@ function FeaturePricingTiersView({
   const [tiers, setTiers] = useState<PricingTierInput[]>([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const selected = tiered.find((item) => item.id === selectedId) ?? tiered[0];
+  const selected = tiered.find((item) => item.id === selectedId);
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!selected) {
       setTiers([]);
       return;
     }
-    setSelectedId(selected.id);
     setTiers(
       (selected.tiers ?? []).map((tier: Item) => ({
         tierOrder: String(tier.tierOrder),
@@ -4963,7 +4991,7 @@ function FeaturePricingTiersView({
         costPrice: tier.costPrice === null ? "" : String(tier.costPrice ?? ""),
       })),
     );
-  }, [selected]);
+  }, [selectedId, pricing]);
   /* eslint-enable react-hooks/set-state-in-effect */
   const updateTier = (
     index: number,
@@ -5036,148 +5064,206 @@ function FeaturePricingTiersView({
       setBusy(false);
     }
   };
+  if (!selected) {
+    return (
+      <>
+        <section className="sa-page-head">
+          <div>
+            <h2>Tiered Feature Pricing</h2>
+            <p>
+              Review tiered prices, then open one to configure its quantity
+              tiers.
+            </p>
+          </div>
+        </section>
+        {tiered.length ? (
+          <DataTable
+            headings={[
+              "Feature",
+              "Billing unit",
+              "Currency",
+              "Effective from",
+              "Effective to",
+              "Status",
+              "Tiers",
+              "",
+            ]}
+            columnFilters={[
+              { type: "text" },
+              { type: "select" },
+              { type: "select" },
+              { type: "text" },
+              { type: "text" },
+              { type: "select" },
+              { type: "number" },
+              null,
+            ]}
+            rows={tiered.map((item) => [
+              item.feature?.name ?? "—",
+              enumLabel(item.billingUnit ?? ""),
+              item.currency ?? "INR",
+              String(item.effectiveFrom ?? "").slice(0, 10) || "—",
+              String(item.effectiveTo ?? "").slice(0, 10) || "Ongoing",
+              item.isActive ? "ACTIVE" : "INACTIVE",
+              item.tiers?.length ?? 0,
+              <button
+                type="button"
+                onClick={() => setSelectedId(item.id)}
+              >
+                Configure tiers
+              </button>,
+            ])}
+          />
+        ) : (
+          <section className="sa-empty-catalog">
+            <h3>No tiered Feature Pricing yet</h3>
+            <p>
+              Create a Feature Price using the TIERED model, then return here
+              to configure its tiers.
+            </p>
+          </section>
+        )}
+      </>
+    );
+  }
+
   return (
     <>
-      <section className="sa-page-head">
+      <section className="sa-page-head sa-tier-page-head">
         <div>
-          <h2>Feature Pricing Tiered</h2>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              setSelectedId("");
+              setMessage("");
+            }}
+          >
+            ← Back to Tiered Feature Pricing
+          </button>
+          <h2>{selected.feature?.name ?? "Feature"} tiers</h2>
           <p>
-            Create and edit the quantity tiers for each tiered Feature Price.
+            Set the quantity ranges and prices for this Feature Pricing record.
           </p>
         </div>
+        <button
+          type="button"
+          className="secondary"
+          onClick={() =>
+            setTiers((current) => [
+              ...current,
+              {
+                tierOrder: String(current.length + 1),
+                tierName: "",
+                fromQuantity: current.length ? "" : "0",
+                toQuantity: "",
+                unitPrice: "",
+                costPrice: "",
+              },
+            ])
+          }
+        >
+          + Add tier
+        </button>
       </section>
-      {tiered.length ? (
-        <form className="sa-form sa-tier-editor" onSubmit={save}>
-          <label>
-            Tiered Feature Price
-            <select
-              value={selected?.id ?? ""}
-              onChange={(event) => setSelectedId(event.target.value)}
-            >
-              {tiered.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.feature?.name ?? "Feature"} ·{" "}
-                  {enumLabel(item.pricingModel)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="sa-tier-editor-head">
-            <div>
-              <strong>{selected?.feature?.name}</strong>
-              <small>
-                {selected?.currency} {selected?.unitPrice} base unit price ·{" "}
-                {enumLabel(selected?.billingUnit ?? "")}
-              </small>
-            </div>
-            <button
-              type="button"
-              className="secondary"
-              onClick={() =>
-                setTiers((current) => [
-                  ...current,
-                  {
-                    tierOrder: String(current.length + 1),
-                    tierName: "",
-                    fromQuantity: current.length ? "" : "0",
-                    toQuantity: "",
-                    unitPrice: "",
-                    costPrice: "",
-                  },
-                ])
-              }
-            >
-              + Add tier
-            </button>
+      <section className="sa-tier-summary">
+        <div>
+          <span>Pricing model</span>
+          <strong>{enumLabel(selected.pricingModel)}</strong>
+        </div>
+        <div>
+          <span>Billing unit</span>
+          <strong>{enumLabel(selected.billingUnit ?? "")}</strong>
+        </div>
+        <div>
+          <span>Effective period</span>
+          <strong>
+            {String(selected.effectiveFrom ?? "").slice(0, 10)} –{" "}
+            {selected.effectiveTo
+              ? String(selected.effectiveTo).slice(0, 10)
+              : "Ongoing"}
+          </strong>
+        </div>
+        <div>
+          <span>Status</span>
+          <strong>{selected.isActive ? "Active" : "Inactive"}</strong>
+        </div>
+      </section>
+      <form className="sa-form sa-tier-editor" onSubmit={save}>
+        {tiers.length ? (
+          <div className="sa-tier-config-table-wrap">
+            <table className="sa-tier-config-table">
+              <thead>
+                <tr>
+                  <th>Order</th>
+                  <th>Tier name</th>
+                  <th>From quantity</th>
+                  <th>To quantity</th>
+                  <th>Unit price</th>
+                  <th>Cost price</th>
+                  <th aria-label="Actions" />
+                </tr>
+              </thead>
+              <tbody>
+                {tiers.map((tier, index) => (
+                  <tr key={`${tier.tierOrder}-${index}`}>
+                    {(
+                      [
+                        ["tierOrder", "number", true],
+                        ["tierName", "text", false],
+                        ["fromQuantity", "number", true],
+                        ["toQuantity", "number", false],
+                        ["unitPrice", "number", true],
+                        ["costPrice", "number", false],
+                      ] as const
+                    ).map(([key, type, required]) => (
+                      <td key={key}>
+                        <input
+                          type={type}
+                          min={type === "number" ? 0 : undefined}
+                          step={key === "unitPrice" || key === "costPrice" ? "0.001" : "1"}
+                          value={tier[key]}
+                          required={required}
+                          placeholder={key === "toQuantity" ? "Unlimited" : undefined}
+                          onChange={(event) =>
+                            updateTier(index, key, event.target.value)
+                          }
+                        />
+                      </td>
+                    ))}
+                    <td className="sa-tier-config-actions">
+                      <button
+                        type="button"
+                        className="danger"
+                        onClick={() =>
+                          setTiers((current) =>
+                            current.filter(
+                              (_, tierIndex) => tierIndex !== index,
+                            ),
+                          )
+                        }
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          {tiers.length ? (
-            <div className="sa-tier-grid">
-              {tiers.map((tier, index) => (
-                <section
-                  key={`${tier.tierOrder}-${index}`}
-                  className="sa-price-override"
-                >
-                  <TextFields
-                    value={tier}
-                    change={(key, value) =>
-                      updateTier(index, key as keyof PricingTierInput, value)
-                    }
-                    fields={[
-                      ["tierOrder", "Tier order"],
-                      ["tierName", "Tier name"],
-                      ["fromQuantity", "From quantity"],
-                      ["toQuantity", "To quantity"],
-                      ["unitPrice", "Unit price"],
-                      ["costPrice", "Cost price"],
-                    ]}
-                    requiredKeys={["tierOrder", "fromQuantity", "unitPrice"]}
-                  />
-                  <button
-                    type="button"
-                    className="danger"
-                    onClick={() =>
-                      setTiers((current) =>
-                        current.filter((_, tierIndex) => tierIndex !== index),
-                      )
-                    }
-                  >
-                    Remove tier
-                  </button>
-                </section>
-              ))}
-            </div>
-          ) : (
-            <p className="muted">
-              No tiers configured. Add the first tier to begin.
-            </p>
-          )}
+        ) : (
+          <section className="sa-empty-catalog">
+            <h3>No tiers configured</h3>
+            <p>Add the first quantity tier for this Feature Pricing record.</p>
+          </section>
+        )}
+        <div className="sa-tier-editor-actions">
           <button disabled={busy || !tiers.length}>
-            {busy ? "Saving…" : "Save tiers"}
+            {busy ? "Saving…" : "Save tier changes"}
           </button>
           {message && <p className="notice">{message}</p>}
-        </form>
-      ) : (
-        <section className="sa-empty-catalog">
-          <h3>No tiered Feature Pricing yet</h3>
-          <p>
-            Create a Feature Price with the TIERED or VOLUME model, then return
-            here to configure its tiers.
-          </p>
-        </section>
-      )}
-      <section className="sa-management oem-table-only">
-        <DataTable
-          headings={[
-            "Feature",
-            "Tier",
-            "Tier name",
-            "From quantity",
-            "To quantity",
-            "Unit price",
-            "Cost price",
-          ]}
-          columnFilters={[
-            { type: "text" },
-            { type: "number" },
-            { type: "text" },
-            { type: "number" },
-            { type: "text" },
-            { type: "text" },
-            { type: "text" },
-          ]}
-          rows={tiered.flatMap((item) =>
-            (item.tiers ?? []).map((tier: Item) => [
-              item.feature?.name ?? "—",
-              tier.tierOrder,
-              tier.tierName ?? "—",
-              tier.fromQuantity,
-              tier.toQuantity ?? "∞",
-              `₹${tier.unitPrice}`,
-              tier.costPrice ? `₹${tier.costPrice}` : "—",
-            ]),
-          )}
-        />
-      </section>
+        </div>
+      </form>
     </>
   );
 }

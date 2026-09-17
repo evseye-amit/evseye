@@ -945,6 +945,30 @@ th {
   margin-top: 10px;
   margin-bottom: 3px;
 }
+.sa-sidebar nav button.sa-nav-group-toggle {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 6px 11px;
+  color: #8d978f;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.sa-sidebar nav button.sa-nav-group-toggle:hover,
+.sa-sidebar nav button.sa-nav-group-toggle:focus-visible {
+  color: #247a58;
+  background: #f1f8f4;
+}
+.sa-sidebar nav button.sa-nav-group-toggle > span:last-child {
+  width: auto;
+  font-size: 17px;
+  line-height: 0.7;
+}
 .sa-sidebar nav button {
   display: flex;
   align-items: center;
@@ -1745,10 +1769,89 @@ body:has(.sa-dialog[open]) {
 .sa-price-override > button {
   align-self: end;
 }
+.sa-tier-page-head .secondary {
+  margin-bottom: 12px;
+}
+.sa-tier-page-head {
+  justify-content: space-between;
+}
+/* Detail pages need their contextual heading and return control visible.  Most
+   catalogue list pages intentionally hide the duplicate .sa-page-head title. */
+.sa-tier-page-head > div:first-child:not(.sa-actions) {
+  display: block;
+}
+.sa-tier-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.sa-tier-summary > div {
+  display: grid;
+  gap: 5px;
+  padding: 14px;
+  border: 1px solid #e1ebe4;
+  border-radius: 9px;
+  background: #f8fbf9;
+}
+.sa-tier-summary span {
+  color: #718076;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.sa-tier-summary strong {
+  color: #284334;
+  font-size: 15px;
+}
+.sa-tier-config-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #e3ebe5;
+  border-radius: 10px;
+}
+.sa-tier-config-table {
+  width: 100%;
+  min-width: 820px;
+  border-collapse: collapse;
+}
+.sa-tier-config-table th,
+.sa-tier-config-table td {
+  padding: 11px;
+  border-bottom: 1px solid #e9efea;
+  text-align: left;
+}
+.sa-tier-config-table th {
+  color: #718076;
+  background: #f8fbf9;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.sa-tier-config-table tr:last-child td {
+  border-bottom: 0;
+}
+.sa-tier-config-table input {
+  width: 100%;
+  min-width: 88px;
+}
+.sa-tier-config-actions {
+  width: 1%;
+  white-space: nowrap;
+}
+.sa-tier-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 16px;
+}
 @media (max-width: 680px) {
   .sa-feature-fields,
   .sa-price-override {
     grid-template-columns: 1fr;
+  }
+  .sa-tier-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 .sa-table-toolbar {
