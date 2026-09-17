@@ -1916,7 +1916,9 @@ export default function Home() {
   if (!token)
     return (
       <main className="auth-shell client-login">
-        <section className="auth-hero" aria-label="EVs Eye fleet operations platform" />
+        <section className="auth-hero" aria-label={appearance.client ? `${appearance.client.displayName} operations workspace` : "EVs Eye fleet operations platform"}>
+          {appearance.client && <ClientBrand hero />}
+        </section>
         <section className="auth-panel">
           <div className="auth-card platform-login-card">
             <ClientBrand companyCode={companyCode} landing />
