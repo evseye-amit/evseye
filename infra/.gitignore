@@ -1,0 +1,18 @@
+# Terraform working directory — never commit these
+.terraform/
+
+# State files — managed remotely in S3, never commit locally
+*.tfstate
+*.tfstate.backup
+*.tfstate.lock.info
+
+# Sensitive variable files
+*.tfvars
+*.tfvars.json
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Generated plan files
+*.tfplan
