@@ -1,0 +1,201 @@
+name: Deploy — Staging
+
+# Triggered automatically when CI passes on main,
+# or manually from the Actions tab.
+on:
+  workflow_run:
+    workflows: [CI]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # required for OIDC → AWS
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  # Set these in GitHub repo Settings → Secrets and variables → Actions
+  # AWS_ROLE_ARN is output by `terraform output github_actions_role_arn`
+
+jobs:
+  # ─── Guard: only run if CI passed ─────────────────────────────────────────
+  check-ci:
+    name: Verify CI succeeded
+    runs-on: ubuntu-latest
+    if: >
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main')
+    steps:
+      - run: echo "CI passed — proceeding to deploy"
+
+  # ─── Build and push Docker images ─────────────────────────────────────────
+  build:
+    name: Build & push images
+    runs-on: ubuntu-latest
+    needs: check-ci
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Generate image tag
+        id: meta
+        run: echo "tag=${{ github.event.workflow_run.head_sha || github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_API_REPO }}:${{ steps.meta.outputs.tag }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_API_REPO }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_WEB_REPO }}:${{ steps.meta.outputs.tag }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_WEB_REPO }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ─── Run Prisma migration (one-shot ECS task) ──────────────────────────────
+  migrate:
+    name: Run DB migration
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download current migration task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "${{ secrets.ECS_MIGRATE_TASK }}" \
+            --query taskDefinition \
+            > migrate-task-def.json
+
+      - name: Update migration image in task definition
+        id: migrate-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: migrate-task-def.json
+          container-name: migrate
+          image: ${{ secrets.ECR_API_URL }}:${{ needs.build.outputs.image_tag }}
+
+      - name: Run Prisma migrate deploy
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.migrate-task-def.outputs.task-definition }}
+          cluster: ${{ secrets.ECS_CLUSTER }}
+          run-task: true
+          run-task-launch-type: FARGATE
+          run-task-subnets: ${{ secrets.ECS_PRIVATE_SUBNETS }}
+          run-task-security-groups: ${{ secrets.ECS_TASK_SG }}
+          run-task-assign-public-IP: DISABLED
+          wait-for-task-stopped: true
+
+  # ─── Update ECS services ───────────────────────────────────────────────────
+  deploy:
+    name: Update ECS services
+    runs-on: ubuntu-latest
+    needs: [build, migrate]
+
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ── API ──
+      - name: Download current API task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "${{ secrets.ECS_API_TASK }}" \
+            --query taskDefinition \
+            > api-task-def.json
+
+      - name: Update API image in task definition
+        id: api-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: api-task-def.json
+          container-name: api
+          image: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_API_REPO }}:${{ needs.build.outputs.image_tag }}
+
+      - name: Deploy API to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.api-task-def.outputs.task-definition }}
+          service: ${{ secrets.ECS_API_SERVICE }}
+          cluster: ${{ secrets.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      # ── Web ──
+      - name: Download current Web task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "${{ secrets.ECS_WEB_TASK }}" \
+            --query taskDefinition \
+            > web-task-def.json
+
+      - name: Update Web image in task definition
+        id: web-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: web-task-def.json
+          container-name: web
+          image: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_WEB_REPO }}:${{ needs.build.outputs.image_tag }}
+
+      - name: Deploy Web to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.web-task-def.outputs.task-definition }}
+          service: ${{ secrets.ECS_WEB_SERVICE }}
+          cluster: ${{ secrets.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      - name: Deployment summary
+        run: |
+          echo "### ✅ Staging deployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Image tag**: \`${{ needs.build.outputs.image_tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Web**: https://${{ secrets.WEB_URL }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **API health**: https://${{ secrets.API_URL }}/health" >> "$GITHUB_STEP_SUMMARY"
