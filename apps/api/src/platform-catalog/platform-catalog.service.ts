@@ -48,6 +48,8 @@ import type {
   UpdateVehicleTypeDto,
 } from './dto/catalog.dto.js';
 
+const PACKAGE_UNLIMITED_LIMIT = 2_147_483_647;
+
 @Injectable()
 export class PlatformCatalogService {
   constructor(
@@ -794,23 +796,29 @@ export class PlatformCatalogService {
   async bulkCreatePackages(dto: BulkCreatePackagesDto, actorId: string) {
     const codes = new Set<string>();
     const rows = dto.rows.map((row, index) => {
-      const optionalNumber = (value: unknown) =>
-        value === undefined || value === null || value === ''
-          ? undefined
-          : Number(value);
+      const optionalNumber = (value: unknown) => {
+        if (value === undefined || value === null || value === '') return undefined;
+        if (
+          typeof value === 'string' &&
+          ['MAX_INT', 'UNLIMITED'].includes(value.trim().toUpperCase())
+        ) {
+          return PACKAGE_UNLIMITED_LIMIT;
+        }
+        return Number(value);
+      };
       const normalized = {
         code: row.code?.trim().toUpperCase(),
         name: row.name?.trim(),
         setupFee: optionalNumber(row.setupFee) ?? 0,
         currency: (row.currency ?? 'INR').toString().trim().toUpperCase(),
-        maxFleets: optionalNumber(row.maxFleets) ?? 0,
-        maxRiders: optionalNumber(row.maxRiders) ?? 0,
-        maxAdmins: optionalNumber(row.maxAdmins) ?? 0,
-        maxFleetManagers: optionalNumber(row.maxFleetManagers) ?? 0,
-        maxHubs: optionalNumber(row.maxHubs) ?? 0,
-        maxTeamLeaders: optionalNumber(row.maxTeamLeaders) ?? 0,
-        maxClusterManagers: optionalNumber(row.maxClusterManagers) ?? 0,
-        maxUsers: optionalNumber(row.maxUsers) ?? 0,
+        maxFleets: optionalNumber(row.maxFleets) ?? PACKAGE_UNLIMITED_LIMIT,
+        maxRiders: optionalNumber(row.maxRiders) ?? PACKAGE_UNLIMITED_LIMIT,
+        maxAdmins: optionalNumber(row.maxAdmins) ?? PACKAGE_UNLIMITED_LIMIT,
+        maxFleetManagers: optionalNumber(row.maxFleetManagers) ?? PACKAGE_UNLIMITED_LIMIT,
+        maxHubs: optionalNumber(row.maxHubs) ?? PACKAGE_UNLIMITED_LIMIT,
+        maxTeamLeaders: optionalNumber(row.maxTeamLeaders) ?? PACKAGE_UNLIMITED_LIMIT,
+        maxClusterManagers: optionalNumber(row.maxClusterManagers) ?? PACKAGE_UNLIMITED_LIMIT,
+        maxUsers: optionalNumber(row.maxUsers) ?? PACKAGE_UNLIMITED_LIMIT,
         trialDays: Number(row.trialDays ?? 0),
         displayOrder: Number(row.displayOrder ?? 0),
         isCustom: this.toBoolean(row.isCustom, false),

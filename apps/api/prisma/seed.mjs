@@ -3,8 +3,13 @@ import { PrismaClient, UserRole } from '@prisma/client';
 import { readFile } from 'node:fs/promises';
 import { oemCatalog } from './catalog/oems.mjs';
 import { featureCatalog } from './catalog/features.mjs';
+import { featureAddOnCatalog } from './catalog/feature-addons.mjs';
+import { featurePricingCatalog } from './catalog/feature-pricing.mjs';
+import { packageFeatureAddOnCatalog } from './catalog/package-feature-addons.mjs';
+import { packageFeatureCatalog } from './catalog/package-features.mjs';
 import { featureStepSpecs } from './catalog/feature-steps.mjs';
 import { packageCatalog } from './catalog/packages.mjs';
+import { packageVehicleTierPricingCatalog } from './catalog/package-vehicle-tier-pricing.mjs';
 import { vehicleCategoryCatalog } from './catalog/vehicle-categories.mjs';
 import { vehicleTypeCatalog } from './catalog/vehicle-types.mjs';
 
@@ -163,6 +168,28 @@ async function main() {
       });
     }),
   );
+
+  await Promise.all(
+    featurePricingCatalog.map(async ({ featureCode, effectiveFrom, ...pricing }) => {
+      const feature = await prisma.feature.findUniqueOrThrow({
+        where: { code: featureCode },
+      });
+      const effectiveDate = new Date(effectiveFrom);
+      const existing = await prisma.featurePricing.findFirst({
+        where: { featureId: feature.id, effectiveFrom: effectiveDate },
+      });
+      if (existing) {
+        return prisma.featurePricing.update({
+          where: { id: existing.id },
+          data: pricing,
+        });
+      }
+      return prisma.featurePricing.create({
+        data: { ...pricing, featureId: feature.id, effectiveFrom: effectiveDate },
+      });
+    }),
+  );
+
   await Promise.all(
     packageCatalog.map((pkg) =>
       prisma.package.upsert({
@@ -173,32 +200,85 @@ async function main() {
     ),
   );
 
-  const sms = await prisma.feature.findUniqueOrThrow({
-    where: { code: 'SMS_LOGIN_OTP' },
-  });
-  const effectiveFrom = new Date('2026-01-01');
-  await prisma.featurePricing.deleteMany({ where: { featureId: sms.id } });
-  await prisma.featurePricing.create({ data: { featureId: sms.id, billingUnit: 'SMS', costPrice: 0.2, salePrice: 0.5, currency: 'INR', effectiveFrom, isActive: true } });
-  const packages = await prisma.package.findMany({ where: { code: { in: ['BASIC', 'STANDARD', 'PREMIUM'] } } });
+  const packages = await prisma.package.findMany({ where: { code: { in: packageCatalog.map((item) => item.code) } } });
   const packageByCode = new Map(packages.map((pkg) => [pkg.code, pkg]));
-  const tiers = { BASIC: [[1, 99, 249], [100, 249, 219], [500, null, 199]], STANDARD: [[1, 99, 299], [100, 249, 269], [500, null, 249]], PREMIUM: [[1, 99, 449], [100, 249, 429], [500, null, 399]] };
-  for (const [code, rows] of Object.entries(tiers)) {
-    const pkg = packageByCode.get(code);
-    if (!pkg) continue;
-    for (const [minVehicles, maxVehicles, pricePerVehicle] of rows) {
-      await prisma.packageVehicleTierPricing.upsert({ where: { packageId_minVehicles_effectiveFrom: { packageId: pkg.id, minVehicles, effectiveFrom } }, create: { packageId: pkg.id, minVehicles, maxVehicles, pricePerVehicle, effectiveFrom, currency: 'INR', billingPeriod: 'MONTHLY', tierMode: 'VOLUME' }, update: { maxVehicles, pricePerVehicle, isActive: true } });
+
+  for (const {
+    packageCode,
+    effectiveFrom,
+    effectiveTo,
+    ...tierData
+  } of packageVehicleTierPricingCatalog) {
+    const pkg = packageByCode.get(packageCode);
+    if (!pkg) {
+      throw new Error(
+        `Package Vehicle Tier Pricing seed references a missing Package code: ${packageCode}`,
+      );
     }
+
+    const effectiveDate = new Date(effectiveFrom);
+    await prisma.packageVehicleTierPricing.upsert({
+      where: {
+        packageId_minVehicles_effectiveFrom: {
+          packageId: pkg.id,
+          minVehicles: tierData.minVehicles,
+          effectiveFrom: effectiveDate,
+        },
+      },
+      create: {
+        packageId: pkg.id,
+        ...tierData,
+        effectiveFrom: effectiveDate,
+        effectiveTo: effectiveTo ? new Date(effectiveTo) : null,
+      },
+      update: {
+        ...tierData,
+        effectiveTo: effectiveTo ? new Date(effectiveTo) : null,
+      },
+    });
   }
-  const basic = packageByCode.get('BASIC');
-  if (basic) await prisma.packageFeature.upsert({ where: { packageId_featureId: { packageId: basic.id, featureId: sms.id } }, create: { packageId: basic.id, featureId: sms.id, isIncluded: true, includedQuantity: 1200, resetPeriod: 'MONTHLY', isUnlimited: false }, update: { isIncluded: true, includedQuantity: 1200, resetPeriod: 'MONTHLY', isUnlimited: false } });
-  const addOnSpecs = [['SMS_1000_60D', 'SMS 1000', 1000, 500, 60], ['SMS_2000_90D', 'SMS 2000', 2000, 900, 90], ['SMS_5000', 'SMS 5000', 5000, 2000, null]];
-  const addOns = new Map();
-  for (const [code, name, quantity, salePrice, validityDays] of addOnSpecs) {
-    const addOn = await prisma.featureAddOn.upsert({ where: { code }, create: { code, name, featureId: sms.id, quantity, salePrice, currency: 'INR', validityDays, effectiveFrom }, update: { name, quantity, salePrice, validityDays, isActive: true } }); addOns.set(code, addOn);
+
+  for (const { packageCode, featureCode, configuration, ...packageFeature } of packageFeatureCatalog) {
+    const pkg = packageByCode.get(packageCode);
+    const feature = await prisma.feature.findUniqueOrThrow({ where: { code: featureCode } });
+    if (!pkg) throw new Error(`Package Feature seed references a missing Package code: ${packageCode}`);
+    const data = { ...packageFeature, ...(configuration === null ? {} : { configuration }) };
+    await prisma.packageFeature.upsert({
+      where: { packageId_featureId: { packageId: pkg.id, featureId: feature.id } },
+      create: { packageId: pkg.id, featureId: feature.id, ...data },
+      update: data,
+    });
   }
-  if (basic) for (const code of ['SMS_1000_60D', 'SMS_2000_90D']) { const addOn = addOns.get(code); await prisma.packageFeatureAddOn.upsert({ where: { packageId_featureAddOnId: { packageId: basic.id, featureAddOnId: addOn.id } }, create: { packageId: basic.id, featureAddOnId: addOn.id, isAvailable: true }, update: { isAvailable: true } }); }
-  const standard = packageByCode.get('STANDARD'); const sms5000 = addOns.get('SMS_5000');
-  if (standard && sms5000) await prisma.packageFeatureAddOn.upsert({ where: { packageId_featureAddOnId: { packageId: standard.id, featureAddOnId: sms5000.id } }, create: { packageId: standard.id, featureAddOnId: sms5000.id, isAvailable: true }, update: { isAvailable: true } });
+  for (const { featureCode, effectiveFrom: addOnEffectiveFrom, effectiveTo, ...addOnData } of featureAddOnCatalog) {
+    const feature = await prisma.feature.findUniqueOrThrow({ where: { code: featureCode } });
+    await prisma.featureAddOn.upsert({
+      where: { code: addOnData.code },
+      create: { ...addOnData, featureId: feature.id, effectiveFrom: new Date(addOnEffectiveFrom), effectiveTo: effectiveTo ? new Date(effectiveTo) : null },
+      update: { ...addOnData, featureId: feature.id, effectiveFrom: new Date(addOnEffectiveFrom), effectiveTo: effectiveTo ? new Date(effectiveTo) : null },
+    });
+  }
+
+  for (const { packageCode, featureAddOnCode, isAvailable } of packageFeatureAddOnCatalog) {
+    const pkg = packageByCode.get(packageCode);
+    const featureAddOn = await prisma.featureAddOn.findUnique({
+      where: { code: featureAddOnCode },
+    });
+    if (!pkg || !featureAddOn) {
+      throw new Error(
+        `Package Add-On seed references a missing ${!pkg ? 'Package' : 'Feature Add-On'}: ${!pkg ? packageCode : featureAddOnCode}`,
+      );
+    }
+    await prisma.packageFeatureAddOn.upsert({
+      where: {
+        packageId_featureAddOnId: {
+          packageId: pkg.id,
+          featureAddOnId: featureAddOn.id,
+        },
+      },
+      create: { packageId: pkg.id, featureAddOnId: featureAddOn.id, isAvailable },
+      update: { isAvailable },
+    });
+  }
 
   console.info('Seeded platform master data and Super Admin account.');
 }

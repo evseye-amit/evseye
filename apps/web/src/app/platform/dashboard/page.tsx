@@ -52,7 +52,10 @@ type Tab =
   | "features"
   | "packages"
   | "pricing"
-  | "packageFeatures";
+  | "featureAddOns"
+  | "packageFeatures"
+  | "packageAddOns"
+  | "packageTierPricing";
 type Item = Record<string, any>;
 type BulkImportEntity =
   | "oem"
@@ -224,19 +227,38 @@ const emptyPackage = {
   setupFee: "0",
   currency: "INR",
   description: "",
-  maxFleets: "0",
-  maxRiders: "0",
-  maxAdmins: "0",
-  maxFleetManagers: "0",
-  maxHubs: "0",
-  maxTeamLeaders: "0",
-  maxClusterManagers: "0",
-  maxUsers: "0",
+  maxFleets: "2147483647",
+  maxRiders: "2147483647",
+  maxAdmins: "2147483647",
+  maxFleetManagers: "2147483647",
+  maxHubs: "2147483647",
+  maxTeamLeaders: "2147483647",
+  maxClusterManagers: "2147483647",
+  maxUsers: "2147483647",
   trialDays: "0",
   displayOrder: "0",
   isCustom: false,
   isActive: true,
 };
+const PACKAGE_UNLIMITED_LIMIT = 2_147_483_647;
+const packageLimitFields = [
+  ["maxFleets", "Maximum fleets"],
+  ["maxRiders", "Maximum riders"],
+  ["maxAdmins", "Maximum admins"],
+  ["maxFleetManagers", "Maximum fleet managers"],
+  ["maxHubs", "Maximum hubs"],
+  ["maxTeamLeaders", "Maximum team leaders"],
+  ["maxClusterManagers", "Maximum cluster managers"],
+  ["maxUsers", "Maximum users"],
+] as const;
+
+function isUnlimitedPackageLimit(value: unknown) {
+  return Number(value) === PACKAGE_UNLIMITED_LIMIT;
+}
+
+function displayPackageLimit(value: unknown) {
+  return isUnlimitedPackageLimit(value) ? "Unlimited" : String(value ?? 0);
+}
 const emptyFeature = {
   code: "",
   name: "",
@@ -267,6 +289,18 @@ const emptyPricing = {
   effectiveTo: "",
   isActive: true,
   metadata: "",
+};
+const emptyFeatureAddOn = {
+  code: "",
+  name: "",
+  description: "",
+  featureId: "",
+  quantity: "",
+  discount: "0",
+  validityDays: "",
+  effectiveFrom: new Date().toISOString().slice(0, 10),
+  effectiveTo: "",
+  isActive: true,
 };
 
 function Metric({
@@ -412,6 +446,7 @@ export default function SuperAdminDashboard() {
   const [featureSteps, setFeatureSteps] = useState<Item[]>([]);
   const [features, setFeatures] = useState<Item[]>([]);
   const [pricing, setPricing] = useState<Item[]>([]);
+  const [featureAddOns, setFeatureAddOns] = useState<Item[]>([]);
   const [selectedClientId, setSelectedClientId] = useState("");
   const [oem, setOem] = useState(emptyOem);
   const [editingOemId, setEditingOemId] = useState<string | null>(null);
@@ -460,6 +495,10 @@ export default function SuperAdminDashboard() {
   const [editingPricingId, setEditingPricingId] = useState<string | null>(null);
   const [showPricingForm, setShowPricingForm] = useState(false);
   const pricingTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const [featureAddOn, setFeatureAddOn] = useState(emptyFeatureAddOn);
+  const [editingFeatureAddOnId, setEditingFeatureAddOnId] = useState<string | null>(null);
+  const [showFeatureAddOnForm, setShowFeatureAddOnForm] = useState(false);
+  const featureAddOnTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [clientStep, setClientStep] = useState(1);
   const [showClientForm, setShowClientForm] = useState(false);
   const clientTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -488,6 +527,7 @@ export default function SuperAdminDashboard() {
         featureStepList,
         featureList,
         priceList,
+        featureAddOnList,
       ] = await Promise.all([
         request("/platform/dashboard", {}, token),
         request("/platform/clients", {}, token),
@@ -498,6 +538,7 @@ export default function SuperAdminDashboard() {
         request("/platform/feature-steps", {}, token),
         request("/platform/features", {}, token),
         request("/platform/feature-pricing", {}, token),
+        request("/platform/commercial/feature-addons", {}, token),
       ]);
       setSummary(dashboard);
       setClients(clientList);
@@ -508,6 +549,7 @@ export default function SuperAdminDashboard() {
       setFeatureSteps(featureStepList);
       setFeatures(featureList);
       setPricing(priceList);
+      setFeatureAddOns(featureAddOnList);
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -726,6 +768,33 @@ export default function SuperAdminDashboard() {
   function closePricingModal() {
     setError("");
     setShowPricingForm(false);
+  }
+  function openFeatureAddOnModal(trigger: HTMLButtonElement, item?: Item) {
+    featureAddOnTriggerRef.current = trigger;
+    setError("");
+    if (item) {
+      setFeatureAddOn({
+        code: item.code,
+        name: item.name,
+        description: item.description ?? "",
+        featureId: item.featureId,
+        quantity: String(item.quantity ?? ""),
+        discount: String(item.discount ?? 0),
+        validityDays: item.validityDays === null ? "" : String(item.validityDays ?? ""),
+        effectiveFrom: item.effectiveFrom.slice(0, 10),
+        effectiveTo: item.effectiveTo ? item.effectiveTo.slice(0, 10) : "",
+        isActive: item.isActive,
+      });
+      setEditingFeatureAddOnId(item.id);
+    } else {
+      setFeatureAddOn(emptyFeatureAddOn);
+      setEditingFeatureAddOnId(null);
+    }
+    setShowFeatureAddOnForm(true);
+  }
+  function closeFeatureAddOnModal() {
+    setError("");
+    setShowFeatureAddOnForm(false);
   }
   function openClientModal(trigger: HTMLButtonElement) {
     clientTriggerRef.current = trigger;
@@ -1390,6 +1459,47 @@ export default function SuperAdminDashboard() {
       },
     );
   }
+  async function submitFeatureAddOn(event: FormEvent) {
+    event.preventDefault();
+    await submit(
+      () =>
+        request(
+          editingFeatureAddOnId
+            ? `/platform/commercial/feature-addons/${editingFeatureAddOnId}`
+            : "/platform/commercial/feature-addons",
+          {
+            method: editingFeatureAddOnId ? "PUT" : "POST",
+            body: JSON.stringify({
+              code: featureAddOn.code,
+              name: featureAddOn.name,
+              ...(featureAddOn.description
+                ? { description: featureAddOn.description }
+                : {}),
+              featureId: featureAddOn.featureId,
+              quantity: Number(featureAddOn.quantity),
+              discount: Number(featureAddOn.discount || 0),
+              ...(featureAddOn.validityDays
+                ? { validityDays: Number(featureAddOn.validityDays) }
+                : {}),
+              effectiveFrom: featureAddOn.effectiveFrom,
+              ...(featureAddOn.effectiveTo
+                ? { effectiveTo: featureAddOn.effectiveTo }
+                : {}),
+              isActive: featureAddOn.isActive,
+            }),
+          },
+          token,
+        ),
+      editingFeatureAddOnId
+        ? "Feature add-on updated."
+        : "Feature add-on created.",
+      () => {
+        setFeatureAddOn(emptyFeatureAddOn);
+        setEditingFeatureAddOnId(null);
+        setShowFeatureAddOnForm(false);
+      },
+    );
+  }
   async function uploadClientLogo(clientId: string) {
     if (!clientLogoFile) return;
     const approval = activeClientEdit ? { approvalEmailReference: approvalEmailReference.trim() } : {};
@@ -1914,6 +2024,7 @@ export default function SuperAdminDashboard() {
         ["featureSteps", "Feature Step", "category"],
         ["features", "Feature", "feature"],
         ["pricing", "Pricing", "pricing"],
+        ["featureAddOns", "Feature Add-Ons", "feature"],
       ],
     },
     {
@@ -1921,6 +2032,8 @@ export default function SuperAdminDashboard() {
       items: [
         ["packages", "Package", "package"],
         ["packageFeatures", "Package Feature", "packageFeature"],
+        ["packageAddOns", "Package Add-Ons", "packageFeature"],
+        ["packageTierPricing", "Package Tier Pricing", "pricing"],
       ],
     },
     {
@@ -1937,10 +2050,45 @@ export default function SuperAdminDashboard() {
     features: "Manage the platform feature catalog and entitlement definitions.",
     featureSteps: "Organize the onboarding journey and align each Feature to its primary step.",
     pricing: "Configure catalog pricing for billable platform features.",
+    featureAddOns:
+      "Create purchasable feature allowances for clients that need additional usage.",
     packages: "Create packages and define the commercial limits available to clients.",
     packageFeatures: "Choose the features included with each platform package.",
+    packageAddOns: "Choose the Feature Add-Ons available for each package.",
+    packageTierPricing: "Set the per-vehicle recurring price for each fleet-size range.",
     clients: "Manage onboarding drafts, approvals, subscriptions, and documents.",
   };
+  const featureAddOnEffectiveDate = featureAddOn.effectiveFrom
+    ? new Date(featureAddOn.effectiveFrom)
+    : null;
+  const featureAddOnUnitPrice = featureAddOnEffectiveDate
+    ? pricing
+        .filter(
+          (item) =>
+            item.featureId === featureAddOn.featureId &&
+            item.isActive &&
+            new Date(item.effectiveFrom) <= featureAddOnEffectiveDate &&
+            (!item.effectiveTo ||
+              new Date(item.effectiveTo) >= featureAddOnEffectiveDate),
+        )
+        .sort(
+          (left, right) =>
+            new Date(right.effectiveFrom).getTime() -
+            new Date(left.effectiveFrom).getTime(),
+        )[0]
+    : undefined;
+  const featureAddOnQuantity = Number(featureAddOn.quantity) || 0;
+  const featureAddOnDiscount = Number(featureAddOn.discount) || 0;
+  const featureAddOnBaseCost = featureAddOnUnitPrice?.costPrice === null ||
+    featureAddOnUnitPrice?.costPrice === undefined
+      ? null
+      : Number(featureAddOnUnitPrice.costPrice) * featureAddOnQuantity;
+  const featureAddOnBaseSale = featureAddOnUnitPrice
+    ? Number(featureAddOnUnitPrice.salePrice) * featureAddOnQuantity
+    : null;
+  const featureAddOnSaleAfterDiscount = featureAddOnBaseSale === null
+    ? null
+    : featureAddOnBaseSale * (1 - featureAddOnDiscount / 100);
   const catalogDialogOpen =
     showOemForm ||
     showVehicleCategoryForm ||
@@ -1949,6 +2097,7 @@ export default function SuperAdminDashboard() {
     showFeatureForm ||
     showPackageForm ||
     showPricingForm ||
+    showFeatureAddOnForm ||
     showClientForm;
   const nav = navGroups.flatMap((group) => group.items);
   const bulkImportConfig = bulkImportEntity
@@ -3054,17 +3203,15 @@ export default function SuperAdminDashboard() {
                     ["name", "Package name"],
                     ["description", "Description"],
                     ["setupFee", "Setup fee"],
-                    ["maxFleets", "Maximum fleets"],
-                    ["maxRiders", "Maximum riders"],
-                    ["maxAdmins", "Maximum admins"],
-                    ["maxFleetManagers", "Maximum fleet managers"],
-                    ["maxHubs", "Maximum hubs"],
-                    ["maxTeamLeaders", "Maximum team leaders"],
-                    ["maxClusterManagers", "Maximum cluster managers"],
-                    ["maxUsers", "Maximum users"],
                     ["trialDays", "Trial days"],
                     ["displayOrder", "Display order"],
                   ]}
+                />
+                <PackageLimitFields
+                  value={pack}
+                  change={(key, value) =>
+                    setPack((current) => ({ ...current, [key]: value }))
+                  }
                 />
                 <label className="sa-toggle">
                   <input
@@ -3119,7 +3266,7 @@ export default function SuperAdminDashboard() {
                     item.code,
                     item.name,
                     item.setupFee ? `₹${item.setupFee}` : "₹0",
-                    `${item.maxFleets ?? "∞"} fleets · ${item.maxRiders ?? "∞"} riders`,
+                    `${displayPackageLimit(item.maxFleets)} fleets · ${displayPackageLimit(item.maxRiders)} riders`,
                     `${item.isActive ? "ACTIVE" : "INACTIVE"}${item.isCustom ? " · CUSTOM" : ""}`,
                     item.features?.length ?? 0,
                     <button
@@ -3171,6 +3318,16 @@ export default function SuperAdminDashboard() {
             onSaved={() => void load()}
             onDelete={(path, label) => void remove(path, label)}
           />
+        )}
+        {tab === "packageAddOns" && (
+          <PackageAddOnsView
+            packages={packages}
+            featureAddOns={featureAddOns}
+            token={token}
+          />
+        )}
+        {tab === "packageTierPricing" && (
+          <PackageTierPricingView packages={packages} token={token} />
         )}
         {tab === "pricing" && (
           <>
@@ -3381,6 +3538,240 @@ export default function SuperAdminDashboard() {
                       }
                     >
                       Add Feature Price
+                    </button>
+                  </div>
+                </section>
+              )}
+            </section>
+          </>
+        )}
+        {tab === "featureAddOns" && (
+          <>
+            <section className="sa-page-head">
+              <div>
+                <h2>Feature Add-Ons</h2>
+                <p>
+                  Define additional feature allowances that clients can purchase.
+                </p>
+              </div>
+              <div className="sa-actions">
+                <button
+                  onClick={(event) =>
+                    openFeatureAddOnModal(event.currentTarget)
+                  }
+                >
+                  + Add Feature Add-On
+                </button>
+              </div>
+            </section>
+            <section className="sa-management oem-table-only">
+              <CatalogFormDialog
+                open={showFeatureAddOnForm}
+                title={
+                  editingFeatureAddOnId
+                    ? "Edit Feature Add-On"
+                    : "Add Feature Add-On"
+                }
+                description="Set the purchasable quantity, commercial price, and validity period for a feature."
+                error={error}
+                busy={loading}
+                size="wide"
+                triggerRef={featureAddOnTriggerRef}
+                onClose={closeFeatureAddOnModal}
+                onDialogClose={() => setShowFeatureAddOnForm(false)}
+                onSubmit={submitFeatureAddOn}
+                actions={
+                  <>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={closeFeatureAddOnModal}
+                      disabled={loading}
+                    >
+                      Cancel
+                    </button>
+                    <button type="submit" disabled={loading}>
+                      {editingFeatureAddOnId
+                        ? "Update Feature Add-On"
+                        : "Save Feature Add-On"}
+                    </button>
+                  </>
+                }
+              >
+                <TextFields
+                  value={featureAddOn}
+                  change={(key, value) =>
+                    setFeatureAddOn((current) => ({ ...current, [key]: value }))
+                  }
+                  fields={[
+                    ["code", "Add-on code"],
+                    ["name", "Add-on name"],
+                    ["description", "Description"],
+                    ["quantity", "Included quantity"],
+                    ["discount", "Discount (%)"],
+                    ["validityDays", "Validity days"],
+                    ["effectiveFrom", "Effective from"],
+                    ["effectiveTo", "Effective to"],
+                  ]}
+                  requiredKeys={[
+                    "code",
+                    "name",
+                    "quantity",
+                    "salePrice",
+                    "effectiveFrom",
+                  ]}
+                />
+                <label>
+                  <span className="sa-label-text">
+                    Feature <span className="sa-required-star">*</span>
+                  </span>
+                  <select
+                    value={featureAddOn.featureId}
+                    onChange={(event) =>
+                      setFeatureAddOn((current) => ({
+                        ...current,
+                        featureId: event.target.value,
+                      }))
+                    }
+                    required
+                  >
+                    <option value="">Select feature</option>
+                    {features
+                      .filter(
+                        (feature) =>
+                          feature.isActive ||
+                          feature.id === featureAddOn.featureId,
+                      )
+                      .map((feature) => (
+                        <option key={feature.id} value={feature.id}>
+                          {feature.name}
+                          {!feature.isActive ? " (inactive)" : ""}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <section className="sa-feature-addon-calculation" aria-live="polite">
+                  {featureAddOnUnitPrice ? (
+                    <>
+                      <p>
+                        Unit prices from Feature Pricing: {featureAddOnUnitPrice.currency}{" "}
+                        {featureAddOnUnitPrice.salePrice} sale
+                        {featureAddOnUnitPrice.costPrice === null
+                          ? ""
+                          : ` · ${featureAddOnUnitPrice.costPrice} cost`}
+                      </p>
+                      <p>
+                        Calculated cost: {featureAddOnUnitPrice.currency}{" "}
+                        {featureAddOnBaseCost === null
+                          ? "Not configured"
+                          : featureAddOnBaseCost.toFixed(2)}
+                      </p>
+                      <p>
+                        Calculated sale price: {featureAddOnUnitPrice.currency}{" "}
+                        {featureAddOnSaleAfterDiscount?.toFixed(2)}
+                        {featureAddOnDiscount > 0
+                          ? ` after ${featureAddOnDiscount}% discount`
+                          : ""}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="sa-field-warning">
+                      Select a Feature with active pricing for the effective date to calculate this add-on.
+                    </p>
+                  )}
+                </section>
+                <label className="sa-check">
+                  <input
+                    type="checkbox"
+                    checked={featureAddOn.isActive}
+                    onChange={(event) =>
+                      setFeatureAddOn((current) => ({
+                        ...current,
+                        isActive: event.target.checked,
+                      }))
+                    }
+                  />
+                  Active
+                </label>
+              </CatalogFormDialog>
+              {featureAddOns.length ? (
+                <DataTable
+                  headings={[
+                    "Code",
+                    "Feature",
+                    "Quantity",
+                    "Sale price",
+                    "Validity",
+                    "Status",
+                    "",
+                    "",
+                  ]}
+                  columnFilters={[
+                    { type: "text" },
+                    { type: "select" },
+                    { type: "text" },
+                    { type: "text" },
+                    { type: "text" },
+                    { type: "select" },
+                    null,
+                    null,
+                  ]}
+                  rows={featureAddOns.map((item) => [
+                    item.code,
+                    item.feature?.name,
+                    item.quantity,
+                    `${item.currency} ${item.salePrice}`,
+                    item.validityDays ? `${item.validityDays} days` : "No expiry",
+                    item.isActive ? "ACTIVE" : "INACTIVE",
+                    <button
+                      key="edit"
+                      className="secondary"
+                      onClick={(event) =>
+                        openFeatureAddOnModal(event.currentTarget, item)
+                      }
+                    >
+                      Edit
+                    </button>,
+                    <button
+                      key="status"
+                      className={item.isActive ? "danger" : "secondary"}
+                      onClick={() =>
+                        void submit(
+                          () =>
+                            request(
+                              `/platform/commercial/feature-addons/${item.id}/status`,
+                              {
+                                method: "PATCH",
+                                body: JSON.stringify({
+                                  isActive: !item.isActive,
+                                }),
+                              },
+                              token,
+                            ),
+                          item.isActive
+                            ? "Feature add-on deactivated."
+                            : "Feature add-on activated.",
+                        )
+                      }
+                    >
+                      {item.isActive ? "Deactivate" : "Activate"}
+                    </button>,
+                  ])}
+                />
+              ) : (
+                <section className="sa-empty-catalog">
+                  <h3>No Feature Add-Ons yet</h3>
+                  <p>
+                    Create an add-on to sell additional feature usage or
+                    allowance to clients.
+                  </p>
+                  <div>
+                    <button
+                      onClick={(event) =>
+                        openFeatureAddOnModal(event.currentTarget)
+                      }
+                    >
+                      Add Feature Add-On
                     </button>
                   </div>
                 </section>
@@ -4542,6 +4933,63 @@ function TextFields({
     </>
   );
 }
+function PackageLimitFields({
+  value,
+  change,
+}: {
+  value: Item;
+  change: (key: string, value: string) => void;
+}) {
+  return (
+    <section className="sa-package-limits" aria-label="Package limits">
+      <p>Package limits</p>
+      <div>
+        {packageLimitFields.map(([key, label]) => {
+          const unlimited = isUnlimitedPackageLimit(value[key]);
+          return (
+            <label key={key}>
+              <span className="sa-label-text">
+                {label} <span className="sa-required-star">*</span>
+              </span>
+              <span className="sa-package-limit-control">
+                {unlimited ? (
+                  <output className="sa-package-limit-unlimited">Unlimited</output>
+                ) : (
+                  <input
+                    aria-label={`${label} limit`}
+                    min="0"
+                    required
+                    step="1"
+                    type="number"
+                    value={value[key] ?? ""}
+                    onChange={(event) => change(key, event.target.value)}
+                  />
+                )}
+                <span className="sa-toggle">
+                  <input
+                    aria-label={`${label} is unlimited`}
+                    checked={unlimited}
+                    type="checkbox"
+                    onChange={(event) =>
+                      change(
+                        key,
+                        event.target.checked
+                          ? String(PACKAGE_UNLIMITED_LIMIT)
+                          : "0",
+                      )
+                    }
+                  />
+                  Unlimited
+                </span>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function Select({
   label = "Selection",
   value,
@@ -4716,6 +5164,283 @@ function BulkImportWorkspace({
   );
 }
 
+function PackageAddOnsView({
+  packages,
+  featureAddOns,
+  token,
+}: {
+  packages: Item[];
+  featureAddOns: Item[];
+  token: string;
+}) {
+  const activePackages = packages.filter((item) => item.isActive);
+  const [packageId, setPackageId] = useState("");
+  const [availableAddOnIds, setAvailableAddOnIds] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!packageId && activePackages[0]?.id) setPackageId(activePackages[0].id);
+  }, [activePackages, packageId]);
+
+  const loadAvailability = useCallback(async () => {
+    if (!packageId) {
+      setAvailableAddOnIds([]);
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      const available = await request(
+        `/platform/commercial/feature-addons?packageId=${encodeURIComponent(packageId)}`,
+        {},
+        token,
+      );
+      setAvailableAddOnIds(
+        available.map((item: Item) => item.featureAddOn?.id ?? item.featureAddOnId),
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to load Package Add-Ons.");
+    } finally {
+      setLoading(false);
+    }
+  }, [packageId, token]);
+
+  useEffect(() => {
+    if (packageId) void loadAvailability();
+  }, [packageId, loadAvailability]);
+
+  const setAvailability = async (addOnId: string, isAvailable: boolean) => {
+    if (!packageId) return;
+    setLoading(true);
+    setError("");
+    try {
+      await request(
+        `/platform/commercial/packages/${packageId}/feature-addons/${addOnId}`,
+        { method: "PUT", body: JSON.stringify({ isAvailable }) },
+        token,
+      );
+      setAvailableAddOnIds((current) =>
+        isAvailable
+          ? [...new Set([...current, addOnId])]
+          : current.filter((id) => id !== addOnId),
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to update Package Add-On availability.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      <section className="sa-page-head">
+        <div>
+          <h2>Package Add-Ons</h2>
+          <p>Control which active Feature Add-Ons clients can purchase with each Package.</p>
+        </div>
+      </section>
+      <section className="sa-management oem-table-only">
+        <label className="sa-client-picker">
+          Package
+          <select value={packageId} onChange={(event) => setPackageId(event.target.value)}>
+            <option value="">Select Package</option>
+            {activePackages.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+        </label>
+        {error && <p className="error" role="alert">{error}</p>}
+        {packageId && featureAddOns.length ? (
+          <DataTable
+            headings={["Code", "Feature", "Quantity", "Sale price", "Validity", "Available"]}
+            columnFilters={[{ type: "text" }, { type: "select" }, { type: "number" }, { type: "text" }, { type: "text" }, null]}
+            nonSortableColumns={[5]}
+            rows={featureAddOns.map((item) => {
+              const available = availableAddOnIds.includes(item.id);
+              return [
+                item.code,
+                item.feature?.name ?? "—",
+                item.quantity,
+                `${item.currency} ${item.salePrice}`,
+                item.validityDays ? `${item.validityDays} days` : "No expiry",
+                <label className="sa-toggle" key={`availability-${item.id}`}>
+                  <input
+                    type="checkbox"
+                    checked={available}
+                    disabled={loading || !item.isActive}
+                    onChange={(event) => void setAvailability(item.id, event.target.checked)}
+                  />
+                  {available ? "Available" : "Unavailable"}
+                </label>,
+              ];
+            })}
+          />
+        ) : packageId && !loading ? (
+          <section className="sa-empty-catalog"><h3>No Feature Add-Ons yet</h3><p>Create a Feature Add-On before making it available to a Package.</p></section>
+        ) : null}
+      </section>
+    </>
+  );
+}
+
+function PackageTierPricingView({
+  packages,
+  token,
+}: {
+  packages: Item[];
+  token: string;
+}) {
+  const activePackages = packages.filter((item) => item.isActive);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const [packageId, setPackageId] = useState("");
+  const [tiers, setTiers] = useState<Item[]>([]);
+  const [editing, setEditing] = useState<Item | null>(null);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [form, setForm] = useState<Item>({
+    minVehicles: "1",
+    maxVehicles: "",
+    pricePerVehicle: "",
+    currency: "INR",
+    billingPeriod: "MONTHLY",
+    tierMode: "VOLUME",
+    effectiveFrom: new Date().toISOString().slice(0, 10),
+    effectiveTo: "",
+    isActive: true,
+  });
+
+  useEffect(() => {
+    if (!packageId && activePackages[0]?.id) setPackageId(activePackages[0].id);
+  }, [activePackages, packageId]);
+
+  const loadTiers = useCallback(async () => {
+    if (!packageId) {
+      setTiers([]);
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      setTiers(await request(`/platform/commercial/packages/${packageId}/vehicle-tiers`, {}, token));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to load Package Tier Pricing.");
+    } finally {
+      setLoading(false);
+    }
+  }, [packageId, token]);
+
+  useEffect(() => {
+    if (packageId) void loadTiers();
+  }, [packageId, loadTiers]);
+
+  const openForm = (trigger: HTMLButtonElement, item?: Item) => {
+    triggerRef.current = trigger;
+    setError("");
+    setEditing(item ?? null);
+    setForm(item ? {
+      minVehicles: String(item.minVehicles),
+      maxVehicles: item.maxVehicles === null ? "" : String(item.maxVehicles),
+      pricePerVehicle: String(item.pricePerVehicle),
+      currency: item.currency,
+      billingPeriod: item.billingPeriod,
+      tierMode: item.tierMode,
+      effectiveFrom: item.effectiveFrom.slice(0, 10),
+      effectiveTo: item.effectiveTo ? item.effectiveTo.slice(0, 10) : "",
+      isActive: item.isActive,
+    } : {
+      minVehicles: "1", maxVehicles: "", pricePerVehicle: "", currency: "INR", billingPeriod: "MONTHLY", tierMode: "VOLUME", effectiveFrom: new Date().toISOString().slice(0, 10), effectiveTo: "", isActive: true,
+    });
+    setOpen(true);
+  };
+
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!packageId) return;
+    setLoading(true);
+    setError("");
+    try {
+      const payload = {
+        minVehicles: Number(form.minVehicles),
+        ...(form.maxVehicles ? { maxVehicles: Number(form.maxVehicles) } : {}),
+        pricePerVehicle: Number(form.pricePerVehicle),
+        currency: form.currency,
+        billingPeriod: form.billingPeriod,
+        tierMode: form.tierMode,
+        effectiveFrom: form.effectiveFrom,
+        ...(form.effectiveTo ? { effectiveTo: form.effectiveTo } : {}),
+        isActive: Boolean(form.isActive),
+      };
+      await request(
+        editing ? `/platform/commercial/vehicle-tiers/${editing.id}` : `/platform/commercial/packages/${packageId}/vehicle-tiers`,
+        { method: editing ? "PUT" : "POST", body: JSON.stringify(payload) },
+        token,
+      );
+      setOpen(false);
+      await loadTiers();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to save Package Tier Pricing.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deactivate = async (tier: Item) => {
+    setLoading(true);
+    setError("");
+    try {
+      await request(`/platform/commercial/vehicle-tiers/${tier.id}`, { method: "DELETE" }, token);
+      await loadTiers();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to deactivate Package Tier Pricing.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      <section className="sa-page-head">
+        <div><h2>Package Tier Pricing</h2><p>Set the recurring per-vehicle price for each Package fleet-size range.</p></div>
+        <div className="sa-actions"><button disabled={!packageId} onClick={(event) => openForm(event.currentTarget)}>+ Add Vehicle Tier</button></div>
+      </section>
+      <section className="sa-management oem-table-only">
+        <label className="sa-client-picker">Package<select value={packageId} onChange={(event) => setPackageId(event.target.value)}><option value="">Select Package</option>{activePackages.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        {error && <p className="error" role="alert">{error}</p>}
+        <CatalogFormDialog
+          open={open}
+          title={editing ? "Edit Vehicle Tier" : "Add Vehicle Tier"}
+          description="Define one effective per-vehicle price for a fleet-size range. Leave the maximum empty for an open-ended range."
+          error={error}
+          busy={loading}
+          triggerRef={triggerRef}
+          onClose={() => { setError(""); setOpen(false); }}
+          onDialogClose={() => setOpen(false)}
+          onSubmit={save}
+          actions={<><button type="button" className="secondary" disabled={loading} onClick={() => setOpen(false)}>Cancel</button><button type="submit" disabled={loading}>{editing ? "Save changes" : "Add Vehicle Tier"}</button></>}
+        >
+          <TextFields
+            value={form}
+            change={(key, value) => setForm((current) => ({ ...current, [key]: value }))}
+            fields={[["minVehicles", "Minimum vehicles"], ["maxVehicles", "Maximum vehicles (optional)"], ["pricePerVehicle", "Price per vehicle"], ["effectiveFrom", "Effective from"], ["effectiveTo", "Effective to"]]}
+            requiredKeys={["minVehicles", "pricePerVehicle", "effectiveFrom"]}
+          />
+          <label>Currency<select value={form.currency} onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value }))}><option value="INR">INR</option></select></label>
+          <label>Billing period<select value={form.billingPeriod} onChange={(event) => setForm((current) => ({ ...current, billingPeriod: event.target.value }))}>{billingCycles.map((cycle) => <option key={cycle} value={cycle}>{enumLabel(cycle)}</option>)}</select></label>
+          <label>Pricing mode<select value={form.tierMode} onChange={(event) => setForm((current) => ({ ...current, tierMode: event.target.value }))}><option value="VOLUME">Volume</option></select></label>
+          <label className="sa-toggle"><input type="checkbox" checked={form.isActive} onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.checked }))} /> Active tier</label>
+        </CatalogFormDialog>
+        {packageId && tiers.length ? (
+          <DataTable
+            headings={["Minimum vehicles", "Maximum vehicles", "Price per vehicle", "Billing period", "Effective period", "Status", "", ""]}
+            columnFilters={[{ type: "number" }, { type: "number" }, { type: "text" }, { type: "select" }, { type: "text" }, { type: "select" }, null, null]}
+            rows={tiers.map((tier) => [tier.minVehicles, tier.maxVehicles ?? "Unlimited", `${tier.currency} ${tier.pricePerVehicle}`, enumLabel(tier.billingPeriod), `${new Date(tier.effectiveFrom).toLocaleDateString()}${tier.effectiveTo ? ` – ${new Date(tier.effectiveTo).toLocaleDateString()}` : " onward"}`, tier.isActive ? "ACTIVE" : "INACTIVE", <button key="edit" className="secondary" onClick={(event) => openForm(event.currentTarget, tier)}>Edit</button>, tier.isActive ? <button key="deactivate" className="danger" disabled={loading} onClick={() => void deactivate(tier)}>Deactivate</button> : "—"])}
+          />
+        ) : packageId && !loading ? <section className="sa-empty-catalog"><h3>No vehicle tiers yet</h3><p>Add a tier before offering this Package to clients.</p></section> : null}
+      </section>
+    </>
+  );
+}
+
 function PackageFeaturesView({
   packages,
   features,
@@ -4860,14 +5585,18 @@ function PackageFeaturesView({
         actions={<><button type="button" className="secondary" onClick={close} disabled={busy}>Cancel</button><button type="submit" disabled={busy}>{editing ? "Save changes" : "Add Feature"}</button></>}
       >
         <label>
-          Package <span className="required">*</span>
+          <span className="sa-label-text">
+            Package <span className="sa-required-star">*</span>
+          </span>
           <select disabled={Boolean(editing)} value={form.packageId} onChange={(event) => setForm((current) => ({ ...current, packageId: event.target.value, featureId: "" }))} required>
             <option value="">Select Package</option>
             {packages.filter((item) => item.isActive).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select>
         </label>
         <label>
-          Feature <span className="required">*</span>
+          <span className="sa-label-text">
+            Feature <span className="sa-required-star">*</span>
+          </span>
           <select disabled={Boolean(editing) || !form.packageId} value={form.featureId} onChange={(event) => setForm((current) => ({ ...current, featureId: event.target.value }))} required>
             <option value="">Select Feature</option>
             {features.filter((item) => item.isActive && (editing?.featureId === item.id || !assignedToSelectedPackage.has(item.id))).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
@@ -4893,20 +5622,19 @@ function PackageFeaturesView({
               "Included",
               "Allowance reset",
               "Status",
-              "Order",
               "",
               "",
             ]}
             columnFilters={[
               { type: "text" },
               { type: "text" },
-              { type: "text" },
+              null,
               { type: "text" },
               { type: "select" },
-              { type: "number" },
               null,
               null,
             ]}
+            nonSortableColumns={[2]}
             rows={links.map((link) => [
                 link.package?.name ?? "—",
                 link.feature?.name ?? "—",
@@ -4915,7 +5643,6 @@ function PackageFeaturesView({
                   : (link.includedQuantity ?? "0"),
                 link.resetPeriod ?? "NONE",
                 link.isIncluded ? "INCLUDED" : "NOT INCLUDED",
-                link.displayOrder ?? 0,
                 <button key="edit" className="secondary" onClick={(event) => openForm(event.currentTarget, link)}>Edit</button>,
                 <button key="delete" className="danger" onClick={() => void removeLink(link)}>Delete</button>,
               ])}
@@ -4971,12 +5698,14 @@ function DataTable({
   headings,
   rows,
   columnFilters = [],
+  nonSortableColumns = [],
   columnFiltersMinimumRows = 10,
   disablePageSizeAtOrBelow = 10,
 }: {
   headings: string[];
   rows: any[][];
   columnFilters?: readonly ColumnFilterSpec[];
+  nonSortableColumns?: readonly number[];
   columnFiltersMinimumRows?: number;
   disablePageSizeAtOrBelow?: number;
 }) {
@@ -5367,7 +6096,8 @@ function DataTable({
                   normalizedHeading.length > 0 &&
                   normalizedHeading !== "description" &&
                   normalizedHeading !== "order" &&
-                  normalizedHeading !== "display order";
+                  normalizedHeading !== "display order" &&
+                  !nonSortableColumns.includes(headingIndex);
                 const active = sort?.columnIndex === headingIndex;
                 const direction = active ? sort.direction : "none";
                 const nextDirection =

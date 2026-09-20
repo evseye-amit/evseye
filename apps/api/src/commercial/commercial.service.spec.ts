@@ -112,6 +112,40 @@ describe('CommercialService adjustments and feature credits', () => {
     expect(result.discount.toString()).toBe('75');
   });
 
+  it('calculates Feature Add-On totals from unit pricing and discount', async () => {
+    const create = vi.fn().mockResolvedValue({ id: 'addon-1' });
+    const service = makeService({
+      featurePricing: {
+        findFirst: vi.fn().mockResolvedValue({
+          salePrice: decimal(0.5),
+          costPrice: decimal(0.2),
+          currency: 'INR',
+        }),
+      },
+      featureAddOn: { create },
+    });
+
+    await service.createAddOn({
+      code: 'SMS_1000_60D',
+      name: 'SMS 1000',
+      featureId: 'sms-feature',
+      quantity: 1000,
+      discount: 10,
+      validityDays: 60,
+      effectiveFrom: '2026-09-01',
+    }, 'admin-1');
+
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        quantity: decimal(1000),
+        costPrice: decimal(200),
+        salePrice: decimal(450),
+        discount: decimal(10),
+        currency: 'INR',
+      }),
+    });
+  });
+
   it('consumes credits in earliest-expiry order', async () => {
     const updates: Array<{ id: string; quantityAvailable: Prisma.Decimal }> = [];
     const ledger: Array<Record<string, unknown>> = [];

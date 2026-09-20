@@ -45,8 +45,8 @@ export class CommercialService {
   async changePackage(subscriptionId: string, dto: PackageChangeDto, actorId: string) { const current = await this.prisma.clientSubscription.findUnique({ where: { id: subscriptionId } }); const pkg = await this.requirePackage(dto.packageId); if (!current) throw new NotFoundException('Subscription not found.'); return this.createSubscription({ clientId: current.clientId, packageCode: pkg.code, vehicleCount: dto.vehicleCount, billingCycle: current.billingCycle, startDate: new Date().toISOString(), effectiveDate: dto.effectiveDate }, actorId); }
   async addAdjustment(dto: AdjustmentDto, actorId: string) { if (dto.validTo && new Date(dto.validTo) <= new Date(dto.validFrom)) throw new BadRequestException('Adjustment end must be after its start.'); const row = await this.prisma.clientPricingAdjustment.create({ data: { ...dto, validFrom: new Date(dto.validFrom), validTo: dto.validTo ? new Date(dto.validTo) : undefined, createdBy: actorId } }); await this.audit.record({ clientId: dto.clientId, actorId, action: 'CLIENT_PRICING_ADJUSTMENT_CREATED', entityType: 'ClientPricingAdjustment', entityId: row.id }); return row; }
   async listAdjustments(clientId?: string) { return this.prisma.clientPricingAdjustment.findMany({ where: clientId ? { clientId } : {}, include: { client: { select: { id: true, name: true, companyCode: true } }, subscription: { select: { id: true, packageId: true } } }, orderBy: { createdAt: 'desc' } }); }
-  async createAddOn(dto: FeatureAddOnDto, actorId: string) { this.validateAddOn(dto); const row = await this.prisma.featureAddOn.create({ data: { ...dto, effectiveFrom: new Date(dto.effectiveFrom), effectiveTo: dto.effectiveTo ? new Date(dto.effectiveTo) : undefined } }); await this.audit.record({ actorId, action: 'FEATURE_ADDON_CREATED', entityType: 'FeatureAddOn', entityId: row.id }); return row; }
-  async updateAddOn(id: string, dto: UpdateFeatureAddOnDto, actorId: string) { this.validateAddOn(dto); const current = await this.prisma.featureAddOn.findUnique({ where: { id } }); if (!current) throw new NotFoundException('Feature add-on not found.'); const row = await this.prisma.featureAddOn.update({ where: { id }, data: { ...dto, effectiveFrom: new Date(dto.effectiveFrom), effectiveTo: dto.effectiveTo ? new Date(dto.effectiveTo) : null } }); await this.audit.record({ actorId, action: 'FEATURE_ADDON_UPDATED', entityType: 'FeatureAddOn', entityId: id }); return row; }
+  async createAddOn(dto: FeatureAddOnDto, actorId: string) { const row = await this.prisma.featureAddOn.create({ data: await this.addOnData(dto) }); await this.audit.record({ actorId, action: 'FEATURE_ADDON_CREATED', entityType: 'FeatureAddOn', entityId: row.id }); return row; }
+  async updateAddOn(id: string, dto: UpdateFeatureAddOnDto, actorId: string) { const current = await this.prisma.featureAddOn.findUnique({ where: { id } }); if (!current) throw new NotFoundException('Feature add-on not found.'); const row = await this.prisma.featureAddOn.update({ where: { id }, data: await this.addOnData(dto) }); await this.audit.record({ actorId, action: 'FEATURE_ADDON_UPDATED', entityType: 'FeatureAddOn', entityId: id }); return row; }
   async setAddOnActive(id: string, isActive: boolean, actorId: string) { const current = await this.prisma.featureAddOn.findUnique({ where: { id } }); if (!current) throw new NotFoundException('Feature add-on not found.'); const row = await this.prisma.featureAddOn.update({ where: { id }, data: { isActive } }); await this.audit.record({ actorId, action: isActive ? 'FEATURE_ADDON_ACTIVATED' : 'FEATURE_ADDON_DEACTIVATED', entityType: 'FeatureAddOn', entityId: id }); return row; }
   async listAddOns(featureId?: string, packageId?: string) { return packageId ? this.prisma.packageFeatureAddOn.findMany({ where: { packageId, isAvailable: true }, include: { featureAddOn: { include: { feature: true } } } }) : this.prisma.featureAddOn.findMany({ where: { ...(featureId ? { featureId } : {}) }, include: { feature: true }, orderBy: { code: 'asc' } }); }
   async setAddOnAvailability(packageId: string, featureAddOnId: string, isAvailable: boolean, actorId: string) { const row = await this.prisma.packageFeatureAddOn.upsert({ where: { packageId_featureAddOnId: { packageId, featureAddOnId } }, create: { packageId, featureAddOnId, isAvailable }, update: { isAvailable } }); await this.audit.record({ actorId, action: 'PACKAGE_FEATURE_ADDON_AVAILABILITY_UPDATED', entityType: 'PackageFeatureAddOn', entityId: row.id }); return row; }
@@ -58,7 +58,39 @@ export class CommercialService {
   async usageHistory(clientId: string, featureCode?: string) { const feature = featureCode ? await this.prisma.feature.findUnique({ where: { code: featureCode } }) : null; return this.prisma.featureUsageLedger.findMany({ where: { clientId, ...(feature ? { featureId: feature.id } : {}) }, include: { feature: true }, orderBy: { occurredAt: 'desc' }, take: 250 }); }
   private tierData(dto: VehicleTierDto) { return { minVehicles: dto.minVehicles, maxVehicles: dto.maxVehicles ?? null, pricePerVehicle: dto.pricePerVehicle, currency: dto.currency ?? 'INR', billingPeriod: dto.billingPeriod ?? BillingCycle.MONTHLY, tierMode: dto.tierMode ?? 'VOLUME', effectiveFrom: new Date(dto.effectiveFrom), effectiveTo: dto.effectiveTo ? new Date(dto.effectiveTo) : null, isActive: dto.isActive ?? true }; }
   private validateTier(dto: VehicleTierDto) { if (dto.maxVehicles !== undefined && dto.maxVehicles < dto.minVehicles) throw new BadRequestException('Tier maximum must be greater than or equal to its minimum.'); if (dto.effectiveTo && new Date(dto.effectiveTo) <= new Date(dto.effectiveFrom)) throw new BadRequestException('Tier effective end must be after its start.'); }
-  private validateAddOn(dto: FeatureAddOnDto) { if (dto.effectiveTo && new Date(dto.effectiveTo) <= new Date(dto.effectiveFrom)) throw new BadRequestException('Add-on effective end must be after its start.'); }
+  private validateAddOn(dto: FeatureAddOnDto) { if (dto.effectiveTo && new Date(dto.effectiveTo) <= new Date(dto.effectiveFrom)) throw new BadRequestException('Add-on effective end must be after its start.'); if (dto.discount !== undefined && (dto.discount < 0 || dto.discount > 100)) throw new BadRequestException('Add-on discount must be between 0 and 100 percent.'); }
+  private async addOnData(dto: FeatureAddOnDto) {
+    this.validateAddOn(dto);
+    const effectiveFrom = new Date(dto.effectiveFrom);
+    const pricing = await this.prisma.featurePricing.findFirst({
+      where: {
+        featureId: dto.featureId,
+        isActive: true,
+        effectiveFrom: { lte: effectiveFrom },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: effectiveFrom } }],
+      },
+      orderBy: { effectiveFrom: 'desc' },
+    });
+    if (!pricing) throw new BadRequestException('No active Feature Pricing is available for this Feature on the add-on effective date.');
+    const quantity = new D(dto.quantity);
+    const discount = new D(dto.discount ?? 0);
+    const baseSalePrice = new D(pricing.salePrice).mul(quantity);
+    return {
+      code: dto.code,
+      name: dto.name,
+      description: dto.description,
+      featureId: dto.featureId,
+      quantity,
+      costPrice: pricing.costPrice ? money(new D(pricing.costPrice).mul(quantity)) : null,
+      salePrice: money(baseSalePrice.mul(new D(100).minus(discount)).div(100)),
+      discount,
+      currency: pricing.currency,
+      validityDays: dto.validityDays,
+      effectiveFrom,
+      effectiveTo: dto.effectiveTo ? new Date(dto.effectiveTo) : null,
+      isActive: dto.isActive ?? true,
+    };
+  }
   private async assertNoTierOverlap(packageId: string, dto: VehicleTierDto, ignoreId?: string) { if (dto.isActive === false) return; const rows = await this.prisma.packageVehicleTierPricing.findMany({ where: { packageId, isActive: true, ...(ignoreId ? { id: { not: ignoreId } } : {}) } }); const from = new Date(dto.effectiveFrom), to = dto.effectiveTo ? new Date(dto.effectiveTo) : null; const overlaps = rows.some((row) => { const dateOverlap = row.effectiveFrom <= (to ?? new Date('9999-12-31')) && (row.effectiveTo ?? new Date('9999-12-31')) >= from; const quantityOverlap = row.minVehicles <= (dto.maxVehicles ?? Number.MAX_SAFE_INTEGER) && (row.maxVehicles ?? Number.MAX_SAFE_INTEGER) >= dto.minVehicles; return dateOverlap && quantityOverlap; }); if (overlaps) throw new ConflictException('Active vehicle-tier ranges cannot overlap for the same package and effective period.'); }
   private async activeAdjustments(clientId: string, date: Date, scopes: PricingAdjustmentScope[], referenceId: string) { return this.prisma.clientPricingAdjustment.findMany({ where: { clientId, isActive: true, adjustmentScope: { in: scopes }, validFrom: { lte: date }, OR: [{ validTo: null }, { validTo: { gte: date } }], AND: [{ OR: [{ referenceId: null }, { referenceId }] }] } }); }
   private applyAdjustments(amount: Prisma.Decimal, adjustments: Array<{ adjustmentType: PricingAdjustmentType; adjustmentValue: Prisma.Decimal }>) { let final = new D(amount); for (const adjustment of adjustments) final = adjustment.adjustmentType === 'PERCENTAGE' ? final.minus(final.mul(adjustment.adjustmentValue).div(100)) : adjustment.adjustmentType === 'FIXED_AMOUNT' ? final.minus(adjustment.adjustmentValue) : new D(adjustment.adjustmentValue); final = Prisma.Decimal.max(final, new D(0)); return { final: money(final), discount: money(new D(amount).minus(final)) }; }

@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsBoolean, IsDateString, IsEnum, IsInt, IsNumber, IsObject, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsDateString, IsEnum, IsInt, IsNumber, IsObject, IsOptional, IsString, Max, Min } from 'class-validator';
 import { BillingCycle, FeatureUsageTransactionType, PricingAdjustmentScope, PricingAdjustmentType, PricingTierMode } from '@prisma/client';
 
 export class VehicleTierDto {
@@ -45,8 +45,8 @@ export class AdjustmentDto {
 export class FeatureAddOnDto {
   @IsString() code!: string; @IsString() name!: string; @IsOptional() @IsString() description?: string;
   @IsString() featureId!: string; @IsNumber() @Min(0.0001) quantity!: number;
-  @IsOptional() @IsNumber() @Min(0) costPrice?: number; @IsNumber() @Min(0) salePrice!: number;
-  @IsOptional() @IsString() currency?: string; @IsOptional() @IsInt() @Min(1) validityDays?: number;
+  @IsOptional() @IsNumber() @Min(0) @Max(100) discount?: number;
+  @IsOptional() @IsInt() @Min(1) validityDays?: number;
   @IsDateString() effectiveFrom!: string; @IsOptional() @IsDateString() effectiveTo?: string; @IsOptional() @IsBoolean() isActive?: boolean;
 }
 export class UpdateFeatureAddOnDto extends FeatureAddOnDto {}

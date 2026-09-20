@@ -2254,6 +2254,61 @@ body:has(.sa-dialog[open]) {
 .sa-toggle input {
   width: auto !important;
 }
+.sa-package-limits {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #dce8df;
+  border-radius: 8px;
+  background: #f8fbf9;
+}
+.sa-package-limits > p {
+  margin: 0;
+  color: #3c5144;
+  font-size: 14px;
+  font-weight: 700;
+}
+.sa-package-limits > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.sa-package-limits > div > label {
+  display: grid;
+  gap: 6px;
+  color: #69726a;
+  font-size: 13px;
+  font-weight: 700;
+}
+.sa-package-limit-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sa-package-limit-control > input {
+  min-width: 0;
+  flex: 1;
+}
+.sa-package-limit-unlimited {
+  flex: 1;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #b7d9c5;
+  border-radius: 6px;
+  background: #eaf6ee;
+  color: #22583b;
+  font-size: 14px;
+  font-weight: 700;
+}
+.sa-package-limit-control .sa-toggle {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+@media (max-width: 640px) {
+  .sa-package-limits > div {
+    grid-template-columns: 1fr;
+  }
+}
 .sa-package-feature,
 .sa-package-feature-pricing,
 .sa-price-override {
@@ -2835,6 +2890,17 @@ body:has(.sa-dialog[open]) {
   font-weight: 800;
 }
 
+/* Legacy dialog labels may still render their text and marker as direct grid
+   children. Keep those two nodes in normal inline flow until their JSX has
+   been replaced by the shared sa-label-text pattern. */
+.sa-form label:has(> .required) {
+  display: block;
+}
+.sa-form label:has(> .required) > :is(input, select, textarea) {
+  display: block;
+  margin-top: 6px;
+}
+
 /* Keep the required marker with its field name at every responsive width. */
 :is(.auth-form, .form-stack, .sa-form, .client-hub-form) label:has(> :is(input, select, textarea)[required]),
 :is(.auth-form, .form-stack, .sa-form, .client-hub-form) :is(label, legend, .client-label-text, span):has(> :is(.sa-required-star, .client-required-star, .required-marker, .required)) {
@@ -2876,6 +2942,19 @@ body:has(.sa-dialog[open]) {
   font-size: 13px;
   font-weight: 600;
   line-height: 1.35;
+}
+.sa-feature-addon-calculation {
+  grid-column: 1 / -1;
+  padding: 12px 14px;
+  border: 1px solid #b9dfcc;
+  border-radius: 9px;
+  background: #f2fbf6;
+  color: #254334;
+}
+.sa-feature-addon-calculation p {
+  margin: 3px 0;
+  font-size: 13px;
+  line-height: 1.45;
 }
 .sa-active-client-approval {
   display: grid;
