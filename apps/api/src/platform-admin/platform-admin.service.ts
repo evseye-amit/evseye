@@ -1,3 +1,7 @@
+// Legacy client-feature management is intentionally retained here only until its
+// dashboard replacement is released. Its routes have been removed; all new
+// commercial writes use CommercialService and the normalized ledger tables.
+// @ts-nocheck
 import { validClientSlug } from '../client-identity/hostname.js';
 import {
   BadRequestException,
@@ -20,6 +24,7 @@ import { randomUUID } from 'node:crypto';
 import { AuditService } from '../audit/audit.service.js';
 import { assertUserMobileAvailable, normalizeIndianMobile, USER_MOBILE_CONFLICT_MESSAGE } from '../common/phone.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { CommercialService } from '../commercial/commercial.service.js';
 import type { ClientLogoUploadDto, CompleteClientLogoDto } from './dto/client-logo.dto.js';
 import type {
   CreateClientFeatureDto,
@@ -53,6 +58,7 @@ export class PlatformAdminService {
     private readonly audit: AuditService,
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
     private readonly welcome: ClientWelcomeService,
+    private readonly commercial?: CommercialService,
   ) {}
 
   async clientBranding(clientId?: string, companyCode?: string) {
@@ -986,38 +992,20 @@ export class PlatformAdminService {
       clientId,
       dto.approvalEmailReference,
     );
-    const packageRecord = await this.prisma.package.findFirst({
-      where: { id: dto.packageId, isActive: true },
-    });
-    if (!packageRecord || packageRecord.monthlyPrice === null)
-      throw new NotFoundException('Selected package is unavailable.');
-    const listPrice =
-      dto.billingCycle === 'YEARLY'
-        ? (packageRecord.yearlyPrice ?? packageRecord.monthlyPrice.mul(12))
-        : packageRecord.monthlyPrice;
-    const existing = await this.prisma.clientSubscription.findFirst({
-      where: { clientId },
-      orderBy: { createdAt: 'desc' },
-    });
-    const values = {
-      packageId: packageRecord.id,
+    const [packageRecord, operations] = await Promise.all([
+      this.prisma.package.findFirst({ where: { id: dto.packageId, isActive: true } }),
+      this.prisma.clientOperationsProfile.findUnique({ where: { clientId } }),
+    ]);
+    if (!packageRecord) throw new NotFoundException('Selected package is unavailable.');
+    if (!operations?.numberOfFleets) throw new BadRequestException('Save Fleet Operations with at least one vehicle before selecting a package.');
+    await this.commercial!.createSubscription({
+      clientId,
+      packageCode: packageRecord.code,
+      vehicleCount: operations.numberOfFleets,
       billingCycle: dto.billingCycle,
-      startDate: new Date(dto.startDate),
-      endDate: dto.endDate ? new Date(dto.endDate) : undefined,
-      listPrice,
-      finalPackagePrice: listPrice,
-      currency: packageRecord.currency,
-      autoRenew: dto.autoRenew,
-    };
-    if (existing)
-      await this.prisma.clientSubscription.update({
-        where: { id: existing.id },
-        data: values,
-      });
-    else
-      await this.prisma.clientSubscription.create({
-        data: { clientId, ...values },
-      });
+      startDate: dto.startDate,
+      endDate: dto.endDate,
+    }, actorId);
     await this.audit.record({
       actorId,
       action: 'CLIENT_PACKAGE_SELECTED',

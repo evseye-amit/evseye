@@ -30,6 +30,7 @@ import type {
   CompleteOemLogoUploadDto,
   CreateOemLogoUploadIntentDto,
   CreateFeatureDto,
+  CreateFeatureStepDto,
   CreatePackageFeatureDto,
   CreatePackageFeatureAssignmentDto,
   CreateFeaturePricingDto,
@@ -38,6 +39,7 @@ import type {
   CreateVehicleCategoryDto,
   CreateVehicleTypeDto,
   UpdateFeatureDto,
+  UpdateFeatureStepDto,
   UpdateFeaturePricingDto,
   UpdateOemDto,
   UpdatePackageDto,
@@ -473,6 +475,7 @@ export class PlatformCatalogService {
   listFeatures() {
     return this.prisma.feature.findMany({
       include: {
+        featureStep: true,
         pricing: {
           where: { isActive: true },
           orderBy: { effectiveFrom: 'desc' },
@@ -482,15 +485,72 @@ export class PlatformCatalogService {
     });
   }
   async createFeature(dto: CreateFeatureDto, actorId: string) {
+    const { configuration, featureStepId, ...data } = dto;
+    if (featureStepId) await this.requireFeatureStep(featureStepId);
     return this.createWithAudit('FEATURE_CREATED', 'Feature', actorId, () =>
-      this.prisma.feature.create({ data: dto }),
+      this.prisma.feature.create({
+        data: {
+          ...data,
+          ...(featureStepId ? { featureStepId } : {}),
+          ...(configuration !== undefined
+            ? { configuration: configuration as Prisma.InputJsonValue }
+            : {}),
+        },
+      }),
     );
   }
   async updateFeature(id: string, dto: UpdateFeatureDto, actorId: string) {
     await this.exists('feature', id);
+    const { configuration, featureStepId, ...data } = dto;
+    if (featureStepId) await this.requireFeatureStep(featureStepId);
     return this.updateWithAudit('FEATURE_UPDATED', 'Feature', id, actorId, () =>
-      this.prisma.feature.update({ where: { id }, data: dto }),
+      this.prisma.feature.update({
+        where: { id },
+        data: {
+          ...data,
+          ...(featureStepId !== undefined ? { featureStepId } : {}),
+          ...(configuration !== undefined
+            ? { configuration: configuration as Prisma.InputJsonValue }
+            : {}),
+        },
+      }),
     );
+  }
+  listFeatureSteps() {
+    return this.prisma.featureStep.findMany({
+      include: {
+        parent: { select: { id: true, code: true, displayName: true } },
+        _count: { select: { features: true, children: true } },
+      },
+      orderBy: [{ displayOrder: 'asc' }, { displayName: 'asc' }],
+    });
+  }
+  async createFeatureStep(dto: CreateFeatureStepDto, actorId: string) {
+    if (dto.parentId) await this.requireFeatureStep(dto.parentId);
+    return this.createWithAudit('FEATURE_STEP_CREATED', 'FeatureStep', actorId, () =>
+      this.prisma.featureStep.create({ data: dto }),
+    );
+  }
+  async updateFeatureStep(id: string, dto: UpdateFeatureStepDto, actorId: string) {
+    await this.requireFeatureStep(id, false);
+    if (dto.parentId) await this.validateFeatureStepParent(id, dto.parentId);
+    return this.updateWithAudit('FEATURE_STEP_UPDATED', 'FeatureStep', id, actorId, () =>
+      this.prisma.featureStep.update({ where: { id }, data: dto }),
+    );
+  }
+  async deleteFeatureStep(id: string, actorId: string) {
+    await this.requireFeatureStep(id, false);
+    const [children, features] = await Promise.all([
+      this.prisma.featureStep.count({ where: { parentId: id } }),
+      this.prisma.feature.count({ where: { featureStepId: id } }),
+    ]);
+    if (children) throw new ConflictException('Reassign or remove child Feature Steps before deleting this step.');
+    if (features) {
+      await this.prisma.featureStep.update({ where: { id }, data: { isActive: false } });
+    } else {
+      await this.prisma.featureStep.delete({ where: { id } });
+    }
+    await this.audit.record({ actorId, action: 'FEATURE_STEP_DELETED', entityType: 'FeatureStep', entityId: id, newData: { deactivated: Boolean(features) } });
   }
   async deleteFeature(id: string, actorId: string) {
     await this.exists('feature', id);
@@ -505,36 +565,15 @@ export class PlatformCatalogService {
         'This feature is enabled in a package with an active client subscription and cannot be deleted.',
       );
     }
-    const assignedClientFeatures = await this.prisma.clientFeature.count({
-      where: { featureId: id },
-    });
-    if (assignedClientFeatures) {
-      throw new ConflictException(
-        'This feature is assigned to one or more clients and cannot be deleted.',
-      );
-    }
-    const recordedUsage = await this.prisma.featureUsage.count({
-      where: { featureId: id },
-    });
-    if (recordedUsage) {
-      throw new ConflictException(
-        'This feature has recorded usage and cannot be deleted.',
-      );
-    }
-
-    const removedPackageLinks = await this.prisma.$transaction(async (tx) => {
-      const { count } = await tx.packageFeature.deleteMany({
-        where: { featureId: id },
-      });
-      await tx.feature.delete({ where: { id } });
-      return count;
-    });
+    const referenced = await this.prisma.featureUsageLedger.count({ where: { featureId: id } });
+    if (referenced) throw new ConflictException('A feature with commercial history cannot be deleted. Deactivate it instead.');
+    await this.prisma.feature.update({ where: { id }, data: { isActive: false } });
     await this.audit.record({
       actorId,
       action: 'FEATURE_DELETED',
       entityType: 'Feature',
       entityId: id,
-      newData: { removedPackageLinks },
+      newData: { isActive: false },
     });
   }
   async bulkCreateFeatures(dto: BulkCreateFeaturesDto, actorId: string) {
@@ -625,7 +664,7 @@ export class PlatformCatalogService {
       .then((packages) => this.jsonSafe(packages));
   }
   async createPackage(dto: CreatePackageDto, actorId: string) {
-    const { featureIds: _featureIds, packageFeatures: _packageFeatures, ...data } = dto;
+    const data = dto;
     const created = await this.createWithAudit(
       'PACKAGE_CREATED',
       'Package',
@@ -648,7 +687,7 @@ export class PlatformCatalogService {
   }
   async updatePackage(id: string, dto: UpdatePackageDto, actorId: string) {
     await this.exists('package', id);
-    const { featureIds: _featureIds, packageFeatures: _packageFeatures, ...data } = dto;
+    const data = dto;
     const updated = await this.updateWithAudit(
       'PACKAGE_UPDATED',
       'Package',
@@ -727,7 +766,7 @@ export class PlatformCatalogService {
   async deletePackageFeature(id: string, actorId: string) {
     const existing = await this.prisma.packageFeature.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Package Feature not found.');
-    await this.prisma.packageFeature.delete({ where: { id } });
+    await this.prisma.packageFeature.update({ where: { id }, data: { isIncluded: false } });
     await this.audit.record({
       actorId,
       action: 'PACKAGE_FEATURE_DELETED',
@@ -744,7 +783,7 @@ export class PlatformCatalogService {
       throw new ConflictException(
         'An active client subscription uses this package.',
       );
-    await this.prisma.package.delete({ where: { id } });
+    await this.prisma.package.update({ where: { id }, data: { isActive: false } });
     await this.audit.record({
       actorId,
       action: 'PACKAGE_DELETED',
@@ -762,11 +801,16 @@ export class PlatformCatalogService {
       const normalized = {
         code: row.code?.trim().toUpperCase(),
         name: row.name?.trim(),
-        monthlyPrice: optionalNumber(row.monthlyPrice),
-        yearlyPrice: optionalNumber(row.yearlyPrice),
+        setupFee: optionalNumber(row.setupFee) ?? 0,
         currency: (row.currency ?? 'INR').toString().trim().toUpperCase(),
-        maxFleets: optionalNumber(row.maxFleets),
-        maxRiders: optionalNumber(row.maxRiders),
+        maxFleets: optionalNumber(row.maxFleets) ?? 0,
+        maxRiders: optionalNumber(row.maxRiders) ?? 0,
+        maxAdmins: optionalNumber(row.maxAdmins) ?? 0,
+        maxFleetManagers: optionalNumber(row.maxFleetManagers) ?? 0,
+        maxHubs: optionalNumber(row.maxHubs) ?? 0,
+        maxTeamLeaders: optionalNumber(row.maxTeamLeaders) ?? 0,
+        maxClusterManagers: optionalNumber(row.maxClusterManagers) ?? 0,
+        maxUsers: optionalNumber(row.maxUsers) ?? 0,
         trialDays: Number(row.trialDays ?? 0),
         displayOrder: Number(row.displayOrder ?? 0),
         isCustom: this.toBoolean(row.isCustom, false),
@@ -776,10 +820,16 @@ export class PlatformCatalogService {
       const integerFields = [
         normalized.maxFleets,
         normalized.maxRiders,
+        normalized.maxAdmins,
+        normalized.maxFleetManagers,
+        normalized.maxHubs,
+        normalized.maxTeamLeaders,
+        normalized.maxClusterManagers,
+        normalized.maxUsers,
         normalized.trialDays,
         normalized.displayOrder,
       ];
-      const monetaryFields = [normalized.monthlyPrice, normalized.yearlyPrice];
+      const monetaryFields = [normalized.setupFee];
       if (
         !normalized.code ||
         !/^[A-Z0-9_-]{1,50}$/.test(normalized.code) ||
@@ -833,7 +883,7 @@ export class PlatformCatalogService {
   listPricing() {
     return this.prisma.featurePricing
       .findMany({
-        include: { feature: true, tiers: { orderBy: { tierOrder: 'asc' } } },
+        include: { feature: true },
         orderBy: { updatedAt: 'desc' },
       })
       .then((pricing) => this.jsonSafe(pricing));
@@ -841,6 +891,7 @@ export class PlatformCatalogService {
   async createPricing(dto: CreateFeaturePricingDto, actorId: string) {
     this.validatePricing(dto);
     await this.exists('feature', dto.featureId);
+    await this.assertNoPricingOverlap(dto);
     const created = await this.createWithAudit(
       'FEATURE_PRICING_CREATED',
       'FeaturePricing',
@@ -848,7 +899,7 @@ export class PlatformCatalogService {
       () =>
         this.prisma.featurePricing.create({
           data: this.pricingData(dto),
-          include: { feature: true, tiers: { orderBy: { tierOrder: 'asc' } } },
+          include: { feature: true },
         }),
     );
     return this.jsonSafe(created);
@@ -858,27 +909,25 @@ export class PlatformCatalogService {
     dto: UpdateFeaturePricingDto,
     actorId: string,
   ) {
-    await this.exists('featurePricing', id);
-    this.validatePricing(dto);
-    await this.exists('feature', dto.featureId);
-    if (dto.tiers) {
-      await this.prisma.featurePricingTier.deleteMany({
-        where: { featurePricingId: id },
-      });
-    }
-    const updated = await this.updateWithAudit(
-      'FEATURE_PRICING_UPDATED',
-      'FeaturePricing',
-      id,
-      actorId,
-      () =>
-        this.prisma.featurePricing.update({
-          where: { id },
-          data: this.pricingData(dto),
-          include: { feature: true, tiers: { orderBy: { tierOrder: 'asc' } } },
-        }),
-    );
-    return this.jsonSafe(updated);
+    const current = await this.prisma.featurePricing.findUnique({ where: { id } });
+    if (!current) throw new NotFoundException('Feature pricing not found.');
+    this.validatePricing(dto); await this.exists('feature', dto.featureId); await this.assertNoPricingOverlap(dto, id);
+    const replacement = await this.prisma.$transaction(async (tx) => {
+      await tx.featurePricing.update({ where: { id }, data: { isActive: false, effectiveTo: new Date(dto.effectiveFrom) } });
+      return tx.featurePricing.create({ data: this.pricingData(dto), include: { feature: true } });
+    });
+    await this.audit.record({ actorId, action: 'FEATURE_PRICING_VERSION_CREATED', entityType: 'FeaturePricing', entityId: replacement.id, previousData: { replacedPricingId: id } });
+    return this.jsonSafe(replacement);
+  }
+
+  async getCurrentPricing(featureId: string, effectiveDate = new Date()) {
+    const pricing = await this.prisma.featurePricing.findFirst({
+      where: { featureId, isActive: true, effectiveFrom: { lte: effectiveDate }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: effectiveDate } }] },
+      include: { feature: true },
+      orderBy: { effectiveFrom: 'desc' },
+    });
+    if (!pricing) throw new NotFoundException('No active feature price is configured for this effective date.');
+    return this.jsonSafe(pricing);
   }
 
   private validatePricing(dto: CreateFeaturePricingDto) {
@@ -889,79 +938,33 @@ export class PlatformCatalogService {
         'Effective end date must be on or after the effective start date.',
       );
     }
-    if (
-      dto.minimumCharge !== undefined &&
-      dto.maximumCharge !== undefined &&
-      dto.minimumCharge > dto.maximumCharge
-    ) {
-      throw new BadRequestException(
-        'Maximum charge must be greater than or equal to minimum charge.',
-      );
-    }
-    const tierOrders = new Set<number>();
-    for (const tier of dto.tiers ?? []) {
-      if (tierOrders.has(tier.tierOrder)) {
-        throw new BadRequestException('Pricing tier order must be unique.');
-      }
-      tierOrders.add(tier.tierOrder);
-      if (
-        tier.toQuantity !== undefined &&
-        tier.toQuantity < tier.fromQuantity
-      ) {
-        throw new BadRequestException(
-          'Tier end quantity must be greater than or equal to its start quantity.',
-        );
-      }
-    }
+  }
+  private async assertNoPricingOverlap(dto: CreateFeaturePricingDto, ignoreId?: string) {
+    if (dto.isActive === false) return;
+    const from = new Date(dto.effectiveFrom);
+    const to = dto.effectiveTo ? new Date(dto.effectiveTo) : new Date('9999-12-31');
+    const overlapping = await this.prisma.featurePricing.findFirst({
+      where: {
+        featureId: dto.featureId,
+        billingUnit: dto.billingUnit,
+        currency: dto.currency ?? 'INR',
+        isActive: true,
+        ...(ignoreId ? { id: { not: ignoreId } } : {}),
+        effectiveFrom: { lte: to },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: from } }],
+      },
+    });
+    if (overlapping) throw new ConflictException('Active feature prices cannot overlap for the same feature, billing unit, currency, and effective period.');
   }
 
   private pricingData(dto: CreateFeaturePricingDto) {
-    const { metadata, tiers, effectiveFrom, effectiveTo, ...data } = dto;
+    const { metadata, effectiveFrom, effectiveTo, ...data } = dto;
     return {
       ...data,
       effectiveFrom: new Date(effectiveFrom),
       effectiveTo: effectiveTo ? new Date(effectiveTo) : undefined,
       metadata: metadata as Prisma.InputJsonValue | undefined,
-      tiers: tiers
-        ? {
-            create: tiers.map((tier) => ({
-              ...tier,
-              fromQuantity: BigInt(tier.fromQuantity),
-              toQuantity:
-                tier.toQuantity === undefined
-                  ? undefined
-                  : BigInt(tier.toQuantity),
-            })),
-          }
-        : undefined,
     };
-  }
-
-  private normalizePackageFeatures(
-    packageFeatures: CreatePackageFeatureDto[] | undefined,
-    featureIds: string[],
-  ) {
-    return (
-      packageFeatures ??
-      featureIds.map((featureId, displayOrder) => ({
-        featureId,
-        unlimitedUsage: true,
-        displayOrder,
-      }))
-    );
-  }
-
-  private async validatePackageFeatures(features: CreatePackageFeatureDto[]) {
-    const seen = new Set<string>();
-    for (const feature of features) {
-      if (seen.has(feature.featureId)) {
-        throw new ConflictException(
-          'A Feature can only be added once per Package.',
-        );
-      }
-      seen.add(feature.featureId);
-      await this.exists('feature', feature.featureId);
-    }
   }
 
   private packageFeatureData(
@@ -971,14 +974,7 @@ export class PlatformCatalogService {
     const { configuration, ...data } = feature;
     return {
       ...data,
-      includedQuantity:
-        feature.includedQuantity === undefined
-          ? undefined
-          : BigInt(feature.includedQuantity),
-      usageLimit:
-        feature.usageLimit === undefined
-          ? undefined
-          : BigInt(feature.usageLimit),
+      includedQuantity: feature.includedQuantity,
       configuration: configuration as Prisma.InputJsonValue | undefined,
     };
   }
@@ -991,7 +987,7 @@ export class PlatformCatalogService {
   }
   async deletePricing(id: string, actorId: string) {
     await this.exists('featurePricing', id);
-    await this.prisma.featurePricing.delete({ where: { id } });
+    await this.prisma.featurePricing.update({ where: { id }, data: { isActive: false } });
     await this.audit.record({
       actorId,
       action: 'FEATURE_PRICING_DELETED',
@@ -1097,6 +1093,23 @@ export class PlatformCatalogService {
     if (normalized === 'true') return true;
     if (normalized === 'false') return false;
     throw new BadRequestException(`Expected true or false, received ${value}.`);
+  }
+  private async requireFeatureStep(id: string, requireActive = true) {
+    const step = await this.prisma.featureStep.findUnique({ where: { id } });
+    if (!step) throw new NotFoundException('Feature Step not found.');
+    if (requireActive && !step.isActive) throw new ConflictException('An inactive Feature Step cannot be assigned.');
+    return step;
+  }
+  private async validateFeatureStepParent(id: string, parentId: string) {
+    if (id === parentId) throw new BadRequestException('A Feature Step cannot be its own parent.');
+    let cursor: string | null = parentId;
+    const visited = new Set<string>([id]);
+    while (cursor) {
+      if (visited.has(cursor)) throw new BadRequestException('A Feature Step cannot be assigned to one of its descendants.');
+      visited.add(cursor);
+      const step = await this.requireFeatureStep(cursor);
+      cursor = step.parentId;
+    }
   }
   private unique(error: unknown) {
     return (

@@ -3,6 +3,7 @@ import {
   IsArray,
   IsBoolean,
   IsInt,
+  IsUUID,
   IsEnum,
   IsIn,
   IsDateString,
@@ -22,11 +23,11 @@ import {
   FeatureBillingUnit,
   FeatureCategory,
   FeatureType,
+  AllowanceResetPeriod,
   BillingCycle,
   MasterRecordStatus,
   EnergyType,
   VehicleUsageType,
-  PricingModel,
 } from '@prisma/client';
 
 export class CreateOemDto {
@@ -126,9 +127,22 @@ export class CreateFeatureDto {
   @IsEnum(FeatureType) featureType!: FeatureType;
   @IsEnum(FeatureBillingUnit) billingUnit!: FeatureBillingUnit;
   @IsOptional() @IsString() @MaxLength(500) description?: string;
+  @IsOptional() @IsObject() configuration?: Record<string, unknown>;
+  @IsOptional() @IsUUID() featureStepId?: string;
   @IsOptional() @IsNumber() @Min(0) displayOrder?: number;
   @IsOptional() @IsBoolean() isActive?: boolean;
 }
+
+export class CreateFeatureStepDto {
+  @IsString() @Matches(/^[A-Z0-9_-]+$/) @MaxLength(100) code!: string;
+  @IsString() @MaxLength(150) displayName!: string;
+  @IsOptional() @IsString() @MaxLength(500) description?: string;
+  @IsOptional() @IsUUID() parentId?: string;
+  @IsOptional() @IsInt() @Min(0) displayOrder?: number;
+  @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
+export class UpdateFeatureStepDto extends CreateFeatureStepDto {}
 
 export class UpdateFeatureDto extends CreateFeatureDto {}
 
@@ -149,10 +163,11 @@ export class BulkCreateFeaturesDto {
 
 export class CreatePackageFeatureDto {
   @IsString() featureId!: string;
-  @IsOptional() @IsBoolean() enabled?: boolean;
-  @IsOptional() @IsInt() @Min(0) includedQuantity?: number;
-  @IsOptional() @IsInt() @Min(0) usageLimit?: number;
-  @IsOptional() @IsBoolean() unlimitedUsage?: boolean;
+  @IsOptional() @IsBoolean() isIncluded?: boolean;
+  @IsOptional() @IsNumber() @Min(0) includedQuantity?: number;
+  @IsOptional() @IsEnum(AllowanceResetPeriod) resetPeriod?: AllowanceResetPeriod;
+  @IsOptional() @IsBoolean() isUnlimited?: boolean;
+  @IsOptional() @IsBoolean() rolloverAllowed?: boolean;
   @IsOptional() @IsObject() configuration?: Record<string, unknown>;
   @IsOptional() @IsInt() @Min(0) displayOrder?: number;
 }
@@ -162,10 +177,11 @@ export class CreatePackageFeatureAssignmentDto extends CreatePackageFeatureDto {
 }
 
 export class UpdatePackageFeatureDto {
-  @IsOptional() @IsBoolean() enabled?: boolean;
-  @IsOptional() @IsInt() @Min(0) includedQuantity?: number;
-  @IsOptional() @IsInt() @Min(0) usageLimit?: number;
-  @IsOptional() @IsBoolean() unlimitedUsage?: boolean;
+  @IsOptional() @IsBoolean() isIncluded?: boolean;
+  @IsOptional() @IsNumber() @Min(0) includedQuantity?: number;
+  @IsOptional() @IsEnum(AllowanceResetPeriod) resetPeriod?: AllowanceResetPeriod;
+  @IsOptional() @IsBoolean() isUnlimited?: boolean;
+  @IsOptional() @IsBoolean() rolloverAllowed?: boolean;
   @IsOptional() @IsObject() configuration?: Record<string, unknown>;
   @IsOptional() @IsInt() @Min(0) displayOrder?: number;
 }
@@ -173,23 +189,21 @@ export class UpdatePackageFeatureDto {
 export class CreatePackageDto {
   @IsString() @Matches(/^[A-Z0-9_-]+$/) @MaxLength(50) code!: string;
   @IsString() @MaxLength(100) name!: string;
-  @IsOptional() @IsNumber() @Min(0) monthlyPrice?: number;
-  @IsOptional() @IsNumber() @Min(0) yearlyPrice?: number;
+  @IsNumber() @Min(0) setupFee!: number;
   @IsOptional() @IsString() @Matches(/^[A-Z]{3}$/) currency?: string;
   @IsOptional() @IsString() @MaxLength(500) description?: string;
-  @IsOptional() @IsNumber() @Min(0) maxFleets?: number;
-  @IsOptional() @IsNumber() @Min(0) maxRiders?: number;
+  @IsInt() @Min(0) maxFleets!: number;
+  @IsInt() @Min(0) maxRiders!: number;
+  @IsInt() @Min(0) maxAdmins!: number;
+  @IsInt() @Min(0) maxFleetManagers!: number;
+  @IsInt() @Min(0) maxHubs!: number;
+  @IsInt() @Min(0) maxTeamLeaders!: number;
+  @IsInt() @Min(0) maxClusterManagers!: number;
+  @IsInt() @Min(0) maxUsers!: number;
   @IsOptional() @IsNumber() @Min(0) trialDays?: number;
   @IsOptional() @IsNumber() @Min(0) displayOrder?: number;
   @IsOptional() @IsBoolean() isCustom?: boolean;
   @IsOptional() @IsBoolean() isActive?: boolean;
-  // Retained temporarily for compatibility with existing package clients.
-  @IsOptional() @IsArray() @IsString({ each: true }) featureIds?: string[];
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => CreatePackageFeatureDto)
-  packageFeatures?: CreatePackageFeatureDto[];
 }
 
 export class UpdatePackageDto extends CreatePackageDto {}
@@ -200,11 +214,16 @@ export class BulkCreatePackagesDto {
   rows!: Array<{
     code: string;
     name: string;
-    monthlyPrice?: number;
-    yearlyPrice?: number;
+    setupFee?: number;
     currency?: string;
     maxFleets?: number;
     maxRiders?: number;
+    maxAdmins?: number;
+    maxFleetManagers?: number;
+    maxHubs?: number;
+    maxTeamLeaders?: number;
+    maxClusterManagers?: number;
+    maxUsers?: number;
     trialDays?: number;
     displayOrder?: number;
     isCustom?: boolean;
@@ -213,37 +232,16 @@ export class BulkCreatePackagesDto {
   }>;
 }
 
-export class CreateFeaturePricingTierDto {
-  @IsInt() @Min(0) tierOrder!: number;
-  @IsOptional() @IsString() @MaxLength(100) tierName?: string;
-  @IsInt() @Min(0) fromQuantity!: number;
-  @IsOptional() @IsInt() @Min(0) toQuantity?: number;
-  @IsNumber() @Min(0) unitPrice!: number;
-  @IsOptional() @IsNumber() @Min(0) costPrice?: number;
-}
-
 export class CreateFeaturePricingDto {
   @IsString() featureId!: string;
-  @IsEnum(PricingModel) pricingModel!: PricingModel;
   @IsEnum(FeatureBillingUnit) billingUnit!: FeatureBillingUnit;
   @IsOptional() @IsString() @Matches(/^[A-Z]{3}$/) currency?: string;
-  @IsOptional() @IsNumber() @Min(0) basePrice?: number;
-  @IsOptional() @IsNumber() @Min(0) unitPrice?: number;
+  @IsNumber() @Min(0) salePrice!: number;
   @IsOptional() @IsNumber() @Min(0) costPrice?: number;
-  @IsOptional() @IsNumber() @Min(0) minimumCharge?: number;
-  @IsOptional() @IsNumber() @Min(0) maximumCharge?: number;
-  @IsOptional() @IsNumber() @Min(0) setupFee?: number;
-  @IsOptional() @IsEnum(BillingCycle) billingCycle?: BillingCycle;
-  @IsOptional() @IsBoolean() taxInclusive?: boolean;
   @IsDateString() effectiveFrom!: string;
   @IsOptional() @IsDateString() effectiveTo?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
   @IsOptional() @IsObject() metadata?: Record<string, unknown>;
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => CreateFeaturePricingTierDto)
-  tiers?: CreateFeaturePricingTierDto[];
 }
 
 export class UpdateFeaturePricingDto extends CreateFeaturePricingDto {}

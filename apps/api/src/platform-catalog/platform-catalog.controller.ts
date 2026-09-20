@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Post,
+  Query,
   Put,
   UseGuards,
 } from '@nestjs/common';
@@ -16,6 +17,7 @@ import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import {
   CreateFeatureDto,
+  CreateFeatureStepDto,
   BulkCreatePackagesDto,
   BulkCreateVehicleCategoriesDto,
   BulkCreateVehicleTypesDto,
@@ -30,6 +32,7 @@ import {
   CreateVehicleCategoryDto,
   CreateVehicleTypeDto,
   UpdateFeatureDto,
+  UpdateFeatureStepDto,
   UpdateFeaturePricingDto,
   UpdateOemDto,
   UpdatePackageDto,
@@ -169,6 +172,28 @@ export class PlatformCatalogController {
   @Get('features') features() {
     return this.catalog.listFeatures().then((data) => ({ data }));
   }
+  @Get('feature-steps') featureSteps() {
+    return this.catalog.listFeatureSteps().then((data) => ({ data }));
+  }
+  @Post('feature-steps') createFeatureStep(
+    @Body() dto: CreateFeatureStepDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.catalog.createFeatureStep(dto, user.id).then((data) => ({ data }));
+  }
+  @Put('feature-steps/:id') updateFeatureStep(
+    @Param('id') id: string,
+    @Body() dto: UpdateFeatureStepDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.catalog.updateFeatureStep(id, dto, user.id).then((data) => ({ data }));
+  }
+  @Delete('feature-steps/:id') deleteFeatureStep(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.catalog.deleteFeatureStep(id, user.id).then(() => ({ data: { deleted: true } }));
+  }
   @Post('features') createFeature(
     @Body() dto: CreateFeatureDto,
     @CurrentUser() user: AuthUser,
@@ -264,6 +289,14 @@ export class PlatformCatalogController {
   }
   @Get('feature-pricing') pricing() {
     return this.catalog.listPricing().then((data) => ({ data }));
+  }
+  @Get('features/:featureId/current-price') currentPricing(
+    @Param('featureId') featureId: string,
+    @Query('effectiveDate') effectiveDate?: string,
+  ) {
+    return this.catalog
+      .getCurrentPricing(featureId, effectiveDate ? new Date(effectiveDate) : undefined)
+      .then((data) => ({ data }));
   }
   @Post('feature-pricing') createPricing(
     @Body() dto: CreateFeaturePricingDto,

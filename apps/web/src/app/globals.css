@@ -2834,6 +2834,25 @@ body:has(.sa-dialog[open]) {
   color: #cf4c42;
   font-weight: 800;
 }
+
+/* Keep the required marker with its field name at every responsive width. */
+:is(.auth-form, .form-stack, .sa-form, .client-hub-form) label:has(> :is(input, select, textarea)[required]),
+:is(.auth-form, .form-stack, .sa-form, .client-hub-form) :is(label, legend, .client-label-text, span):has(> :is(.sa-required-star, .client-required-star, .required-marker, .required)) {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+/* Table actions have one predictable hit area across both workspaces. */
+:is(.table-wrap, .sa-table-wrap) .row-actions > button,
+:is(.table-wrap, .sa-table-wrap) td.sa-table-action-cell button,
+.sa-tier-config-actions > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  height: 36px;
+  padding: 0 12px;
+}
 .client-logo-upload {
   grid-column: 1 / -1;
   padding: 16px;

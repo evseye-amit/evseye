@@ -1,5 +1,18 @@
 "use client";
 import { sessionFetch as fetch } from "../../../lib/session-fetch";
+import {
+  allowanceResetPeriods,
+  billingCycles,
+  clientIndustries,
+  energyTypes,
+  featureBillingUnits,
+  featureCategories,
+  featureTypes,
+  fleetBusinessModels,
+  masterRecordStatuses,
+  vehicleOwnerships,
+  vehicleUsageTypes,
+} from "../../../lib/domain-enums";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import {
@@ -35,13 +48,11 @@ type Tab =
   | "oems"
   | "vehicleCategories"
   | "vehicleTypes"
+  | "featureSteps"
   | "features"
   | "packages"
   | "pricing"
-  | "pricingTiers"
-  | "packageFeatures"
-  | "clientFeaturesPricing"
-  | "clientFeatureUsage";
+  | "packageFeatures";
 type Item = Record<string, any>;
 type BulkImportEntity =
   | "oem"
@@ -67,74 +78,6 @@ type DeleteConfirmation = {
   onConfirm: () => Promise<void>;
 };
 const BULK_IMPORT_HISTORY_KEY = "evs-eye-platform-bulk-import-history";
-type PricingTierInput = {
-  tierOrder: string;
-  tierName: string;
-  fromQuantity: string;
-  toQuantity: string;
-  unitPrice: string;
-  costPrice: string;
-};
-
-const featureCategories = [
-  ["LOGIN", "Login"],
-  ["RIDER_ONBOARDING", "Rider Onboarding"],
-  ["RIDER_VERIFICATION", "Rider Verification / KYC"],
-  ["RIDER_TRAINING", "Rider Training"],
-  ["RIDER_MANAGEMENT", "Rider Management"],
-  ["ATTENDANCE", "Attendance & Workforce"],
-  ["FACE_RECOGNITION", "Face Recognition"],
-  ["FLEET_MANAGEMENT", "Fleet Management"],
-  ["VEHICLE_MANAGEMENT", "Vehicle Management"],
-  ["IOT_TELEMATICS", "IoT & Telematics"],
-  ["TRACKING_GEOFENCING", "Tracking & Geofencing"],
-  ["BATTERY_MANAGEMENT", "Battery Management"],
-  ["SERVICE_MAINTENANCE", "Service & Maintenance"],
-  ["MECHANIC_MANAGEMENT", "Mechanic Management"],
-  ["SAFETY_COMPLIANCE", "Safety & Compliance"],
-  ["ANALYTICS", "Analytics"],
-  ["REPORTING", "Reports"],
-  ["NOTIFICATION", "Notifications"],
-  ["INTEGRATION", "Integrations"],
-  ["API_ACCESS", "API Access"],
-  ["USER_ACCESS", "Users & Access"],
-  ["DOCUMENT_MANAGEMENT", "Document Management"],
-  ["USER_VERIFICATION", "User Verification"],
-  ["COUPON", "Coupon"],
-  ["TRAINING", "Training"],
-  ["SUPPORT", "Support"],
-  ["AI_AUTOMATION", "AI & Automation"],
-] as const;
-const featureTypes = ["BOOLEAN", "QUANTITY", "USAGE_BASED", "CONFIGURATION"];
-const featureBillingUnits = [
-  "VERIFICATION",
-  "RIDER",
-  "VEHICLE",
-  "FLEET",
-  "USER",
-  "API_CALL",
-  "FACE_SCAN",
-  "TRAINING",
-  "DEVICE",
-  "MONTH",
-  "LIFE_TIME",
-];
-const pricingModels = [
-  "FREE",
-  "INCLUDED",
-  "FLAT_FEE",
-  "PER_UNIT",
-  "TIERED",
-  "VOLUME",
-  "PER_USER",
-  "PER_RIDER",
-  "PER_VEHICLE",
-  "PER_FLEET",
-  "USAGE_BASED",
-  "PER_DEVICE",
-  "ONE_TIME",
-  "CUSTOM",
-];
 
 function parseCsvLine(line: string) {
   const cells: string[] = [];
@@ -278,12 +221,17 @@ const emptyVehicleType = {
 const emptyPackage = {
   code: "",
   name: "",
-  monthlyPrice: "",
-  yearlyPrice: "",
+  setupFee: "0",
   currency: "INR",
   description: "",
-  maxFleets: "",
-  maxRiders: "",
+  maxFleets: "0",
+  maxRiders: "0",
+  maxAdmins: "0",
+  maxFleetManagers: "0",
+  maxHubs: "0",
+  maxTeamLeaders: "0",
+  maxClusterManagers: "0",
+  maxUsers: "0",
   trialDays: "0",
   displayOrder: "0",
   isCustom: false,
@@ -296,28 +244,29 @@ const emptyFeature = {
   category: "",
   featureType: "",
   billingUnit: "",
+  configuration: "",
+  featureStepId: "",
+  displayOrder: "0",
+  isActive: true,
+};
+const emptyFeatureStep = {
+  code: "",
+  displayName: "",
+  description: "",
+  parentId: "",
   displayOrder: "0",
   isActive: true,
 };
 const emptyPricing = {
   featureId: "",
-  pricingModel: "",
   billingUnit: "",
-
   currency: "INR",
-  basePrice: "0",
-  unitPrice: "",
-  costPrice: "0",
-  minimumCharge: "",
-  maximumCharge: "",
-  setupFee: "0",
-  billingCycle: "",
-  taxInclusive: false,
+  salePrice: "",
+  costPrice: "",
   effectiveFrom: new Date().toISOString().slice(0, 10),
   effectiveTo: "",
   isActive: true,
   metadata: "",
-  tiers: [] as PricingTierInput[],
 };
 
 function Metric({
@@ -460,6 +409,7 @@ export default function SuperAdminDashboard() {
   const [vehicleCategories, setVehicleCategories] = useState<Item[]>([]);
   const [vehicleTypes, setVehicleTypes] = useState<Item[]>([]);
   const [packages, setPackages] = useState<Item[]>([]);
+  const [featureSteps, setFeatureSteps] = useState<Item[]>([]);
   const [features, setFeatures] = useState<Item[]>([]);
   const [pricing, setPricing] = useState<Item[]>([]);
   const [selectedClientId, setSelectedClientId] = useState("");
@@ -498,6 +448,10 @@ export default function SuperAdminDashboard() {
   const [editingFeatureId, setEditingFeatureId] = useState<string | null>(null);
   const [showFeatureForm, setShowFeatureForm] = useState(false);
   const featureTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const [featureStep, setFeatureStep] = useState(emptyFeatureStep);
+  const [editingFeatureStepId, setEditingFeatureStepId] = useState<string | null>(null);
+  const [showFeatureStepForm, setShowFeatureStepForm] = useState(false);
+  const featureStepTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [pack, setPack] = useState(emptyPackage);
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
   const [showPackageForm, setShowPackageForm] = useState(false);
@@ -531,6 +485,7 @@ export default function SuperAdminDashboard() {
         vehicleCategoryList,
         vehicleTypeList,
         packageList,
+        featureStepList,
         featureList,
         priceList,
       ] = await Promise.all([
@@ -540,6 +495,7 @@ export default function SuperAdminDashboard() {
         request("/platform/vehicle-categories", {}, token),
         request("/platform/vehicle-types", {}, token),
         request("/platform/packages", {}, token),
+        request("/platform/feature-steps", {}, token),
         request("/platform/features", {}, token),
         request("/platform/feature-pricing", {}, token),
       ]);
@@ -549,6 +505,7 @@ export default function SuperAdminDashboard() {
       setVehicleCategories(vehicleCategoryList);
       setVehicleTypes(vehicleTypeList);
       setPackages(packageList);
+      setFeatureSteps(featureStepList);
       setFeatures(featureList);
       setPricing(priceList);
     } catch (cause) {
@@ -666,6 +623,10 @@ export default function SuperAdminDashboard() {
         category: item.category,
         featureType: item.featureType,
         billingUnit: item.billingUnit,
+        configuration: item.configuration
+          ? JSON.stringify(item.configuration, null, 2)
+          : "",
+        featureStepId: item.featureStepId ?? "",
         displayOrder: String(item.displayOrder),
         isActive: item.isActive,
       });
@@ -680,6 +641,29 @@ export default function SuperAdminDashboard() {
     setError("");
     setShowFeatureForm(false);
   }
+  function openFeatureStepModal(trigger: HTMLButtonElement, item?: Item) {
+    featureStepTriggerRef.current = trigger;
+    setError("");
+    if (item) {
+      setFeatureStep({
+        code: item.code,
+        displayName: item.displayName,
+        description: item.description ?? "",
+        parentId: item.parentId ?? "",
+        displayOrder: String(item.displayOrder ?? 0),
+        isActive: item.isActive,
+      });
+      setEditingFeatureStepId(item.id);
+    } else {
+      setFeatureStep(emptyFeatureStep);
+      setEditingFeatureStepId(null);
+    }
+    setShowFeatureStepForm(true);
+  }
+  function closeFeatureStepModal() {
+    setError("");
+    setShowFeatureStepForm(false);
+  }
   function openPackageModal(trigger: HTMLButtonElement, item?: Item) {
     packageTriggerRef.current = trigger;
     setError("");
@@ -688,12 +672,17 @@ export default function SuperAdminDashboard() {
       setPack({
         code: item.code,
         name: item.name,
-        monthlyPrice: item.monthlyPrice ? String(item.monthlyPrice) : "",
-        yearlyPrice: item.yearlyPrice ? String(item.yearlyPrice) : "",
+        setupFee: String(item.setupFee ?? 0),
         currency: item.currency,
         description: item.description ?? "",
-        maxFleets: item.maxFleets ? String(item.maxFleets) : "",
-        maxRiders: item.maxRiders ? String(item.maxRiders) : "",
+        maxFleets: String(item.maxFleets ?? 0),
+        maxRiders: String(item.maxRiders ?? 0),
+        maxAdmins: String(item.maxAdmins ?? 0),
+        maxFleetManagers: String(item.maxFleetManagers ?? 0),
+        maxHubs: String(item.maxHubs ?? 0),
+        maxTeamLeaders: String(item.maxTeamLeaders ?? 0),
+        maxClusterManagers: String(item.maxClusterManagers ?? 0),
+        maxUsers: String(item.maxUsers ?? 0),
         trialDays: String(item.trialDays ?? 0),
         displayOrder: String(item.displayOrder ?? 0),
         isCustom: item.isCustom,
@@ -716,35 +705,16 @@ export default function SuperAdminDashboard() {
     if (item) {
       setPrice({
         featureId: item.featureId,
-        pricingModel: item.pricingModel,
         billingUnit: item.billingUnit,
-        basePrice: String(item.basePrice ?? 0),
-        unitPrice: String(item.unitPrice),
-        costPrice: String(item.costPrice ?? 0),
-        minimumCharge: item.minimumCharge
-          ? String(item.minimumCharge)
-          : "",
-        maximumCharge: item.maximumCharge
-          ? String(item.maximumCharge)
-          : "",
-        setupFee: String(item.setupFee ?? 0),
+        salePrice: String(item.salePrice ?? ""),
+        costPrice: item.costPrice === null ? "" : String(item.costPrice ?? ""),
         currency: item.currency,
-        billingCycle: item.billingCycle ?? "MONTHLY",
-        taxInclusive: item.taxInclusive ?? false,
         effectiveFrom: item.effectiveFrom.slice(0, 10),
         effectiveTo: item.effectiveTo ? item.effectiveTo.slice(0, 10) : "",
         isActive: item.isActive,
         metadata: item.metadata
           ? JSON.stringify(item.metadata, null, 2)
           : "",
-        tiers: (item.tiers ?? []).map((tier: Item) => ({
-          tierOrder: String(tier.tierOrder),
-          tierName: tier.tierName ?? "",
-          fromQuantity: String(tier.fromQuantity),
-          toQuantity: tier.toQuantity ? String(tier.toQuantity) : "",
-          unitPrice: String(tier.unitPrice),
-          costPrice: tier.costPrice ? String(tier.costPrice) : "",
-        })),
       });
       setEditingPricingId(item.id);
     } else {
@@ -1134,7 +1104,7 @@ export default function SuperAdminDashboard() {
   function downloadPackageTemplate() {
     downloadCsvTemplate(
       "evseye-package-template.csv",
-      "code,name,monthly_price,yearly_price,currency,max_fleets,max_riders,trial_days,display_order,is_custom,is_active,description\nSTARTER,Starter,1999,19990,INR,1,100,0,10,false,true,Starter platform package\n",
+      "code,name,setup_fee,currency,max_fleets,max_riders,max_admins,max_fleet_managers,max_hubs,max_team_leaders,max_cluster_managers,max_users,trial_days,display_order,is_custom,is_active,description\nSTARTER,Starter,0,INR,1,100,2,5,2,10,2,15,0,10,false,true,Starter platform package\n",
     );
   }
   async function uploadPackageCsv(file: File) {
@@ -1144,11 +1114,16 @@ export default function SuperAdminDashboard() {
       [
         "code",
         "name",
-        "monthly_price",
-        "yearly_price",
+        "setup_fee",
         "currency",
         "max_fleets",
         "max_riders",
+        "max_admins",
+        "max_fleet_managers",
+        "max_hubs",
+        "max_team_leaders",
+        "max_cluster_managers",
+        "max_users",
         "trial_days",
         "display_order",
         "is_custom",
@@ -1160,11 +1135,16 @@ export default function SuperAdminDashboard() {
       ([
         code,
         name,
-        monthlyPrice,
-        yearlyPrice,
+        setupFee,
         currency,
         maxFleets,
         maxRiders,
+        maxAdmins,
+        maxFleetManagers,
+        maxHubs,
+        maxTeamLeaders,
+        maxClusterManagers,
+        maxUsers,
         trialDays,
         displayOrder,
         isCustom,
@@ -1173,11 +1153,16 @@ export default function SuperAdminDashboard() {
       ]) => ({
         code,
         name,
-        monthlyPrice,
-        yearlyPrice,
+        setupFee,
         currency,
         maxFleets,
         maxRiders,
+        maxAdmins,
+        maxFleetManagers,
+        maxHubs,
+        maxTeamLeaders,
+        maxClusterManagers,
+        maxUsers,
         trialDays,
         displayOrder,
         isCustom,
@@ -1189,6 +1174,15 @@ export default function SuperAdminDashboard() {
   }
   async function submitFeature(event: FormEvent) {
     event.preventDefault();
+    let configuration: Record<string, unknown> | undefined;
+    try {
+      configuration = feature.configuration
+        ? JSON.parse(feature.configuration)
+        : undefined;
+    } catch {
+      setError("Feature configuration must be valid JSON.");
+      return;
+    }
     await submit(
       () =>
         request(
@@ -1199,6 +1193,7 @@ export default function SuperAdminDashboard() {
             method: editingFeatureId ? "PUT" : "POST",
             body: JSON.stringify({
               ...feature,
+              ...(configuration ? { configuration } : {}),
               displayOrder: Number(feature.displayOrder),
             }),
           },
@@ -1209,6 +1204,31 @@ export default function SuperAdminDashboard() {
         setFeature(emptyFeature);
         setEditingFeatureId(null);
         setShowFeatureForm(false);
+      },
+    );
+  }
+  async function submitFeatureStep(event: FormEvent) {
+    event.preventDefault();
+    await submit(
+      () => request(
+        editingFeatureStepId
+          ? `/platform/feature-steps/${editingFeatureStepId}`
+          : "/platform/feature-steps",
+        {
+          method: editingFeatureStepId ? "PUT" : "POST",
+          body: JSON.stringify({
+            ...featureStep,
+            parentId: featureStep.parentId || undefined,
+            displayOrder: Number(featureStep.displayOrder || 0),
+          }),
+        },
+        token,
+      ),
+      editingFeatureStepId ? "Feature Step updated." : "Feature Step created.",
+      () => {
+        setFeatureStep(emptyFeatureStep);
+        setEditingFeatureStepId(null);
+        setShowFeatureStepForm(false);
       },
     );
   }
@@ -1306,14 +1326,15 @@ export default function SuperAdminDashboard() {
             method: editingPackageId ? "PUT" : "POST",
             body: JSON.stringify({
               ...pack,
-              ...(pack.monthlyPrice
-                ? { monthlyPrice: Number(pack.monthlyPrice) }
-                : {}),
-              ...(pack.yearlyPrice
-                ? { yearlyPrice: Number(pack.yearlyPrice) }
-                : {}),
-              ...(pack.maxFleets ? { maxFleets: Number(pack.maxFleets) } : {}),
-              ...(pack.maxRiders ? { maxRiders: Number(pack.maxRiders) } : {}),
+              setupFee: Number(pack.setupFee),
+              maxFleets: Number(pack.maxFleets),
+              maxRiders: Number(pack.maxRiders),
+              maxAdmins: Number(pack.maxAdmins),
+              maxFleetManagers: Number(pack.maxFleetManagers),
+              maxHubs: Number(pack.maxHubs),
+              maxTeamLeaders: Number(pack.maxTeamLeaders),
+              maxClusterManagers: Number(pack.maxClusterManagers),
+              maxUsers: Number(pack.maxUsers),
               trialDays: Number(pack.trialDays || 0),
               displayOrder: Number(pack.displayOrder || 0),
             }),
@@ -1346,31 +1367,15 @@ export default function SuperAdminDashboard() {
           {
             method: editingPricingId ? "PUT" : "POST",
             body: JSON.stringify({
-              ...price,
-              basePrice: Number(price.basePrice || 0),
-              unitPrice: Number(price.unitPrice),
-              costPrice: Number(price.costPrice || 0),
-              ...(price.minimumCharge
-                ? { minimumCharge: Number(price.minimumCharge) }
-                : {}),
-              ...(price.maximumCharge
-                ? { maximumCharge: Number(price.maximumCharge) }
-                : {}),
-              setupFee: Number(price.setupFee || 0),
+              featureId: price.featureId,
+              billingUnit: price.billingUnit,
+              currency: price.currency,
+              salePrice: Number(price.salePrice),
+              ...(price.costPrice ? { costPrice: Number(price.costPrice) } : {}),
+              effectiveFrom: price.effectiveFrom,
               ...(price.effectiveTo ? {} : { effectiveTo: undefined }),
               ...(metadata ? { metadata } : { metadata: undefined }),
-              tiers: price.tiers.map((tier) => ({
-                tierOrder: Number(tier.tierOrder),
-                ...(tier.tierName ? { tierName: tier.tierName } : {}),
-                fromQuantity: Number(tier.fromQuantity),
-                ...(tier.toQuantity
-                  ? { toQuantity: Number(tier.toQuantity) }
-                  : {}),
-                unitPrice: Number(tier.unitPrice),
-                ...(tier.costPrice
-                  ? { costPrice: Number(tier.costPrice) }
-                  : {}),
-              })),
+              isActive: price.isActive,
             }),
           },
           token,
@@ -1906,9 +1911,9 @@ export default function SuperAdminDashboard() {
     {
       label: "Feature Management",
       items: [
+        ["featureSteps", "Feature Step", "category"],
         ["features", "Feature", "feature"],
         ["pricing", "Pricing", "pricing"],
-        ["pricingTiers", "Tiered Pricing", "tiers"],
       ],
     },
     {
@@ -1920,11 +1925,7 @@ export default function SuperAdminDashboard() {
     },
     {
       label: "Client Management",
-      items: [
-        ["clients", "Client", "users"],
-        ["clientFeaturesPricing", "Features & Pricing", "pricing"],
-        ["clientFeatureUsage", "Feature Usage", "usage"],
-      ],
+      items: [["clients", "Client", "users"]],
     },
   ];
   const pageSubtitles: Partial<Record<Tab, string>> = {
@@ -1934,19 +1935,17 @@ export default function SuperAdminDashboard() {
     vehicleTypes:
       "Define vehicle types by category, energy source, and usage.",
     features: "Manage the platform feature catalog and entitlement definitions.",
+    featureSteps: "Organize the onboarding journey and align each Feature to its primary step.",
     pricing: "Configure catalog pricing for billable platform features.",
-    pricingTiers: "Set quantity-based pricing tiers for eligible features.",
     packages: "Create packages and define the commercial limits available to clients.",
     packageFeatures: "Choose the features included with each platform package.",
     clients: "Manage onboarding drafts, approvals, subscriptions, and documents.",
-    clientFeaturesPricing:
-      "Review client entitlements and negotiated feature pricing.",
-    clientFeatureUsage: "Review recorded feature consumption across clients.",
   };
   const catalogDialogOpen =
     showOemForm ||
     showVehicleCategoryForm ||
     showVehicleTypeForm ||
+    showFeatureStepForm ||
     showFeatureForm ||
     showPackageForm ||
     showPricingForm ||
@@ -2136,23 +2135,6 @@ export default function SuperAdminDashboard() {
             setApprovalEmailReference={setApprovalEmailReference}
           />
         )}
-        {tab === "clientFeaturesPricing" && (
-          <ClientFeaturesPricingView
-            clients={clients}
-            selectedClientId={selectedClientId}
-            setSelectedClientId={setSelectedClientId}
-            token={token}
-          />
-        )}
-        {tab === "clientFeatureUsage" && (
-          <ClientFeatureUsageView
-            clients={clients}
-            selectedClientId={selectedClientId}
-            setSelectedClientId={setSelectedClientId}
-            token={token}
-
-          />
-        )}
         {tab === "oems" && (
           <>
             <section className="sa-page-head">
@@ -2225,7 +2207,7 @@ export default function SuperAdminDashboard() {
                 change={(value) =>
                   setOem((current) => ({ ...current, status: value }))
                 }
-                options={["ACTIVE", "INACTIVE", "SUSPENDED"]}
+                options={masterRecordStatuses}
               />
               <label className="sa-logo-input">
                 OEM logo{" "}
@@ -2271,7 +2253,7 @@ export default function SuperAdminDashboard() {
                     { type: "text" },
                     {
                       type: "select",
-                      options: ["ACTIVE", "INACTIVE", "SUSPENDED"],
+                      options: masterRecordStatuses,
                     },
                     null,
                     null,
@@ -2423,7 +2405,7 @@ export default function SuperAdminDashboard() {
                       status: value,
                     }))
                   }
-                  options={["ACTIVE", "INACTIVE", "SUSPENDED"]}
+                  options={masterRecordStatuses}
                 />
               </CatalogFormDialog>
               {vehicleCategories.length ? (
@@ -2442,7 +2424,7 @@ export default function SuperAdminDashboard() {
                     { type: "text" },
                     {
                       type: "select",
-                      options: ["ACTIVE", "INACTIVE", "SUSPENDED"],
+                      options: masterRecordStatuses,
                     },
                     null,
                     null,
@@ -2602,16 +2584,7 @@ export default function SuperAdminDashboard() {
                       energyType: value,
                     }))
                   }
-                  options={[
-                    "ELECTRIC",
-                    "HYBRID",
-                    "PETROL",
-                    "DIESEL",
-                    "CNG",
-                    "HYDROGEN",
-                    "OTHER",
-                    "LPG",
-                  ]}
+                  options={energyTypes}
                 />
                 <label>
                   Usage type
@@ -2625,23 +2598,7 @@ export default function SuperAdminDashboard() {
                     }
                   >
                     <option value="">Not specified</option>
-                    {[
-                      "PRIVATE",
-                      "PASSENGER",
-                      "GOODS",
-                      "DELIVERY",
-                      "SHARED_MOBILITY",
-                      "PUBLIC_TRANSPORT",
-                      "STAFF_TRANSPORT",
-                      "SCHOOL_TRANSPORT",
-                      "EMERGENCY",
-                      "AGRICULTURAL",
-                      "CONSTRUCTION",
-                      "INDUSTRIAL",
-                      "RENTAL",
-                      "GOVERNMENT",
-                      "SPECIAL_PURPOSE",
-                    ].map((option) => (
+                    {vehicleUsageTypes.map((option) => (
                       <option key={option}>{option}</option>
                     ))}
                   </select>
@@ -2655,7 +2612,7 @@ export default function SuperAdminDashboard() {
                       status: value,
                     }))
                   }
-                  options={["ACTIVE", "INACTIVE", "SUSPENDED"]}
+                  options={masterRecordStatuses}
                 />
               </CatalogFormDialog>
               <DataTable
@@ -2715,6 +2672,72 @@ export default function SuperAdminDashboard() {
                   </button>,
                 ])}
               />
+            </section>
+          </>
+        )}
+        {tab === "featureSteps" && (
+          <>
+            <section className="sa-page-head">
+              <div>
+                <h2>Feature Step</h2>
+                <p>Define the onboarding journey and assign Features to its steps.</p>
+              </div>
+              <div className="sa-actions">
+                <button onClick={(event) => openFeatureStepModal(event.currentTarget)}>
+                  + Add Feature Step
+                </button>
+              </div>
+            </section>
+            <section className="sa-management oem-table-only">
+              <CatalogFormDialog
+                open={showFeatureStepForm}
+                title={editingFeatureStepId ? "Edit Feature Step" : "Add Feature Step"}
+                description="Create a parent or child step for the configurable onboarding journey."
+                error={error}
+                busy={loading}
+                triggerRef={featureStepTriggerRef}
+                onClose={closeFeatureStepModal}
+                onDialogClose={() => setShowFeatureStepForm(false)}
+                onSubmit={submitFeatureStep}
+                actions={<><button type="button" className="secondary" onClick={closeFeatureStepModal} disabled={loading}>Cancel</button><button type="submit" disabled={loading}>{editingFeatureStepId ? "Update Feature Step" : "Save Feature Step"}</button></>}
+              >
+                <TextFields
+                  value={featureStep}
+                  change={(key, value) => setFeatureStep((current) => ({ ...current, [key]: value }))}
+                  fields={[["code", "Step code"], ["displayName", "Step name"], ["description", "Description"], ["displayOrder", "Display order"]]}
+                  requiredKeys={["code", "displayName"]}
+                />
+                <label>
+                  Parent step
+                  <select value={featureStep.parentId} onChange={(event) => setFeatureStep((current) => ({ ...current, parentId: event.target.value }))}>
+                    <option value="">No parent (top-level step)</option>
+                    {featureSteps.filter((item) => item.id !== editingFeatureStepId && item.isActive).map((item) => (
+                      <option key={item.id} value={item.id}>{item.parent ? `${item.parent.displayName} / ` : ""}{item.displayName}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="sa-toggle">
+                  <input type="checkbox" checked={featureStep.isActive} onChange={(event) => setFeatureStep((current) => ({ ...current, isActive: event.target.checked }))} />
+                  Active step
+                </label>
+              </CatalogFormDialog>
+              {featureSteps.length ? (
+                <DataTable
+                  headings={["Code", "Feature Step", "Parent", "Features", "Status", "", ""]}
+                  columnFilters={[{ type: "text" }, { type: "text" }, { type: "select" }, { type: "number" }, { type: "select" }, null, null]}
+                  rows={featureSteps.map((item) => [
+                    item.code,
+                    item.displayName,
+                    item.parent?.displayName ?? "—",
+                    item._count?.features ?? 0,
+                    item.isActive ? "ACTIVE" : "INACTIVE",
+                    <button key="edit" className="secondary" onClick={(event) => openFeatureStepModal(event.currentTarget, item)}>Edit</button>,
+                    <button key="delete" className="danger" onClick={() => void remove(`/platform/feature-steps/${item.id}`, "Feature Step")}>Delete</button>,
+                  ])}
+                />
+              ) : (
+                <section className="sa-empty-catalog"><h3>No Feature Steps yet</h3><p>Create the onboarding steps before assigning Features to them.</p></section>
+              )}
             </section>
           </>
         )}
@@ -2787,6 +2810,43 @@ export default function SuperAdminDashboard() {
                   ]}
                 />
                 <label>
+                  Feature configuration (optional JSON)
+                  <textarea
+                    value={feature.configuration}
+                    placeholder={'{"provider":"msg91","delivery":"otp"}'}
+                    onChange={(event) =>
+                      setFeature((current) => ({
+                        ...current,
+                        configuration: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  Primary Feature Step
+                  <select
+                    value={feature.featureStepId}
+                    onChange={(event) =>
+                      setFeature((current) => ({
+                        ...current,
+                        featureStepId: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="">Not part of onboarding</option>
+                    {featureSteps
+                      .filter(
+                        (step) => step.isActive || step.id === feature.featureStepId,
+                      )
+                      .map((step) => (
+                        <option key={step.id} value={step.id}>
+                          {step.parent ? `${step.parent.displayName} / ` : ""}
+                          {step.displayName}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <label>
                   <span className="sa-label-text">
                     Feature category <span className="sa-required-star">*</span>
                   </span>
@@ -2855,6 +2915,7 @@ export default function SuperAdminDashboard() {
                     "Code",
                     "Feature",
                     "Category",
+                    "Feature Step",
                     "Type",
                     "Billing unit",
                     "Active",
@@ -2868,6 +2929,7 @@ export default function SuperAdminDashboard() {
                     { type: "select" },
                     { type: "select" },
                     { type: "select" },
+                    { type: "select" },
                     null,
                     null,
                   ]}
@@ -2877,6 +2939,7 @@ export default function SuperAdminDashboard() {
                     featureCategories.find(
                       ([value]) => value === item.category,
                     )?.[1] ?? item.category,
+                    item.featureStep?.displayName ?? "—",
                     item.featureType,
                     item.billingUnit,
                     item.isActive ? "YES" : "NO",
@@ -2990,10 +3053,15 @@ export default function SuperAdminDashboard() {
                     ["code", "Package code"],
                     ["name", "Package name"],
                     ["description", "Description"],
-                    ["monthlyPrice", "Monthly price"],
-                    ["yearlyPrice", "Yearly price"],
+                    ["setupFee", "Setup fee"],
                     ["maxFleets", "Maximum fleets"],
                     ["maxRiders", "Maximum riders"],
+                    ["maxAdmins", "Maximum admins"],
+                    ["maxFleetManagers", "Maximum fleet managers"],
+                    ["maxHubs", "Maximum hubs"],
+                    ["maxTeamLeaders", "Maximum team leaders"],
+                    ["maxClusterManagers", "Maximum cluster managers"],
+                    ["maxUsers", "Maximum users"],
                     ["trialDays", "Trial days"],
                     ["displayOrder", "Display order"],
                   ]}
@@ -3030,7 +3098,7 @@ export default function SuperAdminDashboard() {
                   headings={[
                     "Code",
                     "Package",
-                    "Monthly",
+                    "Setup fee",
                     "Limits",
                     "Status",
                     "Features",
@@ -3050,7 +3118,7 @@ export default function SuperAdminDashboard() {
                   rows={packages.map((item) => [
                     item.code,
                     item.name,
-                    item.monthlyPrice ? `₹${item.monthlyPrice}` : "—",
+                    item.setupFee ? `₹${item.setupFee}` : "₹0",
                     `${item.maxFleets ?? "∞"} fleets · ${item.maxRiders ?? "∞"} riders`,
                     `${item.isActive ? "ACTIVE" : "INACTIVE"}${item.isCustom ? " · CUSTOM" : ""}`,
                     item.features?.length ?? 0,
@@ -3102,13 +3170,6 @@ export default function SuperAdminDashboard() {
             token={token}
             onSaved={() => void load()}
             onDelete={(path, label) => void remove(path, label)}
-          />
-        )}
-        {tab === "pricingTiers" && (
-          <FeaturePricingTiersView
-            pricing={pricing}
-            token={token}
-            onSaved={() => void load()}
           />
         )}
         {tab === "pricing" && (
@@ -3196,18 +3257,6 @@ export default function SuperAdminDashboard() {
                       ))}
                   </select>
                 </label>
-                <Select
-                  label="Pricing model"
-                  value={price.pricingModel}
-                  change={(value) =>
-                    setPrice((current) => ({
-                      ...current,
-                      pricingModel: value,
-                    }))
-                  }
-                  options={pricingModels}
-                  required
-                />
                 <TextFields
                   value={price}
                   change={(key, value) =>
@@ -3215,26 +3264,12 @@ export default function SuperAdminDashboard() {
                   }
                   fields={[
                     ["billingUnit", "Billing unit"],
-                    ["basePrice", "Base price"],
-                    ["unitPrice", "Unit price"],
-                    ["costPrice", "Cost price"],
-                    ["minimumCharge", "Minimum charge"],
-                    ["maximumCharge", "Maximum charge"],
-                    ["setupFee", "Setup fee"],
+                    ["salePrice", "Sale price"],
+                    ["costPrice", "Cost price (internal)"],
                     ["effectiveFrom", "Effective from"],
                     ["effectiveTo", "Effective to"],
                   ]}
-                />
-                <Select
-                  label="Billing cycle"
-                  value={price.billingCycle}
-                  change={(value) =>
-                    setPrice((current) => ({
-                      ...current,
-                      billingCycle: value,
-                    }))
-                  }
-                  options={["MONTHLY", "QUARTERLY", "HALF_YEARLY", "YEARLY"]}
+                  requiredKeys={["billingUnit", "salePrice", "effectiveFrom"]}
                 />
                 <label>
                   Currency
@@ -3269,19 +3304,6 @@ export default function SuperAdminDashboard() {
                 <label className="sa-check">
                   <input
                     type="checkbox"
-                    checked={price.taxInclusive}
-                    onChange={(event) =>
-                      setPrice((current) => ({
-                        ...current,
-                        taxInclusive: event.target.checked,
-                      }))
-                    }
-                  />
-                  Tax inclusive
-                </label>
-                <label className="sa-check">
-                  <input
-                    type="checkbox"
                     checked={price.isActive}
                     onChange={(event) =>
                       setPrice((current) => ({
@@ -3292,81 +3314,6 @@ export default function SuperAdminDashboard() {
                   />
                   Active
                 </label>
-                {(price.pricingModel === "TIERED" ||
-                  price.pricingModel === "VOLUME") && (
-                  <div className="sa-package-feature-pricing">
-                    <div>
-                      <strong>Pricing tiers</strong>
-                      <button
-                        type="button"
-                        className="secondary"
-                        onClick={() =>
-                          setPrice((current) => ({
-                            ...current,
-                            tiers: [
-                              ...current.tiers,
-                              {
-                                tierOrder: String(current.tiers.length + 1),
-                                tierName: "",
-                                fromQuantity: "0",
-                                toQuantity: "",
-                                unitPrice: "",
-                                costPrice: "",
-                              },
-                            ],
-                          }))
-                        }
-                      >
-                        + Add tier
-                      </button>
-                    </div>
-                    {price.tiers.map((tier, tierIndex) => (
-                      <div className="sa-price-override" key={tierIndex}>
-                        <TextFields
-                          value={tier}
-                          change={(key, value) =>
-                            setPrice((current) => ({
-                              ...current,
-                              tiers: current.tiers.map((item, index) =>
-                                index === tierIndex
-                                  ? { ...item, [key]: value }
-                                  : item,
-                              ),
-                            }))
-                          }
-                          fields={[
-                            ["tierOrder", "Tier order"],
-                            ["tierName", "Tier name"],
-                            ["fromQuantity", "From quantity"],
-                            ["toQuantity", "To quantity"],
-                            ["unitPrice", "Unit price"],
-                            ["costPrice", "Cost price"],
-                          ]}
-                          requiredKeys={[
-                            "tierOrder",
-                            "fromQuantity",
-                            "unitPrice",
-                          ]}
-                        />
-                        <button
-                          type="button"
-                          className="danger"
-                          onClick={() =>
-                            setPrice((current) => ({
-                              ...current,
-                              tiers: current.tiers.filter(
-                                (_, index) => index !== tierIndex,
-                              ),
-
-                            }))
-                          }
-                        >
-                          Remove tier
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </CatalogFormDialog>
 
 
@@ -3374,8 +3321,8 @@ export default function SuperAdminDashboard() {
                 <DataTable
                   headings={[
                     "Feature",
-                    "Model",
-                    "Price",
+                    "Billing unit",
+                    "Sale price",
                     "Effective from",
                     "Status",
                     "",
@@ -3392,8 +3339,8 @@ export default function SuperAdminDashboard() {
                   ]}
                   rows={pricing.map((item) => [
                     item.feature?.name,
-                    item.pricingModel,
-                    `${item.currency} ${item.unitPrice}`,
+                    item.billingUnit,
+                    `${item.currency} ${item.salePrice}`,
                     new Date(item.effectiveFrom).toLocaleDateString(),
                     item.isActive ? "ACTIVE" : "INACTIVE",
                     <button
@@ -3935,8 +3882,8 @@ function ClientsView({
   const eligiblePackages = packages.filter(
     (item: Item) =>
       item.isActive &&
-      item.monthlyPrice !== null &&
-      item.monthlyPrice !== undefined,
+      item.setupFee !== null &&
+      item.setupFee !== undefined,
   );
 
   return (
@@ -4103,14 +4050,7 @@ function ClientsView({
                     value={client.industry}
                     change={(value) => change("industry", value)}
                     allowEmpty
-                    options={[
-                      "LOGISTICS",
-                      "LAST_MILE",
-                      "DELIVERY",
-                      "MOBILITY",
-                      "RENTAL",
-                      "OTHER",
-                    ]}
+                    options={clientIndustries}
                   />
                   <Select
                     label="Client type"
@@ -4215,14 +4155,14 @@ function ClientsView({
                     label="Fleet business model"
                     value={client.fleetBusinessModel}
                     change={(value) => change("fleetBusinessModel", value)}
-                    options={["OWNED", "LEASED", "ATTACHED", "MIXED"]}
+                    options={fleetBusinessModels}
                     required
                   />
                   <Select
                     label="Vehicle ownership"
                     value={client.vehicleOwnership}
                     change={(value) => change("vehicleOwnership", value)}
-                    options={["OWNED", "LEASED", "DRIVER_OWNED", "MIXED"]}
+                    options={vehicleOwnerships}
                     required
                   />
                   <label>
@@ -4276,7 +4216,7 @@ function ClientsView({
                       </option>
                       {eligiblePackages.map((item: Item) => (
                         <option key={item.id} value={item.id}>
-                          {item.name} · ₹{item.monthlyPrice}/month
+                          {item.name} · ₹{item.setupFee ?? 0} setup fee
                         </option>
                       ))}
                     </select>
@@ -4290,10 +4230,9 @@ function ClientsView({
                       }
                     >
                       <option value="">Select billing cycle</option>
-                      <option>MONTHLY</option>
-                      <option>QUARTERLY</option>
-                      <option>HALF_YEARLY</option>
-                      <option>YEARLY</option>
+                      {billingCycles.map((cycle) => (
+                        <option key={cycle} value={cycle}>{enumLabel(cycle)}</option>
+                      ))}
                     </select>
                   </label>
                   <label className="sa-toggle">
@@ -4510,7 +4449,15 @@ function TextFields({
     "companyCode",
     "legalCompanyName",
     "legalEntityName",
-    "monthlyPrice",
+    "setupFee",
+    "maxFleets",
+    "maxRiders",
+    "maxAdmins",
+    "maxFleetManagers",
+    "maxHubs",
+    "maxTeamLeaders",
+    "maxClusterManagers",
+    "maxUsers",
     "pan",
     "estimatedFleetSize",
     "estimatedRiderCount",
@@ -4560,6 +4507,7 @@ function TextFields({
                   : normalizedKey.includes("price") ||
                       normalizedKey.includes("charge") ||
                       normalizedKey.includes("fee") ||
+                      normalizedKey.startsWith("max") ||
                       key === "discountValue"
                     ? "number"
                     : "text")
@@ -4569,12 +4517,15 @@ function TextFields({
                 normalizedKey.includes("charge") ||
                 normalizedKey.includes("fee")
                   ? "0.0001"
-                  : undefined
+                  : normalizedKey.startsWith("max")
+                    ? "1"
+                    : undefined
               }
               min={
                 normalizedKey.includes("price") ||
                 normalizedKey.includes("charge") ||
-                normalizedKey.includes("fee")
+                normalizedKey.includes("fee") ||
+                normalizedKey.startsWith("max")
                   ? 0
                   : undefined
               }
@@ -4786,10 +4737,11 @@ function PackageFeaturesView({
   const [form, setForm] = useState<Item>({
     packageId: "",
     featureId: "",
-    enabled: true,
-    unlimitedUsage: false,
+    isIncluded: true,
+    isUnlimited: false,
     includedQuantity: "",
-    usageLimit: "",
+    resetPeriod: "NONE",
+    rolloverAllowed: false,
     displayOrder: "0",
     configuration: "",
   });
@@ -4805,10 +4757,11 @@ function PackageFeaturesView({
         ? {
             packageId: item.packageId,
             featureId: item.featureId,
-            enabled: item.enabled,
-            unlimitedUsage: item.unlimitedUsage,
+            isIncluded: item.isIncluded,
+            isUnlimited: item.isUnlimited,
             includedQuantity: item.includedQuantity ?? "",
-            usageLimit: item.usageLimit ?? "",
+            resetPeriod: item.resetPeriod ?? "NONE",
+            rolloverAllowed: item.rolloverAllowed ?? false,
             displayOrder: String(item.displayOrder ?? 0),
             configuration: item.configuration
               ? JSON.stringify(item.configuration, null, 2)
@@ -4817,10 +4770,11 @@ function PackageFeaturesView({
         : {
             packageId: "",
             featureId: "",
-            enabled: true,
-            unlimitedUsage: false,
+            isIncluded: true,
+            isUnlimited: false,
             includedQuantity: "",
-            usageLimit: "",
+            resetPeriod: "NONE",
+            rolloverAllowed: false,
             displayOrder: String(links.length),
             configuration: "",
           },
@@ -4845,14 +4799,13 @@ function PackageFeaturesView({
     try {
       const payload = {
         ...(!editing ? { packageId: form.packageId, featureId: form.featureId } : {}),
-        enabled: Boolean(form.enabled),
-        unlimitedUsage: Boolean(form.unlimitedUsage),
+        isIncluded: Boolean(form.isIncluded),
+        isUnlimited: Boolean(form.isUnlimited),
+        resetPeriod: form.resetPeriod,
+        rolloverAllowed: Boolean(form.rolloverAllowed),
         displayOrder: Number(form.displayOrder || 0),
         ...(form.includedQuantity !== ""
           ? { includedQuantity: Number(form.includedQuantity) }
-          : {}),
-        ...(form.usageLimit !== "" && !form.unlimitedUsage
-          ? { usageLimit: Number(form.usageLimit) }
           : {}),
         ...(configuration ? { configuration } : {}),
       };
@@ -4921,10 +4874,11 @@ function PackageFeaturesView({
           </select>
         </label>
         <div className="sa-feature-fields">
-          <label className="sa-toggle"><input type="checkbox" checked={form.enabled} onChange={(event) => setForm((current) => ({ ...current, enabled: event.target.checked }))} /> Enabled</label>
-          <label className="sa-toggle"><input type="checkbox" checked={form.unlimitedUsage} onChange={(event) => setForm((current) => ({ ...current, unlimitedUsage: event.target.checked }))} /> Unlimited usage</label>
+          <label className="sa-toggle"><input type="checkbox" checked={form.isIncluded} onChange={(event) => setForm((current) => ({ ...current, isIncluded: event.target.checked }))} /> Included in package</label>
+          <label className="sa-toggle"><input type="checkbox" checked={form.isUnlimited} onChange={(event) => setForm((current) => ({ ...current, isUnlimited: event.target.checked }))} /> Unlimited usage</label>
           <label>Included quantity<input type="number" min="0" step="1" value={form.includedQuantity} onChange={(event) => setForm((current) => ({ ...current, includedQuantity: event.target.value }))} /></label>
-          <label>Usage limit<input type="number" min="0" step="1" disabled={form.unlimitedUsage} value={form.usageLimit} onChange={(event) => setForm((current) => ({ ...current, usageLimit: event.target.value }))} /></label>
+          <label>Allowance reset<select value={form.resetPeriod} onChange={(event) => setForm((current) => ({ ...current, resetPeriod: event.target.value }))}>{allowanceResetPeriods.map((period) => <option key={period} value={period}>{period === "NONE" ? "No reset" : enumLabel(period)}</option>)}</select></label>
+          <label className="sa-toggle"><input type="checkbox" checked={form.rolloverAllowed} onChange={(event) => setForm((current) => ({ ...current, rolloverAllowed: event.target.checked }))} /> Allow unused credits to roll over</label>
           <label>Display order<input type="number" min="0" step="1" value={form.displayOrder} onChange={(event) => setForm((current) => ({ ...current, displayOrder: event.target.value }))} /></label>
         </div>
         <label>Feature configuration (optional JSON)<textarea value={form.configuration} placeholder={'{"workflow":"standard"}'} onChange={(event) => setForm((current) => ({ ...current, configuration: event.target.value }))} /></label>
@@ -4937,7 +4891,7 @@ function PackageFeaturesView({
               "Package",
               "Feature",
               "Included",
-              "Usage limit",
+              "Allowance reset",
               "Status",
               "Order",
               "",
@@ -4956,11 +4910,11 @@ function PackageFeaturesView({
             rows={links.map((link) => [
                 link.package?.name ?? "—",
                 link.feature?.name ?? "—",
-                link.unlimitedUsage
+                link.isUnlimited
                   ? "Unlimited"
                   : (link.includedQuantity ?? "0"),
-                link.usageLimit ?? "—",
-                link.enabled ? "ENABLED" : "DISABLED",
+                link.resetPeriod ?? "NONE",
+                link.isIncluded ? "INCLUDED" : "NOT INCLUDED",
                 link.displayOrder ?? 0,
                 <button key="edit" className="secondary" onClick={(event) => openForm(event.currentTarget, link)}>Edit</button>,
                 <button key="delete" className="danger" onClick={() => void removeLink(link)}>Delete</button>,
@@ -4974,547 +4928,6 @@ function PackageFeaturesView({
             </p>
           </section>
         )}
-      </section>
-    </>
-  );
-}
-
-function FeaturePricingTiersView({
-  pricing,
-  token,
-  onSaved,
-}: {
-  pricing: Item[];
-  token: string;
-  onSaved: () => void;
-}) {
-  const tiered = pricing.filter(
-    (item) =>
-      item.pricingModel === "TIERED" ||
-      item.pricingModel === "VOLUME" ||
-      item.tiers?.length,
-  );
-  const [selectedId, setSelectedId] = useState("");
-  const [tiers, setTiers] = useState<PricingTierInput[]>([]);
-  const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
-  const selected = tiered.find((item) => item.id === selectedId);
-  /* eslint-disable react-hooks/set-state-in-effect */
-  useEffect(() => {
-    if (!selected) {
-      setTiers([]);
-      return;
-    }
-    setTiers(
-      (selected.tiers ?? []).map((tier: Item) => ({
-        tierOrder: String(tier.tierOrder),
-        tierName: tier.tierName ?? "",
-        fromQuantity: String(tier.fromQuantity),
-        toQuantity:
-          tier.toQuantity === null ? "" : String(tier.toQuantity ?? ""),
-        unitPrice: String(tier.unitPrice),
-        costPrice: tier.costPrice === null ? "" : String(tier.costPrice ?? ""),
-      })),
-    );
-  }, [selectedId, pricing]);
-  /* eslint-enable react-hooks/set-state-in-effect */
-  const updateTier = (
-    index: number,
-    key: keyof PricingTierInput,
-    value: string,
-  ) =>
-    setTiers((current) =>
-      current.map((tier, tierIndex) =>
-        tierIndex === index ? { ...tier, [key]: value } : tier,
-      ),
-    );
-  const save = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!selected) return;
-    setBusy(true);
-    setMessage("");
-    try {
-      const response = await request(
-        `/platform/feature-pricing/${selected.id}`,
-        {
-          method: "PUT",
-          body: JSON.stringify({
-            featureId: selected.featureId,
-            pricingModel: selected.pricingModel,
-            billingUnit: selected.billingUnit,
-            currency: selected.currency,
-            basePrice: Number(selected.basePrice ?? 0),
-            unitPrice: Number(selected.unitPrice ?? 0),
-            costPrice: Number(selected.costPrice ?? 0),
-            minimumCharge:
-              selected.minimumCharge === null
-                ? undefined
-                : Number(selected.minimumCharge),
-            maximumCharge:
-              selected.maximumCharge === null
-                ? undefined
-                : Number(selected.maximumCharge),
-            setupFee: Number(selected.setupFee ?? 0),
-            billingCycle: selected.billingCycle ?? undefined,
-            taxInclusive: selected.taxInclusive,
-            effectiveFrom: new Date(selected.effectiveFrom).toISOString(),
-            effectiveTo: selected.effectiveTo
-              ? new Date(selected.effectiveTo).toISOString()
-              : undefined,
-            isActive: selected.isActive,
-            metadata: selected.metadata ?? undefined,
-            tiers: tiers.map((tier) => ({
-              tierOrder: Number(tier.tierOrder),
-              tierName: tier.tierName || undefined,
-              fromQuantity: Number(tier.fromQuantity),
-              toQuantity: tier.toQuantity ? Number(tier.toQuantity) : undefined,
-              unitPrice: Number(tier.unitPrice),
-              costPrice: tier.costPrice ? Number(tier.costPrice) : undefined,
-            })),
-          }),
-        },
-        token,
-      );
-      setMessage(
-        `Saved ${response.tiers?.length ?? tiers.length} pricing tier(s).`,
-      );
-      onSaved();
-    } catch (cause) {
-      setMessage(
-        cause instanceof Error
-          ? cause.message
-          : "Unable to save pricing tiers.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
-  if (!selected) {
-    return (
-      <>
-        <section className="sa-page-head">
-          <div>
-            <h2>Tiered Feature Pricing</h2>
-            <p>
-              Review tiered prices, then open one to configure its quantity
-              tiers.
-            </p>
-          </div>
-        </section>
-        {tiered.length ? (
-          <DataTable
-            headings={[
-              "Feature",
-              "Billing unit",
-              "Currency",
-              "Effective from",
-              "Effective to",
-              "Status",
-              "Tiers",
-              "",
-            ]}
-            columnFilters={[
-              { type: "text" },
-              { type: "select" },
-              { type: "select" },
-              { type: "text" },
-              { type: "text" },
-              { type: "select" },
-              { type: "number" },
-              null,
-            ]}
-            rows={tiered.map((item) => [
-              item.feature?.name ?? "—",
-              enumLabel(item.billingUnit ?? ""),
-              item.currency ?? "INR",
-              String(item.effectiveFrom ?? "").slice(0, 10) || "—",
-              String(item.effectiveTo ?? "").slice(0, 10) || "Ongoing",
-              item.isActive ? "ACTIVE" : "INACTIVE",
-              item.tiers?.length ?? 0,
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setSelectedId(item.id)}
-              >
-                Configure tiers
-              </button>,
-            ])}
-          />
-        ) : (
-          <section className="sa-empty-catalog">
-            <h3>No tiered Feature Pricing yet</h3>
-            <p>
-              Create a Feature Price using the TIERED model, then return here
-              to configure its tiers.
-            </p>
-          </section>
-        )}
-      </>
-    );
-  }
-
-  return (
-    <>
-      <section className="sa-page-head sa-tier-page-head">
-        <div>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => {
-              setSelectedId("");
-              setMessage("");
-            }}
-          >
-            ← Back to Tiered Feature Pricing
-          </button>
-          <h2>{selected.feature?.name ?? "Feature"} tiers</h2>
-          <p>
-            Set the quantity ranges and prices for this Feature Pricing record.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="secondary"
-          onClick={() =>
-            setTiers((current) => [
-              ...current,
-              {
-                tierOrder: String(current.length + 1),
-                tierName: "",
-                fromQuantity: current.length ? "" : "0",
-                toQuantity: "",
-                unitPrice: "",
-                costPrice: "",
-              },
-            ])
-          }
-        >
-          + Add tier
-        </button>
-      </section>
-      <section className="sa-tier-summary">
-        <div>
-          <span>Pricing model</span>
-          <strong>{enumLabel(selected.pricingModel)}</strong>
-        </div>
-        <div>
-          <span>Billing unit</span>
-          <strong>{enumLabel(selected.billingUnit ?? "")}</strong>
-        </div>
-        <div>
-          <span>Effective period</span>
-          <strong>
-            {String(selected.effectiveFrom ?? "").slice(0, 10)} –{" "}
-            {selected.effectiveTo
-              ? String(selected.effectiveTo).slice(0, 10)
-              : "Ongoing"}
-          </strong>
-        </div>
-        <div>
-          <span>Status</span>
-          <strong>{selected.isActive ? "Active" : "Inactive"}</strong>
-        </div>
-      </section>
-      <form className="sa-form sa-tier-editor" onSubmit={save}>
-        {tiers.length ? (
-          <div className="sa-tier-config-table-wrap">
-            <table className="sa-tier-config-table">
-              <thead>
-                <tr>
-                  <th>Order</th>
-                  <th>Tier name</th>
-                  <th>From quantity</th>
-                  <th>To quantity</th>
-                  <th>Unit price</th>
-                  <th>Cost price</th>
-                  <th aria-label="Actions" />
-                </tr>
-              </thead>
-              <tbody>
-                {tiers.map((tier, index) => (
-                  <tr key={`${tier.tierOrder}-${index}`}>
-                    {(
-                      [
-                        ["tierOrder", "number", true],
-                        ["tierName", "text", false],
-                        ["fromQuantity", "number", true],
-                        ["toQuantity", "number", false],
-                        ["unitPrice", "number", true],
-                        ["costPrice", "number", false],
-                      ] as const
-                    ).map(([key, type, required]) => (
-                      <td key={key}>
-                        <input
-                          type={type}
-                          min={type === "number" ? 0 : undefined}
-                          step={key === "unitPrice" || key === "costPrice" ? "0.001" : "1"}
-                          value={tier[key]}
-                          required={required}
-                          placeholder={key === "toQuantity" ? "Unlimited" : undefined}
-                          onChange={(event) =>
-                            updateTier(index, key, event.target.value)
-                          }
-                        />
-                      </td>
-                    ))}
-                    <td className="sa-tier-config-actions">
-                      <button
-                        type="button"
-                        className="danger"
-                        onClick={() =>
-                          setTiers((current) =>
-                            current.filter(
-                              (_, tierIndex) => tierIndex !== index,
-                            ),
-                          )
-                        }
-                      >
-                        Remove
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <section className="sa-empty-catalog">
-            <h3>No tiers configured</h3>
-            <p>Add the first quantity tier for this Feature Pricing record.</p>
-          </section>
-        )}
-        <div className="sa-tier-editor-actions">
-          <button disabled={busy || !tiers.length}>
-            {busy ? "Saving…" : "Save tier changes"}
-          </button>
-          {message && <p className="notice">{message}</p>}
-        </div>
-      </form>
-    </>
-  );
-}
-
-function ClientFeaturesPricingView({
-  clients,
-  selectedClientId,
-  setSelectedClientId,
-  token,
-}: {
-  clients: Item[];
-  selectedClientId: string;
-  setSelectedClientId: (value: string) => void;
-  token: string;
-}) {
-  const [data, setData] = useState<Item | null>(null);
-  const [error, setError] = useState("");
-  const selected = selectedClientId || clients[0]?.id || "";
-
-  useEffect(() => {
-    if (!selected) return;
-    let active = true;
-    void request(`/platform/clients/${selected}/entitlements`, {}, token)
-      .then((result) => {
-        if (active) {
-          setData(result);
-          setError("");
-        }
-      })
-      .catch(
-        (cause) =>
-          active &&
-          setError(
-            cause instanceof Error
-              ? cause.message
-              : "Unable to load client entitlements.",
-          ),
-      );
-    return () => {
-      active = false;
-    };
-  }, [selected, token]);
-
-  const subscription = data?.subscription;
-  const rows = [
-    ...(data?.packageFeatures ?? []).map((link: Item) => {
-      const price = link.feature?.pricing?.[0];
-      return [
-        link.feature?.name ?? "—",
-        "PACKAGE",
-        link.unlimitedUsage ? "Unlimited" : (link.includedQuantity ?? "0"),
-        price ? `${price.currency} ${price.unitPrice}` : "Included / no price",
-        price?.pricingModel ?? "INCLUDED",
-      ];
-    }),
-    ...(data?.clientFeatures ?? []).map((link: Item) => {
-      const negotiated = link.pricing?.[0];
-      const master = link.feature?.pricing?.[0];
-      const displayedPrice = negotiated
-        ? `${negotiated.currency} ${negotiated.finalUnitPrice} (negotiated)`
-        : master
-          ? `${master.currency} ${master.unitPrice}`
-          : "—";
-      return [
-        link.feature?.name ?? "—",
-        link.source,
-        link.unlimitedUsage ? "Unlimited" : (link.includedQuantity ?? "0"),
-        displayedPrice,
-        negotiated?.featurePricing?.pricingModel ?? master?.pricingModel ?? "—",
-      ];
-    }),
-  ];
-
-  return (
-    <>
-      <section className="sa-page-head">
-        <div>
-          <h2>Client Features &amp; Pricing</h2>
-          <p>
-            Package entitlements and client-specific add-ons retain their own
-            commercial snapshots.
-          </p>
-        </div>
-        <label className="sa-client-picker">
-          Client
-          <select
-            value={selected}
-            onChange={(event) => setSelectedClientId(event.target.value)}
-          >
-            <option value="">Select client</option>
-            {clients.map((client) => (
-              <option key={client.id} value={client.id}>
-                {client.name} ({client.companyCode})
-              </option>
-            ))}
-          </select>
-        </label>
-      </section>
-      {error && <p className="error">{error}</p>}
-      {!selected ? (
-        <section className="sa-empty-catalog">
-          <h3>No Client selected</h3>
-          <p>Create or select a Client to review its package and pricing.</p>
-        </section>
-      ) : !subscription ? (
-        <section className="sa-empty-catalog">
-          <h3>No active Package</h3>
-          <p>
-            This Client has no active subscription. Assign a Package from Client
-            onboarding first.
-          </p>
-        </section>
-      ) : (
-        <section className="sa-management oem-table-only">
-          <article className="sa-entitlement-summary">
-            <strong>{subscription.package?.name ?? "Package"}</strong>
-            <span>
-              {subscription.billingCycle} · {subscription.currency}{" "}
-              {subscription.finalPackagePrice}
-            </span>
-            <small>
-              List price: {subscription.currency} {subscription.listPrice}
-            </small>
-          </article>
-          <DataTable
-            headings={[
-              "Feature",
-              "Source",
-              "Included quantity",
-              "Current price",
-              "Pricing model",
-            ]}
-            columnFilters={[
-              { type: "text" },
-              { type: "select" },
-              { type: "text" },
-              { type: "text" },
-              { type: "select" },
-            ]}
-            rows={rows}
-          />
-        </section>
-      )}
-    </>
-  );
-}
-
-function ClientFeatureUsageView({
-  clients,
-  selectedClientId,
-  setSelectedClientId,
-  token,
-}: {
-  clients: Item[];
-  selectedClientId: string;
-  setSelectedClientId: (value: string) => void;
-  token: string;
-}) {
-  const [usage, setUsage] = useState<Item[]>([]);
-  const [error, setError] = useState("");
-  const selected = selectedClientId || clients[0]?.id || "";
-
-  useEffect(() => {
-    if (!selected) return;
-    let active = true;
-    void request(`/platform/clients/${selected}/usage`, {}, token)
-      .then((result) => active && (setUsage(result), setError("")))
-      .catch(
-        (cause) =>
-          active &&
-          setError(
-            cause instanceof Error
-              ? cause.message
-              : "Unable to load client feature usage.",
-          ),
-      );
-    return () => {
-      active = false;
-    };
-  }, [selected, token]);
-
-  return (
-    <>
-      <section className="sa-page-head">
-        <div>
-          <h2>Client Feature Usage</h2>
-          <p>
-            Recent recorded consumption used for feature overage and billing
-            calculations.
-          </p>
-        </div>
-        <label className="sa-client-picker">
-          Client
-          <select
-            value={selected}
-            onChange={(event) => setSelectedClientId(event.target.value)}
-          >
-            <option value="">Select client</option>
-            {clients.map((client) => (
-              <option key={client.id} value={client.id}>
-                {client.name} ({client.companyCode})
-              </option>
-            ))}
-          </select>
-        </label>
-      </section>
-      {error && <p className="error">{error}</p>}
-      <section className="sa-management oem-table-only">
-        <DataTable
-          headings={["Feature", "Package", "Reference", "Quantity", "Used at"]}
-          columnFilters={[
-            { type: "text" },
-            { type: "text" },
-            { type: "text" },
-            { type: "number" },
-            { type: "text" },
-          ]}
-          rows={usage.map((entry) => [
-            entry.feature?.name ?? "—",
-            entry.subscription?.package?.name ?? "—",
-            entry.usageReference ?? "—",
-            entry.quantity,
-            new Date(entry.usageTimestamp).toLocaleString(),
-          ])}
-        />
       </section>
     </>
   );

@@ -297,29 +297,70 @@ enum VehicleUsageType {
   SPECIAL_PURPOSE
 }
 
-enum PricingModel {
-  FREE
-  INCLUDED
-  FLAT_FEE
-  PER_UNIT
-  TIERED
-  VOLUME
-  PER_USER
-  PER_RIDER
-  PER_VEHICLE
-  PER_FLEET
-  USAGE_BASED
-  PER_DEVICE
-  ONE_TIME
-  CUSTOM
-}
-
 enum BillingCycle {
   ONCE
   MONTHLY
   QUARTERLY
   HALF_YEARLY
   YEARLY
+}
+
+enum PricingTierMode {
+  VOLUME
+  GRADUATED
+}
+
+enum AllowanceResetPeriod {
+  NONE
+  DAILY
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum ClientSubscriptionStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+  EXPIRED
+}
+
+enum PricingAdjustmentScope {
+  SETUP_FEE
+  PACKAGE
+  FEATURE
+  FEATURE_ADDON
+  TOTAL_INVOICE
+}
+
+enum PricingAdjustmentType {
+  PERCENTAGE
+  FIXED_AMOUNT
+  OVERRIDE_PRICE
+}
+
+enum FeatureAddOnPurchaseStatus {
+  PENDING
+  ACTIVE
+  CONSUMED
+  EXPIRED
+  CANCELLED
+}
+
+enum FeatureCreditSourceType {
+  PACKAGE_ALLOWANCE
+  FEATURE_ADDON
+  MANUAL_ADJUSTMENT
+  PROMOTIONAL_CREDIT
+}
+
+enum FeatureUsageTransactionType {
+  CREDIT
+  DEBIT
+  EXPIRE
+  ADJUSTMENT
 }
 
 enum ClientFeatureSource {
@@ -414,6 +455,7 @@ enum FeatureCategory {
   TRAINING
   SUPPORT
   AI_AUTOMATION
+  OTHER
 }
 
 enum FeatureType {
@@ -424,6 +466,10 @@ enum FeatureType {
 }
 
 enum FeatureBillingUnit {
+  SMS
+  EMAIL
+  UPLOAD
+  WHATSAPP_MESSAGE
   VERIFICATION
   RIDER
   VEHICLE
@@ -433,7 +479,9 @@ enum FeatureBillingUnit {
   FACE_SCAN
   TRAINING
   DEVICE
+  GB
   MONTH
+  AI_CREDIT
   LIFE_TIME
 }
 
@@ -464,8 +512,10 @@ model Client {
   documents                  ClientDocument[]
   agreement                  ClientAgreement?
   subscriptions              ClientSubscription[]
-  clientFeatures             ClientFeature[]
-  featureUsage               FeatureUsage[]
+  pricingAdjustments         ClientPricingAdjustment[]
+  featureAddOnPurchases      ClientFeatureAddOnPurchase[]
+  featureCreditLots          FeatureCreditLot[]
+  featureUsageLedger         FeatureUsageLedger[]
   operationVehicleCategories ClientOperationsVehicleCategory[]
   onboardingProgress         ClientOnboardingProgress?
   onboardingSteps            ClientOnboardingStepRecord[]
@@ -528,105 +578,169 @@ model VehicleType {
 }
 
 model Package {
-  id            String               @id @default(uuid())
-  code          String               @unique
-  name          String
-  description   String?
-  monthlyPrice  Decimal?             @db.Decimal(12, 2)
-  yearlyPrice   Decimal?             @db.Decimal(12, 2)
-  currency      String               @default("INR") @db.Char(3)
-  maxFleets     Int?
-  maxRiders     Int?
-  trialDays     Int                  @default(0)
-  displayOrder  Int                  @default(0)
-  isCustom      Boolean              @default(false)
-  isActive      Boolean              @default(true)
-  features      PackageFeature[]
-  subscriptions ClientSubscription[]
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
+  id                 String                      @id @default(uuid())
+  code               String                      @unique
+  name               String
+  description        String?
+  setupFee           Decimal                     @default(0) @db.Decimal(12, 2)
+  currency           String                      @default("INR") @db.Char(3)
+  maxFleets          Int                         @default(0)
+  maxRiders          Int                         @default(0)
+  maxAdmins          Int                         @default(0)
+  maxFleetManagers   Int                         @default(0)
+  maxHubs            Int                         @default(0)
+  maxTeamLeaders     Int                         @default(0)
+  maxClusterManagers Int                         @default(0)
+  maxUsers           Int                         @default(0)
+  trialDays          Int                         @default(0)
+  displayOrder       Int                         @default(0)
+  isCustom           Boolean                     @default(false)
+  isActive           Boolean                     @default(true)
+  features           PackageFeature[]
+  vehicleTierPricing PackageVehicleTierPricing[]
+  featureAddOns      PackageFeatureAddOn[]
+  subscriptions      ClientSubscription[]
+  createdAt          DateTime                    @default(now())
+  updatedAt          DateTime                    @updatedAt
 
   @@index([isActive, isCustom, displayOrder])
 }
 
 model Feature {
-  id           String             @id @default(uuid())
-  code         String             @unique
-  name         String
-  category     FeatureCategory
-  featureType  FeatureType
-  billingUnit  FeatureBillingUnit
-  description  String?
-  displayOrder Int                @default(0)
-  isActive     Boolean            @default(true)
-  pricing      FeaturePricing[]
-  packageLinks PackageFeature[]
-  clientLinks  ClientFeature[]
-  usage        FeatureUsage[]
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
+  id             String                       @id @default(uuid())
+  code           String                       @unique
+  name           String
+  category       FeatureCategory?             @default(OTHER)
+  featureType    FeatureType
+  billingUnit    FeatureBillingUnit
+  description    String?
+  configuration  Json?
+  featureStepId  String?
+  featureStep    FeatureStep?                 @relation(fields: [featureStepId], references: [id], onDelete: SetNull)
+  displayOrder   Int                          @default(0)
+  isActive       Boolean                      @default(true)
+  pricing        FeaturePricing[]
+  packageLinks   PackageFeature[]
+  featureAddOns  FeatureAddOn[]
+  addOnPurchases ClientFeatureAddOnPurchase[]
+  creditLots     FeatureCreditLot[]
+  usageLedger    FeatureUsageLedger[]
+  createdAt      DateTime                     @default(now())
+  updatedAt      DateTime                     @updatedAt
 
   @@index([isActive, category, displayOrder])
+  @@index([featureStepId])
+}
+
+model FeatureStep {
+  id           String        @id @default(uuid())
+  code         String        @unique
+  displayName  String
+  description  String?
+  parentId     String?
+  parent       FeatureStep?  @relation("FeatureStepHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children     FeatureStep[] @relation("FeatureStepHierarchy")
+  features     Feature[]
+  displayOrder Int           @default(0)
+  isActive     Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([parentId, isActive, displayOrder])
 }
 
 model PackageFeature {
-  id               String   @id @default(uuid())
+  id               String               @id @default(uuid())
   packageId        String
-  package          Package  @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  package          Package              @relation(fields: [packageId], references: [id], onDelete: Cascade)
   featureId        String
-  feature          Feature  @relation(fields: [featureId], references: [id], onDelete: Restrict)
-  enabled          Boolean  @default(true)
-  includedQuantity BigInt?
-  usageLimit       BigInt?
-  unlimitedUsage   Boolean  @default(false)
+  feature          Feature              @relation(fields: [featureId], references: [id], onDelete: Restrict)
+  isIncluded       Boolean              @default(true)
+  includedQuantity Decimal?             @db.Decimal(18, 4)
+  resetPeriod      AllowanceResetPeriod @default(NONE)
+  isUnlimited      Boolean              @default(false)
+  rolloverAllowed  Boolean              @default(false)
   configuration    Json?
-  displayOrder     Int      @default(0)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  displayOrder     Int                  @default(0)
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
 
   @@unique([packageId, featureId])
 }
 
 model FeaturePricing {
-  id            String                 @id @default(uuid())
+  id            String             @id @default(uuid())
   featureId     String
-  feature       Feature                @relation(fields: [featureId], references: [id], onDelete: Cascade)
-  pricingModel  PricingModel
+  feature       Feature            @relation(fields: [featureId], references: [id], onDelete: Cascade)
   billingUnit   FeatureBillingUnit
-  currency      String                 @default("INR") @db.Char(3)
-  basePrice     Decimal                @default(0) @db.Decimal(12, 3)
-  unitPrice     Decimal                @default(0) @db.Decimal(12, 3)
-  costPrice     Decimal                @default(0) @db.Decimal(12, 3)
-  minimumCharge Decimal?               @db.Decimal(12, 2)
-  maximumCharge Decimal?               @db.Decimal(12, 2)
-  setupFee      Decimal                @default(0) @db.Decimal(12, 2)
-  billingCycle  BillingCycle?
-  taxInclusive  Boolean                @default(false)
-  effectiveFrom DateTime               @default(now())
+  currency      String             @default("INR") @db.Char(3)
+  salePrice     Decimal            @db.Decimal(14, 4)
+  costPrice     Decimal?           @db.Decimal(14, 4)
+  effectiveFrom DateTime           @default(now())
   effectiveTo   DateTime?
-  isActive      Boolean                @default(true)
+  isActive      Boolean            @default(true)
   metadata      Json?
-  tiers         FeaturePricingTier[]
-  clientPricing ClientFeaturePricing[]
-  createdAt     DateTime               @default(now())
-  updatedAt     DateTime               @updatedAt
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
 
   @@index([featureId, isActive, effectiveFrom])
 }
 
-model FeaturePricingTier {
-  id               String         @id @default(uuid())
-  featurePricingId String
-  featurePricing   FeaturePricing @relation(fields: [featurePricingId], references: [id], onDelete: Cascade)
-  tierOrder        Int
-  tierName         String?        @db.VarChar(100)
-  fromQuantity     BigInt
-  toQuantity       BigInt?
-  unitPrice        Decimal        @db.Decimal(12, 3)
-  costPrice        Decimal?       @db.Decimal(12, 3)
-  createdAt        DateTime       @default(now())
+model PackageVehicleTierPricing {
+  id              String          @id @default(uuid())
+  packageId       String
+  package         Package         @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  minVehicles     Int
+  maxVehicles     Int?
+  pricePerVehicle Decimal         @db.Decimal(14, 4)
+  currency        String          @default("INR") @db.Char(3)
+  billingPeriod   BillingCycle    @default(MONTHLY)
+  tierMode        PricingTierMode @default(VOLUME)
+  effectiveFrom   DateTime        @default(now()) @db.Date
+  effectiveTo     DateTime?       @db.Date
+  isActive        Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
-  @@unique([featurePricingId, tierOrder])
+  @@unique([packageId, minVehicles, effectiveFrom])
+  @@index([packageId, isActive, effectiveFrom])
+}
+
+model FeatureAddOn {
+  id                  String                       @id @default(uuid())
+  code                String                       @unique
+  name                String
+  description         String?
+  featureId           String
+  feature             Feature                      @relation(fields: [featureId], references: [id], onDelete: Restrict)
+  quantity            Decimal                      @db.Decimal(18, 4)
+  costPrice           Decimal?                     @db.Decimal(14, 4)
+  salePrice           Decimal                      @db.Decimal(14, 4)
+  currency            String                       @default("INR") @db.Char(3)
+  validityDays        Int?
+  isActive            Boolean                      @default(true)
+  effectiveFrom       DateTime                     @default(now()) @db.Date
+  effectiveTo         DateTime?                    @db.Date
+  packageAvailability PackageFeatureAddOn[]
+  purchases           ClientFeatureAddOnPurchase[]
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
+
+  @@index([featureId, isActive, effectiveFrom])
+}
+
+model PackageFeatureAddOn {
+  id             String       @id @default(uuid())
+  packageId      String
+  package        Package      @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  featureAddOnId String
+  featureAddOn   FeatureAddOn @relation(fields: [featureAddOnId], references: [id], onDelete: Restrict)
+  isAvailable    Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([packageId, featureAddOnId])
+  @@index([featureAddOnId, isAvailable])
 }
 
 model ClientBusinessProfile {
@@ -772,93 +886,137 @@ model ClientAgreement {
 }
 
 model ClientSubscription {
-  id                String             @id @default(uuid())
-  clientId          String
-  client            Client             @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  packageId         String
-  package           Package            @relation(fields: [packageId], references: [id], onDelete: Restrict)
-  features          ClientFeature[]
-  usage             FeatureUsage[]
-  billingCycle      BillingCycle
-  startDate         DateTime           @db.Date
-  endDate           DateTime?          @db.Date
-  status            MasterRecordStatus @default(ACTIVE)
-  currency          String             @default("INR") @db.VarChar(10)
-  listPrice         Decimal            @db.Decimal(14, 2)
-  discountType      String?            @db.VarChar(20)
-  discountValue     Decimal?           @db.Decimal(14, 2)
-  finalPackagePrice Decimal            @db.Decimal(14, 2)
-  autoRenew         Boolean            @default(true)
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
+  id                    String                       @id @default(uuid())
+  clientId              String
+  client                Client                       @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  packageId             String
+  package               Package                      @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  pricingAdjustments    ClientPricingAdjustment[]
+  featureAddOnPurchases ClientFeatureAddOnPurchase[]
+  featureCreditLots     FeatureCreditLot[]
+  featureUsageLedger    FeatureUsageLedger[]
+  billingCycle          BillingCycle
+  startDate             DateTime                     @db.Date
+  endDate               DateTime?                    @db.Date
+  status                ClientSubscriptionStatus     @default(ACTIVE)
+  vehicleCount          Int                          @default(0)
+  setupFee              Decimal                      @default(0) @db.Decimal(14, 2)
+  pricePerVehicle       Decimal                      @default(0) @db.Decimal(14, 4)
+  recurringAmount       Decimal                      @default(0) @db.Decimal(14, 2)
+  tierMinVehicles       Int                          @default(0)
+  tierMaxVehicles       Int?
+  tierMode              PricingTierMode              @default(VOLUME)
+  currency              String                       @default("INR") @db.VarChar(10)
+  autoRenew             Boolean                      @default(true)
+  createdAt             DateTime                     @default(now())
+  updatedAt             DateTime                     @updatedAt
 
   @@index([clientId, status])
 }
 
-model ClientFeature {
-  id               String                 @id @default(uuid())
-  clientId         String
-  client           Client                 @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  subscriptionId   String
-  subscription     ClientSubscription     @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
-  featureId        String
-  feature          Feature                @relation(fields: [featureId], references: [id], onDelete: Restrict)
-  source           ClientFeatureSource    @default(ADD_ON)
-  enabled          Boolean                @default(true)
-  includedQuantity Decimal                @default(0) @db.Decimal(14, 2)
-  usageLimit       Decimal?               @db.Decimal(14, 2)
-  unlimitedUsage   Boolean                @default(false)
-  effectiveFrom    DateTime               @db.Date
-  effectiveTo      DateTime?              @db.Date
-  configuration    Json?
-  pricing          ClientFeaturePricing[]
-  createdAt        DateTime               @default(now())
-  updatedAt        DateTime               @updatedAt
+model ClientPricingAdjustment {
+  id              String                 @id @default(uuid())
+  clientId        String
+  client          Client                 @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  subscriptionId  String?
+  subscription    ClientSubscription?    @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  adjustmentScope PricingAdjustmentScope
+  referenceId     String?
+  adjustmentType  PricingAdjustmentType
+  adjustmentValue Decimal                @db.Decimal(14, 4)
+  reason          String                 @db.VarChar(500)
+  validFrom       DateTime               @db.Date
+  validTo         DateTime?              @db.Date
+  isActive        Boolean                @default(true)
+  createdBy       String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
 
-  @@unique([subscriptionId, featureId])
-  @@index([clientId, enabled])
-  @@index([featureId, enabled])
+  @@index([clientId, adjustmentScope, isActive, validFrom])
+  @@index([subscriptionId, isActive, validFrom])
 }
 
-model ClientFeaturePricing {
-  id               String         @id @default(uuid())
-  clientFeatureId  String
-  clientFeature    ClientFeature  @relation(fields: [clientFeatureId], references: [id], onDelete: Restrict)
-  featurePricingId String
-  featurePricing   FeaturePricing @relation(fields: [featurePricingId], references: [id], onDelete: Restrict)
-  currency         String         @default("INR") @db.VarChar(10)
-  listUnitPrice    Decimal        @db.Decimal(14, 4)
-  discountType     String?        @db.VarChar(20)
-  discountValue    Decimal?       @db.Decimal(14, 4)
-  finalUnitPrice   Decimal        @db.Decimal(14, 4)
-  setupFee         Decimal        @default(0) @db.Decimal(14, 2)
-  effectiveFrom    DateTime       @db.Date
-  effectiveTo      DateTime?      @db.Date
-  reason           String?        @db.VarChar(500)
-  approvedBy       String?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+model ClientFeatureAddOnPurchase {
+  id                String                     @id @default(uuid())
+  clientId          String
+  client            Client                     @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  subscriptionId    String
+  subscription      ClientSubscription         @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  featureAddOnId    String
+  featureAddOn      FeatureAddOn               @relation(fields: [featureAddOnId], references: [id], onDelete: Restrict)
+  featureId         String
+  feature           Feature                    @relation(fields: [featureId], references: [id], onDelete: Restrict)
+  quantityPurchased Decimal                    @db.Decimal(18, 4)
+  quantityConsumed  Decimal                    @default(0) @db.Decimal(18, 4)
+  quantityRemaining Decimal                    @db.Decimal(18, 4)
+  unitPrice         Decimal?                   @db.Decimal(14, 4)
+  amount            Decimal                    @db.Decimal(14, 2)
+  discountAmount    Decimal                    @default(0) @db.Decimal(14, 2)
+  taxAmount         Decimal?                   @db.Decimal(14, 2)
+  totalAmount       Decimal                    @db.Decimal(14, 2)
+  currency          String                     @default("INR") @db.Char(3)
+  purchasedAt       DateTime                   @default(now())
+  validFrom         DateTime                   @db.Date
+  expiresAt         DateTime?                  @db.Date
+  status            FeatureAddOnPurchaseStatus @default(PENDING)
+  creditLots        FeatureCreditLot[]
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
 
-  @@index([clientFeatureId, effectiveFrom])
-  @@index([featurePricingId, effectiveFrom])
+  @@index([clientId, featureId, status, expiresAt])
+  @@index([subscriptionId, status])
 }
 
-model FeatureUsage {
-  id             String             @id @default(uuid())
-  clientId       String
-  client         Client             @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  subscriptionId String
-  subscription   ClientSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
-  featureId      String
-  feature        Feature            @relation(fields: [featureId], references: [id], onDelete: Restrict)
-  usageReference String?            @db.VarChar(150)
-  quantity       Decimal            @default(1) @db.Decimal(14, 4)
-  usageTimestamp DateTime
-  metadata       Json?
-  createdAt      DateTime           @default(now())
+model FeatureCreditLot {
+  id                String                      @id @default(uuid())
+  clientId          String
+  client            Client                      @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  subscriptionId    String
+  subscription      ClientSubscription          @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  featureId         String
+  feature           Feature                     @relation(fields: [featureId], references: [id], onDelete: Restrict)
+  sourceType        FeatureCreditSourceType
+  sourceId          String?
+  sourceKey         String                      @unique
+  purchaseId        String?
+  purchase          ClientFeatureAddOnPurchase? @relation(fields: [purchaseId], references: [id], onDelete: Restrict)
+  quantityOriginal  Decimal                     @db.Decimal(18, 4)
+  quantityAvailable Decimal                     @db.Decimal(18, 4)
+  expiresAt         DateTime?                   @db.Date
+  periodStart       DateTime?                   @db.Date
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+  ledgerEntries     FeatureUsageLedger[]
 
-  @@index([subscriptionId, featureId, usageTimestamp])
-  @@index([clientId, usageTimestamp])
+  @@index([clientId, featureId, quantityAvailable, expiresAt])
+  @@index([subscriptionId, featureId, periodStart])
+}
+
+model FeatureUsageLedger {
+  id              String                      @id @default(uuid())
+  clientId        String
+  client          Client                      @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  subscriptionId  String
+  subscription    ClientSubscription          @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  featureId       String
+  feature         Feature                     @relation(fields: [featureId], references: [id], onDelete: Restrict)
+  creditLotId     String?
+  creditLot       FeatureCreditLot?           @relation(fields: [creditLotId], references: [id], onDelete: Restrict)
+  sourceType      FeatureCreditSourceType
+  sourceId        String?
+  transactionType FeatureUsageTransactionType
+  quantity        Decimal                     @db.Decimal(18, 4)
+  balanceAfter    Decimal?                    @db.Decimal(18, 4)
+  referenceType   String?                     @db.VarChar(100)
+  referenceId     String?                     @db.VarChar(150)
+  occurredAt      DateTime                    @default(now())
+  expiresAt       DateTime?                   @db.Date
+  metadata        Json?
+  createdAt       DateTime                    @default(now())
+
+  @@index([clientId, featureId, occurredAt])
+  @@index([subscriptionId, featureId, occurredAt])
+  @@index([creditLotId, occurredAt])
 }
 
 model Hub {

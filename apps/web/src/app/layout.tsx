@@ -3,6 +3,10 @@ import "./globals.css";
 import { getClientAppearance } from "../lib/client-context-server";
 import { ClientProvider } from "./components/client-provider";
 
+// Branding and workspace resolution depend on the request hostname. Rendering
+// this layout at build time would cache an unavailable workspace for localhost.
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "EVs Eye Operations",
   description: "EV fleet operations console",

@@ -2,6 +2,7 @@ import { ClientIdentityModule } from './client-identity/client-identity.module.j
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AuthModule } from './auth/auth.module.js';
 import { type Environment, validateEnvironment } from './config/environment.js';
@@ -21,6 +22,7 @@ import { PlatformAdminModule } from './platform-admin/platform-admin.module.js';
 import { PlatformCatalogModule } from './platform-catalog/platform-catalog.module.js';
 import { ClientOnboardingModule } from './client-onboarding/client-onboarding.module.js';
 import { ClientUsersModule } from './client-users/client-users.module.js';
+import { CommercialModule } from './commercial/commercial.module.js';
 
 @Module({
   imports: [
@@ -29,6 +31,7 @@ import { ClientUsersModule } from './client-users/client-users.module.js';
       cache: true,
       validate: validateEnvironment,
     }),
+    ScheduleModule.forRoot(),
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -47,6 +50,7 @@ import { ClientUsersModule } from './client-users/client-users.module.js';
     PlatformCatalogModule,
     ClientOnboardingModule,
     ClientUsersModule,
+    CommercialModule,
     MediaModule,
     KycModule,
     FleetsModule,

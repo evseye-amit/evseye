@@ -1,5 +1,11 @@
 "use client";
 import { sessionFetch as fetch } from "../lib/session-fetch";
+import {
+  kycTypes,
+  photoEntityTypeLabel,
+  photoEntityTypes,
+  riderStatuses,
+} from "../lib/domain-enums";
 
 import { FormEvent, useEffect, useState } from "react";
 import { OtpCodeInput } from "./components/otp-code-input";
@@ -611,7 +617,7 @@ export default function Home() {
     name: "",
     mobile: "",
     address: "",
-    status: "PENDING",
+    status: "ONBOARDING",
   });
   const [fleetDetail, setFleetDetail] = useState<RecordItem | null>(null);
   const [editingFleet, setEditingFleet] = useState(false);
@@ -1433,7 +1439,7 @@ export default function Home() {
         name: String(rider.name ?? ""),
         mobile: String(rider.mobile ?? ""),
         address: String(rider.address ?? ""),
-        status: String(rider.status ?? "PENDING"),
+        status: String(rider.status ?? "ONBOARDING"),
       });
       setEditingRider(false);
     } catch (cause) {
@@ -2130,11 +2136,7 @@ export default function Home() {
                     void loadPhotoRequirements(entityType);
                   }}
                 >
-                  <option value="RIDER">Rider profile</option>
-                  <option value="FLEET">Fleet onboarding</option>
-                  <option value="BATTERY">Battery</option>
-                  <option value="CONTROLLER">Controller</option>
-                  <option value="INSPECTION">Allocation inspection</option>
+                  {photoEntityTypes.map((entityType) => <option key={entityType} value={entityType}>{photoEntityTypeLabel(entityType)}</option>)}
                 </select>
               </label>
               <button type="button" onClick={() => { setError(""); setShowPhotoTypeForm(true); }}>+ Add photo type</button>
@@ -2879,7 +2881,7 @@ export default function Home() {
                       }))
                     }
                   >
-                    {["PENDING", "ACTIVE", "INACTIVE", "BLOCKED"].map(
+                    {riderStatuses.map(
                       (status) => (
                         <option key={status} value={status}>
                           {status}
@@ -2910,7 +2912,7 @@ export default function Home() {
               ))}
             </div>
             <div className="form-actions">
-              {(["AADHAAR", "PAN", "BANK_ACCOUNT"] as const).map((type) => (
+              {kycTypes.map((type) => (
                 <button
                   key={type}
                   className="secondary table-action"

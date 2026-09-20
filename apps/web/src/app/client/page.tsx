@@ -1,5 +1,15 @@
 "use client";
 import { sessionFetch as fetch } from "../../lib/session-fetch";
+import {
+  batterySlots,
+  batteryTypes,
+  enumOptionLabel,
+  fleetOwnershipTypes,
+  hubStatuses,
+  hubTypes,
+  insuranceTypes,
+  vehicleSpeedTypes,
+} from "../../lib/domain-enums";
 
 import { ClientBrand } from "../components/client-brand";
 import Link from "next/link";
@@ -1152,8 +1162,7 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
               }
             >
               <option value="">Select speed type</option>
-              <option value="HIGH_SPEED">High speed</option>
-              <option value="SLOW_SPEED">Slow speed</option>
+              {vehicleSpeedTypes.map((type) => <option key={type} value={type}>{enumOptionLabel(type)}</option>)}
             </select>
           </label>
           <label>
@@ -1249,11 +1258,7 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
               }
             >
               <option value="">Select ownership type</option>
-              <option value="CLIENT_OWNED">Client owned</option>
-              <option value="LEASED">Leased</option>
-              <option value="ATTACHED">Attached</option>
-              <option value="OEM_OWNED">OEM owned</option>
-              <option value="THIRD_PARTY">Third party</option>
+              {fleetOwnershipTypes.map((type) => <option key={type} value={type}>{enumOptionLabel(type)}</option>)}
             </select>
           </label>
           <label>
@@ -1331,9 +1336,7 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
               }
             >
               <option value="">Select insurance type</option>
-              <option value="THIRD_PARTY">Third party</option>
-              <option value="COMPREHENSIVE">Comprehensive</option>
-              <option value="OWN_DAMAGE">Own damage</option>
+              {insuranceTypes.map((type) => <option key={type} value={type}>{enumOptionLabel(type)}</option>)}
             </select>
           </label>
           <label>
@@ -1577,9 +1580,7 @@ function FleetComponentsSetup({
                 setBattery({ ...battery, batterySlot: event.target.value })
               }
             >
-              <option value="PRIMARY">Primary</option>
-              <option value="SECONDARY">Secondary</option>
-              <option value="AUXILIARY">Auxiliary</option>
+              {batterySlots.map((slot) => <option key={slot} value={slot}>{enumOptionLabel(slot)}</option>)}
             </select>
           </label>
           <label>
@@ -1601,12 +1602,7 @@ function FleetComponentsSetup({
               }
             >
               <option value="">Select battery type</option>
-              <option value="FIXED_SINGLE">Fixed single</option>
-              <option value="FIXED_DOUBLE">Fixed double</option>
-              <option value="SWAP_IF">Swappable IF</option>
-              <option value="SWAP_BS">Swappable BS</option>
-              <option value="SWAP_MOVING">Swappable moving</option>
-              <option value="SWAP_OTHER">Other swappable</option>
+              {batteryTypes.map((type) => <option key={type} value={type}>{enumOptionLabel(type)}</option>)}
             </select>
           </label>
           <label>
@@ -2973,14 +2969,7 @@ function HubSetup({ onSaved }: { onSaved: () => void }) {
                 setForm({ ...form, type: event.target.value })
               }
             >
-              <option value="OPERATIONS">Operations</option>
-              <option value="PARKING">Parking</option>
-              <option value="CHARGING">Charging</option>
-              <option value="BATTERY_SWAP">Battery swap</option>
-              <option value="MAINTENANCE">Maintenance</option>
-              <option value="WAREHOUSE">Warehouse</option>
-              <option value="DELIVERY">Delivery</option>
-              <option value="MIXED">Mixed</option>
+              {hubTypes.map((type) => <option key={type} value={type}>{enumOptionLabel(type)}</option>)}
             </select>
           </label>
           <label>
@@ -2991,11 +2980,7 @@ function HubSetup({ onSaved }: { onSaved: () => void }) {
                 setForm({ ...form, status: event.target.value })
               }
             >
-              <option value="ACTIVE">Active</option>
-              <option value="INACTIVE">Inactive</option>
-              <option value="TEMPORARILY_CLOSED">Temporarily closed</option>
-              <option value="UNDER_MAINTENANCE">Under maintenance</option>
-              <option value="FULL">Full</option>
+              {hubStatuses.map((status) => <option key={status} value={status}>{enumOptionLabel(status)}</option>)}
             </select>
           </label>
 
