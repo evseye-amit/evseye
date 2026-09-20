@@ -795,7 +795,7 @@ export class PlatformAdminService {
         documents: { orderBy: { createdAt: 'desc' } },
         agreement: true,
         subscriptions: {
-          include: { package: true, features: { include: { feature: true } } },
+          include: { package: true },
           orderBy: { createdAt: 'desc' },
         },
       },

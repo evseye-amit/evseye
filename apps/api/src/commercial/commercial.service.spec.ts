@@ -87,6 +87,22 @@ describe('CommercialService vehicle-tier pricing', () => {
 });
 
 describe('CommercialService adjustments and feature credits', () => {
+  it('lists client credit lots with feature and purchase context', async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const service = makeService({
+      featureCreditLot: { findMany },
+    });
+
+    await service.creditLots('client-1');
+
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { clientId: 'client-1' },
+        include: expect.objectContaining({ feature: expect.any(Object), purchase: expect.any(Object) }),
+      }),
+    );
+  });
+
   it('keeps master price intact while calculating a client-specific discount', () => {
     const service = makeService({});
     const result = (service as never as {

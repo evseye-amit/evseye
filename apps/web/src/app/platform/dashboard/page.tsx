@@ -25,6 +25,7 @@ import {
   useState,
 } from "react";
 import Link from "next/link";
+import { ClientCommercialSettings, type ClientCommercialSection } from "../../components/client-commercial-settings";
 import { ClientDomainSettings } from "../../components/client-domain-settings";
 import { ClientLogoUpload } from "../../components/client-logo-upload";
 import { UiIcon, type IconName } from "../../components/ui-icon";
@@ -55,7 +56,11 @@ type Tab =
   | "featureAddOns"
   | "packageFeatures"
   | "packageAddOns"
-  | "packageTierPricing";
+  | "packageTierPricing"
+  | "clientPricingAdjustments"
+  | "clientAddOnPurchases"
+  | "clientCreditLots"
+  | "clientUsageLedger";
 type Item = Record<string, any>;
 type BulkImportEntity =
   | "oem"
@@ -2038,7 +2043,13 @@ export default function SuperAdminDashboard() {
     },
     {
       label: "Client Management",
-      items: [["clients", "Client", "users"]],
+      items: [
+        ["clients", "Client", "users"],
+        ["clientPricingAdjustments", "Pricing Adjustments", "pricing"],
+        ["clientAddOnPurchases", "Feature Add-On Purchases", "feature"],
+        ["clientCreditLots", "Feature Credit Lots", "packageFeature"],
+        ["clientUsageLedger", "Feature Usage Ledger", "dashboard"],
+      ],
     },
   ];
   const pageSubtitles: Partial<Record<Tab, string>> = {
@@ -2057,6 +2068,10 @@ export default function SuperAdminDashboard() {
     packageAddOns: "Choose the Feature Add-Ons available for each package.",
     packageTierPricing: "Set the per-vehicle recurring price for each fleet-size range.",
     clients: "Manage onboarding drafts, approvals, subscriptions, and documents.",
+    clientPricingAdjustments: "Apply negotiated commercial terms without changing master pricing.",
+    clientAddOnPurchases: "Purchase package-eligible Feature Add-Ons for a client.",
+    clientCreditLots: "Review active and expired client feature credits by source and expiry.",
+    clientUsageLedger: "Review the immutable client feature credit and consumption history.",
   };
   const featureAddOnEffectiveDate = featureAddOn.effectiveFrom
     ? new Date(featureAddOn.effectiveFrom)
@@ -2283,6 +2298,18 @@ export default function SuperAdminDashboard() {
             approvalEmailReference={approvalEmailReference}
             setApprovalEmailReference={setApprovalEmailReference}
           />
+        )}
+        {tab === "clientPricingAdjustments" && (
+          <ClientCommercialDirectory clients={clients} section="pricing" />
+        )}
+        {tab === "clientAddOnPurchases" && (
+          <ClientCommercialDirectory clients={clients} section="addOns" />
+        )}
+        {tab === "clientCreditLots" && (
+          <ClientCommercialDirectory clients={clients} section="creditLots" />
+        )}
+        {tab === "clientUsageLedger" && (
+          <ClientCommercialDirectory clients={clients} section="ledger" />
         )}
         {tab === "oems" && (
           <>
@@ -4123,6 +4150,74 @@ function DashboardView({
   );
 }
 
+function ClientCommercialDirectory({
+  clients,
+  section,
+}: {
+  clients: Item[];
+  section: ClientCommercialSection;
+}) {
+  const details: Record<ClientCommercialSection, { title: string; description: string }> = {
+    pricing: {
+      title: "Client Pricing Adjustments",
+      description: "Create and review client-specific commercial adjustments without changing package or Feature master prices.",
+    },
+    addOns: {
+      title: "Client Feature Add-On Purchases",
+      description: "Purchase configured Feature Add-Ons against each client’s active package subscription.",
+    },
+    creditLots: {
+      title: "Client Feature Credit Lots",
+      description: "Inspect package allowances, purchased credits, available balances, and expiry dates.",
+    },
+    ledger: {
+      title: "Client Feature Usage Ledger",
+      description: "Review the auditable record of feature credit grants, consumption, adjustments, and expiry.",
+    },
+  };
+  const activeClients = clients.filter((client) => client.status === "ACTIVE");
+  const action = section === "pricing"
+    ? "Manage pricing"
+    : section === "addOns"
+      ? "Manage Add-Ons"
+      : section === "creditLots"
+        ? "View credit lots"
+        : "View ledger";
+
+  return (
+    <>
+      <section className="sa-page-head">
+        <div>
+          <h2>{details[section].title}</h2>
+          <p>{details[section].description}</p>
+        </div>
+      </section>
+      {activeClients.length ? (
+        <DataTable
+          headings={["Client", "Company code", "Status", "Action"]}
+          columnFilters={[{ type: "text" }, { type: "text" }, null, null]}
+          rows={activeClients.map((client) => [
+            client.name,
+            client.companyCode ?? client.slug,
+            client.status,
+            <ClientCommercialSettings
+              key={`${client.id}-${section}`}
+              clientId={client.id}
+              clientName={client.name}
+              section={section}
+            />,
+          ])}
+        />
+      ) : (
+        <section className="sa-empty-catalog">
+          <h3>No active clients</h3>
+          <p>Activate a client and create its subscription before managing commercial records.</p>
+        </section>
+      )}
+    </>
+  );
+}
+
 function ClientsView({
   clients,
   packages,
@@ -4805,6 +4900,7 @@ function ClientsView({
               >
                 Edit client
               </button>
+              <ClientCommercialSettings clientId={item.id} clientName={item.name} />
               <ClientDomainSettings clientId={item.id} clientName={item.name} />
             </span>
           ) : (
