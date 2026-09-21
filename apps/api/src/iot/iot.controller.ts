@@ -14,6 +14,7 @@ import {
 import { UserRole } from '@prisma/client';
 import {
   IsBoolean,
+  IsArray,
   IsIn,
   IsISO8601,
   IsLatitude,
@@ -31,8 +32,9 @@ import { ClientContextService } from '../auth/client-context.service.js';
 import { IotService, type TelemetryPacketType } from './iot.service.js';
 
 class RegisterDeviceDto {
+  @IsOptional()
   @IsString()
-  fleetId!: string;
+  fleetId?: string;
 
   @IsString()
   @MaxLength(128)
@@ -71,6 +73,10 @@ class RegisterDeviceDto {
 class UpdateDeviceDto {
   @IsOptional()
   @IsString()
+  fleetId?: string | null;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(128)
   deviceNumber?: string;
 
@@ -102,6 +108,11 @@ class UpdateDeviceDto {
   @IsOptional()
   @IsISO8601()
   installedAt?: string;
+}
+
+class BulkDevicesDto {
+  @IsString() @MaxLength(255) filename!: string;
+  @IsArray() rows!: Array<Record<string, unknown>>;
 }
 
 class IngestTelemetryDto {
@@ -163,6 +174,25 @@ export class IotController {
         dto,
       ),
     };
+  }
+
+  @Post('devices/bulk')
+  @Header('Cache-Control', 'no-store')
+  async bulkRegister(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: BulkDevicesDto,
+  ) {
+    return { data: await this.iot.bulkRegisterDevices(this.clients.requireClientId(user), user.id, dto.filename, dto.rows) };
+  }
+
+  @Get('devices/imports/:id/failed-records')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  async failedRecords(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const rows = await this.iot.failedRows(this.clients.requireClientId(user), id);
+    if (!rows.length) return '';
+    const headers = Object.keys(rows[0]);
+    const cell = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+    return [headers.join(','), ...rows.map((row) => headers.map((header) => cell(row[header])).join(','))].join('\n');
   }
 
   @Patch('devices/:id')

@@ -11,6 +11,7 @@ import {
 import { BatteryChemistry, BatterySlot, BatteryType } from '@prisma/client';
 
 export class CreateBatteryDto {
+  @IsOptional() @IsString() fleetId?: string;
   @IsString() @MaxLength(80) serialNumber!: string;
   @IsOptional() @IsString() @MaxLength(50) batteryCode?: string;
   @IsOptional() @IsEnum(BatteryType) batteryType?: BatteryType;
@@ -44,6 +45,7 @@ export class CreateBatteryDto {
 }
 
 export class CreateControllerDto {
+  @IsOptional() @IsString() fleetId?: string;
   @IsString() @MaxLength(100) controllerNumber!: string;
   @IsOptional() @IsString() @MaxLength(100) manufacturer?: string;
   @IsOptional() @IsString() @MaxLength(100) model?: string;

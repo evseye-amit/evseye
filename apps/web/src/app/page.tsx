@@ -5,8 +5,6 @@ import {
   fleetOwnershipTypes,
   insuranceTypes,
   kycTypes,
-  photoEntityTypeLabel,
-  photoEntityTypes,
   riderStatuses,
   vehicleSpeedTypes,
 } from "../lib/domain-enums";
@@ -38,13 +36,17 @@ type Tab =
   | "audit"
   | "locations"
   | "evidence"
+  | "fleet-evidence"
+  | "allocation-evidence"
+  | "deallocation-evidence"
+  | "rider-evidence"
   | "fleet-managers"
   | "team-leads"
   | "cluster-managers"
   | "iot-devices"
   | "batteries"
-  | "fleet-iot-mapping"
-  | "fleet-battery-mapping"
+  | "controllers"
+  | "fleet-component-mapping"
   | "deallocations"
   | "wallet"
   | "rider-fleet-mapping"
@@ -87,12 +89,17 @@ function FleetTextInput({ label, field, form, setForm, required, ...input }: {
 }) {
   return <label>{label}{required ? " *" : ""}<input {...input} required={required} value={form[field]} onChange={(event) => setForm({ ...form, [field]: event.target.value })} /></label>;
 }
-type ClientBulkTab = "fleet-managers" | "team-leads" | "locations" | "fleets" | "riders";
+type ClientBulkTab = "fleet-managers" | "team-leads" | "locations" | "fleets" | "riders" | "batteries" | "controllers" | "iot-devices" | "fleet-component-mapping";
+const emptyHubForm = () => ({ name: "", code: "", type: "OPERATIONS", status: "ACTIVE", addressLine1: "", addressLine2: "", landmark: "", city: "", district: "", state: "", country: "India", postalCode: "", latitude: "", longitude: "", parentHubId: "", vehicleCapacity: "", riderCapacity: "", batteryCapacity: "", parkingSlots: "", chargingPoints: "", swappingPoints: "", contactName: "", contactPhone: "", contactEmail: "", openingTime: "", closingTime: "", is24x7: false, supportsCharging: false, supportsBatterySwapping: false, supportsMaintenance: false, supportsAllocation: true, supportsDeallocation: true, supportsPdi: false });
 const CLIENT_BULK_CONFIG: Record<ClientBulkTab, { title: string; requiredColumns: string; template: string; resource: string; entityType: string }> = {
   "fleet-managers": { title: "Fleet Managers", requiredColumns: "name, mobile, hubCodes, primaryHubCode", template: "name,mobile,hubCodes,primaryHubCode\n", resource: "/client/users/fleet-managers", entityType: "FLEET_MANAGER" },
   "team-leads": { title: "Team Leads", requiredColumns: "name, mobile", template: "name,mobile,employeeCode,designation\n", resource: "/client/users/team-leaders", entityType: "TEAM_LEADER" },
-  locations: { title: "Hubs", requiredColumns: "name, code, city, state", template: "name,code,city,state\n", resource: "/hubs", entityType: "HUB" },
-  fleets: { title: "Fleets", requiredColumns: "chassisNumber, oemId, vehicleCategoryId, vehicleTypeId, speedType", template: "chassisNumber,oemId,vehicleCategoryId,vehicleTypeId,speedType,vehicleNumber\n", resource: "/fleets", entityType: "FLEET" },
+  locations: { title: "Hubs", requiredColumns: "name, code, city, state", template: "name,code,type,status,addressLine1,addressLine2,landmark,city,district,state,country,postalCode,latitude,longitude,parentHubId,vehicleCapacity,riderCapacity,batteryCapacity,parkingSlots,chargingPoints,swappingPoints,contactName,contactPhone,contactEmail,openingTime,closingTime,is24x7,supportsCharging,supportsBatterySwapping,supportsMaintenance,supportsAllocation,supportsDeallocation,supportsPdi\nCentral Operations Hub,HUB-001,OPERATIONS,ACTIVE,Warehouse Road,,Near Metro,Gurugram,Gurugram,Haryana,India,122001,,,,100,50,100,50,4,2,Operations Manager,+919876543210,hub@example.com,09:00,18:00,false,true,true,true,true,true,false\n", resource: "/hubs", entityType: "HUB" },
+  fleets: { title: "Fleets", requiredColumns: "chassisNumber, oemCode, vehicleCategoryCode, vehicleTypeCode, speedType, ownershipType", template: "fleetCode,vehicleNumber,chassisNumber,vinNumber,oemCode,vehicleCategoryCode,vehicleTypeCode,speedType,homeHubCode,currentHubCode,modelName,variantName,colour,motorNumber,manufacturingYear,manufacturingMonth,ownershipType,odometerKm,registrationDate,registeringAuthority,rcExpiryDate,insuranceProviderName,insurancePolicyNumber,insuranceType,insuranceStartDate,insuranceEndDate,fitnessCertificateNumber,fitnessExpiryDate\nFLT-0001,DL01EV0001,ME4JF123456789001,,ZELIO,2W,E_SCOOTER_ELECTRIC,HIGH_SPEED,HUB-DEL-01,,Gracy,,White,,2025,6,CLIENT_OWNED,0,,,,,,,,,,\n", resource: "/fleets", entityType: "FLEET" },
+  batteries: { title: "Batteries", requiredColumns: "serialNumber", template: "fleetId,chassisNumber,serialNumber,batteryCode,batteryType,batterySlot,manufacturer,model,chemistry,capacityKwh,voltage,ampHour,installedOdometerKm,manufacturingDate,warrantyStartDate,warrantyEndDate\n,,BAT-001,BAT-0001,FIXED_SINGLE,PRIMARY,,,,2.5,,,0,,,\n", resource: "/fleets/batteries", entityType: "BATTERY" },
+  controllers: { title: "Controllers", requiredColumns: "controllerNumber", template: "fleetId,chassisNumber,controllerNumber,manufacturer,model,ratedVoltage,ratedCurrent\n,,CTRL-001,,,,\n", resource: "/fleets/controllers", entityType: "CONTROLLER" },
+  "iot-devices": { title: "IoT Devices", requiredColumns: "deviceNumber", template: "fleetId,chassisNumber,deviceNumber,imei,simNumber,iccid,provider,model,installedAt\n,,IOT-001,,,,,,\n", resource: "/iot/devices", entityType: "IOT_DEVICE" },
+  "fleet-component-mapping": { title: "Fleet Component Mapping", requiredColumns: "fleetId or chassisNumber", template: "fleetId,chassisNumber,iotDeviceNumber,battery1Serial,battery2Serial,controllerNumber\n,,,,,\n", resource: "/fleets/component-mappings", entityType: "FLEET_COMPONENT_MAPPING" },
   riders: { title: "Riders", requiredColumns: "name, mobile", template: "name,mobile,address\n", resource: "/riders", entityType: "RIDER" },
 };
 
@@ -115,9 +122,17 @@ const CLIENT_NAVIGATION: Array<{
       { id: "fleets", label: "Fleet" },
       { id: "iot-devices", label: "IoT" },
       { id: "batteries", label: "Battery" },
-      { id: "fleet-iot-mapping", label: "Fleet IoT Mapping" },
-      { id: "fleet-battery-mapping", label: "Fleet Battery Mapping" },
-      { id: "evidence", label: "Photos & Evidence" },
+      { id: "controllers", label: "Controller" },
+      { id: "fleet-component-mapping", label: "Fleet Component Mapping" },
+    ],
+  },
+  {
+    label: "Photo & Evidence",
+    items: [
+      { id: "fleet-evidence", label: "Fleet" },
+      { id: "allocation-evidence", label: "Allocation" },
+      { id: "deallocation-evidence", label: "De-allocation" },
+      { id: "rider-evidence", label: "Rider" },
     ],
   },
   {
@@ -155,13 +170,17 @@ const CLIENT_TAB_TITLES: Record<Tab, string> = {
   audit: "Audit Log",
   locations: "Hub",
   evidence: "Photos & Evidence",
+  "fleet-evidence": "Fleet Photo & Evidence",
+  "allocation-evidence": "Allocation Photo & Evidence",
+  "deallocation-evidence": "De-allocation Photo & Evidence",
+  "rider-evidence": "Rider Photo & Evidence",
   "fleet-managers": "Fleet Manager",
   "team-leads": "Team Lead",
   "cluster-managers": "Cluster Manager",
   "iot-devices": "IoT",
   batteries: "Battery",
-  "fleet-iot-mapping": "Fleet IoT Mapping",
-  "fleet-battery-mapping": "Fleet Battery Mapping",
+  controllers: "Controller",
+  "fleet-component-mapping": "Fleet Component Mapping",
   deallocations: "Deallocation",
   wallet: "Wallet",
   "rider-fleet-mapping": "Rider Fleet Mapping",
@@ -180,13 +199,17 @@ const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
   audit: "audit",
   locations: "location",
   evidence: "camera",
+  "fleet-evidence": "camera",
+  "allocation-evidence": "camera",
+  "deallocation-evidence": "camera",
+  "rider-evidence": "camera",
   "fleet-managers": "users",
   "team-leads": "teamLead",
   "cluster-managers": "clusterManager",
   "iot-devices": "iot",
   batteries: "battery",
-  "fleet-iot-mapping": "link",
-  "fleet-battery-mapping": "link",
+  controllers: "factory",
+  "fleet-component-mapping": "link",
   deallocations: "allocation",
   wallet: "wallet",
   "rider-fleet-mapping": "link",
@@ -209,7 +232,34 @@ const ACTIVE_CLIENT_TABS = new Set<Tab>([
   "team-leads",
   "iot-devices",
   "batteries",
+  "controllers",
+  "fleet-component-mapping",
+  "fleet-evidence",
+  "allocation-evidence",
+  "deallocation-evidence",
+  "rider-evidence",
 ]);
+
+const PHOTO_EVIDENCE_TABS = new Set<Tab>([
+  "evidence",
+  "fleet-evidence",
+  "allocation-evidence",
+  "deallocation-evidence",
+  "rider-evidence",
+]);
+
+function evidenceEntityType(tab: Tab): PhotoRequirementEntityType {
+  if (tab === "fleet-evidence") return "FLEET";
+  if (tab === "rider-evidence") return "RIDER";
+  return "INSPECTION";
+}
+
+function evidenceContext(tab: Tab) {
+  if (tab === "fleet-evidence") return { eyebrow: "FLEET EVIDENCE", title: "Fleet photo requirements", description: "Configure the photos required when a fleet vehicle is onboarded or updated." };
+  if (tab === "rider-evidence") return { eyebrow: "RIDER EVIDENCE", title: "Rider photo requirements", description: "Configure profile, KYC, and onboarding photos required for riders." };
+  if (tab === "deallocation-evidence") return { eyebrow: "DE-ALLOCATION EVIDENCE", title: "De-allocation inspection requirements", description: "Configure the photos required while returning a fleet vehicle from a rider." };
+  return { eyebrow: "ALLOCATION EVIDENCE", title: "Allocation inspection requirements", description: "Configure the photos required while handing a fleet vehicle over to a rider." };
+}
 
 function oemLabel(value: unknown, fallback = "—") {
   if (typeof value === "string") return value || fallback;
@@ -552,6 +602,23 @@ function clientColumns(tab: Tab): ClientColumn<RecordItem>[] {
       }),
       status("status", "Status", (row) => row.status),
     ];
+    case "controllers": return [
+      text("controller", "Controller", (row) => row.controllerNumber),
+      text("manufacturer", "Manufacturer", (row) => row.manufacturer),
+      text("fleet", "Fleet", (row) => {
+        const assignment = ((row.fleetHistory as RecordItem[]) ?? [])[0];
+        const fleet = assignment?.fleet as RecordItem | undefined;
+        return fleet?.fleetCode ?? fleet?.vehicleNumber ?? "Unassigned";
+      }),
+      status("status", "Status", (row) => row.status),
+    ];
+    case "fleet-component-mapping": return [
+      text("fleet", "Fleet", (row) => row.fleetCode ?? row.vehicleNumber),
+      text("chassis", "Chassis number", (row) => row.chassisNumber),
+      text("iot", "IoT device", (row) => (row.iotDevice as RecordItem | undefined)?.deviceNumber ?? "Unassigned"),
+      text("batteries", "Batteries (max 2)", (row) => ((row.batteryHistory as RecordItem[]) ?? []).slice(0, 2).map((item) => { const battery = item.battery as RecordItem | undefined; return battery?.batteryCode ?? battery?.serialNumber; }).filter(Boolean).join(", ") || "Unassigned"),
+      text("controllers", "Controllers", (row) => ((row.controllerHistory as RecordItem[]) ?? []).map((item) => (item.controller as RecordItem | undefined)?.controllerNumber).filter(Boolean).join(", ") || "Unassigned"),
+    ];
     case "fleets": return [
       text("vehicle", "Vehicle", (row) => row.vehicleNumber),
       text("oem", "OEM", (row) => oemLabel(row.oem)),
@@ -594,7 +661,7 @@ export default function Home() {
   const [newRiderAddress, setNewRiderAddress] = useState("");
   const [showFleetForm, setShowFleetForm] = useState(false);
   const [hubs, setHubs] = useState<RecordItem[]>([]);
-  const [newHub, setNewHub] = useState({ name: "", code: "", city: "", state: "" });
+  const [newHub, setNewHub] = useState(emptyHubForm);
   const [editingHubId, setEditingHubId] = useState("");
   const [showHubForm, setShowHubForm] = useState(false);
   const [bulkImportTab, setBulkImportTab] = useState<ClientBulkTab | null>(null);
@@ -654,11 +721,22 @@ export default function Home() {
   const [uploadedComponentPhotoTypes, setUploadedComponentPhotoTypes] =
     useState<Record<string, string[]>>({});
   const [iotDeviceNumber, setIotDeviceNumber] = useState("");
+  const [iotDetails, setIotDetails] = useState({ imei: "", simNumber: "", iccid: "", provider: "", model: "", installedAt: "" });
+  const [editingIotDeviceId, setEditingIotDeviceId] = useState("");
   const [iotFleetId, setIotFleetId] = useState("");
   const [iotFleetOptions, setIotFleetOptions] = useState<RecordItem[]>([]);
   const [showIotForm, setShowIotForm] = useState(false);
   const [componentForm, setComponentForm] = useState<"batteries" | "controllers" | null>(null);
+  const [componentFleetId, setComponentFleetId] = useState("");
+  const [editingComponentId, setEditingComponentId] = useState("");
   const [componentSerial, setComponentSerial] = useState("");
+  const [componentDetails, setComponentDetails] = useState({ batteryCode: "", batteryType: "FIXED_SINGLE", batterySlot: "PRIMARY", manufacturer: "", model: "", chemistry: "", capacityKwh: "", voltage: "", ampHour: "", installedOdometerKm: "", manufacturingDate: "", warrantyStartDate: "", warrantyEndDate: "", ratedVoltage: "", ratedCurrent: "" });
+  const [showMappingForm, setShowMappingForm] = useState(false);
+  const [mappingFleetId, setMappingFleetId] = useState("");
+  const [mappingIotId, setMappingIotId] = useState("");
+  const [mappingBatteryIds, setMappingBatteryIds] = useState<string[]>([]);
+  const [mappingControllerId, setMappingControllerId] = useState("");
+  const [mappingOptions, setMappingOptions] = useState({ fleets: [] as RecordItem[], devices: [] as RecordItem[], batteries: [] as RecordItem[], controllers: [] as RecordItem[] });
   const [showDetailIotForm, setShowDetailIotForm] = useState(false);
   const [showPhotoTypeForm, setShowPhotoTypeForm] = useState(false);
   const [ingestSecret, setIngestSecret] = useState("");
@@ -755,10 +833,19 @@ export default function Home() {
           token,
         )) as RecordItem[];
         setItems(batteries);
+      } else if (nextTab === "controllers") {
+        const controllers = (await request(
+          "/fleets/controllers",
+          {},
+          token,
+        )) as RecordItem[];
+        setItems(controllers);
+      } else if (nextTab === "fleet-component-mapping") {
+        setItems((await request("/fleets/component-mappings", {}, token)) as RecordItem[]);
       } else if (nextTab === "locations") {
         setHubs((await request("/hubs", {}, token)) as RecordItem[]);
-      } else if (nextTab === "evidence") {
-        await loadPhotoRequirements(photoRequirementEntityType);
+      } else if (PHOTO_EVIDENCE_TABS.has(nextTab)) {
+        await loadPhotoRequirements(evidenceEntityType(nextTab));
       } else {
         const resource = nextTab === "audit" ? "/audit-logs" : `/${nextTab}`;
         const first = (await request(`${resource}?page=1&pageSize=100`, {}, token)) as { items: RecordItem[]; meta: { total: number } };
@@ -798,6 +885,9 @@ export default function Home() {
     setIngestSecret("");
     setNotice("");
     setError("");
+    if (PHOTO_EVIDENCE_TABS.has(nextTab)) {
+      setPhotoRequirementEntityType(evidenceEntityType(nextTab));
+    }
     setTab(nextTab);
   }
 
@@ -963,9 +1053,8 @@ export default function Home() {
       setNewFleet(emptyFleetForm());
       const updatedFleetId = editingFleetId;
       setEditingFleetId("");
-      setNotice(updatedFleetId ? "Fleet updated." : "Fleet created. Add components, photos, and IoT device from fleet detail.");
+      setNotice(updatedFleetId ? "Fleet updated." : "Fleet created.");
       await loadView("fleets");
-      if (updatedFleetId) await openFleetDetail(updatedFleetId);
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "Unable to create fleet.",
@@ -996,6 +1085,75 @@ export default function Home() {
     }
   }
 
+  async function openComponentForm(component: "batteries" | "controllers") {
+    setLoading(true); setError("");
+    try {
+      const result = await request("/fleets?page=1&pageSize=100", {}, token) as { items: RecordItem[] };
+      setIotFleetOptions(result.items);
+      setComponentFleetId(""); setComponentSerial(""); setComponentDetails({ batteryCode: "", batteryType: "FIXED_SINGLE", batterySlot: "PRIMARY", manufacturer: "", model: "", chemistry: "", capacityKwh: "", voltage: "", ampHour: "", installedOdometerKm: "", manufacturingDate: "", warrantyStartDate: "", warrantyEndDate: "", ratedVoltage: "", ratedCurrent: "" }); setEditingComponentId(""); setComponentForm(component);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load Fleets."); }
+    finally { setLoading(false); }
+  }
+
+  async function openIotForm(device?: RecordItem) {
+    setLoading(true);
+    setError("");
+    try {
+      const result = await request("/fleets?page=1&pageSize=100", {}, token) as { items: RecordItem[] };
+      setIotFleetOptions(result.items);
+      setEditingIotDeviceId(String(device?.id ?? ""));
+      setIotFleetId(String((device?.currentFleet as RecordItem | undefined)?.id ?? ""));
+      setIotDeviceNumber(String(device?.deviceNumber ?? ""));
+      setIotDetails({
+        imei: String(device?.imei ?? ""), simNumber: String(device?.simNumber ?? ""),
+        iccid: String(device?.iccid ?? ""), provider: String(device?.provider ?? ""),
+        model: String(device?.model ?? ""), installedAt: String(device?.installedAt ?? "").slice(0, 10),
+      });
+      setShowIotForm(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to load Fleets.");
+    } finally { setLoading(false); }
+  }
+
+  async function openMappingForm(mapping?: RecordItem) {
+    setLoading(true); setError("");
+    try {
+      const [fleetResult, devices, batteries, controllers] = await Promise.all([
+        request("/fleets?page=1&pageSize=100", {}, token) as Promise<{ items: RecordItem[] }>,
+        request("/iot/devices", {}, token) as Promise<RecordItem[]>,
+        request("/fleets/batteries", {}, token) as Promise<RecordItem[]>,
+        request("/fleets/controllers", {}, token) as Promise<RecordItem[]>,
+      ]);
+      setMappingOptions({ fleets: fleetResult.items, devices, batteries, controllers });
+      setMappingFleetId(String(mapping?.id ?? ""));
+      setMappingIotId(String((mapping?.iotDevice as RecordItem | undefined)?.id ?? ""));
+      setMappingBatteryIds(((mapping?.batteryHistory as RecordItem[]) ?? []).map((item) => String((item.battery as RecordItem | undefined)?.id ?? "")).filter(Boolean).slice(0, 2));
+      setMappingControllerId(String(((mapping?.controllerHistory as RecordItem[]) ?? [])[0]?.controller ? ((mapping?.controllerHistory as RecordItem[])[0].controller as RecordItem).id : ""));
+      setShowMappingForm(true);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load component options."); }
+    finally { setLoading(false); }
+  }
+
+  async function saveMapping(event: FormEvent) {
+    event.preventDefault();
+    if (!mappingFleetId) return;
+    setLoading(true); setError("");
+    try {
+      await request(`/fleets/component-mappings/${mappingFleetId}`, { method: "PATCH", body: JSON.stringify({ iotDeviceId: mappingIotId || null, batteryIds: mappingBatteryIds, controllerId: mappingControllerId || null }) }, token);
+      setShowMappingForm(false); setNotice("Fleet component mapping saved."); await loadView("fleet-component-mapping");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save component mapping."); }
+    finally { setLoading(false); }
+  }
+
+  async function openExistingComponentForm(component: "batteries" | "controllers", item: RecordItem) {
+    await openComponentForm(component);
+    const assignment = ((item.fleetHistory as RecordItem[]) ?? [])[0];
+    setComponentFleetId(String((assignment?.fleet as RecordItem | undefined)?.id ?? ""));
+    setComponentSerial(String(component === "batteries" ? item.serialNumber ?? "" : item.controllerNumber ?? ""));
+    setComponentDetails({ batteryCode: String(item.batteryCode ?? ""), batteryType: String(item.batteryType ?? "FIXED_SINGLE"), batterySlot: String(assignment?.batterySlot ?? "PRIMARY"), manufacturer: String(item.manufacturer ?? ""), model: String(item.model ?? ""), chemistry: String(item.chemistry ?? ""), capacityKwh: String(item.capacityKwh ?? ""), voltage: String(item.voltage ?? ""), ampHour: String(item.ampHour ?? ""), installedOdometerKm: "", manufacturingDate: String(item.manufacturingDate ?? "").slice(0, 10), warrantyStartDate: String(item.warrantyStartDate ?? "").slice(0, 10), warrantyEndDate: String(item.warrantyEndDate ?? "").slice(0, 10), ratedVoltage: String(item.ratedVoltage ?? ""), ratedCurrent: String(item.ratedCurrent ?? "") });
+    setEditingComponentId(String(item.id));
+  }
+
   async function createHub(event: FormEvent) {
     event.preventDefault();
     setLoading(true);
@@ -1003,10 +1161,17 @@ export default function Home() {
     try {
       await request(
         editingHubId ? `/hubs/${editingHubId}` : "/hubs",
-        { method: editingHubId ? "PATCH" : "POST", body: JSON.stringify(newHub) },
+        {
+          method: editingHubId ? "PATCH" : "POST",
+          body: JSON.stringify(Object.fromEntries(
+            Object.entries(newHub).filter(([, value]) =>
+              typeof value === "boolean" || String(value).trim() !== "",
+            ),
+          )),
+        },
         token,
       );
-      setNewHub({ name: "", code: "", city: "", state: "" });
+      setNewHub(emptyHubForm());
       setEditingHubId("");
       setShowHubForm(false);
       setNotice(editingHubId ? "Hub updated." : "Hub created.");
@@ -1041,7 +1206,11 @@ export default function Home() {
       const csv = parseCsv(await file.text());
       const headers = csv.shift()?.map((field) => field.trim()) ?? [];
       const required = CLIENT_BULK_CONFIG[kind].requiredColumns.split(", ");
-      if (!required.every((field) => headers.includes(field))) throw new Error(`CSV requires columns: ${required.join(", ")}.`);
+      const componentImport = false;
+      const requiredHeaders = componentImport
+        ? required.filter((field) => field !== "fleetCode or chassisNumber")
+        : required.filter((field) => field !== "fleetId or chassisNumber");
+      if (!requiredHeaders.every((field) => headers.includes(field)) || (kind === "fleet-component-mapping" && !headers.includes("fleetId") && !headers.includes("chassisNumber")) || (componentImport && !headers.includes("fleetCode") && !headers.includes("chassisNumber"))) throw new Error(`CSV requires columns: ${required.join(", ")}.`);
       let rows = csv.map((values) => Object.fromEntries(headers.map((field, index) => [field, values[index]?.trim() ?? ""]).filter(([, value]) => value !== "")));
       if (!rows.length) throw new Error("CSV contains no records.");
       if (rows.length > 1000) throw new Error("Import up to 1,000 rows at a time.");
@@ -1193,22 +1362,51 @@ export default function Home() {
     }
   }
 
+  async function saveComponent(fleetId: string, component: "batteries" | "controllers") {
+    if (!componentSerial.trim()) return;
+    setLoading(true); setError("");
+    try {
+      const batteryDetails = { batteryCode: componentDetails.batteryCode, batteryType: componentDetails.batteryType, batterySlot: componentDetails.batterySlot, manufacturer: componentDetails.manufacturer, model: componentDetails.model, chemistry: componentDetails.chemistry, capacityKwh: componentDetails.capacityKwh, voltage: componentDetails.voltage, ampHour: componentDetails.ampHour, installedOdometerKm: componentDetails.installedOdometerKm, manufacturingDate: componentDetails.manufacturingDate, warrantyStartDate: componentDetails.warrantyStartDate, warrantyEndDate: componentDetails.warrantyEndDate };
+      const controllerDetails = { manufacturer: componentDetails.manufacturer, model: componentDetails.model, ratedVoltage: componentDetails.ratedVoltage, ratedCurrent: componentDetails.ratedCurrent };
+      const optionalDetails = Object.fromEntries(Object.entries(component === "batteries" ? batteryDetails : controllerDetails).filter(([, value]) => value.trim() !== ""));
+      const body = component === "batteries" ? { ...optionalDetails, serialNumber: componentSerial.trim(), fleetId: fleetId || undefined } : { ...optionalDetails, controllerNumber: componentSerial.trim(), fleetId: fleetId || undefined };
+      const endpoint = editingComponentId
+        ? fleetId ? `/fleets/${fleetId}/${component}/${editingComponentId}` : `/fleets/${component}/${editingComponentId}`
+        : `/fleets/${component}`;
+      await request(endpoint, { method: editingComponentId ? "PATCH" : "POST", body: JSON.stringify(body) }, token);
+      setNotice(editingComponentId ? `${component === "batteries" ? "Battery" : "Controller"} updated.` : `${component === "batteries" ? "Battery" : "Controller"} added.`);
+      setComponentForm(null); setComponentSerial(""); setEditingComponentId("");
+      await loadView(component);
+      if (fleetDetail && String(fleetDetail.id) === fleetId) await openFleetDetail(fleetId);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save component."); }
+    finally { setLoading(false); }
+  }
+
   async function registerIotDevice(fleetId: string) {
     setLoading(true);
     setError("");
     try {
+      const optionalDetails = Object.fromEntries(
+        Object.entries(iotDetails).filter(([, value]) => value.trim() !== ""),
+      );
       const data = (await request(
-        "/iot/devices",
+        editingIotDeviceId ? `/iot/devices/${editingIotDeviceId}` : "/iot/devices",
         {
-          method: "POST",
-          body: JSON.stringify({ fleetId, deviceNumber: iotDeviceNumber }),
+          method: editingIotDeviceId ? "PATCH" : "POST",
+          body: JSON.stringify({
+            fleetId: fleetId || null,
+            deviceNumber: iotDeviceNumber,
+            ...optionalDetails,
+          }),
         },
         token,
-      )) as { ingestSecret: string };
-      setIngestSecret(data.ingestSecret);
+      )) as { ingestSecret?: string };
+      if (data.ingestSecret) setIngestSecret(data.ingestSecret);
       setIotDeviceNumber("");
+      setIotDetails({ imei: "", simNumber: "", iccid: "", provider: "", model: "", installedAt: "" });
+      setEditingIotDeviceId("");
       setNotice(
-        "IoT device registered. Save the ingestion secret now; it is shown only once.",
+        data.ingestSecret ? "IoT device registered. Save the ingestion secret now; it is shown only once." : "IoT device updated.",
       );
       if (tab === "iot-devices") { setShowIotForm(false); await loadView("iot-devices"); }
       setShowDetailIotForm(false);
@@ -2118,7 +2316,6 @@ export default function Home() {
             <p>Client operations workspace</p>
           </div>
           <div className="header-actions">
-            {tab === "iot-devices" && <button onClick={() => { setError(""); setShowIotForm(true); }}>Register device</button>}
             <button className="secondary" onClick={() => void loadView(tab)}>
               ↻ Refresh
             </button>
@@ -2133,50 +2330,34 @@ export default function Home() {
         {notice && <p className="notice">{notice}</p>}
         {error && <p className="error">{error}</p>}
         {loading && <p className="muted">Loading current data…</p>}
-        {!loading && (tab === "fleets" || tab === "riders") && <section className="sa-page-head client-page-head"><div className="sa-actions"><button className="secondary" onClick={() => openBulkImport(tab)}>Bulk upload</button><button onClick={() => tab === "fleets" ? void openFleetForm() : (setError(""), setShowRiderForm(true))}>+ Add {tab === "fleets" ? "Fleet" : "Rider"}</button></div></section>}
-        {tab === "iot-devices" && showIotForm && <ClientFormDialog title="Register IoT device" busy={loading} error={error} onClose={() => setShowIotForm(false)}><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void registerIotDevice(iotFleetId); }}>
-          <h2>Register IoT device</h2>
-          <label>Fleet *<select required value={iotFleetId} onChange={(event) => setIotFleetId(event.target.value)}><option value="">Select fleet</option>{iotFleetOptions.map((fleet) => <option key={String(fleet.id)} value={String(fleet.id)}>{String(fleet.vehicleNumber ?? fleet.fleetCode ?? fleet.id)}</option>)}</select></label>
+        {!loading && (tab === "fleets" || tab === "riders" || tab === "batteries" || tab === "controllers" || tab === "iot-devices" || tab === "fleet-component-mapping") && <section className="sa-page-head client-page-head"><div className="sa-actions"><button className="secondary" onClick={() => openBulkImport(tab as ClientBulkTab)}>Bulk upload</button>{tab === "fleets" ? <button onClick={() => void openFleetForm()}>+ Add Fleet</button> : tab === "riders" ? <button onClick={() => { setError(""); setShowRiderForm(true); }}>+ Add Rider</button> : tab === "iot-devices" ? <button onClick={() => void openIotForm()}>+ Add IoT device</button> : tab === "fleet-component-mapping" ? <button onClick={() => void openMappingForm()}>+ Add mapping</button> : <button onClick={() => void openComponentForm(tab)}>+ Add {tab === "batteries" ? "Battery" : "Controller"}</button>}</div></section>}
+        {tab === "iot-devices" && showIotForm && <ClientFormDialog title={editingIotDeviceId ? "Edit IoT device" : "Register IoT device"} busy={loading} error={error} onClose={() => setShowIotForm(false)}><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void registerIotDevice(iotFleetId); }}>
+          <h2>{editingIotDeviceId ? "Edit IoT device" : "Register IoT device"}</h2>
+          <label>Fleet (optional)<select value={iotFleetId} onChange={(event) => setIotFleetId(event.target.value)}><option value="">Leave unassigned</option>{iotFleetOptions.map((fleet) => <option key={String(fleet.id)} value={String(fleet.id)}>{String(fleet.vehicleNumber ?? fleet.fleetCode ?? fleet.id)}</option>)}</select></label>
           <label>Device number *<input required value={iotDeviceNumber} onChange={(event) => setIotDeviceNumber(event.target.value)} /></label>
-          <div className="form-actions"><button>Register device</button><button type="button" className="secondary" onClick={() => setShowIotForm(false)}>Cancel</button></div>
+          <div className="form-grid"><label>IMEI<input value={iotDetails.imei} onChange={(event) => setIotDetails((current) => ({ ...current, imei: event.target.value }))} /></label><label>SIM number<input value={iotDetails.simNumber} onChange={(event) => setIotDetails((current) => ({ ...current, simNumber: event.target.value }))} /></label><label>ICCID<input value={iotDetails.iccid} onChange={(event) => setIotDetails((current) => ({ ...current, iccid: event.target.value }))} /></label><label>IoT provider<input value={iotDetails.provider} onChange={(event) => setIotDetails((current) => ({ ...current, provider: event.target.value }))} /></label><label>Device model<input value={iotDetails.model} onChange={(event) => setIotDetails((current) => ({ ...current, model: event.target.value }))} /></label><label>Installation date<input type="date" value={iotDetails.installedAt} onChange={(event) => setIotDetails((current) => ({ ...current, installedAt: event.target.value }))} /></label></div>
+          <div className="form-actions"><button>{editingIotDeviceId ? "Save device" : "Register device"}</button><button type="button" className="secondary" onClick={() => setShowIotForm(false)}>Cancel</button></div>
         </form></ClientFormDialog>}
         {!loading && tab === "iot-devices" && ingestSecret && <section className="action-card"><strong>Ingestion secret (shown once)</strong><p><code>{ingestSecret}</code></p></section>}
         {!loading && tab === "locations" && (
           <>
-            <section className="sa-page-head client-page-head"><div className="sa-actions"><button className="secondary" onClick={() => openBulkImport("locations")}>Bulk upload</button><button onClick={() => { setError(""); setEditingHubId(""); setNewHub({ name: "", code: "", city: "", state: "" }); setShowHubForm(true); }}>+ Add Hub</button></div></section>
+            <section className="sa-page-head client-page-head"><div className="sa-actions"><button className="secondary" onClick={() => openBulkImport("locations")}>Bulk upload</button><button onClick={() => { setError(""); setEditingHubId(""); setNewHub(emptyHubForm()); setShowHubForm(true); }}>+ Add Hub</button></div></section>
             <ClientDataTable key="hubs" rows={hubs} getRowId={(hub) => String(hub.id)}
               columns={[
                 { key: "name", label: "Hub", value: (hub) => String(hub.name ?? "—") },
                 { key: "code", label: "Code", value: (hub) => String(hub.code ?? "—") },
                 { key: "city", label: "City", value: (hub) => String(hub.city ?? "—") },
                 { key: "state", label: "State", value: (hub) => String(hub.state ?? "—") },
-              ]} emptyMessage="No hubs yet." actions={(hub) => <><button className="secondary table-action" onClick={() => { setEditingHubId(String(hub.id)); setNewHub({ name: String(hub.name ?? ""), code: String(hub.code ?? ""), city: String(hub.city ?? ""), state: String(hub.state ?? "") }); setShowHubForm(true); }}>Edit</button><button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Hub?", description: "The hub will be removed from the active list if it has no assigned managers, fleets, or child hubs. Existing history is retained.", confirmLabel: "Delete Hub", onConfirm: () => deleteHub(String(hub.id)) })}>Delete</button></>} />
+              ]} emptyMessage="No hubs yet." actions={(hub) => <><button className="secondary table-action" onClick={() => { setEditingHubId(String(hub.id)); setNewHub({ ...emptyHubForm(), ...Object.fromEntries(Object.entries(hub).filter(([, value]) => typeof value === "string" || typeof value === "boolean")), latitude: String(hub.latitude ?? ""), longitude: String(hub.longitude ?? ""), vehicleCapacity: String(hub.vehicleCapacity ?? ""), riderCapacity: String(hub.riderCapacity ?? ""), batteryCapacity: String(hub.batteryCapacity ?? ""), parkingSlots: String(hub.parkingSlots ?? ""), chargingPoints: String(hub.chargingPoints ?? ""), swappingPoints: String(hub.swappingPoints ?? "") }); setShowHubForm(true); }}>Edit</button><button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Hub?", description: "The hub will be removed from the active list if it has no assigned managers, fleets, or child hubs. Existing history is retained.", confirmLabel: "Delete Hub", onConfirm: () => deleteHub(String(hub.id)) })}>Delete</button></>} />
           </>
         )}
-        {!loading && tab === "evidence" && (
+        {!loading && PHOTO_EVIDENCE_TABS.has(tab) && (
           <>
             <section className="action-card">
-              <p className="eyebrow">PHOTO EVIDENCE SETTINGS</p>
-              <h2>Required photo slots</h2>
-              <p className="muted">
-                Manage client-specific onboarding and inspection evidence. Turn
-                a slot off when it is optional.
-              </p>
-              <label>
-                Evidence type
-                <select
-                  value={photoRequirementEntityType}
-                  disabled={loading}
-                  onChange={(event) => {
-                    const entityType = event.target
-                      .value as PhotoRequirementEntityType;
-                    setPhotoRequirementEntityType(entityType);
-                    void loadPhotoRequirements(entityType);
-                  }}
-                >
-                  {photoEntityTypes.map((entityType) => <option key={entityType} value={entityType}>{photoEntityTypeLabel(entityType)}</option>)}
-                </select>
-              </label>
+              <p className="eyebrow">{evidenceContext(tab).eyebrow}</p>
+              <h2>{evidenceContext(tab).title}</h2>
+              <p className="muted">{evidenceContext(tab).description}</p>
+              {(tab === "allocation-evidence" || tab === "deallocation-evidence") && <p className="sa-bulk-help">Evidence is captured against the relevant inspection, so each allocation and de-allocation retains its own photos and audit history.</p>}
               <button type="button" onClick={() => { setError(""); setShowPhotoTypeForm(true); }}>+ Add photo type</button>
             </section>
             <div className="table-wrap">
@@ -2553,218 +2734,6 @@ export default function Home() {
             </button>
           </section>
         )}
-        {fleetDetail && (
-          <section className="action-card detail-card">
-            <p className="eyebrow">FLEET DETAIL</p>
-            <h2>{String(fleetDetail.vehicleNumber)}</h2>
-            <div className="form-actions"><button type="button" className="secondary" onClick={() => void openFleetForm(String(fleetDetail.id))}>Edit fleet</button><button type="button" className="danger" onClick={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(String(fleetDetail.id)) })}>Delete fleet</button></div>
-            {fleetOnboardingStatus && (
-              <div
-                className={
-                  fleetOnboardingStatus.ready
-                    ? "onboarding-status ready"
-                    : "onboarding-status incomplete"
-                }
-              >
-                <strong>
-                  {fleetOnboardingStatus.ready
-                    ? "✓ Onboarding evidence complete"
-                    : "! Onboarding evidence incomplete"}
-                </strong>
-                {!fleetOnboardingStatus.ready && (
-                  <span>
-                    {((fleetOnboardingStatus.items as RecordItem[]) ?? [])
-                      .filter(
-                        (item) =>
-                          (item.missingPhotoTypes as string[]).length > 0,
-                      )
-                      .map(
-                        (item) =>
-                          `${String(item.label)}: ${(
-                            item.missingPhotoTypes as string[]
-                          )
-                            .map((photoType) => photoType.replaceAll("_", " "))
-                            .join(", ")}`,
-                      )
-                      .join(" · ")}
-                  </span>
-                )}
-              </div>
-            )}
-            <h3>Fleet onboarding photos</h3>
-            {fleetPhotoRequirements.length > 0 ? (
-              <div className="photo-slots">
-                {fleetPhotoRequirements.map((requirement) => {
-                  const photoType = String(requirement.photoType);
-                  const complete = uploadedFleetPhotoTypes.includes(photoType);
-                  return (
-                    <label
-                      key={String(requirement.id)}
-                      className={
-                        complete ? "photo-slot complete" : "photo-slot"
-                      }
-                    >
-                      <span>
-                        {complete ? "✓" : "○"} {photoType.replaceAll("_", " ")}
-                        {requirement.isRequired ? " · Required" : " · Optional"}
-                      </span>
-                      <input
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        disabled={loading}
-                        onChange={(event) =>
-                          void uploadFleetPhoto(
-                            String(fleetDetail.id),
-                            event.target.files?.[0],
-                            photoType,
-                          )
-                        }
-                      />
-                    </label>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="muted">
-                No fleet photo slots have been configured.
-              </p>
-            )}
-            <div className="detail-grid">
-              <div>
-                <strong>OEM / model</strong>
-                <span>
-                  {oemLabel(fleetDetail.oem)}{" "}
-                  {String(fleetDetail.modelName ?? "")}
-                </span>
-              </div>
-              <div>
-                <strong>Status</strong>
-                <Status value={String(fleetDetail.status)} />
-              </div>
-              <div>
-                <strong>Hub</strong>
-                <span>
-                  {String((fleetDetail.hub as RecordItem)?.name ?? "—")}
-                </span>
-              </div>
-              <div>
-                <strong>Last heartbeat</strong>
-                <span>
-                  {vehicleState?.lastHeartbeat
-                    ? new Date(
-                        String(vehicleState.lastHeartbeat),
-                      ).toLocaleString()
-                    : "Not received"}
-                </span>
-              </div>
-            </div>
-            <h3>Components</h3>
-            <div className="inspection-summary">
-              <span>
-                <b>Batteries</b>{" "}
-                {((fleetDetail.batteries as RecordItem[]) ?? []).length}
-              </span>
-              <span>
-                <b>Controllers</b>{" "}
-                {((fleetDetail.controllers as RecordItem[]) ?? []).length}
-              </span>
-            </div>
-            {(
-              [
-                {
-                  entityType: "BATTERY" as const,
-                  label: "Battery",
-                  components: (fleetDetail.batteries as RecordItem[]) ?? [],
-                },
-                {
-                  entityType: "CONTROLLER" as const,
-                  label: "Controller",
-                  components: (fleetDetail.controllers as RecordItem[]) ?? [],
-                },
-              ] as const
-            ).map(({ entityType, label, components }) =>
-              components.map((component) => {
-                const componentId = String(component.id);
-                const uploaded =
-                  uploadedComponentPhotoTypes[`${entityType}:${componentId}`] ??
-                  [];
-                const requirements =
-                  componentPhotoRequirements[entityType] ?? [];
-                return (
-                  <section className="component-evidence" key={componentId}>
-                    <h4>
-                      {label}: {String(component.serialNumber)}
-                    </h4>
-                    <div className="photo-slots">
-                      {requirements.map((requirement) => {
-                        const photoType = String(requirement.photoType);
-                        const complete = uploaded.includes(photoType);
-                        return (
-                          <label
-                            key={String(requirement.id)}
-                            className={
-                              complete ? "photo-slot complete" : "photo-slot"
-                            }
-                          >
-                            <span>
-                              {complete ? "✓" : "○"}{" "}
-                              {photoType.replaceAll("_", " ")}
-                              {requirement.isRequired
-                                ? " · Required"
-                                : " · Optional"}
-                            </span>
-                            <input
-                              type="file"
-                              accept="image/jpeg,image/png,image/webp"
-                              disabled={loading}
-                              onChange={(event) =>
-                                void uploadComponentPhoto(
-                                  entityType,
-                                  componentId,
-                                  event.target.files?.[0],
-                                  photoType,
-                                )
-                              }
-                            />
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </section>
-                );
-              }),
-            )}
-            <h3>IoT device</h3>
-            <button type="button" onClick={() => { setError(""); setShowDetailIotForm(true); }}>Register device</button>
-            {ingestSecret && (
-              <p className="notice">
-                Save this ingestion secret now: <code>{ingestSecret}</code>{" "}
-                <button
-                  className="secondary table-action"
-                  onClick={() =>
-                    void navigator.clipboard.writeText(ingestSecret)
-                  }
-                >
-                  Copy
-                </button>
-              </p>
-            )}
-            <div className="form-actions">
-              <button type="button" onClick={() => { setError(""); setComponentSerial(""); setComponentForm("batteries"); }}>Add battery</button>
-              <button type="button" onClick={() => { setError(""); setComponentSerial(""); setComponentForm("controllers"); }}>Add controller</button>
-            </div>
-            <button
-              className="secondary"
-              onClick={() => {
-                setFleetDetail(null);
-                setFleetOnboardingStatus(null);
-                setIngestSecret("");
-              }}
-            >
-              Close detail
-            </button>
-          </section>
-        )}
         {riderDetail && (
           <section className="action-card detail-card">
             <p className="eyebrow">RIDER DETAIL</p>
@@ -2975,8 +2944,11 @@ export default function Home() {
                 report={(message, failed) => { if (failed) setError(message); else { setError(""); setNotice(message); } }} onBulk={() => openBulkImport(tab)} /> :
               <ClientDataTable key={tab} rows={items} columns={clientColumns(tab)}
                 getRowId={(item) => String(item.id)}
-                actions={tab === "fleets" ? (item) => <><button className="secondary table-action" onClick={() => void openFleetDetail(String(item.id))}>View / Edit</button>{item.status === "AVAILABLE" && <button className="table-action" onClick={() => void openAllocationForm(String(item.id))}>Allocate</button>}{item.status === "ALLOCATED" && <button className="danger table-action" onClick={() => void deallocateFleet(item)}>De-Allocate</button>}<button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(String(item.id)) })}>Delete</button></>
+                actions={tab === "fleets" ? (item) => <><button className="secondary table-action" onClick={() => void openFleetForm(String(item.id))}>Edit</button>{item.status === "AVAILABLE" && <button className="table-action" onClick={() => void openAllocationForm(String(item.id))}>Allocate</button>}{item.status === "ALLOCATED" && <button className="danger table-action" onClick={() => void deallocateFleet(item)}>De-Allocate</button>}<button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(String(item.id)) })}>Delete</button></>
                   : tab === "riders" ? (item) => <><button className="secondary table-action" onClick={() => void openRiderDetail(String(item.id))}>View / Edit</button><button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Rider?", description: "This rider will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Rider", onConfirm: () => deleteRider(String(item.id)) })}>Delete</button></>
+                  : tab === "iot-devices" ? (item) => <button className="secondary table-action" onClick={() => void openIotForm(item)}>Edit</button>
+                  : tab === "batteries" || tab === "controllers" ? (item) => <button className="secondary table-action" onClick={() => void openExistingComponentForm(tab, item)}>Edit</button>
+                  : tab === "fleet-component-mapping" ? (item) => <button className="secondary table-action" onClick={() => void openMappingForm(item)}>Edit</button>
                   : tab === "allocations" ? (item) => <>
                     <button className="secondary table-action" onClick={() => void openAllocationDetail(String(item.id))}>View</button>
                     <button className="secondary table-action" onClick={() => void openInspection(item)}>Inspect</button>
@@ -2986,40 +2958,66 @@ export default function Home() {
             </>
           )}
         </>}
-        {tab === "locations" && showHubForm && <ClientFormDialog title={editingHubId ? "Edit hub" : "Add hub"} busy={loading} error={error} onClose={() => setShowHubForm(false)}>
+        {tab === "locations" && showHubForm && <ClientFormDialog title={editingHubId ? "Edit hub" : "Add hub"} busy={loading} error={error} wide onClose={() => setShowHubForm(false)}>
                 <p className="eyebrow">LOCATION SETUP</p>
                 <h2>{editingHubId ? "Edit hub" : "Create hub"}</h2>
                 <form className="form-stack" onSubmit={createHub}>
-                  <label>
-                    Hub name *
-                    <input
-                      value={newHub.name}
-                      onChange={(event) =>
-                        setNewHub((current) => ({
-                          ...current,
-                          name: event.target.value,
-                        }))
-                      }
-                      required
-                    />
-                  </label>
-                  <label>
-                    Hub code *
-                    <input
-                      value={newHub.code}
-                      onChange={(event) =>
-                        setNewHub((current) => ({
-                          ...current,
-                          code: event.target.value.toUpperCase(),
-                        }))
-                      }
-                      pattern="[A-Z0-9_-]+"
-                      required
-                    />
-                  </label>
-                  <label>City *<input required value={newHub.city} onChange={(event) => setNewHub((current) => ({ ...current, city: event.target.value }))} /></label>
-                  <label>State *<input required value={newHub.state} onChange={(event) => setNewHub((current) => ({ ...current, state: event.target.value }))} /></label>
-                  <div className="form-actions"><button>{editingHubId ? "Save hub" : "Create hub"}</button><button type="button" className="secondary" onClick={() => { setEditingHubId(""); setNewHub({ name: "", code: "", city: "", state: "" }); setShowHubForm(false); }}>Cancel</button></div>
+                  <section className="form-section">
+                    <h3>Hub identity</h3>
+                    <div className="form-grid">
+                      <label>Hub name{" *"}<input required value={newHub.name} onChange={(event) => setNewHub((current) => ({ ...current, name: event.target.value }))} /></label>
+                      <label>Hub code{" *"}<input required pattern="[A-Z0-9_-]+" value={newHub.code} onChange={(event) => setNewHub((current) => ({ ...current, code: event.target.value.toUpperCase() }))} /></label>
+                      <label>Hub type<select value={newHub.type} onChange={(event) => setNewHub((current) => ({ ...current, type: event.target.value }))}><option value="OPERATIONS">Operations</option><option value="PARKING">Parking</option><option value="CHARGING">Charging</option><option value="BATTERY_SWAP">Battery swap</option><option value="MAINTENANCE">Maintenance</option><option value="WAREHOUSE">Warehouse</option><option value="DELIVERY">Delivery</option><option value="MIXED">Mixed</option></select></label>
+                      <label>Status<select value={newHub.status} onChange={(event) => setNewHub((current) => ({ ...current, status: event.target.value }))}><option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option><option value="TEMPORARILY_CLOSED">Temporarily closed</option><option value="UNDER_MAINTENANCE">Under maintenance</option><option value="FULL">Full</option></select></label>
+                      <label>Parent hub<select value={newHub.parentHubId} onChange={(event) => setNewHub((current) => ({ ...current, parentHubId: event.target.value }))}><option value="">No parent hub</option>{hubs.filter((hub) => String(hub.id) !== editingHubId).map((hub) => <option key={String(hub.id)} value={String(hub.id)}>{String(hub.code)} · {String(hub.name)}</option>)}</select></label>
+                    </div>
+                  </section>
+                  <section className="form-section">
+                    <h3>Location and address</h3>
+                    <div className="form-grid">
+                      <label className="form-grid-full">Address line 1<input value={newHub.addressLine1} onChange={(event) => setNewHub((current) => ({ ...current, addressLine1: event.target.value }))} /></label>
+                      <label>Address line 2<input value={newHub.addressLine2} onChange={(event) => setNewHub((current) => ({ ...current, addressLine2: event.target.value }))} /></label>
+                      <label>Landmark<input value={newHub.landmark} onChange={(event) => setNewHub((current) => ({ ...current, landmark: event.target.value }))} /></label>
+                      <label>City{" *"}<input required value={newHub.city} onChange={(event) => setNewHub((current) => ({ ...current, city: event.target.value }))} /></label>
+                      <label>District<input value={newHub.district} onChange={(event) => setNewHub((current) => ({ ...current, district: event.target.value }))} /></label>
+                      <label>State{" *"}<input required value={newHub.state} onChange={(event) => setNewHub((current) => ({ ...current, state: event.target.value }))} /></label>
+                      <label>Country<input value={newHub.country} onChange={(event) => setNewHub((current) => ({ ...current, country: event.target.value }))} /></label>
+                      <label>PIN / postal code<input value={newHub.postalCode} maxLength={10} onChange={(event) => setNewHub((current) => ({ ...current, postalCode: event.target.value }))} /></label>
+                      <label>Latitude<input type="number" step="any" value={newHub.latitude} onChange={(event) => setNewHub((current) => ({ ...current, latitude: event.target.value }))} /></label>
+                      <label>Longitude<input type="number" step="any" value={newHub.longitude} onChange={(event) => setNewHub((current) => ({ ...current, longitude: event.target.value }))} /></label>
+                    </div>
+                  </section>
+                  <section className="form-section">
+                    <h3>Capacity and facilities</h3>
+                    <div className="form-grid">
+                      <label>Vehicle capacity<input type="number" min="0" step="1" value={newHub.vehicleCapacity} onChange={(event) => setNewHub((current) => ({ ...current, vehicleCapacity: event.target.value }))} /></label>
+                      <label>Rider capacity<input type="number" min="0" step="1" value={newHub.riderCapacity} onChange={(event) => setNewHub((current) => ({ ...current, riderCapacity: event.target.value }))} /></label>
+                      <label>Battery capacity<input type="number" min="0" step="1" value={newHub.batteryCapacity} onChange={(event) => setNewHub((current) => ({ ...current, batteryCapacity: event.target.value }))} /></label>
+                      <label>Parking slots<input type="number" min="0" step="1" value={newHub.parkingSlots} onChange={(event) => setNewHub((current) => ({ ...current, parkingSlots: event.target.value }))} /></label>
+                      <label>Charging points<input type="number" min="0" step="1" value={newHub.chargingPoints} onChange={(event) => setNewHub((current) => ({ ...current, chargingPoints: event.target.value }))} /></label>
+                      <label>Battery swapping points<input type="number" min="0" step="1" value={newHub.swappingPoints} onChange={(event) => setNewHub((current) => ({ ...current, swappingPoints: event.target.value }))} /></label>
+                    </div>
+                  </section>
+                  <section className="form-section">
+                    <h3>Contact, hours, and services</h3>
+                    <div className="form-grid">
+                      <label>Contact name<input value={newHub.contactName} onChange={(event) => setNewHub((current) => ({ ...current, contactName: event.target.value }))} /></label>
+                      <label>Contact phone<input type="tel" value={newHub.contactPhone} onChange={(event) => setNewHub((current) => ({ ...current, contactPhone: event.target.value }))} placeholder="+919876543210" /></label>
+                      <label>Contact email<input type="email" value={newHub.contactEmail} onChange={(event) => setNewHub((current) => ({ ...current, contactEmail: event.target.value }))} /></label>
+                      <label>Opening time<input type="time" value={newHub.openingTime} onChange={(event) => setNewHub((current) => ({ ...current, openingTime: event.target.value }))} /></label>
+                      <label>Closing time<input type="time" value={newHub.closingTime} onChange={(event) => setNewHub((current) => ({ ...current, closingTime: event.target.value }))} /></label>
+                    </div>
+                    <div className="checkbox-grid">
+                      <label><input type="checkbox" checked={newHub.is24x7} onChange={(event) => setNewHub((current) => ({ ...current, is24x7: event.target.checked }))} /> Open 24×7</label>
+                      <label><input type="checkbox" checked={newHub.supportsCharging} onChange={(event) => setNewHub((current) => ({ ...current, supportsCharging: event.target.checked }))} /> Supports charging</label>
+                      <label><input type="checkbox" checked={newHub.supportsBatterySwapping} onChange={(event) => setNewHub((current) => ({ ...current, supportsBatterySwapping: event.target.checked }))} /> Supports battery swapping</label>
+                      <label><input type="checkbox" checked={newHub.supportsMaintenance} onChange={(event) => setNewHub((current) => ({ ...current, supportsMaintenance: event.target.checked }))} /> Supports maintenance</label>
+                      <label><input type="checkbox" checked={newHub.supportsAllocation} onChange={(event) => setNewHub((current) => ({ ...current, supportsAllocation: event.target.checked }))} /> Supports allocation</label>
+                      <label><input type="checkbox" checked={newHub.supportsDeallocation} onChange={(event) => setNewHub((current) => ({ ...current, supportsDeallocation: event.target.checked }))} /> Supports de-allocation</label>
+                      <label><input type="checkbox" checked={newHub.supportsPdi} onChange={(event) => setNewHub((current) => ({ ...current, supportsPdi: event.target.checked }))} /> Supports PDI</label>
+                    </div>
+                  </section>
+                  <div className="form-actions"><button>{editingHubId ? "Save hub" : "Create hub"}</button><button type="button" className="secondary" onClick={() => { setEditingHubId(""); setNewHub(emptyHubForm()); setShowHubForm(false); }}>Cancel</button></div>
                 </form>
         </ClientFormDialog>}
         {tab === "evidence" && showPhotoTypeForm && <ClientFormDialog title="Add photo type" busy={loading} error={error} onClose={() => setShowPhotoTypeForm(false)}><h2>Add photo type</h2>
@@ -3050,7 +3048,8 @@ export default function Home() {
                 <div className="form-actions"><button disabled={loading}>Add photo type</button><button type="button" className="secondary" onClick={() => setShowPhotoTypeForm(false)}>Cancel</button></div>
               </form></ClientFormDialog>}
         {fleetDetail && showDetailIotForm && <ClientFormDialog title="Register IoT device" busy={loading} error={error} onClose={() => setShowDetailIotForm(false)}><h2>Register IoT device</h2><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void registerIotDevice(String(fleetDetail.id)); }}><label>Device number *<input required value={iotDeviceNumber} onChange={(event) => setIotDeviceNumber(event.target.value)} /></label><div className="form-actions"><button disabled={loading}>Register device</button><button type="button" className="secondary" onClick={() => setShowDetailIotForm(false)}>Cancel</button></div></form></ClientFormDialog>}
-        {fleetDetail && componentForm && <ClientFormDialog title={`Add ${componentForm === "batteries" ? "battery" : "controller"}`} busy={loading} error={error} onClose={() => setComponentForm(null)}><h2>Add {componentForm === "batteries" ? "battery" : "controller"}</h2><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void addFleetComponent(String(fleetDetail.id), componentForm, componentSerial.trim()); }}><label>Serial number *<input required value={componentSerial} onChange={(event) => setComponentSerial(event.target.value)} /></label><div className="form-actions"><button disabled={loading || !componentSerial.trim()}>Add {componentForm === "batteries" ? "battery" : "controller"}</button><button type="button" className="secondary" onClick={() => setComponentForm(null)}>Cancel</button></div></form></ClientFormDialog>}
+        {componentForm && <ClientFormDialog title={`${editingComponentId ? "Edit" : "Add"} ${componentForm === "batteries" ? "battery" : "controller"}`} busy={loading} error={error} onClose={() => setComponentForm(null)}><h2>{editingComponentId ? "Edit" : "Add"} {componentForm === "batteries" ? "battery" : "controller"}</h2><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void saveComponent(componentFleetId, componentForm); }}><label>Fleet (optional)<select disabled={Boolean(editingComponentId)} value={componentFleetId} onChange={(event) => setComponentFleetId(event.target.value)}><option value="">Leave unassigned</option>{iotFleetOptions.map((fleet) => <option key={String(fleet.id)} value={String(fleet.id)}>{String(fleet.fleetCode ?? fleet.vehicleNumber ?? fleet.chassisNumber)}</option>)}</select></label><label>{componentForm === "batteries" ? "Battery serial number" : "Controller number"} *<input required value={componentSerial} onChange={(event) => setComponentSerial(event.target.value)} /></label><div className="form-grid"><label>Manufacturer<input value={componentDetails.manufacturer} onChange={(event) => setComponentDetails((current) => ({ ...current, manufacturer: event.target.value }))} /></label><label>Model<input value={componentDetails.model} onChange={(event) => setComponentDetails((current) => ({ ...current, model: event.target.value }))} /></label>{componentForm === "batteries" ? <><label>Battery code<input value={componentDetails.batteryCode} onChange={(event) => setComponentDetails((current) => ({ ...current, batteryCode: event.target.value }))} /></label><label>Battery type<select value={componentDetails.batteryType} onChange={(event) => setComponentDetails((current) => ({ ...current, batteryType: event.target.value }))}><option value="FIXED_SINGLE">Fixed single</option><option value="FIXED_DOUBLE">Fixed double</option><option value="SWAP_IF">Swap IF</option><option value="SWAP_BS">Swap BS</option><option value="SWAP_MOVING">Swap moving</option><option value="SWAP_OTHER">Swap other</option></select></label><label>Battery slot<select value={componentDetails.batterySlot} onChange={(event) => setComponentDetails((current) => ({ ...current, batterySlot: event.target.value }))}><option value="PRIMARY">Primary</option><option value="SECONDARY">Secondary</option></select></label><label>Chemistry<input value={componentDetails.chemistry} onChange={(event) => setComponentDetails((current) => ({ ...current, chemistry: event.target.value }))} placeholder="LFP, NMC, LTO…" /></label><label>Capacity (kWh)<input type="number" min="0" step="0.001" value={componentDetails.capacityKwh} onChange={(event) => setComponentDetails((current) => ({ ...current, capacityKwh: event.target.value }))} /></label><label>Voltage<input type="number" min="0" step="0.01" value={componentDetails.voltage} onChange={(event) => setComponentDetails((current) => ({ ...current, voltage: event.target.value }))} /></label><label>Amp hour<input type="number" min="0" step="0.01" value={componentDetails.ampHour} onChange={(event) => setComponentDetails((current) => ({ ...current, ampHour: event.target.value }))} /></label><label>Installed odometer (km)<input type="number" min="0" step="0.01" value={componentDetails.installedOdometerKm} onChange={(event) => setComponentDetails((current) => ({ ...current, installedOdometerKm: event.target.value }))} /></label><label>Manufacturing date<input type="date" value={componentDetails.manufacturingDate} onChange={(event) => setComponentDetails((current) => ({ ...current, manufacturingDate: event.target.value }))} /></label><label>Warranty start date<input type="date" value={componentDetails.warrantyStartDate} onChange={(event) => setComponentDetails((current) => ({ ...current, warrantyStartDate: event.target.value }))} /></label><label>Warranty end date<input type="date" value={componentDetails.warrantyEndDate} onChange={(event) => setComponentDetails((current) => ({ ...current, warrantyEndDate: event.target.value }))} /></label></> : <><label>Rated voltage<input type="number" min="0" step="0.01" value={componentDetails.ratedVoltage} onChange={(event) => setComponentDetails((current) => ({ ...current, ratedVoltage: event.target.value }))} /></label><label>Rated current<input type="number" min="0" step="0.01" value={componentDetails.ratedCurrent} onChange={(event) => setComponentDetails((current) => ({ ...current, ratedCurrent: event.target.value }))} /></label></>}</div><div className="form-actions"><button disabled={loading || !componentSerial.trim()}>{editingComponentId ? "Save" : "Add"} {componentForm === "batteries" ? "battery" : "controller"}</button><button type="button" className="secondary" onClick={() => setComponentForm(null)}>Cancel</button></div></form></ClientFormDialog>}
+        {showMappingForm && <ClientFormDialog title="Fleet Component Mapping" busy={loading} error={error} onClose={() => setShowMappingForm(false)}><form className="form-stack" onSubmit={saveMapping}><h2>Map Fleet components</h2><label>Fleet *<select required value={mappingFleetId} onChange={(event) => setMappingFleetId(event.target.value)}><option value="">Select Fleet</option>{mappingOptions.fleets.map((fleet) => <option key={String(fleet.id)} value={String(fleet.id)}>{String(fleet.fleetCode ?? fleet.vehicleNumber)}</option>)}</select></label><div className="form-grid"><label>IoT device<select value={mappingIotId} onChange={(event) => setMappingIotId(event.target.value)}><option value="">Unassigned</option>{mappingOptions.devices.map((device) => <option key={String(device.id)} value={String(device.id)}>{String(device.deviceNumber)}</option>)}</select></label><label>Controller<select value={mappingControllerId} onChange={(event) => setMappingControllerId(event.target.value)}><option value="">Unassigned</option>{mappingOptions.controllers.map((controller) => <option key={String(controller.id)} value={String(controller.id)}>{String(controller.controllerNumber)}</option>)}</select></label><label>Primary battery<select value={mappingBatteryIds[0] ?? ""} onChange={(event) => setMappingBatteryIds((current) => [event.target.value, current[1]].filter(Boolean))}><option value="">Unassigned</option>{mappingOptions.batteries.map((battery) => <option key={String(battery.id)} value={String(battery.id)}>{String(battery.batteryCode ?? battery.serialNumber)}</option>)}</select></label><label>Secondary battery<select value={mappingBatteryIds[1] ?? ""} onChange={(event) => setMappingBatteryIds((current) => [current[0], event.target.value].filter(Boolean))}><option value="">Unassigned</option>{mappingOptions.batteries.map((battery) => <option key={String(battery.id)} value={String(battery.id)}>{String(battery.batteryCode ?? battery.serialNumber)}</option>)}</select></label></div><div className="form-actions"><button disabled={loading || !mappingFleetId}>Save mapping</button><button type="button" className="secondary" onClick={() => setShowMappingForm(false)}>Cancel</button></div></form></ClientFormDialog>}
         <ClientDeleteDialog confirmation={deleteConfirmation} busy={loading} onClose={() => setDeleteConfirmation(null)} />
         <footer className="client-operations-footer">Powered by EV Spares India Pvt Ltd</footer>
       </section>

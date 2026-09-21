@@ -1,11 +1,12 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { IoTDeviceStatus, Prisma } from '@prisma/client';
+import { ImportEntityType, ImportStatus, IoTDeviceStatus, Prisma } from '@prisma/client';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Environment } from '../config/environment.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -29,7 +30,7 @@ export class IotService {
 
   async registerDevice(
     clientId: string,
-    fleetId: string,
+    fleetId: string | undefined,
     deviceNumber: string,
     details?: {
       imei?: string;
@@ -40,10 +41,19 @@ export class IotService {
       installedAt?: string;
     },
   ) {
-    const fleet = await this.prisma.fleet.findFirst({
-      where: { id: fleetId, clientId, deletedAt: null },
-    });
-    if (!fleet) throw new NotFoundException('Fleet not found.');
+    const fleet = fleetId
+      ? await this.prisma.fleet.findFirst({
+          where: { id: fleetId, clientId, deletedAt: null },
+          select: { id: true, status: true, iotDeviceId: true },
+        })
+      : null;
+    if (fleetId && !fleet) throw new NotFoundException('Fleet not found.');
+    if (fleet?.status === 'OUT_OF_SERVICE') {
+      throw new BadRequestException('IoT device cannot be assigned to an out-of-service Fleet.');
+    }
+    if (fleet?.iotDeviceId) {
+      throw new ConflictException('Fleet already has an assigned IoT device. De-assign it before assigning another device.');
+    }
 
     const ingestSecret = randomBytes(32).toString('base64url');
     try {
@@ -57,17 +67,19 @@ export class IotService {
           provider: details?.provider?.trim() || undefined,
           model: details?.model?.trim() || undefined,
           ingestSecretHash: this.hashSecret(ingestSecret),
-          status: IoTDeviceStatus.ACTIVE,
+          status: fleet ? IoTDeviceStatus.ACTIVE : IoTDeviceStatus.UNASSIGNED,
           installedAt: details?.installedAt
             ? new Date(details.installedAt)
             : undefined,
-          activatedAt: new Date(),
+          activatedAt: fleet ? new Date() : undefined,
         },
       });
-      await this.prisma.fleet.update({
-        where: { id: fleetId },
-        data: { iotDeviceId: device.id },
-      });
+      if (fleet) {
+        await this.prisma.fleet.update({
+          where: { id: fleet.id },
+          data: { iotDeviceId: device.id },
+        });
+      }
       return { device, ingestSecret };
     } catch (error) {
       if (
@@ -102,10 +114,43 @@ export class IotService {
     });
   }
 
+  async bulkRegisterDevices(clientId: string, actorId: string, filename: string, rows: Array<Record<string, unknown>>) {
+    const fleets = await this.prisma.fleet.findMany({ where: { clientId, deletedAt: null }, select: { id: true, fleetCode: true, chassisNumber: true, status: true, iotDeviceId: true } });
+    const fleetByReference = new Map<string, typeof fleets[number]>();
+    fleets.forEach((fleet) => { fleetByReference.set(fleet.id.toUpperCase(), fleet); if (fleet.fleetCode) fleetByReference.set(fleet.fleetCode.toUpperCase(), fleet); fleetByReference.set(fleet.chassisNumber.toUpperCase(), fleet); });
+    const failures: Array<Record<string, unknown>> = [];
+    let created = 0;
+    for (const [index, row] of rows.entries()) {
+      const value = (field: string) => String(row[field] ?? '').trim();
+      try {
+        const suppliedReferences = [value('fleetId'), value('fleetCode'), value('chassisNumber')].filter(Boolean);
+        const matchedFleets = suppliedReferences.map((reference) => fleetByReference.get(reference.toUpperCase()));
+        if (matchedFleets.some((fleet) => !fleet)) throw new Error('fleetId, fleetCode, or chassisNumber does not match a Fleet.');
+        if (matchedFleets.length > 1 && new Set(matchedFleets.map((fleet) => fleet?.id)).size > 1) throw new Error('Fleet references resolve to different Fleets.');
+        const fleet = matchedFleets[0];
+        if (fleet?.status === 'OUT_OF_SERVICE') throw new Error('IoT device cannot be assigned to an out-of-service Fleet.');
+        if (fleet?.iotDeviceId) throw new Error('Fleet already has an assigned IoT device.');
+        if (!value('deviceNumber')) throw new Error('deviceNumber is required.');
+        await this.registerDevice(clientId, fleet?.id, value('deviceNumber'), { imei: value('imei') || undefined, simNumber: value('simNumber') || undefined, iccid: value('iccid') || undefined, provider: value('provider') || undefined, model: value('model') || undefined, installedAt: value('installedAt') || undefined });
+        created += 1;
+      } catch (error) { failures.push({ ...row, row_number: index + 2, failure_reason: error instanceof Error ? error.message : 'Invalid row.' }); }
+    }
+    const failedRows = failures.length;
+    const job = await this.prisma.importJob.create({ data: { clientId, createdById: actorId, entityType: ImportEntityType.IOT_DEVICE, originalFilename: filename, totalRows: rows.length, passedRows: created, failedRows, createdRows: created, status: !created ? ImportStatus.FAIL : failedRows ? ImportStatus.PARTIAL_PASS : ImportStatus.PASS, completedAt: new Date(), metadata: JSON.parse(JSON.stringify({ failures })) } });
+    return { jobId: job.id, status: job.status, totalRows: rows.length, passedRows: created, failedRows, createdRows: created };
+  }
+
+  async failedRows(clientId: string, jobId: string) {
+    const job = await this.prisma.importJob.findFirst({ where: { id: jobId, clientId, entityType: ImportEntityType.IOT_DEVICE }, select: { metadata: true } });
+    if (!job) throw new NotFoundException('Import job not found.');
+    return ((job.metadata as { failures?: Array<Record<string, unknown>> } | null)?.failures) ?? [];
+  }
+
   async updateDevice(
     clientId: string,
     id: string,
     details: {
+      fleetId?: string | null;
       deviceNumber?: string;
       imei?: string;
       simNumber?: string;
@@ -117,13 +162,30 @@ export class IotService {
   ) {
     const device = await this.prisma.ioTDevice.findFirst({
       where: { id, clientId },
-      select: { id: true },
+      select: { id: true, currentFleet: { select: { id: true } } },
     });
     if (!device) throw new NotFoundException('IoT device not found.');
+    const requestedFleetId = details.fleetId === undefined ? undefined : details.fleetId || null;
+    const fleet = requestedFleetId
+      ? await this.prisma.fleet.findFirst({
+          where: { id: requestedFleetId, clientId, deletedAt: null },
+          select: { id: true, status: true, iotDeviceId: true },
+        })
+      : null;
+    if (requestedFleetId && !fleet) throw new NotFoundException('Fleet not found.');
+    if (fleet?.status === 'OUT_OF_SERVICE') throw new BadRequestException('IoT device cannot be assigned to an out-of-service Fleet.');
+    if (fleet?.iotDeviceId && fleet.iotDeviceId !== id) throw new ConflictException('Fleet already has an assigned IoT device.');
     try {
-      return await this.prisma.ioTDevice.update({
-        where: { id },
-        data: {
+      return await this.prisma.$transaction(async (tx) => {
+        if (requestedFleetId !== undefined && device.currentFleet?.id && device.currentFleet.id !== requestedFleetId) {
+          await tx.fleet.update({ where: { id: device.currentFleet.id }, data: { iotDeviceId: null } });
+        }
+        if (fleet && device.currentFleet?.id !== fleet.id) {
+          await tx.fleet.update({ where: { id: fleet.id }, data: { iotDeviceId: id } });
+        }
+        return tx.ioTDevice.update({
+          where: { id },
+          data: {
           deviceNumber: details.deviceNumber?.trim() || undefined,
           imei:
             details.imei === undefined ? undefined : details.imei.trim() || null,
@@ -149,7 +211,10 @@ export class IotService {
               : details.installedAt
                 ? new Date(details.installedAt)
                 : null,
-        },
+            status: requestedFleetId === undefined ? undefined : fleet ? IoTDeviceStatus.ACTIVE : IoTDeviceStatus.UNASSIGNED,
+            activatedAt: requestedFleetId === undefined ? undefined : fleet ? new Date() : null,
+          },
+        });
       });
     } catch (error) {
       if (

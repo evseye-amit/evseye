@@ -10,7 +10,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+import { ImportEntityType, UserRole } from '@prisma/client';
 import { AuditService } from '../audit/audit.service.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
@@ -55,6 +55,73 @@ export class FleetsController {
         this.clients.requireClientId(u),
       ),
     };
+  }
+  @Get('controllers') async listControllers(@CurrentUser() u: AuthUser) {
+    return {
+      data: await this.components.listControllers(
+        this.clients.requireClientId(u),
+      ),
+    };
+  }
+  @Get('component-mappings') async componentMappings(@CurrentUser() u: AuthUser) {
+    return { data: await this.components.listMappings(this.clients.requireClientId(u)) };
+  }
+  @Post('component-mappings') async saveComponentMapping(@CurrentUser() u: AuthUser, @Body() data: { fleetId: string; iotDeviceId?: string | null; batteryIds?: string[]; controllerId?: string | null }) {
+    return { data: await this.components.saveMapping(this.clients.requireClientId(u), data) };
+  }
+  @Patch('component-mappings/:fleetId') async updateComponentMapping(@CurrentUser() u: AuthUser, @Param('fleetId') fleetId: string, @Body() data: { iotDeviceId?: string | null; batteryIds?: string[]; controllerId?: string | null }) {
+    return { data: await this.components.saveMapping(this.clients.requireClientId(u), { ...data, fleetId }) };
+  }
+  @Post('component-mappings/bulk') async bulkComponentMappings(@CurrentUser() u: AuthUser, @Body() d: BulkFleetDto) {
+    const clientId = this.clients.requireClientId(u);
+    return { data: await this.components.bulkSaveMappings(clientId, u.id, d.filename, d.rows) };
+  }
+  @Get('component-mappings/imports/:id/failed-records')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  async failedComponentMappingRecords(@CurrentUser() u: AuthUser, @Param('id') id: string) {
+    const rows = await this.components.failedRows(this.clients.requireClientId(u), id, ImportEntityType.FLEET_COMPONENT_MAPPING);
+    if (!rows.length) return '';
+    const headers = Object.keys(rows[0]); const cell = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+    return [headers.join(','), ...rows.map((row) => headers.map((header) => cell(row[header])).join(','))].join('\n');
+  }
+  @Post('batteries') async createBattery(@CurrentUser() u: AuthUser, @Body() d: CreateBatteryDto) {
+    const clientId = this.clients.requireClientId(u);
+    return { data: await this.components.addBattery(clientId, d.fleetId, d) };
+  }
+  @Post('controllers') async createController(@CurrentUser() u: AuthUser, @Body() d: CreateControllerDto) {
+    const clientId = this.clients.requireClientId(u);
+    return { data: await this.components.addController(clientId, d.fleetId, d) };
+  }
+  @Patch('batteries/:batteryId') async updateStandaloneBattery(@CurrentUser() u: AuthUser, @Param('batteryId') batteryId: string, @Body() d: CreateBatteryDto) {
+    return { data: await this.components.updateStandaloneBattery(this.clients.requireClientId(u), batteryId, d) };
+  }
+  @Patch('controllers/:controllerId') async updateStandaloneController(@CurrentUser() u: AuthUser, @Param('controllerId') controllerId: string, @Body() d: CreateControllerDto) {
+    return { data: await this.components.updateStandaloneController(this.clients.requireClientId(u), controllerId, d) };
+  }
+  @Post('batteries/bulk') async bulkBatteries(
+    @CurrentUser() u: AuthUser,
+    @Body() d: BulkFleetDto,
+  ) {
+    const clientId = this.clients.requireClientId(u);
+    return { data: await this.components.bulkCreate(clientId, u.id, d.filename, 'BATTERY', d.rows) };
+  }
+  @Post('controllers/bulk') async bulkControllers(
+    @CurrentUser() u: AuthUser,
+    @Body() d: BulkFleetDto,
+  ) {
+    const clientId = this.clients.requireClientId(u);
+    return { data: await this.components.bulkCreate(clientId, u.id, d.filename, 'CONTROLLER', d.rows) };
+  }
+  @Get(':kind/imports/:id/failed-records')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  async failedComponentRecords(@CurrentUser() u: AuthUser, @Param('kind') kind: string, @Param('id') id: string) {
+    const entityType = kind === 'batteries' ? ImportEntityType.BATTERY : kind === 'controllers' ? ImportEntityType.CONTROLLER : null;
+    if (!entityType) return '';
+    const rows = await this.components.failedRows(this.clients.requireClientId(u), id, entityType);
+    if (!rows.length) return '';
+    const headers = Object.keys(rows[0]);
+    const cell = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+    return [headers.join(','), ...rows.map((row) => headers.map((header) => cell(row[header])).join(','))].join('\n');
   }
   @Post() async create(@CurrentUser() u: AuthUser, @Body() d: CreateFleetDto) {
     const clientId = this.clients.requireClientId(u);
