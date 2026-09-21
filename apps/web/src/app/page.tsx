@@ -63,6 +63,8 @@ type PhotoRequirementEntityType =
   | "IOT_DEVICE"
   | "INSPECTION";
 type RecordItem = Record<string, unknown>;
+type RiderOnboardingField = { featureCode: string; fieldCode: string; storageKey: string; label: string; placeholder?: string; fieldType: string; required: boolean; readOnly: boolean; disabled: boolean; editable: boolean; importable: boolean; billingUnit: string; isUpload: boolean; sequence: number; validation?: Record<string, unknown> };
+type RiderOnboardingConfiguration = { package: { code: string; name: string }; onboarding: { steps: Array<{ stepId: string; stepCode: string; stepName: string; description?: string; sequence: number; fields: RiderOnboardingField[] }> } };
 type FleetOnboardingOptions = {
   oems: Array<{ id: string; code: string; displayName: string }>;
   vehicleCategories: Array<{ id: string; code: string; name: string }>;
@@ -100,7 +102,7 @@ const CLIENT_BULK_CONFIG: Record<ClientBulkTab, { title: string; requiredColumns
   controllers: { title: "Controllers", requiredColumns: "controllerNumber", template: "fleetId,chassisNumber,controllerNumber,manufacturer,model,ratedVoltage,ratedCurrent\n,,CTRL-001,,,,\n", resource: "/fleets/controllers", entityType: "CONTROLLER" },
   "iot-devices": { title: "IoT Devices", requiredColumns: "deviceNumber", template: "fleetId,chassisNumber,deviceNumber,imei,simNumber,iccid,provider,model,installedAt\n,,IOT-001,,,,,,\n", resource: "/iot/devices", entityType: "IOT_DEVICE" },
   "fleet-component-mapping": { title: "Fleet Component Mapping", requiredColumns: "fleetId or chassisNumber", template: "fleetId,chassisNumber,iotDeviceNumber,battery1Serial,battery2Serial,controllerNumber\n,,,,,\n", resource: "/fleets/component-mappings", entityType: "FLEET_COMPONENT_MAPPING" },
-  riders: { title: "Riders", requiredColumns: "name, mobile", template: "name,mobile,address\n", resource: "/riders", entityType: "RIDER" },
+  riders: { title: "Riders", requiredColumns: "Package-configured rider fields", template: "", resource: "/riders", entityType: "RIDER" },
 };
 
 const CLIENT_NAVIGATION: Array<{
@@ -138,7 +140,6 @@ const CLIENT_NAVIGATION: Array<{
   {
     label: "Rider Management",
     items: [
-      { id: "riders", label: "Rider" },
       { id: "wallet", label: "Wallet" },
       { id: "rider-fleet-mapping", label: "Rider Fleet Mapping" },
       { id: "rider-vendor-mapping", label: "Rider Vendor Mapping" },
@@ -656,9 +657,9 @@ export default function Home() {
   const [allocationRiderId, setAllocationRiderId] = useState("");
   const [showAllocationForm, setShowAllocationForm] = useState(false);
   const [showRiderForm, setShowRiderForm] = useState(false);
-  const [newRiderName, setNewRiderName] = useState("");
-  const [newRiderMobile, setNewRiderMobile] = useState("");
-  const [newRiderAddress, setNewRiderAddress] = useState("");
+  const [riderOnboardingConfiguration, setRiderOnboardingConfiguration] = useState<RiderOnboardingConfiguration | null>(null);
+  const [riderValues, setRiderValues] = useState<Record<string, string>>({});
+  const [riderUploads, setRiderUploads] = useState<Record<string, File[]>>({});
   const [showFleetForm, setShowFleetForm] = useState(false);
   const [hubs, setHubs] = useState<RecordItem[]>([]);
   const [newHub, setNewHub] = useState(emptyHubForm);
@@ -667,6 +668,7 @@ export default function Home() {
   const [bulkImportTab, setBulkImportTab] = useState<ClientBulkTab | null>(null);
   const [bulkHistory, setBulkHistory] = useState<Array<ClientImportHistoryEntry & { tab: ClientBulkTab }>>([]);
   const [bulkHistoryLoading, setBulkHistoryLoading] = useState(false);
+  const [riderBulkFields, setRiderBulkFields] = useState<RiderOnboardingField[]>([]);
   const [deleteConfirmation, setDeleteConfirmation] = useState<ClientDeleteConfirmation | null>(null);
   const [newFleet, setNewFleet] = useState<FleetForm>(emptyFleetForm);
   const [editingFleetId, setEditingFleetId] = useState("");
@@ -700,12 +702,7 @@ export default function Home() {
   const [vehicleState, setVehicleState] = useState<RecordItem | null>(null);
   const [riderDetail, setRiderDetail] = useState<RecordItem | null>(null);
   const [editingRider, setEditingRider] = useState(false);
-  const [riderDraft, setRiderDraft] = useState({
-    name: "",
-    mobile: "",
-    address: "",
-    status: "ONBOARDING",
-  });
+  const [riderDraft, setRiderDraft] = useState<Record<string, string>>({});
   const [fleetDetail, setFleetDetail] = useState<RecordItem | null>(null);
   const [fleetOnboardingStatus, setFleetOnboardingStatus] =
     useState<RecordItem | null>(null);
@@ -987,22 +984,20 @@ export default function Home() {
     setLoading(true);
     setError("");
     try {
-      await request(
+      const rider = await request(
         "/riders",
         {
           method: "POST",
-          body: JSON.stringify({
-            name: newRiderName,
-            mobile: newRiderMobile,
-            ...(newRiderAddress ? { address: newRiderAddress } : {}),
-          }),
+          body: JSON.stringify({ values: riderValues }),
         },
         token,
       );
+      for (const [featureCode, files] of Object.entries(riderUploads)) {
+        for (const file of files) await uploadRiderOnboardingFile(String((rider as RecordItem).id), featureCode, file);
+      }
       setShowRiderForm(false);
-      setNewRiderName("");
-      setNewRiderMobile("");
-      setNewRiderAddress("");
+      setRiderValues({});
+      setRiderUploads({});
       setNotice(
         "Rider created. Add a profile photo and start KYC from rider detail.",
       );
@@ -1011,6 +1006,22 @@ export default function Home() {
       setError(
         cause instanceof Error ? cause.message : "Unable to create rider.",
       );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function openRiderForm() {
+    setLoading(true);
+    setError("");
+    try {
+      const configuration = await request("/riders/onboarding-configuration", {}, token) as RiderOnboardingConfiguration;
+      setRiderOnboardingConfiguration(configuration);
+      setRiderValues({});
+      setRiderUploads({});
+      setShowRiderForm(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to load Rider Onboarding configuration.");
     } finally {
       setLoading(false);
     }
@@ -1197,6 +1208,11 @@ export default function Home() {
   function openBulkImport(kind: ClientBulkTab) {
     setError(""); setNotice(""); setBulkImportTab(kind);
     void loadBulkHistory(kind);
+    if (kind === "riders") {
+      void request("/riders/onboarding-configuration", {}, token)
+        .then((configuration) => setRiderBulkFields((configuration as RiderOnboardingConfiguration).onboarding.steps.flatMap((step) => step.fields.filter((field) => field.importable))))
+        .catch((cause) => setError(cause instanceof Error ? cause.message : "Unable to load Rider import configuration."));
+    }
   }
 
   async function uploadBulkRecords(kind: ClientBulkTab, file: File) {
@@ -1205,7 +1221,7 @@ export default function Home() {
       if (file.size > 5 * 1024 * 1024) throw new Error("CSV must be 5 MB or smaller.");
       const csv = parseCsv(await file.text());
       const headers = csv.shift()?.map((field) => field.trim()) ?? [];
-      const required = CLIENT_BULK_CONFIG[kind].requiredColumns.split(", ");
+      const required = kind === "riders" ? riderBulkFields.filter((field) => field.required).map((field) => field.fieldCode) : CLIENT_BULK_CONFIG[kind].requiredColumns.split(", ");
       const componentImport = false;
       const requiredHeaders = componentImport
         ? required.filter((field) => field !== "fleetCode or chassisNumber")
@@ -1224,6 +1240,9 @@ export default function Home() {
           if (!codes.includes(primaryCode)) throw new Error(`Row ${index + 2}: Primary hub code must be one of the assigned hub codes.`);
           return { name: row.name, mobile: row.mobile, hubIds: codes.map((code) => byCode.get(code)), primaryHubId: byCode.get(primaryCode) };
         });
+      }
+      if (kind === "riders") {
+        rows = rows.map((row) => ({ values: row }));
       }
       const result = await request(`${CLIENT_BULK_CONFIG[kind].resource}/bulk`, { method: "POST", body: JSON.stringify({ filename: file.name, rows }) }, token) as RecordItem;
       const passedRows = Number(result.passedRows ?? result.createdRows ?? 0);
@@ -1660,18 +1679,17 @@ export default function Home() {
     setLoading(true);
     setError("");
     try {
-      const rider = (await request(
-        `/riders/${riderId}`,
-        {},
-        token,
-      )) as RecordItem;
+      const [rider, configuration] = await Promise.all([
+        request(`/riders/${riderId}`, {}, token) as Promise<RecordItem>,
+        request("/riders/onboarding-configuration", {}, token) as Promise<RiderOnboardingConfiguration>,
+      ]);
       setRiderDetail(rider);
-      setRiderDraft({
-        name: String(rider.name ?? ""),
-        mobile: String(rider.mobile ?? ""),
-        address: String(rider.address ?? ""),
-        status: String(rider.status ?? "ONBOARDING"),
-      });
+      setRiderOnboardingConfiguration(configuration);
+      setRiderDraft(Object.fromEntries(configuration.onboarding.steps.flatMap((step) => step.fields.map((field) => {
+        const metadata = (rider.metadata as RecordItem | undefined) ?? {};
+        const value = field.storageKey.startsWith("metadata.") ? metadata[field.storageKey.slice("metadata.".length)] : rider[field.storageKey];
+        return [field.fieldCode, value ? String(value).slice(0, field.fieldType === "DATE" ? 10 : undefined) : ""];
+      }))));
       setEditingRider(false);
     } catch (cause) {
       setError(
@@ -1694,7 +1712,7 @@ export default function Home() {
         `/riders/${String(riderDetail.id)}`,
         {
           method: "PATCH",
-          body: JSON.stringify(riderDraft),
+          body: JSON.stringify({ values: riderDraft }),
         },
         token,
       );
@@ -1890,6 +1908,17 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function uploadRiderOnboardingFile(riderId: string, featureCode: string, file: File) {
+    if (!['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.type)) {
+      throw new Error('Choose a JPEG, PNG, WebP, or PDF file.');
+    }
+    if (file.size > 5 * 1024 * 1024) throw new Error('Each onboarding file must be 5 MB or smaller.');
+    const intent = await request('/media/upload-intents', { method: 'POST', body: JSON.stringify({ entityType: 'RIDER', entityId: riderId, photoType: featureCode, mimeType: file.type, fileName: file.name, sizeBytes: file.size }) }, token) as { photo: { id: string }; uploadUrl: string };
+    const result = await fetch(intent.uploadUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
+    if (!result.ok) throw new Error(`Object storage rejected ${file.name}.`);
+    await request(`/media/${intent.photo.id}/complete`, { method: 'POST' }, token);
   }
 
   async function uploadFleetPhoto(
@@ -2325,12 +2354,12 @@ export default function Home() {
         {bulkImportTab === tab && bulkImportTab ? <>
           {notice && <p className="notice">{notice}</p>}
           {error && <p className="error">{error}</p>}
-          <ClientBulkImportWorkspace key={bulkImportTab} title={CLIENT_BULK_CONFIG[bulkImportTab].title} requiredColumns={CLIENT_BULK_CONFIG[bulkImportTab].requiredColumns} template={CLIENT_BULK_CONFIG[bulkImportTab].template} history={bulkHistory.filter((entry) => entry.tab === bulkImportTab)} historyLoading={bulkHistoryLoading} busy={loading} onBack={() => { setBulkImportTab(null); setError(""); setNotice(""); }} onUpload={(file) => uploadBulkRecords(bulkImportTab, file)} onDownloadFailures={(jobId) => downloadBulkFailures(bulkImportTab, jobId)} help={bulkImportTab === "fleet-managers" ? <><p className="sa-bulk-help">Use hub codes separated by semicolons. Primary hub code must match one of them.</p><p className="sa-bulk-help">Available hubs: {hubs.map((hub) => `${String(hub.code)} (${String(hub.name)})`).join(", ") || "Create a hub first."}</p></> : undefined} />
+          <ClientBulkImportWorkspace key={bulkImportTab} title={CLIENT_BULK_CONFIG[bulkImportTab].title} requiredColumns={bulkImportTab === "riders" ? riderBulkFields.filter((field) => field.required).map((field) => field.fieldCode).join(", ") : CLIENT_BULK_CONFIG[bulkImportTab].requiredColumns} template={bulkImportTab === "riders" ? `${riderBulkFields.map((field) => field.fieldCode).join(",")}\n` : CLIENT_BULK_CONFIG[bulkImportTab].template} history={bulkHistory.filter((entry) => entry.tab === bulkImportTab)} historyLoading={bulkHistoryLoading} busy={loading} onBack={() => { setBulkImportTab(null); setError(""); setNotice(""); }} onUpload={(file) => uploadBulkRecords(bulkImportTab, file)} onDownloadFailures={(jobId) => downloadBulkFailures(bulkImportTab, jobId)} help={bulkImportTab === "fleet-managers" ? <><p className="sa-bulk-help">Use hub codes separated by semicolons. Primary hub code must match one of them.</p><p className="sa-bulk-help">Available hubs: {hubs.map((hub) => `${String(hub.code)} (${String(hub.name)})`).join(", ") || "Create a hub first."}</p></> : undefined} />
         </> : <>
         {notice && <p className="notice">{notice}</p>}
         {error && <p className="error">{error}</p>}
         {loading && <p className="muted">Loading current data…</p>}
-        {!loading && (tab === "fleets" || tab === "riders" || tab === "batteries" || tab === "controllers" || tab === "iot-devices" || tab === "fleet-component-mapping") && <section className="sa-page-head client-page-head"><div className="sa-actions"><button className="secondary" onClick={() => openBulkImport(tab as ClientBulkTab)}>Bulk upload</button>{tab === "fleets" ? <button onClick={() => void openFleetForm()}>+ Add Fleet</button> : tab === "riders" ? <button onClick={() => { setError(""); setShowRiderForm(true); }}>+ Add Rider</button> : tab === "iot-devices" ? <button onClick={() => void openIotForm()}>+ Add IoT device</button> : tab === "fleet-component-mapping" ? <button onClick={() => void openMappingForm()}>+ Add mapping</button> : <button onClick={() => void openComponentForm(tab)}>+ Add {tab === "batteries" ? "Battery" : "Controller"}</button>}</div></section>}
+        {!loading && (tab === "fleets" || tab === "riders" || tab === "batteries" || tab === "controllers" || tab === "iot-devices" || tab === "fleet-component-mapping") && <section className="sa-page-head client-page-head"><div className="sa-actions"><button className="secondary" onClick={() => openBulkImport(tab as ClientBulkTab)}>Bulk upload</button>{tab === "fleets" ? <button onClick={() => void openFleetForm()}>+ Add Fleet</button> : tab === "riders" ? <button onClick={() => void openRiderForm()}>+ Add Rider</button> : tab === "iot-devices" ? <button onClick={() => void openIotForm()}>+ Add IoT device</button> : tab === "fleet-component-mapping" ? <button onClick={() => void openMappingForm()}>+ Add mapping</button> : <button onClick={() => void openComponentForm(tab)}>+ Add {tab === "batteries" ? "Battery" : "Controller"}</button>}</div></section>}
         {tab === "iot-devices" && showIotForm && <ClientFormDialog title={editingIotDeviceId ? "Edit IoT device" : "Register IoT device"} busy={loading} error={error} onClose={() => setShowIotForm(false)}><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void registerIotDevice(iotFleetId); }}>
           <h2>{editingIotDeviceId ? "Edit IoT device" : "Register IoT device"}</h2>
           <label>Fleet (optional)<select value={iotFleetId} onChange={(event) => setIotFleetId(event.target.value)}><option value="">Leave unassigned</option>{iotFleetOptions.map((fleet) => <option key={String(fleet.id)} value={String(fleet.id)}>{String(fleet.vehicleNumber ?? fleet.fleetCode ?? fleet.id)}</option>)}</select></label>
@@ -2463,33 +2492,9 @@ export default function Home() {
           <ClientFormDialog title="Create rider" busy={loading} error={error} onClose={() => setShowRiderForm(false)}>
             <p className="eyebrow">RIDER ONBOARDING</p>
             <h2>Create rider</h2>
+            <p className="muted">Fields are configured by the active {riderOnboardingConfiguration?.package.name ?? ""} package.</p>
             <form className="form-stack" onSubmit={createRider}>
-              <label>
-                Name *
-                <input
-                  value={newRiderName}
-                  onChange={(event) => setNewRiderName(event.target.value)}
-                  required
-                />
-              </label>
-              <label>
-                Mobile *
-                <input
-                  value={newRiderMobile}
-                  onChange={(event) => setNewRiderMobile(event.target.value)}
-                  placeholder="+919999999999"
-                  required
-                />
-              </label>
-              <label>
-                Address
-                <textarea
-                  value={newRiderAddress}
-                  onChange={(event) => setNewRiderAddress(event.target.value)}
-                  maxLength={500}
-                  rows={3}
-                />
-              </label>
+              {riderOnboardingConfiguration?.onboarding.steps.map((step) => <fieldset key={step.stepId} className="form-stack"><legend>{step.stepName}</legend>{step.description && <p className="muted">{step.description}</p>}{step.fields.map((field) => field.isUpload ? <label key={field.featureCode ?? field.label}>{field.label}{field.required ? " *" : ""}<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" multiple={Number((field.validation?.maxFiles ?? 1)) > 1} required={field.required} onChange={(event) => setRiderUploads((current) => ({ ...current, [field.featureCode ?? field.label]: Array.from(event.target.files ?? []) }))} /></label> : field.fieldCode ? <label key={field.fieldCode}>{field.label}{field.required ? " *" : ""}{field.fieldType === "TEXTAREA" ? <textarea value={riderValues[field.fieldCode] ?? ""} placeholder={field.placeholder} required={field.required} disabled={field.disabled || field.readOnly} onChange={(event) => setRiderValues((current) => ({ ...current, [field.fieldCode]: event.target.value }))} /> : <input type={field.fieldType === "DATE" ? "date" : field.fieldType === "MOBILE" ? "tel" : "text"} value={riderValues[field.fieldCode] ?? ""} placeholder={field.placeholder} required={field.required} disabled={field.disabled || field.readOnly} onChange={(event) => setRiderValues((current) => ({ ...current, [field.fieldCode]: event.target.value }))} />}</label> : <p key={field.label} className="muted">{field.label} is enabled for this package.</p>)}</fieldset>)}
               <div className="form-actions">
                 <button disabled={loading}>Create rider</button>
                 <button
@@ -2774,66 +2779,7 @@ export default function Home() {
             </button>
             {editingRider && (
               <form className="form-stack" onSubmit={updateRider}>
-                <label>
-                  Name *
-                  <input
-                    value={riderDraft.name}
-                    onChange={(event) =>
-                      setRiderDraft((current) => ({
-                        ...current,
-                        name: event.target.value,
-                      }))
-                    }
-                    required
-                  />
-                </label>
-                <label>
-                  Mobile *
-                  <input
-                    value={riderDraft.mobile}
-                    onChange={(event) =>
-                      setRiderDraft((current) => ({
-                        ...current,
-                        mobile: event.target.value,
-                      }))
-                    }
-                    required
-                  />
-                </label>
-                <label>
-                  Address
-                  <textarea
-                    value={riderDraft.address}
-                    onChange={(event) =>
-                      setRiderDraft((current) => ({
-                        ...current,
-                        address: event.target.value,
-                      }))
-                    }
-                    maxLength={500}
-                    rows={3}
-                  />
-                </label>
-                <label>
-                  Rider status
-                  <select
-                    value={riderDraft.status}
-                    onChange={(event) =>
-                      setRiderDraft((current) => ({
-                        ...current,
-                        status: event.target.value,
-                      }))
-                    }
-                  >
-                    {riderStatuses.map(
-                      (status) => (
-                        <option key={status} value={status}>
-                          {status}
-                        </option>
-                      ),
-                    )}
-                  </select>
-                </label>
+                {riderOnboardingConfiguration?.onboarding.steps.map((step) => <fieldset key={step.stepId} className="form-stack"><legend>{step.stepName}</legend>{step.fields.map((field) => <label key={field.fieldCode}>{field.label}{field.required ? " *" : ""}{field.fieldType === "TEXTAREA" ? <textarea value={riderDraft[field.fieldCode] ?? ""} required={field.required} disabled={!field.editable || field.readOnly || field.disabled} onChange={(event) => setRiderDraft((current) => ({ ...current, [field.fieldCode]: event.target.value }))} /> : <input type={field.fieldType === "DATE" ? "date" : field.fieldType === "MOBILE" ? "tel" : "text"} value={riderDraft[field.fieldCode] ?? ""} required={field.required} disabled={!field.editable || field.readOnly || field.disabled} onChange={(event) => setRiderDraft((current) => ({ ...current, [field.fieldCode]: event.target.value }))} />}</label>)}</fieldset>)}
                 <div className="form-actions">
                   <button disabled={loading}>Save rider</button>
                   <button
@@ -2944,7 +2890,7 @@ export default function Home() {
                 report={(message, failed) => { if (failed) setError(message); else { setError(""); setNotice(message); } }} onBulk={() => openBulkImport(tab)} /> :
               <ClientDataTable key={tab} rows={items} columns={clientColumns(tab)}
                 getRowId={(item) => String(item.id)}
-                actions={tab === "fleets" ? (item) => <><button className="secondary table-action" onClick={() => void openFleetForm(String(item.id))}>Edit</button>{item.status === "AVAILABLE" && <button className="table-action" onClick={() => void openAllocationForm(String(item.id))}>Allocate</button>}{item.status === "ALLOCATED" && <button className="danger table-action" onClick={() => void deallocateFleet(item)}>De-Allocate</button>}<button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(String(item.id)) })}>Delete</button></>
+                actions={tab === "fleets" ? (item) => <><button className="secondary table-action" onClick={() => void openFleetForm(String(item.id))}>Edit</button>{item.status === "AVAILABLE" && <button className="table-action" disabled title="Allocation is temporarily unavailable">Allocate</button>}{item.status === "ALLOCATED" && <button className="danger table-action" disabled title="De-allocation is temporarily unavailable">De-Allocate</button>}<button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(String(item.id)) })}>Delete</button></>
                   : tab === "riders" ? (item) => <><button className="secondary table-action" onClick={() => void openRiderDetail(String(item.id))}>View / Edit</button><button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Rider?", description: "This rider will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Rider", onConfirm: () => deleteRider(String(item.id)) })}>Delete</button></>
                   : tab === "iot-devices" ? (item) => <button className="secondary table-action" onClick={() => void openIotForm(item)}>Edit</button>
                   : tab === "batteries" || tab === "controllers" ? (item) => <button className="secondary table-action" onClick={() => void openExistingComponentForm(tab, item)}>Edit</button>

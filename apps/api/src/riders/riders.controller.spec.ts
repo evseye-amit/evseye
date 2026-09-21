@@ -15,11 +15,12 @@ describe('RidersController audit trail', () => {
       riders as never,
       audit as never,
       { requireClientId: vi.fn().mockReturnValue('client-a') } as never,
+      {} as never,
     );
 
     await controller.create(
       { id: 'operator-1', clientId: 'client-a', roles: [] },
-      { name: 'Rider Name', mobile: '+919000000001', address: 'Private' },
+      { values: { FULL_NAME: 'Rider Name', MOBILE_NUMBER: '+919000000001', ADDRESS: 'Private' } },
     );
 
     expect(audit.record).toHaveBeenCalledWith({

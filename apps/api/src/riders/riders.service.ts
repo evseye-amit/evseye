@@ -17,24 +17,32 @@ import { assertUserMobileAvailable, normalizeIndianMobile, USER_MOBILE_CONFLICT_
 import type { CreateRiderDto } from './dto/create-rider.dto.js';
 import type { ListRidersDto } from './dto/list-riders.dto.js';
 import type { UpdateRiderDto } from './dto/update-rider.dto.js';
+import { RiderOnboardingConfigurationService } from './rider-onboarding-configuration.service.js';
 
 @Injectable()
 export class RidersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly onboardingConfiguration: RiderOnboardingConfigurationService,
+  ) {}
 
   async create(clientId: string, dto: CreateRiderDto) {
-    await assertUserMobileAvailable(this.prisma, clientId, dto.mobile);
+    const { data } = await this.onboardingConfiguration.validateAndMapValues(clientId, dto.values, 'CREATE');
+    const name = String(data.name ?? '');
+    const mobile = String(data.mobile ?? '');
+    if (!name || !mobile) throw new ConflictException('The active package must configure required Full Name and Mobile Number fields.');
+    await assertUserMobileAvailable(this.prisma, clientId, mobile);
     try {
       const rider = await this.prisma.$transaction(async (tx) => {
         const user = await tx.user.create({
           data: {
             clientId,
-            name: dto.name,
-            mobile: normalizeIndianMobile(dto.mobile),
+            name,
+            mobile: normalizeIndianMobile(mobile),
             role: UserRole.RIDER,
           },
         });
-        return tx.rider.create({ data: { ...dto, mobile: normalizeIndianMobile(dto.mobile), clientId, userId: user.id } });
+        return tx.rider.create({ data: { ...data, name, mobile: normalizeIndianMobile(mobile), clientId, userId: user.id } });
       });
       await this.completeOnboardingStep(clientId);
       return rider;
@@ -63,13 +71,13 @@ export class RidersService {
     const seen = new Set<string>();
     let created = 0;
     for (const [index, row] of rows.entries()) {
-      const canonicalMobile = normalizeIndianMobile(row.mobile);
+      const canonicalMobile = normalizeIndianMobile(String(row.values?.MOBILE_NUMBER ?? ''));
       if (seen.has(canonicalMobile)) {
         failures.push({
           ...row,
           row_number: index + 2,
           failure_reason: 'Duplicate mobile in upload.',
-          failure_fields: 'mobile',
+          failure_fields: 'MOBILE_NUMBER',
         });
         continue;
       }
@@ -83,7 +91,7 @@ export class RidersService {
           row_number: index + 2,
           failure_reason:
             error instanceof Error ? error.message : 'Invalid row.',
-          failure_fields: 'mobile,riderCode',
+          failure_fields: Object.keys(row.values ?? {}).join(','),
         });
       }
     }
@@ -101,7 +109,7 @@ export class RidersService {
         totalRows: rows.length,
         passedRows: created,
         failedRows: failures.length,
-        duplicateRows: failures.filter((row) => row.failure_fields === 'mobile')
+        duplicateRows: failures.filter((row) => row.failure_fields === 'MOBILE_NUMBER')
           .length,
         createdRows: created,
         createdById: actorId,
@@ -188,18 +196,19 @@ export class RidersService {
 
   async update(clientId: string, id: string, dto: UpdateRiderDto) {
     const existing = await this.getById(clientId, id);
-    if (dto.mobile !== undefined)
-      await assertUserMobileAvailable(this.prisma, clientId, dto.mobile, existing.userId ?? undefined);
+    const { data } = await this.onboardingConfiguration.validateAndMapValues(clientId, dto.values, 'EDIT', existing.metadata);
+    const mobile = typeof data.mobile === 'string' ? data.mobile : undefined;
+    if (mobile !== undefined) await assertUserMobileAvailable(this.prisma, clientId, mobile, existing.userId ?? undefined);
     try {
       return await this.prisma.$transaction(async (tx) => {
-        const rider = await tx.rider.update({ where: { id }, data: { ...dto, ...(dto.mobile !== undefined ? { mobile: normalizeIndianMobile(dto.mobile) } : {}) } });
-        if (existing.userId && (dto.name !== undefined || dto.mobile !== undefined)) {
+        const rider = await tx.rider.update({ where: { id }, data: { ...data, ...(mobile !== undefined ? { mobile: normalizeIndianMobile(mobile) } : {}) } });
+        if (existing.userId && (data.name !== undefined || mobile !== undefined)) {
           await tx.user.update({
             where: { id: existing.userId },
             data: {
-              ...(dto.name !== undefined ? { name: dto.name } : {}),
-              ...(dto.mobile !== undefined
-                ? { mobile: normalizeIndianMobile(dto.mobile) }
+              ...(data.name !== undefined ? { name: String(data.name) } : {}),
+              ...(mobile !== undefined
+                ? { mobile: normalizeIndianMobile(mobile) }
                 : {}),
             },
           });

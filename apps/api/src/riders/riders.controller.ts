@@ -22,6 +22,7 @@ import { BulkRiderDto, CreateRiderDto } from './dto/create-rider.dto.js';
 import { ListRidersDto } from './dto/list-riders.dto.js';
 import { UpdateRiderDto } from './dto/update-rider.dto.js';
 import { RidersService } from './riders.service.js';
+import { RiderOnboardingConfigurationService } from './rider-onboarding-configuration.service.js';
 
 @Controller('riders')
 @UseGuards(AccessTokenGuard, RolesGuard)
@@ -30,6 +31,7 @@ export class RidersController {
     private readonly ridersService: RidersService,
     private readonly audit: AuditService,
     private readonly clientContext: ClientContextService,
+    private readonly riderOnboardingConfiguration: RiderOnboardingConfigurationService,
   ) {}
 
   @Get()
@@ -44,6 +46,16 @@ export class RidersController {
       data: await this.ridersService.list(
         this.clientContext.requireClientId(user),
         query,
+      ),
+    };
+  }
+
+  @Get('onboarding-configuration')
+  @Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+  async onboardingConfiguration(@CurrentUser() user: AuthUser) {
+    return {
+      data: await this.riderOnboardingConfiguration.getEffectiveConfiguration(
+        this.clientContext.requireClientId(user),
       ),
     };
   }

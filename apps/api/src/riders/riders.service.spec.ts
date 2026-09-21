@@ -8,7 +8,7 @@ describe('RidersService client isolation', () => {
         findFirst: vi.fn().mockResolvedValue(null),
       },
     };
-    const service = new RidersService(prisma as never);
+    const service = new RidersService(prisma as never, {} as never);
 
     await expect(
       service.getById('client-a', 'rider-owned-by-client-b'),

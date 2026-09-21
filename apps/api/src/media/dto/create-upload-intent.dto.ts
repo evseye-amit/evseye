@@ -33,8 +33,8 @@ export class CreateUploadIntentDto {
   photoType!: string;
 
   @IsString()
-  @IsIn(['image/jpeg', 'image/png', 'image/webp'])
-  mimeType!: 'image/jpeg' | 'image/png' | 'image/webp';
+  @IsIn(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
+  mimeType!: 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf';
 
   @IsString()
   @MaxLength(255)

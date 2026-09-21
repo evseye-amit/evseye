@@ -11,6 +11,8 @@ const basicAllowance = {
 };
 
 export const packageFeatureCatalog = [
+  { featureCode: 'CAPTURE_FULL_NAME', displayOrder: 5, ...basicAllowance },
+  { featureCode: 'SHOW_MOBILE_NUMBER', displayOrder: 6, ...basicAllowance },
   { featureCode: 'CAPTURE_MOBILE_NUMBER', displayOrder: 10, ...basicAllowance },
   { featureCode: 'CAPTRUE_LOGIN_OTP', displayOrder: 20, ...basicAllowance },
   { featureCode: 'SMS_LOGIN_OTP', displayOrder: 30, ...basicAllowance },

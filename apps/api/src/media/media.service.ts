@@ -197,7 +197,7 @@ export class MediaService {
 
   private extensionFor(mimeType: string): string {
     return (
-      { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[
+      { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'application/pdf': 'pdf' }[
         mimeType
       ] ?? 'invalid'
     );
