@@ -15,10 +15,11 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { ListAllocationsDto } from './dto/list-allocations.dto.js';
+import { RiderDocumentReviewService } from '../riders/rider-document-review.service.js';
 
 @Injectable()
 export class AllocationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly riderDocuments?: RiderDocumentReviewService) {}
   async list(clientId: string, query: ListAllocationsDto, hubIds?: string[]) {
     const where = {
       clientId,
@@ -112,6 +113,10 @@ export class AllocationsService {
       if (!rider) throw new NotFoundException('Rider not found.');
       if (rider.status !== RiderStatus.ACTIVE) {
         throw new ConflictException('Rider must be active before allocation.');
+      }
+      const documentBlockers = this.riderDocuments ? await this.riderDocuments.allocationBlockers(clientId, riderId) : [];
+      if (documentBlockers.length) {
+        throw new ConflictException({ message: 'Rider documents must be approved before Fleet allocation.', documents: documentBlockers });
       }
       const reserved = await tx.fleet.updateMany({
         where: {

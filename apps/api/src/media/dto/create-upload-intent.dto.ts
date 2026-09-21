@@ -16,6 +16,7 @@ export class CreateUploadIntentDto {
     'CONTROLLER',
     'IOT_DEVICE',
     'INSPECTION',
+    'RIDER_ONBOARDING',
   ])
   entityType!:
     | 'RIDER'
@@ -23,7 +24,8 @@ export class CreateUploadIntentDto {
     | 'BATTERY'
     | 'CONTROLLER'
     | 'IOT_DEVICE'
-    | 'INSPECTION';
+    | 'INSPECTION'
+    | 'RIDER_ONBOARDING';
 
   @IsUUID()
   entityId!: string;

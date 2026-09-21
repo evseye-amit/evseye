@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
@@ -6,6 +6,7 @@ import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { RiderAppEnrollDto, SaveRiderAppStepDto } from './dto/rider-app.dto.js';
+import { RiderDocumentUploadIntentDto } from './dto/rider-document.dto.js';
 import { RiderAppService } from './rider-app.service.js';
 
 @Controller('rider-app')
@@ -21,6 +22,22 @@ export class RiderAppController {
   async onboarding(@CurrentUser() user: AuthUser) {
     if (!user.clientId) throw new Error('Rider is not associated with a client.');
     return { data: await this.riderApp.onboarding(user.clientId, user.id) };
+  }
+
+  @Post('onboarding/documents/upload-intent')
+  @UseGuards(AccessTokenGuard, RolesGuard)
+  @Roles(UserRole.RIDER)
+  async documentUploadIntent(@CurrentUser() user: AuthUser, @Body() dto: RiderDocumentUploadIntentDto) {
+    if (!user.clientId) throw new Error('Rider is not associated with a client.');
+    return { data: await this.riderApp.createDocumentUploadIntent(user.clientId, user.id, dto) };
+  }
+
+  @Post('onboarding/documents/:photoId/complete')
+  @UseGuards(AccessTokenGuard, RolesGuard)
+  @Roles(UserRole.RIDER)
+  async completeDocumentUpload(@CurrentUser() user: AuthUser, @Param('photoId') photoId: string) {
+    if (!user.clientId) throw new Error('Rider is not associated with a client.');
+    return { data: await this.riderApp.completeDocumentUpload(user.clientId, user.id, photoId) };
   }
 
   @Post('onboarding/steps')

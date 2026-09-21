@@ -107,6 +107,14 @@ enum PhotoEntityType {
   CONTROLLER
   IOT_DEVICE
   INSPECTION
+  RIDER_ONBOARDING
+}
+
+enum RiderDocumentReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUPERSEDED
 }
 
 enum PhotoStatus {
@@ -548,6 +556,7 @@ model Client {
   teamLeaderProfiles         TeamLeaderProfile[]
   teamLeaderRiders           TeamLeaderRider[]
   riderOnboardingProgress    RiderOnboardingProgress[]
+  riderOnboardingDocuments   RiderOnboardingDocument[]
   createdAt                  DateTime                          @default(now())
   updatedAt                  DateTime                          @updatedAt
 }
@@ -632,27 +641,28 @@ model Package {
 }
 
 model Feature {
-  id             String                       @id @default(uuid())
-  code           String                       @unique
-  name           String
-  category       FeatureCategory?             @default(OTHER)
-  featureType    FeatureType
-  billingUnit    FeatureBillingUnit
-  description    String?
-  configuration  Json?
-  featureStepId  String?
-  featureStep    FeatureStep?                 @relation(fields: [featureStepId], references: [id], onDelete: SetNull)
-  displayOrder   Int                          @default(0)
-  isActive       Boolean                      @default(true)
-  pricing        FeaturePricing[]
-  packageLinks   PackageFeature[]
-  featureAddOns  FeatureAddOn[]
-  trainingContents TrainingContent[]
-  addOnPurchases ClientFeatureAddOnPurchase[]
-  creditLots     FeatureCreditLot[]
-  usageLedger    FeatureUsageLedger[]
-  createdAt      DateTime                     @default(now())
-  updatedAt      DateTime                     @updatedAt
+  id                       String                       @id @default(uuid())
+  code                     String                       @unique
+  name                     String
+  category                 FeatureCategory?             @default(OTHER)
+  featureType              FeatureType
+  billingUnit              FeatureBillingUnit
+  description              String?
+  configuration            Json?
+  featureStepId            String?
+  featureStep              FeatureStep?                 @relation(fields: [featureStepId], references: [id], onDelete: SetNull)
+  displayOrder             Int                          @default(0)
+  isActive                 Boolean                      @default(true)
+  pricing                  FeaturePricing[]
+  packageLinks             PackageFeature[]
+  featureAddOns            FeatureAddOn[]
+  trainingContents         TrainingContent[]
+  riderOnboardingDocuments RiderOnboardingDocument[]
+  addOnPurchases           ClientFeatureAddOnPurchase[]
+  creditLots               FeatureCreditLot[]
+  usageLedger              FeatureUsageLedger[]
+  createdAt                DateTime                     @default(now())
+  updatedAt                DateTime                     @updatedAt
 
   @@index([isActive, category, displayOrder])
   @@index([featureStepId])
@@ -1419,57 +1429,59 @@ model FleetTransfer {
 }
 
 model User {
-  id                String             @id @default(uuid())
-  clientId          String?
-  client            Client?            @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  id                       String                    @id @default(uuid())
+  clientId                 String?
+  client                   Client?                   @relation(fields: [clientId], references: [id], onDelete: Restrict)
   /// A migration enforces per-client uniqueness using the normalized Indian mobile number.
-  mobile            String
-  name              String
-  role              UserRole
-  isActive          Boolean            @default(true)
-  deletedAt         DateTime?
-  sessions          Session[]
-  rider             Rider?
-  riderOnboardingProgress RiderOnboardingProgress?
-  hubAssignments    UserHub[]
-  teamLeaderProfile TeamLeaderProfile?
-  auditLogs         AuditLog[]         @relation("AuditActor")
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
+  mobile                   String
+  name                     String
+  role                     UserRole
+  isActive                 Boolean                   @default(true)
+  deletedAt                DateTime?
+  sessions                 Session[]
+  rider                    Rider?
+  riderOnboardingProgress  RiderOnboardingProgress?
+  riderOnboardingDocuments RiderOnboardingDocument[] @relation("RiderOnboardingDocumentUploader")
+  hubAssignments           UserHub[]
+  teamLeaderProfile        TeamLeaderProfile?
+  auditLogs                AuditLog[]                @relation("AuditActor")
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
 
   @@unique([clientId, mobile])
   @@index([clientId, role, isActive])
 }
 
 model Rider {
-  id                     String            @id @default(uuid())
+  id                     String                    @id @default(uuid())
   clientId               String
-  client                 Client            @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  userId                 String?           @unique
-  user                   User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  client                 Client                    @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  userId                 String?                   @unique
+  user                   User?                     @relation(fields: [userId], references: [id], onDelete: SetNull)
   name                   String
   mobile                 String
   address                String?
-  riderCode              String?           @db.VarChar(50)
-  dateOfBirth            DateTime?         @db.Date
+  riderCode              String?                   @db.VarChar(50)
+  dateOfBirth            DateTime?                 @db.Date
   gender                 Gender?
-  addressLine1           String?           @db.VarChar(255)
-  addressLine2           String?           @db.VarChar(255)
-  city                   String?           @db.VarChar(100)
-  state                  String?           @db.VarChar(100)
-  postalCode             String?           @db.VarChar(10)
-  emergencyContactName   String?           @db.VarChar(150)
-  emergencyContactMobile String?           @db.VarChar(20)
-  status                 RiderStatus       @default(ONBOARDING)
-  joiningDate            DateTime?         @db.Date
-  exitDate               DateTime?         @db.Date
+  addressLine1           String?                   @db.VarChar(255)
+  addressLine2           String?                   @db.VarChar(255)
+  city                   String?                   @db.VarChar(100)
+  state                  String?                   @db.VarChar(100)
+  postalCode             String?                   @db.VarChar(10)
+  emergencyContactName   String?                   @db.VarChar(150)
+  emergencyContactMobile String?                   @db.VarChar(20)
+  status                 RiderStatus               @default(ONBOARDING)
+  joiningDate            DateTime?                 @db.Date
+  exitDate               DateTime?                 @db.Date
   metadata               Json?
   deletedAt              DateTime?
   kycs                   RiderKyc[]
   allocations            Allocation[]
   teamLeaders            TeamLeaderRider[]
-  createdAt              DateTime          @default(now())
-  updatedAt              DateTime          @updatedAt
+  onboardingDocuments    RiderOnboardingDocument[]
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
 
   @@unique([clientId, mobile])
   @@unique([clientId, riderCode])
@@ -1478,19 +1490,19 @@ model Rider {
 }
 
 model RiderOnboardingProgress {
-  id            String   @id @default(uuid())
-  clientId      String
-  client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  userId        String   @unique
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  packageId     String
-  currentStepId String?
-  completedStepIds Json @default("[]")
-  skippedStepIds Json @default("[]")
-  values        Json @default("{}")
-  completedAt   DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id               String    @id @default(uuid())
+  clientId         String
+  client           Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  userId           String    @unique
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  packageId        String
+  currentStepId    String?
+  completedStepIds Json      @default("[]")
+  skippedStepIds   Json      @default("[]")
+  values           Json      @default("{}")
+  completedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@index([clientId, packageId])
 }
@@ -1604,21 +1616,21 @@ model ImportJob {
 }
 
 model Allocation {
-  id             String           @id @default(uuid())
-  clientId       String
-  fleetId        String
-  fleet          Fleet            @relation(fields: [fleetId], references: [id], onDelete: Restrict)
-  riderId        String
-  rider          Rider            @relation(fields: [riderId], references: [id], onDelete: Restrict)
-  status         AllocationStatus @default(INITIATED)
-  allocatedAt    DateTime?
-  deallocatedAt  DateTime?
-  initiatedById  String
-  idempotencyKey String?
-  inspections    Inspection[]
+  id               String                    @id @default(uuid())
+  clientId         String
+  fleetId          String
+  fleet            Fleet                     @relation(fields: [fleetId], references: [id], onDelete: Restrict)
+  riderId          String
+  rider            Rider                     @relation(fields: [riderId], references: [id], onDelete: Restrict)
+  status           AllocationStatus          @default(INITIATED)
+  allocatedAt      DateTime?
+  deallocatedAt    DateTime?
+  initiatedById    String
+  idempotencyKey   String?
+  inspections      Inspection[]
   mobileDeployment MobileDeploymentWorkflow?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
 
   @@unique([clientId, idempotencyKey])
   @@index([clientId, fleetId, status])
@@ -1626,28 +1638,28 @@ model Allocation {
 }
 
 model MobileDeploymentWorkflow {
-  id String @id @default(uuid())
-  clientId String
-  allocationId String @unique
-  allocation Allocation @relation(fields: [allocationId], references: [id], onDelete: Cascade)
-  status MobileDeploymentStatus @default(RIDER_WAITING)
-  paymentBreakdown Json?
-  paymentPaidAt DateTime?
-  payment DeploymentPayment?
-  pdiChecklist Json?
-  workPartnerName String?
-  riderPdiAcceptedAt DateTime?
-  riderPdiRemarksText String?
-  riderPdiVoicePhotoId String?
-  trainingViewedContentCodes Json @default("[]")
-  trainingCompletedAt DateTime?
-  pairedAt DateTime?
-  pairingBypassedAt DateTime?
-  pairingBypassedById String?
-  pairingBypassReason String?
-  pairingHealthSnapshot Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                         String                 @id @default(uuid())
+  clientId                   String
+  allocationId               String                 @unique
+  allocation                 Allocation             @relation(fields: [allocationId], references: [id], onDelete: Cascade)
+  status                     MobileDeploymentStatus @default(RIDER_WAITING)
+  paymentBreakdown           Json?
+  paymentPaidAt              DateTime?
+  payment                    DeploymentPayment?
+  pdiChecklist               Json?
+  workPartnerName            String?
+  riderPdiAcceptedAt         DateTime?
+  riderPdiRemarksText        String?
+  riderPdiVoicePhotoId       String?
+  trainingViewedContentCodes Json                   @default("[]")
+  trainingCompletedAt        DateTime?
+  pairedAt                   DateTime?
+  pairingBypassedAt          DateTime?
+  pairingBypassedById        String?
+  pairingBypassReason        String?
+  pairingHealthSnapshot      Json?
+  createdAt                  DateTime               @default(now())
+  updatedAt                  DateTime               @updatedAt
 
   @@index([clientId, status])
 }
@@ -1655,22 +1667,22 @@ model MobileDeploymentWorkflow {
 /// One auditable payment request per Rider/Fleet deployment. Provider-specific
 /// gateway data is kept here rather than trusting a Rider app status change.
 model DeploymentPayment {
-  id                  String                  @id @default(uuid())
-  clientId            String
-  workflowId          String                  @unique
-  workflow            MobileDeploymentWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  status              DeploymentPaymentStatus @default(PENDING)
-  currency            String                  @default("INR") @db.Char(3)
-  amount              Decimal                 @db.Decimal(14, 2)
-  breakdown           Json
-  provider            String?
-  providerReference   String?                 @unique
-  submittedAt         DateTime?
-  verifiedAt          DateTime?
-  verifiedById        String?
-  paidAt              DateTime?
-  createdAt           DateTime                @default(now())
-  updatedAt           DateTime                @updatedAt
+  id                String                   @id @default(uuid())
+  clientId          String
+  workflowId        String                   @unique
+  workflow          MobileDeploymentWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  status            DeploymentPaymentStatus  @default(PENDING)
+  currency          String                   @default("INR") @db.Char(3)
+  amount            Decimal                  @db.Decimal(14, 2)
+  breakdown         Json
+  provider          String?
+  providerReference String?                  @unique
+  submittedAt       DateTime?
+  verifiedAt        DateTime?
+  verifiedById      String?
+  paidAt            DateTime?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
 
   @@index([clientId, status])
 }
@@ -1713,23 +1725,50 @@ model RiderKyc {
 }
 
 model Photo {
-  id           String          @id @default(uuid())
-  clientId     String
-  client       Client          @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  entityType   PhotoEntityType
-  entityId     String
-  photoType    String
-  objectKey    String          @unique
-  mimeType     String
-  sizeBytes    Int
-  status       PhotoStatus     @default(PENDING_UPLOAD)
-  uploadedById String
-  uploadedAt   DateTime?
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  id                      String                   @id @default(uuid())
+  clientId                String
+  client                  Client                   @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  entityType              PhotoEntityType
+  entityId                String
+  photoType               String
+  objectKey               String                   @unique
+  mimeType                String
+  sizeBytes               Int
+  status                  PhotoStatus              @default(PENDING_UPLOAD)
+  uploadedById            String
+  uploadedAt              DateTime?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  riderOnboardingDocument RiderOnboardingDocument?
 
   @@index([clientId, entityType, entityId])
   @@index([clientId, status])
+}
+
+model RiderOnboardingDocument {
+  id              String                    @id @default(uuid())
+  clientId        String
+  client          Client                    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User                      @relation("RiderOnboardingDocumentUploader", fields: [userId], references: [id], onDelete: Cascade)
+  riderId         String?
+  rider           Rider?                    @relation(fields: [riderId], references: [id], onDelete: SetNull)
+  featureId       String
+  feature         Feature                   @relation(fields: [featureId], references: [id], onDelete: Restrict)
+  fieldCode       String
+  photoId         String                    @unique
+  photo           Photo                     @relation(fields: [photoId], references: [id], onDelete: Restrict)
+  status          RiderDocumentReviewStatus @default(PENDING)
+  rejectionReason String?
+  reviewedById    String?
+  reviewedAt      DateTime?
+  supersededAt    DateTime?
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+
+  @@index([clientId, userId, fieldCode, status])
+  @@index([clientId, riderId, status])
+  @@index([clientId, status, createdAt])
 }
 
 model PhotoRequirement {

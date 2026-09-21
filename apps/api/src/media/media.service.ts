@@ -153,6 +153,12 @@ export class MediaService {
       });
       if (rider) return;
     }
+    if (entityType === PhotoEntityType.RIDER_ONBOARDING) {
+      const progress = await this.prisma.riderOnboardingProgress.findFirst({
+        where: { id: entityId, clientId },
+      });
+      if (progress) return;
+    }
     if (entityType === PhotoEntityType.FLEET) {
       const fleet = await this.prisma.fleet.findFirst({
         where: { id: entityId, clientId, deletedAt: null },

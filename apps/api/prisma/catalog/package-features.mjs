@@ -1,35 +1,236 @@
-// Source of truth: Package Feature assignments exported from the local
-// development database on 2026-09-20. Codes keep the seed portable.
-const basicAllowance = {
-  packageCode: 'BASIC',
-  isIncluded: true,
-  includedQuantity: 500,
-  resetPeriod: 'MONTHLY',
-  isUnlimited: false,
-  rolloverAllowed: false,
-  configuration: null,
-};
+// Source of truth: 21 Package Feature assignments exported from the local development database on 2026-09-21.
+// Package and Feature codes keep this catalog portable across databases.
 
 export const packageFeatureCatalog = [
-  { featureCode: 'CAPTURE_FULL_NAME', displayOrder: 5, ...basicAllowance },
-  { featureCode: 'SHOW_MOBILE_NUMBER', displayOrder: 6, ...basicAllowance },
-  { featureCode: 'CAPTURE_MOBILE_NUMBER', displayOrder: 10, ...basicAllowance },
-  { featureCode: 'CAPTRUE_LOGIN_OTP', displayOrder: 20, ...basicAllowance },
-  { featureCode: 'SMS_LOGIN_OTP', displayOrder: 30, ...basicAllowance },
-  { featureCode: 'CAPTURE_AGE', displayOrder: 40, ...basicAllowance },
-  { featureCode: 'CAPTURE_ADDRESS', displayOrder: 50, ...basicAllowance },
-  { featureCode: 'ADDRESS_PROOF_DOCUMENT', displayOrder: 60, ...basicAllowance },
-  { featureCode: 'UPLOAD_PROFILE_PHOTO', displayOrder: 70, ...basicAllowance },
-  { featureCode: 'CAPTURE_AADHAAR', displayOrder: 80, ...basicAllowance },
-  { featureCode: 'AADHAR_PROOF_DOCUMENT', displayOrder: 90, ...basicAllowance },
-  { featureCode: 'CAPTURE_PAN', displayOrder: 100, ...basicAllowance },
-  { featureCode: 'PAN_PROOF_DOCUMENT', displayOrder: 110, ...basicAllowance },
-  { featureCode: 'CAPTURE_DRIVING_LICENSE', displayOrder: 120, ...basicAllowance },
-  { featureCode: 'DRIVING_LICENCE_PROOF_DOCUMENT', displayOrder: 130, ...basicAllowance },
-  { featureCode: 'AGE_VERIFICATION', displayOrder: 140, ...basicAllowance },
-  { featureCode: 'CAPTURE_REFERENCE', displayOrder: 150, ...basicAllowance },
-  { featureCode: 'CAPTURE_BANK_ACCOUNT', displayOrder: 160, ...basicAllowance },
-  { featureCode: 'BANK_VERIFICATION', displayOrder: 170, ...basicAllowance },
-  { featureCode: 'BANK_PROOF_DOCUMENT', displayOrder: 180, ...basicAllowance },
-  { featureCode: 'SHOW_AGREEMENT_E_SIGN', displayOrder: 190, ...basicAllowance },
+  {
+    "packageCode": "BASIC",
+    "featureCode": "CAPTURE_FULL_NAME",
+    "isIncluded": true,
+    "resetPeriod": "MONTHLY",
+    "isUnlimited": false,
+    "rolloverAllowed": false,
+    "configuration": null,
+    "displayOrder": 5,
+    "includedQuantity": "500"
+  },
+  {
+    "packageCode": "BASIC",
+    "featureCode": "SHOW_MOBILE_NUMBER",
+    "isIncluded": true,
+    "resetPeriod": "MONTHLY",
+    "isUnlimited": false,
+    "rolloverAllowed": false,
+    "configuration": null,
+    "displayOrder": 6,
+    "includedQuantity": "500"
+  },
+  {
+    "packageCode": "BASIC",
+    "featureCode": "CAPTURE_MOBILE_NUMBER",
+    "isIncluded": true,
+    "resetPeriod": "MONTHLY",
+    "isUnlimited": false,
+    "rolloverAllowed": false,
+    "configuration": null,
+    "displayOrder": 10,
+    "includedQuantity": "500"
+  },
+  {
+    "packageCode": "BASIC",
+    "featureCode": "CAPTRUE_LOGIN_OTP",
+    "isIncluded": true,
+    "resetPeriod": "MONTHLY",
+    "isUnlimited": false,
+    "rolloverAllowed": false,
+    "configuration": null,
+    "displayOrder": 20,
+    "includedQuantity": "500"
+  },
+  {
+    "packageCode": "BASIC",
+    "featureCode": "SMS_LOGIN_OTP",
+    "isIncluded": true,
+    "resetPeriod": "MONTHLY",
+    "isUnlimited": false,
+    "rolloverAllowed": false,
+    "configuration": null,
+    "displayOrder": 30,
+    "includedQuantity": "500"
+  },
+  {
+    "packageCode": "BASIC",
+    "featureCode": "CAPTURE_AGE",
+    "isIncluded": true,
+    "resetPeriod": "MONTHLY",
+    "isUnlimited": false,
+    "rolloverAllowed": false,
+    "configuration": null,
+    "displayOrder": 40,
+    "includedQuantity": "500"
+  },
+  {
+    "packageCode": "BASIC",
+    "featureCode": "CAPTURE_ADDRESS",
+    "isIncluded": true,
+    "resetPeriod": "MONTHLY",
+    "isUnlimited": false,
+    "rolloverAllowed": false,
+    "configuration": null,
+    "displayOrder": 50,
+    "includedQuantity": "500"
+  },
+  {
+    "packageCode": "BASIC",
+    "featureCode": "ADDRESS_PROOF_DOCUMENT",
+    "isIncluded": true,
+    "resetPeriod": "MONTHLY",
+    "isUnlimited": false,
+    "rolloverAllowed": false,
+    "configuration": null,
+    "displayOrder": 60,
+    "includedQuantity": "500"
+  },
+  {
+    "packageCode": "BASIC",
+    "featureCode": "UPLOAD_PROFILE_PHOTO",
+    "isIncluded": true,
+    "resetPeriod": "MONTHLY",
+    "isUnlimited": false,
+    "rolloverAllowed": false,
+    "configuration": null,
+    "displayOrder": 70,
+    "includedQuantity": "500"
+  },
+  {
+    "packageCode": "BASIC",
+    "featureCode": "CAPTURE_AADHAAR",
+    "isIncluded": true,
+    "resetPeriod": "MONTHLY",
+    "isUnlimited": false,
+    "rolloverAllowed": false,
+    "configuration": null,
+    "displayOrder": 80,
+    "includedQuantity": "500"
+  },
+  {
+    "packageCode": "BASIC",
+    "featureCode": "AADHAR_PROOF_DOCUMENT",
+    "isIncluded": true,
+    "resetPeriod": "MONTHLY",
+    "isUnlimited": false,
+    "rolloverAllowed": false,
+    "configuration": null,
+    "displayOrder": 90,
+    "includedQuantity": "500"
+  },
+  {
+    "packageCode": "BASIC",
+    "featureCode": "CAPTURE_PAN",
+    "isIncluded": true,
+    "resetPeriod": "MONTHLY",
+    "isUnlimited": false,
+    "rolloverAllowed": false,
+    "configuration": null,
+    "displayOrder": 100,
+    "includedQuantity": "500"
+  },
+  {
+    "packageCode": "BASIC",
+    "featureCode": "PAN_PROOF_DOCUMENT",
+    "isIncluded": true,
+    "resetPeriod": "MONTHLY",
+    "isUnlimited": false,
+    "rolloverAllowed": false,
+    "configuration": null,
+    "displayOrder": 110,
+    "includedQuantity": "500"
+  },
+  {
+    "packageCode": "BASIC",
+    "featureCode": "CAPTURE_DRIVING_LICENSE",
+    "isIncluded": true,
+    "resetPeriod": "MONTHLY",
+    "isUnlimited": false,
+    "rolloverAllowed": false,
+    "configuration": null,
+    "displayOrder": 120,
+    "includedQuantity": "500"
+  },
+  {
+    "packageCode": "BASIC",
+    "featureCode": "DRIVING_LICENCE_PROOF_DOCUMENT",
+    "isIncluded": true,
+    "resetPeriod": "MONTHLY",
+    "isUnlimited": false,
+    "rolloverAllowed": false,
+    "configuration": null,
+    "displayOrder": 130,
+    "includedQuantity": "500"
+  },
+  {
+    "packageCode": "BASIC",
+    "featureCode": "AGE_VERIFICATION",
+    "isIncluded": true,
+    "resetPeriod": "MONTHLY",
+    "isUnlimited": false,
+    "rolloverAllowed": false,
+    "configuration": null,
+    "displayOrder": 140,
+    "includedQuantity": "500"
+  },
+  {
+    "packageCode": "BASIC",
+    "featureCode": "CAPTURE_REFERENCE",
+    "isIncluded": true,
+    "resetPeriod": "MONTHLY",
+    "isUnlimited": false,
+    "rolloverAllowed": false,
+    "configuration": null,
+    "displayOrder": 150,
+    "includedQuantity": "500"
+  },
+  {
+    "packageCode": "BASIC",
+    "featureCode": "CAPTURE_BANK_ACCOUNT",
+    "isIncluded": true,
+    "resetPeriod": "MONTHLY",
+    "isUnlimited": false,
+    "rolloverAllowed": false,
+    "configuration": null,
+    "displayOrder": 160,
+    "includedQuantity": "500"
+  },
+  {
+    "packageCode": "BASIC",
+    "featureCode": "BANK_VERIFICATION",
+    "isIncluded": true,
+    "resetPeriod": "MONTHLY",
+    "isUnlimited": false,
+    "rolloverAllowed": false,
+    "configuration": null,
+    "displayOrder": 170,
+    "includedQuantity": "500"
+  },
+  {
+    "packageCode": "BASIC",
+    "featureCode": "BANK_PROOF_DOCUMENT",
+    "isIncluded": true,
+    "resetPeriod": "MONTHLY",
+    "isUnlimited": false,
+    "rolloverAllowed": false,
+    "configuration": null,
+    "displayOrder": 180,
+    "includedQuantity": "500"
+  },
+  {
+    "packageCode": "BASIC",
+    "featureCode": "SHOW_AGREEMENT_E_SIGN",
+    "isIncluded": true,
+    "resetPeriod": "MONTHLY",
+    "isUnlimited": false,
+    "rolloverAllowed": false,
+    "configuration": null,
+    "displayOrder": 190,
+    "includedQuantity": "500"
+  }
 ];

@@ -52,6 +52,7 @@ type Tab =
   | "rider-fleet-mapping"
   | "rider-vendor-mapping"
   | "rider-earnings"
+  | "rider-document-review"
   | "zones"
   | "reports"
   | "feature-usage";
@@ -144,6 +145,7 @@ const CLIENT_NAVIGATION: Array<{
       { id: "rider-fleet-mapping", label: "Rider Fleet Mapping" },
       { id: "rider-vendor-mapping", label: "Rider Vendor Mapping" },
       { id: "rider-earnings", label: "Rider Earnings" },
+      { id: "rider-document-review", label: "Document Verification" },
     ],
   },
   {
@@ -187,6 +189,7 @@ const CLIENT_TAB_TITLES: Record<Tab, string> = {
   "rider-fleet-mapping": "Rider Fleet Mapping",
   "rider-vendor-mapping": "Rider Vendor Mapping",
   "rider-earnings": "Rider Earnings",
+  "rider-document-review": "Rider Document Verification",
   zones: "Zone",
   reports: "Reports",
   "feature-usage": "Feature Usage",
@@ -216,6 +219,7 @@ const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
   "rider-fleet-mapping": "link",
   "rider-vendor-mapping": "link",
   "rider-earnings": "earnings",
+  "rider-document-review": "shield",
   zones: "zone",
   reports: "reports",
   "feature-usage": "usage",
@@ -239,6 +243,7 @@ const ACTIVE_CLIENT_TABS = new Set<Tab>([
   "allocation-evidence",
   "deallocation-evidence",
   "rider-evidence",
+  "rider-document-review",
 ]);
 
 const PHOTO_EVIDENCE_TABS = new Set<Tab>([
@@ -247,6 +252,7 @@ const PHOTO_EVIDENCE_TABS = new Set<Tab>([
   "allocation-evidence",
   "deallocation-evidence",
   "rider-evidence",
+  "rider-document-review",
 ]);
 
 function evidenceEntityType(tab: Tab): PhotoRequirementEntityType {
@@ -631,6 +637,14 @@ function clientColumns(tab: Tab): ClientColumn<RecordItem>[] {
       text("mobile", "Mobile", (row) => row.mobile),
       status("status", "Status", (row) => row.status),
     ];
+    case "rider-document-review": return [
+      text("rider", "Rider", (row) => (row.rider as RecordItem | undefined)?.name ?? (row.user as RecordItem | undefined)?.name),
+      text("mobile", "Mobile", (row) => (row.rider as RecordItem | undefined)?.mobile ?? (row.user as RecordItem | undefined)?.mobile),
+      text("document", "Document", (row) => (row.feature as RecordItem | undefined)?.name ?? row.fieldCode),
+      text("file", "File", (row) => (row.photo as RecordItem | undefined)?.fileName),
+      text("uploaded", "Uploaded", (row) => row.createdAt ? new Date(String(row.createdAt)).toLocaleString() : "—"),
+      status("status", "Review status", (row) => row.status),
+    ];
     default: return [
       text("fleet", "Fleet", (row) => (row.fleet as RecordItem | undefined)?.vehicleNumber),
       text("rider", "Rider", (row) => (row.rider as RecordItem | undefined)?.name),
@@ -736,6 +750,8 @@ export default function Home() {
   const [mappingOptions, setMappingOptions] = useState({ fleets: [] as RecordItem[], devices: [] as RecordItem[], batteries: [] as RecordItem[], controllers: [] as RecordItem[] });
   const [showDetailIotForm, setShowDetailIotForm] = useState(false);
   const [showPhotoTypeForm, setShowPhotoTypeForm] = useState(false);
+  const [rejectingDocument, setRejectingDocument] = useState<RecordItem | null>(null);
+  const [documentRejectionReason, setDocumentRejectionReason] = useState("");
   const [ingestSecret, setIngestSecret] = useState("");
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState("");
@@ -839,6 +855,8 @@ export default function Home() {
         setItems(controllers);
       } else if (nextTab === "fleet-component-mapping") {
         setItems((await request("/fleets/component-mappings", {}, token)) as RecordItem[]);
+      } else if (nextTab === "rider-document-review") {
+        setItems((await request("/rider-documents", {}, token)) as RecordItem[]);
       } else if (nextTab === "locations") {
         setHubs((await request("/hubs", {}, token)) as RecordItem[]);
       } else if (PHOTO_EVIDENCE_TABS.has(nextTab)) {
@@ -942,6 +960,54 @@ export default function Home() {
       );
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function approveRiderDocument(id: string) {
+    setLoading(true);
+    setError("");
+    try {
+      await request(`/rider-documents/${id}/approve`, { method: "POST" }, token);
+      setNotice("Document approved.");
+      await loadView("rider-document-review");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to approve document.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function rejectRiderDocument(event: FormEvent) {
+    event.preventDefault();
+    if (!rejectingDocument) return;
+    setLoading(true);
+    setError("");
+    try {
+      await request(`/rider-documents/${String(rejectingDocument.id)}/reject`, {
+        method: "POST",
+        body: JSON.stringify({ rejectionReason: documentRejectionReason }),
+      }, token);
+      setRejectingDocument(null);
+      setDocumentRejectionReason("");
+      setNotice("Document rejected. The Rider will be asked to upload a replacement.");
+      await loadView("rider-document-review");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to reject document.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function downloadRiderDocument(item: RecordItem) {
+    const photo = item.photo as RecordItem | undefined;
+    if (!photo?.id) return;
+    setError("");
+    try {
+      const result = await request(`/media/${String(photo.id)}/download-url`, {}, token) as { url?: string };
+      if (!result.url) throw new Error("Document download is unavailable.");
+      window.open(result.url, "_blank", "noopener,noreferrer");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to open document.");
     }
   }
 
@@ -2895,6 +2961,7 @@ export default function Home() {
                   : tab === "iot-devices" ? (item) => <button className="secondary table-action" onClick={() => void openIotForm(item)}>Edit</button>
                   : tab === "batteries" || tab === "controllers" ? (item) => <button className="secondary table-action" onClick={() => void openExistingComponentForm(tab, item)}>Edit</button>
                   : tab === "fleet-component-mapping" ? (item) => <button className="secondary table-action" onClick={() => void openMappingForm(item)}>Edit</button>
+                  : tab === "rider-document-review" ? (item) => <><button className="secondary table-action" onClick={() => void downloadRiderDocument(item)}>View</button>{item.status === "PENDING" && <><button className="table-action" onClick={() => void approveRiderDocument(String(item.id))}>Approve</button><button className="danger table-action" onClick={() => { setDocumentRejectionReason(""); setRejectingDocument(item); }}>Reject</button></>}</>
                   : tab === "allocations" ? (item) => <>
                     <button className="secondary table-action" onClick={() => void openAllocationDetail(String(item.id))}>View</button>
                     <button className="secondary table-action" onClick={() => void openInspection(item)}>Inspect</button>
@@ -2995,6 +3062,7 @@ export default function Home() {
               </form></ClientFormDialog>}
         {fleetDetail && showDetailIotForm && <ClientFormDialog title="Register IoT device" busy={loading} error={error} onClose={() => setShowDetailIotForm(false)}><h2>Register IoT device</h2><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void registerIotDevice(String(fleetDetail.id)); }}><label>Device number *<input required value={iotDeviceNumber} onChange={(event) => setIotDeviceNumber(event.target.value)} /></label><div className="form-actions"><button disabled={loading}>Register device</button><button type="button" className="secondary" onClick={() => setShowDetailIotForm(false)}>Cancel</button></div></form></ClientFormDialog>}
         {componentForm && <ClientFormDialog title={`${editingComponentId ? "Edit" : "Add"} ${componentForm === "batteries" ? "battery" : "controller"}`} busy={loading} error={error} onClose={() => setComponentForm(null)}><h2>{editingComponentId ? "Edit" : "Add"} {componentForm === "batteries" ? "battery" : "controller"}</h2><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void saveComponent(componentFleetId, componentForm); }}><label>Fleet (optional)<select disabled={Boolean(editingComponentId)} value={componentFleetId} onChange={(event) => setComponentFleetId(event.target.value)}><option value="">Leave unassigned</option>{iotFleetOptions.map((fleet) => <option key={String(fleet.id)} value={String(fleet.id)}>{String(fleet.fleetCode ?? fleet.vehicleNumber ?? fleet.chassisNumber)}</option>)}</select></label><label>{componentForm === "batteries" ? "Battery serial number" : "Controller number"} *<input required value={componentSerial} onChange={(event) => setComponentSerial(event.target.value)} /></label><div className="form-grid"><label>Manufacturer<input value={componentDetails.manufacturer} onChange={(event) => setComponentDetails((current) => ({ ...current, manufacturer: event.target.value }))} /></label><label>Model<input value={componentDetails.model} onChange={(event) => setComponentDetails((current) => ({ ...current, model: event.target.value }))} /></label>{componentForm === "batteries" ? <><label>Battery code<input value={componentDetails.batteryCode} onChange={(event) => setComponentDetails((current) => ({ ...current, batteryCode: event.target.value }))} /></label><label>Battery type<select value={componentDetails.batteryType} onChange={(event) => setComponentDetails((current) => ({ ...current, batteryType: event.target.value }))}><option value="FIXED_SINGLE">Fixed single</option><option value="FIXED_DOUBLE">Fixed double</option><option value="SWAP_IF">Swap IF</option><option value="SWAP_BS">Swap BS</option><option value="SWAP_MOVING">Swap moving</option><option value="SWAP_OTHER">Swap other</option></select></label><label>Battery slot<select value={componentDetails.batterySlot} onChange={(event) => setComponentDetails((current) => ({ ...current, batterySlot: event.target.value }))}><option value="PRIMARY">Primary</option><option value="SECONDARY">Secondary</option></select></label><label>Chemistry<input value={componentDetails.chemistry} onChange={(event) => setComponentDetails((current) => ({ ...current, chemistry: event.target.value }))} placeholder="LFP, NMC, LTO…" /></label><label>Capacity (kWh)<input type="number" min="0" step="0.001" value={componentDetails.capacityKwh} onChange={(event) => setComponentDetails((current) => ({ ...current, capacityKwh: event.target.value }))} /></label><label>Voltage<input type="number" min="0" step="0.01" value={componentDetails.voltage} onChange={(event) => setComponentDetails((current) => ({ ...current, voltage: event.target.value }))} /></label><label>Amp hour<input type="number" min="0" step="0.01" value={componentDetails.ampHour} onChange={(event) => setComponentDetails((current) => ({ ...current, ampHour: event.target.value }))} /></label><label>Installed odometer (km)<input type="number" min="0" step="0.01" value={componentDetails.installedOdometerKm} onChange={(event) => setComponentDetails((current) => ({ ...current, installedOdometerKm: event.target.value }))} /></label><label>Manufacturing date<input type="date" value={componentDetails.manufacturingDate} onChange={(event) => setComponentDetails((current) => ({ ...current, manufacturingDate: event.target.value }))} /></label><label>Warranty start date<input type="date" value={componentDetails.warrantyStartDate} onChange={(event) => setComponentDetails((current) => ({ ...current, warrantyStartDate: event.target.value }))} /></label><label>Warranty end date<input type="date" value={componentDetails.warrantyEndDate} onChange={(event) => setComponentDetails((current) => ({ ...current, warrantyEndDate: event.target.value }))} /></label></> : <><label>Rated voltage<input type="number" min="0" step="0.01" value={componentDetails.ratedVoltage} onChange={(event) => setComponentDetails((current) => ({ ...current, ratedVoltage: event.target.value }))} /></label><label>Rated current<input type="number" min="0" step="0.01" value={componentDetails.ratedCurrent} onChange={(event) => setComponentDetails((current) => ({ ...current, ratedCurrent: event.target.value }))} /></label></>}</div><div className="form-actions"><button disabled={loading || !componentSerial.trim()}>{editingComponentId ? "Save" : "Add"} {componentForm === "batteries" ? "battery" : "controller"}</button><button type="button" className="secondary" onClick={() => setComponentForm(null)}>Cancel</button></div></form></ClientFormDialog>}
+        {rejectingDocument && <ClientFormDialog title="Reject rider document" busy={loading} error={error} onClose={() => setRejectingDocument(null)}><form className="form-stack" onSubmit={rejectRiderDocument}><p className="muted">Provide a clear reason so the Rider knows what to correct before uploading a replacement.</p><label>Rejection reason *<textarea required minLength={3} maxLength={1000} value={documentRejectionReason} onChange={(event) => setDocumentRejectionReason(event.target.value)} placeholder="For example, document is blurred or does not match the submitted details." /></label><div className="form-actions"><button className="danger" disabled={loading || !documentRejectionReason.trim()}>Reject document</button><button type="button" className="secondary" onClick={() => setRejectingDocument(null)}>Cancel</button></div></form></ClientFormDialog>}
         {showMappingForm && <ClientFormDialog title="Fleet Component Mapping" busy={loading} error={error} onClose={() => setShowMappingForm(false)}><form className="form-stack" onSubmit={saveMapping}><h2>Map Fleet components</h2><label>Fleet *<select required value={mappingFleetId} onChange={(event) => setMappingFleetId(event.target.value)}><option value="">Select Fleet</option>{mappingOptions.fleets.map((fleet) => <option key={String(fleet.id)} value={String(fleet.id)}>{String(fleet.fleetCode ?? fleet.vehicleNumber)}</option>)}</select></label><div className="form-grid"><label>IoT device<select value={mappingIotId} onChange={(event) => setMappingIotId(event.target.value)}><option value="">Unassigned</option>{mappingOptions.devices.map((device) => <option key={String(device.id)} value={String(device.id)}>{String(device.deviceNumber)}</option>)}</select></label><label>Controller<select value={mappingControllerId} onChange={(event) => setMappingControllerId(event.target.value)}><option value="">Unassigned</option>{mappingOptions.controllers.map((controller) => <option key={String(controller.id)} value={String(controller.id)}>{String(controller.controllerNumber)}</option>)}</select></label><label>Primary battery<select value={mappingBatteryIds[0] ?? ""} onChange={(event) => setMappingBatteryIds((current) => [event.target.value, current[1]].filter(Boolean))}><option value="">Unassigned</option>{mappingOptions.batteries.map((battery) => <option key={String(battery.id)} value={String(battery.id)}>{String(battery.batteryCode ?? battery.serialNumber)}</option>)}</select></label><label>Secondary battery<select value={mappingBatteryIds[1] ?? ""} onChange={(event) => setMappingBatteryIds((current) => [current[0], event.target.value].filter(Boolean))}><option value="">Unassigned</option>{mappingOptions.batteries.map((battery) => <option key={String(battery.id)} value={String(battery.id)}>{String(battery.batteryCode ?? battery.serialNumber)}</option>)}</select></label></div><div className="form-actions"><button disabled={loading || !mappingFleetId}>Save mapping</button><button type="button" className="secondary" onClick={() => setShowMappingForm(false)}>Cancel</button></div></form></ClientFormDialog>}
         <ClientDeleteDialog confirmation={deleteConfirmation} busy={loading} onClose={() => setDeleteConfirmation(null)} />
         <footer className="client-operations-footer">Powered by EV Spares India Pvt Ltd</footer>
