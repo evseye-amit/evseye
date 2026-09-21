@@ -328,6 +328,45 @@ async function main() {
       });
     }
 
+    // A client workspace requires its designated Account Admin to be able to
+    // sign in. Keep this user derived from the same source record as the
+    // contact rather than maintaining a separate, drifting credential seed.
+    const accountAdmin = clientSeed.contacts.find(
+      (contact) => contact.role === 'ACCOUNT_ADMIN',
+    );
+    if (accountAdmin?.mobile) {
+      const normalizedMobile = (() => {
+        const digits = accountAdmin.mobile.replace(/\D/g, '');
+        const local = /^\d{10}$/.test(digits)
+          ? digits
+          : /^0(\d{10})$/.exec(digits)?.[1] ?? /^91(\d{10})$/.exec(digits)?.[1];
+        return local && /^[6-9]\d{9}$/.test(local)
+          ? `+91${local}`
+          : accountAdmin.mobile.trim();
+      })();
+      await prisma.user.upsert({
+        where: {
+          clientId_mobile: {
+            clientId: client.id,
+            mobile: normalizedMobile,
+          },
+        },
+        create: {
+          clientId: client.id,
+          name: accountAdmin.name,
+          mobile: normalizedMobile,
+          role: UserRole.CLIENT_ADMIN,
+          isActive: true,
+        },
+        update: {
+          name: accountAdmin.name,
+          role: UserRole.CLIENT_ADMIN,
+          isActive: true,
+          deletedAt: null,
+        },
+      });
+    }
+
     for (const address of clientSeed.addresses) {
       await prisma.clientAddress.upsert({
         where: { clientId_type: { clientId: client.id, type: address.type } },

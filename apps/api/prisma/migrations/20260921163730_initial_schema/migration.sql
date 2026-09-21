@@ -26,13 +26,16 @@ CREATE TYPE "ClientOnboardingStep" AS ENUM ('HUBS', 'FLEET_MANAGERS', 'TEAM_LEAD
 CREATE TYPE "ClientOnboardingStepStatus" AS ENUM ('NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'SKIPPED');
 
 -- CreateEnum
-CREATE TYPE "ImportEntityType" AS ENUM ('HUB', 'FLEET_MANAGER', 'TEAM_LEADER', 'FLEET', 'RIDER');
+CREATE TYPE "ImportEntityType" AS ENUM ('HUB', 'FLEET_MANAGER', 'TEAM_LEADER', 'FLEET', 'BATTERY', 'CONTROLLER', 'IOT_DEVICE', 'FLEET_COMPONENT_MAPPING', 'RIDER');
 
 -- CreateEnum
 CREATE TYPE "ImportStatus" AS ENUM ('PASS', 'PARTIAL_PASS', 'FAIL');
 
 -- CreateEnum
-CREATE TYPE "PhotoEntityType" AS ENUM ('RIDER', 'FLEET', 'BATTERY', 'CONTROLLER', 'INSPECTION');
+CREATE TYPE "PhotoEntityType" AS ENUM ('RIDER', 'FLEET', 'BATTERY', 'CONTROLLER', 'IOT_DEVICE', 'INSPECTION', 'RIDER_ONBOARDING');
+
+-- CreateEnum
+CREATE TYPE "RiderDocumentReviewStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED', 'SUPERSEDED');
 
 -- CreateEnum
 CREATE TYPE "PhotoStatus" AS ENUM ('PENDING_UPLOAD', 'COMPLETE', 'FAILED', 'DELETED');
@@ -90,6 +93,12 @@ CREATE TYPE "InspectionType" AS ENUM ('PRE_ALLOCATION', 'POST_DEALLOCATION');
 
 -- CreateEnum
 CREATE TYPE "InspectionStatus" AS ENUM ('DRAFT', 'IN_PROGRESS', 'COMPLETED', 'REJECTED');
+
+-- CreateEnum
+CREATE TYPE "MobileDeploymentStatus" AS ENUM ('RIDER_WAITING', 'FLEET_REQUESTED', 'PAYMENT_PENDING', 'PAYMENT_PAID', 'PDI_PENDING_RIDER', 'TRAINING_PENDING', 'DEVICE_PAIRING_PENDING', 'DEPLOYED');
+
+-- CreateEnum
+CREATE TYPE "DeploymentPaymentStatus" AS ENUM ('PENDING', 'SUBMITTED', 'PAID', 'FAILED', 'CANCELLED');
 
 -- CreateEnum
 CREATE TYPE "IoTEventType" AS ENUM ('LOCATION', 'HEARTBEAT', 'START', 'STOP');
@@ -164,7 +173,7 @@ CREATE TYPE "FeatureCategory" AS ENUM ('LOGIN', 'RIDER_ONBOARDING', 'RIDER_VERIF
 CREATE TYPE "FeatureType" AS ENUM ('BOOLEAN', 'QUANTITY', 'USAGE_BASED', 'CONFIGURATION');
 
 -- CreateEnum
-CREATE TYPE "FeatureBillingUnit" AS ENUM ('SMS', 'EMAIL', 'WHATSAPP_MESSAGE', 'VERIFICATION', 'RIDER', 'VEHICLE', 'FLEET', 'USER', 'API_CALL', 'FACE_SCAN', 'TRAINING', 'DEVICE', 'GB', 'MONTH', 'AI_CREDIT', 'LIFE_TIME');
+CREATE TYPE "FeatureBillingUnit" AS ENUM ('SMS', 'EMAIL', 'UPLOAD', 'WHATSAPP_MESSAGE', 'VERIFICATION', 'RIDER', 'VEHICLE', 'FLEET', 'USER', 'API_CALL', 'FACE_SCAN', 'TRAINING', 'DEVICE', 'GB', 'MONTH', 'AI_CREDIT', 'LIFE_TIME');
 
 -- CreateEnum
 CREATE TYPE "ClientDomainType" AS ENUM ('EVSEYE_SUBDOMAIN', 'CUSTOM_DOMAIN');
@@ -238,14 +247,14 @@ CREATE TABLE "Package" (
     "description" TEXT,
     "setupFee" DECIMAL(12,2) NOT NULL DEFAULT 0,
     "currency" CHAR(3) NOT NULL DEFAULT 'INR',
-    "maxFleets" INTEGER NOT NULL DEFAULT 0,
-    "maxRiders" INTEGER NOT NULL DEFAULT 0,
-    "maxAdmins" INTEGER NOT NULL DEFAULT 0,
-    "maxFleetManagers" INTEGER NOT NULL DEFAULT 0,
-    "maxHubs" INTEGER NOT NULL DEFAULT 0,
-    "maxTeamLeaders" INTEGER NOT NULL DEFAULT 0,
-    "maxClusterManagers" INTEGER NOT NULL DEFAULT 0,
-    "maxUsers" INTEGER NOT NULL DEFAULT 0,
+    "maxFleets" INTEGER NOT NULL DEFAULT 2147483647,
+    "maxRiders" INTEGER NOT NULL DEFAULT 2147483647,
+    "maxAdmins" INTEGER NOT NULL DEFAULT 2147483647,
+    "maxFleetManagers" INTEGER NOT NULL DEFAULT 2147483647,
+    "maxHubs" INTEGER NOT NULL DEFAULT 2147483647,
+    "maxTeamLeaders" INTEGER NOT NULL DEFAULT 2147483647,
+    "maxClusterManagers" INTEGER NOT NULL DEFAULT 2147483647,
+    "maxUsers" INTEGER NOT NULL DEFAULT 2147483647,
     "trialDays" INTEGER NOT NULL DEFAULT 0,
     "displayOrder" INTEGER NOT NULL DEFAULT 0,
     "isCustom" BOOLEAN NOT NULL DEFAULT false,
@@ -355,6 +364,7 @@ CREATE TABLE "FeatureAddOn" (
     "quantity" DECIMAL(18,4) NOT NULL,
     "costPrice" DECIMAL(14,4),
     "salePrice" DECIMAL(14,4) NOT NULL,
+    "discount" DECIMAL(5,2) NOT NULL DEFAULT 0,
     "currency" CHAR(3) NOT NULL DEFAULT 'INR',
     "validityDays" INTEGER,
     "isActive" BOOLEAN NOT NULL DEFAULT true,
@@ -364,6 +374,23 @@ CREATE TABLE "FeatureAddOn" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "FeatureAddOn_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "TrainingContent" (
+    "id" TEXT NOT NULL,
+    "featureId" TEXT NOT NULL,
+    "code" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "description" TEXT,
+    "imageObjectKey" VARCHAR(500) NOT NULL,
+    "isMandatory" BOOLEAN NOT NULL DEFAULT true,
+    "displayOrder" INTEGER NOT NULL DEFAULT 0,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "TrainingContent_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -981,6 +1008,23 @@ CREATE TABLE "Rider" (
 );
 
 -- CreateTable
+CREATE TABLE "RiderOnboardingProgress" (
+    "id" TEXT NOT NULL,
+    "clientId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "packageId" TEXT NOT NULL,
+    "currentStepId" TEXT,
+    "completedStepIds" JSONB NOT NULL DEFAULT '[]',
+    "skippedStepIds" JSONB NOT NULL DEFAULT '[]',
+    "values" JSONB NOT NULL DEFAULT '{}',
+    "completedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "RiderOnboardingProgress_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "UserHub" (
     "id" TEXT NOT NULL,
     "clientId" TEXT NOT NULL,
@@ -1094,6 +1138,53 @@ CREATE TABLE "Allocation" (
 );
 
 -- CreateTable
+CREATE TABLE "MobileDeploymentWorkflow" (
+    "id" TEXT NOT NULL,
+    "clientId" TEXT NOT NULL,
+    "allocationId" TEXT NOT NULL,
+    "status" "MobileDeploymentStatus" NOT NULL DEFAULT 'RIDER_WAITING',
+    "paymentBreakdown" JSONB,
+    "paymentPaidAt" TIMESTAMP(3),
+    "pdiChecklist" JSONB,
+    "workPartnerName" TEXT,
+    "riderPdiAcceptedAt" TIMESTAMP(3),
+    "riderPdiRemarksText" TEXT,
+    "riderPdiVoicePhotoId" TEXT,
+    "trainingViewedContentCodes" JSONB NOT NULL DEFAULT '[]',
+    "trainingCompletedAt" TIMESTAMP(3),
+    "pairedAt" TIMESTAMP(3),
+    "pairingBypassedAt" TIMESTAMP(3),
+    "pairingBypassedById" TEXT,
+    "pairingBypassReason" TEXT,
+    "pairingHealthSnapshot" JSONB,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "MobileDeploymentWorkflow_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "DeploymentPayment" (
+    "id" TEXT NOT NULL,
+    "clientId" TEXT NOT NULL,
+    "workflowId" TEXT NOT NULL,
+    "status" "DeploymentPaymentStatus" NOT NULL DEFAULT 'PENDING',
+    "currency" CHAR(3) NOT NULL DEFAULT 'INR',
+    "amount" DECIMAL(14,2) NOT NULL,
+    "breakdown" JSONB NOT NULL,
+    "provider" TEXT,
+    "providerReference" TEXT,
+    "submittedAt" TIMESTAMP(3),
+    "verifiedAt" TIMESTAMP(3),
+    "verifiedById" TEXT,
+    "paidAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "DeploymentPayment_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "Inspection" (
     "id" TEXT NOT NULL,
     "clientId" TEXT NOT NULL,
@@ -1144,6 +1235,26 @@ CREATE TABLE "Photo" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "Photo_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "RiderOnboardingDocument" (
+    "id" TEXT NOT NULL,
+    "clientId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "riderId" TEXT,
+    "featureId" TEXT NOT NULL,
+    "fieldCode" TEXT NOT NULL,
+    "photoId" TEXT NOT NULL,
+    "status" "RiderDocumentReviewStatus" NOT NULL DEFAULT 'PENDING',
+    "rejectionReason" TEXT,
+    "reviewedById" TEXT,
+    "reviewedAt" TIMESTAMP(3),
+    "supersededAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "RiderOnboardingDocument_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -1305,6 +1416,12 @@ CREATE UNIQUE INDEX "FeatureAddOn_code_key" ON "FeatureAddOn"("code");
 
 -- CreateIndex
 CREATE INDEX "FeatureAddOn_featureId_isActive_effectiveFrom_idx" ON "FeatureAddOn"("featureId", "isActive", "effectiveFrom");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TrainingContent_code_key" ON "TrainingContent"("code");
+
+-- CreateIndex
+CREATE INDEX "TrainingContent_featureId_isActive_displayOrder_idx" ON "TrainingContent"("featureId", "isActive", "displayOrder");
 
 -- CreateIndex
 CREATE INDEX "PackageFeatureAddOn_featureAddOnId_isAvailable_idx" ON "PackageFeatureAddOn"("featureAddOnId", "isAvailable");
@@ -1532,6 +1649,12 @@ CREATE UNIQUE INDEX "Rider_clientId_mobile_key" ON "Rider"("clientId", "mobile")
 CREATE UNIQUE INDEX "Rider_clientId_riderCode_key" ON "Rider"("clientId", "riderCode");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "RiderOnboardingProgress_userId_key" ON "RiderOnboardingProgress"("userId");
+
+-- CreateIndex
+CREATE INDEX "RiderOnboardingProgress_clientId_packageId_idx" ON "RiderOnboardingProgress"("clientId", "packageId");
+
+-- CreateIndex
 CREATE INDEX "UserHub_clientId_hubId_idx" ON "UserHub"("clientId", "hubId");
 
 -- CreateIndex
@@ -1580,6 +1703,21 @@ CREATE INDEX "Allocation_clientId_riderId_status_idx" ON "Allocation"("clientId"
 CREATE UNIQUE INDEX "Allocation_clientId_idempotencyKey_key" ON "Allocation"("clientId", "idempotencyKey");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "MobileDeploymentWorkflow_allocationId_key" ON "MobileDeploymentWorkflow"("allocationId");
+
+-- CreateIndex
+CREATE INDEX "MobileDeploymentWorkflow_clientId_status_idx" ON "MobileDeploymentWorkflow"("clientId", "status");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "DeploymentPayment_workflowId_key" ON "DeploymentPayment"("workflowId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "DeploymentPayment_providerReference_key" ON "DeploymentPayment"("providerReference");
+
+-- CreateIndex
+CREATE INDEX "DeploymentPayment_clientId_status_idx" ON "DeploymentPayment"("clientId", "status");
+
+-- CreateIndex
 CREATE INDEX "Inspection_clientId_status_idx" ON "Inspection"("clientId", "status");
 
 -- CreateIndex
@@ -1602,6 +1740,18 @@ CREATE INDEX "Photo_clientId_entityType_entityId_idx" ON "Photo"("clientId", "en
 
 -- CreateIndex
 CREATE INDEX "Photo_clientId_status_idx" ON "Photo"("clientId", "status");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "RiderOnboardingDocument_photoId_key" ON "RiderOnboardingDocument"("photoId");
+
+-- CreateIndex
+CREATE INDEX "RiderOnboardingDocument_clientId_userId_fieldCode_status_idx" ON "RiderOnboardingDocument"("clientId", "userId", "fieldCode", "status");
+
+-- CreateIndex
+CREATE INDEX "RiderOnboardingDocument_clientId_riderId_status_idx" ON "RiderOnboardingDocument"("clientId", "riderId", "status");
+
+-- CreateIndex
+CREATE INDEX "RiderOnboardingDocument_clientId_status_createdAt_idx" ON "RiderOnboardingDocument"("clientId", "status", "createdAt");
 
 -- CreateIndex
 CREATE INDEX "PhotoRequirement_clientId_entityType_sortOrder_idx" ON "PhotoRequirement"("clientId", "entityType", "sortOrder");
@@ -1659,6 +1809,9 @@ ALTER TABLE "PackageVehicleTierPricing" ADD CONSTRAINT "PackageVehicleTierPricin
 
 -- AddForeignKey
 ALTER TABLE "FeatureAddOn" ADD CONSTRAINT "FeatureAddOn_featureId_fkey" FOREIGN KEY ("featureId") REFERENCES "Feature"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "TrainingContent" ADD CONSTRAINT "TrainingContent_featureId_fkey" FOREIGN KEY ("featureId") REFERENCES "Feature"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "PackageFeatureAddOn" ADD CONSTRAINT "PackageFeatureAddOn_packageId_fkey" FOREIGN KEY ("packageId") REFERENCES "Package"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -1835,6 +1988,12 @@ ALTER TABLE "Rider" ADD CONSTRAINT "Rider_clientId_fkey" FOREIGN KEY ("clientId"
 ALTER TABLE "Rider" ADD CONSTRAINT "Rider_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "RiderOnboardingProgress" ADD CONSTRAINT "RiderOnboardingProgress_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "RiderOnboardingProgress" ADD CONSTRAINT "RiderOnboardingProgress_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "UserHub" ADD CONSTRAINT "UserHub_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -1877,6 +2036,12 @@ ALTER TABLE "Allocation" ADD CONSTRAINT "Allocation_fleetId_fkey" FOREIGN KEY ("
 ALTER TABLE "Allocation" ADD CONSTRAINT "Allocation_riderId_fkey" FOREIGN KEY ("riderId") REFERENCES "Rider"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "MobileDeploymentWorkflow" ADD CONSTRAINT "MobileDeploymentWorkflow_allocationId_fkey" FOREIGN KEY ("allocationId") REFERENCES "Allocation"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "DeploymentPayment" ADD CONSTRAINT "DeploymentPayment_workflowId_fkey" FOREIGN KEY ("workflowId") REFERENCES "MobileDeploymentWorkflow"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "Inspection" ADD CONSTRAINT "Inspection_allocationId_fkey" FOREIGN KEY ("allocationId") REFERENCES "Allocation"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -1884,6 +2049,21 @@ ALTER TABLE "RiderKyc" ADD CONSTRAINT "RiderKyc_riderId_fkey" FOREIGN KEY ("ride
 
 -- AddForeignKey
 ALTER TABLE "Photo" ADD CONSTRAINT "Photo_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "RiderOnboardingDocument" ADD CONSTRAINT "RiderOnboardingDocument_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "RiderOnboardingDocument" ADD CONSTRAINT "RiderOnboardingDocument_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "RiderOnboardingDocument" ADD CONSTRAINT "RiderOnboardingDocument_riderId_fkey" FOREIGN KEY ("riderId") REFERENCES "Rider"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "RiderOnboardingDocument" ADD CONSTRAINT "RiderOnboardingDocument_featureId_fkey" FOREIGN KEY ("featureId") REFERENCES "Feature"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "RiderOnboardingDocument" ADD CONSTRAINT "RiderOnboardingDocument_photoId_fkey" FOREIGN KEY ("photoId") REFERENCES "Photo"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Session" ADD CONSTRAINT "Session_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;

@@ -1,1 +1,0 @@
-ALTER TYPE "PhotoEntityType" ADD VALUE 'IOT_DEVICE';
