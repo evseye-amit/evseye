@@ -689,7 +689,6 @@ export class PlatformAdminService {
 
   async createClient(dto: CreateClientDto, actorId: string) {
     if (!validClientSlug(dto.slug)) throw new BadRequestException('Use a URL-safe client slug that is not reserved.');
-    await assertUserMobileAvailable(this.prisma, dto.adminMobile);
     try {
       const client = await this.prisma.$transaction(async (tx) => {
         const created = await tx.client.create({
@@ -1253,7 +1252,7 @@ export class PlatformAdminService {
       throw new UnprocessableEntityException(
         'Account Admin mobile number is required.',
       );
-    await assertUserMobileAvailable(this.prisma, admin.mobile);
+    await assertUserMobileAvailable(this.prisma, clientId, admin.mobile);
     try {
       await this.prisma.$transaction(async (tx) => {
         await tx.user.create({

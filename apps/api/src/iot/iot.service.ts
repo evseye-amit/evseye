@@ -31,6 +31,14 @@ export class IotService {
     clientId: string,
     fleetId: string,
     deviceNumber: string,
+    details?: {
+      imei?: string;
+      simNumber?: string;
+      iccid?: string;
+      provider?: string;
+      model?: string;
+      installedAt?: string;
+    },
   ) {
     const fleet = await this.prisma.fleet.findFirst({
       where: { id: fleetId, clientId, deletedAt: null },
@@ -42,9 +50,17 @@ export class IotService {
       const device = await this.prisma.ioTDevice.create({
         data: {
           clientId,
-          deviceNumber,
+          deviceNumber: deviceNumber.trim(),
+          imei: details?.imei?.trim() || undefined,
+          simNumber: details?.simNumber?.trim() || undefined,
+          iccid: details?.iccid?.trim() || undefined,
+          provider: details?.provider?.trim() || undefined,
+          model: details?.model?.trim() || undefined,
           ingestSecretHash: this.hashSecret(ingestSecret),
           status: IoTDeviceStatus.ACTIVE,
+          installedAt: details?.installedAt
+            ? new Date(details.installedAt)
+            : undefined,
           activatedAt: new Date(),
         },
       });
@@ -84,6 +100,68 @@ export class IotService {
       },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  async updateDevice(
+    clientId: string,
+    id: string,
+    details: {
+      deviceNumber?: string;
+      imei?: string;
+      simNumber?: string;
+      iccid?: string;
+      provider?: string;
+      model?: string;
+      installedAt?: string;
+    },
+  ) {
+    const device = await this.prisma.ioTDevice.findFirst({
+      where: { id, clientId },
+      select: { id: true },
+    });
+    if (!device) throw new NotFoundException('IoT device not found.');
+    try {
+      return await this.prisma.ioTDevice.update({
+        where: { id },
+        data: {
+          deviceNumber: details.deviceNumber?.trim() || undefined,
+          imei:
+            details.imei === undefined ? undefined : details.imei.trim() || null,
+          simNumber:
+            details.simNumber === undefined
+              ? undefined
+              : details.simNumber.trim() || null,
+          iccid:
+            details.iccid === undefined
+              ? undefined
+              : details.iccid.trim() || null,
+          provider:
+            details.provider === undefined
+              ? undefined
+              : details.provider.trim() || null,
+          model:
+            details.model === undefined
+              ? undefined
+              : details.model.trim() || null,
+          installedAt:
+            details.installedAt === undefined
+              ? undefined
+              : details.installedAt
+                ? new Date(details.installedAt)
+                : null,
+        },
+      });
+    } catch (error) {
+      if (
+        typeof error === 'object' &&
+        error &&
+        'code' in error &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException('Device number is already registered.');
+      }
+      throw error;
+    }
   }
 
   async ingest(

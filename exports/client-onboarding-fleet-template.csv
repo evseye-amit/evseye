@@ -1,0 +1,2 @@
+fleetCode,vehicleNumber,chassisNumber,vinNumber,oemCode,vehicleCategoryCode,vehicleTypeCode,speedType,homeHubCode,modelName,variantName,colour,motorNumber,manufacturingYear,manufacturingMonth,ownershipType,odometerKm,registrationDate,registeringAuthority,rcExpiryDate,insuranceProviderName,insurancePolicyNumber,insuranceType,insuranceStartDate,insuranceEndDate,fitnessCertificateNumber,fitnessExpiryDate
+FLT-0001,DL01EV0001,ME4JF123456789001,,ZELIO,2W,E_SCOOTER_ELECTRIC,HIGH_SPEED,HUB-DEL-01,Gracy,,White,,2025,6,CLIENT_OWNED,0,,,,,,,,,,

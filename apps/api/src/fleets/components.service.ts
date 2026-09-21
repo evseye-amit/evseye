@@ -182,4 +182,90 @@ export class ComponentsService {
       throw e;
     }
   }
+
+  async updateBattery(
+    clientId: string,
+    fleetId: string,
+    batteryId: string,
+    data: Parameters<ComponentsService['addBattery']>[2],
+  ) {
+    const installed = await this.prisma.fleetBatteryHistory.findFirst({
+      where: { fleetId, batteryId, removedAt: null, battery: { clientId } },
+      select: { id: true },
+    });
+    if (!installed) throw new NotFoundException('Installed battery not found.');
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const battery = await tx.battery.update({
+          where: { id: batteryId },
+          data: {
+            serialNumber: data.serialNumber.trim().toUpperCase(),
+            batteryCode: data.batteryCode?.trim() || null,
+            batteryType: data.batteryType,
+            manufacturer: data.manufacturer?.trim() || null,
+            model: data.model?.trim() || null,
+            chemistry: data.chemistry,
+            capacityKwh: data.capacityKwh,
+            voltage: data.voltage,
+            ampHour: data.ampHour,
+            manufacturingDate: data.manufacturingDate
+              ? new Date(data.manufacturingDate)
+              : null,
+            warrantyStartDate: data.warrantyStartDate
+              ? new Date(data.warrantyStartDate)
+              : null,
+            warrantyEndDate: data.warrantyEndDate
+              ? new Date(data.warrantyEndDate)
+              : null,
+          },
+        });
+        if (data.batterySlot) {
+          await tx.fleetBatteryHistory.update({
+            where: { id: installed.id },
+            data: { batterySlot: data.batterySlot },
+          });
+        }
+        return battery;
+      });
+    } catch (e) {
+      if (typeof e === 'object' && e && 'code' in e && e.code === 'P2002')
+        throw new ConflictException('Battery serial number or code already exists.');
+      throw e;
+    }
+  }
+
+  async updateController(
+    clientId: string,
+    fleetId: string,
+    controllerId: string,
+    data: Parameters<ComponentsService['addController']>[2],
+  ) {
+    const installed = await this.prisma.fleetControllerHistory.findFirst({
+      where: {
+        fleetId,
+        controllerId,
+        removedAt: null,
+        controller: { clientId },
+      },
+      select: { id: true },
+    });
+    if (!installed)
+      throw new NotFoundException('Installed controller not found.');
+    try {
+      return await this.prisma.controller.update({
+        where: { id: controllerId },
+        data: {
+          controllerNumber: data.controllerNumber.trim().toUpperCase(),
+          manufacturer: data.manufacturer?.trim() || null,
+          model: data.model?.trim() || null,
+          ratedVoltage: data.ratedVoltage,
+          ratedCurrent: data.ratedCurrent,
+        },
+      });
+    } catch (e) {
+      if (typeof e === 'object' && e && 'code' in e && e.code === 'P2002')
+        throw new ConflictException('Controller number already exists.');
+      throw e;
+    }
+  }
 }

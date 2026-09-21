@@ -1,0 +1,10 @@
+id,code,name,description,status,displayOrder,createdAt,updatedAt
+5f85b944-74fa-4ebf-8d65-d53789a8f011,2W,Two Wheeler,"Two-wheeled vehicles such as motorcycles, scooters and mopeds",ACTIVE,10,2026-09-13 10:27:58.283,2026-09-14 05:55:00.223
+44dc50b4-ebac-4690-acde-21cc11e76f4e,3W,Three Wheeler,Three-wheeled passenger and cargo vehicles including auto-rickshaws and e-rickshaws,ACTIVE,20,2026-09-13 10:27:58.285,2026-09-14 05:55:00.227
+4359f4cf-32a5-49f8-ac3d-a248f9fcadf3,4W,Four Wheeler,"Four-wheeled passenger and light commercial vehicles including cars, SUVs, vans and pickups",ACTIVE,30,2026-09-13 10:27:58.286,2026-09-14 05:55:00.227
+2e583f12-ac52-4a89-9d90-4d9a432bd055,BUS,Bus,"Passenger transport vehicles including minibuses, city buses, school buses and coaches",ACTIVE,40,2026-09-13 10:27:58.286,2026-09-14 05:55:00.226
+c3235e2e-7ef0-4616-ba69-2970539d36bb,TRUCK,Truck,"Medium and heavy commercial goods vehicles including trucks, tippers and tankers",ACTIVE,50,2026-09-13 10:27:58.291,2026-09-14 05:55:00.226
+a3015ee7-1155-49bc-bba3-2c6a80ae861e,TRACTOR,Tractor,Agricultural and commercial tractors,ACTIVE,60,2026-09-13 10:27:58.289,2026-09-14 05:55:00.226
+3e432ca0-406f-48ef-a098-7bbd7c00c833,TRAILER,Trailer,"Towed vehicles including agricultural trailers, semi-trailers and commercial trailers",ACTIVE,70,2026-09-13 10:27:58.286,2026-09-14 05:55:00.227
+1c7f3da2-d827-45de-80dd-c6a3ad67bcfe,CEV,Construction Equipment Vehicle,"Construction and earth-moving vehicles such as excavators, dumpers, cranes and road rollers",ACTIVE,80,2026-09-13 10:27:58.289,2026-09-14 05:55:00.227
+7a2d45a5-7710-41cc-befd-b716d8b2c3a0,SPV,Special Purpose Vehicle,"Special-purpose vehicles such as ambulances, fire tenders, recovery vehicles and mobile workshops",ACTIVE,90,2026-09-13 10:27:58.292,2026-09-14 05:55:00.229

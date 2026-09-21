@@ -79,6 +79,7 @@ describe('FleetsService onboarding evidence', () => {
             { battery: { id: 'battery-1', serialNumber: 'BAT-001' } },
           ],
           controllerHistory: [],
+          iotDevice: { id: 'iot-1', deviceNumber: 'IOT-001' },
         }),
       },
       photoRequirement: {
@@ -87,6 +88,14 @@ describe('FleetsService onboarding evidence', () => {
           { entityType: PhotoEntityType.FLEET, photoType: 'FRONT' },
           { entityType: PhotoEntityType.FLEET, photoType: 'REAR' },
           { entityType: PhotoEntityType.BATTERY, photoType: 'LABEL' },
+          {
+            entityType: PhotoEntityType.IOT_DEVICE,
+            photoType: 'INSTALLATION',
+          },
+          {
+            entityType: PhotoEntityType.IOT_DEVICE,
+            photoType: 'SERIAL_LABEL',
+          },
         ]),
       },
       photo: {
@@ -100,6 +109,11 @@ describe('FleetsService onboarding evidence', () => {
             entityType: PhotoEntityType.BATTERY,
             entityId: 'battery-1',
             photoType: 'LABEL',
+          },
+          {
+            entityType: PhotoEntityType.IOT_DEVICE,
+            entityId: 'iot-1',
+            photoType: 'INSTALLATION',
           },
         ]),
       },
@@ -128,6 +142,15 @@ describe('FleetsService onboarding evidence', () => {
           completedPhotoTypes: ['LABEL'],
           missingPhotoTypes: [],
           ready: true,
+        },
+        {
+          entityType: PhotoEntityType.IOT_DEVICE,
+          entityId: 'iot-1',
+          label: 'IOT-001',
+          requiredPhotoTypes: ['INSTALLATION', 'SERIAL_LABEL'],
+          completedPhotoTypes: ['INSTALLATION'],
+          missingPhotoTypes: ['SERIAL_LABEL'],
+          ready: false,
         },
       ],
     });

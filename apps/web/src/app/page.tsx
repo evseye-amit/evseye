@@ -1,13 +1,17 @@
 "use client";
 import { sessionFetch as fetch } from "../lib/session-fetch";
 import {
+  enumOptionLabel,
+  fleetOwnershipTypes,
+  insuranceTypes,
   kycTypes,
   photoEntityTypeLabel,
   photoEntityTypes,
   riderStatuses,
+  vehicleSpeedTypes,
 } from "../lib/domain-enums";
 
-import { FormEvent, useEffect, useState } from "react";
+import { Dispatch, FormEvent, SetStateAction, useEffect, useState } from "react";
 import { OtpCodeInput } from "./components/otp-code-input";
 import { UiIcon, type IconName } from "./components/ui-icon";
 import { ClientDataTable, type ClientColumn } from "./components/client-data-table";
@@ -54,8 +58,35 @@ type PhotoRequirementEntityType =
   | "FLEET"
   | "BATTERY"
   | "CONTROLLER"
+  | "IOT_DEVICE"
   | "INSPECTION";
 type RecordItem = Record<string, unknown>;
+type FleetOnboardingOptions = {
+  oems: Array<{ id: string; code: string; displayName: string }>;
+  vehicleCategories: Array<{ id: string; code: string; name: string }>;
+  vehicleTypes: Array<{ id: string; categoryId: string; code: string; name: string; energyType: string }>;
+};
+type FleetForm = {
+  fleetCode: string; vehicleNumber: string; chassisNumber: string; vinNumber: string;
+  oemId: string; vehicleCategoryId: string; vehicleTypeId: string; speedType: string; homeHubId: string;
+  modelName: string; variantName: string; colour: string; motorNumber: string;
+  manufacturingYear: string; manufacturingMonth: string; ownershipType: string; odometerKm: string;
+  registrationDate: string; registeringAuthority: string; rcExpiryDate: string;
+  insuranceProviderName: string; insurancePolicyNumber: string; insuranceType: string;
+  insuranceStartDate: string; insuranceEndDate: string; fitnessCertificateNumber: string; fitnessExpiryDate: string;
+};
+const emptyFleetForm = (): FleetForm => ({
+  fleetCode: "", vehicleNumber: "", chassisNumber: "", vinNumber: "", oemId: "", vehicleCategoryId: "", vehicleTypeId: "", speedType: "", homeHubId: "",
+  modelName: "", variantName: "", colour: "", motorNumber: "", manufacturingYear: "", manufacturingMonth: "", ownershipType: "", odometerKm: "",
+  registrationDate: "", registeringAuthority: "", rcExpiryDate: "", insuranceProviderName: "", insurancePolicyNumber: "", insuranceType: "", insuranceStartDate: "", insuranceEndDate: "", fitnessCertificateNumber: "", fitnessExpiryDate: "",
+});
+const dateInputValue = (value: unknown) => value ? String(value).slice(0, 10) : "";
+function FleetTextInput({ label, field, form, setForm, required, ...input }: {
+  label: string; field: keyof FleetForm; form: FleetForm; setForm: Dispatch<SetStateAction<FleetForm>>; required?: boolean;
+  type?: string; min?: string; max?: string; step?: string; placeholder?: string;
+}) {
+  return <label>{label}{required ? " *" : ""}<input {...input} required={required} value={form[field]} onChange={(event) => setForm({ ...form, [field]: event.target.value })} /></label>;
+}
 type ClientBulkTab = "fleet-managers" | "team-leads" | "locations" | "fleets" | "riders";
 const CLIENT_BULK_CONFIG: Record<ClientBulkTab, { title: string; requiredColumns: string; template: string; resource: string; entityType: string }> = {
   "fleet-managers": { title: "Fleet Managers", requiredColumns: "name, mobile, hubCodes, primaryHubCode", template: "name,mobile,hubCodes,primaryHubCode\n", resource: "/client/users/fleet-managers", entityType: "FLEET_MANAGER" },
@@ -71,7 +102,7 @@ const CLIENT_NAVIGATION: Array<{
 }> = [
   { label: "", items: [{ id: "dashboard", label: "Dashboard" }] },
   {
-    label: "User Management",
+    label: "Team Management",
     items: [
       { id: "fleet-managers", label: "Fleet Manager" },
       { id: "team-leads", label: "Team Lead" },
@@ -86,8 +117,6 @@ const CLIENT_NAVIGATION: Array<{
       { id: "batteries", label: "Battery" },
       { id: "fleet-iot-mapping", label: "Fleet IoT Mapping" },
       { id: "fleet-battery-mapping", label: "Fleet Battery Mapping" },
-      { id: "allocations", label: "Allocation" },
-      { id: "deallocations", label: "Deallocation" },
       { id: "evidence", label: "Photos & Evidence" },
     ],
   },
@@ -572,19 +601,10 @@ export default function Home() {
   const [bulkHistory, setBulkHistory] = useState<Array<ClientImportHistoryEntry & { tab: ClientBulkTab }>>([]);
   const [bulkHistoryLoading, setBulkHistoryLoading] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState<ClientDeleteConfirmation | null>(null);
-  const [newFleet, setNewFleet] = useState({
-    vehicleNumber: "",
-    chassisNumber: "",
-    hubId: "",
-    oem: "",
-    model: "",
-    colour: "",
-    vehicleType: "",
-    motorNumber: "",
-    registrationDate: "",
-    insuranceStartDate: "",
-    insuranceEndDate: "",
-    fitnessRenewalDate: "",
+  const [newFleet, setNewFleet] = useState<FleetForm>(emptyFleetForm);
+  const [editingFleetId, setEditingFleetId] = useState("");
+  const [fleetOptions, setFleetOptions] = useState<FleetOnboardingOptions>({
+    oems: [], vehicleCategories: [], vehicleTypes: [],
   });
   const [inspectionId, setInspectionId] = useState("");
   const [inspectionType, setInspectionType] = useState("PRE_ALLOCATION");
@@ -620,8 +640,6 @@ export default function Home() {
     status: "ONBOARDING",
   });
   const [fleetDetail, setFleetDetail] = useState<RecordItem | null>(null);
-  const [editingFleet, setEditingFleet] = useState(false);
-  const [fleetDraft, setFleetDraft] = useState({ vehicleNumber: "", chassisNumber: "", modelName: "", colour: "", motorNumber: "" });
   const [fleetOnboardingStatus, setFleetOnboardingStatus] =
     useState<RecordItem | null>(null);
   const [fleetPhotoRequirements, setFleetPhotoRequirements] = useState<
@@ -840,7 +858,7 @@ export default function Home() {
     }
   }
 
-  async function openAllocationForm() {
+  async function openAllocationForm(fleetId?: string) {
     setLoading(true);
     setError("");
     try {
@@ -858,6 +876,10 @@ export default function Home() {
       ]);
       setAvailableFleets(fleets.items);
       setActiveRiders(riders.items);
+      if (fleetId && !fleets.items.some((fleet) => String(fleet.id) === fleetId)) {
+        throw new Error("This fleet is no longer available for allocation.");
+      }
+      setAllocationFleetId(fleetId ?? "");
       setShowAllocationForm(true);
     } catch (cause) {
       setError(
@@ -904,42 +926,46 @@ export default function Home() {
     }
   }
 
-  async function createFleet(event: FormEvent) {
+  function fleetFormFromRecord(fleet: RecordItem): FleetForm {
+    const registration = (fleet.registration as RecordItem | undefined) ?? {};
+    const insurance = (fleet.insurance as RecordItem | undefined) ?? {};
+    const fitness = (fleet.fitness as RecordItem | undefined) ?? {};
+    const text = (value: unknown) => value === null || value === undefined ? "" : String(value);
+    return {
+      fleetCode: text(fleet.fleetCode), vehicleNumber: text(fleet.vehicleNumber), chassisNumber: text(fleet.chassisNumber), vinNumber: text(fleet.vinNumber),
+      oemId: text(fleet.oemId), vehicleCategoryId: text(fleet.vehicleCategoryId), vehicleTypeId: text(fleet.vehicleTypeId), speedType: text(fleet.speedType), homeHubId: text(fleet.homeHubId),
+      modelName: text(fleet.modelName), variantName: text(fleet.variantName), colour: text(fleet.colour), motorNumber: text(fleet.motorNumber),
+      manufacturingYear: text(fleet.manufacturingYear), manufacturingMonth: text(fleet.manufacturingMonth), ownershipType: text(fleet.ownershipType), odometerKm: text(fleet.odometerKm),
+      registrationDate: dateInputValue(registration.registrationDate), registeringAuthority: text(registration.registeringAuthority), rcExpiryDate: dateInputValue(registration.rcExpiryDate),
+      insuranceProviderName: text(insurance.providerName), insurancePolicyNumber: text(insurance.policyNumber), insuranceType: text(insurance.insuranceType), insuranceStartDate: dateInputValue(insurance.startDate), insuranceEndDate: dateInputValue(insurance.endDate),
+      fitnessCertificateNumber: text(fitness.certificateNumber), fitnessExpiryDate: dateInputValue(fitness.expiryDate),
+    };
+  }
+
+  async function saveFleetForm(event: FormEvent) {
     event.preventDefault();
     setLoading(true);
     setError("");
     try {
+      const payload = Object.fromEntries(Object.entries(newFleet).filter(([, value]) => value !== "")) as Record<string, string | number>;
+      for (const field of ["manufacturingYear", "manufacturingMonth", "odometerKm"]) {
+        if (payload[field] !== undefined) payload[field] = Number(payload[field]);
+      }
       await request(
-        "/fleets",
+        editingFleetId ? `/fleets/${editingFleetId}` : "/fleets",
         {
-          method: "POST",
-          body: JSON.stringify(
-            Object.fromEntries(
-              Object.entries(newFleet).filter(([, value]) => value !== ""),
-            ),
-          ),
+          method: editingFleetId ? "PATCH" : "POST",
+          body: JSON.stringify(payload),
         },
         token,
       );
       setShowFleetForm(false);
-      setNewFleet({
-        vehicleNumber: "",
-        chassisNumber: "",
-        hubId: "",
-        oem: "",
-        model: "",
-        colour: "",
-        vehicleType: "",
-        motorNumber: "",
-        registrationDate: "",
-        insuranceStartDate: "",
-        insuranceEndDate: "",
-        fitnessRenewalDate: "",
-      });
-      setNotice(
-        "Fleet created. Add components, photos, and IoT device from fleet detail.",
-      );
+      setNewFleet(emptyFleetForm());
+      const updatedFleetId = editingFleetId;
+      setEditingFleetId("");
+      setNotice(updatedFleetId ? "Fleet updated." : "Fleet created. Add components, photos, and IoT device from fleet detail.");
       await loadView("fleets");
+      if (updatedFleetId) await openFleetDetail(updatedFleetId);
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "Unable to create fleet.",
@@ -949,11 +975,19 @@ export default function Home() {
     }
   }
 
-  async function openFleetForm() {
+  async function openFleetForm(fleetId?: string) {
     setLoading(true);
     setError("");
     try {
-      setHubs((await request("/hubs", {}, token)) as RecordItem[]);
+      const [options, hubRows, fleet] = await Promise.all([
+        request("/fleets/onboarding-options", {}, token) as Promise<FleetOnboardingOptions>,
+        request("/hubs", {}, token) as Promise<RecordItem[]>,
+        fleetId ? request(`/fleets/${fleetId}`, {}, token) as Promise<RecordItem> : Promise.resolve(null),
+      ]);
+      setFleetOptions(options);
+      setHubs(hubRows);
+      setEditingFleetId(fleetId ?? "");
+      setNewFleet(fleet ? fleetFormFromRecord(fleet) : emptyFleetForm());
       setShowFleetForm(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to load hubs.");
@@ -1209,11 +1243,10 @@ export default function Home() {
       setShowAllocationForm(false);
       setAllocationFleetId("");
       setAllocationRiderId("");
-      setTab("allocations");
       setNotice(
         `Allocation ${allocation.id.slice(0, 8)} created. Complete its pre-allocation inspection before activation.`,
       );
-      await loadView("allocations");
+      await loadView("fleets");
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "Unable to create allocation.",
@@ -1507,8 +1540,6 @@ export default function Home() {
             token,
           ) as Promise<RecordItem[]>,
         ]);
-      setFleetDraft({ vehicleNumber: String(fleet.vehicleNumber ?? ""), chassisNumber: String(fleet.chassisNumber ?? ""), modelName: String(fleet.modelName ?? ""), colour: String(fleet.colour ?? ""), motorNumber: String(fleet.motorNumber ?? "") });
-      setEditingFleet(false);
       setFleetDetail(fleet);
       setVehicleState(currentState);
       setFleetOnboardingStatus(onboardingStatus);
@@ -1583,18 +1614,6 @@ export default function Home() {
         token,
       )) as RecordItem,
     );
-  }
-
-  async function saveFleet(event: FormEvent) {
-    event.preventDefault();
-    if (!fleetDetail) return;
-    setLoading(true); setError("");
-    try {
-      await request(`/fleets/${String(fleetDetail.id)}`, { method: "PATCH", body: JSON.stringify(fleetDraft) }, token);
-      await openFleetDetail(String(fleetDetail.id)); await loadView("fleets");
-      setNotice("Fleet updated.");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to update fleet."); }
-    finally { setLoading(false); }
   }
 
   async function deleteFleet(id: string) {
@@ -1818,12 +1837,36 @@ export default function Home() {
       setNotice(
         "Deallocation started. Capture post-deallocation inspection evidence, then verify both OTPs.",
       );
-      await loadView("allocations");
+      await loadView("fleets");
     } catch (cause) {
       setError(
         cause instanceof Error
           ? cause.message
           : "Unable to start deallocation.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function deallocateFleet(fleet: RecordItem) {
+    const fleetId = String(fleet.id);
+    setLoading(true);
+    setError("");
+    try {
+      const result = (await request(
+        `/allocations?fleetId=${encodeURIComponent(fleetId)}&status=ACTIVE&page=1&pageSize=1`,
+        {},
+        token,
+      )) as { items: RecordItem[] };
+      const allocation = result.items[0];
+      if (!allocation) {
+        throw new Error("No active allocation was found for this fleet.");
+      }
+      await initiateDeallocation(allocation);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Unable to start de-allocation.",
       );
     } finally {
       setLoading(false);
@@ -2075,11 +2118,6 @@ export default function Home() {
             <p>Client operations workspace</p>
           </div>
           <div className="header-actions">
-            {tab === "allocations" && (
-              <button onClick={() => void openAllocationForm()}>
-                New allocation
-              </button>
-            )}
             {tab === "iot-devices" && <button onClick={() => { setError(""); setShowIotForm(true); }}>Register device</button>}
             <button className="secondary" onClick={() => void loadView(tab)}>
               ↻ Refresh
@@ -2285,97 +2323,42 @@ export default function Home() {
           </ClientFormDialog>
         )}
         {showFleetForm && (
-          <ClientFormDialog title="Create fleet" busy={loading} error={error} wide onClose={() => setShowFleetForm(false)}>
+          <ClientFormDialog title={editingFleetId ? "Edit fleet" : "Add fleet"} busy={loading} error={error} wide onClose={() => setShowFleetForm(false)}>
             <p className="eyebrow">FLEET ONBOARDING</p>
-            <h2>Create fleet</h2>
-            <form className="form-stack" onSubmit={createFleet}>
-              {(
-                ["vehicleNumber", "chassisNumber", "oem", "model"] as const
-              ).map((field) => (
-                <label key={field}>
-                  {field.replace(/([A-Z])/g, " $1")}
-                  {field === "vehicleNumber" || field === "chassisNumber" ? " *" : ""}
-                  <input
-                    value={newFleet[field]}
-                    onChange={(event) =>
-                      setNewFleet((current) => ({
-                        ...current,
-                        [field]: event.target.value,
-                      }))
-                    }
-                    required={
-                      field === "vehicleNumber" || field === "chassisNumber"
-                    }
-                  />
-                </label>
-              ))}
-              <label>
-                Hub
-                <select
-                  value={newFleet.hubId}
-                  onChange={(event) =>
-                    setNewFleet((current) => ({
-                      ...current,
-                      hubId: event.target.value,
-                    }))
-                  }
-                >
-                  <option value="">No hub assigned</option>
-                  {hubs.map((hub) => (
-                    <option key={String(hub.id)} value={String(hub.id)}>
-                      {String(hub.name)} · {String(hub.code)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {(["colour", "vehicleType", "motorNumber"] as const).map(
-                (field) => (
-                  <label key={field}>
-                    {field.replace(/([A-Z])/g, " $1")}
-                    <input
-                      value={newFleet[field]}
-                      onChange={(event) =>
-                        setNewFleet((current) => ({
-                          ...current,
-                          [field]: event.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                ),
-              )}
-              {(
-                [
-                  "registrationDate",
-                  "insuranceStartDate",
-                  "insuranceEndDate",
-                  "fitnessRenewalDate",
-                ] as const
-              ).map((field) => (
-                <label key={field}>
-                  {field.replace(/([A-Z])/g, " $1")}
-                  <input
-                    type="date"
-                    value={newFleet[field]}
-                    onChange={(event) =>
-                      setNewFleet((current) => ({
-                        ...current,
-                        [field]: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-              ))}
-              <div className="form-actions">
-                <button disabled={loading}>Create fleet</button>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => setShowFleetForm(false)}
-                >
-                  Cancel
-                </button>
-              </div>
+            <h2>{editingFleetId ? "Edit fleet" : "Create fleet"}</h2>
+            <p className="muted">Use the same vehicle information and master data controls used during fleet onboarding.</p>
+            <form className="client-hub-form" onSubmit={saveFleetForm}>
+              <h3 className="client-form-section-title">Vehicle identity</h3>
+              <FleetTextInput label="Fleet code" field="fleetCode" form={newFleet} setForm={setNewFleet} placeholder="FLT-0001" />
+              <FleetTextInput label="Vehicle number" field="vehicleNumber" form={newFleet} setForm={setNewFleet} placeholder="DL01EV0001" />
+              <FleetTextInput label="Chassis number" field="chassisNumber" form={newFleet} setForm={setNewFleet} required placeholder="ME4JF123456789001" />
+              <FleetTextInput label="VIN number" field="vinNumber" form={newFleet} setForm={setNewFleet} placeholder="Vehicle identification number" />
+              <label>OEM *<select required value={newFleet.oemId} onChange={(event) => setNewFleet({ ...newFleet, oemId: event.target.value })}><option value="">Select OEM</option>{fleetOptions.oems.map((oem) => <option key={oem.id} value={oem.id}>{oem.displayName} ({oem.code})</option>)}</select></label>
+              <label>Vehicle category *<select required value={newFleet.vehicleCategoryId} onChange={(event) => setNewFleet({ ...newFleet, vehicleCategoryId: event.target.value, vehicleTypeId: "" })}><option value="">Select vehicle category</option>{fleetOptions.vehicleCategories.map((category) => <option key={category.id} value={category.id}>{category.name} ({category.code})</option>)}</select></label>
+              <label>Vehicle type *<select required disabled={!newFleet.vehicleCategoryId} value={newFleet.vehicleTypeId} onChange={(event) => setNewFleet({ ...newFleet, vehicleTypeId: event.target.value })}><option value="">Select vehicle type</option>{fleetOptions.vehicleTypes.filter((type) => type.categoryId === newFleet.vehicleCategoryId).map((type) => <option key={type.id} value={type.id}>{type.name} ({type.energyType})</option>)}</select></label>
+              <label>Speed type *<select required value={newFleet.speedType} onChange={(event) => setNewFleet({ ...newFleet, speedType: event.target.value })}><option value="">Select speed type</option>{vehicleSpeedTypes.map((type) => <option key={type} value={type}>{enumOptionLabel(type)}</option>)}</select></label>
+              <label>Home Hub<select value={newFleet.homeHubId} onChange={(event) => setNewFleet({ ...newFleet, homeHubId: event.target.value })}><option value="">Select home Hub</option>{hubs.map((hub) => <option key={String(hub.id)} value={String(hub.id)}>{String(hub.code)} · {String(hub.name)}</option>)}</select></label>
+              <h3 className="client-form-section-title">Vehicle details</h3>
+              <FleetTextInput label="Model name" field="modelName" form={newFleet} setForm={setNewFleet} placeholder="Gracy" />
+              <FleetTextInput label="Variant name" field="variantName" form={newFleet} setForm={setNewFleet} placeholder="Standard" />
+              <FleetTextInput label="Colour" field="colour" form={newFleet} setForm={setNewFleet} placeholder="White" />
+              <FleetTextInput label="Motor number" field="motorNumber" form={newFleet} setForm={setNewFleet} placeholder="Motor serial number" />
+              <FleetTextInput label="Manufacturing year" field="manufacturingYear" form={newFleet} setForm={setNewFleet} type="number" min="1900" max="2100" placeholder="2025" />
+              <FleetTextInput label="Manufacturing month" field="manufacturingMonth" form={newFleet} setForm={setNewFleet} type="number" min="1" max="12" placeholder="6" />
+              <label>Ownership type *<select required value={newFleet.ownershipType} onChange={(event) => setNewFleet({ ...newFleet, ownershipType: event.target.value })}><option value="">Select ownership type</option>{fleetOwnershipTypes.map((type) => <option key={type} value={type}>{enumOptionLabel(type)}</option>)}</select></label>
+              <FleetTextInput label="Odometer (km)" field="odometerKm" form={newFleet} setForm={setNewFleet} type="number" min="0" step="0.01" placeholder="0" />
+              <h3 className="client-form-section-title">Registration & compliance</h3>
+              <FleetTextInput label="Registration date" field="registrationDate" form={newFleet} setForm={setNewFleet} type="date" />
+              <FleetTextInput label="Registering authority" field="registeringAuthority" form={newFleet} setForm={setNewFleet} placeholder="RTO Delhi" />
+              <FleetTextInput label="RC expiry date" field="rcExpiryDate" form={newFleet} setForm={setNewFleet} type="date" />
+              <FleetTextInput label="Insurance provider" field="insuranceProviderName" form={newFleet} setForm={setNewFleet} placeholder="Insurance provider" />
+              <FleetTextInput label="Insurance policy number" field="insurancePolicyNumber" form={newFleet} setForm={setNewFleet} placeholder="Policy number" />
+              <label>Insurance type<select value={newFleet.insuranceType} onChange={(event) => setNewFleet({ ...newFleet, insuranceType: event.target.value })}><option value="">Select insurance type</option>{insuranceTypes.map((type) => <option key={type} value={type}>{enumOptionLabel(type)}</option>)}</select></label>
+              <FleetTextInput label="Insurance start date" field="insuranceStartDate" form={newFleet} setForm={setNewFleet} type="date" />
+              <FleetTextInput label="Insurance end date" field="insuranceEndDate" form={newFleet} setForm={setNewFleet} type="date" />
+              <FleetTextInput label="Fitness certificate number" field="fitnessCertificateNumber" form={newFleet} setForm={setNewFleet} placeholder="Fitness certificate number" />
+              <FleetTextInput label="Fitness expiry date" field="fitnessExpiryDate" form={newFleet} setForm={setNewFleet} type="date" />
+              <div className="client-form-wide form-actions"><button disabled={loading}>{editingFleetId ? "Save fleet" : "Create fleet"}</button><button type="button" className="secondary" onClick={() => setShowFleetForm(false)}>Cancel</button></div>
             </form>
           </ClientFormDialog>
         )}
@@ -2574,15 +2557,7 @@ export default function Home() {
           <section className="action-card detail-card">
             <p className="eyebrow">FLEET DETAIL</p>
             <h2>{String(fleetDetail.vehicleNumber)}</h2>
-            <div className="form-actions"><button type="button" className="secondary" onClick={() => setEditingFleet((value) => !value)}>{editingFleet ? "Cancel edit" : "Edit fleet"}</button><button type="button" className="danger" onClick={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(String(fleetDetail.id)) })}>Delete fleet</button></div>
-            {editingFleet && <form className="form-stack" onSubmit={(event) => void saveFleet(event)}>
-              <label>Vehicle number<input value={fleetDraft.vehicleNumber} onChange={(event) => setFleetDraft({ ...fleetDraft, vehicleNumber: event.target.value })} /></label>
-              <label>Chassis number *<input required value={fleetDraft.chassisNumber} onChange={(event) => setFleetDraft({ ...fleetDraft, chassisNumber: event.target.value })} /></label>
-              <label>Model<input value={fleetDraft.modelName} onChange={(event) => setFleetDraft({ ...fleetDraft, modelName: event.target.value })} /></label>
-              <label>Colour<input value={fleetDraft.colour} onChange={(event) => setFleetDraft({ ...fleetDraft, colour: event.target.value })} /></label>
-              <label>Motor number<input value={fleetDraft.motorNumber} onChange={(event) => setFleetDraft({ ...fleetDraft, motorNumber: event.target.value })} /></label>
-              <button>Save fleet</button>
-            </form>}
+            <div className="form-actions"><button type="button" className="secondary" onClick={() => void openFleetForm(String(fleetDetail.id))}>Edit fleet</button><button type="button" className="danger" onClick={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(String(fleetDetail.id)) })}>Delete fleet</button></div>
             {fleetOnboardingStatus && (
               <div
                 className={
@@ -3000,7 +2975,7 @@ export default function Home() {
                 report={(message, failed) => { if (failed) setError(message); else { setError(""); setNotice(message); } }} onBulk={() => openBulkImport(tab)} /> :
               <ClientDataTable key={tab} rows={items} columns={clientColumns(tab)}
                 getRowId={(item) => String(item.id)}
-                actions={tab === "fleets" ? (item) => <><button className="secondary table-action" onClick={() => void openFleetDetail(String(item.id))}>View / Edit</button><button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(String(item.id)) })}>Delete</button></>
+                actions={tab === "fleets" ? (item) => <><button className="secondary table-action" onClick={() => void openFleetDetail(String(item.id))}>View / Edit</button>{item.status === "AVAILABLE" && <button className="table-action" onClick={() => void openAllocationForm(String(item.id))}>Allocate</button>}{item.status === "ALLOCATED" && <button className="danger table-action" onClick={() => void deallocateFleet(item)}>De-Allocate</button>}<button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(String(item.id)) })}>Delete</button></>
                   : tab === "riders" ? (item) => <><button className="secondary table-action" onClick={() => void openRiderDetail(String(item.id))}>View / Edit</button><button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Rider?", description: "This rider will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Rider", onConfirm: () => deleteRider(String(item.id)) })}>Delete</button></>
                   : tab === "allocations" ? (item) => <>
                     <button className="secondary table-action" onClick={() => void openAllocationDetail(String(item.id))}>View</button>

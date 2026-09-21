@@ -5,6 +5,8 @@ import {
   Header,
   Headers,
   HttpCode,
+  Param,
+  Patch,
   Post,
   UnauthorizedException,
   UseGuards,
@@ -35,6 +37,71 @@ class RegisterDeviceDto {
   @IsString()
   @MaxLength(128)
   deviceNumber!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  imei?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  simNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  iccid?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  provider?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  model?: string;
+
+  @IsOptional()
+  @IsISO8601()
+  installedAt?: string;
+}
+
+class UpdateDeviceDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  deviceNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  imei?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  simNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  iccid?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  provider?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  model?: string;
+
+  @IsOptional()
+  @IsISO8601()
+  installedAt?: string;
 }
 
 class IngestTelemetryDto {
@@ -93,6 +160,23 @@ export class IotController {
         this.clients.requireClientId(user),
         dto.fleetId,
         dto.deviceNumber,
+        dto,
+      ),
+    };
+  }
+
+  @Patch('devices/:id')
+  @Header('Cache-Control', 'no-store')
+  async update(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateDeviceDto,
+  ) {
+    return {
+      data: await this.iot.updateDevice(
+        this.clients.requireClientId(user),
+        id,
+        dto,
       ),
     };
   }

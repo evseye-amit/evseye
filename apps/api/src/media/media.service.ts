@@ -171,6 +171,12 @@ export class MediaService {
       });
       if (controller) return;
     }
+    if (entityType === PhotoEntityType.IOT_DEVICE) {
+      const device = await this.prisma.ioTDevice.findFirst({
+        where: { id: entityId, clientId },
+      });
+      if (device) return;
+    }
     if (entityType === PhotoEntityType.INSPECTION) {
       const inspection = await this.prisma.inspection.findFirst({
         where: { id: entityId, clientId },

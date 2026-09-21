@@ -38,7 +38,7 @@ export class ClientUsersService {
   }
   async createFleetManager(clientId: string, dto: CreateFleetManagerDto) {
     await this.assertHubs(clientId, dto.hubIds, dto.primaryHubId);
-    await assertUserMobileAvailable(this.prisma, dto.mobile);
+    await assertUserMobileAvailable(this.prisma, clientId, dto.mobile);
     try {
       const user = await this.prisma.$transaction(async (tx) => {
         const user = await tx.user.create({
@@ -90,7 +90,7 @@ export class ClientUsersService {
       select: { id: true },
     });
     if (!user) throw new NotFoundException('Fleet Manager not found.');
-    await assertUserMobileAvailable(this.prisma, dto.mobile, userId);
+    await assertUserMobileAvailable(this.prisma, clientId, dto.mobile, userId);
     try {
       return await this.prisma.$transaction(async (tx) => {
         const updated = await tx.user.update({
@@ -211,7 +211,7 @@ export class ClientUsersService {
     return (job.metadata as { failures?: unknown[] } | null)?.failures ?? [];
   }
   async createTeamLeader(clientId: string, dto: CreateTeamLeaderDto) {
-    await assertUserMobileAvailable(this.prisma, dto.mobile);
+    await assertUserMobileAvailable(this.prisma, clientId, dto.mobile);
     try {
       const profile = await this.prisma.$transaction(async (tx) => {
         const user = await tx.user.create({
@@ -264,7 +264,7 @@ export class ClientUsersService {
       select: { id: true, userId: true },
     });
     if (!profile) throw new NotFoundException('Team Leader not found.');
-    await assertUserMobileAvailable(this.prisma, dto.mobile, profile.userId);
+    await assertUserMobileAvailable(this.prisma, clientId, dto.mobile, profile.userId);
     try {
       return await this.prisma.$transaction(async (tx) => {
         if (dto.isActive === false) {

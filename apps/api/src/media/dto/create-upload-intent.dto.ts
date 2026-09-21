@@ -9,8 +9,21 @@ import {
 } from 'class-validator';
 
 export class CreateUploadIntentDto {
-  @IsIn(['RIDER', 'FLEET', 'BATTERY', 'CONTROLLER', 'INSPECTION'])
-  entityType!: 'RIDER' | 'FLEET' | 'BATTERY' | 'CONTROLLER' | 'INSPECTION';
+  @IsIn([
+    'RIDER',
+    'FLEET',
+    'BATTERY',
+    'CONTROLLER',
+    'IOT_DEVICE',
+    'INSPECTION',
+  ])
+  entityType!:
+    | 'RIDER'
+    | 'FLEET'
+    | 'BATTERY'
+    | 'CONTROLLER'
+    | 'IOT_DEVICE'
+    | 'INSPECTION';
 
   @IsUUID()
   entityId!: string;

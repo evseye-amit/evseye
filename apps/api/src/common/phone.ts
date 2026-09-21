@@ -24,14 +24,16 @@ export function indianMobileVariants(value: string): string[] {
     : [value.trim()];
 }
 
-/** Friendly preflight check; the database trigger also guards concurrent writes. */
+/** Friendly preflight check; the database index also guards concurrent writes. */
 export async function assertUserMobileAvailable(
   prisma: PrismaService,
+  clientId: string,
   mobile: string,
   exceptUserId?: string,
 ): Promise<void> {
   const existing = await prisma.user.findFirst({
     where: {
+      clientId,
       mobile: { in: indianMobileVariants(mobile) },
       deletedAt: null,
       ...(exceptUserId ? { id: { not: exceptUserId } } : {}),

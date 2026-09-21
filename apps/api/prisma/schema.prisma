@@ -101,6 +101,7 @@ enum PhotoEntityType {
   FLEET
   BATTERY
   CONTROLLER
+  IOT_DEVICE
   INSPECTION
 }
 
@@ -1377,7 +1378,7 @@ model User {
   id                String             @id @default(uuid())
   clientId          String?
   client            Client?            @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  /// A migration rejects new global duplicates of format-normalized numbers.
+  /// A migration enforces per-client uniqueness using the normalized Indian mobile number.
   mobile            String
   name              String
   role              UserRole

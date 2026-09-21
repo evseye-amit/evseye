@@ -6187,7 +6187,8 @@ function DataTable({
             <tr>
               {headings.map((heading, headingIndex) => {
                 const normalizedHeading = heading.trim().toLowerCase();
-                const isActionColumn = normalizedHeading.length === 0;
+                const isActionColumn =
+                  normalizedHeading.length === 0 || normalizedHeading === "actions";
                 const sortable =
                   normalizedHeading.length > 0 &&
                   normalizedHeading !== "description" &&
@@ -6260,7 +6261,8 @@ function DataTable({
                     <td
                       key={cellIndex}
                       className={
-                        headings[cellIndex]?.trim().length === 0
+                        headings[cellIndex]?.trim().length === 0 ||
+                        headings[cellIndex]?.trim().toLowerCase() === "actions"
                           ? "sa-table-action-cell"
                           : undefined
                       }

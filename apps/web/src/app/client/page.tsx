@@ -14,6 +14,7 @@ import {
 import { ClientBrand } from "../components/client-brand";
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import * as XLSX from "xlsx";
 
 const API_URL =
   "/api/v1";
@@ -54,6 +55,12 @@ type FleetOnboardingOptions = {
     energyType: string;
     usageType?: string | null;
   }[];
+};
+type FleetOnboardingWorkbookRows = {
+  fleets: Record<string, string>[];
+  batteries: Record<string, string>[];
+  controllers: Record<string, string>[];
+  iotDevices: Record<string, string>[];
 };
 
 type FleetEvidenceStatus = {
@@ -713,13 +720,16 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
     fitnessCertificateNumber: "",
     fitnessExpiryDate: "",
   });
-  const [rows, setRows] = useState<Record<string, string>[]>([]);
+  const [workbookRows, setWorkbookRows] = useState<FleetOnboardingWorkbookRows>({
+    fleets: [], batteries: [], controllers: [], iotDevices: [],
+  });
   const [filename, setFilename] = useState("");
   const [importResult, setImportResult] = useState<{
     status: string;
     passedRows: number;
     failedRows: number;
   } | null>(null);
+  const [importedIotCredentials, setImportedIotCredentials] = useState<Array<{ deviceNumber: string; ingestSecret: string }>>([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [createdFleet, setCreatedFleet] = useState<{
@@ -727,12 +737,8 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
     vehicleNumber?: string | null;
     chassisNumber: string;
   } | null>(null);
-  const [evidenceFleet, setEvidenceFleet] = useState<{
-    id: string;
-    vehicleNumber?: string | null;
-    chassisNumber: string;
-  } | null>(null);
   const [componentsReady, setComponentsReady] = useState(false);
+  const [editingComponents, setEditingComponents] = useState(false);
   const token = () => sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? "";
   useEffect(() => {
     Promise.all([
@@ -828,8 +834,11 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
       );
       if (editingFleetId) {
         setEditingFleetId(null);
-        setMessage("Fleet updated successfully.");
+        setEditingComponents(true);
+        setComponentsReady(false);
+        setCreatedFleet(fleet);
       } else {
+        setEditingComponents(false);
         setCreatedFleet(fleet);
         setMessage(
           "Fleet created. Complete its required evidence before activation.",
@@ -843,55 +852,89 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
       setBusy(false);
     }
   };
-  const parseCsv = (file: File) => {
+  const parseWorkbook = async (file: File) => {
+    setMessage("");
     setFilename(file.name);
-    const reader = new FileReader();
-    reader.onload = () => {
-      const lines = String(reader.result ?? "")
-        .split(/\r?\n/)
-        .filter(Boolean);
-      const [header, ...body] = lines;
-      const columns = header.split(",").map((value) => value.trim());
-      setRows(
-        body.map((line) =>
-          Object.fromEntries(
-            columns.map((column, index) => [
-              column,
-              line.split(",")[index]?.trim() ?? "",
-            ]),
-          ),
-        ),
-      );
-    };
-    reader.readAsText(file);
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const sheetRows = (name: string) => {
+        const sheet = workbook.Sheets[name];
+        return sheet
+          ? XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" }).map((row) => Object.fromEntries(Object.entries(row).map(([key, value]) => [key.trim(), String(value ?? "").trim()])))
+          : [];
+      };
+      const next = {
+        fleets: sheetRows("Fleets"), batteries: sheetRows("Batteries"),
+        controllers: sheetRows("Controllers"), iotDevices: sheetRows("IoT Devices"),
+      };
+      if (!next.fleets.length) throw new Error("The workbook must include at least one row on the Fleets sheet.");
+      setWorkbookRows(next);
+    } catch (cause) {
+      setWorkbookRows({ fleets: [], batteries: [], controllers: [], iotDevices: [] });
+      setFilename("");
+      setMessage(cause instanceof Error ? cause.message : "Unable to read the onboarding workbook.");
+    }
   };
   const bulkCreate = async () => {
-    if (!rows.length) return;
+    if (!workbookRows.fleets.length) return;
     setBusy(true);
     setMessage("");
     try {
-      const result = await request("/fleets/bulk", {
-        filename,
-        rows,
+      const oemByCode = new Map(options.oems.map((item) => [item.code.toUpperCase(), item.id]));
+      const categoryByCode = new Map(options.vehicleCategories.map((item) => [item.code.toUpperCase(), item.id]));
+      const typeByCode = new Map(options.vehicleTypes.map((item) => [item.code.toUpperCase(), item.id]));
+      const hubByCode = new Map(hubs.map((item) => [String(item.code).toUpperCase(), item.id]));
+      const fleetByReference = new Map<string, string>();
+      existingFleets.forEach((fleet) => {
+        if (fleet.fleetCode) fleetByReference.set(String(fleet.fleetCode).toUpperCase(), String(fleet.id));
+        if (fleet.chassisNumber) fleetByReference.set(String(fleet.chassisNumber).toUpperCase(), String(fleet.id));
       });
-      setMessage(
-        `Import ${result.status.replaceAll("_", " ")}: ${result.passedRows} passed, ${result.failedRows} failed.`,
-      );
-      setImportResult(result);
-      if (result.failedRows && result.jobId) {
-        const response = await fetch(
-          `${API_URL}/fleets/imports/${result.jobId}/failed-records`,
-          { headers: { Authorization: `Bearer ${token()}` } },
-        );
-        const csv = await response.text();
-        const anchor = document.createElement("a");
-        anchor.href = URL.createObjectURL(
-          new Blob([csv], { type: "text/csv" }),
-        );
-        anchor.download = "fleet-import-failures.csv";
-        anchor.click();
-        URL.revokeObjectURL(anchor.href);
+      const failures: string[] = [];
+      const iotCredentials: Array<{ deviceNumber: string; ingestSecret: string }> = [];
+      let passedRows = 0;
+      const number = (value: string) => value ? Number(value) : undefined;
+      for (const [index, row] of workbookRows.fleets.entries()) {
+        try {
+          const oemId = oemByCode.get((row.oemCode ?? "").toUpperCase());
+          const vehicleCategoryId = categoryByCode.get((row.vehicleCategoryCode ?? "").toUpperCase());
+          const vehicleTypeId = typeByCode.get((row.vehicleTypeCode ?? "").toUpperCase());
+          const homeHubId = row.homeHubCode ? hubByCode.get(row.homeHubCode.toUpperCase()) : undefined;
+          const currentHubId = row.currentHubCode ? hubByCode.get(row.currentHubCode.toUpperCase()) : homeHubId;
+          if (!row.chassisNumber || !oemId || !vehicleCategoryId || !vehicleTypeId || !row.speedType || !row.ownershipType) throw new Error("chassisNumber, OEM, vehicle category, vehicle type, speed type, and ownership type are required");
+          if ((row.homeHubCode && !homeHubId) || (row.currentHubCode && !currentHubId)) throw new Error("homeHubCode or currentHubCode does not match a Hub");
+          const fleet = await request("/fleets", {
+            ...row, oemId, vehicleCategoryId, vehicleTypeId,
+            homeHubId, currentHubId,
+            manufacturingYear: number(row.manufacturingYear), manufacturingMonth: number(row.manufacturingMonth), odometerKm: number(row.odometerKm),
+          });
+          fleetByReference.set(String(fleet.chassisNumber).toUpperCase(), String(fleet.id));
+          if (fleet.fleetCode) fleetByReference.set(String(fleet.fleetCode).toUpperCase(), String(fleet.id));
+          passedRows += 1;
+        } catch (cause) { failures.push(`Fleets row ${index + 2}: ${cause instanceof Error ? cause.message : "invalid row"}`); }
       }
+      const fleetIdFor = (row: Record<string, string>) => {
+        const reference = (row.fleetCode || row.chassisNumber || "").toUpperCase();
+        const fleetId = fleetByReference.get(reference);
+        if (!fleetId) throw new Error("fleetCode or chassisNumber does not match an imported or existing Fleet");
+        return fleetId;
+      };
+      for (const [index, row] of workbookRows.batteries.entries()) try {
+        if (!row.serialNumber) throw new Error("serialNumber is required");
+        await request(`/fleets/${fleetIdFor(row)}/batteries`, { ...row, capacityKwh: number(row.capacityKwh), voltage: number(row.voltage), ampHour: number(row.ampHour), installedOdometerKm: number(row.installedOdometerKm) }); passedRows += 1;
+      } catch (cause) { failures.push(`Batteries row ${index + 2}: ${cause instanceof Error ? cause.message : "invalid row"}`); }
+      for (const [index, row] of workbookRows.controllers.entries()) try {
+        if (!row.controllerNumber) throw new Error("controllerNumber is required");
+        await request(`/fleets/${fleetIdFor(row)}/controllers`, { ...row, ratedVoltage: number(row.ratedVoltage), ratedCurrent: number(row.ratedCurrent) }); passedRows += 1;
+      } catch (cause) { failures.push(`Controllers row ${index + 2}: ${cause instanceof Error ? cause.message : "invalid row"}`); }
+      for (const [index, row] of workbookRows.iotDevices.entries()) try {
+        if (!row.deviceNumber) throw new Error("deviceNumber is required");
+        const registration = await request("/iot/devices", { ...row, fleetId: fleetIdFor(row) });
+        iotCredentials.push({ deviceNumber: String(registration.device.deviceNumber), ingestSecret: String(registration.ingestSecret) });
+        passedRows += 1;
+      } catch (cause) { failures.push(`IoT Devices row ${index + 2}: ${cause instanceof Error ? cause.message : "invalid row"}`); }
+      setImportedIotCredentials(iotCredentials);
+      setImportResult({ status: failures.length ? (passedRows ? "PARTIAL_PASS" : "FAIL") : "PASS", passedRows, failedRows: failures.length });
+      setMessage(failures.length ? `Imported ${passedRows} records. ${failures.length} failed: ${failures.slice(0, 3).join("; ")}` : `Imported ${passedRows} Fleet onboarding records successfully.`);
     } catch (cause) {
       setMessage(
         cause instanceof Error ? cause.message : "Unable to import Fleets.",
@@ -901,11 +944,21 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
     }
   };
   const downloadTemplate = () => {
-    const csv =
-      "fleetCode,vehicleNumber,chassisNumber,vinNumber,oemCode,vehicleCategoryCode,vehicleTypeCode,speedType,homeHubCode,modelName,variantName,colour,motorNumber,manufacturingYear,manufacturingMonth,ownershipType,odometerKm,registrationDate,registeringAuthority,rcExpiryDate,insuranceProviderName,insurancePolicyNumber,insuranceType,insuranceStartDate,insuranceEndDate,fitnessCertificateNumber,fitnessExpiryDate\nFLT-0001,DL01EV0001,ME4JF123456789001,,ZELIO,2W,E_SCOOTER_ELECTRIC,HIGH_SPEED,HUB-DEL-01,Gracy,,White,,2025,6,CLIENT_OWNED,0,,,,,,,,,,\n";
+    const workbook = XLSX.utils.book_new();
+    const sheets: Array<[string, Record<string, string>[]]> = [
+      ["Fleets", [{ fleetCode: "FLT-0001", vehicleNumber: "DL01EV0001", chassisNumber: "ME4JF123456789001", vinNumber: "", oemCode: "ZELIO", vehicleCategoryCode: "2W", vehicleTypeCode: "E_SCOOTER_ELECTRIC", speedType: "HIGH_SPEED", homeHubCode: "HUB-DEL-01", currentHubCode: "", modelName: "Gracy", variantName: "", colour: "White", motorNumber: "", manufacturingYear: "2025", manufacturingMonth: "6", ownershipType: "CLIENT_OWNED", odometerKm: "0", registrationDate: "", registeringAuthority: "", rcExpiryDate: "", insuranceProviderName: "", insurancePolicyNumber: "", insuranceType: "", insuranceStartDate: "", insuranceEndDate: "", fitnessCertificateNumber: "", fitnessExpiryDate: "" }]],
+      ["Batteries", [{ fleetCode: "FLT-0001", chassisNumber: "", serialNumber: "BAT-001", batteryCode: "BAT-0001", batteryType: "FIXED_SINGLE", batterySlot: "PRIMARY", manufacturer: "", model: "", chemistry: "", capacityKwh: "2.5", voltage: "", ampHour: "", installedOdometerKm: "0", manufacturingDate: "", warrantyStartDate: "", warrantyEndDate: "" }]],
+      ["Controllers", [{ fleetCode: "FLT-0001", chassisNumber: "", controllerNumber: "CTRL-001", manufacturer: "", model: "", ratedVoltage: "", ratedCurrent: "" }]],
+      ["IoT Devices", [{ fleetCode: "FLT-0001", chassisNumber: "", deviceNumber: "IOT-001", imei: "", simNumber: "", iccid: "", provider: "", model: "", installedAt: "" }]],
+    ];
+    sheets.forEach(([name, rows]) => XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), name));
+    XLSX.writeFile(workbook, "evs-eye-fleet-onboarding-template.xlsx");
+  };
+  const downloadIotCredentials = () => {
+    const csv = ["deviceNumber,ingestSecret", ...importedIotCredentials.map((credential) => `${credential.deviceNumber},${credential.ingestSecret}`)].join("\n");
     const anchor = document.createElement("a");
     anchor.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-    anchor.download = "evs-eye-fleets-template.csv";
+    anchor.download = "evs-eye-iot-ingestion-credentials.csv";
     anchor.click();
     URL.revokeObjectURL(anchor.href);
   };
@@ -969,22 +1022,12 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
       setBusy(false);
     }
   };
-  if (evidenceFleet) {
-    return (
-      <FleetEvidenceSetup
-        fleet={evidenceFleet}
-        onActivated={() => {
-          setEvidenceFleet(null);
-          onSaved();
-        }}
-      />
-    );
-  }
   if (createdFleet) {
     if (!componentsReady) {
       return (
         <FleetComponentsSetup
           fleet={createdFleet}
+          isEditing={editingComponents}
           onContinue={() => setComponentsReady(true)}
         />
       );
@@ -1040,15 +1083,18 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
               </button>
               <button
                 type="button"
-                onClick={() =>
-                  setEvidenceFleet({
+                onClick={() => {
+                  setCreatedFleet({
                     id: editingFleetId,
                     vehicleNumber: form.vehicleNumber || null,
                     chassisNumber: form.chassisNumber,
-                  })
-                }
+                  });
+                  setEditingFleetId(null);
+                  setEditingComponents(true);
+                  setComponentsReady(false);
+                }}
               >
-                Manage fleet, battery & controller photos
+                Edit battery, controller & IoT
               </button>
             </div>
           ) : null}
@@ -1391,11 +1437,11 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
           </button>
         </form>
         <div className="client-bulk-card">
-          <h3>Bulk upload</h3>
+          <h3>Bulk onboarding import</h3>
           <p>
-            Use master codes for <code>oemCode</code>,{" "}
-            <code>vehicleCategoryCode</code>, and <code>vehicleTypeCode</code>.
-            The matching home Hub is selected with <code>homeHubCode</code>.
+            Use one workbook with Fleets, Batteries, Controllers, and IoT Devices
+            sheets. Component sheets link to a Fleet using <code>fleetCode</code>{" "}
+            or <code>chassisNumber</code>.
           </p>
           <button
             type="button"
@@ -1405,27 +1451,26 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
             Download template
           </button>
           <label className="client-file-input">
-            Upload CSV
+            Upload onboarding workbook
             <input
               type="file"
-              accept=".csv,text/csv"
+              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               onChange={(event) =>
-                event.target.files?.[0] && parseCsv(event.target.files[0])
+                event.target.files?.[0] && void parseWorkbook(event.target.files[0])
               }
             />
           </label>
-          {rows.length ? (
+          {workbookRows.fleets.length ? (
             <p>
-              {rows.length} row{rows.length === 1 ? "" : "s"} ready from{" "}
-              {filename}.
+              {workbookRows.fleets.length} Fleet, {workbookRows.batteries.length} Battery, {workbookRows.controllers.length} Controller, and {workbookRows.iotDevices.length} IoT Device row{workbookRows.iotDevices.length === 1 ? "" : "s"} ready from {filename}.
             </p>
           ) : null}
           <button
-            disabled={busy || !rows.length}
+            disabled={busy || !workbookRows.fleets.length}
             type="button"
             onClick={bulkCreate}
           >
-            {busy ? "Importing…" : "Import Fleets"}
+            {busy ? "Importing…" : "Import Fleet onboarding"}
           </button>
           {importResult ? (
             <div className="client-import-result">
@@ -1434,6 +1479,11 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
                 {importResult.passedRows} passed · {importResult.failedRows}{" "}
                 failed
               </span>
+              {importedIotCredentials.length ? (
+                <button type="button" onClick={downloadIotCredentials}>
+                  Download IoT credentials
+                </button>
+              ) : null}
               <button type="button" onClick={onSaved}>
                 Continue to Rider creation
               </button>
@@ -1448,9 +1498,11 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
 
 function FleetComponentsSetup({
   fleet,
+  isEditing = false,
   onContinue,
 }: {
   fleet: { id: string; vehicleNumber?: string | null; chassisNumber: string };
+  isEditing?: boolean;
   onContinue: () => void;
 }) {
   const [battery, setBattery] = useState({
@@ -1467,13 +1519,26 @@ function FleetComponentsSetup({
     manufacturer: "",
     model: "",
   });
+  const [batteryId, setBatteryId] = useState("");
+  const [controllerId, setControllerId] = useState("");
+  const [iotDeviceId, setIotDeviceId] = useState("");
+  const [ingestSecret, setIngestSecret] = useState("");
+  const [iotDevice, setIotDevice] = useState({
+    deviceNumber: "",
+    imei: "",
+    simNumber: "",
+    iccid: "",
+    provider: "",
+    model: "",
+    installedAt: "",
+  });
   const [installed, setInstalled] = useState<string[]>([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const token = () => sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? "";
-  const request = async (path: string, body: unknown) => {
+  const request = async (path: string, body: unknown, method = "POST") => {
     const response = await fetch(`${API_URL}${path}`, {
-      method: "POST",
+      method,
       headers: {
         Authorization: `Bearer ${token()}`,
         "Content-Type": "application/json",
@@ -1488,12 +1553,84 @@ function FleetComponentsSetup({
     }
     return result.data;
   };
+  useEffect(() => {
+    fetch(`${API_URL}/fleets/${fleet.id}`, {
+      headers: { Authorization: `Bearer ${token()}` },
+    })
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok)
+          throw new Error(body.message ?? "Unable to load IoT information.");
+        const fleetData = body.data as Record<string, unknown>;
+        const text = (value: unknown) =>
+          value === null || value === undefined ? "" : String(value);
+        const batteryHistory = (fleetData.batteryHistory ?? []) as Array<
+          Record<string, unknown>
+        >;
+        const installedBattery = batteryHistory[0];
+        const batteryData = (installedBattery?.battery ?? {}) as Record<
+          string,
+          unknown
+        >;
+        if (batteryData.id) {
+          setBatteryId(text(batteryData.id));
+          setBattery({
+            serialNumber: text(batteryData.serialNumber),
+            batteryCode: text(batteryData.batteryCode),
+            batteryType: text(batteryData.batteryType),
+            batterySlot: text(installedBattery.batterySlot) || "PRIMARY",
+            manufacturer: text(batteryData.manufacturer),
+            model: text(batteryData.model),
+            capacityKwh: text(batteryData.capacityKwh),
+          });
+        }
+        const controllerHistory = (fleetData.controllerHistory ?? []) as Array<
+          Record<string, unknown>
+        >;
+        const installedController = controllerHistory[0];
+        const controllerData = (installedController?.controller ?? {}) as Record<
+          string,
+          unknown
+        >;
+        if (controllerData.id) {
+          setControllerId(text(controllerData.id));
+          setController({
+            controllerNumber: text(controllerData.controllerNumber),
+            manufacturer: text(controllerData.manufacturer),
+            model: text(controllerData.model),
+          });
+        }
+        const device = (fleetData.iotDevice ?? {}) as Record<string, unknown>;
+        if (!device.id) return;
+        setIotDeviceId(text(device.id));
+        setIotDevice({
+          deviceNumber: text(device.deviceNumber),
+          imei: text(device.imei),
+          simNumber: text(device.simNumber),
+          iccid: text(device.iccid),
+          provider: text(device.provider),
+          model: text(device.model),
+          installedAt: text(device.installedAt).slice(0, 10),
+        });
+      })
+      .catch((cause: unknown) =>
+        setMessage(
+          cause instanceof Error
+            ? cause.message
+            : "Unable to load IoT information.",
+        ),
+      );
+  }, [fleet.id]);
   const addBattery = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setBusy(true);
     setMessage("");
     try {
-      const asset = await request(`/fleets/${fleet.id}/batteries`, {
+      const asset = await request(
+        batteryId
+          ? `/fleets/${fleet.id}/batteries/${batteryId}`
+          : `/fleets/${fleet.id}/batteries`,
+        {
         ...battery,
         batteryCode: battery.batteryCode || undefined,
         batteryType: battery.batteryType || undefined,
@@ -1502,20 +1639,16 @@ function FleetComponentsSetup({
         capacityKwh: battery.capacityKwh
           ? Number(battery.capacityKwh)
           : undefined,
-      });
+        },
+        batteryId ? "PATCH" : "POST",
+      );
+      setBatteryId(String(asset.id));
       setInstalled((items) => [
         ...items,
-        `Battery ${asset.serialNumber} installed in ${battery.batterySlot.toLowerCase()} slot.`,
+        batteryId
+          ? `Battery ${asset.serialNumber} updated.`
+          : `Battery ${asset.serialNumber} installed in ${battery.batterySlot.toLowerCase()} slot.`,
       ]);
-      setBattery({
-        serialNumber: "",
-        batteryCode: "",
-        batteryType: "",
-        batterySlot: "PRIMARY",
-        manufacturer: "",
-        model: "",
-        capacityKwh: "",
-      });
     } catch (cause) {
       setMessage(
         cause instanceof Error ? cause.message : "Unable to add battery.",
@@ -1529,19 +1662,63 @@ function FleetComponentsSetup({
     setBusy(true);
     setMessage("");
     try {
-      const asset = await request(`/fleets/${fleet.id}/controllers`, {
+      const asset = await request(
+        controllerId
+          ? `/fleets/${fleet.id}/controllers/${controllerId}`
+          : `/fleets/${fleet.id}/controllers`,
+        {
         ...controller,
         manufacturer: controller.manufacturer || undefined,
         model: controller.model || undefined,
-      });
+        },
+        controllerId ? "PATCH" : "POST",
+      );
+      setControllerId(String(asset.id));
       setInstalled((items) => [
         ...items,
-        `Controller ${asset.controllerNumber} installed.`,
+        controllerId
+          ? `Controller ${asset.controllerNumber} updated.`
+          : `Controller ${asset.controllerNumber} installed.`,
       ]);
-      setController({ controllerNumber: "", manufacturer: "", model: "" });
     } catch (cause) {
       setMessage(
         cause instanceof Error ? cause.message : "Unable to add controller.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  const saveIotDevice = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setBusy(true);
+    setMessage("");
+    try {
+      const payload = {
+        deviceNumber: iotDevice.deviceNumber.trim(),
+        imei: iotDevice.imei.trim() || undefined,
+        simNumber: iotDevice.simNumber.trim() || undefined,
+        iccid: iotDevice.iccid.trim() || undefined,
+        provider: iotDevice.provider.trim() || undefined,
+        model: iotDevice.model.trim() || undefined,
+        installedAt: iotDevice.installedAt || undefined,
+      };
+      if (iotDeviceId) {
+        await request(`/iot/devices/${iotDeviceId}`, payload, "PATCH");
+        setMessage("IoT device updated.");
+      } else {
+        const registration = await request("/iot/devices", {
+          fleetId: fleet.id,
+          ...payload,
+        });
+        setIotDeviceId(String(registration.device.id));
+        setIngestSecret(String(registration.ingestSecret));
+        setMessage(
+          "IoT device registered. Save the ingestion secret now; it is shown only once.",
+        );
+      }
+    } catch (cause) {
+      setMessage(
+        cause instanceof Error ? cause.message : "Unable to save IoT device.",
       );
     } finally {
       setBusy(false);
@@ -1551,14 +1728,24 @@ function FleetComponentsSetup({
     <section className="client-onboarding-action">
       <div>
         <p className="eyebrow">STEP 4 · COMPONENTS</p>
-        <h2>Install Fleet components</h2>
+        <h2>{isEditing ? "Update Fleet components" : "Install Fleet components"}</h2>
         <p>
-          Add the battery and controller currently fitted to{" "}
+          Add or update the battery, controller, and IoT device fitted to{" "}
           {fleet.vehicleNumber || fleet.chassisNumber}. Component evidence will
           be required before Fleet activation.
         </p>
       </div>
-      <div className="client-onboarding-options">
+      {ingestSecret ? (
+        <div className="client-iot-credential">
+          <strong>IoT ingestion secret</strong>
+          <p>
+            Save this secret in the tracker configuration. It is shown only
+            once and cannot be recovered later.
+          </p>
+          <code>{ingestSecret}</code>
+        </div>
+      ) : null}
+      <div className="fleet-components-stack">
         <form onSubmit={addBattery} className="client-hub-form">
           <h3 className="client-form-section-title">Battery</h3>
           <label>
@@ -1639,7 +1826,7 @@ function FleetComponentsSetup({
             />
           </label>
           <button disabled={busy} type="submit">
-            {busy ? "Saving…" : "Install battery"}
+            {busy ? "Saving…" : batteryId ? "Update battery" : "Install battery"}
           </button>
         </form>
         <form onSubmit={addController} className="client-hub-form">
@@ -1682,7 +1869,96 @@ function FleetComponentsSetup({
             />
           </label>
           <button disabled={busy} type="submit">
-            {busy ? "Saving…" : "Install controller"}
+            {busy
+              ? "Saving…"
+              : controllerId
+                ? "Update controller"
+                : "Install controller"}
+          </button>
+        </form>
+        <form onSubmit={saveIotDevice} className="client-hub-form">
+          <h3 className="client-form-section-title">IoT device</h3>
+          <p className="client-form-hint client-form-wide">
+            The device installation and serial-label photos are required in the
+            next step when a tracker is assigned.
+          </p>
+          <label>
+            Device number *
+            <input
+              required
+              value={iotDevice.deviceNumber}
+              onChange={(event) =>
+                setIotDevice({ ...iotDevice, deviceNumber: event.target.value })
+              }
+              placeholder="IOT-0001"
+            />
+          </label>
+          <label>
+            IMEI
+            <input
+              value={iotDevice.imei}
+              onChange={(event) =>
+                setIotDevice({ ...iotDevice, imei: event.target.value })
+              }
+              placeholder="15-digit IMEI"
+            />
+          </label>
+          <label>
+            SIM number
+            <input
+              value={iotDevice.simNumber}
+              onChange={(event) =>
+                setIotDevice({ ...iotDevice, simNumber: event.target.value })
+              }
+              placeholder="SIM mobile number"
+            />
+          </label>
+          <label>
+            ICCID
+            <input
+              value={iotDevice.iccid}
+              onChange={(event) =>
+                setIotDevice({ ...iotDevice, iccid: event.target.value })
+              }
+              placeholder="SIM card ICCID"
+            />
+          </label>
+          <label>
+            IoT provider
+            <input
+              value={iotDevice.provider}
+              onChange={(event) =>
+                setIotDevice({ ...iotDevice, provider: event.target.value })
+              }
+              placeholder="Provider name"
+            />
+          </label>
+          <label>
+            Device model
+            <input
+              value={iotDevice.model}
+              onChange={(event) =>
+                setIotDevice({ ...iotDevice, model: event.target.value })
+              }
+              placeholder="Tracker model"
+            />
+          </label>
+          <label className="client-form-wide">
+            Installation date
+            <input
+              type="date"
+              value={iotDevice.installedAt}
+              onChange={(event) =>
+                setIotDevice({ ...iotDevice, installedAt: event.target.value })
+              }
+            />
+          </label>
+          <button disabled={busy} type="submit">
+            {busy
+              ? "Saving…"
+              : iotDeviceId
+                ? "Update IoT device"
+                : "Register IoT device"}
           </button>
         </form>
       </div>

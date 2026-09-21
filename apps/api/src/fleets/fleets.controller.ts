@@ -234,4 +234,49 @@ export class FleetsController {
       data: controller,
     };
   }
+
+  @Patch(':id/batteries/:batteryId')
+  async updateBattery(
+    @CurrentUser() u: AuthUser,
+    @Param('id') id: string,
+    @Param('batteryId') batteryId: string,
+    @Body() d: CreateBatteryDto,
+  ) {
+    const clientId = this.clients.requireClientId(u);
+    const battery = await this.components.updateBattery(clientId, id, batteryId, d);
+    await this.audit.record({
+      clientId,
+      actorId: u.id,
+      action: 'BATTERY_UPDATED',
+      entityType: 'BATTERY',
+      entityId: battery.id,
+      newData: { fleetId: id, serialNumber: battery.serialNumber },
+    });
+    return { data: battery };
+  }
+
+  @Patch(':id/controllers/:controllerId')
+  async updateController(
+    @CurrentUser() u: AuthUser,
+    @Param('id') id: string,
+    @Param('controllerId') controllerId: string,
+    @Body() d: CreateControllerDto,
+  ) {
+    const clientId = this.clients.requireClientId(u);
+    const controller = await this.components.updateController(
+      clientId,
+      id,
+      controllerId,
+      d,
+    );
+    await this.audit.record({
+      clientId,
+      actorId: u.id,
+      action: 'CONTROLLER_UPDATED',
+      entityType: 'CONTROLLER',
+      entityId: controller.id,
+      newData: { fleetId: id, controllerNumber: controller.controllerNumber },
+    });
+    return { data: controller };
+  }
 }

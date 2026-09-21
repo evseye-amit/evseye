@@ -70,7 +70,7 @@ export const batterySlots = ["PRIMARY", "SECONDARY", "AUXILIARY"];
 export const batteryTypes = ["FIXED_SINGLE", "FIXED_DOUBLE", "SWAP_IF", "SWAP_BS", "SWAP_MOVING", "SWAP_OTHER"];
 export const hubTypes = ["OPERATIONS", "PARKING", "CHARGING", "BATTERY_SWAP", "MAINTENANCE", "WAREHOUSE", "DELIVERY", "MIXED"];
 export const hubStatuses = ["ACTIVE", "INACTIVE", "TEMPORARILY_CLOSED", "UNDER_MAINTENANCE", "FULL"];
-export const photoEntityTypes = ["RIDER", "FLEET", "BATTERY", "CONTROLLER", "INSPECTION"];
+export const photoEntityTypes = ["RIDER", "FLEET", "BATTERY", "CONTROLLER", "IOT_DEVICE", "INSPECTION"];
 export const riderStatuses = ["ONBOARDING", "ACTIVE", "INACTIVE", "BLOCKED", "EXITED"];
 export const kycTypes = ["AADHAAR", "PAN", "BANK_ACCOUNT"] as const;
 

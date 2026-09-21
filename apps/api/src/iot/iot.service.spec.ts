@@ -38,6 +38,11 @@ describe('IotService', () => {
       'client-1',
       'fleet-1',
       'device-serial-1',
+      {
+        imei: '123456789012345',
+        provider: 'Tracker Provider',
+        installedAt: '2026-09-21',
+      },
     );
 
     expect(result.ingestSecret).toHaveLength(43);
@@ -45,6 +50,9 @@ describe('IotService', () => {
       data: expect.objectContaining({
         clientId: 'client-1',
         deviceNumber: 'device-serial-1',
+        imei: '123456789012345',
+        provider: 'Tracker Provider',
+        installedAt: new Date('2026-09-21'),
         ingestSecretHash: expect.stringMatching(/^[a-f0-9]{64}$/),
       }),
     });

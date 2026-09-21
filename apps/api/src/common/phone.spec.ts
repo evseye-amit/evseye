@@ -18,11 +18,12 @@ describe('Indian user mobile identity', () => {
     expect(indianMobileVariants('09871675222')).toEqual(expect.arrayContaining(forms));
   });
 
-  it('rejects a number owned by another user across roles and clients', async () => {
+  it('rejects a number owned by another user or role in the same client', async () => {
     const prisma = { user: { findFirst: vi.fn().mockResolvedValue({ id: 'client-admin' }) } };
-    await expect(assertUserMobileAvailable(prisma as never, '09871675222')).rejects.toThrow(new ConflictException(USER_MOBILE_CONFLICT_MESSAGE));
+    await expect(assertUserMobileAvailable(prisma as never, 'client-a', '09871675222')).rejects.toThrow(new ConflictException(USER_MOBILE_CONFLICT_MESSAGE));
     expect(prisma.user.findFirst).toHaveBeenCalledWith({
       where: {
+        clientId: 'client-a',
         mobile: { in: expect.arrayContaining(['9871675222', '09871675222', '+919871675222']) },
         deletedAt: null,
       },

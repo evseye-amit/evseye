@@ -40,13 +40,16 @@ export class FleetsService {
     PhotoEntityType.FLEET,
     PhotoEntityType.BATTERY,
     PhotoEntityType.CONTROLLER,
+    PhotoEntityType.IOT_DEVICE,
   ].flatMap((entityType) => {
     const photoTypes =
       entityType === PhotoEntityType.FLEET
         ? ['FRONT', 'REAR', 'LEFT', 'RIGHT', 'DASHBOARD']
         : entityType === PhotoEntityType.BATTERY
           ? ['FRONT', 'REAR', 'LABEL', 'SERIAL']
-          : ['FRONT', 'REAR'];
+          : entityType === PhotoEntityType.IOT_DEVICE
+            ? ['INSTALLATION', 'SERIAL_LABEL']
+            : ['FRONT', 'REAR'];
     return photoTypes.map((photoType, sortOrder) => ({
       entityType,
       photoType,
@@ -570,6 +573,7 @@ export class FleetsService {
           where: { removedAt: null },
           include: { controller: true },
         },
+        iotDevice: true,
         _count: {
           select: {
             allocations: {
@@ -607,11 +611,21 @@ export class FleetsService {
         entityId: controller.id,
         label: controller.controllerNumber,
       })),
+      ...(fleet.iotDevice
+        ? [
+            {
+              entityType: PhotoEntityType.IOT_DEVICE,
+              entityId: fleet.iotDevice.id,
+              label: fleet.iotDevice.deviceNumber,
+            },
+          ]
+        : []),
     ];
     const entityTypes = [
       PhotoEntityType.FLEET,
       PhotoEntityType.BATTERY,
       PhotoEntityType.CONTROLLER,
+      ...(fleet.iotDevice ? [PhotoEntityType.IOT_DEVICE] : []),
     ];
     const [requirements, completedPhotos] = await Promise.all([
       this.prisma.photoRequirement.findMany({
@@ -868,7 +882,7 @@ export class FleetsService {
     const evidence = await this.onboardingStatus(clientId, id);
     if (!evidence.ready) {
       throw new BadRequestException(
-        'Complete all required Fleet, Battery, and Controller photos before activation.',
+        'Complete all required operational photos before activation.',
       );
     }
     return this.prisma.$transaction(async (tx) => {

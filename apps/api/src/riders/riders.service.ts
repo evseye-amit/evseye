@@ -23,7 +23,7 @@ export class RidersService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(clientId: string, dto: CreateRiderDto) {
-    await assertUserMobileAvailable(this.prisma, dto.mobile);
+    await assertUserMobileAvailable(this.prisma, clientId, dto.mobile);
     try {
       const rider = await this.prisma.$transaction(async (tx) => {
         const user = await tx.user.create({
@@ -189,7 +189,7 @@ export class RidersService {
   async update(clientId: string, id: string, dto: UpdateRiderDto) {
     const existing = await this.getById(clientId, id);
     if (dto.mobile !== undefined)
-      await assertUserMobileAvailable(this.prisma, dto.mobile, existing.userId ?? undefined);
+      await assertUserMobileAvailable(this.prisma, clientId, dto.mobile, existing.userId ?? undefined);
     try {
       return await this.prisma.$transaction(async (tx) => {
         const rider = await tx.rider.update({ where: { id }, data: { ...dto, ...(dto.mobile !== undefined ? { mobile: normalizeIndianMobile(dto.mobile) } : {}) } });
