@@ -19,9 +19,10 @@ import type { ListAllocationsDto } from './dto/list-allocations.dto.js';
 @Injectable()
 export class AllocationsService {
   constructor(private readonly prisma: PrismaService) {}
-  async list(clientId: string, query: ListAllocationsDto) {
+  async list(clientId: string, query: ListAllocationsDto, hubIds?: string[]) {
     const where = {
       clientId,
+      ...(hubIds ? { fleet: { currentHubId: { in: hubIds } } } : {}),
       ...(query.status ? { status: query.status as AllocationStatus } : {}),
       ...(query.riderId ? { riderId: query.riderId } : {}),
       ...(query.fleetId ? { fleetId: query.fleetId } : {}),
@@ -69,9 +70,9 @@ export class AllocationsService {
     };
   }
 
-  async get(clientId: string, allocationId: string) {
+  async get(clientId: string, allocationId: string, hubIds?: string[]) {
     const allocation = await this.prisma.allocation.findFirst({
-      where: { id: allocationId, clientId },
+      where: { id: allocationId, clientId, ...(hubIds ? { fleet: { currentHubId: { in: hubIds } } } : {}) },
       include: {
         rider: true,
         fleet: { include: { currentHub: true } },
@@ -82,6 +83,21 @@ export class AllocationsService {
     return allocation;
   }
 
+  async fleetManagerHubIds(clientId: string, userId: string) {
+    return (await this.prisma.userHub.findMany({ where: { clientId, userId }, select: { hubId: true } })).map((entry) => entry.hubId);
+  }
+  async assertFleetManagerFleet(clientId: string, userId: string, fleetId: string) {
+    const hubIds = await this.fleetManagerHubIds(clientId, userId);
+    const fleet = await this.prisma.fleet.findFirst({ where: { id: fleetId, clientId, currentHubId: { in: hubIds }, deletedAt: null }, select: { id: true } });
+    if (!fleet) throw new NotFoundException('Fleet not found in an assigned Hub.');
+    return hubIds;
+  }
+  async assertFleetManagerAllocation(clientId: string, userId: string, allocationId: string) {
+    const hubIds = await this.fleetManagerHubIds(clientId, userId);
+    const allocation = await this.prisma.allocation.findFirst({ where: { id: allocationId, clientId, fleet: { currentHubId: { in: hubIds } } }, select: { id: true } });
+    if (!allocation) throw new NotFoundException('Allocation not found in an assigned Hub.');
+    return hubIds;
+  }
   async initiate(
     clientId: string,
     fleetId: string,
@@ -126,6 +142,9 @@ export class AllocationsService {
           type: InspectionType.PRE_ALLOCATION,
           status: InspectionStatus.DRAFT,
         },
+      });
+      await tx.mobileDeploymentWorkflow.create({
+        data: { clientId, allocationId: allocation.id, status: 'RIDER_WAITING' },
       });
       return allocation;
     });

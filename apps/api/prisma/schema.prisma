@@ -260,6 +260,25 @@ enum InspectionStatus {
   REJECTED
 }
 
+enum MobileDeploymentStatus {
+  RIDER_WAITING
+  FLEET_REQUESTED
+  PAYMENT_PENDING
+  PAYMENT_PAID
+  PDI_PENDING_RIDER
+  TRAINING_PENDING
+  DEVICE_PAIRING_PENDING
+  DEPLOYED
+}
+
+enum DeploymentPaymentStatus {
+  PENDING
+  SUBMITTED
+  PAID
+  FAILED
+  CANCELLED
+}
+
 enum IoTEventType {
   LOCATION
   HEARTBEAT
@@ -528,6 +547,7 @@ model Client {
   userHubs                   UserHub[]
   teamLeaderProfiles         TeamLeaderProfile[]
   teamLeaderRiders           TeamLeaderRider[]
+  riderOnboardingProgress    RiderOnboardingProgress[]
   createdAt                  DateTime                          @default(now())
   updatedAt                  DateTime                          @updatedAt
 }
@@ -627,6 +647,7 @@ model Feature {
   pricing        FeaturePricing[]
   packageLinks   PackageFeature[]
   featureAddOns  FeatureAddOn[]
+  trainingContents TrainingContent[]
   addOnPurchases ClientFeatureAddOnPurchase[]
   creditLots     FeatureCreditLot[]
   usageLedger    FeatureUsageLedger[]
@@ -733,6 +754,25 @@ model FeatureAddOn {
   updatedAt           DateTime                     @updatedAt
 
   @@index([featureId, isActive, effectiveFrom])
+}
+
+/// A master catalogue item used in Rider training.  Media remains private and
+/// is exposed to the Rider app only through a short-lived signed URL.
+model TrainingContent {
+  id             String   @id @default(uuid())
+  featureId      String
+  feature        Feature  @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  code           String   @unique
+  title          String
+  description    String?
+  imageObjectKey String   @db.VarChar(500)
+  isMandatory    Boolean  @default(true)
+  displayOrder   Int      @default(0)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([featureId, isActive, displayOrder])
 }
 
 model PackageFeatureAddOn {
@@ -1390,6 +1430,7 @@ model User {
   deletedAt         DateTime?
   sessions          Session[]
   rider             Rider?
+  riderOnboardingProgress RiderOnboardingProgress?
   hubAssignments    UserHub[]
   teamLeaderProfile TeamLeaderProfile?
   auditLogs         AuditLog[]         @relation("AuditActor")
@@ -1434,6 +1475,24 @@ model Rider {
   @@unique([clientId, riderCode])
   @@index([clientId, status])
   @@index([clientId, name])
+}
+
+model RiderOnboardingProgress {
+  id            String   @id @default(uuid())
+  clientId      String
+  client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  packageId     String
+  currentStepId String?
+  completedStepIds Json @default("[]")
+  skippedStepIds Json @default("[]")
+  values        Json @default("{}")
+  completedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([clientId, packageId])
 }
 
 model UserHub {
@@ -1557,12 +1616,63 @@ model Allocation {
   initiatedById  String
   idempotencyKey String?
   inspections    Inspection[]
+  mobileDeployment MobileDeploymentWorkflow?
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
   @@unique([clientId, idempotencyKey])
   @@index([clientId, fleetId, status])
   @@index([clientId, riderId, status])
+}
+
+model MobileDeploymentWorkflow {
+  id String @id @default(uuid())
+  clientId String
+  allocationId String @unique
+  allocation Allocation @relation(fields: [allocationId], references: [id], onDelete: Cascade)
+  status MobileDeploymentStatus @default(RIDER_WAITING)
+  paymentBreakdown Json?
+  paymentPaidAt DateTime?
+  payment DeploymentPayment?
+  pdiChecklist Json?
+  workPartnerName String?
+  riderPdiAcceptedAt DateTime?
+  riderPdiRemarksText String?
+  riderPdiVoicePhotoId String?
+  trainingViewedContentCodes Json @default("[]")
+  trainingCompletedAt DateTime?
+  pairedAt DateTime?
+  pairingBypassedAt DateTime?
+  pairingBypassedById String?
+  pairingBypassReason String?
+  pairingHealthSnapshot Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId, status])
+}
+
+/// One auditable payment request per Rider/Fleet deployment. Provider-specific
+/// gateway data is kept here rather than trusting a Rider app status change.
+model DeploymentPayment {
+  id                  String                  @id @default(uuid())
+  clientId            String
+  workflowId          String                  @unique
+  workflow            MobileDeploymentWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  status              DeploymentPaymentStatus @default(PENDING)
+  currency            String                  @default("INR") @db.Char(3)
+  amount              Decimal                 @db.Decimal(14, 2)
+  breakdown           Json
+  provider            String?
+  providerReference   String?                 @unique
+  submittedAt         DateTime?
+  verifiedAt          DateTime?
+  verifiedById        String?
+  paidAt              DateTime?
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+
+  @@index([clientId, status])
 }
 
 model Inspection {

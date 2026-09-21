@@ -17,6 +17,8 @@ import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import {
   CreateFeatureDto,
+  CreateTrainingContentDto,
+  CreateTrainingContentUploadIntentDto,
   CreateFeatureStepDto,
   BulkCreatePackagesDto,
   BulkCreateVehicleCategoriesDto,
@@ -32,6 +34,7 @@ import {
   CreateVehicleCategoryDto,
   CreateVehicleTypeDto,
   UpdateFeatureDto,
+  UpdateTrainingContentDto,
   UpdateFeatureStepDto,
   UpdateFeaturePricingDto,
   UpdateOemDto,
@@ -224,6 +227,33 @@ export class PlatformCatalogController {
     return this.catalog
       .deleteFeature(id, user.id)
       .then(() => ({ data: { deleted: true } }));
+  }
+  @Get('training-content') trainingContent() {
+    return this.catalog.listTrainingContent().then((data) => ({ data }));
+  }
+  @Post('training-content/upload-intents') createTrainingContentUploadIntent(
+    @Body() dto: CreateTrainingContentUploadIntentDto,
+  ) {
+    return this.catalog.createTrainingContentUploadIntent(dto).then((data) => ({ data }));
+  }
+  @Post('training-content') createTrainingContent(
+    @Body() dto: CreateTrainingContentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.catalog.createTrainingContent(dto, user.id).then((data) => ({ data }));
+  }
+  @Put('training-content/:id') updateTrainingContent(
+    @Param('id') id: string,
+    @Body() dto: UpdateTrainingContentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.catalog.updateTrainingContent(id, dto, user.id).then((data) => ({ data }));
+  }
+  @Delete('training-content/:id') deactivateTrainingContent(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.catalog.deactivateTrainingContent(id, user.id).then((data) => ({ data }));
   }
   @Get('packages') packages() {
     return this.catalog.listPackages().then((data) => ({ data }));

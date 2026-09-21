@@ -36,18 +36,21 @@ export class AllocationsController {
     private readonly audit: AuditService,
     private readonly clients: ClientContextService,
   ) {}
+  private isHubScopedFleetManager(user: AuthUser) {
+    return user.roles.includes(UserRole.FLEET_MANAGER) && !user.roles.some((role) => role === UserRole.CLIENT_ADMIN || role === UserRole.OPERATIONS_MANAGER);
+  }
   @Get() async list(
     @CurrentUser() u: AuthUser,
     @Query() query: ListAllocationsDto,
   ) {
-    return {
-      data: await this.allocations.list(this.clients.requireClientId(u), query),
-    };
+    const clientId = this.clients.requireClientId(u);
+    const hubIds = this.isHubScopedFleetManager(u) ? await this.allocations.fleetManagerHubIds(clientId, u.id) : undefined;
+    return { data: await this.allocations.list(clientId, query, hubIds) };
   }
   @Get(':id') async get(@CurrentUser() u: AuthUser, @Param('id') id: string) {
-    return {
-      data: await this.allocations.get(this.clients.requireClientId(u), id),
-    };
+    const clientId = this.clients.requireClientId(u);
+    const hubIds = this.isHubScopedFleetManager(u) ? await this.allocations.assertFleetManagerAllocation(clientId, u.id, id) : undefined;
+    return { data: await this.allocations.get(clientId, id, hubIds) };
   }
   @Post() async initiate(
     @CurrentUser() u: AuthUser,
@@ -55,6 +58,7 @@ export class AllocationsController {
     @Headers('idempotency-key') key?: string,
   ) {
     const clientId = this.clients.requireClientId(u);
+    if (this.isHubScopedFleetManager(u)) await this.allocations.assertFleetManagerFleet(clientId, u.id, dto.fleetId);
     const allocation = await this.allocations.initiate(
       clientId,
       dto.fleetId,
@@ -83,6 +87,7 @@ export class AllocationsController {
     @Param('id') id: string,
   ) {
     const clientId = this.clients.requireClientId(u);
+    if (this.isHubScopedFleetManager(u)) await this.allocations.assertFleetManagerAllocation(clientId, u.id, id);
     const activation = await this.allocations.activate(clientId, id);
     await this.audit.record({
       clientId,
@@ -101,6 +106,7 @@ export class AllocationsController {
     @Param('id') id: string,
   ) {
     const clientId = this.clients.requireClientId(u);
+    if (this.isHubScopedFleetManager(u)) await this.allocations.assertFleetManagerAllocation(clientId, u.id, id);
     const deallocation = await this.allocations.initiateDeallocation(
       clientId,
       id,
@@ -122,9 +128,11 @@ export class AllocationsController {
     @Param('id') id: string,
     @Body() dto: RequestDeallocationOtpDto,
   ) {
+    const clientId = this.clients.requireClientId(u);
+    if (this.isHubScopedFleetManager(u)) await this.allocations.assertFleetManagerAllocation(clientId, u.id, id);
     return {
       data: await this.auth.requestDeallocationOtp(
-        this.clients.requireClientId(u),
+        clientId,
         dto.phone,
         id,
         dto.party === 'RIDER'
@@ -135,11 +143,14 @@ export class AllocationsController {
   }
   @Post(':id/deallocation/otp/verify') async verifyOtp(
     @CurrentUser() u: AuthUser,
+    @Param('id') id: string,
     @Body() dto: VerifyDeallocationOtpDto,
   ) {
+    const clientId = this.clients.requireClientId(u);
+    if (this.isHubScopedFleetManager(u)) await this.allocations.assertFleetManagerAllocation(clientId, u.id, id);
     return {
       data: await this.auth.verifyDeallocationOtp(
-        this.clients.requireClientId(u),
+        clientId,
         dto.otpRequestId,
         dto.code,
       ),
@@ -150,6 +161,7 @@ export class AllocationsController {
     @Param('id') id: string,
   ) {
     const clientId = this.clients.requireClientId(u);
+    if (this.isHubScopedFleetManager(u)) await this.allocations.assertFleetManagerAllocation(clientId, u.id, id);
     const completion = await this.allocations.completeDeallocation(
       clientId,
       id,

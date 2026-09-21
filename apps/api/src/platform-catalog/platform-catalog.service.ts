@@ -30,6 +30,8 @@ import type {
   CompleteOemLogoUploadDto,
   CreateOemLogoUploadIntentDto,
   CreateFeatureDto,
+  CreateTrainingContentDto,
+  CreateTrainingContentUploadIntentDto,
   CreateFeatureStepDto,
   CreatePackageFeatureDto,
   CreatePackageFeatureAssignmentDto,
@@ -39,6 +41,7 @@ import type {
   CreateVehicleCategoryDto,
   CreateVehicleTypeDto,
   UpdateFeatureDto,
+  UpdateTrainingContentDto,
   UpdateFeatureStepDto,
   UpdateFeaturePricingDto,
   UpdateOemDto,
@@ -517,6 +520,38 @@ export class PlatformCatalogService {
         },
       }),
     );
+  }
+  listTrainingContent() {
+    return this.prisma.trainingContent.findMany({
+      include: { feature: { select: { id: true, code: true, name: true } } },
+      orderBy: [{ feature: { displayOrder: 'asc' } }, { displayOrder: 'asc' }, { title: 'asc' }],
+    });
+  }
+  async createTrainingContentUploadIntent(dto: CreateTrainingContentUploadIntentDto) {
+    const objectKey = `platform/training/${dto.code}/${randomUUID()}.${this.extensionFor(dto.mimeType)}`;
+    return {
+      objectKey,
+      uploadUrl: await this.storage.createUploadUrl({ objectKey, mimeType: dto.mimeType, sizeBytes: dto.sizeBytes }),
+    };
+  }
+  async createTrainingContent(dto: CreateTrainingContentDto, actorId: string) {
+    const feature = await this.prisma.feature.findFirst({ where: { id: dto.featureId, code: 'SHOW_TRAINING', isActive: true }, select: { id: true } });
+    if (!feature) throw new BadRequestException('Training content must be assigned to the active SHOW_TRAINING feature.');
+    if (!dto.imageObjectKey.startsWith(`platform/training/${dto.code}/`)) throw new BadRequestException('The uploaded image does not belong to this training content code.');
+    await this.storage.assertObjectExists(dto.imageObjectKey);
+    return this.createWithAudit('TRAINING_CONTENT_CREATED', 'TrainingContent', actorId, () => this.prisma.trainingContent.create({ data: dto }));
+  }
+  async updateTrainingContent(id: string, dto: UpdateTrainingContentDto, actorId: string) {
+    await this.exists('trainingContent', id);
+    const feature = await this.prisma.feature.findFirst({ where: { id: dto.featureId, code: 'SHOW_TRAINING', isActive: true }, select: { id: true } });
+    if (!feature) throw new BadRequestException('Training content must be assigned to the active SHOW_TRAINING feature.');
+    if (!dto.imageObjectKey.startsWith(`platform/training/${dto.code}/`)) throw new BadRequestException('The uploaded image does not belong to this training content code.');
+    await this.storage.assertObjectExists(dto.imageObjectKey);
+    return this.updateWithAudit('TRAINING_CONTENT_UPDATED', 'TrainingContent', id, actorId, () => this.prisma.trainingContent.update({ where: { id }, data: dto }));
+  }
+  async deactivateTrainingContent(id: string, actorId: string) {
+    await this.exists('trainingContent', id);
+    return this.updateWithAudit('TRAINING_CONTENT_DEACTIVATED', 'TrainingContent', id, actorId, () => this.prisma.trainingContent.update({ where: { id }, data: { isActive: false } }));
   }
   listFeatureSteps() {
     return this.prisma.featureStep.findMany({
@@ -1011,7 +1046,8 @@ export class PlatformCatalogService {
       | 'vehicleType'
       | 'feature'
       | 'package'
-      | 'featurePricing',
+      | 'featurePricing'
+      | 'trainingContent',
     id: string,
   ) {
     const found =
@@ -1025,9 +1061,9 @@ export class PlatformCatalogService {
               ? await this.prisma.feature.findUnique({ where: { id } })
               : model === 'package'
                 ? await this.prisma.package.findUnique({ where: { id } })
-                : await this.prisma.featurePricing.findUnique({
-                    where: { id },
-                  });
+                : model === 'featurePricing'
+                  ? await this.prisma.featurePricing.findUnique({ where: { id } })
+                  : await this.prisma.trainingContent.findUnique({ where: { id } });
     if (!found) throw new NotFoundException('Record not found.');
   }
   private async createWithAudit<T extends { id: string }>(

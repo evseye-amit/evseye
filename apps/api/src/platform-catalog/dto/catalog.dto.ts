@@ -146,6 +146,27 @@ export class UpdateFeatureStepDto extends CreateFeatureStepDto {}
 
 export class UpdateFeatureDto extends CreateFeatureDto {}
 
+export class CreateTrainingContentUploadIntentDto {
+  @IsString() @Matches(/^[A-Z0-9_-]+$/) @MaxLength(100) code!: string;
+  @IsString() @IsIn(['image/jpeg', 'image/png', 'image/webp'])
+  mimeType!: 'image/jpeg' | 'image/png' | 'image/webp';
+  @IsInt() @Min(1) @Max(5 * 1024 * 1024) sizeBytes!: number;
+}
+
+export class CreateTrainingContentDto {
+  @IsString() featureId!: string;
+  @IsString() @Matches(/^[A-Z0-9_-]+$/) @MaxLength(100) code!: string;
+  @IsString() @MaxLength(180) title!: string;
+  @IsOptional() @IsString() @MaxLength(1000) description?: string;
+  @IsString() @Matches(/^platform\/training\/[A-Z0-9_-]+\/[0-9a-f-]+\.(jpeg|png|webp)$/i)
+  imageObjectKey!: string;
+  @IsOptional() @IsBoolean() isMandatory?: boolean;
+  @IsOptional() @IsInt() @Min(0) displayOrder?: number;
+  @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
+export class UpdateTrainingContentDto extends CreateTrainingContentDto {}
+
 export class BulkCreateFeaturesDto {
   @IsArray()
   @ArrayMaxSize(500)
