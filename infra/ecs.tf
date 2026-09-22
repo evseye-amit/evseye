@@ -239,11 +239,12 @@ resource "aws_ecs_task_definition" "migrate" {
 # ─── ECS Services ─────────────────────────────────────────────────────────────
 
 resource "aws_ecs_service" "api" {
-  name            = "${local.name_prefix}-api"
-  cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.api.arn
-  desired_count   = var.api_desired_count
-  launch_type     = "FARGATE"
+  name                   = "${local.name_prefix}-api"
+  cluster                = aws_ecs_cluster.main.id
+  task_definition        = aws_ecs_task_definition.api.arn
+  desired_count          = var.api_desired_count
+  launch_type            = "FARGATE"
+  enable_execute_command = true
 
   network_configuration {
     subnets          = aws_subnet.private[*].id
