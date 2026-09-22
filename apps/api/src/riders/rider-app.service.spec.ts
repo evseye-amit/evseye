@@ -56,3 +56,34 @@ describe('RiderAppService.saveStep', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });
+
+describe('RiderOnboardingConfigurationService', () => {
+  it('resolves an upload feature code when legacy configuration has no fieldCode', async () => {
+    const prisma = {
+      clientSubscription: {
+        findFirst: vi.fn().mockResolvedValue({
+          package: {
+            id: 'package-1', code: 'BASIC', name: 'Basic',
+            features: [{
+              isIncluded: true, displayOrder: 1, configuration: null,
+              feature: {
+                id: 'feature-1', code: 'ADDRESS_PROOF_DOCUMENT', name: 'Address proof',
+                description: null, billingUnit: 'UPLOAD', displayOrder: 1,
+                configuration: { maxFiles: 1 },
+                featureStep: {
+                  id: 'step-1', code: 'ADDRESS', displayName: 'Address',
+                  description: null, parentId: null, displayOrder: 1, isActive: true,
+                },
+              },
+            }],
+          },
+        }),
+      },
+    };
+    const resolver = new RiderOnboardingConfigurationService(prisma as never);
+    const result = await resolver.getEffectiveConfiguration('client-1');
+    expect(result.onboarding.steps[0].fields[0]).toMatchObject({
+      fieldCode: 'ADDRESS_PROOF_DOCUMENT', isUpload: true,
+    });
+  });
+});

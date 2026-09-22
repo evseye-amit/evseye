@@ -108,7 +108,8 @@ export class RiderOnboardingConfigurationService {
           ...asRecord(packageConfiguration.validation),
         },
       };
-      const fieldCode = String(configuration.fieldCode ?? '').trim();
+      const configuredFieldCode = String(configuration.fieldCode ?? '').trim();
+      const fieldCode = configuredFieldCode || (feature.billingUnit === 'UPLOAD' ? feature.code : '');
       const storageKey = String(configuration.storageKey ?? '').trim();
       if (configuration.enabled === false) continue;
 

@@ -165,6 +165,7 @@ export const featureCatalog = [
     "billingUnit": "UPLOAD",
     "description": "Age Proof Document Upload capability for the Evs Eye platform.",
     "configuration": {
+      "fieldCode": "AGE_PROOF_DOCUMENT",
       "maxFiles": 1,
       "minFiles": 1,
       "maxFileSizeMB": 2,
@@ -223,6 +224,7 @@ export const featureCatalog = [
     "billingUnit": "UPLOAD",
     "description": "Address Proof Document Upload capability for the Evs Eye platform.",
     "configuration": {
+      "fieldCode": "ADDRESS_PROOF_DOCUMENT",
       "maxFiles": 1,
       "minFiles": 1,
       "maxFileSizeMB": 2,
@@ -271,7 +273,7 @@ export const featureCatalog = [
     "featureType": "USAGE_BASED",
     "billingUnit": "UPLOAD",
     "description": "Profile Photo Upload capability for the Evs Eye platform.",
-    "configuration": {},
+    "configuration": { "fieldCode": "UPLOAD_PROFILE_PHOTO" },
     "displayOrder": 140,
     "isActive": true,
     "featureStepCode": "RIDER_PERSONAL_PROFILE"
@@ -332,6 +334,7 @@ export const featureCatalog = [
     "billingUnit": "UPLOAD",
     "description": "Aadhar Proof Document Upload capability for the Evs Eye platform.",
     "configuration": {
+      "fieldCode": "AADHAR_PROOF_DOCUMENT",
       "maxFiles": 2,
       "minFiles": 2,
       "maxFileSizeMB": 2,
@@ -389,6 +392,7 @@ export const featureCatalog = [
     "billingUnit": "UPLOAD",
     "description": "PAN Proof Document Upload capability for the Evs Eye platform.",
     "configuration": {
+      "fieldCode": "PAN_PROOF_DOCUMENT",
       "maxFiles": 1,
       "minFiles": 1,
       "maxFileSizeMB": 2,
@@ -435,6 +439,7 @@ export const featureCatalog = [
     "billingUnit": "UPLOAD",
     "description": "Driving License Proof Document Upload capability for the Evs Eye platform.",
     "configuration": {
+      "fieldCode": "DRIVING_LICENCE_PROOF_DOCUMENT",
       "maxFiles": 2,
       "minFiles": 2,
       "maxFileSizeMB": 2,
@@ -521,6 +526,7 @@ export const featureCatalog = [
     "billingUnit": "UPLOAD",
     "description": "Medical Proof Document Upload capability for the Evs Eye platform.",
     "configuration": {
+      "fieldCode": "MEDICAL_PROOF_DOCUMENT",
       "maxFiles": 1,
       "minFiles": 1,
       "maxFileSizeMB": 5,
@@ -588,6 +594,7 @@ export const featureCatalog = [
     "billingUnit": "UPLOAD",
     "description": "BANK Proof Document Upload capability for the Evs Eye platform.",
     "configuration": {
+      "fieldCode": "BANK_PROOF_DOCUMENT",
       "maxFiles": 1,
       "minFiles": 1,
       "maxFileSizeMB": 2,

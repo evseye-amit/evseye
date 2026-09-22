@@ -53,6 +53,19 @@ import type {
 
 const PACKAGE_UNLIMITED_LIMIT = 2_147_483_647;
 
+function uploadFeatureConfiguration(
+  billingUnit: FeatureBillingUnit,
+  code: string,
+  configuration?: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (billingUnit !== FeatureBillingUnit.UPLOAD) return configuration;
+  const fieldCode = configuration?.fieldCode;
+  return {
+    ...configuration,
+    fieldCode: typeof fieldCode === 'string' && fieldCode.trim() ? fieldCode.trim() : code,
+  };
+}
+
 @Injectable()
 export class PlatformCatalogService {
   constructor(
@@ -492,30 +505,36 @@ export class PlatformCatalogService {
   async createFeature(dto: CreateFeatureDto, actorId: string) {
     const { configuration, featureStepId, ...data } = dto;
     if (featureStepId) await this.requireFeatureStep(featureStepId);
+    const effectiveConfiguration = uploadFeatureConfiguration(dto.billingUnit, dto.code, configuration);
     return this.createWithAudit('FEATURE_CREATED', 'Feature', actorId, () =>
       this.prisma.feature.create({
         data: {
           ...data,
           ...(featureStepId ? { featureStepId } : {}),
-          ...(configuration !== undefined
-            ? { configuration: configuration as Prisma.InputJsonValue }
+          ...(effectiveConfiguration !== undefined
+            ? { configuration: effectiveConfiguration as Prisma.InputJsonValue }
             : {}),
         },
       }),
     );
   }
   async updateFeature(id: string, dto: UpdateFeatureDto, actorId: string) {
-    await this.exists('feature', id);
+    const existing = await this.prisma.feature.findUnique({ where: { id }, select: { configuration: true } });
+    if (!existing) throw new NotFoundException('Feature not found.');
     const { configuration, featureStepId, ...data } = dto;
     if (featureStepId) await this.requireFeatureStep(featureStepId);
+    const currentConfiguration = existing.configuration && typeof existing.configuration === 'object' && !Array.isArray(existing.configuration)
+      ? existing.configuration as Record<string, unknown>
+      : undefined;
+    const effectiveConfiguration = uploadFeatureConfiguration(dto.billingUnit, dto.code, configuration ?? currentConfiguration);
     return this.updateWithAudit('FEATURE_UPDATED', 'Feature', id, actorId, () =>
       this.prisma.feature.update({
         where: { id },
         data: {
           ...data,
           ...(featureStepId !== undefined ? { featureStepId } : {}),
-          ...(configuration !== undefined
-            ? { configuration: configuration as Prisma.InputJsonValue }
+          ...(effectiveConfiguration !== undefined
+            ? { configuration: effectiveConfiguration as Prisma.InputJsonValue }
             : {}),
         },
       }),
@@ -656,7 +675,12 @@ export class PlatformCatalogService {
         );
       }
       codes.add(normalized.code);
-      return normalized;
+      return {
+        ...normalized,
+        ...(normalized.billingUnit === FeatureBillingUnit.UPLOAD
+          ? { configuration: { fieldCode: normalized.code } }
+          : {}),
+      };
     });
     try {
       await this.prisma.$transaction(
