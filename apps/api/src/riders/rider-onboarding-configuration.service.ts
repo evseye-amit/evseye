@@ -180,6 +180,7 @@ export class RiderOnboardingConfigurationService {
     values: Record<string, unknown>,
     mode: 'CREATE' | 'EDIT' | 'IMPORT',
     existingMetadata: unknown = {},
+    options: { requireAll?: boolean } = {},
   ) {
     const configuration = await this.getEffectiveConfiguration(clientId);
     const fields = configuration.onboarding.steps.flatMap((step) => step.fields);
@@ -196,7 +197,7 @@ export class RiderOnboardingConfigurationService {
       if (mode === 'EDIT' && (!field.editable || field.readOnly || field.disabled)) continue;
       const supplied = values[field.fieldCode];
       const value = supplied === undefined || supplied === null ? '' : String(supplied).trim();
-      if (field.required && !value) {
+      if (options.requireAll !== false && field.required && !value) {
         throw new BadRequestException(`${field.fieldCode} is required.`);
       }
       if (!value) continue;
@@ -206,7 +207,7 @@ export class RiderOnboardingConfigurationService {
         metadata[field.storageKey.slice('metadata.'.length)] = normalized;
       } else {
         mapped[field.storageKey] =
-          field.dataType === 'DATE' ? new Date(`${normalized}T00:00:00.000Z`) : normalized;
+          field.dataType === 'DATE' ? this.parseDate(field, normalized) : normalized;
       }
     }
     if (Object.keys(metadata).length) mapped.metadata = metadata;
@@ -234,8 +235,18 @@ export class RiderOnboardingConfigurationService {
     if (options.length && !options.map(String).includes(value)) {
       throw new BadRequestException(`${field.fieldCode} value is not allowed.`);
     }
-    if (field.dataType === 'DATE' && Number.isNaN(Date.parse(value))) {
+  }
+
+  private parseDate(field: RiderField, value: string): Date {
+    const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    const display = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value);
+    const year = Number(iso?.[1] ?? display?.[3]);
+    const month = Number(iso?.[2] ?? display?.[2]);
+    const day = Number(iso?.[3] ?? display?.[1]);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if ((!iso && !display) || date.getUTCFullYear() !== year || date.getUTCMonth() + 1 !== month || date.getUTCDate() !== day) {
       throw new BadRequestException(`${field.fieldCode} is invalid.`);
     }
+    return date;
   }
 }

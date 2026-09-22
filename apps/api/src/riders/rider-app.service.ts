@@ -94,18 +94,31 @@ export class RiderAppService {
     skip ? skipped.add(stepId) : completed.add(stepId);
     const merged = { ...((current.values as Record<string, unknown>) ?? {}), ...values };
     const allFinished = effective.onboarding.steps.every((item) => completed.has(item.stepId) || skipped.has(item.stepId));
+    const storedValues = allFinished
+      ? Object.fromEntries(
+          effective.onboarding.steps
+            .flatMap((item) => item.fields)
+            .filter((field) => field.fieldCode && field.storageKey && merged[field.fieldCode] !== undefined)
+            .map((field) => [field.fieldCode, merged[field.fieldCode]]),
+        )
+      : {};
+    const riderValues = allFinished
+      ? (await this.configuration.validateAndMapValues(clientId, storedValues, 'CREATE', {}, { requireAll: false })).data
+      : {};
     await this.prisma.$transaction(async (tx) => {
       await tx.riderOnboardingProgress.update({ where: { userId }, data: { values: merged as Prisma.InputJsonValue, completedStepIds: [...completed], skippedStepIds: [...skipped], ...(allFinished ? { completedAt: new Date() } : {}) } });
       if (allFinished && !(await tx.rider.findUnique({ where: { userId } }))) {
-        const data: Record<string, unknown> = { clientId, userId, status: 'ACTIVE', name: String(merged.FULL_NAME ?? 'Rider'), mobile: String(merged.MOBILE_NUMBER ?? '') };
-        for (const field of effective.onboarding.steps.flatMap((item) => item.fields)) {
-          if (!field.fieldCode || !field.storageKey || merged[field.fieldCode] === undefined) continue;
-          if (field.storageKey === 'name' || field.storageKey === 'mobile') continue;
-          if (!field.storageKey.startsWith('metadata.')) data[field.storageKey] = merged[field.fieldCode];
-        }
+        const data: Record<string, unknown> = {
+          ...riderValues,
+          clientId,
+          userId,
+          status: 'ACTIVE',
+          name: String(riderValues.name ?? 'Rider'),
+          mobile: String(riderValues.mobile ?? ''),
+        };
         const rider = await tx.rider.create({ data: data as never });
         await tx.riderOnboardingDocument.updateMany({ where: { clientId, userId, riderId: null }, data: { riderId: rider.id } });
-        await tx.user.update({ where: { id: userId }, data: { name: String(merged.FULL_NAME ?? 'Rider') } });
+        await tx.user.update({ where: { id: userId }, data: { name: data.name as string } });
       }
     });
     return this.onboarding(clientId, userId);
