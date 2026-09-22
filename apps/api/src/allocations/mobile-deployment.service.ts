@@ -115,7 +115,31 @@ export class MobileDeploymentService {
   }
   async fleetRequests(clientId: string, userId: string) {
     const hubIds = (await this.prisma.userHub.findMany({ where: { clientId, userId }, select: { hubId: true } })).map((entry) => entry.hubId);
-    return this.prisma.allocation.findMany({ where: { clientId, fleet: { currentHubId: { in: hubIds } }, mobileDeployment: { is: { status: { in: ['RIDER_WAITING', 'FLEET_REQUESTED', 'PAYMENT_PENDING', 'PAYMENT_PAID', 'PDI_PENDING_RIDER', 'TRAINING_PENDING', 'DEVICE_PAIRING_PENDING'] } } } }, include: { rider: true, fleet: { include: { iotDevice: true, photos: { where: { status: 'COMPLETE' } } } }, mobileDeployment: true } });
+    if (!hubIds.length) return [];
+    const requests = await this.prisma.allocation.findMany({
+      where: { clientId, fleet: { currentHubId: { in: hubIds } }, mobileDeployment: { is: { status: { in: ['RIDER_WAITING', 'FLEET_REQUESTED', 'PAYMENT_PENDING', 'PAYMENT_PAID', 'PDI_PENDING_RIDER', 'TRAINING_PENDING', 'DEVICE_PAIRING_PENDING'] } } } },
+      include: { rider: true, fleet: { include: { iotDevice: true } }, mobileDeployment: true },
+    });
+    if (!requests.length) return [];
+    const photos = await this.prisma.photo.findMany({
+      where: {
+        clientId,
+        entityType: PhotoEntityType.FLEET,
+        entityId: { in: [...new Set(requests.map((request) => request.fleetId))] },
+        status: PhotoStatus.COMPLETE,
+      },
+      orderBy: { uploadedAt: 'asc' },
+    });
+    const photosByFleet = new Map<string, typeof photos>();
+    for (const photo of photos) {
+      const fleetPhotos = photosByFleet.get(photo.entityId) ?? [];
+      fleetPhotos.push(photo);
+      photosByFleet.set(photo.entityId, fleetPhotos);
+    }
+    return requests.map((request) => ({
+      ...request,
+      fleet: { ...request.fleet, photos: photosByFleet.get(request.fleetId) ?? [] },
+    }));
   }
   async riderCurrent(clientId: string, userId: string) {
     const rider = await this.prisma.rider.findFirst({ where: { clientId, userId, deletedAt: null }, select: { id: true } });
