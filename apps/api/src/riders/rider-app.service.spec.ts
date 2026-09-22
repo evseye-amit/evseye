@@ -58,6 +58,39 @@ describe('RiderAppService.saveStep', () => {
 });
 
 describe('RiderOnboardingConfigurationService', () => {
+  it('returns field identity beside configuration without duplicate rules', async () => {
+    const resolver = new RiderOnboardingConfigurationService({} as never);
+    const result = resolver.toPublicConfiguration({
+      package: { id: 'package-1', code: 'BASIC', name: 'Basic' },
+      onboarding: { category: 'RIDER_ONBOARDING' as never, steps: [{
+        stepId: 'step-1', stepCode: 'DOCUMENTS', stepName: 'Documents',
+        description: null, parentId: null, sequence: 1, active: true, enabled: true,
+        fields: [{
+          fieldId: 'feature-1', featureId: 'feature-1', featureCode: 'ADDRESS_PROOF_DOCUMENT',
+          fieldCode: 'ADDRESS_PROOF_DOCUMENT', storageKey: '', fieldName: 'Address proof',
+          label: 'Address proof', fieldType: 'TEXT', required: true, readOnly: false,
+          disabled: false, editable: true, importable: false, billingUnit: 'UPLOAD',
+          isUpload: true, sequence: 1, validation: { maxFiles: 1 },
+          configuration: { fieldCode: 'ADDRESS_PROOF_DOCUMENT', required: true, maxFileSizeMB: 5 },
+        }],
+      }] },
+    });
+    const field = result.onboarding.steps[0].fields[0];
+    expect(field).toEqual({
+      featureId: 'feature-1', featureCode: 'ADDRESS_PROOF_DOCUMENT',
+      fieldCode: 'ADDRESS_PROOF_DOCUMENT', name: 'Address proof', description: null,
+      billingUnit: 'UPLOAD', sequence: 1,
+      configuration: {
+        required: true, maxFileSizeMB: 5, label: 'Address proof', fieldType: 'UPLOAD',
+        readOnly: false, disabled: false, editable: true, importable: false,
+        validation: { maxFiles: 1 },
+      },
+    });
+    expect('fieldId' in field).toBe(false);
+    expect('required' in field).toBe(false);
+    expect('fieldCode' in field.configuration).toBe(false);
+  });
+
   it('resolves an upload feature code when legacy configuration has no fieldCode', async () => {
     const prisma = {
       clientSubscription: {

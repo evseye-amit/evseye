@@ -64,7 +64,7 @@ type PhotoRequirementEntityType =
   | "IOT_DEVICE"
   | "INSPECTION";
 type RecordItem = Record<string, unknown>;
-type RiderOnboardingField = { featureCode: string; fieldCode: string; storageKey: string; label: string; placeholder?: string; fieldType: string; required: boolean; readOnly: boolean; disabled: boolean; editable: boolean; importable: boolean; billingUnit: string; isUpload: boolean; sequence: number; validation?: Record<string, unknown> };
+type RiderOnboardingField = { featureId: string; featureCode: string; fieldCode?: string; name: string; description?: string | null; billingUnit: string; sequence: number; configuration: { label: string; storageKey?: string; placeholder?: string; fieldType: string; required: boolean; readOnly: boolean; disabled: boolean; editable: boolean; importable: boolean; maxFiles?: number; allowedFileTypes?: string[]; allowedMimeTypes?: string[]; validation?: Record<string, unknown> } };
 type RiderOnboardingConfiguration = { package: { code: string; name: string }; onboarding: { steps: Array<{ stepId: string; stepCode: string; stepName: string; description?: string; sequence: number; fields: RiderOnboardingField[] }> } };
 type FleetOnboardingOptions = {
   oems: Array<{ id: string; code: string; displayName: string }>;
@@ -1058,8 +1058,8 @@ export default function Home() {
         },
         token,
       );
-      for (const [featureCode, files] of Object.entries(riderUploads)) {
-        for (const file of files) await uploadRiderOnboardingFile(String((rider as RecordItem).id), featureCode, file);
+      for (const [fieldCode, files] of Object.entries(riderUploads)) {
+        for (const file of files) await uploadRiderOnboardingFile(String((rider as RecordItem).id), fieldCode, file);
       }
       setShowRiderForm(false);
       setRiderValues({});
@@ -1276,7 +1276,7 @@ export default function Home() {
     void loadBulkHistory(kind);
     if (kind === "riders") {
       void request("/riders/onboarding-configuration", {}, token)
-        .then((configuration) => setRiderBulkFields((configuration as RiderOnboardingConfiguration).onboarding.steps.flatMap((step) => step.fields.filter((field) => field.importable))))
+        .then((configuration) => setRiderBulkFields((configuration as RiderOnboardingConfiguration).onboarding.steps.flatMap((step) => step.fields.filter((field) => field.configuration.importable && field.fieldCode))))
         .catch((cause) => setError(cause instanceof Error ? cause.message : "Unable to load Rider import configuration."));
     }
   }
@@ -1287,7 +1287,7 @@ export default function Home() {
       if (file.size > 5 * 1024 * 1024) throw new Error("CSV must be 5 MB or smaller.");
       const csv = parseCsv(await file.text());
       const headers = csv.shift()?.map((field) => field.trim()) ?? [];
-      const required = kind === "riders" ? riderBulkFields.filter((field) => field.required).map((field) => field.fieldCode) : CLIENT_BULK_CONFIG[kind].requiredColumns.split(", ");
+      const required = kind === "riders" ? riderBulkFields.filter((field) => field.configuration.required).map((field) => field.fieldCode!) : CLIENT_BULK_CONFIG[kind].requiredColumns.split(", ");
       const componentImport = false;
       const requiredHeaders = componentImport
         ? required.filter((field) => field !== "fleetCode or chassisNumber")
@@ -1751,10 +1751,10 @@ export default function Home() {
       ]);
       setRiderDetail(rider);
       setRiderOnboardingConfiguration(configuration);
-      setRiderDraft(Object.fromEntries(configuration.onboarding.steps.flatMap((step) => step.fields.map((field) => {
+      setRiderDraft(Object.fromEntries(configuration.onboarding.steps.flatMap((step) => step.fields.filter((field) => field.fieldCode && field.configuration.storageKey).map((field) => {
         const metadata = (rider.metadata as RecordItem | undefined) ?? {};
-        const value = field.storageKey.startsWith("metadata.") ? metadata[field.storageKey.slice("metadata.".length)] : rider[field.storageKey];
-        return [field.fieldCode, value ? String(value).slice(0, field.fieldType === "DATE" ? 10 : undefined) : ""];
+        const value = (field.configuration.storageKey ?? "").startsWith("metadata.") ? metadata[(field.configuration.storageKey ?? "").slice("metadata.".length)] : rider[field.configuration.storageKey ?? ""];
+        return [field.fieldCode!, value ? String(value).slice(0, field.configuration.fieldType === "DATE" ? 10 : undefined) : ""];
       }))));
       setEditingRider(false);
     } catch (cause) {
@@ -2420,7 +2420,7 @@ export default function Home() {
         {bulkImportTab === tab && bulkImportTab ? <>
           {notice && <p className="notice">{notice}</p>}
           {error && <p className="error">{error}</p>}
-          <ClientBulkImportWorkspace key={bulkImportTab} title={CLIENT_BULK_CONFIG[bulkImportTab].title} requiredColumns={bulkImportTab === "riders" ? riderBulkFields.filter((field) => field.required).map((field) => field.fieldCode).join(", ") : CLIENT_BULK_CONFIG[bulkImportTab].requiredColumns} template={bulkImportTab === "riders" ? `${riderBulkFields.map((field) => field.fieldCode).join(",")}\n` : CLIENT_BULK_CONFIG[bulkImportTab].template} history={bulkHistory.filter((entry) => entry.tab === bulkImportTab)} historyLoading={bulkHistoryLoading} busy={loading} onBack={() => { setBulkImportTab(null); setError(""); setNotice(""); }} onUpload={(file) => uploadBulkRecords(bulkImportTab, file)} onDownloadFailures={(jobId) => downloadBulkFailures(bulkImportTab, jobId)} help={bulkImportTab === "fleet-managers" ? <><p className="sa-bulk-help">Use hub codes separated by semicolons. Primary hub code must match one of them.</p><p className="sa-bulk-help">Available hubs: {hubs.map((hub) => `${String(hub.code)} (${String(hub.name)})`).join(", ") || "Create a hub first."}</p></> : undefined} />
+          <ClientBulkImportWorkspace key={bulkImportTab} title={CLIENT_BULK_CONFIG[bulkImportTab].title} requiredColumns={bulkImportTab === "riders" ? riderBulkFields.filter((field) => field.configuration.required).map((field) => field.fieldCode!).join(", ") : CLIENT_BULK_CONFIG[bulkImportTab].requiredColumns} template={bulkImportTab === "riders" ? `${riderBulkFields.map((field) => field.fieldCode!).join(",")}\n` : CLIENT_BULK_CONFIG[bulkImportTab].template} history={bulkHistory.filter((entry) => entry.tab === bulkImportTab)} historyLoading={bulkHistoryLoading} busy={loading} onBack={() => { setBulkImportTab(null); setError(""); setNotice(""); }} onUpload={(file) => uploadBulkRecords(bulkImportTab, file)} onDownloadFailures={(jobId) => downloadBulkFailures(bulkImportTab, jobId)} help={bulkImportTab === "fleet-managers" ? <><p className="sa-bulk-help">Use hub codes separated by semicolons. Primary hub code must match one of them.</p><p className="sa-bulk-help">Available hubs: {hubs.map((hub) => `${String(hub.code)} (${String(hub.name)})`).join(", ") || "Create a hub first."}</p></> : undefined} />
         </> : <>
         {notice && <p className="notice">{notice}</p>}
         {error && <p className="error">{error}</p>}
@@ -2560,7 +2560,7 @@ export default function Home() {
             <h2>Create rider</h2>
             <p className="muted">Fields are configured by the active {riderOnboardingConfiguration?.package.name ?? ""} package.</p>
             <form className="form-stack" onSubmit={createRider}>
-              {riderOnboardingConfiguration?.onboarding.steps.map((step) => <fieldset key={step.stepId} className="form-stack"><legend>{step.stepName}</legend>{step.description && <p className="muted">{step.description}</p>}{step.fields.map((field) => field.isUpload ? <label key={field.featureCode ?? field.label}>{field.label}{field.required ? " *" : ""}<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" multiple={Number((field.validation?.maxFiles ?? 1)) > 1} required={field.required} onChange={(event) => setRiderUploads((current) => ({ ...current, [field.featureCode ?? field.label]: Array.from(event.target.files ?? []) }))} /></label> : field.fieldCode ? <label key={field.fieldCode}>{field.label}{field.required ? " *" : ""}{field.fieldType === "TEXTAREA" ? <textarea value={riderValues[field.fieldCode] ?? ""} placeholder={field.placeholder} required={field.required} disabled={field.disabled || field.readOnly} onChange={(event) => setRiderValues((current) => ({ ...current, [field.fieldCode]: event.target.value }))} /> : <input type={field.fieldType === "DATE" ? "date" : field.fieldType === "MOBILE" ? "tel" : "text"} value={riderValues[field.fieldCode] ?? ""} placeholder={field.placeholder} required={field.required} disabled={field.disabled || field.readOnly} onChange={(event) => setRiderValues((current) => ({ ...current, [field.fieldCode]: event.target.value }))} />}</label> : <p key={field.label} className="muted">{field.label} is enabled for this package.</p>)}</fieldset>)}
+              {riderOnboardingConfiguration?.onboarding.steps.map((step) => <fieldset key={step.stepId} className="form-stack"><legend>{step.stepName}</legend>{step.description && <p className="muted">{step.description}</p>}{step.fields.map((field) => field.billingUnit === "UPLOAD" ? <label key={field.fieldCode ?? field.featureCode}>{field.configuration.label}{field.configuration.required ? " *" : ""}<input type="file" accept={field.configuration.allowedMimeTypes?.join(",") || field.configuration.allowedFileTypes?.map((type) => ({ PDF: "application/pdf", JPG: "image/jpeg", JPEG: "image/jpeg", PNG: "image/png", WEBP: "image/webp" } as Record<string, string>)[type.toUpperCase()] ?? "").filter(Boolean).join(",") || "image/jpeg,image/png,image/webp,application/pdf"} multiple={Number(field.configuration.maxFiles ?? 1) > 1} required={field.configuration.required} onChange={(event) => setRiderUploads((current) => ({ ...current, [field.fieldCode ?? field.featureCode]: Array.from(event.target.files ?? []) }))} /></label> : field.fieldCode ? <label key={field.fieldCode}>{field.configuration.label}{field.configuration.required ? " *" : ""}{field.configuration.fieldType === "TEXTAREA" ? <textarea value={riderValues[field.fieldCode!] ?? ""} placeholder={field.configuration.placeholder} required={field.configuration.required} disabled={field.configuration.disabled || field.configuration.readOnly} onChange={(event) => setRiderValues((current) => ({ ...current, [field.fieldCode!]: event.target.value }))} /> : <input type={field.configuration.fieldType === "DATE" ? "date" : field.configuration.fieldType === "MOBILE" ? "tel" : "text"} value={riderValues[field.fieldCode!] ?? ""} placeholder={field.configuration.placeholder} required={field.configuration.required} disabled={field.configuration.disabled || field.configuration.readOnly} onChange={(event) => setRiderValues((current) => ({ ...current, [field.fieldCode!]: event.target.value }))} />}</label> : <p key={field.configuration.label} className="muted">{field.configuration.label} is enabled for this package.</p>)}</fieldset>)}
               <div className="form-actions">
                 <button disabled={loading}>Create rider</button>
                 <button
@@ -2845,7 +2845,7 @@ export default function Home() {
             </button>
             {editingRider && (
               <form className="form-stack" onSubmit={updateRider}>
-                {riderOnboardingConfiguration?.onboarding.steps.map((step) => <fieldset key={step.stepId} className="form-stack"><legend>{step.stepName}</legend>{step.fields.map((field) => <label key={field.fieldCode}>{field.label}{field.required ? " *" : ""}{field.fieldType === "TEXTAREA" ? <textarea value={riderDraft[field.fieldCode] ?? ""} required={field.required} disabled={!field.editable || field.readOnly || field.disabled} onChange={(event) => setRiderDraft((current) => ({ ...current, [field.fieldCode]: event.target.value }))} /> : <input type={field.fieldType === "DATE" ? "date" : field.fieldType === "MOBILE" ? "tel" : "text"} value={riderDraft[field.fieldCode] ?? ""} required={field.required} disabled={!field.editable || field.readOnly || field.disabled} onChange={(event) => setRiderDraft((current) => ({ ...current, [field.fieldCode]: event.target.value }))} />}</label>)}</fieldset>)}
+                {riderOnboardingConfiguration?.onboarding.steps.map((step) => <fieldset key={step.stepId} className="form-stack"><legend>{step.stepName}</legend>{step.fields.filter((field) => field.fieldCode && field.configuration.storageKey && field.billingUnit !== "UPLOAD").map((field) => <label key={field.fieldCode}>{field.configuration.label}{field.configuration.required ? " *" : ""}{field.configuration.fieldType === "TEXTAREA" ? <textarea value={riderDraft[field.fieldCode!] ?? ""} required={field.configuration.required} disabled={!field.configuration.editable || field.configuration.readOnly || field.configuration.disabled} onChange={(event) => setRiderDraft((current) => ({ ...current, [field.fieldCode!]: event.target.value }))} /> : <input type={field.configuration.fieldType === "DATE" ? "date" : field.configuration.fieldType === "MOBILE" ? "tel" : "text"} value={riderDraft[field.fieldCode!] ?? ""} required={field.configuration.required} disabled={!field.configuration.editable || field.configuration.readOnly || field.configuration.disabled} onChange={(event) => setRiderDraft((current) => ({ ...current, [field.fieldCode!]: event.target.value }))} />}</label>)}</fieldset>)}
                 <div className="form-actions">
                   <button disabled={loading}>Save rider</button>
                   <button

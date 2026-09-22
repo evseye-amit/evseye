@@ -54,8 +54,10 @@ export class RidersController {
   @Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
   async onboardingConfiguration(@CurrentUser() user: AuthUser) {
     return {
-      data: await this.riderOnboardingConfiguration.getEffectiveConfiguration(
-        this.clientContext.requireClientId(user),
+      data: this.riderOnboardingConfiguration.toPublicConfiguration(
+        await this.riderOnboardingConfiguration.getEffectiveConfiguration(
+          this.clientContext.requireClientId(user),
+        ),
       ),
     };
   }

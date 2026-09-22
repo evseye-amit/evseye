@@ -58,7 +58,7 @@ export class RiderAppService {
           ? 'WAITING_FOR_FLEET'
           : 'ONBOARDING';
     return {
-      ...configuration,
+      ...this.configuration.toPublicConfiguration(configuration),
       screen,
       documentReview: { documents, rejected, pendingCount },
       progress: {
@@ -136,13 +136,19 @@ export class RiderAppService {
   async createDocumentUploadIntent(clientId: string, userId: string, input: { fieldCode: string; mimeType: 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf'; fileName: string; sizeBytes: number }) {
     const { field, progressId } = await this.uploadField(clientId, userId, input.fieldCode);
     const uploadConfiguration = (field.configuration ?? {}) as Record<string, unknown>;
-    const allowedMimeTypes = Array.isArray(uploadConfiguration.allowedMimeTypes)
+    const explicitMimeTypes = Array.isArray(uploadConfiguration.allowedMimeTypes)
       ? uploadConfiguration.allowedMimeTypes.filter((value): value is string => typeof value === 'string')
       : [];
+    const fileTypeMimes: Record<string, string> = { PDF: 'application/pdf', JPG: 'image/jpeg', JPEG: 'image/jpeg', PNG: 'image/png', WEBP: 'image/webp' };
+    const allowedMimeTypes = explicitMimeTypes.length ? explicitMimeTypes
+      : Array.isArray(uploadConfiguration.allowedFileTypes)
+        ? uploadConfiguration.allowedFileTypes.map((value) => fileTypeMimes[String(value).toUpperCase()]).filter(Boolean)
+        : [];
     if (allowedMimeTypes.length && !allowedMimeTypes.includes(input.mimeType)) {
       throw new BadRequestException(`${field.label} does not accept this file type.`);
     }
-    const maxFileSizeBytes = Number(uploadConfiguration.maxFileSizeBytes ?? uploadConfiguration.maxFileSize ?? 0);
+    const maxFileSizeBytes = Number(uploadConfiguration.maxFileSizeBytes ?? uploadConfiguration.maxFileSize ??
+      (uploadConfiguration.maxFileSizeMB ? Number(uploadConfiguration.maxFileSizeMB) * 1024 * 1024 : 0));
     if (Number.isFinite(maxFileSizeBytes) && maxFileSizeBytes > 0 && input.sizeBytes > maxFileSizeBytes) {
       throw new BadRequestException(`${field.label} exceeds the allowed file size.`);
     }

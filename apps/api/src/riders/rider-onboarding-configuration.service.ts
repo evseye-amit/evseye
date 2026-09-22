@@ -55,6 +55,52 @@ const asRecord = (value: unknown): JsonRecord =>
 export class RiderOnboardingConfigurationService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** Keep the resolved validation model private; expose each rule only in configuration. */
+  toPublicConfiguration(effective: RiderOnboardingConfiguration) {
+    return {
+      package: effective.package,
+      onboarding: {
+        category: effective.onboarding.category,
+        steps: effective.onboarding.steps.map((step) => ({
+          stepId: step.stepId,
+          stepCode: step.stepCode,
+          stepName: step.stepName,
+          description: step.description,
+          parentId: step.parentId,
+          sequence: step.sequence,
+          fields: step.fields.map((field) => {
+            const storedConfiguration = Object.fromEntries(
+              Object.entries(field.configuration).filter(([key]) =>
+                !['fieldCode', 'fieldId', 'featureId', 'featureCode', 'billingUnit', 'sequence'].includes(key),
+              ),
+            );
+            return {
+              featureId: field.featureId,
+              featureCode: field.featureCode,
+              ...(field.fieldCode ? { fieldCode: field.fieldCode } : {}),
+              name: field.fieldName,
+              description: field.description ?? null,
+              billingUnit: field.billingUnit,
+              sequence: field.sequence,
+              configuration: {
+                ...storedConfiguration,
+                label: field.label,
+                fieldType: field.isUpload ? 'UPLOAD' : field.fieldType,
+                ...(field.storageKey ? { storageKey: field.storageKey } : {}),
+                required: field.required,
+                readOnly: field.readOnly,
+                disabled: field.disabled,
+                editable: field.editable,
+                importable: field.importable,
+                validation: field.validation,
+              },
+            };
+          }),
+        })),
+      },
+    };
+  }
+
   async getEffectiveConfiguration(clientId: string): Promise<RiderOnboardingConfiguration> {
     const now = new Date();
     const subscription = await this.prisma.clientSubscription.findFirst({
