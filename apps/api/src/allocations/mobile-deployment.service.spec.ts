@@ -17,7 +17,7 @@ describe('MobileDeploymentService.fleetRequests', () => {
       allocation: { findMany: vi.fn().mockResolvedValue(requests) },
       photo: { findMany: vi.fn().mockResolvedValue(photos) },
     };
-    const service = new MobileDeploymentService(prisma as never, {} as never, {} as never, {} as never);
+    const service = new MobileDeploymentService(prisma as never, {} as never, {} as never, {} as never, {} as never);
 
     const result = await service.fleetRequests('client-1', 'manager-1');
 
@@ -34,5 +34,37 @@ describe('MobileDeploymentService.fleetRequests', () => {
     expect(result.map((request) => request.fleet.photos.map((photo) => photo.id))).toEqual([
       ['photo-1'], ['photo-2'],
     ]);
+  });
+});
+
+describe('MobileDeploymentService.requestFleet', () => {
+  it.each([
+    ['development', true],
+    ['production', false],
+  ] as const)('handles a missing heartbeat in %s', async (nodeEnv, allowed) => {
+    const prisma = {
+      userHub: { findMany: vi.fn().mockResolvedValue([{ hubId: 'hub-1' }]) },
+      allocation: { findFirst: vi.fn().mockResolvedValue({
+        id: 'allocation-1', fleetId: 'fleet-1', fleet: { iotDevice: { lastHeartbeatAt: null } },
+      }) },
+      mobileDeploymentWorkflow: {
+        upsert: vi.fn().mockResolvedValue({ id: 'workflow-1', status: 'RIDER_WAITING' }),
+        update: vi.fn().mockResolvedValue({ id: 'workflow-1', status: 'FLEET_REQUESTED' }),
+      },
+      photoRequirement: { findMany: vi.fn().mockResolvedValue([]) },
+      photo: { findMany: vi.fn().mockResolvedValue([]) },
+    };
+    const config = { getOrThrow: vi.fn().mockReturnValue(nodeEnv) };
+    const service = new MobileDeploymentService(prisma as never, {} as never, {} as never, {} as never, config as never);
+
+    if (allowed) {
+      await expect(service.requestFleet('client-1', 'manager-1', 'allocation-1'))
+        .resolves.toMatchObject({ status: 'FLEET_REQUESTED' });
+      expect(prisma.mobileDeploymentWorkflow.update).toHaveBeenCalledOnce();
+    } else {
+      await expect(service.requestFleet('client-1', 'manager-1', 'allocation-1'))
+        .rejects.toThrow('IoT heartbeat is unavailable or stale.');
+      expect(prisma.mobileDeploymentWorkflow.update).not.toHaveBeenCalled();
+    }
   });
 });

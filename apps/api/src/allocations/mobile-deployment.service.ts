@@ -1,10 +1,12 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { AllocationStatus, ClientSubscriptionStatus, DeploymentPaymentStatus, FleetStatus, InspectionStatus, InspectionType, MobileDeploymentStatus, PhotoEntityType, PhotoStatus, Prisma, RiderStatus } from '@prisma/client';
 import { STORAGE_PROVIDER, type StorageProvider } from '../media/storage/storage-provider.interface.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AllocationsService } from './allocations.service.js';
 import { MediaService } from '../media/media.service.js';
 import type { CreateUploadIntentDto } from '../media/dto/create-upload-intent.dto.js';
+import type { Environment } from '../config/environment.js';
 
 @Injectable()
 export class MobileDeploymentService {
@@ -13,6 +15,7 @@ export class MobileDeploymentService {
     private readonly allocations: AllocationsService,
     private readonly media: MediaService,
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
+    private readonly config: ConfigService<Environment, true>,
   ) {}
 
   private async trainingContents(clientId: string) {
@@ -211,7 +214,9 @@ export class MobileDeploymentService {
     if (missing.length) throw new BadRequestException(`Fleet evidence is incomplete: ${missing.join(', ')}.`);
     const device = allocation.fleet.iotDevice;
     if (!device) throw new BadRequestException('An IoT device must be mapped before fleet deployment.');
-    if (!device.lastHeartbeatAt || Date.now() - device.lastHeartbeatAt.getTime() > 15 * 60 * 1000) throw new BadRequestException('IoT heartbeat is unavailable or stale.');
+    if (this.config.getOrThrow('NODE_ENV') !== 'development' && (!device.lastHeartbeatAt || Date.now() - device.lastHeartbeatAt.getTime() > 15 * 60 * 1000)) {
+      throw new BadRequestException('IoT heartbeat is unavailable or stale.');
+    }
     return this.prisma.mobileDeploymentWorkflow.update({ where: { id: workflow.id }, data: { status: MobileDeploymentStatus.FLEET_REQUESTED } });
   }
   async askPayment(clientId: string, userId: string, allocationId: string, request: { currency: string; items: Array<{ label: string; amount: string }> }) {
