@@ -84,6 +84,25 @@ resource "aws_iam_role_policy" "ecs_task_api_s3" {
   })
 }
 
+resource "aws_iam_role_policy" "ecs_task_api_ssmmessages" {
+  name = "ecs-exec-ssmmessages"
+  role = aws_iam_role.ecs_task_api.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "ssmmessages:CreateControlChannel",
+        "ssmmessages:CreateDataChannel",
+        "ssmmessages:OpenControlChannel",
+        "ssmmessages:OpenDataChannel",
+      ]
+      Resource = "*"
+    }]
+  })
+}
+
 # SNS SMS publish policy — uncomment when switching to a real SMS provider for production
 # resource "aws_iam_role_policy" "ecs_task_api_sns" {
 #   name = "sns-sms-publish"
