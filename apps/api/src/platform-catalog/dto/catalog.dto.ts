@@ -131,6 +131,7 @@ export class CreateFeatureDto {
   @IsOptional() @IsUUID() featureStepId?: string;
   @IsOptional() @IsNumber() @Min(0) displayOrder?: number;
   @IsOptional() @IsBoolean() isActive?: boolean;
+  @IsOptional() @IsBoolean() isAddOnEligible?: boolean;
 }
 
 export class CreateFeatureStepDto {

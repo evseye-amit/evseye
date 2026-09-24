@@ -9,6 +9,7 @@ const environmentSchema = z.object({
     .enum(['development', 'test', 'production'])
     .default('development'),
   API_PORT: z.coerce.number().int().positive().default(3000),
+  SWAGGER_ENABLED: z.enum(['true', 'false']).optional(),
   APP_BASE_DOMAINS: hostList.default('localhost'),
   APP_GENERIC_HOSTS: hostList.default('localhost,127.0.0.1'),
   CLIENT_PROXY_SECRET: z.string().min(32).optional(),

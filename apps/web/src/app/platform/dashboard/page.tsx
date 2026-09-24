@@ -275,6 +275,7 @@ const emptyFeature = {
   featureStepId: "",
   displayOrder: "0",
   isActive: true,
+  isAddOnEligible: false,
 };
 const emptyFeatureStep = {
   code: "",
@@ -532,7 +533,6 @@ export default function SuperAdminDashboard() {
         featureStepList,
         featureList,
         priceList,
-        featureAddOnList,
       ] = await Promise.all([
         request("/platform/dashboard", {}, token),
         request("/platform/clients", {}, token),
@@ -543,7 +543,6 @@ export default function SuperAdminDashboard() {
         request("/platform/feature-steps", {}, token),
         request("/platform/features", {}, token),
         request("/platform/feature-pricing", {}, token),
-        request("/platform/commercial/feature-addons", {}, token),
       ]);
       setSummary(dashboard);
       setClients(clientList);
@@ -554,7 +553,6 @@ export default function SuperAdminDashboard() {
       setFeatureSteps(featureStepList);
       setFeatures(featureList);
       setPricing(priceList);
-      setFeatureAddOns(featureAddOnList);
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -676,6 +674,7 @@ export default function SuperAdminDashboard() {
         featureStepId: item.featureStepId ?? "",
         displayOrder: String(item.displayOrder),
         isActive: item.isActive,
+        isAddOnEligible: Boolean(item.isAddOnEligible),
       });
       setEditingFeatureId(item.id);
     } else {
@@ -1269,6 +1268,7 @@ export default function SuperAdminDashboard() {
               ...feature,
               ...(configuration ? { configuration } : {}),
               displayOrder: Number(feature.displayOrder),
+              isAddOnEligible: feature.isAddOnEligible,
             }),
           },
           token,
@@ -2029,7 +2029,6 @@ export default function SuperAdminDashboard() {
         ["featureSteps", "Feature Step", "category"],
         ["features", "Feature", "feature"],
         ["pricing", "Pricing", "pricing"],
-        ["featureAddOns", "Feature Add-Ons", "feature"],
       ],
     },
     {
@@ -2037,7 +2036,6 @@ export default function SuperAdminDashboard() {
       items: [
         ["packages", "Package", "package"],
         ["packageFeatures", "Package Feature", "packageFeature"],
-        ["packageAddOns", "Package Add-Ons", "packageFeature"],
         ["packageTierPricing", "Package Tier Pricing", "pricing"],
       ],
     },
@@ -2045,8 +2043,13 @@ export default function SuperAdminDashboard() {
       label: "Client Management",
       items: [
         ["clients", "Client", "users"],
+      ],
+    },
+    {
+      label: "Client Commercials",
+      items: [
         ["clientPricingAdjustments", "Pricing Adjustments", "pricing"],
-        ["clientAddOnPurchases", "Feature Add-On Purchases", "feature"],
+        ["clientAddOnPurchases", "Features & Pricing", "feature"],
         ["clientCreditLots", "Feature Credit Lots", "packageFeature"],
         ["clientUsageLedger", "Feature Usage Ledger", "dashboard"],
       ],
@@ -2061,15 +2064,12 @@ export default function SuperAdminDashboard() {
     features: "Manage the platform feature catalog and entitlement definitions.",
     featureSteps: "Organize the onboarding journey and align each Feature to its primary step.",
     pricing: "Configure catalog pricing for billable platform features.",
-    featureAddOns:
-      "Create purchasable feature allowances for clients that need additional usage.",
     packages: "Create packages and define the commercial limits available to clients.",
     packageFeatures: "Choose the features included with each platform package.",
-    packageAddOns: "Choose the Feature Add-Ons available for each package.",
     packageTierPricing: "Set the per-vehicle recurring price for each fleet-size range.",
     clients: "Manage onboarding drafts, approvals, subscriptions, and documents.",
     clientPricingAdjustments: "Apply negotiated commercial terms without changing master pricing.",
-    clientAddOnPurchases: "Purchase package-eligible Feature Add-Ons for a client.",
+    clientAddOnPurchases: "Assign eligible catalog Features and client-specific pricing without changing package masters.",
     clientCreditLots: "Review active and expired client feature credits by source and expiry.",
     clientUsageLedger: "Review the immutable client feature credit and consumption history.",
   };
@@ -3084,6 +3084,19 @@ export default function SuperAdminDashboard() {
                   />
                   Active feature
                 </label>
+                <label className="sa-toggle">
+                  <input
+                    type="checkbox"
+                    checked={feature.isAddOnEligible}
+                    onChange={(event) =>
+                      setFeature((current) => ({
+                        ...current,
+                        isAddOnEligible: event.target.checked,
+                      }))
+                    }
+                  />{" "}
+                  Available as a client add-on
+                </label>
               </CatalogFormDialog>
               {features.length ? (
                 <DataTable
@@ -3095,12 +3108,14 @@ export default function SuperAdminDashboard() {
                     "Type",
                     "Billing unit",
                     "Active",
+                    "Add-on eligible",
                     "",
                     "",
                   ]}
                   columnFilters={[
                     { type: "text" },
                     { type: "text" },
+                    { type: "select" },
                     { type: "select" },
                     { type: "select" },
                     { type: "select" },
@@ -3119,6 +3134,7 @@ export default function SuperAdminDashboard() {
                     item.featureType,
                     item.billingUnit,
                     item.isActive ? "YES" : "NO",
+                    item.isAddOnEligible ? "YES" : "NO",
                     <button
                       key="edit"
                       className="secondary"

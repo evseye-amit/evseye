@@ -29,6 +29,14 @@ import {
 import { RejectClientDto } from './dto/reject-client.dto.js';
 import { PlatformAdminService } from './platform-admin.service.js';
 import { ClientLogoUploadDto, CompleteClientLogoDto } from './dto/client-logo.dto.js';
+import {
+  CreateClientFeatureDto,
+  UpdateClientFeatureDto,
+} from './dto/client-feature.dto.js';
+import {
+  CreateClientFeaturePricingDto,
+  UpdateClientFeaturePricingDto,
+} from './dto/client-feature-pricing.dto.js';
 
 @Controller('platform')
 @UseGuards(AccessTokenGuard, RolesGuard)
@@ -81,6 +89,78 @@ export class PlatformAdminController {
     return this.platform
       .clientEntitlements(clientId)
       .then((data) => ({ data }));
+  }
+  @Get('clients/:clientId/features') clientFeatures(
+    @Param('clientId') clientId: string,
+  ) {
+    return this.platform.listClientFeatures(clientId).then((data) => ({ data }));
+  }
+  @Post('clients/:clientId/features') createClientFeature(
+    @Param('clientId') clientId: string,
+    @Body() dto: CreateClientFeatureDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform
+      .createClientFeature(clientId, dto, user.id)
+      .then((data) => ({ data }));
+  }
+  @Patch('clients/:clientId/features/:clientFeatureId') updateClientFeature(
+    @Param('clientId') clientId: string,
+    @Param('clientFeatureId') clientFeatureId: string,
+    @Body() dto: UpdateClientFeatureDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform
+      .updateClientFeature(clientId, clientFeatureId, dto, user.id)
+      .then((data) => ({ data }));
+  }
+  @Delete('clients/:clientId/features/:clientFeatureId') deleteClientFeature(
+    @Param('clientId') clientId: string,
+    @Param('clientFeatureId') clientFeatureId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform
+      .deleteClientFeature(clientId, clientFeatureId, user.id)
+      .then(() => ({ data: { deleted: true } }));
+  }
+  @Get('clients/:clientId/features/:clientFeatureId/pricing') clientFeaturePricing(
+    @Param('clientId') clientId: string,
+    @Param('clientFeatureId') clientFeatureId: string,
+  ) {
+    return this.platform
+      .listClientFeaturePricing(clientId, clientFeatureId)
+      .then((data) => ({ data }));
+  }
+  @Post('clients/:clientId/features/:clientFeatureId/pricing') createClientFeaturePricing(
+    @Param('clientId') clientId: string,
+    @Param('clientFeatureId') clientFeatureId: string,
+    @Body() dto: CreateClientFeaturePricingDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform
+      .createClientFeaturePricing(clientId, clientFeatureId, dto, user.id)
+      .then((data) => ({ data }));
+  }
+  @Patch('clients/:clientId/features/:clientFeatureId/pricing/:pricingId') updateClientFeaturePricing(
+    @Param('clientId') clientId: string,
+    @Param('clientFeatureId') clientFeatureId: string,
+    @Param('pricingId') pricingId: string,
+    @Body() dto: UpdateClientFeaturePricingDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform
+      .updateClientFeaturePricing(clientId, clientFeatureId, pricingId, dto, user.id)
+      .then((data) => ({ data }));
+  }
+  @Delete('clients/:clientId/features/:clientFeatureId/pricing/:pricingId') deleteClientFeaturePricing(
+    @Param('clientId') clientId: string,
+    @Param('clientFeatureId') clientFeatureId: string,
+    @Param('pricingId') pricingId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform
+      .deleteClientFeaturePricing(clientId, clientFeatureId, pricingId, user.id)
+      .then(() => ({ data: { deleted: true } }));
   }
   @Patch('clients/:clientId/contacts-addresses') contactsAndAddresses(
     @Param('clientId') clientId: string,

@@ -4,6 +4,7 @@ import helmet from '@fastify/helmet';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import {
   FastifyAdapter,
   NestFastifyApplication,
@@ -13,6 +14,7 @@ import { AppModule } from './app.module.js';
 import type { AuthUser } from './auth/interfaces/auth-user.interface.js';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
 import type { Environment } from './config/environment.js';
+import { completeSwaggerDocument, SWAGGER_TAGS } from './swagger.js';
 
 export async function createApplication(): Promise<NestFastifyApplication> {
   const requestStartedAt = new WeakMap<FastifyRequest, number>();
@@ -32,8 +34,21 @@ export async function createApplication(): Promise<NestFastifyApplication> {
     .getOrThrow<string>('CORS_ORIGINS')
     .split(',')
     .map((origin: string) => origin.trim());
+  const swaggerSetting = config.get('SWAGGER_ENABLED');
+  const swaggerEnabled = swaggerSetting === 'true' ||
+    (swaggerSetting === undefined && config.get('NODE_ENV') !== 'production');
 
-  await app.register(helmet as never);
+  await app.register(helmet as never, swaggerEnabled ? {
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:'],
+        connectSrc: ["'self'"],
+      },
+    },
+  } : {});
   await app.register(cors as never, {
     credentials: false,
     origin: async (origin: string | undefined) => {
@@ -77,5 +92,26 @@ export async function createApplication(): Promise<NestFastifyApplication> {
     }),
   );
   app.useGlobalFilters(new HttpExceptionFilter());
+  if (swaggerEnabled) {
+    let swaggerBuilder = new DocumentBuilder()
+      .setTitle('EVs Eye API')
+      .setDescription('Endpoints are grouped by business area. Authenticate with an OTP endpoint, then use its access token with Authorize. Client endpoints use the client associated with that token.')
+      .setVersion('1.0')
+      .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' })
+      .addApiKey({ type: 'apiKey', in: 'header', name: 'x-device-secret' }, 'deviceSecret');
+    for (const [name, description] of SWAGGER_TAGS) {
+      swaggerBuilder = swaggerBuilder.addTag(name, description);
+    }
+    const swaggerConfig = swaggerBuilder.build();
+    const document = completeSwaggerDocument(SwaggerModule.createDocument(app, swaggerConfig));
+    SwaggerModule.setup('api/docs', app, document, {
+      jsonDocumentUrl: 'api/docs-json',
+      swaggerOptions: {
+        persistAuthorization: true,
+        tagsSorter: 'alpha',
+        operationsSorter: 'alpha',
+      },
+    });
+  }
   return app;
 }

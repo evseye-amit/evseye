@@ -39,15 +39,6 @@ function number(value: unknown) {
   );
 }
 
-function money(value: unknown, currency = "INR") {
-  const parsed = Number(value ?? 0);
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: String(currency),
-    maximumFractionDigits: 2,
-  }).format(Number.isFinite(parsed) ? parsed : 0);
-}
-
 export function ClientCommercialSettings({
   clientId,
   clientName,
@@ -63,10 +54,10 @@ export function ClientCommercialSettings({
   const [notice, setNotice] = useState("");
   const [subscriptions, setSubscriptions] = useState<Item[]>([]);
   const [adjustments, setAdjustments] = useState<Item[]>([]);
-  const [purchases, setPurchases] = useState<Item[]>([]);
+  const [clientFeatures, setClientFeatures] = useState<Item[]>([]);
   const [creditLots, setCreditLots] = useState<Item[]>([]);
   const [ledger, setLedger] = useState<Item[]>([]);
-  const [availableAddOns, setAvailableAddOns] = useState<Item[]>([]);
+  const [eligibleFeatures, setEligibleFeatures] = useState<Item[]>([]);
   const [adjustment, setAdjustment] = useState({
     subscriptionId: "",
     adjustmentScope: "PACKAGE",
@@ -77,7 +68,13 @@ export function ClientCommercialSettings({
     validTo: "",
     reason: "",
   });
-  const [selectedAddOnId, setSelectedAddOnId] = useState("");
+  const [clientAddOn, setClientAddOn] = useState({
+    featureId: "",
+    includedQuantity: "0",
+    unlimitedUsage: false,
+    effectiveFrom: new Date().toISOString().slice(0, 10),
+    effectiveTo: "",
+  });
 
   async function request(path: string, method = "GET", body?: object) {
     const response = await fetch(`/api/v1/platform/commercial${path}`, {
@@ -92,6 +89,19 @@ export function ClientCommercialSettings({
     return payload.data;
   }
 
+  async function platformRequest(path: string, method = "GET", body?: object) {
+    const response = await fetch(`/api/v1/platform${path}`, {
+      method,
+      headers: body ? { "Content-Type": "application/json" } : {},
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error?.message || payload.message || "Client commercial action failed.");
+    }
+    return payload.data;
+  }
+
   const activeSubscription = useMemo(
     () => subscriptions.find((item) => item.status === "ACTIVE") ?? null,
     [subscriptions],
@@ -101,42 +111,36 @@ export function ClientCommercialSettings({
     setBusy(true);
     setError("");
     try {
-      const [loadedSubscriptions, loadedAdjustments, loadedPurchases, loadedLots, loadedLedger] =
+      const [loadedSubscriptions, loadedAdjustments, loadedClientFeatures, loadedLots, loadedLedger, catalogFeatures] =
         await Promise.all([
           request(`/subscriptions?clientId=${encodeURIComponent(clientId)}`),
           request(`/adjustments?clientId=${encodeURIComponent(clientId)}`),
-          request(`/clients/${encodeURIComponent(clientId)}/addon-purchases`),
+          platformRequest(`/clients/${encodeURIComponent(clientId)}/features`),
           request(`/clients/${encodeURIComponent(clientId)}/credit-lots`),
           request(`/clients/${encodeURIComponent(clientId)}/feature-usage`),
+          platformRequest("/features"),
         ]);
       const nextSubscriptions = loadedSubscriptions as Item[];
       setSubscriptions(nextSubscriptions);
       setAdjustments(loadedAdjustments as Item[]);
-      setPurchases(loadedPurchases as Item[]);
+      setClientFeatures(loadedClientFeatures as Item[]);
       setCreditLots(loadedLots as Item[]);
       setLedger(loadedLedger as Item[]);
+      const eligible = (catalogFeatures as Item[]).filter(
+        (feature) => feature.isActive && feature.isAddOnEligible,
+      );
+      setEligibleFeatures(eligible);
       const active = nextSubscriptions.find((item) => item.status === "ACTIVE");
       setAdjustment((current) => ({
         ...current,
         subscriptionId: active ? String(active.id) : "",
       }));
-      if (active?.packageId) {
-        const mappings = (await request(
-          `/feature-addons?packageId=${encodeURIComponent(String(active.packageId))}`,
-        )) as Item[];
-        const addOns = mappings.map((mapping) =>
-          (mapping.featureAddOn as Item) ?? mapping,
-        );
-        setAvailableAddOns(addOns);
-        setSelectedAddOnId((current) =>
-          addOns.some((item) => item.id === current)
-            ? current
-            : String(addOns[0]?.id ?? ""),
-        );
-      } else {
-        setAvailableAddOns([]);
-        setSelectedAddOnId("");
-      }
+      setClientAddOn((current) => ({
+        ...current,
+        featureId: eligible.some((feature) => feature.id === current.featureId)
+          ? current.featureId
+          : String(eligible[0]?.id ?? ""),
+      }));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to load client commercial data.");
     } finally {
@@ -174,20 +178,51 @@ export function ClientCommercialSettings({
     }
   }
 
-  async function purchaseAddOn() {
-    if (!activeSubscription || !selectedAddOnId) return;
+  async function saveClientAddOn() {
+    if (!activeSubscription || !clientAddOn.featureId) return;
     setBusy(true);
     setError("");
     setNotice("");
     try {
-      await request(`/clients/${encodeURIComponent(clientId)}/addon-purchases`, "POST", {
+      await platformRequest(`/clients/${encodeURIComponent(clientId)}/features`, "POST", {
         subscriptionId: activeSubscription.id,
-        featureAddOnId: selectedAddOnId,
+        featureId: clientAddOn.featureId,
+        source: "ADD_ON",
+        includedQuantity: Number(clientAddOn.includedQuantity || 0),
+        unlimitedUsage: clientAddOn.unlimitedUsage,
+        effectiveFrom: clientAddOn.effectiveFrom,
+        effectiveTo: clientAddOn.effectiveTo || undefined,
       });
-      setNotice("Feature Add-On purchased and credits are available immediately.");
+      setNotice("Client add-on assigned. Its pricing can now be managed independently.");
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to purchase the Feature Add-On.");
+      setError(cause instanceof Error ? cause.message : "Unable to assign the client add-on.");
+      setBusy(false);
+    }
+  }
+
+  async function setClientFeatureEnabled(featureId: string, enabled: boolean) {
+    setBusy(true);
+    setError("");
+    try {
+      await platformRequest(`/clients/${encodeURIComponent(clientId)}/features/${encodeURIComponent(featureId)}`, "PATCH", { enabled });
+      setNotice(enabled ? "Client Feature enabled." : "Client Feature disabled.");
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to update the Client Feature.");
+      setBusy(false);
+    }
+  }
+
+  async function removeClientFeature(featureId: string) {
+    setBusy(true);
+    setError("");
+    try {
+      await platformRequest(`/clients/${encodeURIComponent(clientId)}/features/${encodeURIComponent(featureId)}`, "DELETE");
+      setNotice("Client Feature removed.");
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to remove the Client Feature.");
       setBusy(false);
     }
   }
@@ -209,7 +244,7 @@ export function ClientCommercialSettings({
   const buttonLabel = section === "pricing"
     ? "Pricing adjustments"
     : section === "addOns"
-      ? "Feature Add-Ons"
+      ? "Features & Pricing"
       : section === "creditLots"
         ? "Feature credit lots"
         : section === "ledger"
@@ -232,7 +267,7 @@ export function ClientCommercialSettings({
           <header className="sa-commercial-head">
             <div>
               <h2>Commercials — {clientName}</h2>
-              <p>Manage negotiated pricing, Feature Add-On purchases, credit balances, and usage history.</p>
+              <p>Manage client-specific feature entitlements, negotiated pricing, credit balances, and usage history.</p>
             </div>
             <button type="button" className="secondary" onClick={() => void load()} disabled={busy}>Refresh</button>
           </header>
@@ -257,10 +292,17 @@ export function ClientCommercialSettings({
           </section>}
 
           {(!section || section === "addOns") && <section className="sa-commercial-section">
-            <div className="sa-commercial-section-head"><div><h3>Feature Add-On purchases</h3><p>Only Add-Ons configured for the active package are available for purchase.</p></div></div>
-            {activeSubscription ? <div className="sa-commercial-purchase"><select aria-label="Available Feature Add-On" value={selectedAddOnId} onChange={(event) => setSelectedAddOnId(event.target.value)} disabled={!availableAddOns.length}>{availableAddOns.length ? availableAddOns.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(item.name)} · {number(item.quantity)} {String((item.feature as Item)?.billingUnit ?? "credits")} · {money(item.salePrice, String(item.currency ?? "INR"))}</option>) : <option value="">No Add-Ons available for this package</option>}</select><button type="button" disabled={busy || !selectedAddOnId} onClick={() => void purchaseAddOn()}>Purchase Add-On</button></div> : <p className="muted">Create an active subscription before purchasing Feature Add-Ons.</p>}
-            <CommercialTable headings={["Add-On", "Feature", "Purchased", "Remaining", "Amount", "Expiry", "Status"]}>
-              {purchases.map((item) => <tr key={String(item.id)}><td>{String((item.featureAddOn as Item)?.name ?? "—")}</td><td>{String((item.feature as Item)?.name ?? "—")}</td><td>{number(item.quantityPurchased)}</td><td>{number(item.quantityRemaining)}</td><td>{money(item.totalAmount, String(item.currency ?? "INR"))}</td><td>{date(item.expiresAt)}</td><td>{label(item.status)}</td></tr>)}
+            <div className="sa-commercial-section-head"><div><h3>Client Features & Pricing</h3><p>Assign catalog Features marked as add-on eligible. This never changes the Feature or Package master.</p></div></div>
+            {activeSubscription ? <div className="sa-commercial-grid">
+              <label><span>Eligible Feature <b className="sa-required-star">*</b></span><select value={clientAddOn.featureId} onChange={(event) => setClientAddOn((current) => ({ ...current, featureId: event.target.value }))} disabled={!eligibleFeatures.length}>{eligibleFeatures.length ? eligibleFeatures.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(item.name)} · {label(item.billingUnit)}</option>) : <option value="">No add-on eligible Features</option>}</select></label>
+              <label><span>Included quantity</span><input min="0" step="0.001" type="number" value={clientAddOn.includedQuantity} disabled={clientAddOn.unlimitedUsage} onChange={(event) => setClientAddOn((current) => ({ ...current, includedQuantity: event.target.value }))} /></label>
+              <label><span>Effective from <b className="sa-required-star">*</b></span><input required type="date" value={clientAddOn.effectiveFrom} onChange={(event) => setClientAddOn((current) => ({ ...current, effectiveFrom: event.target.value }))} /></label>
+              <label><span>Effective to</span><input type="date" value={clientAddOn.effectiveTo} onChange={(event) => setClientAddOn((current) => ({ ...current, effectiveTo: event.target.value }))} /></label>
+              <label className="sa-toggle"><input type="checkbox" checked={clientAddOn.unlimitedUsage} onChange={(event) => setClientAddOn((current) => ({ ...current, unlimitedUsage: event.target.checked }))} /> Unlimited usage</label>
+              <div className="sa-commercial-form-action"><button type="button" disabled={busy || !clientAddOn.featureId} onClick={() => void saveClientAddOn()}>Add client Feature</button></div>
+            </div> : <p className="muted">Create an active subscription before assigning client Features.</p>}
+            <CommercialTable headings={["Feature", "Source", "Included", "Usage limit", "Effective period", "Status", "Actions"]}>
+              {clientFeatures.filter((item) => item.source === "ADD_ON").map((item) => <tr key={String(item.id)}><td>{String((item.feature as Item)?.name ?? "—")}</td><td>{label(item.source)}</td><td>{item.unlimitedUsage ? "Unlimited" : number(item.includedQuantity)}</td><td>{item.usageLimit === null || item.usageLimit === undefined ? "—" : number(item.usageLimit)}</td><td>{date(item.effectiveFrom)} — {date(item.effectiveTo)}</td><td>{item.enabled ? "Enabled" : "Disabled"}</td><td><span className="sa-client-actions"><button type="button" className="secondary" disabled={busy} onClick={() => void setClientFeatureEnabled(String(item.id), !item.enabled)}>{item.enabled ? "Disable" : "Enable"}</button><button type="button" className="danger" disabled={busy} onClick={() => void removeClientFeature(String(item.id))}>Remove</button></span></td></tr>)}
             </CommercialTable>
           </section>}
 

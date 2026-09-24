@@ -11,6 +11,12 @@ Multi-client EV fleet-management MVP with strict client isolation.
 
 The API health endpoints are `/health` and `/health/ready`.
 
+### API documentation
+
+With the local API running, open [Swagger UI](http://localhost:3000/api/docs) to browse all API routes, request schemas, and response envelopes. The machine-readable OpenAPI document is at [http://localhost:3000/api/docs-json](http://localhost:3000/api/docs-json). Use **Try it out** to inspect an endpoint's actual response. For protected routes, call the OTP request and verification endpoints, then paste the returned access token into **Authorize**. IoT ingestion uses its own `x-device-secret` header.
+
+Swagger is enabled by default outside production. Set `SWAGGER_ENABLED=true` to enable it explicitly, or `SWAGGER_ENABLED=false` to disable it. Production keeps it disabled unless explicitly enabled. Existing controllers return anonymous response objects, so the published success schema shows their common `{ "data": ... }` envelope; **Try it out** displays the endpoint-specific payload.
+
 The development seed creates client slug `demo` and client-admin mobile `+919000000000`.
 
 ## Super Admin (development)

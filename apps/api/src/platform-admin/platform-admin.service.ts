@@ -117,7 +117,7 @@ export class PlatformAdminService {
         package: {
           include: {
             features: {
-              where: { featureId: dto.featureId, enabled: true },
+              where: { featureId: dto.featureId, isIncluded: true },
             },
           },
         },
@@ -200,7 +200,7 @@ export class PlatformAdminService {
         package: {
           include: {
             features: {
-              where: { enabled: true },
+              where: { isIncluded: true },
               include: { feature: true },
             },
           },
@@ -267,7 +267,7 @@ export class PlatformAdminService {
         (item) => item.featureId === featureId,
       );
       const includedUnlimited = packageFeature
-        ? packageFeature.unlimitedUsage
+        ? packageFeature.isUnlimited
         : (clientFeature?.unlimitedUsage ?? false);
       const includedQuantity = includedUnlimited
         ? quantity
@@ -297,7 +297,7 @@ export class PlatformAdminService {
       }
       const unitPrice =
         negotiatedPricing?.finalUnitPrice ??
-        catalogPricing?.unitPrice ??
+        catalogPricing?.salePrice ??
         new Prisma.Decimal(0);
       return {
         featureId,
@@ -375,7 +375,7 @@ export class PlatformAdminService {
 
     const [packageFeatures, clientFeatures] = await Promise.all([
       this.prisma.packageFeature.findMany({
-        where: { packageId: subscription.packageId, enabled: true },
+        where: { packageId: subscription.packageId, isIncluded: true },
         include: {
           feature: {
             include: {
@@ -453,7 +453,7 @@ export class PlatformAdminService {
     );
     this.validateFeatureWindow(dto.effectiveFrom, dto.effectiveTo);
     const finalUnitPrice = this.discountedPrice(
-      featurePricing.unitPrice,
+      featurePricing.salePrice,
       dto.discountType,
       dto.discountValue,
     );
@@ -462,7 +462,7 @@ export class PlatformAdminService {
         clientFeatureId,
         featurePricingId: featurePricing.id,
         currency: featurePricing.currency,
-        listUnitPrice: featurePricing.unitPrice,
+        listUnitPrice: featurePricing.salePrice,
         discountType: dto.discountType,
         discountValue: dto.discountValue,
         finalUnitPrice,
@@ -574,13 +574,16 @@ export class PlatformAdminService {
       clientId,
       dto.subscriptionId,
     );
-    await this.requireActiveFeature(dto.featureId);
+    const feature = await this.requireActiveFeature(dto.featureId);
+    if ((dto.source ?? 'ADD_ON') === 'ADD_ON' && !feature.isAddOnEligible) {
+      throw new BadRequestException('This Feature is not eligible to be assigned as a client add-on.');
+    }
     this.validateFeatureWindow(dto.effectiveFrom, dto.effectiveTo);
     const packageFeature = await this.prisma.packageFeature.findFirst({
       where: {
         packageId: subscription.packageId,
         featureId: dto.featureId,
-        enabled: true,
+        isIncluded: true,
       },
     });
     try {
@@ -1426,6 +1429,7 @@ export class PlatformAdminService {
       where: { id: featureId, isActive: true },
     });
     if (!feature) throw new NotFoundException('Active feature not found.');
+    return feature;
   }
   private async requireFeaturePricing(
     featureId: string,
