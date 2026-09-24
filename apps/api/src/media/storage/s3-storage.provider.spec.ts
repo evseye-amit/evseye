@@ -18,6 +18,36 @@ describe('Presigned client logo storage', () => {
   });
   afterEach(() => vi.unstubAllEnvs());
 
+  it('does not sign AES256 browser uploads with the SSE header', async () => {
+    const provider = storage({ S3_SERVER_SIDE_ENCRYPTION: 'AES256' });
+    const url = new URL(
+      await provider.createUploadUrl({
+        objectKey: 'clients/client-1/logo/logo.png',
+        mimeType: 'image/png',
+        sizeBytes: 1024,
+      }),
+    );
+
+    expect(url.searchParams.get('X-Amz-SignedHeaders')).not.toContain(
+      'x-amz-server-side-encryption',
+    );
+  });
+
+  it('keeps the SSE header signed for aws:kms browser uploads', async () => {
+    const provider = storage({ S3_SERVER_SIDE_ENCRYPTION: 'aws:kms' });
+    const url = new URL(
+      await provider.createUploadUrl({
+        objectKey: 'clients/client-1/logo/logo.png',
+        mimeType: 'image/png',
+        sizeBytes: 1024,
+      }),
+    );
+
+    expect(url.searchParams.get('X-Amz-SignedHeaders')).toContain(
+      'x-amz-server-side-encryption',
+    );
+  });
+
   it('signs browser uploads and downloads against local MinIO', async () => {
     const provider = storage({ S3_BUCKET: 'evs-eye-local', S3_ENDPOINT: 'http://minio:9000', S3_PUBLIC_ENDPOINT: 'http://localhost:9000' });
     const objectKey = 'clients/client-1/logo/logo.png';

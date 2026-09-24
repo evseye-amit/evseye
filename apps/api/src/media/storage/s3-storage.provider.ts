@@ -52,7 +52,7 @@ export class S3StorageProvider implements StorageProvider {
         Key: input.objectKey,
         ContentType: input.mimeType,
         ContentLength: input.sizeBytes,
-        ...(this.serverSideEncryption
+        ...(this.serverSideEncryption === 'aws:kms'
           ? { ServerSideEncryption: this.serverSideEncryption }
           : {}),
       }),
