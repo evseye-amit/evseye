@@ -15,6 +15,18 @@ resource "aws_route53_record" "web" {
   }
 }
 
+# <client>.staging.evseye.com → ALB (production clients use *.evseye.com)
+resource "aws_route53_record" "client_subdomains" {
+  zone_id = aws_route53_zone.main.zone_id
+  name    = var.environment == "staging" ? "*.${var.web_subdomain}.${var.root_domain}" : "*.${var.root_domain}"
+  type    = "A"
+  alias {
+    name                   = aws_lb.main.dns_name
+    zone_id                = aws_lb.main.zone_id
+    evaluate_target_health = true
+  }
+}
+
 # api.staging.evseye.com → ALB
 resource "aws_route53_record" "api" {
   zone_id = aws_route53_zone.main.zone_id

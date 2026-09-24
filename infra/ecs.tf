@@ -1,5 +1,6 @@
 locals {
-  media_base_url = var.enable_cloudfront ? "https://${var.media_subdomain}.${var.root_domain}" : "https://${aws_s3_bucket.media.bucket_regional_domain_name}"
+  media_base_url     = var.enable_cloudfront ? "https://${var.media_subdomain}.${var.root_domain}" : "https://${aws_s3_bucket.media.bucket_regional_domain_name}"
+  client_base_domain = var.environment == "staging" ? "${var.web_subdomain}.${var.root_domain}" : var.root_domain
 }
 
 # ─── CloudWatch Log Groups ────────────────────────────────────────────────────
@@ -74,7 +75,7 @@ resource "aws_ecs_task_definition" "api" {
       { name = "NODE_ENV", value = var.environment == "staging" ? "development" : "production" },
       { name = "API_PORT", value = tostring(var.api_port) },
       { name = "AWS_REGION", value = var.aws_region },
-      { name = "APP_BASE_DOMAINS", value = var.root_domain },
+      { name = "APP_BASE_DOMAINS", value = local.client_base_domain },
       { name = "APP_GENERIC_HOSTS", value = "${var.web_subdomain}.${var.root_domain},${var.api_subdomain}.${var.root_domain}" },
       { name = "CORS_ORIGINS", value = "https://${var.web_subdomain}.${var.root_domain}" },
       { name = "CLIENT_LOGIN_URL", value = "https://${var.web_subdomain}.${var.root_domain}" },
