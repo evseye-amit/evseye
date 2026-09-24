@@ -5,6 +5,18 @@ resource "aws_s3_bucket" "media" {
   tags   = { Name = "${local.name_prefix}-media" }
 }
 
+resource "aws_s3_bucket_cors_configuration" "media" {
+  bucket = aws_s3_bucket.media.id
+
+  cors_rule {
+    allowed_origins = ["https://${var.web_subdomain}.${var.root_domain}"]
+    allowed_methods = ["PUT", "GET", "HEAD"]
+    allowed_headers = ["Content-Type"]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3000
+  }
+}
+
 resource "aws_s3_bucket_public_access_block" "media" {
   bucket                  = aws_s3_bucket.media.id
   block_public_acls       = true
