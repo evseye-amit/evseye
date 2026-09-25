@@ -11,9 +11,10 @@ import { ReferralQualificationService } from './referral-qualification.service.j
 import { ReferralRewardService } from './referral-reward.service.js';
 import { ReferralService } from './referral.service.js';
 import { ReferralFraudService } from './referral-fraud.service.js';
+import { RiderBillingModule } from '../rider-billing/rider-billing.module.js';
 
 @Module({
-  imports: [AuthModule, AuditModule],
+  imports: [AuthModule, AuditModule, RiderBillingModule],
   controllers: [ReferralRiderController, PublicReferralController, ReferralOperationsController, ReferralEventController],
   providers: [ReferralAccessService, ReferralAnalyticsService, ReferralCampaignService, ReferralFraudService, ReferralLinkService, ReferralQualificationService, ReferralRewardService, ReferralService],
   exports: [ReferralService, ReferralQualificationService],

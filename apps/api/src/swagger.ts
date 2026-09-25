@@ -30,6 +30,7 @@ export const SWAGGER_TAGS = [
   ['Client Operations · Fleet', 'Fleet, components, documents, and lifecycle operations.'],
   ['Client Operations · Hubs & Zones', 'Client hubs and geographic operations.'],
   ['Client Operations · Rider', 'Riders, KYC, and rider documents.'],
+  ['Client Operations · Rider Billing', 'Rider charges, credits, invoices, and ledger.'],
   ['Client Operations · Referrals', 'Referral campaigns, review, rewards, and analytics.'],
   ['Client Operations · Allocation', 'Fleet allocations and mobile deployments.'],
   ['Client Operations · IoT', 'Client IoT device administration.'],
@@ -66,6 +67,7 @@ function tagForPath(path: string): string {
   if (path.startsWith('/api/v1/hubs') || path.startsWith('/api/v1/zones')) return 'Client Operations · Hubs & Zones';
   if (path.startsWith('/api/v1/fleets')) return 'Client Operations · Fleet';
   if (path.startsWith('/api/v1/riders') || path.startsWith('/api/v1/rider-documents')) return 'Client Operations · Rider';
+  if (path.startsWith('/api/v1/client/riders/') && path.includes('/billing')) return 'Client Operations · Rider Billing';
   if (path.startsWith('/api/v1/client/referrals') || path.includes('/referral-events')) return 'Client Operations · Referrals';
   if (path.startsWith('/api/v1/allocations') || path.startsWith('/api/v1/mobile-deployments')) return 'Client Operations · Allocation';
   if (path.startsWith('/api/v1/inspections')) return 'Client Operations · Inspections';

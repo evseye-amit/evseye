@@ -1,12 +1,15 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, ReferralRewardStatus } from '@prisma/client';
+import { Prisma, ReferralRewardStatus, ReferralRewardType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { RiderBillingService } from '../rider-billing/rider-billing.service.js';
 import { ReferralAccessService } from './referral-access.service.js';
 import { ListRewardsDto } from './dto/referral.dto.js';
 
 @Injectable()
 export class ReferralRewardService {
-  constructor(private readonly prisma: PrismaService, private readonly access: ReferralAccessService) {}
+  constructor(private readonly prisma: PrismaService, private readonly access: ReferralAccessService, private readonly billing: RiderBillingService) {}
+
+  private readonly creditRewards: ReferralRewardType[] = ['WALLET_CREDIT', 'BONUS', 'SERVICE_CREDIT', 'RENTAL_CREDIT', 'SWAP_CREDIT'];
 
   async list(clientId: string, query: ListRewardsDto) {
     await this.access.requireFeature(clientId);
@@ -21,16 +24,21 @@ export class ReferralRewardService {
   async transition(clientId: string, actorId: string, rewardId: string, action: 'approve' | 'reject' | 'processing', reason?: string) {
     await this.access.requireFeature(clientId);
     return this.prisma.$transaction(async (tx) => {
-      const reward = await tx.referralReward.findFirst({ where: { id: rewardId, clientId }, select: { id: true, campaignId: true, referralId: true, status: true, amount: true } });
+      const reward = await tx.referralReward.findFirst({ where: { id: rewardId, clientId }, select: { id: true, campaignId: true, referralId: true, status: true, amount: true, currency: true, rewardType: true, beneficiaryRiderId: true } });
       if (!reward) throw new NotFoundException('Referral reward not found.');
       const allowed: ReferralRewardStatus[] = action === 'processing' ? [ReferralRewardStatus.APPROVED] : [ReferralRewardStatus.EARNED, ReferralRewardStatus.UNDER_REVIEW];
       if (!allowed.includes(reward.status)) throw new ConflictException({ code: 'REFERRAL_REWARD_ALREADY_PROCESSED', message: 'Reward cannot make this transition.' });
       if (action === 'reject' && !reason?.trim()) throw new ConflictException('A rejection reason is required.');
-      const status = action === 'approve' ? ReferralRewardStatus.APPROVED : action === 'processing' ? ReferralRewardStatus.PROCESSING : ReferralRewardStatus.REJECTED;
+      const creditReward = action === 'approve' && this.creditRewards.includes(reward.rewardType);
+      const status = creditReward ? ReferralRewardStatus.PAID : action === 'approve' ? ReferralRewardStatus.APPROVED : action === 'processing' ? ReferralRewardStatus.PROCESSING : ReferralRewardStatus.REJECTED;
       const changed = await tx.referralReward.updateMany({ where: { id: rewardId, clientId, status: reward.status }, data: { status, ...(action === 'approve' ? { approvedAt: new Date(), approvedById: actorId } : {}), ...(action === 'reject' ? { rejectedAt: new Date(), rejectionReason: reason!.trim() } : {}) } });
       if (changed.count !== 1) throw new ConflictException('Reward changed concurrently.');
+      if (creditReward) await this.billing.issueCreditInTransaction(tx, { clientId, riderId: reward.beneficiaryRiderId, actorId, sourceKey: `referral:${reward.id}`, creditType: 'REFERRAL_REWARD', description: `Referral reward ${reward.rewardType}`, amount: reward.amount, currency: reward.currency, referenceType: 'REFERRAL_REWARD', referenceId: reward.id });
       if (action === 'reject') await tx.referralCampaign.update({ where: { id: reward.campaignId }, data: { budgetReserved: { decrement: reward.amount } } });
-      if (action === 'approve' && !await tx.referralReward.count({ where: { referralId: reward.referralId, clientId, status: { in: ['EARNED', 'UNDER_REVIEW'] } } })) await tx.referral.updateMany({ where: { id: reward.referralId, clientId, status: 'REWARD_PENDING' }, data: { status: 'REWARD_APPROVED' } });
+      if (action === 'approve' && !await tx.referralReward.count({ where: { referralId: reward.referralId, clientId, status: { in: ['EARNED', 'UNDER_REVIEW'] } } })) {
+        const outstanding = await tx.referralReward.count({ where: { referralId: reward.referralId, clientId, status: { notIn: ['PAID', 'REJECTED', 'CANCELLED'] } } });
+        await tx.referral.updateMany({ where: { id: reward.referralId, clientId, status: { in: ['REWARD_PENDING', 'REWARD_APPROVED'] } }, data: { status: outstanding ? 'REWARD_APPROVED' : 'PAID' } });
+      }
       await tx.auditLog.create({ data: { clientId, actorId, action: `REFERRAL_REWARD_${action.toUpperCase()}`, entityType: 'ReferralReward', entityId: rewardId, previousData: { status: reward.status }, newData: { status, ...(reason ? { reason: reason.trim() } : {}) } } });
       await tx.referralNotificationOutbox.create({ data: { clientId, referralId: reward.referralId, eventKey: `${action}:${reward.id}`, eventType: `REFERRAL_REWARD_${action.toUpperCase()}`, payload: { rewardId: reward.id, status } } });
       return tx.referralReward.findUniqueOrThrow({ where: { id: rewardId } });
@@ -40,8 +48,9 @@ export class ReferralRewardService {
   async markPaid(clientId: string, actorId: string, rewardId: string, paymentReference: string, paymentMethod: string) {
     await this.access.requireFeature(clientId);
     return this.prisma.$transaction(async (tx) => {
-      const reward = await tx.referralReward.findFirst({ where: { id: rewardId, clientId }, select: { id: true, status: true, amount: true, currency: true, referralId: true } });
+      const reward = await tx.referralReward.findFirst({ where: { id: rewardId, clientId }, select: { id: true, status: true, amount: true, currency: true, referralId: true, rewardType: true } });
       if (!reward) throw new NotFoundException('Referral reward not found.');
+      if (reward.rewardType !== 'CASH') throw new ConflictException('Only cash rewards use an external payout.');
       if (reward.status !== ReferralRewardStatus.PROCESSING) throw new ConflictException({ code: 'REFERRAL_REWARD_ALREADY_PROCESSED', message: 'Only a processing reward can be marked paid.' });
       const changed = await tx.referralReward.updateMany({ where: { id: rewardId, clientId, status: 'PROCESSING' }, data: { status: 'PAID' } });
       if (changed.count !== 1) throw new ConflictException('Reward changed concurrently.');

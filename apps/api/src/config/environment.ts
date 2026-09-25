@@ -71,6 +71,14 @@ const environmentSchema = z.object({
   TELIPIA_LOGIN_TEMPLATE_ID: z.string().optional(),
   TELIPIA_DEALLOCATION_TEMPLATE_ID: z.string().optional(),
   KYC_PROVIDER: z.string().default('sandbox'),
+  PAYMENT_PROVIDER: z.enum(['disabled', 'cashfree', 'mock']).default('disabled'),
+  CASHFREE_ENVIRONMENT: z.enum(['SANDBOX', 'PRODUCTION']).default('SANDBOX'),
+  CASHFREE_CLIENT_ID: z.string().optional(),
+  CASHFREE_CLIENT_SECRET: z.string().optional(),
+  CASHFREE_WEBHOOK_SECRET: z.string().optional(),
+  CASHFREE_API_VERSION: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).default('2026-01-01'),
+  CASHFREE_SUBSCRIPTION_RETURN_URL: z.string().url().optional(),
+  CASHFREE_WEBHOOK_URL: z.string().url().optional(),
 });
 
 export type Environment = z.infer<typeof environmentSchema>;
@@ -139,6 +147,20 @@ export function validateEnvironment(
     if (result.data.NODE_ENV === 'production' && new URL(result.data.CLIENT_LOGIN_URL!).protocol !== 'https:') {
       throw new Error('CLIENT_LOGIN_URL must use HTTPS in production.');
     }
+  }
+  if (result.data.PAYMENT_PROVIDER === 'cashfree') {
+    const required = ['CASHFREE_CLIENT_ID', 'CASHFREE_CLIENT_SECRET', 'CASHFREE_WEBHOOK_SECRET', 'CASHFREE_SUBSCRIPTION_RETURN_URL', 'CASHFREE_WEBHOOK_URL'] as const;
+    const missing = required.filter(key => !result.data[key]?.trim());
+    if (missing.length) throw new Error(`Cashfree configuration is missing: ${missing.join(', ')}.`);
+    if (result.data.NODE_ENV === 'production') {
+      if (result.data.CASHFREE_ENVIRONMENT !== 'PRODUCTION') throw new Error('Cashfree production deployment requires CASHFREE_ENVIRONMENT=PRODUCTION.');
+      for (const key of ['CASHFREE_SUBSCRIPTION_RETURN_URL', 'CASHFREE_WEBHOOK_URL'] as const) {
+        if (new URL(result.data[key]!).protocol !== 'https:') throw new Error(`${key} must use HTTPS in production.`);
+      }
+    }
+  }
+  if (result.data.NODE_ENV === 'production' && result.data.PAYMENT_PROVIDER === 'mock') {
+    throw new Error('Mock payment provider is not allowed in production.');
   }
 
   if (result.data.NODE_ENV === 'production' && (!result.data.CLIENT_PROXY_SECRET || result.data.CLIENT_PROXY_SECRET.includes('development'))) {

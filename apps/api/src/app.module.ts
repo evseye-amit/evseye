@@ -24,6 +24,8 @@ import { ClientOnboardingModule } from './client-onboarding/client-onboarding.mo
 import { ClientUsersModule } from './client-users/client-users.module.js';
 import { CommercialModule } from './commercial/commercial.module.js';
 import { ReferralModule } from './referrals/referral.module.js';
+import { RiderBillingModule } from './rider-billing/rider-billing.module.js';
+import { PaymentsModule } from './payments/payments.module.js';
 
 @Module({
   imports: [
@@ -53,6 +55,8 @@ import { ReferralModule } from './referrals/referral.module.js';
     ClientUsersModule,
     CommercialModule,
     ReferralModule,
+    RiderBillingModule,
+    PaymentsModule,
     MediaModule,
     KycModule,
     FleetsModule,

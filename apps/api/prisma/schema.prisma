@@ -629,6 +629,70 @@ enum ReferralNotificationStatus {
   FAILED
 }
 
+enum RiderChargeStatus {
+  OPEN
+  INVOICED
+  VOIDED
+}
+
+enum RiderCreditStatus {
+  AVAILABLE
+  PARTIALLY_APPLIED
+  APPLIED
+  VOIDED
+}
+
+enum RiderInvoiceStatus {
+  DRAFT
+  FINALIZED
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  VOID
+}
+
+enum RiderInvoiceLineKind {
+  CHARGE
+  CREDIT
+}
+
+enum RiderLedgerEntryType {
+  CHARGE
+  CREDIT
+  PAYMENT
+  REFUND
+  ADJUSTMENT
+  REVERSAL
+}
+
+enum PaymentMandateStatus {
+  CREATING
+  CREATED
+  AUTHORIZATION_PENDING
+  ACTIVE
+  PAUSED
+  CANCELLED
+  FAILED
+  EXPIRED
+  UNKNOWN
+}
+
+enum PaymentProviderEventStatus {
+  RECEIVED
+  PROCESSED
+  IGNORED
+  FAILED
+}
+
+enum PaymentTransactionStatus {
+  CREATING
+  PENDING
+  SUCCESS
+  FAILED
+  CANCELLED
+  UNKNOWN
+}
+
 model Client {
   id                         String                            @id @default(uuid())
   name                       String
@@ -679,6 +743,16 @@ model Client {
   referralActivityEvents     ReferralActivityEvent[]
   referralNotifications      ReferralNotificationOutbox[]
   referralMilestoneProgress   ReferralMilestoneProgress[]
+  riderPaymentProfiles       RiderPaymentProfile[]
+  riderCharges               RiderCharge[]
+  riderCredits               RiderCredit[]
+  riderInvoices              RiderInvoice[]
+  riderLedgerEntries         RiderLedgerEntry[]
+  paymentMandates            PaymentMandate[]
+  paymentMandateEvents       PaymentMandateEvent[]
+  paymentProviderEvents      PaymentProviderEvent[]
+  paymentTransactions        PaymentTransaction[]
+  paymentAttempts            PaymentAttempt[]
   createdAt                  DateTime                          @default(now())
   updatedAt                  DateTime                          @updatedAt
 }
@@ -1667,6 +1741,13 @@ model Rider {
   referralsMade          Referral[]                @relation("ReferralReferrer")
   referralsReceived      Referral[]                @relation("ReferralReferee")
   referralRewards        ReferralReward[]
+  paymentProfile         RiderPaymentProfile?
+  billingCharges         RiderCharge[]
+  billingCredits         RiderCredit[]
+  billingInvoices        RiderInvoice[]
+  billingLedgerEntries   RiderLedgerEntry[]
+  paymentMandates        PaymentMandate[]
+  paymentTransactions    PaymentTransaction[]
   createdAt              DateTime                  @default(now())
   updatedAt              DateTime                  @updatedAt
 
@@ -1675,6 +1756,259 @@ model Rider {
   @@unique([clientId, riderCode])
   @@index([clientId, status])
   @@index([clientId, name])
+}
+
+model PaymentMandate {
+  id                     String               @id @default(uuid())
+  clientId               String
+  client                 Client               @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId                String
+  rider                  Rider                @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  requestKey             String               @db.VarChar(120)
+  provider               String               @default("CASHFREE") @db.VarChar(30)
+  providerMandateId      String               @unique @db.VarChar(250)
+  authorizationSessionId String?
+  status                 PaymentMandateStatus @default(CREATING)
+  providerStatus         String?              @db.VarChar(80)
+  mode                   String               @default("ON_DEMAND") @db.VarChar(30)
+  method                 String               @default("UPI_AUTOPAY") @db.VarChar(30)
+  maxAmount              Decimal              @db.Decimal(14, 2)
+  authorizationAmount    Decimal?             @db.Decimal(14, 2)
+  currency               String               @default("INR") @db.Char(3)
+  expiresAt              DateTime
+  authorizedAt           DateTime?
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  events                 PaymentMandateEvent[]
+  providerEvents         PaymentProviderEvent[]
+  transactions           PaymentTransaction[]
+
+  @@unique([clientId, riderId, requestKey])
+  @@unique([clientId, id])
+  @@index([clientId, riderId, status])
+}
+
+model PaymentMandateEvent {
+  id          String               @id @default(uuid())
+  clientId    String
+  client      Client               @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  mandateId   String
+  mandate     PaymentMandate       @relation(fields: [clientId, mandateId], references: [clientId, id], onDelete: Restrict)
+  fromStatus  PaymentMandateStatus?
+  toStatus    PaymentMandateStatus
+  source      String               @db.VarChar(40)
+  referenceId String?              @db.VarChar(120)
+  createdAt   DateTime             @default(now())
+
+  @@index([clientId, mandateId, createdAt])
+}
+
+model PaymentProviderEvent {
+  id            String                     @id @default(uuid())
+  provider      String                     @db.VarChar(30)
+  eventKey      String                     @db.VarChar(128)
+  eventType     String                     @db.VarChar(100)
+  payloadHash   String                     @db.VarChar(64)
+  clientId      String?
+  client        Client?                    @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  mandateId     String?
+  mandate       PaymentMandate?            @relation(fields: [clientId, mandateId], references: [clientId, id], onDelete: Restrict)
+  paymentTransactionId String?
+  paymentTransaction PaymentTransaction? @relation(fields: [clientId, paymentTransactionId], references: [clientId, id], onDelete: Restrict)
+  status        PaymentProviderEventStatus @default(RECEIVED)
+  receivedAt    DateTime                   @default(now())
+  processedAt   DateTime?
+  failureReason String?                    @db.VarChar(150)
+
+  @@unique([provider, eventKey])
+  @@index([clientId, receivedAt])
+}
+
+model PaymentTransaction {
+  id                  String                   @id @default(uuid())
+  clientId            String
+  client              Client                   @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId             String
+  rider               Rider                    @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  invoiceId           String
+  invoice             RiderInvoice             @relation(fields: [clientId, invoiceId], references: [clientId, id], onDelete: Restrict)
+  mandateId           String
+  mandate             PaymentMandate           @relation(fields: [clientId, mandateId], references: [clientId, id], onDelete: Restrict)
+  requestKey           String                   @db.VarChar(120)
+  provider             String                   @default("CASHFREE") @db.VarChar(30)
+  providerPaymentId    String                   @db.VarChar(250)
+  providerReference    String?                  @db.VarChar(120)
+  status               PaymentTransactionStatus @default(CREATING)
+  amount               Decimal                  @db.Decimal(14, 2)
+  currency             String                   @default("INR") @db.Char(3)
+  scheduledAt          DateTime
+  completedAt          DateTime?
+  lastVerifiedAt       DateTime?
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+  attempts             PaymentAttempt[]
+  providerEvents       PaymentProviderEvent[]
+
+  @@unique([clientId, id])
+  @@unique([clientId, invoiceId])
+  @@unique([clientId, requestKey])
+  @@unique([provider, providerPaymentId])
+  @@index([clientId, riderId, status])
+  @@index([clientId, mandateId, status])
+}
+
+model PaymentAttempt {
+  id                  String                   @id @default(uuid())
+  clientId            String
+  client              Client                   @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  transactionId       String
+  transaction         PaymentTransaction       @relation(fields: [clientId, transactionId], references: [clientId, id], onDelete: Restrict)
+  sequence            Int                      @default(1)
+  status              PaymentTransactionStatus @default(CREATING)
+  providerPaymentId    String                   @db.VarChar(250)
+  providerReference    String?                  @db.VarChar(120)
+  providerStatus       String?                  @db.VarChar(80)
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+
+  @@unique([transactionId, sequence])
+  @@unique([clientId, providerPaymentId])
+  @@index([clientId, status, createdAt])
+}
+
+/// One client-scoped payment profile per Rider. Mandate references are added in Phase 2.
+model RiderPaymentProfile {
+  id             String   @id @default(uuid())
+  clientId       String
+  client         Client   @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId        String   @unique
+  rider          Rider    @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  autoPayEnabled Boolean  @default(false)
+  billingStatus  String   @default("CURRENT") @db.VarChar(30)
+  currency       String   @default("INR") @db.Char(3)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([clientId, riderId])
+  @@index([clientId, billingStatus])
+}
+
+model RiderCharge {
+  id            String            @id @default(uuid())
+  clientId      String
+  client        Client            @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId       String
+  rider         Rider             @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  sourceKey     String            @db.VarChar(120)
+  chargeType    String            @db.VarChar(60)
+  referenceType String?           @db.VarChar(60)
+  referenceId   String?           @db.VarChar(120)
+  description   String            @db.VarChar(300)
+  quantity      Decimal           @db.Decimal(14, 4)
+  unitAmount    Decimal           @db.Decimal(14, 2)
+  amount        Decimal           @db.Decimal(14, 2)
+  currency      String            @db.Char(3)
+  effectiveAt   DateTime          @default(now())
+  status        RiderChargeStatus @default(OPEN)
+  invoiceId     String?
+  invoice       RiderInvoice?     @relation(fields: [clientId, invoiceId], references: [clientId, id], onDelete: Restrict)
+  createdAt     DateTime          @default(now())
+
+  @@unique([clientId, sourceKey])
+  @@index([clientId, riderId, status, effectiveAt])
+  @@index([clientId, invoiceId])
+}
+
+model RiderCredit {
+  id              String            @id @default(uuid())
+  clientId        String
+  client          Client            @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId         String
+  rider           Rider             @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  sourceKey       String            @db.VarChar(120)
+  creditType      String            @db.VarChar(60)
+  referenceType   String?           @db.VarChar(60)
+  referenceId     String?           @db.VarChar(120)
+  description     String            @db.VarChar(300)
+  amount          Decimal           @db.Decimal(14, 2)
+  remainingAmount Decimal           @db.Decimal(14, 2)
+  currency        String            @db.Char(3)
+  effectiveAt     DateTime          @default(now())
+  status          RiderCreditStatus @default(AVAILABLE)
+  createdAt       DateTime          @default(now())
+
+  @@unique([clientId, sourceKey])
+  @@index([clientId, riderId, status, effectiveAt])
+}
+
+/// Posting corrections use new reversal entries; UPDATE and DELETE are blocked by migration triggers.
+model RiderLedgerEntry {
+  id           String               @id @default(uuid())
+  clientId     String
+  client       Client               @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId      String
+  rider        Rider                @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  entryType    RiderLedgerEntryType
+  sourceType   String               @db.VarChar(60)
+  sourceId     String               @db.VarChar(120)
+  description  String               @db.VarChar(300)
+  debitAmount  Decimal              @default(0) @db.Decimal(14, 2)
+  creditAmount Decimal              @default(0) @db.Decimal(14, 2)
+  currency     String               @db.Char(3)
+  effectiveAt  DateTime             @default(now())
+  createdAt    DateTime             @default(now())
+
+  @@unique([clientId, entryType, sourceType, sourceId])
+  @@index([clientId, riderId, effectiveAt, id])
+}
+
+model RiderInvoice {
+  id                 String             @id @default(uuid())
+  clientId           String
+  client             Client             @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId            String
+  rider              Rider              @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  invoiceNumber      String             @db.VarChar(80)
+  billingPeriodStart DateTime           @db.Date
+  billingPeriodEnd   DateTime           @db.Date
+  subtotal           Decimal            @db.Decimal(14, 2)
+  creditAmount       Decimal            @db.Decimal(14, 2)
+  adjustmentAmount   Decimal            @default(0) @db.Decimal(14, 2)
+  taxAmount          Decimal            @default(0) @db.Decimal(14, 2)
+  totalAmount        Decimal            @db.Decimal(14, 2)
+  paidAmount         Decimal            @default(0) @db.Decimal(14, 2)
+  outstandingAmount  Decimal            @db.Decimal(14, 2)
+  currency           String             @db.Char(3)
+  status             RiderInvoiceStatus @default(DRAFT)
+  dueDate            DateTime           @db.Date
+  finalizedAt        DateTime?
+  paidAt             DateTime?
+  lines              RiderInvoiceLine[]
+  paymentTransactions PaymentTransaction[]
+  charges            RiderCharge[]
+  createdAt          DateTime           @default(now())
+
+  @@unique([clientId, id])
+  @@unique([clientId, invoiceNumber])
+  @@unique([clientId, riderId, billingPeriodStart, billingPeriodEnd])
+  @@index([clientId, riderId, createdAt])
+  @@index([clientId, status, dueDate])
+}
+
+model RiderInvoiceLine {
+  id          String               @id @default(uuid())
+  clientId    String
+  invoiceId   String
+  invoice     RiderInvoice         @relation(fields: [clientId, invoiceId], references: [clientId, id], onDelete: Restrict)
+  kind        RiderInvoiceLineKind
+  sourceId    String
+  description String               @db.VarChar(300)
+  amount      Decimal              @db.Decimal(14, 2)
+  currency    String               @db.Char(3)
+  createdAt   DateTime             @default(now())
+
+  @@unique([invoiceId, kind, sourceId])
+  @@index([clientId, invoiceId])
 }
 
 model RiderOnboardingProgress {

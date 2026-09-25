@@ -771,5 +771,16 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 480,
     "isActive": true
+  },
+  {
+    "code": "RIDER_AUTO_PAY",
+    "name": "Rider AutoPay",
+    "category": "OTHER",
+    "featureType": "BOOLEAN",
+    "billingUnit": "LIFE_TIME",
+    "description": "UPI AutoPay authorization for rider billing. Mandate terms are configured per package feature.",
+    "configuration": {},
+    "displayOrder": 490,
+    "isActive": true
   }
 ];

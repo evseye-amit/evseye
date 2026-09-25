@@ -29,6 +29,7 @@ export async function createApplication(): Promise<NestFastifyApplication> {
         },
       },
     }),
+    { rawBody: true },
   );
   const config = app.get(ConfigService<Environment, true>);
   const origins = config

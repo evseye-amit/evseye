@@ -4,7 +4,7 @@ import { ReferralRewardService } from './referral-reward.service.js';
 
 function setup(status = 'PROCESSING') {
   const tx = {
-    referralReward: { findFirst: vi.fn().mockResolvedValue({ id: 'reward-1', campaignId: 'campaign-1', referralId: 'referral-1', status, amount: new Prisma.Decimal('500'), currency: 'INR' }), updateMany: vi.fn().mockResolvedValue({ count: 1 }), count: vi.fn().mockResolvedValue(0), findUniqueOrThrow: vi.fn().mockResolvedValue({ id: 'reward-1' }) },
+    referralReward: { findFirst: vi.fn().mockResolvedValue({ id: 'reward-1', campaignId: 'campaign-1', referralId: 'referral-1', status, amount: new Prisma.Decimal('500'), currency: 'INR', rewardType: 'CASH', beneficiaryRiderId: 'rider-1' }), updateMany: vi.fn().mockResolvedValue({ count: 1 }), count: vi.fn().mockResolvedValue(0), findUniqueOrThrow: vi.fn().mockResolvedValue({ id: 'reward-1' }) },
     referralPayout: { create: vi.fn().mockResolvedValue({ id: 'payout-1' }) },
     referral: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     referralCampaign: { update: vi.fn().mockResolvedValue({}) },
@@ -12,8 +12,9 @@ function setup(status = 'PROCESSING') {
     referralNotificationOutbox: { create: vi.fn().mockResolvedValue({}) },
   };
   const prisma = { $transaction: vi.fn((fn: (client: never) => Promise<unknown>) => fn(tx as never)) };
-  const service = new ReferralRewardService(prisma as never, { requireFeature: vi.fn().mockResolvedValue({}) } as never);
-  return { tx, service };
+  const billing = { issueCreditInTransaction: vi.fn().mockResolvedValue({ id: 'credit-1' }) };
+  const service = new ReferralRewardService(prisma as never, { requireFeature: vi.fn().mockResolvedValue({}) } as never, billing as never);
+  return { tx, service, billing };
 }
 
 describe('ReferralRewardService', () => {
@@ -34,5 +35,13 @@ describe('ReferralRewardService', () => {
     const { tx, service } = setup('EARNED');
     await service.transition('client-a', 'admin', 'reward-1', 'reject', 'Invalid proof');
     expect(tx.referralCampaign.update).toHaveBeenCalledWith({ where: { id: 'campaign-1' }, data: { budgetReserved: { decrement: new Prisma.Decimal('500') } } });
+  });
+
+  it('posts an approved wallet reward as a billing credit in the same transaction', async () => {
+    const { tx, service, billing } = setup('EARNED');
+    tx.referralReward.findFirst.mockResolvedValueOnce({ id: 'reward-1', campaignId: 'campaign-1', referralId: 'referral-1', status: 'EARNED', amount: new Prisma.Decimal('500'), currency: 'INR', rewardType: 'WALLET_CREDIT', beneficiaryRiderId: 'rider-1' });
+    await service.transition('client-a', 'admin', 'reward-1', 'approve');
+    expect(billing.issueCreditInTransaction).toHaveBeenCalledWith(tx, expect.objectContaining({ riderId: 'rider-1', sourceKey: 'referral:reward-1', amount: new Prisma.Decimal('500') }));
+    expect(tx.referralReward.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'PAID' }) }));
   });
 });
