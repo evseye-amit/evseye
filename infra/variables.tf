@@ -33,7 +33,7 @@ variable "root_domain" {
 }
 
 variable "web_subdomain" {
-  description = "Subdomain for the web app (staging = 'staging', production = 'www')."
+  description = "Subdomain for the web app (staging = 'staging', production = 'app'; www is reserved for the marketing site)."
   type        = string
   default     = "staging"
 }
