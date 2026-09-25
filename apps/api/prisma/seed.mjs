@@ -16,6 +16,7 @@ import { featurePricingCatalog } from './catalog/feature-pricing.mjs';
 import { packageFeatureAddOnCatalog } from './catalog/package-feature-addons.mjs';
 import { packageFeatureCatalog } from './catalog/package-features.mjs';
 import { featureStepSpecs } from './catalog/feature-steps.mjs';
+import { featureStepTranslations } from './catalog/feature-step-translations.mjs';
 import { packageCatalog } from './catalog/packages.mjs';
 import { packageVehicleTierPricingCatalog } from './catalog/package-vehicle-tier-pricing.mjs';
 import { vehicleCategoryCatalog } from './catalog/vehicle-categories.mjs';
@@ -145,19 +146,21 @@ async function main() {
   const featureSteps = new Map();
   for (const step of featureStepSpecs.filter((item) => !item.parentCode)) {
     const { parentCode: _parentCode, ...stepData } = step;
+    const translations = featureStepTranslations[step.code];
     const saved = await prisma.featureStep.upsert({
       where: { code: step.code },
-      create: stepData,
-      update: { displayName: step.displayName, description: step.description, displayOrder: step.displayOrder, isActive: true },
+      create: { ...stepData, ...(translations ? { translations } : {}) },
+      update: { displayName: step.displayName, description: step.description, ...(translations ? { translations } : {}), displayOrder: step.displayOrder, isActive: true },
     });
     featureSteps.set(step.code, saved);
   }
   for (const step of featureStepSpecs.filter((item) => item.parentCode)) {
     const { parentCode, ...stepData } = step;
+    const translations = featureStepTranslations[step.code];
     const saved = await prisma.featureStep.upsert({
       where: { code: step.code },
-      create: { ...stepData, parentId: featureSteps.get(parentCode).id },
-      update: { displayName: step.displayName, parentId: featureSteps.get(parentCode).id, displayOrder: step.displayOrder, isActive: true },
+      create: { ...stepData, parentId: featureSteps.get(parentCode).id, ...(translations ? { translations } : {}) },
+      update: { displayName: step.displayName, parentId: featureSteps.get(parentCode).id, ...(translations ? { translations } : {}), displayOrder: step.displayOrder, isActive: true },
     });
     featureSteps.set(step.code, saved);
   }

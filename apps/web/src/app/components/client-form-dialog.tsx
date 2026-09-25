@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type ReactNode } from "react";
+import { useLocale } from "./locale-provider";
 
 export function ClientFormDialog({ title, onClose, error, busy = false, wide = false, children }: {
   title: string;
@@ -10,6 +11,7 @@ export function ClientFormDialog({ title, onClose, error, busy = false, wide = f
   wide?: boolean;
   children: ReactNode;
 }) {
+  const { t } = useLocale();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
 
@@ -26,7 +28,7 @@ export function ClientFormDialog({ title, onClose, error, busy = false, wide = f
     };
   }, []);
 
-  return <dialog ref={dialogRef} className={`sa-dialog${wide ? " sa-dialog-wide" : ""}`} aria-label={title} aria-modal="true"
+  return <dialog ref={dialogRef} className={`sa-dialog${wide ? " sa-dialog-wide" : ""}`} aria-label={t(title)} aria-modal="true"
     onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
     <div className="sa-form sa-dialog-surface client-form-dialog">{error && <p className="error" role="alert">{error}</p>}{children}</div>
   </dialog>;

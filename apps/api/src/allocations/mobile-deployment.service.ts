@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { AllocationStatus, ClientSubscriptionStatus, DeploymentPaymentStatus, FleetStatus, InspectionStatus, InspectionType, MobileDeploymentStatus, PhotoEntityType, PhotoStatus, Prisma, RiderStatus } from '@prisma/client';
 import { STORAGE_PROVIDER, type StorageProvider } from '../media/storage/storage-provider.interface.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { translatedProperty, type ApiLocale } from '../common/locale.js';
 import { AllocationsService } from './allocations.service.js';
 import { MediaService } from '../media/media.service.js';
 import type { CreateUploadIntentDto } from '../media/dto/create-upload-intent.dto.js';
@@ -325,7 +326,7 @@ export class MobileDeploymentService {
     }
     return this.prisma.mobileDeploymentWorkflow.update({ where: { id: workflow.id }, data: { status: MobileDeploymentStatus.TRAINING_PENDING, riderPdiAcceptedAt: new Date(), riderPdiRemarksText: JSON.stringify(items), riderPdiVoicePhotoId: items.find((item) => item.voiceMediaId)?.voiceMediaId, pdiChecklist: items as never } });
   }
-  async training(clientId: string, userId: string, allocationId: string) {
+  async training(clientId: string, userId: string, allocationId: string, locale: ApiLocale = 'en') {
     await this.assertRiderAllocation(clientId, userId, allocationId);
     const { workflow } = await this.workflow(clientId, allocationId);
     if (workflow.status !== MobileDeploymentStatus.TRAINING_PENDING) throw new BadRequestException('Training is not pending.');
@@ -333,8 +334,8 @@ export class MobileDeploymentService {
     const contents = await this.trainingContents(clientId);
     return Promise.all(contents.map(async (content) => ({
       code: content.code,
-      title: content.title,
-      description: content.description,
+      title: translatedProperty(content.title, content.translations, locale, 'title'),
+      description: translatedProperty(content.description, content.translations, locale, 'description'),
       isMandatory: content.isMandatory,
       displayOrder: content.displayOrder,
       viewed: viewed.includes(content.code),

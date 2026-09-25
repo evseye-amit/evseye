@@ -558,7 +558,8 @@ export class PlatformCatalogService {
     if (!feature) throw new BadRequestException('Training content must be assigned to the active SHOW_TRAINING feature.');
     if (!dto.imageObjectKey.startsWith(`platform/training/${dto.code}/`)) throw new BadRequestException('The uploaded image does not belong to this training content code.');
     await this.storage.assertObjectExists(dto.imageObjectKey);
-    return this.createWithAudit('TRAINING_CONTENT_CREATED', 'TrainingContent', actorId, () => this.prisma.trainingContent.create({ data: dto }));
+    const { translations, ...data } = dto;
+    return this.createWithAudit('TRAINING_CONTENT_CREATED', 'TrainingContent', actorId, () => this.prisma.trainingContent.create({ data: { ...data, ...(translations ? { translations: translations as Prisma.InputJsonValue } : {}) } }));
   }
   async updateTrainingContent(id: string, dto: UpdateTrainingContentDto, actorId: string) {
     await this.exists('trainingContent', id);
@@ -566,7 +567,8 @@ export class PlatformCatalogService {
     if (!feature) throw new BadRequestException('Training content must be assigned to the active SHOW_TRAINING feature.');
     if (!dto.imageObjectKey.startsWith(`platform/training/${dto.code}/`)) throw new BadRequestException('The uploaded image does not belong to this training content code.');
     await this.storage.assertObjectExists(dto.imageObjectKey);
-    return this.updateWithAudit('TRAINING_CONTENT_UPDATED', 'TrainingContent', id, actorId, () => this.prisma.trainingContent.update({ where: { id }, data: dto }));
+    const { translations, ...data } = dto;
+    return this.updateWithAudit('TRAINING_CONTENT_UPDATED', 'TrainingContent', id, actorId, () => this.prisma.trainingContent.update({ where: { id }, data: { ...data, ...(translations ? { translations: translations as Prisma.InputJsonValue } : {}) } }));
   }
   async deactivateTrainingContent(id: string, actorId: string) {
     await this.exists('trainingContent', id);
@@ -583,15 +585,17 @@ export class PlatformCatalogService {
   }
   async createFeatureStep(dto: CreateFeatureStepDto, actorId: string) {
     if (dto.parentId) await this.requireFeatureStep(dto.parentId);
+    const { translations, ...data } = dto;
     return this.createWithAudit('FEATURE_STEP_CREATED', 'FeatureStep', actorId, () =>
-      this.prisma.featureStep.create({ data: dto }),
+      this.prisma.featureStep.create({ data: { ...data, ...(translations ? { translations: translations as Prisma.InputJsonValue } : {}) } }),
     );
   }
   async updateFeatureStep(id: string, dto: UpdateFeatureStepDto, actorId: string) {
     await this.requireFeatureStep(id, false);
     if (dto.parentId) await this.validateFeatureStepParent(id, dto.parentId);
+    const { translations, ...data } = dto;
     return this.updateWithAudit('FEATURE_STEP_UPDATED', 'FeatureStep', id, actorId, () =>
-      this.prisma.featureStep.update({ where: { id }, data: dto }),
+      this.prisma.featureStep.update({ where: { id }, data: { ...data, ...(translations ? { translations: translations as Prisma.InputJsonValue } : {}) } }),
     );
   }
   async deleteFeatureStep(id: string, actorId: string) {

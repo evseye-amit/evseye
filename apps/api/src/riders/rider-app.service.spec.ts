@@ -58,6 +58,33 @@ describe('RiderAppService.saveStep', () => {
 });
 
 describe('RiderOnboardingConfigurationService', () => {
+  it('localizes catalog fields while preserving codes and validation in the public response', () => {
+    const resolver = new RiderOnboardingConfigurationService({} as never);
+    const result = resolver.toPublicConfiguration({
+      package: { id: 'package-1', code: 'BASIC', name: 'Basic' },
+      onboarding: { category: 'RIDER_ONBOARDING' as never, steps: [{
+        stepId: 'step-1', stepCode: 'RIDER_PERSONAL_PROFILE', stepName: 'Personal Profile',
+        description: 'Profile', parentId: null, sequence: 1, active: true, enabled: true,
+        translations: { kn: { displayName: 'ವೈಯಕ್ತಿಕ ವಿವರಗಳು', description: 'ವಿವರಗಳು' } },
+        fields: [{
+          fieldId: 'feature-1', featureId: 'feature-1', featureCode: 'CAPTURE_FULL_NAME',
+          fieldCode: 'FULL_NAME', storageKey: 'name', fieldName: 'Capture Full Name',
+          label: 'Full Name', fieldType: 'TEXT', required: true, readOnly: false,
+          disabled: false, editable: true, importable: true, billingUnit: 'LIFE_TIME',
+          isUpload: false, sequence: 1, validation: { maxLength: 120 },
+          configuration: { fieldCode: 'FULL_NAME', translations: { kn: { label: 'ರೈಡರ್ ಪೂರ್ಣ ಹೆಸರು' } } },
+        }],
+      }] },
+    }, 'kn');
+    const step = result.onboarding.steps[0];
+    expect(step.stepName).toBe('ವೈಯಕ್ತಿಕ ವಿವರಗಳು');
+    expect(step.fields[0]).toMatchObject({
+      featureCode: 'CAPTURE_FULL_NAME', fieldCode: 'FULL_NAME', name: 'ಪೂರ್ಣ ಹೆಸರು',
+      configuration: { label: 'ರೈಡರ್ ಪೂರ್ಣ ಹೆಸರು', validation: { maxLength: 120 } },
+    });
+    expect('translations' in step.fields[0].configuration).toBe(false);
+  });
+
   it('returns field identity beside configuration without duplicate rules', async () => {
     const resolver = new RiderOnboardingConfigurationService({} as never);
     const result = resolver.toPublicConfiguration({

@@ -7,6 +7,8 @@ import {
   Logger,
 } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { requestLocale } from '../locale.js';
+import { localizeApiError } from '../mobile-error-translations.js';
 
 function getExceptionMessage(exceptionResponse: unknown): string {
   if (typeof exceptionResponse === 'string') {
@@ -49,6 +51,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const exceptionResponse =
       exception instanceof HttpException ? exception.getResponse() : undefined;
     const message = getExceptionMessage(exceptionResponse);
+    const locale = requestLocale(request.headers['accept-language']);
 
     if (!(exception instanceof HttpException)) {
       this.logger.error(
@@ -57,11 +60,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
       );
     }
 
-    response.status(status).send({
+    response.header('Content-Language', locale).header('Vary', 'Accept-Language').status(status).send({
       error: {
         code:
           exception instanceof HttpException ? 'HTTP_ERROR' : 'INTERNAL_ERROR',
-        message,
+        message: localizeApiError(message, locale),
       },
       requestId: request.id,
     });

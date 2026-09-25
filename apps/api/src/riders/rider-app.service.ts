@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { RiderOnboardingConfigurationService } from './rider-onboarding-configuration.service.js';
 import { MediaService } from '../media/media.service.js';
 import type { CreateUploadIntentDto } from '../media/dto/create-upload-intent.dto.js';
+import type { ApiLocale } from '../common/locale.js';
 
 @Injectable()
 export class RiderAppService {
@@ -22,7 +23,7 @@ export class RiderAppService {
     return { clientId: client.id, userId: user.id, phone: mobile };
   }
 
-  async onboarding(clientId: string, userId: string) {
+  async onboarding(clientId: string, userId: string, locale: ApiLocale = 'en') {
     const configuration = await this.configuration.getEffectiveConfiguration(clientId);
     const progress = await this.prisma.riderOnboardingProgress.upsert({ where: { userId }, create: { clientId, userId, packageId: configuration.package.id, currentStepId: configuration.onboarding.steps[0]?.stepId }, update: { packageId: configuration.package.id } });
     const completed = new Set((progress.completedStepIds as string[]) ?? []);
@@ -31,7 +32,8 @@ export class RiderAppService {
       where: { clientId, userId, supersededAt: null },
       select: { fieldCode: true, status: true, rejectionReason: true, updatedAt: true },
     });
-    const fields = configuration.onboarding.steps.flatMap((step) =>
+    const publicConfiguration = this.configuration.toPublicConfiguration(configuration, locale);
+    const fields = publicConfiguration.onboarding.steps.flatMap((step) =>
       step.fields.map((field) => ({ ...field, stepId: step.stepId, stepName: step.stepName })),
     );
     const fieldsByCode = new Map(fields.map((field) => [field.fieldCode, field]));
@@ -58,7 +60,7 @@ export class RiderAppService {
           ? 'WAITING_FOR_FLEET'
           : 'ONBOARDING';
     return {
-      ...this.configuration.toPublicConfiguration(configuration),
+      ...publicConfiguration,
       screen,
       documentReview: { documents, rejected, pendingCount },
       progress: {
@@ -71,7 +73,7 @@ export class RiderAppService {
     };
   }
 
-  async saveStep(clientId: string, userId: string, stepId: string, values: Record<string, unknown>, skip = false) {
+  async saveStep(clientId: string, userId: string, stepId: string, values: Record<string, unknown>, skip = false, locale: ApiLocale = 'en') {
     const effective = await this.configuration.getEffectiveConfiguration(clientId);
     const step = effective.onboarding.steps.find((item) => item.stepId === stepId);
     if (!step) throw new BadRequestException('This onboarding step is not available in the active package.');
@@ -121,7 +123,7 @@ export class RiderAppService {
         await tx.user.update({ where: { id: userId }, data: { name: data.name as string } });
       }
     });
-    return this.onboarding(clientId, userId);
+    return this.onboarding(clientId, userId, locale);
   }
 
   private async uploadField(clientId: string, userId: string, fieldCode: string) {

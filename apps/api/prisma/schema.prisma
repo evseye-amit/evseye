@@ -676,6 +676,7 @@ model FeatureStep {
   code         String        @unique
   displayName  String
   description  String?
+  translations Json?
   parentId     String?
   parent       FeatureStep?  @relation("FeatureStepHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
   children     FeatureStep[] @relation("FeatureStepHierarchy")
@@ -779,6 +780,7 @@ model TrainingContent {
   code           String   @unique
   title          String
   description    String?
+  translations   Json?
   imageObjectKey String   @db.VarChar(500)
   isMandatory    Boolean  @default(true)
   displayOrder   Int      @default(0)

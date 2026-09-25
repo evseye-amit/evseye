@@ -18,6 +18,7 @@ import { ClientBulkImportWorkspace, type ClientImportHistoryEntry } from "./comp
 import { ClientDeleteDialog, type ClientDeleteConfirmation } from "./components/client-delete-dialog";
 import { ClientFormDialog } from "./components/client-form-dialog";
 import { useClientAppearance } from "./components/client-provider";
+import { LanguageSwitcher, useLocale } from "./components/locale-provider";
 import { ClientBrandingSettings } from "./components/client-branding-settings";
 import { ClientBrand } from "./components/client-brand";
 
@@ -405,15 +406,17 @@ async function request(
 }
 
 function Metric({ label, value }: { label: string; value: number }) {
+  const { t } = useLocale();
   return (
     <article className="metric">
-      <span>{label}</span>
+      <span>{t(label)}</span>
       <strong>{value}</strong>
     </article>
   );
 }
 
 function FleetHealthCard({ dashboard }: { dashboard: Dashboard }) {
+  const { t } = useLocale();
   const fleetRows = [
     ["Available", dashboard.fleet.AVAILABLE ?? 0, "#21865d"],
     ["Allocated", dashboard.fleet.ALLOCATED ?? 0, "#2f80ed"],
@@ -428,15 +431,15 @@ function FleetHealthCard({ dashboard }: { dashboard: Dashboard }) {
     <article className="operations-chart-card operations-fleet-chart operations-fleet-overview">
       <header>
         <div>
-          <p className="eyebrow">FLEET HEALTH</p>
-          <h2>Fleet status distribution</h2>
+          <p className="eyebrow">{t("FLEET HEALTH")}</p>
+          <h2>{t("Fleet status distribution")}</h2>
         </div>
-        <span>{Object.values(dashboard.fleet).reduce((sum, value) => sum + value, 0)} total</span>
+        <span>{Object.values(dashboard.fleet).reduce((sum, value) => sum + value, 0)} {t("total")}</span>
       </header>
       <div className="bar-chart-list">
         {fleetRows.map(([label, value, color]) => (
           <div className="bar-chart-row" key={label}>
-            <span>{label}</span>
+            <span>{t(label)}</span>
             <div>
               <i style={{ width: `${(value / maxFleet) * 100}%`, background: color }} />
             </div>
@@ -449,6 +452,7 @@ function FleetHealthCard({ dashboard }: { dashboard: Dashboard }) {
 }
 
 function OperationsDashboardVisuals({ dashboard }: { dashboard: Dashboard }) {
+  const { t } = useLocale();
   const riderTotal = Object.values(dashboard.riders).reduce(
     (sum, value) => sum + value,
     0,
@@ -476,10 +480,10 @@ function OperationsDashboardVisuals({ dashboard }: { dashboard: Dashboard }) {
       <article className="operations-chart-card operations-readiness-chart">
         <header>
           <div>
-            <p className="eyebrow">WORKFORCE</p>
-            <h2>Rider readiness</h2>
+            <p className="eyebrow">{t("WORKFORCE")}</p>
+            <h2>{t("Rider readiness")}</h2>
           </div>
-          <span>{riderTotal} total</span>
+          <span>{riderTotal} {t("total")}</span>
         </header>
         <div className="donut-summary">
           <div
@@ -489,17 +493,17 @@ function OperationsDashboardVisuals({ dashboard }: { dashboard: Dashboard }) {
             }}
           >
             <strong>{activeRiderPercent}%</strong>
-            <span>active</span>
+            <span>{t("active")}</span>
           </div>
           <div>
             <p>
-              <b>{activeRiders}</b> active Riders
+              <b>{activeRiders}</b> {t("active Riders")}
             </p>
             <p>
-              <b>{dashboard.kyc.VERIFIED ?? 0}</b> KYC verified
+              <b>{dashboard.kyc.VERIFIED ?? 0}</b> {t("KYC verified")}
             </p>
             <p>
-              <b>{dashboard.kyc.PENDING ?? 0}</b> KYC pending
+              <b>{dashboard.kyc.PENDING ?? 0}</b> {t("KYC pending")}
             </p>
           </div>
         </div>
@@ -507,8 +511,8 @@ function OperationsDashboardVisuals({ dashboard }: { dashboard: Dashboard }) {
       <article className="operations-chart-card operations-activity-chart">
         <header>
           <div>
-            <p className="eyebrow">TODAY</p>
-            <h2>Allocation activity</h2>
+            <p className="eyebrow">{t("TODAY")}</p>
+            <h2>{t("Allocation activity")}</h2>
           </div>
         </header>
         <div className="activity-bars">
@@ -521,7 +525,7 @@ function OperationsDashboardVisuals({ dashboard }: { dashboard: Dashboard }) {
                 }}
               />
               <b>{value}</b>
-              <small>{label}</small>
+              <small>{t(label)}</small>
             </div>
           ))}
         </div>
@@ -529,20 +533,20 @@ function OperationsDashboardVisuals({ dashboard }: { dashboard: Dashboard }) {
       <article className="operations-chart-card operations-iot-chart">
         <header>
           <div>
-            <p className="eyebrow">TELEMATICS</p>
-            <h2>Device connectivity</h2>
+            <p className="eyebrow">{t("TELEMATICS")}</p>
+            <h2>{t("Device connectivity")}</h2>
           </div>
-          <span>{telemetryTotal} devices</span>
+          <span>{telemetryTotal} {t("devices")}</span>
         </header>
         <div className="connectivity">
           <strong>{onlinePercent}%</strong>
-          <span>online now</span>
+          <span>{t("online now")}</span>
           <div>
             <i style={{ width: `${onlinePercent}%` }} />
           </div>
           <p>
-            <b>{dashboard.iot.online}</b> online ·{" "}
-            <b>{dashboard.iot.offline}</b> offline
+            <b>{dashboard.iot.online}</b> {t("online")} ·{" "}
+            <b>{dashboard.iot.offline}</b> {t("offline")}
           </p>
         </div>
       </article>
@@ -551,11 +555,12 @@ function OperationsDashboardVisuals({ dashboard }: { dashboard: Dashboard }) {
 }
 
 function Status({ value }: { value: string }) {
+  const { t } = useLocale();
   return (
     <span
       className={`status status-${value.toLowerCase().replaceAll("_", "-")}`}
     >
-      {value.replaceAll("_", " ")}
+      {t(value.replaceAll("_", " "))}
     </span>
   );
 }
@@ -656,6 +661,7 @@ function clientColumns(tab: Tab): ClientColumn<RecordItem>[] {
 
 export default function Home() {
   const { appearance, hostClient } = useClientAppearance();
+  const { t } = useLocale();
   const [phone, setPhone] = useState("");
   const [companyCode, setCompanyCode] = useState("");
   const [otpRequestId, setOtpRequestId] = useState("");
@@ -2263,20 +2269,21 @@ export default function Home() {
         </section>
         <section className="auth-panel">
           <div className="auth-card platform-login-card">
+            <div className="language-login-row"><LanguageSwitcher /></div>
             <ClientBrand companyCode={companyCode} landing />
-            <p className="eyebrow">SECURE OPERATIONS ACCESS</p>
-            <h2>{otpRequestId ? "Verify your number" : appearance.branding.loginTitle}</h2>
+            <p className="eyebrow">{t("SECURE OPERATIONS ACCESS")}</p>
+            <h2>{otpRequestId ? t("Verify your number") : t(appearance.branding.loginTitle)}</h2>
             <p className="muted">
               {otpRequestId
-                ? `Enter the six-digit code sent to ${phone}.`
-                : appearance.branding.loginSubtitle}
+                ? `${t("Enter the six-digit code sent to")} ${phone}.`
+                : t(appearance.branding.loginSubtitle)}
             </p>
-            {appearance.branding.supportEmail && <p><a href={`mailto:${appearance.branding.supportEmail}`}>Contact support</a></p>}
-            {appearance.branding.supportPhone && <p>Support: {appearance.branding.supportPhone}</p>}
+            {appearance.branding.supportEmail && <p><a href={`mailto:${appearance.branding.supportEmail}`}>{t("Contact support")}</a></p>}
+            {appearance.branding.supportPhone && <p>{t("Support")}: {appearance.branding.supportPhone}</p>}
             {!otpRequestId ? (
               <form onSubmit={sendOtp} className="auth-form">
                 {!hostClient && <label>
-                  Company code *
+                  {t("Company code")} *
                  <span className="auth-input">
                     <UiIcon name="building" />
                     <input
@@ -2289,13 +2296,13 @@ export default function Home() {
                   </span>
                 </label>}
                 <label>
-                  Mobile number *
+                  {t("Mobile number")} *
                  <span className="auth-input">
                     <UiIcon name="phone" />
                     <input
                       value={phone}
                       onChange={(e) => setPhone(indianMobileInput(e.target.value))}
-                      placeholder="10-digit mobile number"
+                      placeholder={t("10-digit mobile number")}
                       type="tel"
                       inputMode="numeric"
                       autoComplete="tel"
@@ -2306,19 +2313,19 @@ export default function Home() {
                   </span>
                 </label>
                 <button className="auth-submit" disabled={loading}>
-                  {loading ? "Sending code…" : "Send OTP"}
+                  {t(loading ? "Sending code…" : "Send OTP")}
                   <UiIcon name="arrowRight" />
                 </button>
               </form>
             ) : (
               <form onSubmit={verifyOtp} className="auth-form">
                 <label className="otp-code-label">
-                  <span>Six-digit OTP <span className="sa-required-star" aria-hidden="true">*</span></span>
-                  <span className="otp-code-hint">One digit per box. You can type, paste, or use SMS auto-fill.</span>
+                  <span>{t("Six-digit OTP")} <span className="sa-required-star" aria-hidden="true">*</span></span>
+                  <span className="otp-code-hint">{t("One digit per box. You can type, paste, or use SMS auto-fill.")}</span>
                   <OtpCodeInput value={code} onChange={setCode} disabled={loading} />
                 </label>
                 <button className="auth-submit" disabled={loading || code.length !== 6}>
-                  {loading ? "Verifying…" : "Verify OTP"}
+                  {t(loading ? "Verifying…" : "Verify OTP")}
                   <UiIcon name="arrowRight" />
                 </button>
                 <button
@@ -2331,16 +2338,16 @@ export default function Home() {
                     setError("");
                   }}
                 >
-                  Change mobile number
+                  {t("Change mobile number")}
                 </button>
               </form>
             )}
             {notice && <p className="notice auth-message">{notice}</p>}
             {error && <p className="error auth-message">{error}</p>}
             <p className="auth-security-note">
-              <UiIcon name="shield" /> Protected by OTP verification
+              <UiIcon name="shield" /> {t("Protected by OTP verification")}
             </p>
-            <p className="client-powered-by">Powered by EV Spares India Pvt Ltd</p>
+            <p className="client-powered-by">{t("Powered by EV Spares India Pvt Ltd")}</p>
           </div>
         </section>
       </main>
@@ -2369,7 +2376,7 @@ export default function Home() {
                     [section.label]: !(current[section.label] ?? false),
                   }))}
                 >
-                  <span>{section.label}</span>
+                  <span>{t(section.label)}</span>
                   <UiIcon
                     name="chevron"
                     className={(expandedClientNavGroups[section.label] ?? false) ? "" : "is-collapsed"}
@@ -2391,7 +2398,7 @@ export default function Home() {
                     {item.id === "cluster-managers" || item.id === "team-leads" || item.id === "fleet-managers"
                       ? <span aria-hidden="true" className={`client-role-art client-role-art-${item.id}`} />
                       : <UiIcon name={CLIENT_TAB_ICONS[item.id]} />}
-                    {item.label}
+                    {t(item.label)}
                   </button>
                 ))}
               </div>
@@ -2401,20 +2408,21 @@ export default function Home() {
         <ClientBrandingSettings token={token} />
         <div className="sa-user client-sidebar-footer">
           <span aria-hidden="true">C</span>
-          <div><strong>Client Operations</strong><small>EVs Eye workspace</small></div>
+          <div><strong>{t("Client Operations")}</strong><small>{t("EVs Eye workspace")}</small></div>
         </div>
       </aside>
       <section className="sa-main workspace client-operations-main">
         <header className="sa-topbar">
           <div>
-            <h1>{title}</h1>
-            <p>Client operations workspace</p>
+            <h1>{t(title)}</h1>
+            <p>{t("Client operations workspace")}</p>
           </div>
           <div className="header-actions">
+            <LanguageSwitcher />
             <button className="secondary" onClick={() => void loadView(tab)}>
-              ↻ Refresh
+              ↻ {t("Refresh")}
             </button>
-            <button onClick={signOut}>Sign out</button>
+            <button onClick={signOut}>{t("Sign out")}</button>
           </div>
         </header>
         {bulkImportTab === tab && bulkImportTab ? <>

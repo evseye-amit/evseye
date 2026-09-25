@@ -13,6 +13,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { AppModule } from './app.module.js';
 import type { AuthUser } from './auth/interfaces/auth-user.interface.js';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
+import { requestLocale } from './common/locale.js';
 import type { Environment } from './config/environment.js';
 import { completeSwaggerDocument, SWAGGER_TAGS } from './swagger.js';
 
@@ -67,6 +68,9 @@ export async function createApplication(): Promise<NestFastifyApplication> {
   fastify.addHook('onRequest', (request, reply, done) => {
     requestStartedAt.set(request, Date.now());
     reply.header('x-request-id', request.id);
+    reply.header('Content-Language', requestLocale(request.headers['accept-language']));
+    const vary = reply.getHeader('Vary');
+    reply.header('Vary', vary ? `${vary}, Accept-Language` : 'Accept-Language');
     done();
   });
   fastify.addHook('onResponse', (request, reply, done) => {
@@ -95,7 +99,7 @@ export async function createApplication(): Promise<NestFastifyApplication> {
   if (swaggerEnabled) {
     let swaggerBuilder = new DocumentBuilder()
       .setTitle('EVs Eye API')
-      .setDescription('Endpoints are grouped by business area. Authenticate with an OTP endpoint, then use its access token with Authorize. Client endpoints use the client associated with that token.')
+      .setDescription('Endpoints are grouped by business area. Authenticate with an OTP endpoint, then use its access token with Authorize. Client endpoints use the client associated with that token. Rider and Fleet Manager apps can send Accept-Language: en, hi, te, or kn; responses include Content-Language. Machine-readable codes remain unchanged.')
       .setVersion('1.0')
       .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' })
       .addApiKey({ type: 'apiKey', in: 'header', name: 'x-device-secret' }, 'deviceSecret');

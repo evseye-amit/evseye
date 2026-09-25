@@ -24,6 +24,8 @@ export async function sessionFetch(
     return globalThis.fetch(input, init);
   const headers = new Headers(init?.headers);
   headers.delete("authorization");
+  if (!headers.has("Accept-Language"))
+    headers.set("Accept-Language", document.documentElement.lang || "en");
   const options = { ...init, headers, credentials: "same-origin" as const };
   const response = await globalThis.fetch(input, options);
   if (response.status !== 401 || input.startsWith("/api/v1/auth/"))

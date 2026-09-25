@@ -138,6 +138,7 @@ export class CreateFeatureStepDto {
   @IsString() @Matches(/^[A-Z0-9_-]+$/) @MaxLength(100) code!: string;
   @IsString() @MaxLength(150) displayName!: string;
   @IsOptional() @IsString() @MaxLength(500) description?: string;
+  @IsOptional() @IsObject() translations?: Record<string, unknown>;
   @IsOptional() @IsUUID() parentId?: string;
   @IsOptional() @IsInt() @Min(0) displayOrder?: number;
   @IsOptional() @IsBoolean() isActive?: boolean;
@@ -159,6 +160,7 @@ export class CreateTrainingContentDto {
   @IsString() @Matches(/^[A-Z0-9_-]+$/) @MaxLength(100) code!: string;
   @IsString() @MaxLength(180) title!: string;
   @IsOptional() @IsString() @MaxLength(1000) description?: string;
+  @IsOptional() @IsObject() translations?: Record<string, unknown>;
   @IsString() @Matches(/^platform\/training\/[A-Z0-9_-]+\/[0-9a-f-]+\.(jpeg|png|webp)$/i)
   imageObjectKey!: string;
   @IsOptional() @IsBoolean() isMandatory?: boolean;

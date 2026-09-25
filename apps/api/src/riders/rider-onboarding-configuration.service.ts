@@ -1,7 +1,9 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { FeatureCategory, Prisma } from '@prisma/client';
+import { FeatureCategory } from '@prisma/client';
 import { normalizeIndianMobile } from '../common/phone.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { translatedProperty, type ApiLocale } from '../common/locale.js';
+import { riderCatalogLabel } from './rider-field-locales.js';
 
 type JsonRecord = Record<string, unknown>;
 type RiderField = {
@@ -41,6 +43,7 @@ type RiderOnboardingConfiguration = {
       sequence: number;
       active: boolean;
       enabled: boolean;
+      translations?: unknown;
       fields: RiderField[];
     }>;
   };
@@ -56,7 +59,7 @@ export class RiderOnboardingConfigurationService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** Keep the resolved validation model private; expose each rule only in configuration. */
-  toPublicConfiguration(effective: RiderOnboardingConfiguration) {
+  toPublicConfiguration(effective: RiderOnboardingConfiguration, locale: ApiLocale = 'en') {
     return {
       package: effective.package,
       onboarding: {
@@ -64,27 +67,28 @@ export class RiderOnboardingConfigurationService {
         steps: effective.onboarding.steps.map((step) => ({
           stepId: step.stepId,
           stepCode: step.stepCode,
-          stepName: step.stepName,
-          description: step.description,
+          stepName: translatedProperty(step.stepName, step.translations, locale, 'displayName'),
+          description: translatedProperty(step.description, step.translations, locale, 'description'),
           parentId: step.parentId,
           sequence: step.sequence,
           fields: step.fields.map((field) => {
             const storedConfiguration = Object.fromEntries(
               Object.entries(field.configuration).filter(([key]) =>
-                !['fieldCode', 'fieldId', 'featureId', 'featureCode', 'billingUnit', 'sequence'].includes(key),
+                !['fieldCode', 'fieldId', 'featureId', 'featureCode', 'billingUnit', 'sequence', 'translations'].includes(key),
               ),
             );
             return {
               featureId: field.featureId,
               featureCode: field.featureCode,
               ...(field.fieldCode ? { fieldCode: field.fieldCode } : {}),
-              name: field.fieldName,
-              description: field.description ?? null,
+              name: translatedProperty(undefined, field.configuration.translations, locale, 'name') ?? riderCatalogLabel(field.featureCode, locale) ?? field.fieldName,
+              description: translatedProperty(field.description ?? null, field.configuration.translations, locale, 'description'),
               billingUnit: field.billingUnit,
               sequence: field.sequence,
               configuration: {
                 ...storedConfiguration,
-                label: field.label,
+                label: translatedProperty(undefined, field.configuration.translations, locale, 'label') ?? riderCatalogLabel(field.featureCode, locale) ?? field.label,
+                ...(field.placeholder ? { placeholder: translatedProperty(field.placeholder, field.configuration.translations, locale, 'placeholder') } : {}),
                 fieldType: field.isUpload ? 'UPLOAD' : field.fieldType,
                 ...(field.storageKey ? { storageKey: field.storageKey } : {}),
                 required: field.required,
@@ -146,9 +150,18 @@ export class RiderOnboardingConfigurationService {
       if (!step) continue;
       const featureConfiguration = asRecord(feature.configuration);
       const packageConfiguration = asRecord(packageFeature.configuration);
+      const featureTranslations = asRecord(featureConfiguration.translations);
+      const packageTranslations = asRecord(packageConfiguration.translations);
+      const translations = Object.fromEntries(
+        ['hi', 'te', 'kn'].map((locale) => [locale, {
+          ...asRecord(featureTranslations[locale]),
+          ...asRecord(packageTranslations[locale]),
+        }]),
+      );
       const configuration: JsonRecord = {
         ...featureConfiguration,
         ...packageConfiguration,
+        translations,
         validation: {
           ...asRecord(featureConfiguration.validation),
           ...asRecord(packageConfiguration.validation),
@@ -200,6 +213,7 @@ export class RiderOnboardingConfigurationService {
         sequence: step.displayOrder,
         active: step.isActive,
         enabled: true,
+        translations: step.translations,
         fields: [],
       };
       current.fields.push(field);

@@ -1,4 +1,5 @@
 import type { FastifyRequest } from 'fastify';
+import { ApiHeader } from '@nestjs/swagger';
 import { ClientResolverService } from '../client-identity/client-resolver.service.js';
 import {
   Body,
@@ -20,6 +21,7 @@ import { AccessTokenGuard } from './guards/access-token.guard.js';
 import type { AuthUser } from './interfaces/auth-user.interface.js';
 
 @Controller('auth')
+@ApiHeader({ name: 'Accept-Language', required: false, description: 'Response language: en-IN, hi-IN, te-IN, or kn-IN. Defaults to English.' })
 export class AuthController {
   constructor(
     private readonly authService: AuthService,

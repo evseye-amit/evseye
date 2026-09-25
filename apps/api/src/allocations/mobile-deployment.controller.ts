@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, UseGuards } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
+import { ApiHeader } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
@@ -8,11 +9,16 @@ import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { ClientContextService } from '../auth/client-context.service.js';
 import { MobileDeploymentService } from './mobile-deployment.service.js';
 import { AcceptPdiDto, AskPaymentDto, BypassPairingDto, FleetManagerAllocateDto, PairDeviceDto, PdiVoiceUploadIntentDto, SubmitPdiDto, SubmitPaymentReferenceDto, TrainingViewedDto } from './dto/mobile-deployment.dto.js';
+import { requestLocale } from '../common/locale.js';
+import { mobileStatusLabels } from './mobile-status-locales.js';
 
 @Controller('mobile-deployments')
+@ApiHeader({ name: 'Accept-Language', required: false, description: 'Response language: en-IN, hi-IN, te-IN, or kn-IN. Defaults to English.' })
 @UseGuards(AccessTokenGuard, RolesGuard)
 export class MobileDeploymentController {
   constructor(private readonly deployments: MobileDeploymentService, private readonly clients: ClientContextService) {}
+  @Get('localization') @Roles(UserRole.RIDER, UserRole.FLEET_MANAGER)
+  localization(@Headers('accept-language') language?: string) { return { data: mobileStatusLabels(requestLocale(language)) }; }
   @Get('fleet-manager/pending-riders') @Roles(UserRole.FLEET_MANAGER)
   async pendingRiders(@CurrentUser() user: AuthUser) { return { data: await this.deployments.pendingRiders(this.clients.requireClientId(user), user.id) }; }
   @Get('fleet-manager/eligible-fleets') @Roles(UserRole.FLEET_MANAGER)
@@ -48,7 +54,7 @@ export class MobileDeploymentController {
   @Post(':id/training/complete') @Roles(UserRole.RIDER)
   async training(@CurrentUser() user: AuthUser, @Param('id') id: string) { return { data: await this.deployments.completeTraining(this.clients.requireClientId(user), user.id, id) }; }
   @Get(':id/training') @Roles(UserRole.RIDER)
-  async trainingContent(@CurrentUser() user: AuthUser, @Param('id') id: string) { return { data: await this.deployments.training(this.clients.requireClientId(user), user.id, id) }; }
+  async trainingContent(@CurrentUser() user: AuthUser, @Param('id') id: string, @Headers('accept-language') language?: string) { return { data: await this.deployments.training(this.clients.requireClientId(user), user.id, id, requestLocale(language)) }; }
   @Post(':id/training/viewed') @Roles(UserRole.RIDER)
   async trainingViewed(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: TrainingViewedDto) { return { data: await this.deployments.markTrainingViewed(this.clients.requireClientId(user), user.id, id, body.contentCode) }; }
   @Get(':id/iot-health') @Roles(UserRole.FLEET_MANAGER)

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useLocale } from "./locale-provider";
 
 export type ClientDeleteConfirmation = {
   title: string;
@@ -14,6 +15,7 @@ export function ClientDeleteDialog({ confirmation, busy, onClose }: {
   busy: boolean;
   onClose: () => void;
 }) {
+  const { t } = useLocale();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -31,10 +33,10 @@ export function ClientDeleteDialog({ confirmation, busy, onClose }: {
   }} onClose={() => { if (confirmation) onClose(); }}>
     <div className="sa-dialog-surface sa-delete-dialog-surface">
       <span className="sa-delete-dialog-icon" aria-hidden="true">!</span>
-      <div><p className="sa-eyebrow">CONFIRM DELETION</p><h2>{confirmation?.title}</h2><p>{confirmation?.description}</p></div>
+      <div><p className="sa-eyebrow">{t("CONFIRM DELETION")}</p><h2>{t(confirmation?.title ?? "")}</h2><p>{t(confirmation?.description ?? "")}</p></div>
       <div className="sa-dialog-actions">
-        <button type="button" className="secondary" disabled={busy} onClick={onClose}>Keep it</button>
-        <button ref={confirmRef} type="button" className="danger" disabled={busy} onClick={() => { if (confirmation) void confirmation.onConfirm().finally(onClose); }}>{busy ? "Deleting…" : confirmation?.confirmLabel ?? "Delete"}</button>
+        <button type="button" className="secondary" disabled={busy} onClick={onClose}>{t("Keep it")}</button>
+        <button ref={confirmRef} type="button" className="danger" disabled={busy} onClick={() => { if (confirmation) void confirmation.onConfirm().finally(onClose); }}>{t(busy ? "Deleting…" : confirmation?.confirmLabel ?? "Delete")}</button>
       </div>
     </div>
   </dialog>;

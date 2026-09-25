@@ -423,6 +423,41 @@ button:disabled {
   display: flex;
   gap: 10px;
 }
+.language-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #426055;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.language-switcher select {
+  min-width: 88px;
+  min-height: 38px;
+  padding: 7px 8px;
+  border: 1px solid #c8dfd2;
+  border-radius: 8px;
+  background: #fff;
+  color: #173f32;
+  font: inherit;
+  cursor: pointer;
+}
+.language-switcher select:focus-visible {
+  outline: 2px solid #238860;
+  outline-offset: 2px;
+}
+.platform-login-card .language-switcher {
+  color: #e9f5ee;
+}
+.language-login-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+.client-onboarding-sidebar > .language-switcher {
+  margin-bottom: 18px;
+}
 .action-card {
   margin: 0 0 24px;
   padding: 24px;

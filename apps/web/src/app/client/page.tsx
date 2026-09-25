@@ -12,6 +12,7 @@ import {
 } from "../../lib/domain-enums";
 
 import { ClientBrand } from "../components/client-brand";
+import { LanguageSwitcher, useLocale } from "../components/locale-provider";
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import * as XLSX from "xlsx";
@@ -77,6 +78,7 @@ type FleetEvidenceStatus = {
 };
 
 export default function ClientHome() {
+  const { t } = useLocale();
   const [brandingToken, setBrandingToken] = useState("");
   const [data, setData] = useState<Bootstrap | null>(null);
   const [dashboard, setDashboard] = useState<ClientDashboard | null>(null);
@@ -135,9 +137,9 @@ export default function ClientHome() {
     return (
       <main className="client-gate">
         <section>
-          <h1>Unable to open workspace</h1>
+          <h1>{t("Unable to open workspace")}</h1>
           <p>{error}</p>
-          <Link href="/">Return to login</Link>
+          <Link href="/">{t("Return to login")}</Link>
         </section>
       </main>
     );
@@ -145,7 +147,7 @@ export default function ClientHome() {
     return (
       <main className="client-gate">
         <section>
-          <p>Loading client workspace…</p>
+          <p>{t("Loading client workspace…")}</p>
         </section>
       </main>
     );
@@ -167,33 +169,33 @@ export default function ClientHome() {
   if (data.route === "WAITING")
     return (
       <Gate
-        title="Onboarding under review"
+        title={t("Onboarding under review")}
         text="Your onboarding submission is with EVs Eye for approval. We will notify your Client Admin once the workspace is activated."
       />
     );
   if (data.route === "SUSPENDED")
     return (
       <Gate
-        title="Workspace access suspended"
+        title={t("Workspace access suspended")}
         text="This Client workspace is currently suspended. Please contact EVs Eye support."
       />
     );
   if (data.route === "DASHBOARD")
     return (
       <Gate
-        title="Opening Operations workspace"
+        title={t("Opening Operations workspace")}
         text="Your Client is active. Redirecting you to the live operations dashboard."
       />
     );
   return (
     <main className="client-workspace">
       <aside className="client-onboarding-sidebar">
+        <LanguageSwitcher />
         <ClientBrand token={brandingToken} />
-        <p className="eyebrow">CLIENT ONBOARDING</p>
-        <h1>Set up {data.client.name}</h1>
+        <p className="eyebrow">{t("CLIENT ONBOARDING")}</p>
+        <h1>{t("Set up")} {data.client.name}</h1>
         <p>
-          Save your progress at any time. You will resume from the latest
-          incomplete step after login.
+          {t("Save your progress at any time. You will resume from the latest incomplete step after login.")}
         </p>
         <ol className="client-steps">
           {data.progress.steps.map((step, index) => (
@@ -209,8 +211,8 @@ export default function ClientHome() {
                 aria-label={`Open ${labels[step.step]}`}
               >
                 <b>{index + 1}</b>
-                <strong>{labels[step.step]}</strong>
-                <span>{step.status.replaceAll("_", " ")}</span>
+                <strong>{t(labels[step.step])}</strong>
+                <span>{t(step.status.replaceAll("_", " "))}</span>
               </button>
             </li>
           ))}
@@ -219,7 +221,7 @@ export default function ClientHome() {
       <section className="client-onboarding-main">
         {data.client.status === "REJECTED" ? (
           <section className="client-rejection-note" role="status">
-            <strong>Changes requested by EVs Eye</strong>
+            <strong>{t("Changes requested by EVs Eye")}</strong>
             <p>
               {data.client.rejectionReason ||
                 "Please review and correct the requested onboarding information, then resubmit it for approval."}
@@ -227,25 +229,25 @@ export default function ClientHome() {
             <div className="client-rejection-actions">
               <span>Open the relevant setup section to make corrections:</span>
               <button type="button" onClick={() => setSelectedStep("HUBS")}>
-                Hubs
+                {t("Hubs")}
               </button>
               <button
                 type="button"
                 onClick={() => setSelectedStep("FLEET_MANAGERS")}
               >
-                Fleet Managers
+                {t("Fleet Managers")}
               </button>
               <button type="button" onClick={() => setSelectedStep("FLEETS")}>
-                Fleets
+                {t("Fleets")}
               </button>
               <button
                 type="button"
                 onClick={() => setSelectedStep("TEAM_LEADERS")}
               >
-                Team Leaders
+                {t("Team Leaders")}
               </button>
               <button type="button" onClick={() => setSelectedStep("RIDERS")}>
-                Riders
+                {t("Riders")}
               </button>
             </div>
           </section>
@@ -3694,6 +3696,7 @@ function ClientDashboardView({
 }
 
 function Gate({ title, text }: { title: string; text: string }) {
+  const { t } = useLocale();
   const returnToLogin = async () => {
     await fetch("/api/v1/auth/logout", { method: "POST" }).catch(() => undefined);
     sessionStorage.removeItem(ACCESS_TOKEN_KEY);
@@ -3703,15 +3706,16 @@ function Gate({ title, text }: { title: string; text: string }) {
   return (
     <main className="client-gate">
       <section>
-        <p className="eyebrow">EVS EYE · CLIENT WORKSPACE</p>
+        <div className="language-login-row"><LanguageSwitcher /></div>
+        <p className="eyebrow">{t("EVS EYE · CLIENT WORKSPACE")}</p>
         <h1>{title}</h1>
-        <p>{text}</p>
+        <p>{t(text)}</p>
         <button
           className="client-return-login"
           type="button"
           onClick={returnToLogin}
         >
-          Return to login
+          {t("Return to login")}
         </button>
       </section>
     </main>

@@ -28,6 +28,7 @@ import Link from "next/link";
 import { ClientCommercialSettings, type ClientCommercialSection } from "../../components/client-commercial-settings";
 import { ClientDomainSettings } from "../../components/client-domain-settings";
 import { ClientLogoUpload } from "../../components/client-logo-upload";
+import { LanguageSwitcher, useLocale } from "../../components/locale-provider";
 import { UiIcon, type IconName } from "../../components/ui-icon";
 import {
   filterRows,
@@ -320,12 +321,13 @@ function Metric({
   tone: string;
   detail?: string;
 }) {
+  const { t } = useLocale();
   return (
     <article className="sa-metric">
       <span className={`sa-icon ${tone}`}>◈</span>
       <strong>{value}</strong>
-      <small>{label}</small>
-      <em>{detail ?? "Live"}</em>
+      <small>{t(label)}</small>
+      <em>{t(detail ?? "Live")}</em>
     </article>
   );
 }
@@ -359,6 +361,7 @@ function CatalogFormDialog({
   actions,
   children,
 }: CatalogFormDialogProps) {
+  const { t } = useLocale();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const dialogId = useId();
   const wasOpenRef = useRef(false);
@@ -415,8 +418,8 @@ function CatalogFormDialog({
       >
         <header className="sa-dialog-head">
           <div>
-            <h2 id={titleId}>{title}</h2>
-            <p id={descriptionId}>{description}</p>
+            <h2 id={titleId}>{t(title)}</h2>
+            <p id={descriptionId}>{t(description)}</p>
           </div>
         </header>
         {error && (
@@ -432,6 +435,7 @@ function CatalogFormDialog({
 }
 
 export default function SuperAdminDashboard() {
+  const { t } = useLocale();
   const [token, setToken] = useState(() =>
     typeof window === "undefined"
       ? ""
@@ -2176,7 +2180,7 @@ export default function SuperAdminDashboard() {
                     }))
                   }
                 >
-                  <span>{group.label}</span>
+                  <span>{t(group.label)}</span>
                   <UiIcon
                     name="chevron"
                     className={(expandedNavGroups[group.label] ?? false) ? "" : "is-collapsed"}
@@ -2197,7 +2201,7 @@ export default function SuperAdminDashboard() {
                   }}
                 >
                   <UiIcon name={icon} />
-                  {label}
+                  {t(label)}
                 </button>
               ))}
             </div>
@@ -2206,7 +2210,7 @@ export default function SuperAdminDashboard() {
         <div className="sa-user">
           <span>S</span>
           <div>
-            <strong>Super Admin</strong>
+            <strong>{t("Super Admin")}</strong>
             <small>admin@evseye.io</small>
           </div>
         </div>
@@ -2216,19 +2220,20 @@ export default function SuperAdminDashboard() {
           <div>
             <h1>
               {tab === "dashboard"
-                ? "Super Admin Dashboard"
-                : nav.find(([key]) => key === tab)?.[1]}
+                ? t("Super Admin Dashboard")
+                : t(nav.find(([key]) => key === tab)?.[1] ?? "")}
             </h1>
             <p>
               {tab === "dashboard"
-                ? "Complete platform overview · Updated just now"
-                : pageSubtitles[tab] ??
-                  "Platform-owned catalog and commercial controls"}
+                ? t("Complete platform overview · Updated just now")
+                : t(pageSubtitles[tab] ??
+                  "Platform-owned catalog and commercial controls")}
             </p>
           </div>
-          <div>
+          <div className="header-actions">
+            <LanguageSwitcher />
             <button className="secondary" onClick={() => void load()}>
-              ↻ Refresh
+              ↻ {t("Refresh")}
             </button>
             <button
               onClick={async () => {
@@ -2238,7 +2243,7 @@ export default function SuperAdminDashboard() {
                 setToken("");
               }}
             >
-              Sign out
+              {t("Sign out")}
             </button>
           </div>
         </header>
@@ -3903,6 +3908,7 @@ function DashboardView({
   oems: Item[];
   setTab: (tab: Tab) => void;
 }) {
+  const { t } = useLocale();
   const fleetStatus = summary.fleetsByStatus ?? {};
   const riderStatus = summary.ridersByStatus ?? {};
   const clientStatus = summary.clientsByStatus ?? {};
@@ -4020,18 +4026,18 @@ function DashboardView({
         <article className="sa-card sa-fleet-chart">
           <div className="sa-card-head">
             <div>
-              <h3>Fleet operational health</h3>
-              <p>Current fleet availability across all clients</p>
+              <h3>{t("Fleet operational health")}</h3>
+              <p>{t("Current fleet availability across all clients")}</p>
             </div>
             <button className="secondary" onClick={() => setTab("clients")}>
-              View clients
+              {t("View clients")}
             </button>
           </div>
           <div className="sa-health-bars">
             {fleetBars.map(([label, count, color]) => (
               <div key={label}>
                 <div className="sa-health-label">
-                  <span>{label}</span>
+                  <span>{t(label)}</span>
                   <strong>{count}</strong>
                 </div>
                 <span className="sa-health-track">
@@ -4046,18 +4052,17 @@ function DashboardView({
             ))}
           </div>
           <p className="sa-footnote">
-            {summary.fleets ?? 0} active fleet records are monitored from one
-            platform view.
+            {summary.fleets ?? 0} {t("active fleet records are monitored from one platform view.")}
           </p>
         </article>
         <article className="sa-card">
           <div className="sa-card-head">
             <div>
-              <h3>Client performance</h3>
-              <p>Top clients by fleet size</p>
+              <h3>{t("Client performance")}</h3>
+              <p>{t("Top clients by fleet size")}</p>
             </div>
             <button className="secondary" onClick={() => setTab("clients")}>
-              View all
+              {t("View all")}
             </button>
           </div>
           <div className="sa-ranked-list">
@@ -4067,23 +4072,23 @@ function DashboardView({
                 <section>
                   <strong>{client.name}</strong>
                   <small>
-                    {client._count?.riders ?? 0} riders ·{" "}
-                    {client._count?.users ?? 0} users
+                    {client._count?.riders ?? 0} {t("riders")} ·{" "}
+                    {client._count?.users ?? 0} {t("users")}
                   </small>
                 </section>
-                <b>{client.isActive ? "Active" : "Inactive"}</b>
+                <b>{t(client.isActive ? "Active" : "Inactive")}</b>
               </div>
             ))}
             {!clients.length && (
-              <p className="muted">No clients have been onboarded yet.</p>
+              <p className="muted">{t("No clients have been onboarded yet.")}</p>
             )}
           </div>
         </article>
         <article className="sa-card">
           <div className="sa-card-head">
             <div>
-              <h3>Client lifecycle</h3>
-              <p>Onboarding and account-status distribution</p>
+              <h3>{t("Client lifecycle")}</h3>
+              <p>{t("Onboarding and account-status distribution")}</p>
             </div>
           </div>
           <div className="sa-lifecycle">
@@ -4097,14 +4102,14 @@ function DashboardView({
             >
               <div>
                 <strong>{clientTotal}</strong>
-                <small>clients</small>
+                <small>{t("clients")}</small>
               </div>
             </div>
             <div className="sa-legend">
               {clientSlices.map(([label, count, color]) => (
                 <div key={label}>
                   <i style={{ background: color }} />
-                  <span>{label}</span>
+                  <span>{t(label)}</span>
                   <strong>{count}</strong>
                 </div>
               ))}
@@ -4114,11 +4119,11 @@ function DashboardView({
         <article className="sa-card sa-catalog-card">
           <div className="sa-card-head">
             <div>
-              <h3>Platform catalogue</h3>
-              <p>Master records ready for client configuration</p>
+              <h3>{t("Platform catalogue")}</h3>
+              <p>{t("Master records ready for client configuration")}</p>
             </div>
             <button className="secondary" onClick={() => setTab("features")}>
-              Manage
+              {t("Manage")}
             </button>
           </div>
           <div className="sa-catalog-coverage">
@@ -4126,7 +4131,7 @@ function DashboardView({
               <button key={label} onClick={() => setTab(target as Tab)}>
                 <span>
                   <strong>{count}</strong>
-                  <small>{label}</small>
+                  <small>{t(label)}</small>
                 </span>
                 <i
                   style={{ width: `${Math.min(100, Math.max(8, count * 8))}%` }}
@@ -4138,10 +4143,10 @@ function DashboardView({
         <article className="sa-card">
           <div className="sa-card-head">
             <div>
-              <h3>Recent activity</h3>
-              <p>Platform-wide events</p>
+              <h3>{t("Recent activity")}</h3>
+              <p>{t("Platform-wide events")}</p>
             </div>
-            <span className="sa-live">● Live</span>
+            <span className="sa-live">● {t("Live")}</span>
           </div>
           <ul className="sa-activity">
             <li>
@@ -5821,6 +5826,7 @@ function DataTable({
   columnFiltersMinimumRows?: number;
   disablePageSizeAtOrBelow?: number;
 }) {
+  const { t } = useLocale();
   const [pageSize, setPageSize] = useState(10);
   const searchId = useId();
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -6099,14 +6105,14 @@ function DataTable({
     <div>
       <div className="sa-table-toolbar">
         <div className="sa-table-search">
-          <label htmlFor={searchId}>Search this table</label>
+          <label htmlFor={searchId}>{t("Search this table")}</label>
           <div className="sa-table-search-control">
             <input
               id={searchId}
               ref={searchInputRef}
               type="search"
               value={query}
-              placeholder="Search this table"
+              placeholder={t("Search this table")}
               onChange={(event) => {
                 setQuery(event.currentTarget.value);
                 setPage(1);
@@ -6123,7 +6129,7 @@ function DataTable({
                   searchInputRef.current?.focus();
                 }}
               >
-                Clear
+                {t("Clear")}
               </button>
             )}
           </div>
@@ -6135,10 +6141,10 @@ function DataTable({
             aria-live="polite"
           >
             {filteredColumnRows.length}{" "}
-            {filteredColumnRows.length === 1 ? "result" : "results"}
+            {t(filteredColumnRows.length === 1 ? "result" : "results")}
           </span>
           <label className="sa-table-page-size">
-            Rows per page
+            {t("Rows per page")}
             <select
               value={pageSize}
               disabled={
@@ -6166,7 +6172,7 @@ function DataTable({
                 setPage(1);
               }}
             >
-              Clear all ({activeFilterCount})
+              {t("Clear all")} ({activeFilterCount})
             </button>
           )}
         </div>
@@ -6174,7 +6180,7 @@ function DataTable({
       {hasColumnFilters && (
         <details className="sa-table-filter-panel">
           <summary>
-            Filters{activeFilterCount ? ` (${activeFilterCount})` : ""}
+            {t("Filters")}{activeFilterCount ? ` (${activeFilterCount})` : ""}
           </summary>
           <div className="sa-table-filter-panel-fields">
             {headings.map((heading, columnIndex) => (
@@ -6191,7 +6197,7 @@ function DataTable({
                   setPage(1);
                 }}
               >
-                Clear all ({activeFilterCount})
+                {t("Clear all")} ({activeFilterCount})
               </button>
             )}
           </div>
@@ -6243,7 +6249,7 @@ function DataTable({
                           setPage(1);
                         }}
                       >
-                        <span>{heading}</span>
+                        <span>{t(heading)}</span>
                         <span className="sa-table-sort-indicator" aria-hidden="true">
                           {active
                             ? sort.direction === "ascending"
@@ -6253,7 +6259,7 @@ function DataTable({
                         </span>
                       </button>
                     ) : (
-                      <span>{heading}</span>
+                      <span>{t(heading)}</span>
                     )}
                   </th>
                 );
@@ -6293,7 +6299,7 @@ function DataTable({
             ) : (
               <tr>
                 <td colSpan={headings.length}>
-                  {rows.length ? "No matching records." : "No records yet."}
+                  {t(rows.length ? "No matching records." : "No records yet.")}
                 </td>
               </tr>
             )}
@@ -6303,8 +6309,8 @@ function DataTable({
       {filteredColumnRows.length > pageSize && (
         <div className="sa-pagination" aria-label="Table pagination">
           <span>
-            Showing {(currentPage - 1) * pageSize + 1}–
-            {Math.min(currentPage * pageSize, filteredColumnRows.length)} of{" "}
+            {t("Showing")} {(currentPage - 1) * pageSize + 1}–
+            {Math.min(currentPage * pageSize, filteredColumnRows.length)} {t("of")}{" "}
             {filteredColumnRows.length}
           </span>
           <div>
@@ -6313,17 +6319,17 @@ function DataTable({
               disabled={currentPage === 1}
               onClick={() => setPage((value) => Math.max(1, value - 1))}
             >
-              Previous
+              {t("Previous")}
             </button>
             <span>
-              Page {currentPage} of {pageCount}
+              {t("Page")} {currentPage} {t("of")} {pageCount}
             </span>
             <button
               className="secondary"
               disabled={currentPage === pageCount}
               onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
             >
-              Next
+              {t("Next")}
             </button>
           </div>
         </div>

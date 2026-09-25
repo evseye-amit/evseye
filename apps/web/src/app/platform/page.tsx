@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { OtpCodeInput } from "../components/otp-code-input";
 import { UiIcon } from "../components/ui-icon";
+import { LanguageSwitcher, useLocale } from "../components/locale-provider";
 
 const API_URL = "/api/v1";
 const ACCESS_TOKEN_KEY = "evs-eye-session-present";
@@ -32,6 +33,7 @@ async function api(path: string, options: RequestInit = {}) {
 }
 
 export default function PlatformPage() {
+  const { t } = useLocale();
   const router = useRouter();
   const [token] = useState(() =>
     typeof window === "undefined" ? "" : (sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? ""),
@@ -57,9 +59,9 @@ export default function PlatformPage() {
         body: JSON.stringify({ phone }),
       })) as { otpRequestId: string };
       setOtpRequestId(data.otpRequestId);
-      setNotice("OTP sent successfully. Enter the six-digit code below to continue.");
+      setNotice(t("OTP sent successfully. Enter the six-digit code below to continue."));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to request OTP.");
+      setError(cause instanceof Error ? cause.message : t("Unable to request OTP."));
     } finally {
       setLoading(false);
     }
@@ -74,14 +76,14 @@ export default function PlatformPage() {
         method: "POST",
         body: JSON.stringify({ otpRequestId, code }),
       })) as { authenticated: boolean };
-      if (!data.authenticated) throw new Error("Sign-in failed.");
+      if (!data.authenticated) throw new Error(t("Sign-in failed."));
       sessionStorage.removeItem("evs-eye-access-token");
       sessionStorage.removeItem("evs-eye-refresh-token");
       sessionStorage.setItem(ACCESS_TOKEN_KEY, "cookie-session");
       sessionStorage.setItem(REFRESH_TOKEN_KEY, "cookie-session");
       router.replace("/platform/dashboard");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to verify OTP.");
+      setError(cause instanceof Error ? cause.message : t("Unable to verify OTP."));
     } finally {
       setLoading(false);
     }
@@ -92,43 +94,44 @@ export default function PlatformPage() {
   return (
     <main className="platform-login">
       <section className="platform-login-card">
-        <p className="eyebrow">EVS EYE · PLATFORM CONTROL</p>
-        <h1>{otpRequestId ? "Verify your number" : "Super Admin"}</h1>
+        <div className="language-login-row"><LanguageSwitcher /></div>
+        <p className="eyebrow">{t("EVS EYE · PLATFORM CONTROL")}</p>
+        <h1>{t(otpRequestId ? "Verify your number" : "Super Admin")}</h1>
         <p className="muted">
           {otpRequestId
-            ? `Enter the six-digit code sent to ${phone}. Your browser may fill it automatically from your SMS.`
-            : "Secure access for EVs Eye platform administrators."}
+            ? `${t("Enter the six-digit code sent to")} ${phone}. ${t("Your browser may fill it automatically from your SMS.")}`
+            : t("Secure access for EVs Eye platform administrators.")}
         </p>
         {!otpRequestId ? (
           <form className="auth-form" onSubmit={sendOtp}>
             <label>
-              Mobile number *
+              {t("Mobile number")} *
              <span className="auth-input">
                 <UiIcon name="phone" />
-                <input value={phone} onChange={(event) => setPhone(indianMobileInput(event.target.value))} placeholder="10-digit mobile number" type="tel" inputMode="numeric" autoComplete="tel" maxLength={10} pattern="[6-9][0-9]{9}" required />
+                <input value={phone} onChange={(event) => setPhone(indianMobileInput(event.target.value))} placeholder={t("10-digit mobile number")} type="tel" inputMode="numeric" autoComplete="tel" maxLength={10} pattern="[6-9][0-9]{9}" required />
               </span>
             </label>
             <button className="auth-submit" disabled={loading}>
-              {loading ? "Sending code…" : "Send OTP"}
+              {t(loading ? "Sending code…" : "Send OTP")}
               <UiIcon name="arrowRight" />
             </button>
           </form>
         ) : (
           <form className="auth-form" onSubmit={verifyOtp}>
             <label className="otp-code-label">
-              <span>Six-digit OTP <span className="sa-required-star" aria-hidden="true">*</span></span>
-              <span className="otp-code-hint">One digit per box. You can type, paste, or use SMS auto-fill.</span>
+              <span>{t("Six-digit OTP")} <span className="sa-required-star" aria-hidden="true">*</span></span>
+              <span className="otp-code-hint">{t("One digit per box. You can type, paste, or use SMS auto-fill.")}</span>
               <OtpCodeInput value={code} onChange={setCode} disabled={loading} />
             </label>
             <button className="auth-submit" disabled={loading || code.length !== 6}>
-              {loading ? "Verifying…" : "Verify OTP"}
+              {t(loading ? "Verifying…" : "Verify OTP")}
               <UiIcon name="arrowRight" />
             </button>
           </form>
         )}
         {notice && <p className="notice auth-message">{notice}</p>}
         {error && <p className="error auth-message">{error}</p>}
-        <Link className="platform-back-link" href="/">Client Operations Panel Login</Link>
+        <Link className="platform-back-link" href="/">{t("Client Operations Panel Login")}</Link>
       </section>
     </main>
   );

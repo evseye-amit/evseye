@@ -2,6 +2,17 @@ import { describe, expect, it, vi } from 'vitest';
 import { MobileDeploymentController } from './mobile-deployment.controller.js';
 
 describe('MobileDeploymentController', () => {
+  it('returns translated labels keyed by stable mobile workflow codes', () => {
+    const controller = new MobileDeploymentController({} as never, {} as never);
+    const result = controller.localization('te-IN');
+    expect(result.data).toMatchObject({
+      locale: 'te',
+      screens: { PAYMENT: 'చెల్లింపు' },
+      deploymentStatuses: { PAYMENT_PENDING: 'చెల్లింపు పెండింగ్‌లో ఉంది' },
+      fleetStatuses: { AVAILABLE: 'అందుబాటులో ఉంది' },
+    });
+  });
+
   it('returns resolved Fleet Manager requests inside the data envelope', async () => {
     const requests = [{ id: 'allocation-1' }];
     const deployments = { fleetRequests: vi.fn().mockResolvedValue(requests) };
