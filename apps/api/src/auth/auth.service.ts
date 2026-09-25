@@ -3,6 +3,7 @@ import {
   HttpStatus,
   Inject,
   Injectable,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -93,6 +94,7 @@ export class AuthService {
         clientId: client?.id,
         phone,
         purpose: OtpPurpose.LOGIN,
+        status: OtpStatus.PENDING,
         createdAt: { gte: cooldownAt },
       },
       orderBy: { createdAt: 'desc' },
@@ -121,11 +123,19 @@ export class AuthService {
       select: { id: true, expiresAt: true },
     });
 
-    await this.smsProvider.send({
-      phone,
-      purpose: OtpPurpose.LOGIN,
-      message: `Your EVs Eye login code is ${code}. It expires in ${this.config.getOrThrow('OTP_TTL_SECONDS') / 60} minutes.`,
-    });
+    try {
+      await this.smsProvider.send({
+        phone,
+        purpose: OtpPurpose.LOGIN,
+        code,
+      });
+    } catch {
+      await this.prisma.otpRequest.update({
+        where: { id: otpRequest.id },
+        data: { status: OtpStatus.FAILED },
+      });
+      throw new ServiceUnavailableException('SMS delivery is temporarily unavailable.');
+    }
 
     return { otpRequestId: otpRequest.id, expiresAt: otpRequest.expiresAt };
   }
@@ -236,11 +246,19 @@ export class AuthService {
       },
       select: { id: true, expiresAt: true },
     });
-    await this.smsProvider.send({
-      phone,
-      purpose,
-      message: `Your EVs Eye deallocation code is ${code}.`,
-    });
+    try {
+      await this.smsProvider.send({
+        phone,
+        purpose,
+        code,
+      });
+    } catch {
+      await this.prisma.otpRequest.update({
+        where: { id: otp.id },
+        data: { status: OtpStatus.FAILED },
+      });
+      throw new ServiceUnavailableException('SMS delivery is temporarily unavailable.');
+    }
     return { otpRequestId: otp.id, expiresAt: otp.expiresAt };
   }
 
@@ -342,7 +360,7 @@ export class AuthService {
   }
 
   private generateOtpCode(): string {
-    return this.config.getOrThrow('NODE_ENV') === 'development'
+    return this.config.getOrThrow('NODE_ENV') === 'development' && this.config.getOrThrow('SMS_PROVIDER') === 'console'
       ? '123456'
       : randomInt(100_000, 1_000_000).toString();
   }

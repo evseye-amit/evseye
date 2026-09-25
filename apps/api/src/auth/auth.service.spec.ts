@@ -93,7 +93,15 @@ describe('AuthService', () => {
     expect(created.otpHash).toMatch(/^[a-f0-9]{64}$/);
     expect(created.otpHash).not.toContain('999999');
     expect(sms.send).toHaveBeenCalledOnce();
-    expect(sms.send.mock.calls[0][0].message).toMatch(/\d{6}/);
+    expect(sms.send.mock.calls[0][0].code).toMatch(/^\d{6}$/);
+  });
+
+  it('marks an OTP failed when SMS delivery fails so a retry is possible', async () => {
+    const { service, prisma, sms } = createService();
+    sms.send.mockRejectedValue(new Error('gateway failure with secrets'));
+    await expect(service.requestLoginOtp('+919999999999', 'demo-client')).rejects.toThrow('SMS delivery is temporarily unavailable');
+    expect(prisma.otpRequest.update).toHaveBeenCalledWith({ where: { id: 'otp-1' }, data: { status: OtpStatus.FAILED } });
+    expect(prisma.otpRequest.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: OtpStatus.PENDING }) }));
   });
 
   it('allows platform OTP requests only for a clientless Super Admin account', async () => {
@@ -122,7 +130,7 @@ describe('AuthService', () => {
   it('issues tokens exactly once after a valid OTP verification', async () => {
     const { service, prisma, sms, jwt } = createService();
     await service.requestLoginOtp('+919999999999', 'demo-client');
-    const code = sms.send.mock.calls[0][0].message.match(/(\d{6})/)?.[1];
+    const code = sms.send.mock.calls[0][0].code;
     const otpHash = prisma.otpRequest.create.mock.calls[0][0].data.otpHash;
     prisma.otpRequest.findUnique.mockResolvedValue({
       id: 'otp-1',

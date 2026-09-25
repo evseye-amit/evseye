@@ -7,6 +7,7 @@ import { AuthService } from './auth.service.js';
 import { AccessTokenGuard } from './guards/access-token.guard.js';
 import { RolesGuard } from './guards/roles.guard.js';
 import { ConsoleSmsProvider } from './sms/console-sms.provider.js';
+import { TelipiaSmsProvider } from './sms/telipia-sms.provider.js';
 import { SMS_PROVIDER } from './sms/sms-provider.interface.js';
 import { ClientContextService } from './client-context.service.js';
 import type { Environment } from '../config/environment.js';
@@ -20,15 +21,18 @@ import type { Environment } from '../config/environment.js';
     RolesGuard,
     ClientContextService,
     ConsoleSmsProvider,
+    TelipiaSmsProvider,
     {
       provide: SMS_PROVIDER,
-      inject: [ConfigService, ConsoleSmsProvider],
+      inject: [ConfigService, ConsoleSmsProvider, TelipiaSmsProvider],
       useFactory: (
         config: ConfigService<Environment, true>,
         consoleProvider: ConsoleSmsProvider,
+        telipiaProvider: TelipiaSmsProvider,
       ) => {
         const provider = config.getOrThrow('SMS_PROVIDER');
         if (provider === 'console') return consoleProvider;
+        if (provider === 'telipia') return telipiaProvider;
         throw new Error(`Unsupported SMS_PROVIDER: ${provider}`);
       },
     },

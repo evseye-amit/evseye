@@ -62,7 +62,14 @@ const environmentSchema = z.object({
   MSG91_EMAIL_FROM: z.string().email().optional(),
   MSG91_WELCOME_TEMPLATE_ID: z.string().optional(),
   CLIENT_LOGIN_URL: z.string().url().refine((value) => /^https?:\/\//.test(value), 'Must use HTTP or HTTPS').optional(),
-  SMS_PROVIDER: z.string().default('console'),
+  SMS_PROVIDER: z.enum(['console', 'telipia']).default('console'),
+  TELIPIA_API_URL: z.string().url().optional(),
+  TELIPIA_USERNAME: z.string().optional(),
+  TELIPIA_API_KEY: z.string().optional(),
+  TELIPIA_SENDER: z.string().optional(),
+  TELIPIA_ROUTE: z.string().default('TRANS'),
+  TELIPIA_LOGIN_TEMPLATE_ID: z.string().optional(),
+  TELIPIA_DEALLOCATION_TEMPLATE_ID: z.string().optional(),
   KYC_PROVIDER: z.string().default('sandbox'),
 });
 
@@ -113,6 +120,14 @@ export function validateEnvironment(
     throw new Error(
       'SMS_PROVIDER must not use the console provider in production.',
     );
+  }
+  if (result.data.SMS_PROVIDER === 'telipia') {
+    const required = ['TELIPIA_API_URL', 'TELIPIA_USERNAME', 'TELIPIA_API_KEY', 'TELIPIA_SENDER', 'TELIPIA_LOGIN_TEMPLATE_ID'] as const;
+    const missing = required.filter((key) => !result.data[key]?.trim());
+    if (missing.length) throw new Error(`Telipia SMS configuration is missing: ${missing.join(', ')}.`);
+    if (new URL(result.data.TELIPIA_API_URL!).protocol !== 'https:') {
+      throw new Error('TELIPIA_API_URL must use HTTPS.');
+    }
   }
 
   if (result.data.NODE_ENV === 'production' && (!result.data.CLIENT_PROXY_SECRET || result.data.CLIENT_PROXY_SECRET.includes('development'))) {

@@ -36,7 +36,7 @@ describe('validateEnvironment', () => {
       validateEnvironment({
         NODE_ENV: 'production',
         KYC_PROVIDER: 'live-provider',
-        SMS_PROVIDER: 'live-provider',
+        SMS_PROVIDER: 'telipia',
         JWT_ACCESS_SECRET: 'a'.repeat(40),
         JWT_REFRESH_SECRET: 'b'.repeat(40),
         OTP_HASH_SECRET: 'c'.repeat(40),
@@ -49,7 +49,7 @@ describe('validateEnvironment', () => {
       validateEnvironment({
         NODE_ENV: 'production',
         KYC_PROVIDER: 'live-provider',
-        SMS_PROVIDER: 'live-provider',
+        SMS_PROVIDER: 'telipia',
         S3_BUCKET: 'evs-eye-production',
         JWT_ACCESS_SECRET: 'a'.repeat(40),
         JWT_REFRESH_SECRET: 'b'.repeat(40),
@@ -79,6 +79,10 @@ describe('client deployment configuration', () => {
     expect(validateEnvironment({ APP_BASE_DOMAINS: 'example.com,localhost' }).APP_BASE_DOMAINS).toBe('example.com,localhost');
   });
   it('rejects shared production signing secrets', () => {
-    expect(() => validateEnvironment({ NODE_ENV: 'production', S3_BUCKET: 'private', MEDIA_PUBLIC_BASE_URL: 'https://media.example.com', KYC_PROVIDER: 'live', SMS_PROVIDER: 'live', JWT_ACCESS_SECRET: 'a'.repeat(40), JWT_REFRESH_SECRET: 'a'.repeat(40), OTP_HASH_SECRET: 'c'.repeat(40), CLIENT_PROXY_SECRET: 'd'.repeat(40) })).toThrow('must be distinct');
+    expect(() => validateEnvironment({ NODE_ENV: 'production', S3_BUCKET: 'private', MEDIA_PUBLIC_BASE_URL: 'https://media.example.com', KYC_PROVIDER: 'live', SMS_PROVIDER: 'telipia', TELIPIA_API_URL: 'https://sms.example.com/api', TELIPIA_USERNAME: 'user', TELIPIA_API_KEY: 'key', TELIPIA_SENDER: 'SENDER', TELIPIA_LOGIN_TEMPLATE_ID: 'template', JWT_ACCESS_SECRET: 'a'.repeat(40), JWT_REFRESH_SECRET: 'a'.repeat(40), OTP_HASH_SECRET: 'c'.repeat(40), CLIENT_PROXY_SECRET: 'd'.repeat(40) })).toThrow('must be distinct');
+  });
+  it('requires complete HTTPS settings when Telipia is selected', () => {
+    expect(() => validateEnvironment({ SMS_PROVIDER: 'telipia' })).toThrow('Telipia SMS configuration is missing');
+    expect(() => validateEnvironment({ SMS_PROVIDER: 'telipia', TELIPIA_API_URL: 'http://sms.example.com/api', TELIPIA_USERNAME: 'user', TELIPIA_API_KEY: 'key', TELIPIA_SENDER: 'SENDER', TELIPIA_LOGIN_TEMPLATE_ID: 'template' })).toThrow('TELIPIA_API_URL must use HTTPS');
   });
 });
