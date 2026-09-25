@@ -129,6 +129,17 @@ export function validateEnvironment(
       throw new Error('TELIPIA_API_URL must use HTTPS.');
     }
   }
+  if (result.data.EMAIL_PROVIDER === 'msg91') {
+    const required = ['MSG91_AUTH_KEY', 'MSG91_EMAIL_DOMAIN', 'MSG91_EMAIL_FROM', 'MSG91_WELCOME_TEMPLATE_ID', 'CLIENT_LOGIN_URL'] as const;
+    const missing = required.filter((key) => !result.data[key]?.trim());
+    if (missing.length) throw new Error(`MSG91 email configuration is missing: ${missing.join(', ')}.`);
+    if (result.data.MSG91_EMAIL_FROM!.split('@')[1]?.toLowerCase() !== result.data.MSG91_EMAIL_DOMAIN!.toLowerCase()) {
+      throw new Error('MSG91_EMAIL_FROM must use MSG91_EMAIL_DOMAIN.');
+    }
+    if (result.data.NODE_ENV === 'production' && new URL(result.data.CLIENT_LOGIN_URL!).protocol !== 'https:') {
+      throw new Error('CLIENT_LOGIN_URL must use HTTPS in production.');
+    }
+  }
 
   if (result.data.NODE_ENV === 'production' && (!result.data.CLIENT_PROXY_SECRET || result.data.CLIENT_PROXY_SECRET.includes('development'))) {
     throw new Error('Configure a random CLIENT_PROXY_SECRET for the client gateway in production.');

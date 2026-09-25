@@ -85,4 +85,8 @@ describe('client deployment configuration', () => {
     expect(() => validateEnvironment({ SMS_PROVIDER: 'telipia' })).toThrow('Telipia SMS configuration is missing');
     expect(() => validateEnvironment({ SMS_PROVIDER: 'telipia', TELIPIA_API_URL: 'http://sms.example.com/api', TELIPIA_USERNAME: 'user', TELIPIA_API_KEY: 'key', TELIPIA_SENDER: 'SENDER', TELIPIA_LOGIN_TEMPLATE_ID: 'template' })).toThrow('TELIPIA_API_URL must use HTTPS');
   });
+  it('requires a verified sender domain and login URL for MSG91 email', () => {
+    expect(() => validateEnvironment({ EMAIL_PROVIDER: 'msg91' })).toThrow('MSG91 email configuration is missing');
+    expect(() => validateEnvironment({ EMAIL_PROVIDER: 'msg91', MSG91_AUTH_KEY: 'test-key', MSG91_EMAIL_DOMAIN: 'mail.evseye.com', MSG91_EMAIL_FROM: 'no-reply@other.example', MSG91_WELCOME_TEMPLATE_ID: 'welcome_client_mail', CLIENT_LOGIN_URL: 'https://app.evseye.com/' })).toThrow('MSG91_EMAIL_FROM must use MSG91_EMAIL_DOMAIN');
+  });
 });

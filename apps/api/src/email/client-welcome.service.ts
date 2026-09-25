@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuditService } from '../audit/audit.service.js';
+import { EMAIL_PROVIDER, type EmailProvider } from './email-provider.interface.js';
 
 export interface WelcomeAccount {
   clientId: string;
@@ -22,6 +23,7 @@ export class ClientWelcomeService {
   constructor(
     private readonly config: ConfigService,
     private readonly audit: AuditService,
+    @Inject(EMAIL_PROVIDER) private readonly emailProvider: EmailProvider,
   ) {}
 
   async send(
@@ -29,10 +31,6 @@ export class ClientWelcomeService {
     actorId: string,
   ): Promise<WelcomeEmailResult> {
     let result: WelcomeEmailResult;
-    const authkey = this.config.get<string>('MSG91_AUTH_KEY');
-    const domain = this.config.get<string>('MSG91_EMAIL_DOMAIN');
-    const sender = this.config.get<string>('MSG91_EMAIL_FROM');
-    const template = this.config.get<string>('MSG91_WELCOME_TEMPLATE_ID');
     const loginUrl = this.config.get<string>('CLIENT_LOGIN_URL');
     if (!account.email) {
       result = {
@@ -40,72 +38,33 @@ export class ClientWelcomeService {
         message: 'Welcome email was not sent: Account Admin email is missing.',
       };
     } else if (
-      this.config.get('EMAIL_PROVIDER') !== 'msg91' ||
-      !authkey ||
-      !domain ||
-      !sender ||
-      !template ||
+      !this.emailProvider.isConfigured() ||
       !loginUrl
     ) {
       result = {
         status: 'not_configured',
-        message: 'Welcome email was not sent: configure MSG91 email settings.',
+        message: 'Welcome email was not sent: configure the email provider and login URL.',
       };
     } else {
       try {
-        const response = await fetch(
-          'https://control.msg91.com/api/v5/email/send',
-          {
-            method: 'POST',
-            headers: {
-              authkey,
-              accept: 'application/json',
-              'content-type': 'application/json',
-            },
-            signal: AbortSignal.timeout(10_000),
-            body: JSON.stringify({
-              recipients: [
-                {
-                  to: [{ name: account.clientName, email: account.email }],
-                  variables: {
-                    client_name: account.clientName,
-                    company_name: account.companyName,
-                    company_code: account.companyCode,
-                    registered_mobile_number: account.mobile,
-                    login_url: loginUrl,
-                  },
-                },
-              ],
-              from: { name: 'Team EVs Eye', email: sender },
-              domain,
-              template_id: template,
-            }),
-          },
-        );
-        const payload = (await response.json()) as {
-          status?: string;
-          type?: string;
-          hasError?: boolean;
-        };
-        if (
-          !response.ok ||
-          payload.status === 'fail' ||
-          payload.status === 'error' ||
-          payload.type === 'error' ||
-          payload.hasError
-        ) {
-          throw new Error('Email provider rejected the request');
-        }
+        await this.emailProvider.sendWelcome({
+          recipientEmail: account.email,
+          recipientName: account.clientName,
+          companyName: account.companyName,
+          companyCode: account.companyCode,
+          registeredMobileNumber: account.mobile,
+          loginUrl,
+        });
         result = {
           status: 'accepted',
-          message: 'Welcome email accepted by MSG91 for delivery.',
+          message: 'Welcome email accepted for delivery.',
         };
       } catch {
         // Never roll back a created account or expose credentials/provider payloads on email failure.
         result = {
           status: 'failed',
           message:
-            'Client account is ready, but the welcome email could not be sent. Check MSG91 before retrying delivery.',
+            'Client account is ready, but the welcome email could not be sent. Check the email provider before retrying delivery.',
         };
       }
     }
