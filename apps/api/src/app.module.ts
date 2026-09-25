@@ -23,6 +23,7 @@ import { PlatformCatalogModule } from './platform-catalog/platform-catalog.modul
 import { ClientOnboardingModule } from './client-onboarding/client-onboarding.module.js';
 import { ClientUsersModule } from './client-users/client-users.module.js';
 import { CommercialModule } from './commercial/commercial.module.js';
+import { ReferralModule } from './referrals/referral.module.js';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { CommercialModule } from './commercial/commercial.module.js';
     ClientOnboardingModule,
     ClientUsersModule,
     CommercialModule,
+    ReferralModule,
     MediaModule,
     KycModule,
     FleetsModule,

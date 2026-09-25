@@ -517,6 +517,118 @@ enum FeatureBillingUnit {
   LIFE_TIME
 }
 
+enum ReferralCampaignStatus {
+  DRAFT
+  SCHEDULED
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum ReferralStatus {
+  INVITED
+  REGISTERED
+  KYC_VERIFIED
+  ACTIVATED
+  MILESTONE_IN_PROGRESS
+  QUALIFIED
+  REWARD_PENDING
+  REWARD_APPROVED
+  PAID
+  EXPIRED
+  REJECTED
+  FRAUD_SUSPECTED
+  DISQUALIFIED
+  CANCELLED
+}
+
+enum ReferralAttributionSource {
+  REFERRAL_CODE
+  QR_CODE
+  DEEP_LINK
+  SHARE_LINK
+  MOBILE_INVITE
+  MANUAL_ADMIN
+}
+
+enum ReferralLimitPeriod {
+  LIFETIME
+  MONTHLY
+}
+
+enum ReferralMilestoneType {
+  KYC_VERIFIED
+  RIDER_ACTIVATED
+  VEHICLE_ALLOCATED
+  ACTIVE_DAYS
+  COMPLETED_RIDES
+  COMPLETED_DELIVERIES
+  ATTENDANCE_DAYS
+  TRAINING_COMPLETED
+  FIRST_PAYMENT
+}
+
+enum ReferralMilestoneOperator {
+  EQ
+  GTE
+  LTE
+  GT
+  LT
+}
+
+enum ReferralRewardType {
+  CASH
+  WALLET_CREDIT
+  BONUS
+  COUPON
+  SERVICE_CREDIT
+  RENTAL_CREDIT
+  SWAP_CREDIT
+  POINTS
+  OTHER
+}
+
+enum ReferralRewardStatus {
+  PENDING
+  EARNED
+  UNDER_REVIEW
+  APPROVED
+  PROCESSING
+  PAID
+  REJECTED
+  CANCELLED
+  REVERSED
+}
+
+enum ReferralBeneficiary {
+  REFERRER
+  REFEREE
+}
+
+enum ReferralFraudType {
+  SELF_REFERRAL
+  DUPLICATE_MOBILE
+  DUPLICATE_IDENTITY
+  DUPLICATE_BANK_ACCOUNT
+  SAME_DEVICE
+  DUPLICATE_REFERRAL
+  EXCESSIVE_REFERRAL_VELOCITY
+  CAMPAIGN_LIMIT_EXCEEDED
+}
+
+enum ReferralFraudResult {
+  CLEAR
+  REVIEW
+  BLOCKED
+}
+
+enum ReferralNotificationStatus {
+  PENDING
+  DELIVERED
+  FAILED
+}
+
 model Client {
   id                         String                            @id @default(uuid())
   name                       String
@@ -558,6 +670,15 @@ model Client {
   teamLeaderRiders           TeamLeaderRider[]
   riderOnboardingProgress    RiderOnboardingProgress[]
   riderOnboardingDocuments   RiderOnboardingDocument[]
+  referralCampaigns          ReferralCampaign[]
+  referralIdentities         ReferralIdentity[]
+  referrals                  Referral[]
+  referralRewards            ReferralReward[]
+  referralPayouts            ReferralPayout[]
+  referralFraudChecks        ReferralFraudCheck[]
+  referralActivityEvents     ReferralActivityEvent[]
+  referralNotifications      ReferralNotificationOutbox[]
+  referralMilestoneProgress   ReferralMilestoneProgress[]
   createdAt                  DateTime                          @default(now())
   updatedAt                  DateTime                          @updatedAt
 }
@@ -1505,10 +1626,12 @@ model User {
   hubAssignments           UserHub[]
   teamLeaderProfile        TeamLeaderProfile?
   auditLogs                AuditLog[]                @relation("AuditActor")
+  referredAsUser           Referral[]                @relation("ReferralRefereeUser")
   createdAt                DateTime                  @default(now())
   updatedAt                DateTime                  @updatedAt
 
   @@unique([clientId, mobile])
+  @@unique([clientId, id])
   @@index([clientId, role, isActive])
 }
 
@@ -1540,10 +1663,15 @@ model Rider {
   allocations            Allocation[]
   teamLeaders            TeamLeaderRider[]
   onboardingDocuments    RiderOnboardingDocument[]
+  referralIdentity       ReferralIdentity?
+  referralsMade          Referral[]                @relation("ReferralReferrer")
+  referralsReceived      Referral[]                @relation("ReferralReferee")
+  referralRewards        ReferralReward[]
   createdAt              DateTime                  @default(now())
   updatedAt              DateTime                  @updatedAt
 
   @@unique([clientId, mobile])
+  @@unique([clientId, id])
   @@unique([clientId, riderCode])
   @@index([clientId, status])
   @@index([clientId, name])
@@ -1932,4 +2060,239 @@ model ClientBranding {
   supportPhone     String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+}
+
+/// Campaign commercial and eligibility rules become immutable after activation.
+/// A new campaign must be created for changed terms; each Referral also snapshots them.
+model ReferralCampaign {
+  id                            String                 @id @default(uuid())
+  clientId                      String
+  client                        Client                 @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  code                          String
+  name                          String
+  description                   String?
+  displayTitle                  String?
+  displayDescription            String?
+  shareMessageTemplate          String?
+  termsAndConditions            String
+  status                        ReferralCampaignStatus @default(DRAFT)
+  startAt                       DateTime
+  endAt                         DateTime
+  registrationValidityDays      Int
+  qualificationValidityDays     Int
+  referrerRewardType            ReferralRewardType?
+  referrerRewardValue           Decimal                @default(0) @db.Decimal(14, 2)
+  refereeRewardType             ReferralRewardType?
+  refereeRewardValue            Decimal                @default(0) @db.Decimal(14, 2)
+  maxReferralsPerRider          Int?
+  referralLimitPeriod           ReferralLimitPeriod    @default(LIFETIME)
+  maxQualifiedReferralsPerRider Int?
+  maxRewardPerRider             Decimal?               @db.Decimal(14, 2)
+  campaignBudget                Decimal?               @db.Decimal(14, 2)
+  budgetReserved                Decimal                @default(0) @db.Decimal(14, 2)
+  currency                      String                 @default("INR") @db.Char(3)
+  createdById                   String
+  updatedById                   String
+  activatedAt                   DateTime?
+  createdAt                     DateTime               @default(now())
+  updatedAt                     DateTime               @updatedAt
+  milestones                    ReferralCampaignMilestone[]
+  referrals                     Referral[]
+  rewards                       ReferralReward[]
+
+  @@unique([clientId, code])
+  @@unique([clientId, id])
+  @@index([clientId, status, startAt, endAt])
+}
+
+model ReferralCampaignMilestone {
+  id              String                    @id @default(uuid())
+  campaignId      String
+  campaign        ReferralCampaign          @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  milestoneType   ReferralMilestoneType
+  operator        ReferralMilestoneOperator @default(GTE)
+  targetValue     Decimal                   @db.Decimal(16, 4)
+  sequence        Int
+  mandatory       Boolean                   @default(true)
+  config          Json?
+  isActive        Boolean                   @default(true)
+  createdAt       DateTime                  @default(now())
+  progress        ReferralMilestoneProgress[]
+
+  @@unique([campaignId, milestoneType])
+  @@unique([campaignId, sequence])
+}
+
+model ReferralIdentity {
+  id        String   @id @default(uuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId   String   @unique
+  rider     Rider    @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  code      String   @unique @db.VarChar(24)
+  createdAt DateTime @default(now())
+
+  @@index([clientId, code])
+  @@unique([clientId, riderId])
+}
+
+model Referral {
+  id                      String                    @id @default(uuid())
+  clientId                String
+  client                  Client                    @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  campaignId              String
+  campaign                ReferralCampaign          @relation(fields: [clientId, campaignId], references: [clientId, id], onDelete: Restrict)
+  referrerRiderId         String
+  referrerRider           Rider                     @relation("ReferralReferrer", fields: [clientId, referrerRiderId], references: [clientId, id], onDelete: Restrict)
+  refereeUserId           String?
+  refereeUser             User?                     @relation("ReferralRefereeUser", fields: [clientId, refereeUserId], references: [clientId, id], onDelete: Restrict)
+  refereeRiderId          String?
+  refereeRider            Rider?                    @relation("ReferralReferee", fields: [clientId, refereeRiderId], references: [clientId, id], onDelete: Restrict)
+  referralCode            String                    @db.VarChar(24)
+  inviteToken             String?                   @unique @db.VarChar(64)
+  attributionSource       ReferralAttributionSource
+  status                  ReferralStatus            @default(INVITED)
+  ruleSnapshot            Json
+  termsSnapshot           String
+  invitedAt               DateTime                  @default(now())
+  registeredAt            DateTime?
+  kycVerifiedAt           DateTime?
+  activatedAt             DateTime?
+  qualifiedAt             DateTime?
+  expiresAt               DateTime
+  qualificationDeadlineAt DateTime?
+  rejectedAt              DateTime?
+  rejectionReason         String?
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+  progress                ReferralMilestoneProgress[]
+  rewards                 ReferralReward[]
+  fraudChecks             ReferralFraudCheck[]
+  activityEvents          ReferralActivityEvent[]
+  notifications           ReferralNotificationOutbox[]
+
+  @@unique([clientId, refereeUserId])
+  @@unique([clientId, refereeRiderId])
+  @@unique([clientId, id])
+  @@index([clientId, referrerRiderId, createdAt])
+  @@index([clientId, campaignId, status])
+  @@index([clientId, expiresAt, status])
+}
+
+model ReferralMilestoneProgress {
+  id              String                    @id @default(uuid())
+  clientId        String
+  client          Client                    @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  referralId      String
+  referral        Referral                  @relation(fields: [clientId, referralId], references: [clientId, id], onDelete: Restrict)
+  milestoneId     String
+  milestone       ReferralCampaignMilestone @relation(fields: [milestoneId], references: [id], onDelete: Restrict)
+  milestoneType   ReferralMilestoneType
+  operator        ReferralMilestoneOperator
+  targetValue     Decimal                   @db.Decimal(16, 4)
+  currentValue    Decimal                   @default(0) @db.Decimal(16, 4)
+  mandatory       Boolean                   @default(true)
+  completedAt     DateTime?
+  updatedAt       DateTime                  @updatedAt
+
+  @@unique([referralId, milestoneId])
+  @@index([clientId, referralId])
+}
+
+model ReferralReward {
+  id                 String               @id @default(uuid())
+  clientId           String
+  client             Client               @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  referralId         String
+  referral           Referral             @relation(fields: [clientId, referralId], references: [clientId, id], onDelete: Restrict)
+  campaignId         String
+  campaign           ReferralCampaign     @relation(fields: [clientId, campaignId], references: [clientId, id], onDelete: Restrict)
+  beneficiaryRiderId String
+  beneficiaryRider   Rider                @relation(fields: [clientId, beneficiaryRiderId], references: [clientId, id], onDelete: Restrict)
+  beneficiary        ReferralBeneficiary
+  rewardType         ReferralRewardType
+  amount             Decimal              @db.Decimal(14, 2)
+  currency           String               @db.Char(3)
+  status             ReferralRewardStatus @default(EARNED)
+  earnedAt           DateTime              @default(now())
+  approvedAt         DateTime?
+  approvedById       String?
+  rejectedAt         DateTime?
+  rejectionReason    String?
+  payout             ReferralPayout?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  @@unique([referralId, beneficiary])
+  @@unique([clientId, id])
+  @@index([clientId, status, createdAt])
+  @@index([clientId, beneficiaryRiderId, status])
+}
+
+model ReferralPayout {
+  id                String         @id @default(uuid())
+  clientId          String
+  client            Client         @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  rewardId          String         @unique
+  reward            ReferralReward @relation(fields: [clientId, rewardId], references: [clientId, id], onDelete: Restrict)
+  paymentReference  String         @db.VarChar(120)
+  paymentMethod     String         @db.VarChar(40)
+  amount            Decimal        @db.Decimal(14, 2)
+  currency          String         @db.Char(3)
+  markedPaidById    String
+  paidAt            DateTime       @default(now())
+  createdAt         DateTime       @default(now())
+
+  @@unique([clientId, paymentReference])
+  @@unique([clientId, rewardId])
+  @@index([clientId, paidAt])
+}
+
+model ReferralFraudCheck {
+  id          String              @id @default(uuid())
+  clientId    String
+  client      Client              @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  referralId  String
+  referral    Referral            @relation(fields: [clientId, referralId], references: [clientId, id], onDelete: Restrict)
+  checkType   ReferralFraudType
+  result      ReferralFraudResult
+  details     Json?
+  checkedAt   DateTime            @default(now())
+
+  @@unique([referralId, checkType])
+  @@index([clientId, result, checkedAt])
+}
+
+/// Trusted upstream activity is de-duplicated before progress is changed.
+model ReferralActivityEvent {
+  id            String                @id @default(uuid())
+  clientId      String
+  client        Client                @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  referralId    String
+  referral      Referral              @relation(fields: [clientId, referralId], references: [clientId, id], onDelete: Restrict)
+  sourceEventId String                @db.VarChar(120)
+  milestoneType ReferralMilestoneType
+  quantity      Decimal               @db.Decimal(16, 4)
+  occurredAt    DateTime
+  createdAt     DateTime              @default(now())
+
+  @@unique([clientId, sourceEventId])
+  @@index([clientId, referralId, occurredAt])
+}
+
+/// Delivery is performed by a future notification worker; business writes only enqueue.
+model ReferralNotificationOutbox {
+  id          String                     @id @default(uuid())
+  clientId    String
+  client      Client                     @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  referralId  String
+  referral    Referral                   @relation(fields: [clientId, referralId], references: [clientId, id], onDelete: Restrict)
+  eventKey    String                     @unique @db.VarChar(160)
+  eventType   String                     @db.VarChar(60)
+  payload     Json
+  status      ReferralNotificationStatus @default(PENDING)
+  createdAt   DateTime                   @default(now())
+  deliveredAt DateTime?
+
+  @@index([clientId, status, createdAt])
 }

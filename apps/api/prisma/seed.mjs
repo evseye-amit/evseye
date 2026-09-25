@@ -167,15 +167,15 @@ async function main() {
   await Promise.all(
     featureCatalog.map(({ featureStepCode, ...feature }) => {
       const featureStep = featureSteps.get(featureStepCode);
-      if (!featureStep) {
+      if (featureStepCode && !featureStep) {
         throw new Error(
           `Feature seed references missing Feature Step code: ${featureStepCode}`,
         );
       }
       return prisma.feature.upsert({
         where: { code: feature.code },
-        create: { ...feature, featureStepId: featureStep.id },
-        update: { ...feature, featureStepId: featureStep.id },
+        create: { ...feature, featureStepId: featureStep?.id ?? null },
+        update: { ...feature, featureStepId: featureStep?.id ?? null },
       });
     }),
   );
@@ -728,6 +728,23 @@ async function main() {
         await prisma.fleetControllerHistory.create({
           data: { fleetId: fleet.id, controllerId: controller.id, installedAt, ...data },
         });
+      }
+    }
+  }
+
+  if (process.env.SEED_REFERRAL_DEMO === '1' && process.env.NODE_ENV !== 'production') {
+    const subscription = await prisma.clientSubscription.findFirst({ where: { status: 'ACTIVE', client: { isActive: true } }, include: { client: true } });
+    const actor = subscription && await prisma.user.findFirst({ where: { clientId: subscription.clientId, role: 'CLIENT_ADMIN' } });
+    if (subscription && actor) {
+      const feature = await prisma.feature.findUniqueOrThrow({ where: { code: 'REFER_AND_EARN' } });
+      await prisma.packageFeature.upsert({ where: { packageId_featureId: { packageId: subscription.packageId, featureId: feature.id } }, create: { packageId: subscription.packageId, featureId: feature.id, isIncluded: true }, update: { isIncluded: true } });
+      const campaign = await prisma.referralCampaign.upsert({
+        where: { clientId_code: { clientId: subscription.clientId, code: 'DEMO_RIDER_ACQUISITION' } },
+        create: { clientId: subscription.clientId, code: 'DEMO_RIDER_ACQUISITION', name: 'EVsEye Rider Referral Campaign', status: 'DRAFT', startAt: new Date(), endAt: new Date(Date.now() + 180 * 86400000), registrationValidityDays: 7, qualificationValidityDays: 30, referrerRewardType: 'CASH', referrerRewardValue: '500', refereeRewardType: 'CASH', refereeRewardValue: '200', maxReferralsPerRider: 10, referralLimitPeriod: 'MONTHLY', campaignBudget: '200000', termsAndConditions: 'Demo campaign for local testing only.', createdById: actor.id, updatedById: actor.id },
+        update: {},
+      });
+      for (const [sequence, milestoneType, targetValue] of [[1, 'KYC_VERIFIED', '1'], [2, 'RIDER_ACTIVATED', '1'], [3, 'VEHICLE_ALLOCATED', '1'], [4, 'COMPLETED_RIDES', '50']]) {
+        await prisma.referralCampaignMilestone.upsert({ where: { campaignId_milestoneType: { campaignId: campaign.id, milestoneType } }, create: { campaignId: campaign.id, milestoneType, operator: 'GTE', targetValue, sequence }, update: {} });
       }
     }
   }

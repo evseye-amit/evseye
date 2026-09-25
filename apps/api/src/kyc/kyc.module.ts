@@ -7,9 +7,10 @@ import { KycController } from './kyc.controller.js';
 import { KycService } from './kyc.service.js';
 import { KYC_PROVIDER } from './providers/kyc-provider.interface.js';
 import { SandboxKycProvider } from './providers/sandbox-kyc.provider.js';
+import { ReferralModule } from '../referrals/referral.module.js';
 
 @Module({
-  imports: [AuthModule, AuditModule],
+  imports: [AuthModule, AuditModule, ReferralModule],
   controllers: [KycController],
   providers: [
     KycService,

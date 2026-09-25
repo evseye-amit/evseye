@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AllocationStatus, ClientSubscriptionStatus, DeploymentPaymentStatus, FleetStatus, InspectionStatus, InspectionType, MobileDeploymentStatus, PhotoEntityType, PhotoStatus, Prisma, RiderStatus } from '@prisma/client';
 import { STORAGE_PROVIDER, type StorageProvider } from '../media/storage/storage-provider.interface.js';
@@ -8,15 +8,18 @@ import { AllocationsService } from './allocations.service.js';
 import { MediaService } from '../media/media.service.js';
 import type { CreateUploadIntentDto } from '../media/dto/create-upload-intent.dto.js';
 import type { Environment } from '../config/environment.js';
+import { ReferralQualificationService } from '../referrals/referral-qualification.service.js';
 
 @Injectable()
 export class MobileDeploymentService {
+  private readonly logger = new Logger(MobileDeploymentService.name);
   constructor(
     private readonly prisma: PrismaService,
     private readonly allocations: AllocationsService,
     private readonly media: MediaService,
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
     private readonly config: ConfigService<Environment, true>,
+    @Optional() private readonly referralQualification?: ReferralQualificationService,
   ) {}
 
   private async trainingContents(clientId: string) {
@@ -417,7 +420,9 @@ export class MobileDeploymentService {
     const { workflow, allocation } = await this.workflow(clientId, allocationId);
     if (workflow.status !== MobileDeploymentStatus.DEVICE_PAIRING_PENDING) throw new BadRequestException('Device pairing is not pending.');
     if (!allocation.fleet.iotDevice || allocation.fleet.iotDevice.deviceNumber !== deviceNumber.trim()) throw new BadRequestException('The paired device does not match the Fleet IoT device.');
-    return this.prisma.$transaction((tx) => this.completeDeployment(tx, clientId, allocationId, workflow.id, { pairedAt: new Date() }));
+    const deployed = await this.prisma.$transaction((tx) => this.completeDeployment(tx, clientId, allocationId, workflow.id, { pairedAt: new Date() }));
+    await this.referralAllocated(clientId, allocationId);
+    return deployed;
   }
   async bypassPairing(clientId: string, userId: string, allocationId: string, remarks: string) {
     await this.assertFleetManagerHub(clientId, userId, allocationId);
@@ -425,11 +430,20 @@ export class MobileDeploymentService {
     if (workflow.status !== MobileDeploymentStatus.DEVICE_PAIRING_PENDING) throw new BadRequestException('Device pairing is not pending.');
     if (!remarks.trim()) throw new BadRequestException('A bypass reason is required.');
     const health = await this.iotHealth(clientId, userId, allocationId);
-    return this.prisma.$transaction((tx) => this.completeDeployment(tx, clientId, allocationId, workflow.id, {
+    const deployed = await this.prisma.$transaction((tx) => this.completeDeployment(tx, clientId, allocationId, workflow.id, {
       pairingBypassedAt: new Date(),
       pairingBypassedById: userId,
       pairingBypassReason: remarks.trim(),
       pairingHealthSnapshot: health as never,
     }));
+    await this.referralAllocated(clientId, allocationId);
+    return deployed;
+  }
+  private async referralAllocated(clientId: string, allocationId: string) {
+    if (!this.referralQualification) return;
+    try {
+      const allocation = await this.prisma.allocation.findFirst({ where: { id: allocationId, clientId, status: 'ACTIVE' }, select: { riderId: true } });
+      if (allocation) await this.referralQualification.recordEvent(clientId, allocation.riderId, 'VEHICLE_ALLOCATED', `allocation-active:${allocationId}`, '1');
+    } catch (cause) { this.logger.error(`Referral allocation update failed for ${allocationId}`, cause); }
   }
 }

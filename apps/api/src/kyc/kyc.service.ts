@@ -3,9 +3,12 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Logger,
+  Optional,
 } from '@nestjs/common';
 import { KycStatus, KycType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { ReferralQualificationService } from '../referrals/referral-qualification.service.js';
 import type { CompleteKycDto } from './dto/complete-kyc.dto.js';
 import type { StartKycDto } from './dto/start-kyc.dto.js';
 import {
@@ -15,9 +18,11 @@ import {
 
 @Injectable()
 export class KycService {
+  private readonly logger = new Logger(KycService.name);
   constructor(
     private readonly prisma: PrismaService,
     @Inject(KYC_PROVIDER) private readonly provider: KycProvider,
+    @Optional() private readonly referralQualification?: ReferralQualificationService,
   ) {}
 
   async list(clientId: string, riderId: string) {
@@ -47,7 +52,7 @@ export class KycService {
       type: dto.type as KycType,
       referenceHint: dto.referenceHint,
     });
-    return this.prisma.riderKyc.upsert({
+    const record = await this.prisma.riderKyc.upsert({
       where: { riderId_type: { riderId, type: dto.type as KycType } },
       create: {
         clientId,
@@ -69,6 +74,8 @@ export class KycService {
         verifiedAt: result.status === KycStatus.VERIFIED ? new Date() : null,
       },
     });
+    if (record.status === KycStatus.VERIFIED) await this.referralVerified(clientId, riderId, record.id);
+    return record;
   }
 
   async complete(
@@ -83,7 +90,7 @@ export class KycService {
     if (!kyc) throw new NotFoundException('KYC record not found.');
     if (kyc.status !== KycStatus.PENDING)
       throw new BadRequestException('KYC record is not pending.');
-    return this.prisma.riderKyc.update({
+    const record = await this.prisma.riderKyc.update({
       where: { id: kyc.id },
       data: {
         status: dto.status as KycStatus,
@@ -92,6 +99,13 @@ export class KycService {
         verifiedAt: dto.status === 'VERIFIED' ? new Date() : null,
       },
     });
+    if (record.status === KycStatus.VERIFIED) await this.referralVerified(clientId, riderId, record.id);
+    return record;
+  }
+
+  private async referralVerified(clientId: string, riderId: string, kycId: string) {
+    try { await this.referralQualification?.recordEvent(clientId, riderId, 'KYC_VERIFIED', `kyc-verified:${kycId}`, '1'); }
+    catch (cause) { this.logger.error(`Referral KYC update failed for Rider ${riderId}`, cause); }
   }
 
   private async assertRider(clientId: string, riderId: string) {

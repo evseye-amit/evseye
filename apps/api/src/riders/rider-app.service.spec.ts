@@ -34,7 +34,7 @@ function createService() {
   vi.spyOn(resolver, 'getEffectiveConfiguration').mockResolvedValue(configuration as never);
   const service = new RiderAppService(prisma as never, resolver, {} as never);
   vi.spyOn(service, 'onboarding').mockResolvedValue({ screen: 'WAITING_FOR_FLEET' } as never);
-  return { service, prisma, transaction };
+  return { service, prisma, transaction, resolver };
 }
 
 describe('RiderAppService.saveStep', () => {
@@ -54,6 +54,28 @@ describe('RiderAppService.saveStep', () => {
       FULL_NAME: 'Aman Singh', MOBILE_NUMBER: '6573838383', DATE_OF_BIRTH: '2002-02-31',
     })).rejects.toThrow('DATE_OF_BIRTH is invalid.');
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('attributes an optional referral code without writing it into Rider profile fields', async () => {
+    const { prisma, transaction, resolver } = createService();
+    const attribute = vi.fn().mockResolvedValue({ attributed: true });
+    vi.spyOn(resolver, 'getEffectiveConfiguration').mockResolvedValue({
+      ...configuration,
+      onboarding: { ...configuration.onboarding, steps: [{
+        ...configuration.onboarding.steps[0],
+        fields: [...configuration.onboarding.steps[0].fields, {
+          fieldCode: 'REFERRAL_CODE', storageKey: '', fieldType: 'TEXT', required: false,
+          isUpload: false, validation: { pattern: '^EVS-[A-Z2-9]{8}$' }, configuration: {},
+        }],
+      }] },
+    } as never);
+    const service = new RiderAppService(prisma as never, resolver, {} as never, { attribute } as never);
+    vi.spyOn(service, 'onboarding').mockResolvedValue({ screen: 'WAITING_FOR_FLEET' } as never);
+    await service.saveStep('client-1', 'user-1', 'step-1', {
+      FULL_NAME: 'Aman Singh', MOBILE_NUMBER: '6573838383', REFERRAL_CODE: 'evs-abcdefgh',
+    });
+    expect(attribute).toHaveBeenCalledWith('client-1', 'user-1', { referralCode: 'EVS-ABCDEFGH' });
+    expect(transaction.rider.create).toHaveBeenCalledWith({ data: expect.not.objectContaining({ referralCode: expect.anything() }) });
   });
 });
 

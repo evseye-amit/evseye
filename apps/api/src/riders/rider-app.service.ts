@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, Optional } from '@nestjs/common';
 import { PhotoEntityType, PhotoStatus, Prisma, RiderDocumentReviewStatus, UserRole } from '@prisma/client';
 import { normalizeIndianMobile } from '../common/phone.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -6,10 +6,13 @@ import { RiderOnboardingConfigurationService } from './rider-onboarding-configur
 import { MediaService } from '../media/media.service.js';
 import type { CreateUploadIntentDto } from '../media/dto/create-upload-intent.dto.js';
 import type { ApiLocale } from '../common/locale.js';
+import { ReferralService } from '../referrals/referral.service.js';
+import { ReferralQualificationService } from '../referrals/referral-qualification.service.js';
 
 @Injectable()
 export class RiderAppService {
-  constructor(private readonly prisma: PrismaService, private readonly configuration: RiderOnboardingConfigurationService, private readonly media: MediaService) {}
+  private readonly logger = new Logger(RiderAppService.name);
+  constructor(private readonly prisma: PrismaService, private readonly configuration: RiderOnboardingConfigurationService, private readonly media: MediaService, @Optional() private readonly referrals?: ReferralService, @Optional() private readonly referralQualification?: ReferralQualificationService) {}
 
   async enroll(companyCode: string, phone: string) {
     const client = await this.prisma.client.findFirst({ where: { companyCode, isActive: true, status: 'ACTIVE' }, select: { id: true } });
@@ -81,6 +84,15 @@ export class RiderAppService {
     for (const code of Object.keys(values)) if (!allowed.has(code)) throw new BadRequestException(`${code} is not available in this onboarding step.`);
     const current = await this.prisma.riderOnboardingProgress.findUnique({ where: { userId } });
     if (!current) throw new BadRequestException('Rider onboarding has not been started.');
+    // Attribution belongs to the authenticated Rider. It is deliberately not part of
+    // the generic Rider field mapper because that mapper only persists profile data.
+    const referralCode = !skip && allowed.has('REFERRAL_CODE') ? String(values.REFERRAL_CODE ?? '').trim().toUpperCase() : '';
+    if (referralCode) {
+      if (!/^EVS-[A-Z2-9]{8}$/.test(referralCode)) throw new BadRequestException('REFERRAL_CODE is invalid.');
+      if (!this.referrals) throw new BadRequestException('Referral attribution is unavailable.');
+      await this.referrals.attribute(clientId, userId, { referralCode });
+      values = { ...values, REFERRAL_CODE: referralCode };
+    }
     if (!skip) {
       const uploaded = await this.prisma.riderOnboardingDocument.findMany({ where: { clientId, userId, supersededAt: null }, select: { fieldCode: true, status: true } });
       const uploads = new Map(uploaded.map((document) => [document.fieldCode, document.status]));
@@ -93,8 +105,9 @@ export class RiderAppService {
       }
     }
     const completed = new Set((current.completedStepIds as string[]) ?? []); const skipped = new Set((current.skippedStepIds as string[]) ?? []);
-    skip ? skipped.add(stepId) : completed.add(stepId);
-    const merged = { ...((current.values as Record<string, unknown>) ?? {}), ...values };
+    if (skip) skipped.add(stepId);
+    else completed.add(stepId);
+    const merged = { ...(current.values as Record<string, unknown>), ...values };
     const allFinished = effective.onboarding.steps.every((item) => completed.has(item.stepId) || skipped.has(item.stepId));
     const storedValues = allFinished
       ? Object.fromEntries(
@@ -123,6 +136,15 @@ export class RiderAppService {
         await tx.user.update({ where: { id: userId }, data: { name: data.name as string } });
       }
     });
+    if (allFinished && this.referrals && this.referralQualification) {
+      const rider = await this.prisma.rider.findUnique({ where: { userId }, select: { id: true } });
+      if (rider) {
+        try {
+          await this.referrals.linkRegisteredRider(clientId, userId, rider.id);
+          await this.referralQualification.recordEvent(clientId, rider.id, 'RIDER_ACTIVATED', `rider-activated:${rider.id}`, '1');
+        } catch (cause) { this.logger.error(`Referral activation update failed for Rider ${rider.id}`, cause); }
+      }
+    }
     return this.onboarding(clientId, userId, locale);
   }
 

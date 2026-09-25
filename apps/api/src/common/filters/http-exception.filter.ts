@@ -51,6 +51,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const exceptionResponse =
       exception instanceof HttpException ? exception.getResponse() : undefined;
     const message = getExceptionMessage(exceptionResponse);
+    const domainCode = typeof exceptionResponse === 'object' && exceptionResponse !== null && 'code' in exceptionResponse && typeof exceptionResponse.code === 'string' && /^[A-Z][A-Z0-9_]{2,80}$/.test(exceptionResponse.code) ? exceptionResponse.code : undefined;
     const locale = requestLocale(request.headers['accept-language']);
 
     if (!(exception instanceof HttpException)) {
@@ -62,8 +63,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     response.header('Content-Language', locale).header('Vary', 'Accept-Language').status(status).send({
       error: {
-        code:
-          exception instanceof HttpException ? 'HTTP_ERROR' : 'INTERNAL_ERROR',
+        code: domainCode ?? (exception instanceof HttpException ? 'HTTP_ERROR' : 'INTERNAL_ERROR'),
         message: localizeApiError(message, locale),
       },
       requestId: request.id,

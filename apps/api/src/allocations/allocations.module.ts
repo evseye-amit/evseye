@@ -7,9 +7,10 @@ import { AllocationsController } from './allocations.controller.js';
 import { AllocationsService } from './allocations.service.js';
 import { MobileDeploymentController } from './mobile-deployment.controller.js';
 import { MobileDeploymentService } from './mobile-deployment.service.js';
+import { ReferralModule } from '../referrals/referral.module.js';
 
 @Module({
-  imports: [AuthModule, AuditModule, MediaModule, RidersModule],
+  imports: [AuthModule, AuditModule, MediaModule, RidersModule, ReferralModule],
   controllers: [AllocationsController, MobileDeploymentController],
   providers: [AllocationsService, MobileDeploymentService],
   exports: [AllocationsService],

@@ -1,4 +1,4 @@
-// Source of truth: 49 Feature records exported from the local development database on 2026-09-21.
+// Initial catalog was exported from the local development database on 2026-09-21.
 // `featureStepCode` is resolved by seed.mjs.
 export const featureCatalog = [
   {
@@ -245,10 +245,16 @@ export const featureCatalog = [
     "category": "RIDER_ONBOARDING",
     "featureType": "CONFIGURATION",
     "billingUnit": "LIFE_TIME",
-    "description": "Capture the referral mobile to give the referral benefits",
+    "description": "Optional referral code used to attribute a Rider to a Refer & Earn campaign",
     "configuration": {
-      "fieldType": "MOBILE",
-      "contentType": "MOBILE"
+      "fieldCode": "REFERRAL_CODE",
+      "fieldType": "TEXT",
+      "contentType": "ALPHANUMERIC",
+      "label": "Referral code",
+      "placeholder": "EVS-XXXXXXXX",
+      "required": false,
+      "importable": false,
+      "validation": { "pattern": "^EVS-[A-Z2-9]{8}$" }
     },
     "displayOrder": 120,
     "isActive": true,
@@ -754,5 +760,16 @@ export const featureCatalog = [
     "displayOrder": 470,
     "isActive": true,
     "featureStepCode": "RIDER_AGREEMENT_ESIGN"
+  },
+  {
+    "code": "REFER_AND_EARN",
+    "name": "Refer & Earn",
+    "category": "RIDER_MANAGEMENT",
+    "featureType": "BOOLEAN",
+    "billingUnit": "LIFE_TIME",
+    "description": "Client-configured rider referral campaigns, milestones, rewards, and payouts.",
+    "configuration": {},
+    "displayOrder": 480,
+    "isActive": true
   }
 ];

@@ -30,6 +30,7 @@ export const SWAGGER_TAGS = [
   ['Client Operations · Fleet', 'Fleet, components, documents, and lifecycle operations.'],
   ['Client Operations · Hubs & Zones', 'Client hubs and geographic operations.'],
   ['Client Operations · Rider', 'Riders, KYC, and rider documents.'],
+  ['Client Operations · Referrals', 'Referral campaigns, review, rewards, and analytics.'],
   ['Client Operations · Allocation', 'Fleet allocations and mobile deployments.'],
   ['Client Operations · IoT', 'Client IoT device administration.'],
   ['Client Operations · Media', 'Operational media upload and retrieval.'],
@@ -65,6 +66,7 @@ function tagForPath(path: string): string {
   if (path.startsWith('/api/v1/hubs') || path.startsWith('/api/v1/zones')) return 'Client Operations · Hubs & Zones';
   if (path.startsWith('/api/v1/fleets')) return 'Client Operations · Fleet';
   if (path.startsWith('/api/v1/riders') || path.startsWith('/api/v1/rider-documents')) return 'Client Operations · Rider';
+  if (path.startsWith('/api/v1/client/referrals') || path.includes('/referral-events')) return 'Client Operations · Referrals';
   if (path.startsWith('/api/v1/allocations') || path.startsWith('/api/v1/mobile-deployments')) return 'Client Operations · Allocation';
   if (path.startsWith('/api/v1/inspections')) return 'Client Operations · Inspections';
   if (path.startsWith('/api/v1/media')) return 'Client Operations · Media';
@@ -84,6 +86,7 @@ const PUBLIC_PATHS = new Set([
   '/api/v1/auth/refresh',
   '/api/v1/auth/logout',
   '/api/v1/rider-app/enroll',
+  '/api/v1/public/referrals/resolve',
 ]);
 
 /** Add the envelopes shared by controllers that return anonymous objects. */
