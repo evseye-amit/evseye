@@ -76,4 +76,16 @@ describe('KycService transitions', () => {
       service.complete('client-a', 'rider-a', 'kyc-1', { status: 'VERIFIED' }),
     ).rejects.toThrow('not pending');
   });
+
+  it('does not persist or return arbitrary legacy masked-data fields', async () => {
+    const update = vi.fn().mockResolvedValue({ id: 'kyc-1', status: KycStatus.VERIFIED,
+      maskedData: { lastFour: '1234', aadhaar: '123456789012' } });
+    const prisma = { riderKyc: { findFirst: vi.fn().mockResolvedValue({ id: 'kyc-1', status: KycStatus.PENDING }), update } };
+    const service = new KycService(prisma as never, pendingProvider);
+    const result = await service.complete('client-a', 'rider-a', 'kyc-1', {
+      status: 'VERIFIED', maskedData: { lastFour: '1234', aadhaar: '123456789012' },
+    });
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ maskedData: { lastFour: '1234' } }) }));
+    expect(result.maskedData).toEqual({ lastFour: '1234' });
+  });
 });

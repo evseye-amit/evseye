@@ -1,0 +1,31 @@
+# Phase 7 KYC analytics
+
+The analytics endpoints read KYC verifications, attempts, routing decisions and historical consumption snapshots. They do not change routing. All windows are half-open `[from, to)` UTC ranges, limited to 366 days. The default is the preceding 30 days. Reports are generated on request; no cache or rollup is used.
+
+The dedicated query service uses parameterized PostgreSQL aggregation and `percentile_cont`; the analytics service combines only grouped rows and uses `Prisma.Decimal` for money. The SLA service evaluates effective-dated policies. Database indexes support client/time scans over verifications and consumption, and provider/time scans over attempts. No raw identity input is fetched for reporting.
+
+Platform APIs: `GET /platform/kyc/analytics/{overview,cost,commercial,providers,routing,sla,data-quality}`, `PATCH /platform/kyc/analytics/providers/:providerId/capabilities/:type/cost`, `POST /platform/kyc/analytics/sla/policies`, and `PATCH /platform/kyc/analytics/sla/policies/:id/close`. Client API: `GET /kyc/analytics/overview`. Common filters are `from`, `to`, `clientId` (platform only), `providerId`, `verificationType`, `strategy`, and `currency`. The Next.js pages are `/platform/kyc/analytics` and `/client/kyc/analytics`.
+
+## Accounting definitions
+
+- **Business verification:** one `KycVerification`, counted by `requestedAt`.
+- **Client consumption:** one `FeatureUsageConsumption`, counted by `occurredAt`; attempts never increase consumption. Reversed records remain visible in quantity but are excluded from revenue.
+- **Provider attempt:** one `KycVerificationAttempt` belonging to a verification requested in the window. Provider attempts are not client usage.
+- **Known vendor spend:** sum of the attempt's historical `cost` snapshot only when `billable=true` and currency is present. Cost is always grouped by currency. Unknown cost and unknown billability are reported separately. Configured cost is not proof of an invoice charge.
+- **Cost source:** `PROVIDER_PRICING_CONFIG` for configured per request cost; `UNKNOWN` otherwise. A capability billing rule (`UNKNOWN`, `EVERY_ATTEMPT`, `TECHNICAL_COMPLETION`, `BUSINESS_SUCCESS`) determines the snapshot of billability when an attempt completes. Price and rule changes do not alter old attempts.
+- **Effective known cost per successful business verification:** known billable costs of provider attempts attached to successful verifications divided by successful verifications in the same client/type/strategy cohort. A currency specific amount may be incomplete when a cohort includes multiple currencies or unknown costs.
+- **Fallback rate:** verifications with at least one `FALLBACK` attempt divided by all routed or unrouted verifications in the filtered cohort. Fallback recovery rate uses verified verifications with fallback over all fallback verifications. Fallback incremental cost sums billable fallback attempt snapshots.
+- **Parallel and hedge incremental costs:** sums of billable attempt snapshots with `PARALLEL` or `HEDGE` reason. These do not claim savings or designate a preferred provider.
+- **Technical failure cost:** billable attempt cost where `failureType=TECHNICAL_FAILURE`. Business failure cost uses `BUSINESS_FAILURE` separately. Business rejection is not provider downtime.
+- **Provider technical success:** completed attempts without technical failure divided by completed attempts. Business failure is a technically completed response. Timeout and rate limit rates use completed attempts. Observed percentages are hidden below `KYC_ANALYTICS_MIN_SAMPLE_SIZE` (default 30); raw counts and sample size remain visible.
+- **P50/P95/P99 provider latency:** PostgreSQL `percentile_cont` of nonnegative attempt `latencyMs`; missing durations are counted separately. Decision latency is measured from verification request to completion and kept separate from provider latency.
+- **Direct revenue:** `effectivePrice * quantity` of nonreversed `OVERAGE` consumption only, using the saved commercial snapshot. Base sale value and discount use their saved snapshots. Included and add-on usage are counted. Add-on purchase amount and discount are reported separately at purchase time from purchase snapshots; purchase revenue is not allocated to individual verifications. Vendor cost is grouped by consumption source. Direct overage margin is shown only when cost is complete and in the same currency as revenue.
+- **Provider SLA:** policies are effective dated. Technical success target and availability target are minimum percentages; timeout rate and P95 latency are maximums. Availability is completed attempts without provider unavailable or timeout divided by completed attempts. In-flight attempts are excluded. A metric is `INSUFFICIENT_DATA` below the policy's minimum sample size, `MET` or `BREACHED` otherwise. No subjective `AT_RISK` state is emitted. The Phase 6 alert scan observes configured SLA breaches over the preceding 24 hours and deduplicates alerts per policy and metric. Contract references must not contain secrets.
+
+For example, one PAN verification with a ₹5 direct overage price, a billable primary timeout costing ₹1.50, and a billable fallback success costing ₹2.00 yields one business verification, one client consumption, two attempts, ₹3.50 known cost, ₹2.00 incremental fallback cost and ₹1.50 known direct margin. If either attempt has unknown cost, the known cost is a lower bound and margin is incomplete.
+
+## Security and limitations
+
+`/platform/kyc/analytics/*` requires `SUPER_ADMIN`. `/kyc/analytics/overview` requires `CLIENT_ADMIN` or `KYC_OPERATOR` and takes its client ID from the authenticated context. The client endpoint returns volume, outcome and consumption counts only. Provider costs, revenue, margin and SLA contracts are not sent to client users. Responses contain no identity input or normalized KYC PII. Provider cost and SLA changes are audited.
+
+The current source data cannot establish invoice truth, add-on revenue allocation, contract maintenance windows, or provider billing for old attempts whose `billable` field is null. These are reported as unknown or omitted. SLA evaluations are read-only; the existing operational alert scan persists deduplicated breach alerts. Financial totals are grouped by currency; no exchange rates are assumed.

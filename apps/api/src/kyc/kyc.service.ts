@@ -27,10 +27,11 @@ export class KycService {
 
   async list(clientId: string, riderId: string) {
     await this.assertRider(clientId, riderId);
-    return this.prisma.riderKyc.findMany({
+    const records = await this.prisma.riderKyc.findMany({
       where: { clientId, riderId },
       orderBy: { type: 'asc' },
     });
+    return records.map(safeLegacyRecord);
   }
 
   async start(clientId: string, riderId: string, dto: StartKycDto) {
@@ -61,7 +62,7 @@ export class KycService {
         status: result.status,
         provider: result.provider,
         providerReference: result.providerReference,
-        maskedData: result.maskedData as Prisma.InputJsonValue | undefined,
+        maskedData: safeLegacyMaskedData(result.maskedData) as Prisma.InputJsonValue | undefined,
         safeFailureCode: result.safeFailureCode,
         verifiedAt: result.status === KycStatus.VERIFIED ? new Date() : null,
       },
@@ -69,13 +70,13 @@ export class KycService {
         status: result.status,
         provider: result.provider,
         providerReference: result.providerReference,
-        maskedData: result.maskedData as Prisma.InputJsonValue | undefined,
+        maskedData: safeLegacyMaskedData(result.maskedData) as Prisma.InputJsonValue | undefined,
         safeFailureCode: result.safeFailureCode,
         verifiedAt: result.status === KycStatus.VERIFIED ? new Date() : null,
       },
     });
     if (record.status === KycStatus.VERIFIED) await this.referralVerified(clientId, riderId, record.id);
-    return record;
+    return safeLegacyRecord(record);
   }
 
   async complete(
@@ -94,13 +95,13 @@ export class KycService {
       where: { id: kyc.id },
       data: {
         status: dto.status as KycStatus,
-        maskedData: dto.maskedData as Prisma.InputJsonValue | undefined,
+        maskedData: safeLegacyMaskedData(dto.maskedData) as Prisma.InputJsonValue | undefined,
         safeFailureCode: dto.safeFailureCode,
         verifiedAt: dto.status === 'VERIFIED' ? new Date() : null,
       },
     });
     if (record.status === KycStatus.VERIFIED) await this.referralVerified(clientId, riderId, record.id);
-    return record;
+    return safeLegacyRecord(record);
   }
 
   private async referralVerified(clientId: string, riderId: string, kycId: string) {
@@ -114,4 +115,16 @@ export class KycService {
     });
     if (!rider) throw new NotFoundException('Rider not found.');
   }
+}
+
+function safeLegacyMaskedData(value: unknown): { lastFour: string } | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const lastFour = (value as Record<string, unknown>).lastFour;
+  if (typeof lastFour !== 'string' || !/^\d{4}$/.test(lastFour)) return undefined;
+  return { lastFour };
+}
+
+function safeLegacyRecord<T extends { maskedData?: unknown }>(record: T): T {
+  if (record.maskedData === undefined) return record;
+  return { ...record, maskedData: safeLegacyMaskedData(record.maskedData) ?? null };
 }

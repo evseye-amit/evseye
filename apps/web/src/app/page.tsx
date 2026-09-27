@@ -21,6 +21,7 @@ import { useClientAppearance } from "./components/client-provider";
 import { LanguageSwitcher, useLocale } from "./components/locale-provider";
 import { ClientBrandingSettings } from "./components/client-branding-settings";
 import { ClientBrand } from "./components/client-brand";
+import Link from "next/link";
 
 const API_URL =
   "/api/v1";
@@ -762,6 +763,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [userRoles, setUserRoles] = useState<string[]>([]);
 
   useEffect(() => {
     const syncToken = () => {
@@ -781,6 +783,7 @@ export default function Home() {
     void request("/auth/me", {}, token)
       .then(async (identity) => {
         const roles = (identity as { roles?: string[] }).roles ?? [];
+        setUserRoles(roles);
         // Incomplete Client onboarding stays guided; active Clients use this
         // single full operations console as their dashboard.
         const openOperations =
@@ -2405,6 +2408,8 @@ export default function Home() {
             </div>
           ))}
         </nav>
+        {userRoles.some((role) => role === "CLIENT_ADMIN" || role === "KYC_OPERATOR") &&
+          <Link className="sa-nav-child" href="/client/kyc">KYC &amp; Verification</Link>}
         <ClientBrandingSettings token={token} />
         <div className="sa-user client-sidebar-footer">
           <span aria-hidden="true">C</span>

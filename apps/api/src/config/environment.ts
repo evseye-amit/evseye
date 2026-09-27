@@ -132,6 +132,21 @@ const environmentSchema = z.object({
   TELIPIA_LOGIN_TEMPLATE_ID: z.string().optional(),
   TELIPIA_DEALLOCATION_TEMPLATE_ID: z.string().optional(),
   KYC_PROVIDER: z.string().default('sandbox'),
+  KYC_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  KYC_SANDBOX_ENVIRONMENT: z.enum(['TEST']).default('TEST'),
+  KYC_SANDBOX_SECRET_REFERENCE: z.literal('env:KYC_SANDBOX_TEST').default('env:KYC_SANDBOX_TEST'),
+  KYC_SANDBOX_API_KEY: z.string().optional(),
+  KYC_SANDBOX_API_SECRET: z.string().optional(),
+  KYC_FINGERPRINT_SECRET: z.string().min(32).optional(),
+  KYC_OPS_STUCK_PROCESSING_MINUTES: z.coerce.number().int().min(1).max(10080).default(10),
+  KYC_OPS_STUCK_PROVIDER_MINUTES: z.coerce.number().int().min(1).max(10080).default(5),
+  KYC_OPS_ACTION_REQUIRED_MINUTES: z.coerce.number().int().min(1).max(43200).default(1440),
+  KYC_OPS_REVIEW_SLA_MINUTES: z.coerce.number().int().min(1).max(43200).default(240),
+  KYC_OPS_ALERT_MIN_SAMPLES: z.coerce.number().int().min(1).max(10000).default(20),
+  KYC_OPS_ALERT_TECHNICAL_RATE_PERCENT: z.coerce.number().min(1).max(100).default(25),
+  KYC_OPS_MAX_TECHNICAL_RETRIES: z.coerce.number().int().min(0).max(3).default(1),
+  KYC_ANALYTICS_MIN_SAMPLE_SIZE: z.coerce.number().int().min(1).max(100000).default(30),
+  KYC_ROUTING_DEADLINE_MS: z.coerce.number().int().min(1000).max(120000).default(30000),
   PAYMENT_PROVIDER: z
     .enum(['disabled', 'cashfree', 'mock'])
     .default('disabled'),
@@ -226,6 +241,12 @@ export function validateEnvironment(
     result.data.KYC_PROVIDER === 'sandbox'
   ) {
     throw new Error('KYC_PROVIDER must not use the sandbox in production.');
+  }
+  if (result.data.KYC_ENABLED && (!result.data.KYC_SANDBOX_API_KEY || !result.data.KYC_SANDBOX_API_SECRET || !result.data.KYC_FINGERPRINT_SECRET)) {
+    throw new Error('Enabled KYC requires Sandbox TEST credentials and a fingerprint secret.');
+  }
+  if (result.data.NODE_ENV === 'production' && result.data.KYC_ENABLED) {
+    throw new Error('Phase 1 KYC TEST integration cannot run in production.');
   }
   if (
     result.data.NODE_ENV === 'production' &&

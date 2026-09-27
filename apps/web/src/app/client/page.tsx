@@ -3618,7 +3618,7 @@ function ClientDashboardView({
           <h1>{client.name}</h1>
           <p>Live operational overview for your fleet workspace.</p>
         </div>
-        <Link href="/?workspace=operations">Operations workspace</Link>
+        <div><Link href="/client/kyc">KYC &amp; Verification</Link>{" · "}<Link href="/?workspace=operations">Operations workspace</Link></div>
       </header>
 
       {!dashboard ? (

@@ -395,6 +395,25 @@ enum FeatureUsageTransactionType {
   ADJUSTMENT
 }
 
+enum KycUsageRecognition {
+  ON_REQUEST
+  ON_COMPLETION
+  ON_SUCCESS
+}
+
+enum KycOveragePolicy {
+  BLOCK
+  ALLOW_AND_CHARGE
+  ALLOW_WITH_WARNING
+}
+
+enum FeatureConsumptionSource {
+  INCLUDED
+  ADD_ON
+  UNLIMITED
+  OVERAGE
+}
+
 enum ClientFeatureSource {
   PACKAGE
   ADD_ON
@@ -784,6 +803,11 @@ enum PaymentTransactionStatus {
 }
 
 model Client {
+  kycClientPolicies           KycClientPolicy[]
+  featureConsumptions         FeatureUsageConsumption[]
+  kycVerifications            KycVerification[]
+  kycConsents                 KycConsent[]
+  kycCredentials              KycProviderCredential[]
   walletInvoiceAllocations    WalletInvoiceAllocation[]
   walletPolicies              WalletPolicy[]
   walletSecurityDeposits      WalletSecurityDeposit[]
@@ -959,6 +983,7 @@ model Package {
 }
 
 model Feature {
+  consumptions             FeatureUsageConsumption[]
   id                       String                       @id @default(uuid())
   code                     String                       @unique
   name                     String
@@ -1265,6 +1290,7 @@ model ClientAgreement {
 }
 
 model ClientSubscription {
+  featureConsumptions   FeatureUsageConsumption[]
   id                    String                       @id @default(uuid())
   clientId              String
   client                Client                       @relation(fields: [clientId], references: [id], onDelete: Restrict)
@@ -1834,6 +1860,9 @@ model User {
 }
 
 model Rider {
+  kycWorkflowExecutions   KycWorkflowExecution[]
+  kycVerifications        KycVerification[]
+  kycConsents             KycConsent[]
   walletSecurityDeposits  WalletSecurityDeposit[]
   wallets                 RiderWallet[]
   id                      String                     @id @default(uuid())
@@ -2828,6 +2857,711 @@ model RiderKyc {
   @@unique([riderId, type])
   @@index([clientId, status])
   @@index([provider, providerReference])
+}
+
+enum KycVerificationType {
+  PAN_VERIFICATION
+  AADHAAR_OTP
+  AADHAAR_OKYC
+  BANK_ACCOUNT_VERIFICATION
+  IFSC_VERIFICATION
+  PAN_AADHAAR_LINK
+  DIGILOCKER
+  NAME_MATCH
+  FACE_MATCH
+  LIVENESS
+}
+
+enum KycVerificationStatus {
+  CREATED
+  QUEUED
+  PROCESSING
+  ACTION_REQUIRED
+  OTP_REQUIRED
+  VERIFIED
+  PARTIALLY_VERIFIED
+  FAILED
+  REJECTED
+  EXPIRED
+  CANCELLED
+  MANUAL_REVIEW
+}
+
+enum KycProviderCode {
+  SANDBOX
+  CASHFREE
+  SUREPASS
+  HYPERVERGE
+}
+
+enum KycProviderEnvironment {
+  TEST
+  PRODUCTION
+}
+
+enum KycFailureType {
+  BUSINESS_FAILURE
+  TECHNICAL_FAILURE
+}
+
+model KycProviderConfig {
+  routingProviders KycRoutingProvider[]
+  conflicts        KycProviderConflict[]
+  slaPolicies      KycProviderSlaPolicy[]
+  id               String                   @id @default(uuid())
+  code             KycProviderCode          @unique
+  name             String
+  status           String                   @default("ACTIVE")
+  environment      KycProviderEnvironment   @default(TEST)
+  priority         Int                      @default(1)
+  isActive         Boolean                  @default(false)
+  capabilities     KycProviderCapability[]
+  credentials      KycProviderCredential[]
+  attempts         KycVerificationAttempt[]
+  verifications    KycVerification[]
+  consents         KycConsent[]
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+}
+
+model KycProviderCapability {
+  id               String              @id @default(uuid())
+  providerId       String
+  provider         KycProviderConfig   @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  verificationType KycVerificationType
+  isSupported      Boolean             @default(false)
+  isEnabled        Boolean             @default(false)
+  timeoutMs        Int                 @default(10000)
+  maxRetries       Int                 @default(0)
+  costPerRequest   Decimal?            @db.Decimal(12, 4)
+  currency         String              @default("INR")
+  billingRule      String              @default("UNKNOWN") @db.VarChar(40)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  @@unique([providerId, verificationType])
+}
+
+model KycProviderCredential {
+  id              String                 @id @default(uuid())
+  providerId      String
+  provider        KycProviderConfig      @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  clientId        String?
+  client          Client?                @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  environment     KycProviderEnvironment
+  secretReference String
+  status          String                 @default("ACTIVE")
+  validFrom       DateTime?
+  validUntil      DateTime?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  @@index([providerId, clientId, environment])
+}
+
+model KycConsent {
+  id               String              @id @default(uuid())
+  clientId         String
+  client           Client              @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId          String
+  rider            Rider               @relation(fields: [riderId], references: [id], onDelete: Restrict)
+  verificationType KycVerificationType
+  providerId       String?
+  provider         KycProviderConfig?  @relation(fields: [providerId], references: [id])
+  consentVersion   String
+  consentTextHash  String
+  purpose          String
+  reason           String
+  accepted         Boolean
+  acceptedAt       DateTime?
+  channel          String
+  verifications    KycVerification[]
+  createdAt        DateTime            @default(now())
+
+  @@index([clientId, riderId, verificationType, acceptedAt])
+}
+
+model KycVerification {
+  featureConsumption             FeatureUsageConsumption?
+  routingDecision                KycRoutingDecision?
+  providerConflicts              KycProviderConflict[]
+  workflowStepExecution          KycWorkflowStepExecution?
+  id                             String                    @id @default(uuid())
+  clientId                       String
+  client                         Client                    @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId                        String
+  rider                          Rider                     @relation(fields: [riderId], references: [id], onDelete: Restrict)
+  verificationType               KycVerificationType
+  status                         KycVerificationStatus     @default(CREATED)
+  inputFingerprint               String
+  idempotencyKey                 String
+  recoveryVersion                Int                       @default(0)
+  consentId                      String?
+  consent                        KycConsent?               @relation(fields: [consentId], references: [id])
+  finalProviderId                String?
+  finalProvider                  KycProviderConfig?        @relation(fields: [finalProviderId], references: [id])
+  finalAttemptId                 String?
+  resultCode                     String?
+  resultSummary                  String?
+  requestedAt                    DateTime                  @default(now())
+  startedAt                      DateTime?
+  completedAt                    DateTime?
+  expiresAt                      DateTime?
+  validityDaysSnapshot           Int?
+  reverificationRequiredSnapshot Boolean                   @default(false)
+  validUntil                     DateTime?
+  createdAt                      DateTime                  @default(now())
+  updatedAt                      DateTime                  @updatedAt
+  attempts                       KycVerificationAttempt[]
+  results                        KycVerificationResult[]
+
+  @@unique([clientId, idempotencyKey])
+  @@index([clientId, riderId, verificationType])
+  @@index([clientId, verificationType, status])
+  @@index([clientId, status, createdAt])
+  @@index([verificationType, status, createdAt])
+  @@index([createdAt])
+  @@index([clientId, requestedAt, verificationType])
+}
+
+model KycRecoveryRequest {
+  id             String   @id @default(uuid())
+  clientId       String
+  verificationId String
+  keyHash        String
+  createdAt      DateTime @default(now())
+
+  @@unique([clientId, keyHash])
+  @@index([verificationId, createdAt])
+}
+
+model KycClientPolicy {
+  id                     String              @id @default(uuid())
+  clientId               String
+  client                 Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  verificationType       KycVerificationType
+  isEnabled              Boolean             @default(true)
+  workflowDefinitionId   String?
+  routingPolicyId        String?
+  validityDays           Int?
+  reverificationRequired Boolean             @default(false)
+  usageRecognition       KycUsageRecognition @default(ON_REQUEST)
+  overagePolicy          KycOveragePolicy    @default(BLOCK)
+  effectiveFrom          DateTime            @default(now())
+  effectiveUntil         DateTime?
+  status                 String              @default("ACTIVE")
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+
+  @@index([clientId, verificationType, status, effectiveFrom])
+}
+
+model FeatureUsageConsumption {
+  id                 String                   @id @default(uuid())
+  clientId           String
+  client             Client                   @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  subscriptionId     String
+  subscription       ClientSubscription       @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  featureId          String
+  feature            Feature                  @relation(fields: [featureId], references: [id], onDelete: Restrict)
+  verificationId     String                   @unique
+  verification       KycVerification          @relation(fields: [verificationId], references: [id], onDelete: Restrict)
+  source             FeatureConsumptionSource
+  quantity           Decimal                  @default(1) @db.Decimal(18, 4)
+  basePrice          Decimal?                 @db.Decimal(14, 4)
+  discount           Decimal?                 @db.Decimal(14, 4)
+  effectivePrice     Decimal?                 @db.Decimal(14, 4)
+  currency           String?                  @db.Char(3)
+  pricingReferenceId String?
+  policyId           String?
+  recognition        KycUsageRecognition
+  billingPeriodStart DateTime
+  billingPeriodEnd   DateTime?
+  occurredAt         DateTime                 @default(now())
+  reversedAt         DateTime?
+  reversalReason     String?
+
+  @@index([clientId, featureId, occurredAt])
+  @@index([subscriptionId, occurredAt])
+  @@index([clientId, occurredAt])
+}
+
+model KycVerificationAttempt {
+  reason                KycAttemptReason        @default(PRIMARY)
+  isLateCompletion      Boolean                 @default(false)
+  id                    String                  @id @default(uuid())
+  verificationId        String
+  verification          KycVerification         @relation(fields: [verificationId], references: [id], onDelete: Cascade)
+  providerId            String
+  provider              KycProviderConfig       @relation(fields: [providerId], references: [id])
+  attemptNumber         Int
+  status                String
+  providerTransactionId String?
+  requestStartedAt      DateTime                @default(now())
+  responseReceivedAt    DateTime?
+  latencyMs             Int?
+  httpStatus            Int?
+  providerStatus        String?
+  normalizedStatus      KycVerificationStatus   @default(PROCESSING)
+  failureType           KycFailureType?
+  failureCategory       String?
+  failureCode           String?
+  cost                  Decimal?                @db.Decimal(12, 4)
+  currency              String?
+  billable              Boolean?
+  costSource            String?                 @db.VarChar(40)
+  results               KycVerificationResult[]
+  createdAt             DateTime                @default(now())
+
+  @@unique([verificationId, attemptNumber])
+  @@index([providerId, requestStartedAt])
+  @@index([verificationId, reason, requestStartedAt])
+  @@index([requestStartedAt, providerId])
+}
+
+model KycProviderSlaPolicy {
+  id                     String               @id @default(uuid())
+  providerId             String
+  provider               KycProviderConfig    @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  verificationType       KycVerificationType?
+  effectiveFrom          DateTime
+  effectiveUntil         DateTime?
+  availabilityTarget     Decimal?             @db.Decimal(5, 2)
+  technicalSuccessTarget Decimal?             @db.Decimal(5, 2)
+  p95LatencyTargetMs     Int?
+  timeoutRateTarget      Decimal?             @db.Decimal(5, 2)
+  minimumSampleSize      Int                  @default(30)
+  contractReference      String?              @db.VarChar(150)
+  status                 String               @default("ACTIVE")
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+
+  @@index([providerId, verificationType, effectiveFrom, effectiveUntil])
+}
+
+enum KycRoutingStrategy {
+  PRIORITY
+  FALLBACK
+  WEIGHTED
+  PARALLEL
+  HEDGED
+  LOWEST_COST
+  LOWEST_LATENCY
+  SMART
+}
+
+enum KycArbitrationMode {
+  FIRST_VERIFIED
+  FIRST_TERMINAL
+  MAJORITY
+  ALL_MUST_AGREE
+  MANUAL_REVIEW_ON_CONFLICT
+}
+
+enum KycAttemptReason {
+  PRIMARY
+  RETRY
+  FALLBACK
+  WEIGHTED_SELECTION
+  PARALLEL
+  HEDGE
+  HEALTH_FAILOVER
+}
+
+model KycRoutingPolicy {
+  id                          String               @id @default(uuid())
+  code                        String
+  name                        String
+  description                 String?
+  clientId                    String?
+  verificationType            KycVerificationType
+  strategy                    KycRoutingStrategy
+  status                      String               @default("ACTIVE")
+  isDefault                   Boolean              @default(false)
+  version                     Int
+  maxProvidersPerVerification Int                  @default(1)
+  maxAttempts                 Int                  @default(1)
+  allowParallel               Boolean              @default(false)
+  allowHedging                Boolean              @default(false)
+  arbitrationMode             KycArbitrationMode?
+  fallbackCategories          Json?
+  providers                   KycRoutingProvider[]
+  decisions                   KycRoutingDecision[]
+  createdAt                   DateTime             @default(now())
+  updatedAt                   DateTime             @updatedAt
+
+  @@unique([code, version, clientId])
+  @@index([clientId, verificationType, status, isDefault])
+}
+
+model KycRoutingProvider {
+  id              String            @id @default(uuid())
+  routingPolicyId String
+  routingPolicy   KycRoutingPolicy  @relation(fields: [routingPolicyId], references: [id], onDelete: Restrict)
+  providerId      String
+  provider        KycProviderConfig @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  priority        Int
+  weight          Int?
+  hedgeDelayMs    Int?
+  timeoutMs       Int?
+  maxAttempts     Int?
+  isEnabled       Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@unique([routingPolicyId, providerId])
+  @@unique([routingPolicyId, priority])
+}
+
+model KycRoutingDecision {
+  id                   String             @id @default(uuid())
+  verificationId       String             @unique
+  verification         KycVerification    @relation(fields: [verificationId], references: [id], onDelete: Restrict)
+  routingPolicyId      String?
+  routingPolicy        KycRoutingPolicy?  @relation(fields: [routingPolicyId], references: [id], onDelete: Restrict)
+  routingPolicyVersion Int
+  strategy             KycRoutingStrategy
+  selectedProviders    Json
+  decisionReason       String
+  intelligentPolicyId  String?
+  intelligentMode      String?
+  intelligenceSnapshot Json?
+  createdAt            DateTime           @default(now())
+
+  @@index([routingPolicyId, createdAt])
+}
+
+model KycIntelligentRoutingPolicy {
+  id                         String                 @id @default(uuid())
+  code                       String                 @db.VarChar(80)
+  version                    Int
+  clientId                   String?
+  verificationType           KycVerificationType
+  environment                KycProviderEnvironment @default(TEST)
+  mode                       String                 @default("STATIC") @db.VarChar(20)
+  status                     String                 @default("DRAFT") @db.VarChar(20)
+  weights                    Json
+  observationWindowMinutes   Int                    @default(60)
+  minimumSampleSize          Int                    @default(30)
+  maxSnapshotAgeMinutes      Int                    @default(10)
+  latencyTargetMs            Int                    @default(1000)
+  unknownCostBehavior        String                 @default("NEUTRAL") @db.VarChar(20)
+  rolloutPercent             Int                    @default(0)
+  maxTechnicalFailurePercent Decimal?               @db.Decimal(5, 2)
+  maxP95LatencyMs            Int?
+  sourceShadowPolicyId       String?
+  effectiveFrom              DateTime               @default(now())
+  createdBy                  String
+  createdAt                  DateTime               @default(now())
+  updatedAt                  DateTime               @updatedAt
+
+  @@unique([code, version, clientId])
+  @@index([clientId, verificationType, environment, status, effectiveFrom])
+}
+
+model KycRoutingMetricSnapshot {
+  id                   String              @id @default(uuid())
+  providerId           String
+  verificationType     KycVerificationType
+  windowMinutes        Int
+  sampleSize           Int
+  technicalSuccessRate Decimal?            @db.Decimal(6, 5)
+  timeoutRate          Decimal?            @db.Decimal(6, 5)
+  p95LatencyMs         Int?
+  knownUnitCost        Decimal?            @db.Decimal(12, 4)
+  currency             String?             @db.Char(3)
+  slaStatus            String?             @db.VarChar(30)
+  generatedAt          DateTime            @default(now())
+
+  @@unique([providerId, verificationType, windowMinutes])
+  @@index([verificationType, windowMinutes, generatedAt])
+}
+
+model KycProviderCircuitState {
+  id                  String              @id @default(uuid())
+  providerId          String
+  verificationType    KycVerificationType
+  state               String              @default("CLOSED") @db.VarChar(20)
+  consecutiveFailures Int                 @default(0)
+  healthyProbes       Int                 @default(0)
+  openUntil           DateTime?
+  lastFailureAt       DateTime?
+  lastProbeAt         DateTime?
+  updatedAt           DateTime            @updatedAt
+
+  @@unique([providerId, verificationType])
+  @@index([state, openUntil])
+}
+
+model KycIntelligentRoutingControl {
+  scopeKey  String   @id @db.VarChar(120)
+  disabled  Boolean  @default(true)
+  reason    String   @db.VarChar(500)
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+}
+
+model KycShadowDecision {
+  id               String   @id @default(uuid())
+  verificationId   String   @unique
+  clientId         String
+  policyId         String
+  policyVersion    Int
+  actualProviderId String?
+  shadowProviderId String?
+  scoreSnapshot    Json
+  reason           String
+  createdAt        DateTime @default(now())
+
+  @@index([policyId, createdAt])
+  @@index([clientId, createdAt])
+}
+
+model KycProviderConflict {
+  id             String                @id @default(uuid())
+  verificationId String
+  verification   KycVerification       @relation(fields: [verificationId], references: [id], onDelete: Restrict)
+  providerId     String
+  provider       KycProviderConfig     @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  resultStatus   KycVerificationStatus
+  conflictType   String
+  resolution     String
+  createdAt      DateTime              @default(now())
+
+  @@unique([verificationId, providerId])
+  @@index([verificationId, conflictType])
+}
+
+model KycVerificationResult {
+  id                String                 @id @default(uuid())
+  verificationId    String
+  verification      KycVerification        @relation(fields: [verificationId], references: [id], onDelete: Cascade)
+  attemptId         String                 @unique
+  attempt           KycVerificationAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  verificationType  KycVerificationType
+  status            KycVerificationStatus
+  matchStatus       String?
+  normalizedData    Json
+  providerReference String?
+  verifiedAt        DateTime?
+  createdAt         DateTime               @default(now())
+
+  @@index([verificationId, createdAt])
+}
+
+enum KycWorkflowStatus {
+  CREATED
+  IN_PROGRESS
+  ACTION_REQUIRED
+  WAITING
+  RECONCILING
+  DECISION_PENDING
+  VERIFIED
+  MANUAL_REVIEW
+  REJECTED
+  FAILED
+  CANCELLED
+  EXPIRED
+}
+
+enum KycStepStatus {
+  PENDING
+  IN_PROGRESS
+  ACTION_REQUIRED
+  VERIFIED
+  FAILED
+  SKIPPED
+  EXPIRED
+}
+
+enum KycStepFailureBehavior {
+  STOP_WORKFLOW
+  CONTINUE
+  MANUAL_REVIEW
+}
+
+enum KycStepActionMode {
+  AUTOMATIC
+  USER_ACTION
+  MANUAL_ACTION
+}
+
+enum KycDecisionOutcome {
+  PENDING
+  VERIFIED
+  MANUAL_REVIEW
+  REJECTED
+}
+
+model KycWorkflowDefinition {
+  id              String                 @id @default(uuid())
+  code            String
+  name            String
+  description     String?
+  version         Int
+  status          String                 @default("ACTIVE")
+  isDefault       Boolean                @default(false)
+  clientId        String?
+  expiryMinutes   Int                    @default(43200)
+  matchThresholds Json?
+  steps           KycWorkflowStep[]
+  executions      KycWorkflowExecution[]
+  rules           KycDecisionRule[]
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  @@unique([code, version, clientId])
+  @@index([clientId, isDefault, status])
+}
+
+model KycWorkflowStep {
+  id                   String                     @id @default(uuid())
+  workflowDefinitionId String
+  workflowDefinition   KycWorkflowDefinition      @relation(fields: [workflowDefinitionId], references: [id], onDelete: Restrict)
+  code                 String
+  name                 String
+  verificationType     KycVerificationType
+  sequence             Int
+  isRequired           Boolean                    @default(true)
+  failureBehavior      KycStepFailureBehavior     @default(STOP_WORKFLOW)
+  actionMode           KycStepActionMode          @default(USER_ACTION)
+  retryPolicy          Json?
+  conditionConfig      Json?
+  timeoutConfig        Json?
+  isActive             Boolean                    @default(true)
+  executions           KycWorkflowStepExecution[]
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+
+  @@unique([workflowDefinitionId, code])
+  @@unique([workflowDefinitionId, sequence])
+}
+
+model KycWorkflowExecution {
+  id                          String                     @id @default(uuid())
+  clientId                    String
+  riderId                     String
+  rider                       Rider                      @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  workflowDefinitionId        String
+  workflowDefinition          KycWorkflowDefinition      @relation(fields: [workflowDefinitionId], references: [id], onDelete: Restrict)
+  workflowVersion             Int
+  status                      KycWorkflowStatus          @default(CREATED)
+  reviewPriority              String                     @default("NORMAL")
+  reviewAssignedTo            String?
+  reviewAssignedAt            DateTime?
+  reviewDueAt                 DateTime?
+  reviewResolvedAt            DateTime?
+  reviewVersion               Int                        @default(0)
+  currentStepId               String?
+  previousWorkflowExecutionId String?
+  idempotencyKey              String?
+  startedAt                   DateTime                   @default(now())
+  completedAt                 DateTime?
+  expiresAt                   DateTime?
+  stepExecutions              KycWorkflowStepExecution[]
+  decisions                   KycDecision[]
+  reconciliations             KycReconciliationResult[]
+  createdAt                   DateTime                   @default(now())
+  updatedAt                   DateTime                   @updatedAt
+
+  @@unique([clientId, idempotencyKey])
+  @@index([clientId, riderId, startedAt])
+  @@index([clientId, status, expiresAt])
+  @@index([clientId, status, updatedAt])
+  @@index([clientId, status, reviewPriority, reviewDueAt])
+  @@index([reviewAssignedTo, status, reviewDueAt])
+}
+
+model KycOperationalAlert {
+  id              String    @id @default(uuid())
+  dedupeKey       String    @unique
+  type            String
+  severity        String
+  status          String    @default("OPEN")
+  clientId        String?
+  providerId      String?
+  capability      String?
+  entityId        String?
+  firstSeenAt     DateTime  @default(now())
+  lastSeenAt      DateTime  @default(now())
+  occurrenceCount Int       @default(1)
+  acknowledgedBy  String?
+  acknowledgedAt  DateTime?
+  resolvedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([clientId, status, lastSeenAt])
+  @@index([type, status, lastSeenAt])
+}
+
+model KycWorkflowStepExecution {
+  id                  String               @id @default(uuid())
+  workflowExecutionId String
+  workflowExecution   KycWorkflowExecution @relation(fields: [workflowExecutionId], references: [id], onDelete: Restrict)
+  workflowStepId      String
+  workflowStep        KycWorkflowStep      @relation(fields: [workflowStepId], references: [id], onDelete: Restrict)
+  verificationId      String?              @unique
+  verification        KycVerification?     @relation(fields: [verificationId], references: [id], onDelete: Restrict)
+  status              KycStepStatus        @default(PENDING)
+  startedAt           DateTime?
+  completedAt         DateTime?
+  failureReason       String?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  @@unique([workflowExecutionId, workflowStepId])
+  @@index([workflowExecutionId, status])
+}
+
+model KycDecisionRule {
+  id                   String                 @id @default(uuid())
+  code                 String
+  name                 String
+  workflowDefinitionId String?
+  workflowDefinition   KycWorkflowDefinition? @relation(fields: [workflowDefinitionId], references: [id], onDelete: Restrict)
+  priority             Int
+  condition            Json
+  action               KycDecisionOutcome
+  reasonCode           String
+  isActive             Boolean                @default(true)
+  decisions            KycDecision[]
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+
+  @@unique([code, workflowDefinitionId])
+  @@index([workflowDefinitionId, isActive, priority])
+}
+
+model KycDecision {
+  id                  String               @id @default(uuid())
+  workflowExecutionId String
+  workflowExecution   KycWorkflowExecution @relation(fields: [workflowExecutionId], references: [id], onDelete: Restrict)
+  decision            KycDecisionOutcome
+  reasonCode          String
+  ruleId              String?
+  rule                KycDecisionRule?     @relation(fields: [ruleId], references: [id], onDelete: Restrict)
+  summary             String?
+  reviewerId          String?
+  decidedAt           DateTime             @default(now())
+  createdAt           DateTime             @default(now())
+
+  @@index([workflowExecutionId, decidedAt])
+}
+
+model KycReconciliationResult {
+  id                  String               @id @default(uuid())
+  workflowExecutionId String
+  workflowExecution   KycWorkflowExecution @relation(fields: [workflowExecutionId], references: [id], onDelete: Restrict)
+  type                String
+  sourceA             String
+  sourceB             String
+  status              String
+  score               Int?
+  details             Json?
+  createdAt           DateTime             @default(now())
+
+  @@unique([workflowExecutionId, type])
 }
 
 model Photo {
