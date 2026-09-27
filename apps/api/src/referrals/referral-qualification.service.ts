@@ -128,6 +128,7 @@ export class ReferralQualificationService {
         if (needed.has('KYC_VERIFIED') && await this.prisma.riderKyc.count({ where: { clientId: row.clientId, riderId: row.refereeRiderId, status: 'VERIFIED' } })) await this.recordEvent(row.clientId, row.refereeRiderId, 'KYC_VERIFIED', `kyc-reconcile:${row.id}`, '1');
         if (needed.has('RIDER_ACTIVATED') && await this.prisma.rider.count({ where: { clientId: row.clientId, id: row.refereeRiderId, status: 'ACTIVE' } })) await this.recordEvent(row.clientId, row.refereeRiderId, 'RIDER_ACTIVATED', `activation-reconcile:${row.id}`, '1');
         if (needed.has('VEHICLE_ALLOCATED') && await this.prisma.allocation.count({ where: { clientId: row.clientId, riderId: row.refereeRiderId, status: 'ACTIVE' } })) await this.recordEvent(row.clientId, row.refereeRiderId, 'VEHICLE_ALLOCATED', `allocation-reconcile:${row.id}`, '1');
+        if (needed.has('FIRST_PAYMENT') && await this.prisma.riderPaymentAllocation.count({ where: { clientId: row.clientId, riderId: row.refereeRiderId, reversedAt: null, invoice: { invoiceType: 'RENTAL' }, payment: { status: 'CONFIRMED' } } })) await this.recordEvent(row.clientId, row.refereeRiderId, 'FIRST_PAYMENT', `first-payment-reconcile:${row.id}`, '1');
         if (!needed.size) await this.recheck(row.clientId, row.id);
       } catch (cause) { this.logger.error(`Referral reconciliation failed for ${row.id}`, cause); }
     }

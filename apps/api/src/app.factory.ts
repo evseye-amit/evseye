@@ -23,6 +23,7 @@ export async function createApplication(): Promise<NestFastifyApplication> {
     AppModule,
     new FastifyAdapter({
       logger: {
+        serializers: { req: (request: { method?: string; url?: string }) => ({ method: request.method, url: request.url?.split('?')[0] }) },
         redact: {
           paths: ['req.headers.authorization', 'req.headers.cookie', 'req.headers["x-client-proxy-secret"]'],
           remove: true,

@@ -1,5 +1,9 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import type {
+  CheckoutOrderInput,
+  CheckoutOrderResult,
+  CheckoutPaymentResult,
+  CheckoutRefundInput,
   CreateMandateInput,
   MandateResult,
   PaymentInput,
@@ -13,9 +17,50 @@ import type {
 /** Deterministic provider for automated tests and local development only. */
 @Injectable()
 export class MockPaymentProvider implements PaymentProvider {
+  assertChargeEligible(): void {}
   private readonly mandates = new Map<string, MandateResult>();
   private readonly payments = new Map<string, PaymentResult>();
   private readonly refunds = new Map<string, RefundResult>();
+  private readonly checkoutPayments = new Map<
+    string,
+    CheckoutPaymentResult[]
+  >();
+  async createCheckoutOrder(
+    input: CheckoutOrderInput,
+  ): Promise<CheckoutOrderResult> {
+    this.checkoutPayments.set(input.orderId, []);
+    return {
+      orderId: input.orderId,
+      paymentSessionId: `mock_checkout_${input.orderId}`,
+      rawStatus: 'ACTIVE',
+    };
+  }
+  async fetchCheckoutPayments(orderId: string) {
+    return this.checkoutPayments.get(orderId) ?? [];
+  }
+  async fetchCheckoutOrder(orderId: string) {
+    return { orderId, status: 'ACTIVE' as const };
+  }
+  async createCheckoutRefund(input: CheckoutRefundInput) {
+    const result: RefundResult = {
+      providerRefundId: input.refundId,
+      status: 'PENDING',
+      rawStatus: 'PENDING',
+      amount: input.amount,
+      currency: 'INR',
+    };
+    this.refunds.set(input.refundId, result);
+    return result;
+  }
+  async fetchCheckoutRefund(_orderId: string, refundId: string) {
+    return (
+      this.refunds.get(refundId) ?? {
+        providerRefundId: refundId,
+        status: 'UNKNOWN' as const,
+        rawStatus: 'UNKNOWN',
+      }
+    );
+  }
   async createMandate(input: CreateMandateInput): Promise<MandateResult> {
     const result: MandateResult = {
       providerMandateId: input.providerMandateId,
@@ -85,6 +130,8 @@ export class MockPaymentProvider implements PaymentProvider {
       providerRefundId: input.providerRefundId,
       status: 'PENDING',
       rawStatus: 'PENDING',
+      amount: input.amount,
+      currency: 'INR',
     };
     this.refunds.set(input.providerRefundId, result);
     return result;
@@ -106,5 +153,12 @@ export class MockPaymentProvider implements PaymentProvider {
     if (signature !== 'mock-valid-signature')
       throw new UnauthorizedException('Invalid mock webhook signature.');
     return { payload: JSON.parse(rawBody.toString('utf8')) as unknown };
+  }
+  verifyCheckoutWebhook(
+    rawBody: Buffer,
+    timestamp: string,
+    signature: string,
+  ): VerifiedWebhook {
+    return this.verifyWebhook(rawBody, timestamp, signature);
   }
 }

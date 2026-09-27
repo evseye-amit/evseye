@@ -107,10 +107,21 @@ export class AllocationsService {
     idempotencyKey?: string,
   ) {
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "Fleet" WHERE "id" = ${fleetId} AND "clientId" = ${clientId} FOR UPDATE`;
+      const exchangeId = idempotencyKey?.startsWith('exchange:') ? idempotencyKey.slice('exchange:'.length) : null;
+      const hold = await tx.vehicleExchangeRequest.findFirst({
+        where: { clientId, replacementVehicleId: fleetId, OR: [{ status: { in: ['REPLACEMENT_SELECTED', 'OFFER_PRESENTED'] }, reservationExpiresAt: { gt: new Date() } }, { status: { in: ['ACCEPTED', 'RETURN_PENDING', 'DEPOSIT_PENDING', 'HANDOVER_PENDING'] } }] },
+      });
+      if (hold && (hold.id !== exchangeId || hold.riderId !== riderId || hold.status !== 'HANDOVER_PENDING'))
+        throw new ConflictException('Fleet is reserved for a vehicle exchange.');
       const rider = await tx.rider.findFirst({
         where: { id: riderId, clientId, deletedAt: null },
       });
       if (!rider) throw new NotFoundException('Rider not found.');
+      if (!exchangeId) {
+        const restriction = await tx.commercialRestriction.findFirst({ where: { clientId, riderId, code: 'BLOCK_NEW_VEHICLE_ALLOCATION', status: 'ACTIVE' } });
+        if (restriction) throw new ConflictException({ code: 'COLLECTION_RESTRICTION_ACTIVE', collectionCaseId: restriction.caseId });
+      }
       if (rider.status !== RiderStatus.ACTIVE) {
         throw new ConflictException('Rider must be active before allocation.');
       }

@@ -1,15 +1,17 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, ReferralRewardStatus, ReferralRewardType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { RiderBillingService } from '../rider-billing/rider-billing.service.js';
+import { WalletService } from '../wallet/wallet.service.js';
+import { RewardQualificationService } from '../rewards/reward-qualification.service.js';
+import { RewardPostingService } from '../rewards/reward-posting.service.js';
 import { ReferralAccessService } from './referral-access.service.js';
 import { ListRewardsDto } from './dto/referral.dto.js';
 
 @Injectable()
 export class ReferralRewardService {
-  constructor(private readonly prisma: PrismaService, private readonly access: ReferralAccessService, private readonly billing: RiderBillingService) {}
+  constructor(private readonly prisma: PrismaService, private readonly access: ReferralAccessService, private readonly wallet: WalletService, private readonly qualification: RewardQualificationService, private readonly posting: RewardPostingService) {}
 
-  private readonly creditRewards: ReferralRewardType[] = ['WALLET_CREDIT', 'BONUS', 'SERVICE_CREDIT', 'RENTAL_CREDIT', 'SWAP_CREDIT'];
+  private readonly creditRewards: ReferralRewardType[] = ['WALLET_CREDIT', 'BONUS', 'SERVICE_CREDIT', 'RENTAL_CREDIT', 'SWAP_CREDIT', 'CASH'];
 
   async list(clientId: string, query: ListRewardsDto) {
     await this.access.requireFeature(clientId);
@@ -23,8 +25,10 @@ export class ReferralRewardService {
 
   async transition(clientId: string, actorId: string, rewardId: string, action: 'approve' | 'reject' | 'processing', reason?: string) {
     await this.access.requireFeature(clientId);
+    const candidate = action === 'approve' ? await this.prisma.referralReward.findFirst({ where: { id: rewardId, clientId }, select: { beneficiaryRiderId: true, rewardType: true } }) : null;
+    if (candidate && this.creditRewards.includes(candidate.rewardType)) await this.wallet.ensure(clientId, candidate.beneficiaryRiderId, actorId);
     return this.prisma.$transaction(async (tx) => {
-      const reward = await tx.referralReward.findFirst({ where: { id: rewardId, clientId }, select: { id: true, campaignId: true, referralId: true, status: true, amount: true, currency: true, rewardType: true, beneficiaryRiderId: true } });
+      const reward = await tx.referralReward.findFirst({ where: { id: rewardId, clientId }, select: { id: true, campaignId: true, referralId: true, status: true, amount: true, currency: true, rewardType: true, beneficiaryRiderId: true, beneficiary: true } });
       if (!reward) throw new NotFoundException('Referral reward not found.');
       const allowed: ReferralRewardStatus[] = action === 'processing' ? [ReferralRewardStatus.APPROVED] : [ReferralRewardStatus.EARNED, ReferralRewardStatus.UNDER_REVIEW];
       if (!allowed.includes(reward.status)) throw new ConflictException({ code: 'REFERRAL_REWARD_ALREADY_PROCESSED', message: 'Reward cannot make this transition.' });
@@ -33,7 +37,11 @@ export class ReferralRewardService {
       const status = creditReward ? ReferralRewardStatus.PAID : action === 'approve' ? ReferralRewardStatus.APPROVED : action === 'processing' ? ReferralRewardStatus.PROCESSING : ReferralRewardStatus.REJECTED;
       const changed = await tx.referralReward.updateMany({ where: { id: rewardId, clientId, status: reward.status }, data: { status, ...(action === 'approve' ? { approvedAt: new Date(), approvedById: actorId } : {}), ...(action === 'reject' ? { rejectedAt: new Date(), rejectionReason: reason!.trim() } : {}) } });
       if (changed.count !== 1) throw new ConflictException('Reward changed concurrently.');
-      if (creditReward) await this.billing.issueCreditInTransaction(tx, { clientId, riderId: reward.beneficiaryRiderId, actorId, sourceKey: `referral:${reward.id}`, creditType: 'REFERRAL_REWARD', description: `Referral reward ${reward.rewardType}`, amount: reward.amount, currency: reward.currency, referenceType: 'REFERRAL_REWARD', referenceId: reward.id });
+      if (creditReward) {
+        await tx.$queryRaw`SELECT id FROM "RiderWallet" WHERE "clientId" = ${clientId} AND "riderId" = ${reward.beneficiaryRiderId} AND currency = ${reward.currency} FOR UPDATE`;
+        const claim = await this.qualification.referralClaimTx(tx, { clientId, actorId, reward });
+        await this.posting.postInTransaction(tx, clientId, claim.id, actorId);
+      }
       if (action === 'reject') await tx.referralCampaign.update({ where: { id: reward.campaignId }, data: { budgetReserved: { decrement: reward.amount } } });
       if (action === 'approve' && !await tx.referralReward.count({ where: { referralId: reward.referralId, clientId, status: { in: ['EARNED', 'UNDER_REVIEW'] } } })) {
         const outstanding = await tx.referralReward.count({ where: { referralId: reward.referralId, clientId, status: { notIn: ['PAID', 'REJECTED', 'CANCELLED'] } } });

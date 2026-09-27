@@ -24,6 +24,7 @@ function fixture() {
     clientId,
     riderId,
     status: 'ACTIVE',
+    method: 'UPI_AUTOPAY',
     providerMandateId: 'CF-MANDATE-1',
     maxAmount: new Prisma.Decimal('2500.00'),
     currency: 'INR',
@@ -55,7 +56,9 @@ function fixture() {
       findUniqueOrThrow: vi.fn().mockResolvedValue(mandate),
     },
     paymentTransaction: {
+      count: vi.fn().mockResolvedValue(1),
       findUnique: vi.fn().mockResolvedValue(null),
+      findFirst: vi.fn().mockResolvedValue(null),
       findUniqueOrThrow: vi
         .fn()
         .mockImplementation(() => Promise.resolve(payment)),
@@ -77,6 +80,12 @@ function fixture() {
         }),
     },
     paymentAttempt: { update: vi.fn().mockResolvedValue({}) },
+    paymentCollectionPolicy: { findUnique: vi.fn().mockResolvedValue(null) },
+    riderPaymentProfile: { findUnique: vi.fn().mockResolvedValue(null) },
+    autoPayDunningCase: { upsert: vi.fn().mockResolvedValue({}), updateMany: vi.fn().mockResolvedValue({}) },
+    riderWallet: { findFirst: vi.fn().mockResolvedValue({ id: 'wallet-1' }) },
+    walletAccount: { findMany: vi.fn().mockResolvedValue([{ id: 'clearing', accountType: 'CLEARING' }, { id: 'provider-clearing', accountType: 'PROVIDER_CLEARING' }]) },
+    paymentCollectionRequest: { findFirst: vi.fn().mockResolvedValue(null) },
     riderLedgerEntry: { create: vi.fn().mockResolvedValue({}) },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
   };
@@ -85,12 +94,14 @@ function fixture() {
       work(tx),
     ),
     paymentMandate: { findFirstOrThrow: vi.fn().mockResolvedValue(mandate) },
+    riderInvoice: { findFirst: vi.fn().mockResolvedValue(invoice) },
     paymentTransaction: {
       findFirst: vi.fn().mockImplementation(() => Promise.resolve(payment)),
       update: vi.fn(),
     },
   };
   const provider = {
+    assertChargeEligible: vi.fn(),
     createPayment: vi
       .fn()
       .mockImplementation(
@@ -119,6 +130,11 @@ function fixture() {
     }),
   };
   const config = { getOrThrow: vi.fn(() => 'cashfree') };
+  const riderPayments = { confirmProviderPaymentInTransaction: vi.fn(async () => {
+    await tx.riderLedgerEntry.create({ data: { sourceType: 'RIDER_PAYMENT', creditAmount: amount } });
+    await tx.riderInvoice.update({ data: { status: 'PAID', outstandingAmount: new Prisma.Decimal(0) } });
+    return { id: 'rider-payment-1' };
+  }) };
   return {
     invoice,
     mandate,
@@ -126,10 +142,13 @@ function fixture() {
     tx,
     prisma,
     provider,
+    riderPayments,
     service: new PaymentOrchestratorService(
       prisma as never,
       config as never,
       provider as never,
+      riderPayments as never,
+      { ensure: vi.fn().mockResolvedValue({ id: 'wallet-1' }), postInTransaction: vi.fn().mockResolvedValue({}) } as never,
     ),
   };
 }
@@ -199,7 +218,7 @@ describe('invoice AutoPay collection', () => {
     expect(f.tx.riderLedgerEntry.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          sourceType: 'PAYMENT_TRANSACTION',
+          sourceType: 'RIDER_PAYMENT',
           creditAmount: amount,
         }),
       }),

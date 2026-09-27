@@ -13,10 +13,13 @@ import type {
 } from '../payment-provider.interface.js';
 
 const config = {
+  get: () => undefined,
   getOrThrow: (key: string) =>
     ({
       CASHFREE_SUBSCRIPTION_RETURN_URL: 'https://app.example/return',
       CASHFREE_WEBHOOK_SECRET: 'secret',
+      CASHFREE_PG_WEBHOOK_SECRET: 'secret',
+      CASHFREE_CLIENT_SECRET: 'secret',
     })[key as 'CASHFREE_WEBHOOK_SECRET'],
 };
 const http = { request: vi.fn() };
@@ -40,6 +43,62 @@ const payment: PaymentInput = {
 };
 
 describe('CashfreePaymentProvider', () => {
+  it('uses a signed PG order and verifies checkout payments on the server', async () => {
+    http.request.mockResolvedValueOnce({
+      order_id: 'ORDER_1',
+      payment_session_id: 'session-1',
+      order_status: 'ACTIVE',
+      order_expiry_time: '2026-09-27T18:00:00+05:30',
+    });
+    const order = await provider.createCheckoutOrder({
+      orderId: 'ORDER_1',
+      idempotencyKey: 'checkout-1',
+      amount: '900.00',
+      currency: 'INR',
+      customer: { id: 'rider-1', phone: '9876543210' },
+    });
+    expect(order.paymentSessionId).toBe('session-1');
+    expect(order.expiresAt).toBe('2026-09-27T18:00:00+05:30');
+    expect(http.request).toHaveBeenLastCalledWith(
+      'POST',
+      '/orders',
+      expect.objectContaining({ order_id: 'ORDER_1', order_amount: 900 }),
+      'checkout-1',
+      '2025-01-01',
+    );
+    http.request.mockResolvedValueOnce([
+      {
+        order_id: 'ORDER_1',
+        cf_payment_id: 123,
+        payment_status: 'SUCCESS',
+        payment_amount: 900,
+        payment_currency: 'INR',
+      },
+    ]);
+    expect(await provider.fetchCheckoutPayments('ORDER_1')).toEqual([
+      expect.objectContaining({
+        status: 'SUCCESS',
+        amount: '900',
+        providerPaymentId: '123',
+      }),
+    ]);
+    http.request.mockResolvedValueOnce({ order_id: 'ORDER_1', order_status: 'EXPIRED' });
+    expect((await provider.fetchCheckoutOrder('ORDER_1')).status).toBe('EXPIRED');
+  });
+  it('requires the raw-body PG signature before accepting a checkout webhook', () => {
+    const raw = Buffer.from('{"type":"PAYMENT_SUCCESS_WEBHOOK"}');
+    const timestamp = '1700000000';
+    const signature = createHmac('sha256', 'secret')
+      .update(timestamp)
+      .update(raw)
+      .digest('base64');
+    expect(
+      provider.verifyCheckoutWebhook(raw, timestamp, signature).payload,
+    ).toEqual({ type: 'PAYMENT_SUCCESS_WEBHOOK' });
+    expect(() =>
+      provider.verifyCheckoutWebhook(raw, timestamp, 'invalid'),
+    ).toThrow();
+  });
   it('maps an on-demand UPI/eNACH mandate and session response', async () => {
     http.request.mockResolvedValueOnce({
       subscription_id: 'EVSEYE_123',

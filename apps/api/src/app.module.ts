@@ -1,3 +1,4 @@
+import { WalletModule } from './wallet/wallet.module.js';
 import { ClientIdentityModule } from './client-identity/client-identity.module.js';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -26,6 +27,11 @@ import { CommercialModule } from './commercial/commercial.module.js';
 import { ReferralModule } from './referrals/referral.module.js';
 import { RiderBillingModule } from './rider-billing/rider-billing.module.js';
 import { PaymentsModule } from './payments/payments.module.js';
+import { RiderRateCardsModule } from './rider-rate-cards/rider-rate-cards.module.js';
+import { NearestHubModule } from './nearest-hub/nearest-hub.module.js';
+import { CollectionsModule } from './collections/collections.module.js';
+import { FinalSettlementModule } from './final-settlement/final-settlement.module.js';
+import { RewardsModule } from './rewards/rewards.module.js';
 
 @Module({
   imports: [
@@ -56,7 +62,13 @@ import { PaymentsModule } from './payments/payments.module.js';
     CommercialModule,
     ReferralModule,
     RiderBillingModule,
+    WalletModule,
+    RewardsModule,
     PaymentsModule,
+    CollectionsModule,
+    FinalSettlementModule,
+    NearestHubModule,
+    RiderRateCardsModule,
     MediaModule,
     KycModule,
     FleetsModule,

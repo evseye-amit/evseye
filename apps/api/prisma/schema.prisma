@@ -665,6 +665,96 @@ enum RiderLedgerEntryType {
   REVERSAL
 }
 
+enum RiderLedgerCategory {
+  CHARGE_BALANCE
+  REFUNDABLE_DEPOSIT_LIABILITY
+}
+
+enum RiderDepositStatus {
+  REQUIRED
+  PARTIALLY_COLLECTED
+  HELD
+  SETTLEMENT_PENDING
+  REFUND_PENDING
+  PARTIALLY_REFUNDED
+  REFUNDED
+  FORFEITED
+  CLOSED
+}
+
+enum RiderDepositTransactionType {
+  COLLECTION
+  WAIVER
+  DEDUCTION
+  REFUND
+  TRANSFER_IN
+  TRANSFER_OUT
+  ADJUSTMENT_CREDIT
+  ADJUSTMENT_DEBIT
+  REVERSAL
+  FORFEITURE
+}
+
+enum RiderDepositRefundStatus {
+  REQUESTED
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+enum VehicleExchangeStatus {
+  REQUESTED
+  APPROVED
+  REPLACEMENT_SELECTED
+  OFFER_PRESENTED
+  ACCEPTED
+  RETURN_PENDING
+  DEPOSIT_PENDING
+  HANDOVER_PENDING
+  COMPLETED
+  REJECTED
+  CANCELLED
+  EXPIRED
+}
+
+enum VehicleExchangeOfferStatus {
+  PRESENTED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CANCELLED
+  SUPERSEDED
+}
+
+enum ExchangeProrationMode {
+  NONE
+  DAILY
+  HOURLY
+  CALENDAR_DAY
+  BILLING_PERIOD_REMAINDER
+}
+
+enum ExchangeProrationPolicy {
+  NO_PRORATION
+  PRORATE_OLD_ONLY
+  PRORATE_NEW_ONLY
+  PRORATE_BOTH
+  START_NEW_NEXT_BILLING_CYCLE
+}
+
+enum ExchangeDepositExcessPolicy {
+  REFUND_REQUEST
+  RETAIN_HELD
+}
+
+enum DepositActivationPolicyType {
+  FULL_REQUIRED
+  MINIMUM_PERCENTAGE
+  MINIMUM_AMOUNT
+  WAIVER_ALLOWED
+  NOT_REQUIRED_BEFORE_ACTIVATION
+}
+
 enum PaymentMandateStatus {
   CREATING
   CREATED
@@ -694,67 +784,99 @@ enum PaymentTransactionStatus {
 }
 
 model Client {
-  id                         String                            @id @default(uuid())
-  name                       String
-  slug                       String                            @unique
-  companyCode                String?                           @unique
-  status                     ClientStatus                      @default(DRAFT)
-  isActive                   Boolean                           @default(true)
-  domains                    ClientDomain[]
-  branding                   ClientBranding?
-  users                      User[]
-  riders                     Rider[]
-  photos                     Photo[]
-  hubs                       Hub[]
-  fleets                     Fleet[]
-  batteries                  Battery[]
-  controllers                Controller[]
-  iotDevices                 IoTDevice[]
-  fleetTransfers             FleetTransfer[]
-  auditLogs                  AuditLog[]
-  businessProfile            ClientBusinessProfile?
-  contacts                   ClientContact[]
-  addresses                  ClientAddress[]
-  operationsProfile          ClientOperationsProfile?
-  billingProfile             ClientBillingProfile?
-  documents                  ClientDocument[]
-  agreement                  ClientAgreement?
-  subscriptions              ClientSubscription[]
-  features                   ClientFeature[]
-  pricingAdjustments         ClientPricingAdjustment[]
-  featureAddOnPurchases      ClientFeatureAddOnPurchase[]
-  featureCreditLots          FeatureCreditLot[]
-  featureUsageLedger         FeatureUsageLedger[]
-  operationVehicleCategories ClientOperationsVehicleCategory[]
-  onboardingProgress         ClientOnboardingProgress?
-  onboardingSteps            ClientOnboardingStepRecord[]
-  importJobs                 ImportJob[]
-  userHubs                   UserHub[]
-  teamLeaderProfiles         TeamLeaderProfile[]
-  teamLeaderRiders           TeamLeaderRider[]
-  riderOnboardingProgress    RiderOnboardingProgress[]
-  riderOnboardingDocuments   RiderOnboardingDocument[]
-  referralCampaigns          ReferralCampaign[]
-  referralIdentities         ReferralIdentity[]
-  referrals                  Referral[]
-  referralRewards            ReferralReward[]
-  referralPayouts            ReferralPayout[]
-  referralFraudChecks        ReferralFraudCheck[]
-  referralActivityEvents     ReferralActivityEvent[]
-  referralNotifications      ReferralNotificationOutbox[]
+  walletInvoiceAllocations    WalletInvoiceAllocation[]
+  walletPolicies              WalletPolicy[]
+  walletSecurityDeposits      WalletSecurityDeposit[]
+  walletDepositRefundRequests WalletDepositRefundRequest[]
+  wallets                     RiderWallet[]
+  walletAccounts              WalletAccount[]
+  walletTransactions          WalletTransaction[]
+  walletEntries               WalletLedgerEntry[]
+  walletHolds                 WalletHold[]
+  settlementPolicy            ClientSettlementPolicy?
+  exchangePolicy              ClientExchangePolicy?
+  riderCommercialTerms        RiderCommercialTerms[]
+  commercialOffers            RiderCommercialOffer[]
+  rentalAgreements            RiderRentalAgreement[]
+  riderPromotions             RiderPromotion[]
+  riderRateCards              RiderRateCard[]
+  batteryPlans                RiderBatteryPlan[]
+  vehicleGrades               VehicleCommercialGradeAssignment[]
+  id                          String                             @id @default(uuid())
+  name                        String
+  slug                        String                             @unique
+  companyCode                 String?                            @unique
+  status                      ClientStatus                       @default(DRAFT)
+  isActive                    Boolean                            @default(true)
+  domains                     ClientDomain[]
+  branding                    ClientBranding?
+  users                       User[]
+  riders                      Rider[]
+  photos                      Photo[]
+  hubs                        Hub[]
+  fleets                      Fleet[]
+  batteries                   Battery[]
+  controllers                 Controller[]
+  iotDevices                  IoTDevice[]
+  fleetTransfers              FleetTransfer[]
+  auditLogs                   AuditLog[]
+  businessProfile             ClientBusinessProfile?
+  contacts                    ClientContact[]
+  addresses                   ClientAddress[]
+  operationsProfile           ClientOperationsProfile?
+  billingProfile              ClientBillingProfile?
+  documents                   ClientDocument[]
+  agreement                   ClientAgreement?
+  subscriptions               ClientSubscription[]
+  features                    ClientFeature[]
+  pricingAdjustments          ClientPricingAdjustment[]
+  featureAddOnPurchases       ClientFeatureAddOnPurchase[]
+  featureCreditLots           FeatureCreditLot[]
+  featureUsageLedger          FeatureUsageLedger[]
+  operationVehicleCategories  ClientOperationsVehicleCategory[]
+  onboardingProgress          ClientOnboardingProgress?
+  onboardingSteps             ClientOnboardingStepRecord[]
+  importJobs                  ImportJob[]
+  userHubs                    UserHub[]
+  teamLeaderProfiles          TeamLeaderProfile[]
+  teamLeaderRiders            TeamLeaderRider[]
+  riderOnboardingProgress     RiderOnboardingProgress[]
+  riderOnboardingDocuments    RiderOnboardingDocument[]
+  referralCampaigns           ReferralCampaign[]
+  referralIdentities          ReferralIdentity[]
+  referrals                   Referral[]
+  referralRewards             ReferralReward[]
+  rewardPrograms              RewardProgram[]
+  referralPayouts             ReferralPayout[]
+  referralFraudChecks         ReferralFraudCheck[]
+  referralActivityEvents      ReferralActivityEvent[]
+  referralNotifications       ReferralNotificationOutbox[]
   referralMilestoneProgress   ReferralMilestoneProgress[]
-  riderPaymentProfiles       RiderPaymentProfile[]
-  riderCharges               RiderCharge[]
-  riderCredits               RiderCredit[]
-  riderInvoices              RiderInvoice[]
-  riderLedgerEntries         RiderLedgerEntry[]
-  paymentMandates            PaymentMandate[]
-  paymentMandateEvents       PaymentMandateEvent[]
-  paymentProviderEvents      PaymentProviderEvent[]
-  paymentTransactions        PaymentTransaction[]
-  paymentAttempts            PaymentAttempt[]
-  createdAt                  DateTime                          @default(now())
-  updatedAt                  DateTime                          @updatedAt
+  riderPaymentProfiles        RiderPaymentProfile[]
+  riderCharges                RiderCharge[]
+  riderCredits                RiderCredit[]
+  riderInvoices               RiderInvoice[]
+  riderLedgerEntries          RiderLedgerEntry[]
+  riderDeposits               RiderDeposit[]
+  depositActivationPolicy     DepositActivationPolicyType        @default(FULL_REQUIRED)
+  depositActivationThreshold  Decimal?                           @db.Decimal(14, 2)
+  paymentMandates             PaymentMandate[]
+  autoPayDunningCases         AutoPayDunningCase[]
+  paymentMandateEvents        PaymentMandateEvent[]
+  paymentProviderEvents       PaymentProviderEvent[]
+  paymentTransactions         PaymentTransaction[]
+  paymentAttempts             PaymentAttempt[]
+  createdAt                   DateTime                           @default(now())
+  updatedAt                   DateTime                           @updatedAt
+}
+
+model ClientSettlementPolicy {
+  clientId                   String   @id
+  client                     Client   @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  depositApplicationEnabled  Boolean  @default(false)
+  manualDepositRefundEnabled Boolean  @default(true)
+  updatedById                String
+  updatedAt                  DateTime @updatedAt
 }
 
 model Oem {
@@ -904,19 +1026,19 @@ model PackageFeature {
 }
 
 model FeaturePricing {
-  id            String             @id @default(uuid())
+  id            String                 @id @default(uuid())
   featureId     String
-  feature       Feature            @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  feature       Feature                @relation(fields: [featureId], references: [id], onDelete: Cascade)
   billingUnit   FeatureBillingUnit
-  currency      String             @default("INR") @db.Char(3)
-  salePrice     Decimal            @db.Decimal(14, 4)
-  costPrice     Decimal?           @db.Decimal(14, 4)
-  effectiveFrom DateTime           @default(now())
+  currency      String                 @default("INR") @db.Char(3)
+  salePrice     Decimal                @db.Decimal(14, 4)
+  costPrice     Decimal?               @db.Decimal(14, 4)
+  effectiveFrom DateTime               @default(now())
   effectiveTo   DateTime?
-  isActive      Boolean            @default(true)
+  isActive      Boolean                @default(true)
   metadata      Json?
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
   clientPricing ClientFeaturePricing[]
 
   @@index([featureId, isActive, effectiveFrom])
@@ -1176,24 +1298,24 @@ model ClientSubscription {
 /// separate from package inclusions, so a negotiated client add-on never
 /// changes the platform Feature or Package master.
 model ClientFeature {
-  id               String              @id @default(uuid())
+  id               String                 @id @default(uuid())
   clientId         String
-  client           Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  client           Client                 @relation(fields: [clientId], references: [id], onDelete: Cascade)
   subscriptionId   String
-  subscription     ClientSubscription  @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  subscription     ClientSubscription     @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
   featureId        String
-  feature          Feature             @relation(fields: [featureId], references: [id], onDelete: Restrict)
-  source           ClientFeatureSource @default(ADD_ON)
-  enabled          Boolean             @default(true)
-  includedQuantity Decimal             @default(0) @db.Decimal(14, 3)
-  usageLimit       Decimal?            @db.Decimal(14, 3)
-  unlimitedUsage   Boolean             @default(false)
-  effectiveFrom    DateTime            @db.Date
-  effectiveTo      DateTime?           @db.Date
+  feature          Feature                @relation(fields: [featureId], references: [id], onDelete: Restrict)
+  source           ClientFeatureSource    @default(ADD_ON)
+  enabled          Boolean                @default(true)
+  includedQuantity Decimal                @default(0) @db.Decimal(14, 3)
+  usageLimit       Decimal?               @db.Decimal(14, 3)
+  unlimitedUsage   Boolean                @default(false)
+  effectiveFrom    DateTime               @db.Date
+  effectiveTo      DateTime?              @db.Date
   configuration    Json?
   pricing          ClientFeaturePricing[]
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
 
   @@unique([subscriptionId, featureId])
   @@index([clientId, enabled, effectiveFrom])
@@ -1203,23 +1325,23 @@ model ClientFeature {
 /// Customer-specific feature price snapshots.  These preserve agreed prices
 /// even when the catalog FeaturePricing changes later.
 model ClientFeaturePricing {
-  id               String          @id @default(uuid())
+  id               String         @id @default(uuid())
   clientFeatureId  String
-  clientFeature    ClientFeature   @relation(fields: [clientFeatureId], references: [id], onDelete: Cascade)
+  clientFeature    ClientFeature  @relation(fields: [clientFeatureId], references: [id], onDelete: Cascade)
   featurePricingId String
-  featurePricing   FeaturePricing  @relation(fields: [featurePricingId], references: [id], onDelete: Restrict)
-  currency         String          @default("INR") @db.Char(3)
-  listUnitPrice    Decimal         @db.Decimal(14, 4)
-  discountType     String?         @db.VarChar(20)
-  discountValue    Decimal?        @db.Decimal(14, 4)
-  finalUnitPrice   Decimal         @db.Decimal(14, 4)
-  setupFee         Decimal         @default(0) @db.Decimal(14, 2)
-  effectiveFrom    DateTime        @db.Date
-  effectiveTo      DateTime?       @db.Date
-  reason           String?         @db.VarChar(500)
+  featurePricing   FeaturePricing @relation(fields: [featurePricingId], references: [id], onDelete: Restrict)
+  currency         String         @default("INR") @db.Char(3)
+  listUnitPrice    Decimal        @db.Decimal(14, 4)
+  discountType     String?        @db.VarChar(20)
+  discountValue    Decimal?       @db.Decimal(14, 4)
+  finalUnitPrice   Decimal        @db.Decimal(14, 4)
+  setupFee         Decimal        @default(0) @db.Decimal(14, 2)
+  effectiveFrom    DateTime       @db.Date
+  effectiveTo      DateTime?      @db.Date
+  reason           String?        @db.VarChar(500)
   approvedBy       String?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 
   @@index([clientFeatureId, effectiveFrom])
   @@index([featurePricingId])
@@ -1331,53 +1453,54 @@ model FeatureUsageLedger {
 }
 
 model Hub {
-  id                      String          @id @default(uuid())
+  id                      String                                @id @default(uuid())
   clientId                String
-  client                  Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  code                    String          @db.VarChar(50)
-  name                    String          @db.VarChar(150)
-  type                    HubType         @default(OPERATIONS)
-  status                  HubStatus       @default(ACTIVE)
-  addressLine1            String?         @db.VarChar(255)
-  addressLine2            String?         @db.VarChar(255)
-  landmark                String?         @db.VarChar(150)
-  city                    String          @default("") @db.VarChar(100)
-  district                String?         @db.VarChar(100)
-  state                   String          @default("") @db.VarChar(100)
-  country                 String          @default("India") @db.VarChar(100)
-  postalCode              String?         @db.VarChar(10)
-  latitude                Decimal?        @db.Decimal(10, 7)
-  longitude               Decimal?        @db.Decimal(10, 7)
+  client                  Client                                @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  code                    String                                @db.VarChar(50)
+  name                    String                                @db.VarChar(150)
+  type                    HubType                               @default(OPERATIONS)
+  status                  HubStatus                             @default(ACTIVE)
+  addressLine1            String?                               @db.VarChar(255)
+  addressLine2            String?                               @db.VarChar(255)
+  landmark                String?                               @db.VarChar(150)
+  city                    String                                @default("") @db.VarChar(100)
+  district                String?                               @db.VarChar(100)
+  state                   String                                @default("") @db.VarChar(100)
+  country                 String                                @default("India") @db.VarChar(100)
+  postalCode              String?                               @db.VarChar(10)
+  latitude                Decimal?                              @db.Decimal(10, 7)
+  longitude               Decimal?                              @db.Decimal(10, 7)
+  location                Unsupported("geography(Point,4326)")?
   parentHubId             String?
-  parentHub               Hub?            @relation("HubHierarchy", fields: [parentHubId], references: [id], onDelete: SetNull)
-  childHubs               Hub[]           @relation("HubHierarchy")
+  parentHub               Hub?                                  @relation("HubHierarchy", fields: [parentHubId], references: [id], onDelete: SetNull)
+  childHubs               Hub[]                                 @relation("HubHierarchy")
   vehicleCapacity         Int?
   riderCapacity           Int?
   batteryCapacity         Int?
   parkingSlots            Int?
   chargingPoints          Int?
   swappingPoints          Int?
-  contactName             String?         @db.VarChar(150)
-  contactPhone            String?         @db.VarChar(20)
-  contactEmail            String?         @db.VarChar(150)
-  openingTime             String?         @db.VarChar(5)
-  closingTime             String?         @db.VarChar(5)
-  is24x7                  Boolean         @default(false)
-  supportsCharging        Boolean         @default(false)
-  supportsBatterySwapping Boolean         @default(false)
-  supportsMaintenance     Boolean         @default(false)
-  supportsAllocation      Boolean         @default(true)
-  supportsDeallocation    Boolean         @default(true)
-  supportsPdi             Boolean         @default(false)
+  contactName             String?                               @db.VarChar(150)
+  contactPhone            String?                               @db.VarChar(20)
+  contactEmail            String?                               @db.VarChar(150)
+  openingTime             String?                               @db.VarChar(5)
+  closingTime             String?                               @db.VarChar(5)
+  is24x7                  Boolean                               @default(false)
+  supportsCharging        Boolean                               @default(false)
+  supportsBatterySwapping Boolean                               @default(false)
+  supportsMaintenance     Boolean                               @default(false)
+  supportsAllocation      Boolean                               @default(true)
+  supportsDeallocation    Boolean                               @default(true)
+  supportsPdi             Boolean                               @default(false)
   metadata                Json?
   deletedAt               DateTime?
   userHubs                UserHub[]
-  homeFleets              Fleet[]         @relation("FleetHomeHub")
-  currentFleets           Fleet[]         @relation("FleetCurrentHub")
-  outboundFleetTransfers  FleetTransfer[] @relation("FleetTransferFromHub")
-  inboundFleetTransfers   FleetTransfer[] @relation("FleetTransferToHub")
-  createdAt               DateTime        @default(now())
-  updatedAt               DateTime        @updatedAt
+  homeFleets              Fleet[]                               @relation("FleetHomeHub")
+  currentFleets           Fleet[]                               @relation("FleetCurrentHub")
+  outboundFleetTransfers  FleetTransfer[]                       @relation("FleetTransferFromHub")
+  inboundFleetTransfers   FleetTransfer[]                       @relation("FleetTransferToHub")
+  createdAt               DateTime                              @default(now())
+  updatedAt               DateTime                              @updatedAt
 
   @@unique([clientId, code])
   @@index([clientId, status])
@@ -1386,37 +1509,38 @@ model Hub {
 }
 
 model Fleet {
-  id                 String                   @id @default(uuid())
+  commercialGrades   VehicleCommercialGradeAssignment[]
+  id                 String                             @id @default(uuid())
   clientId           String
-  client             Client                   @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  fleetCode          String                   @db.VarChar(50)
-  vehicleNumber      String?                  @db.VarChar(30)
-  chassisNumber      String                   @db.VarChar(100)
-  vinNumber          String?                  @db.VarChar(100)
+  client             Client                             @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  fleetCode          String                             @db.VarChar(50)
+  vehicleNumber      String?                            @db.VarChar(30)
+  chassisNumber      String                             @db.VarChar(100)
+  vinNumber          String?                            @db.VarChar(100)
   oemId              String
-  oem                Oem                      @relation(fields: [oemId], references: [id], onDelete: Restrict)
+  oem                Oem                                @relation(fields: [oemId], references: [id], onDelete: Restrict)
   vehicleCategoryId  String
-  vehicleCategory    VehicleCategory          @relation(fields: [vehicleCategoryId], references: [id], onDelete: Restrict)
+  vehicleCategory    VehicleCategory                    @relation(fields: [vehicleCategoryId], references: [id], onDelete: Restrict)
   vehicleTypeId      String
-  vehicleType        VehicleType              @relation(fields: [vehicleTypeId], references: [id], onDelete: Restrict)
+  vehicleType        VehicleType                        @relation(fields: [vehicleTypeId], references: [id], onDelete: Restrict)
   speedType          VehicleSpeedType
-  modelName          String?                  @db.VarChar(100)
-  variantName        String?                  @db.VarChar(100)
-  colour             String?                  @db.VarChar(50)
+  modelName          String?                            @db.VarChar(100)
+  variantName        String?                            @db.VarChar(100)
+  colour             String?                            @db.VarChar(50)
   manufacturingYear  Int?
   manufacturingMonth Int?
-  motorNumber        String?                  @db.VarChar(100)
-  ownershipType      FleetOwnershipType       @default(CLIENT_OWNED)
-  status             FleetStatus              @default(IN_TRANSIT)
-  allocationEnabled  Boolean                  @default(true)
+  motorNumber        String?                            @db.VarChar(100)
+  ownershipType      FleetOwnershipType                 @default(CLIENT_OWNED)
+  status             FleetStatus                        @default(IN_TRANSIT)
+  allocationEnabled  Boolean                            @default(true)
   homeHubId          String?
-  homeHub            Hub?                     @relation("FleetHomeHub", fields: [homeHubId], references: [id], onDelete: SetNull)
+  homeHub            Hub?                               @relation("FleetHomeHub", fields: [homeHubId], references: [id], onDelete: SetNull)
   currentHubId       String?
-  currentHub         Hub?                     @relation("FleetCurrentHub", fields: [currentHubId], references: [id], onDelete: SetNull)
-  odometerKm         Decimal?                 @db.Decimal(12, 2)
-  iotDeviceId        String?                  @unique
-  iotDevice          IoTDevice?               @relation("FleetCurrentIoTDevice", fields: [iotDeviceId], references: [id], onDelete: SetNull)
-  onboardingStatus   FleetOnboardingStatus    @default(DRAFT)
+  currentHub         Hub?                               @relation("FleetCurrentHub", fields: [currentHubId], references: [id], onDelete: SetNull)
+  odometerKm         Decimal?                           @db.Decimal(12, 2)
+  iotDeviceId        String?                            @unique
+  iotDevice          IoTDevice?                         @relation("FleetCurrentIoTDevice", fields: [iotDeviceId], references: [id], onDelete: SetNull)
+  onboardingStatus   FleetOnboardingStatus              @default(DRAFT)
   onboardedAt        DateTime?
   activatedAt        DateTime?
   deactivatedAt      DateTime?
@@ -1432,8 +1556,8 @@ model Fleet {
   transfers          FleetTransfer[]
   currentState       VehicleCurrentState?
   deletedAt          DateTime?
-  createdAt          DateTime                 @default(now())
-  updatedAt          DateTime                 @updatedAt
+  createdAt          DateTime                           @default(now())
+  updatedAt          DateTime                           @updatedAt
 
   @@unique([clientId, fleetCode])
   @@unique([clientId, vehicleNumber])
@@ -1710,46 +1834,55 @@ model User {
 }
 
 model Rider {
-  id                     String                    @id @default(uuid())
-  clientId               String
-  client                 Client                    @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  userId                 String?                   @unique
-  user                   User?                     @relation(fields: [userId], references: [id], onDelete: SetNull)
-  name                   String
-  mobile                 String
-  address                String?
-  riderCode              String?                   @db.VarChar(50)
-  dateOfBirth            DateTime?                 @db.Date
-  gender                 Gender?
-  addressLine1           String?                   @db.VarChar(255)
-  addressLine2           String?                   @db.VarChar(255)
-  city                   String?                   @db.VarChar(100)
-  state                  String?                   @db.VarChar(100)
-  postalCode             String?                   @db.VarChar(10)
-  emergencyContactName   String?                   @db.VarChar(150)
-  emergencyContactMobile String?                   @db.VarChar(20)
-  status                 RiderStatus               @default(ONBOARDING)
-  joiningDate            DateTime?                 @db.Date
-  exitDate               DateTime?                 @db.Date
-  metadata               Json?
-  deletedAt              DateTime?
-  kycs                   RiderKyc[]
-  allocations            Allocation[]
-  teamLeaders            TeamLeaderRider[]
-  onboardingDocuments    RiderOnboardingDocument[]
-  referralIdentity       ReferralIdentity?
-  referralsMade          Referral[]                @relation("ReferralReferrer")
-  referralsReceived      Referral[]                @relation("ReferralReferee")
-  referralRewards        ReferralReward[]
-  paymentProfile         RiderPaymentProfile?
-  billingCharges         RiderCharge[]
-  billingCredits         RiderCredit[]
-  billingInvoices        RiderInvoice[]
-  billingLedgerEntries   RiderLedgerEntry[]
-  paymentMandates        PaymentMandate[]
-  paymentTransactions    PaymentTransaction[]
-  createdAt              DateTime                  @default(now())
-  updatedAt              DateTime                  @updatedAt
+  walletSecurityDeposits  WalletSecurityDeposit[]
+  wallets                 RiderWallet[]
+  id                      String                     @id @default(uuid())
+  clientId                String
+  client                  Client                     @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  userId                  String?                    @unique
+  user                    User?                      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name                    String
+  mobile                  String
+  address                 String?
+  riderCode               String?                    @db.VarChar(50)
+  dateOfBirth             DateTime?                  @db.Date
+  gender                  Gender?
+  addressLine1            String?                    @db.VarChar(255)
+  addressLine2            String?                    @db.VarChar(255)
+  city                    String?                    @db.VarChar(100)
+  state                   String?                    @db.VarChar(100)
+  postalCode              String?                    @db.VarChar(10)
+  emergencyContactName    String?                    @db.VarChar(150)
+  emergencyContactMobile  String?                    @db.VarChar(20)
+  status                  RiderStatus                @default(ONBOARDING)
+  joiningDate             DateTime?                  @db.Date
+  exitDate                DateTime?                  @db.Date
+  metadata                Json?
+  deletedAt               DateTime?
+  kycs                    RiderKyc[]
+  allocations             Allocation[]
+  teamLeaders             TeamLeaderRider[]
+  onboardingDocuments     RiderOnboardingDocument[]
+  referralIdentity        ReferralIdentity?
+  referralsMade           Referral[]                 @relation("ReferralReferrer")
+  referralsReceived       Referral[]                 @relation("ReferralReferee")
+  referralRewards         ReferralReward[]
+  rewardClaims            RewardClaim[]
+  paymentProfile          RiderPaymentProfile?
+  billingCharges          RiderCharge[]
+  billingCredits          RiderCredit[]
+  billingInvoices         RiderInvoice[]
+  billingSchedules        RiderBillingSchedule[]
+  billingPeriods          RiderBillingPeriod[]
+  riderPayments           RiderPayment[]
+  riderPaymentAllocations RiderPaymentAllocation[]
+  collectionRequests      PaymentCollectionRequest[]
+  billingLedgerEntries    RiderLedgerEntry[]
+  paymentMandates         PaymentMandate[]
+  autoPayDunningCases     AutoPayDunningCase[]
+  paymentTransactions     PaymentTransaction[]
+  createdAt               DateTime                   @default(now())
+  updatedAt               DateTime                   @updatedAt
 
   @@unique([clientId, mobile])
   @@unique([clientId, id])
@@ -1759,26 +1892,28 @@ model Rider {
 }
 
 model PaymentMandate {
-  id                     String               @id @default(uuid())
+  id                     String                 @id @default(uuid())
+  mandateNumber          String?                @unique @db.VarChar(50)
+  autoDebitEnabled       Boolean                @default(true)
   clientId               String
-  client                 Client               @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  client                 Client                 @relation(fields: [clientId], references: [id], onDelete: Restrict)
   riderId                String
-  rider                  Rider                @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
-  requestKey             String               @db.VarChar(120)
-  provider               String               @default("CASHFREE") @db.VarChar(30)
-  providerMandateId      String               @unique @db.VarChar(250)
+  rider                  Rider                  @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  requestKey             String                 @db.VarChar(120)
+  provider               String                 @default("CASHFREE") @db.VarChar(30)
+  providerMandateId      String                 @unique @db.VarChar(250)
   authorizationSessionId String?
-  status                 PaymentMandateStatus @default(CREATING)
-  providerStatus         String?              @db.VarChar(80)
-  mode                   String               @default("ON_DEMAND") @db.VarChar(30)
-  method                 String               @default("UPI_AUTOPAY") @db.VarChar(30)
-  maxAmount              Decimal              @db.Decimal(14, 2)
-  authorizationAmount    Decimal?             @db.Decimal(14, 2)
-  currency               String               @default("INR") @db.Char(3)
+  status                 PaymentMandateStatus   @default(CREATING)
+  providerStatus         String?                @db.VarChar(80)
+  mode                   String                 @default("ON_DEMAND") @db.VarChar(30)
+  method                 String                 @default("UPI_AUTOPAY") @db.VarChar(30)
+  maxAmount              Decimal                @db.Decimal(14, 2)
+  authorizationAmount    Decimal?               @db.Decimal(14, 2)
+  currency               String                 @default("INR") @db.Char(3)
   expiresAt              DateTime
   authorizedAt           DateTime?
-  createdAt              DateTime             @default(now())
-  updatedAt              DateTime             @updatedAt
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
   events                 PaymentMandateEvent[]
   providerEvents         PaymentProviderEvent[]
   transactions           PaymentTransaction[]
@@ -1789,130 +1924,251 @@ model PaymentMandate {
 }
 
 model PaymentMandateEvent {
-  id          String               @id @default(uuid())
+  id          String                @id @default(uuid())
   clientId    String
-  client      Client               @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  client      Client                @relation(fields: [clientId], references: [id], onDelete: Restrict)
   mandateId   String
-  mandate     PaymentMandate       @relation(fields: [clientId, mandateId], references: [clientId, id], onDelete: Restrict)
+  mandate     PaymentMandate        @relation(fields: [clientId, mandateId], references: [clientId, id], onDelete: Restrict)
   fromStatus  PaymentMandateStatus?
   toStatus    PaymentMandateStatus
-  source      String               @db.VarChar(40)
-  referenceId String?              @db.VarChar(120)
-  createdAt   DateTime             @default(now())
+  source      String                @db.VarChar(40)
+  referenceId String?               @db.VarChar(120)
+  createdAt   DateTime              @default(now())
 
   @@index([clientId, mandateId, createdAt])
 }
 
 model PaymentProviderEvent {
-  id            String                     @id @default(uuid())
-  provider      String                     @db.VarChar(30)
-  eventKey      String                     @db.VarChar(128)
-  eventType     String                     @db.VarChar(100)
-  payloadHash   String                     @db.VarChar(64)
-  clientId      String?
-  client        Client?                    @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  mandateId     String?
-  mandate       PaymentMandate?            @relation(fields: [clientId, mandateId], references: [clientId, id], onDelete: Restrict)
+  id                   String                     @id @default(uuid())
+  provider             String                     @db.VarChar(30)
+  eventKey             String                     @db.VarChar(128)
+  eventType            String                     @db.VarChar(100)
+  payloadHash          String                     @db.VarChar(64)
+  clientId             String?
+  client               Client?                    @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  mandateId            String?
+  mandate              PaymentMandate?            @relation(fields: [clientId, mandateId], references: [clientId, id], onDelete: Restrict)
   paymentTransactionId String?
-  paymentTransaction PaymentTransaction? @relation(fields: [clientId, paymentTransactionId], references: [clientId, id], onDelete: Restrict)
-  status        PaymentProviderEventStatus @default(RECEIVED)
-  receivedAt    DateTime                   @default(now())
-  processedAt   DateTime?
-  failureReason String?                    @db.VarChar(150)
+  paymentTransaction   PaymentTransaction?        @relation(fields: [clientId, paymentTransactionId], references: [clientId, id], onDelete: Restrict)
+  collectionRequestId  String?
+  collectionRequest    PaymentCollectionRequest?  @relation(fields: [collectionRequestId], references: [id], onDelete: Restrict)
+  status               PaymentProviderEventStatus @default(RECEIVED)
+  receivedAt           DateTime                   @default(now())
+  processedAt          DateTime?
+  failureReason        String?                    @db.VarChar(150)
 
   @@unique([provider, eventKey])
   @@index([clientId, receivedAt])
 }
 
 model PaymentTransaction {
-  id                  String                   @id @default(uuid())
-  clientId            String
-  client              Client                   @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  riderId             String
-  rider               Rider                    @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
-  invoiceId           String
-  invoice             RiderInvoice             @relation(fields: [clientId, invoiceId], references: [clientId, id], onDelete: Restrict)
-  mandateId           String
-  mandate             PaymentMandate           @relation(fields: [clientId, mandateId], references: [clientId, id], onDelete: Restrict)
-  requestKey           String                   @db.VarChar(120)
-  provider             String                   @default("CASHFREE") @db.VarChar(30)
-  providerPaymentId    String                   @db.VarChar(250)
-  providerReference    String?                  @db.VarChar(120)
-  status               PaymentTransactionStatus @default(CREATING)
-  amount               Decimal                  @db.Decimal(14, 2)
-  currency             String                   @default("INR") @db.Char(3)
-  scheduledAt          DateTime
-  completedAt          DateTime?
-  lastVerifiedAt       DateTime?
-  createdAt            DateTime                 @default(now())
-  updatedAt            DateTime                 @updatedAt
-  attempts             PaymentAttempt[]
-  providerEvents       PaymentProviderEvent[]
+  id                 String                   @id @default(uuid())
+  debitNumber        String?                  @unique @db.VarChar(50)
+  clientId           String
+  client             Client                   @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId            String
+  rider              Rider                    @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  invoiceId          String
+  invoice            RiderInvoice             @relation(fields: [clientId, invoiceId], references: [clientId, id], onDelete: Restrict)
+  mandateId          String
+  mandate            PaymentMandate           @relation(fields: [clientId, mandateId], references: [clientId, id], onDelete: Restrict)
+  requestKey         String                   @db.VarChar(120)
+  provider           String                   @default("CASHFREE") @db.VarChar(30)
+  providerPaymentId  String                   @db.VarChar(250)
+  providerReference  String?                  @db.VarChar(120)
+  failureCode        String?                  @db.VarChar(80)
+  retryability       String?                  @db.VarChar(20)
+  status             PaymentTransactionStatus @default(CREATING)
+  amount             Decimal                  @db.Decimal(14, 2)
+  currency           String                   @default("INR") @db.Char(3)
+  scheduledAt        DateTime
+  preDebitNotifiedAt DateTime?
+  completedAt        DateTime?
+  lastVerifiedAt     DateTime?
+  riderPaymentId     String?                  @unique
+  riderPayment       RiderPayment?            @relation(fields: [riderPaymentId], references: [id], onDelete: Restrict)
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  attempts           PaymentAttempt[]
+  providerEvents     PaymentProviderEvent[]
 
   @@unique([clientId, id])
-  @@unique([clientId, invoiceId])
   @@unique([clientId, requestKey])
   @@unique([provider, providerPaymentId])
+  @@index([clientId, invoiceId, status])
   @@index([clientId, riderId, status])
   @@index([clientId, mandateId, status])
 }
 
 model PaymentAttempt {
-  id                  String                   @id @default(uuid())
+  id                  String                    @id @default(uuid())
   clientId            String
-  client              Client                   @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  transactionId       String
-  transaction         PaymentTransaction       @relation(fields: [clientId, transactionId], references: [clientId, id], onDelete: Restrict)
-  sequence            Int                      @default(1)
-  status              PaymentTransactionStatus @default(CREATING)
-  providerPaymentId    String                   @db.VarChar(250)
-  providerReference    String?                  @db.VarChar(120)
-  providerStatus       String?                  @db.VarChar(80)
-  createdAt            DateTime                 @default(now())
-  updatedAt            DateTime                 @updatedAt
+  client              Client                    @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  transactionId       String?
+  transaction         PaymentTransaction?       @relation(fields: [clientId, transactionId], references: [clientId, id], onDelete: Restrict)
+  collectionRequestId String?
+  collectionRequest   PaymentCollectionRequest? @relation(fields: [collectionRequestId], references: [id], onDelete: Restrict)
+  sequence            Int                       @default(1)
+  status              PaymentTransactionStatus  @default(CREATING)
+  providerPaymentId   String                    @db.VarChar(250)
+  providerReference   String?                   @db.VarChar(120)
+  providerStatus      String?                   @db.VarChar(80)
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
 
   @@unique([transactionId, sequence])
+  @@unique([collectionRequestId, sequence])
   @@unique([clientId, providerPaymentId])
   @@index([clientId, status, createdAt])
 }
 
+model PaymentCollectionPolicy {
+  clientId              String   @id
+  enabled               Boolean  @default(false)
+  collectionTiming      String   @default("ON_DUE_DATE") @db.VarChar(30)
+  beforeDueDays         Int      @default(0)
+  collectionHourIst     Int      @default(0)
+  collectionMinuteIst   Int      @default(0)
+  retryEnabled          Boolean  @default(false)
+  maximumAttempts       Int      @default(1)
+  retryIntervalsDays    Json     @default("[]")
+  autoCollectCategories Json     @default("[\"RECURRING_RENTAL\"]")
+  maximumAutoDebit      Decimal? @db.Decimal(14, 2)
+  walletFirst           Boolean  @default(true)
+  updatedAt             DateTime @updatedAt
+  updatedById           String?
+}
+
+model AutoPayDunningCase {
+  id             String       @id @default(uuid())
+  clientId       String
+  client         Client       @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId        String
+  rider          Rider        @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  invoiceId      String
+  invoice        RiderInvoice @relation(fields: [clientId, invoiceId], references: [clientId, id], onDelete: Restrict)
+  status         String       @default("OPEN") @db.VarChar(30)
+  failedAttempts Int          @default(0)
+  nextRetryAt    DateTime?
+  graceUntil     DateTime?
+  failureCode    String?      @db.VarChar(80)
+  resolvedAt     DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([clientId, invoiceId])
+  @@index([clientId, status, nextRetryAt])
+  @@index([clientId, riderId, status])
+}
+
+model PaymentCollectionRequest {
+  id                   String                       @id @default(uuid())
+  paymentNumber        String?                      @unique @db.VarChar(50)
+  clientId             String
+  riderId              String
+  rider                Rider                        @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  invoiceId            String?
+  invoice              RiderInvoice?                @relation(fields: [clientId, invoiceId], references: [clientId, id], onDelete: Restrict)
+  depositId            String?
+  deposit              RiderDeposit?                @relation(fields: [depositId], references: [id], onDelete: Restrict)
+  collectionType       String                       @db.VarChar(40)
+  method               String                       @db.VarChar(30)
+  provider             String                       @db.VarChar(30)
+  status               String                       @default("CREATED") @db.VarChar(30)
+  amount               Decimal                      @db.Decimal(14, 2)
+  currency             String                       @db.Char(3)
+  idempotencyKey       String                       @db.VarChar(120)
+  paymentSnapshot      Json?
+  providerOrderId      String?                      @unique @db.VarChar(80)
+  providerPaymentId    String?                      @unique @db.VarChar(120)
+  paymentSessionId     String?                      @db.VarChar(300)
+  riderPaymentId       String?                      @unique
+  riderPayment         RiderPayment?                @relation(fields: [riderPaymentId], references: [id], onDelete: Restrict)
+  depositTransactionId String?                      @unique
+  depositTransaction   RiderDepositTransaction?     @relation(fields: [depositTransactionId], references: [id], onDelete: Restrict)
+  scheduledAt          DateTime?
+  completedAt          DateTime?
+  expiresAt            DateTime?
+  failureCode          String?                      @db.VarChar(80)
+  createdAt            DateTime                     @default(now())
+  updatedAt            DateTime                     @updatedAt
+  attempts             PaymentAttempt[]
+  providerEvents       PaymentProviderEvent[]
+  providerObservations ProviderPaymentObservation[]
+
+  @@unique([clientId, idempotencyKey])
+  @@index([clientId, riderId, status])
+  @@index([clientId, invoiceId, status])
+}
+
+model ProviderPaymentObservation {
+  id                String                   @id @default(uuid())
+  clientId          String
+  riderId           String
+  collectionId      String
+  collection        PaymentCollectionRequest @relation(fields: [collectionId], references: [id], onDelete: Restrict)
+  provider          String                   @db.VarChar(30)
+  providerOrderId   String                   @db.VarChar(80)
+  providerPaymentId String                   @db.VarChar(120)
+  status            String                   @db.VarChar(30)
+  amount            Decimal?                 @db.Decimal(14, 2)
+  currency          String?                  @db.Char(3)
+  reviewCode        String?                  @db.VarChar(80)
+  observedAt        DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  @@unique([provider, providerPaymentId])
+  @@index([clientId, collectionId, observedAt])
+  @@index([clientId, reviewCode, observedAt])
+}
+
 /// One client-scoped payment profile per Rider. Mandate references are added in Phase 2.
 model RiderPaymentProfile {
-  id             String   @id @default(uuid())
-  clientId       String
-  client         Client   @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  riderId        String   @unique
-  rider          Rider    @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
-  autoPayEnabled Boolean  @default(false)
-  billingStatus  String   @default("CURRENT") @db.VarChar(30)
-  currency       String   @default("INR") @db.Char(3)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                          String   @id @default(uuid())
+  clientId                    String
+  client                      Client   @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId                     String   @unique
+  rider                       Rider    @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  autoPayEnabled              Boolean  @default(false)
+  autoSettleInvoiceFromWallet Boolean  @default(false)
+  billingStatus               String   @default("CURRENT") @db.VarChar(30)
+  currency                    String   @default("INR") @db.Char(3)
+  billingMode                 String   @default("PREPAID") @db.VarChar(20)
+  paymentTermsDays            Int      @default(0)
+  gracePeriodDays             Int      @default(0)
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
 
   @@unique([clientId, riderId])
   @@index([clientId, billingStatus])
 }
 
 model RiderCharge {
-  id            String            @id @default(uuid())
-  clientId      String
-  client        Client            @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  riderId       String
-  rider         Rider             @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
-  sourceKey     String            @db.VarChar(120)
-  chargeType    String            @db.VarChar(60)
-  referenceType String?           @db.VarChar(60)
-  referenceId   String?           @db.VarChar(120)
-  description   String            @db.VarChar(300)
-  quantity      Decimal           @db.Decimal(14, 4)
-  unitAmount    Decimal           @db.Decimal(14, 2)
-  amount        Decimal           @db.Decimal(14, 2)
-  currency      String            @db.Char(3)
-  effectiveAt   DateTime          @default(now())
-  status        RiderChargeStatus @default(OPEN)
-  invoiceId     String?
-  invoice       RiderInvoice?     @relation(fields: [clientId, invoiceId], references: [clientId, id], onDelete: Restrict)
-  createdAt     DateTime          @default(now())
+  id                  String            @id @default(uuid())
+  clientId            String
+  client              Client            @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId             String
+  rider               Rider             @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  sourceKey           String            @db.VarChar(120)
+  chargeType          String            @db.VarChar(60)
+  referenceType       String?           @db.VarChar(60)
+  referenceId         String?           @db.VarChar(120)
+  description         String            @db.VarChar(300)
+  quantity            Decimal           @db.Decimal(14, 4)
+  unitAmount          Decimal           @db.Decimal(14, 2)
+  amount              Decimal           @db.Decimal(14, 2)
+  currency            String            @db.Char(3)
+  effectiveAt         DateTime          @default(now())
+  agreementId         String?
+  commercialVersionId String?
+  vehicleId           String?
+  servicePeriodStart  DateTime?
+  servicePeriodEnd    DateTime?
+  pricingDetail       Json?
+  status              RiderChargeStatus @default(OPEN)
+  invoiceId           String?
+  invoice             RiderInvoice?     @relation(fields: [clientId, invoiceId], references: [clientId, id], onDelete: Restrict)
+  createdAt           DateTime          @default(now())
 
   @@unique([clientId, sourceKey])
   @@index([clientId, riderId, status, effectiveAt])
@@ -1920,22 +2176,23 @@ model RiderCharge {
 }
 
 model RiderCredit {
-  id              String            @id @default(uuid())
-  clientId        String
-  client          Client            @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  riderId         String
-  rider           Rider             @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
-  sourceKey       String            @db.VarChar(120)
-  creditType      String            @db.VarChar(60)
-  referenceType   String?           @db.VarChar(60)
-  referenceId     String?           @db.VarChar(120)
-  description     String            @db.VarChar(300)
-  amount          Decimal           @db.Decimal(14, 2)
-  remainingAmount Decimal           @db.Decimal(14, 2)
-  currency        String            @db.Char(3)
-  effectiveAt     DateTime          @default(now())
-  status          RiderCreditStatus @default(AVAILABLE)
-  createdAt       DateTime          @default(now())
+  id                     String                             @id @default(uuid())
+  clientId               String
+  client                 Client                             @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId                String
+  rider                  Rider                              @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  sourceKey              String                             @db.VarChar(120)
+  creditType             String                             @db.VarChar(60)
+  referenceType          String?                            @db.VarChar(60)
+  referenceId            String?                            @db.VarChar(120)
+  description            String                             @db.VarChar(300)
+  amount                 Decimal                            @db.Decimal(14, 2)
+  remainingAmount        Decimal                            @db.Decimal(14, 2)
+  currency               String                             @db.Char(3)
+  effectiveAt            DateTime                           @default(now())
+  status                 RiderCreditStatus                  @default(AVAILABLE)
+  createdAt              DateTime                           @default(now())
+  settlementApplications RiderSettlementCreditApplication[]
 
   @@unique([clientId, sourceKey])
   @@index([clientId, riderId, status, effectiveAt])
@@ -1949,6 +2206,9 @@ model RiderLedgerEntry {
   riderId      String
   rider        Rider                @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
   entryType    RiderLedgerEntryType
+  category     RiderLedgerCategory  @default(CHARGE_BALANCE)
+  agreementId  String?
+  vehicleId    String?
   sourceType   String               @db.VarChar(60)
   sourceId     String               @db.VarChar(120)
   description  String               @db.VarChar(300)
@@ -1962,53 +2222,377 @@ model RiderLedgerEntry {
   @@index([clientId, riderId, effectiveAt, id])
 }
 
+model RiderDeposit {
+  id                     String                      @id @default(uuid())
+  clientId               String
+  client                 Client                      @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId                String
+  agreementId            String
+  agreement              RiderRentalAgreement        @relation(fields: [agreementId], references: [id], onDelete: Restrict)
+  vehicleId              String?
+  obligationKey          String                      @db.VarChar(160)
+  depositType            String                      @db.VarChar(80)
+  code                   String                      @db.VarChar(80)
+  currency               String                      @db.Char(3)
+  originalRequiredAmount Decimal                     @db.Decimal(14, 2)
+  waiverAmount           Decimal                     @default(0) @db.Decimal(14, 2)
+  requiredAmount         Decimal                     @db.Decimal(14, 2)
+  fundedAmount           Decimal                     @default(0) @db.Decimal(14, 2)
+  availableAmount        Decimal                     @default(0) @db.Decimal(14, 2)
+  status                 RiderDepositStatus          @default(REQUIRED)
+  sourceType             String                      @default("RENTAL_AGREEMENT") @db.VarChar(60)
+  sourceId               String                      @db.VarChar(120)
+  snapshotLine           Json
+  createdById            String?
+  updatedById            String?
+  createdAt              DateTime                    @default(now())
+  updatedAt              DateTime                    @updatedAt
+  transactions           RiderDepositTransaction[]
+  collectionRequests     PaymentCollectionRequest[]
+  refundRequests         RiderDepositRefundRequest[]
+
+  @@unique([clientId, agreementId, obligationKey])
+  @@index([clientId, riderId, status, createdAt])
+  @@index([clientId, agreementId, status])
+  @@index([clientId, vehicleId, depositType])
+}
+
+model RiderDepositTransaction {
+  id                      String                      @id @default(uuid())
+  clientId                String
+  depositId               String
+  deposit                 RiderDeposit                @relation(fields: [depositId], references: [id], onDelete: Restrict)
+  riderId                 String
+  agreementId             String
+  vehicleId               String?
+  transactionType         RiderDepositTransactionType
+  amount                  Decimal                     @db.Decimal(14, 2)
+  balanceDelta            Decimal                     @db.Decimal(14, 2)
+  fundingDelta            Decimal                     @db.Decimal(14, 2)
+  balanceBefore           Decimal                     @db.Decimal(14, 2)
+  balanceAfter            Decimal                     @db.Decimal(14, 2)
+  currency                String                      @db.Char(3)
+  referenceType           String?                     @db.VarChar(80)
+  referenceId             String?                     @db.VarChar(120)
+  reasonCode              String?                     @db.VarChar(80)
+  reason                  String?                     @db.VarChar(500)
+  externalReference       String?                     @db.VarChar(160)
+  paymentMethod           String?                     @db.VarChar(80)
+  idempotencyKey          String?                     @db.VarChar(200)
+  transferReferenceId     String?
+  reversalOfTransactionId String?                     @unique
+  createdAt               DateTime                    @default(now())
+  createdById             String?
+  collectionRequest       PaymentCollectionRequest?
+
+  @@unique([clientId, idempotencyKey])
+  @@unique([clientId, depositId, externalReference])
+  @@index([clientId, depositId, createdAt])
+  @@index([clientId, riderId, agreementId, createdAt])
+  @@index([clientId, transferReferenceId])
+}
+
+model RiderDepositRefundRequest {
+  id                String                   @id @default(uuid())
+  clientId          String
+  depositId         String
+  deposit           RiderDeposit             @relation(fields: [depositId], references: [id], onDelete: Restrict)
+  amount            Decimal                  @db.Decimal(14, 2)
+  status            RiderDepositRefundStatus @default(REQUESTED)
+  reason            String                   @db.VarChar(500)
+  idempotencyKey    String                   @db.VarChar(200)
+  externalReference String?                  @db.VarChar(160)
+  requestedById     String
+  requestedAt       DateTime                 @default(now())
+  completedById     String?
+  completedAt       DateTime?
+
+  @@unique([clientId, idempotencyKey])
+  @@index([clientId, depositId, status])
+}
+
 model RiderInvoice {
-  id                 String             @id @default(uuid())
-  clientId           String
-  client             Client             @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  riderId            String
-  rider              Rider              @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
-  invoiceNumber      String             @db.VarChar(80)
-  billingPeriodStart DateTime           @db.Date
-  billingPeriodEnd   DateTime           @db.Date
-  subtotal           Decimal            @db.Decimal(14, 2)
-  creditAmount       Decimal            @db.Decimal(14, 2)
-  adjustmentAmount   Decimal            @default(0) @db.Decimal(14, 2)
-  taxAmount          Decimal            @default(0) @db.Decimal(14, 2)
-  totalAmount        Decimal            @db.Decimal(14, 2)
-  paidAmount         Decimal            @default(0) @db.Decimal(14, 2)
-  outstandingAmount  Decimal            @db.Decimal(14, 2)
-  currency           String             @db.Char(3)
-  status             RiderInvoiceStatus @default(DRAFT)
-  dueDate            DateTime           @db.Date
-  finalizedAt        DateTime?
-  paidAt             DateTime?
-  lines              RiderInvoiceLine[]
-  paymentTransactions PaymentTransaction[]
-  charges            RiderCharge[]
-  createdAt          DateTime           @default(now())
+  id                            String                             @id @default(uuid())
+  clientId                      String
+  client                        Client                             @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId                       String
+  rider                         Rider                              @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  invoiceNumber                 String                             @db.VarChar(80)
+  invoiceType                   String                             @default("RENTAL") @db.VarChar(40)
+  sourceKey                     String?                            @db.VarChar(160)
+  pricingSnapshot               Json?
+  walletAllocations             WalletInvoiceAllocation[]
+  agreementId                   String?
+  billingPeriodId               String?                            @unique
+  issuedAt                      DateTime?
+  taxSnapshot                   Json?
+  billingPeriodStart            DateTime                           @db.Date
+  billingPeriodEnd              DateTime                           @db.Date
+  subtotal                      Decimal                            @db.Decimal(14, 2)
+  creditAmount                  Decimal                            @db.Decimal(14, 2)
+  adjustmentAmount              Decimal                            @default(0) @db.Decimal(14, 2)
+  taxAmount                     Decimal                            @default(0) @db.Decimal(14, 2)
+  totalAmount                   Decimal                            @db.Decimal(14, 2)
+  paidAmount                    Decimal                            @default(0) @db.Decimal(14, 2)
+  appliedSettlementCreditAmount Decimal                            @default(0) @db.Decimal(14, 2)
+  outstandingAmount             Decimal                            @db.Decimal(14, 2)
+  currency                      String                             @db.Char(3)
+  status                        RiderInvoiceStatus                 @default(DRAFT)
+  dueDate                       DateTime                           @db.Date
+  finalizedAt                   DateTime?
+  paidAt                        DateTime?
+  lines                         RiderInvoiceLine[]
+  billingPeriod                 RiderBillingPeriod?                @relation(fields: [billingPeriodId], references: [id], onDelete: Restrict)
+  allocations                   RiderPaymentAllocation[]
+  settlementCreditApplications  RiderSettlementCreditApplication[]
+  paymentTransactions           PaymentTransaction[]
+  autoPayDunningCases           AutoPayDunningCase[]
+  collectionRequests            PaymentCollectionRequest[]
+  charges                       RiderCharge[]
+  createdAt                     DateTime                           @default(now())
 
   @@unique([clientId, id])
   @@unique([clientId, invoiceNumber])
-  @@unique([clientId, riderId, billingPeriodStart, billingPeriodEnd])
+  @@unique([clientId, sourceKey])
+  @@index([clientId, riderId, invoiceType, billingPeriodStart, billingPeriodEnd])
   @@index([clientId, riderId, createdAt])
   @@index([clientId, status, dueDate])
 }
 
+model RiderSettlementCreditApplication {
+  id           String       @id @default(uuid())
+  clientId     String
+  settlementId String
+  creditId     String
+  credit       RiderCredit  @relation(fields: [creditId], references: [id], onDelete: Restrict)
+  invoiceId    String
+  invoice      RiderInvoice @relation(fields: [clientId, invoiceId], references: [clientId, id], onDelete: Restrict)
+  amount       Decimal      @db.Decimal(14, 2)
+  createdById  String
+  createdAt    DateTime     @default(now())
+
+  @@unique([settlementId, creditId, invoiceId])
+  @@index([clientId, invoiceId])
+}
+
 model RiderInvoiceLine {
-  id          String               @id @default(uuid())
-  clientId    String
-  invoiceId   String
-  invoice     RiderInvoice         @relation(fields: [clientId, invoiceId], references: [clientId, id], onDelete: Restrict)
-  kind        RiderInvoiceLineKind
-  sourceId    String
-  description String               @db.VarChar(300)
-  amount      Decimal              @db.Decimal(14, 2)
-  currency    String               @db.Char(3)
-  createdAt   DateTime             @default(now())
+  id                  String               @id @default(uuid())
+  clientId            String
+  invoiceId           String
+  invoice             RiderInvoice         @relation(fields: [clientId, invoiceId], references: [clientId, id], onDelete: Restrict)
+  kind                RiderInvoiceLineKind
+  sourceId            String
+  description         String               @db.VarChar(300)
+  amount              Decimal              @db.Decimal(14, 2)
+  chargeType          String?              @db.VarChar(60)
+  commercialVersionId String?
+  vehicleId           String?
+  servicePeriodStart  DateTime?
+  servicePeriodEnd    DateTime?
+  quantity            Decimal?             @db.Decimal(14, 4)
+  unit                String?              @db.VarChar(20)
+  unitPrice           Decimal?             @db.Decimal(14, 2)
+  grossAmount         Decimal?             @db.Decimal(14, 2)
+  discountAmount      Decimal?             @db.Decimal(14, 2)
+  taxableAmount       Decimal?             @db.Decimal(14, 2)
+  taxAmount           Decimal?             @db.Decimal(14, 2)
+  taxSnapshot         Json?
+  pricingDetail       Json?
+  currency            String               @db.Char(3)
+  createdAt           DateTime             @default(now())
 
   @@unique([invoiceId, kind, sourceId])
   @@index([clientId, invoiceId])
+}
+
+model RiderBillingSchedule {
+  id              String               @id @default(uuid())
+  clientId        String
+  riderId         String
+  rider           Rider                @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  agreementId     String               @unique
+  agreement       RiderRentalAgreement @relation(fields: [agreementId], references: [id], onDelete: Restrict)
+  frequency       String               @db.VarChar(20)
+  customDays      Int?
+  billingMode     String               @db.VarChar(20)
+  anchorType      String               @db.VarChar(30)
+  anchorAt        DateTime
+  timezone        String               @db.VarChar(80)
+  nextPeriodStart DateTime
+  status          String               @default("ACTIVE") @db.VarChar(20)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  periods         RiderBillingPeriod[]
+
+  @@index([clientId, status, nextPeriodStart])
+}
+
+model RiderBillingPeriod {
+  id          String               @id @default(uuid())
+  clientId    String
+  riderId     String
+  rider       Rider                @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  agreementId String
+  scheduleId  String
+  schedule    RiderBillingSchedule @relation(fields: [scheduleId], references: [id], onDelete: Restrict)
+  periodStart DateTime
+  periodEnd   DateTime
+  status      String               @default("PENDING") @db.VarChar(20)
+  invoice     RiderInvoice?
+  createdAt   DateTime             @default(now())
+  generatedAt DateTime?
+
+  @@unique([clientId, agreementId, periodStart, periodEnd])
+  @@index([clientId, scheduleId, status])
+}
+
+model RiderTaxProfile {
+  id            String         @id @default(uuid())
+  clientId      String         @unique
+  supplierState String         @db.VarChar(80)
+  supplierGstin String?        @db.VarChar(20)
+  placeOfSupply String         @db.VarChar(80)
+  customerGstin String?        @db.VarChar(20)
+  updatedAt     DateTime       @updatedAt
+  rules         RiderTaxRule[]
+}
+
+model RiderTaxRule {
+  id            String          @id @default(uuid())
+  clientId      String
+  profileId     String
+  profile       RiderTaxProfile @relation(fields: [profileId], references: [id], onDelete: Restrict)
+  taxCode       String          @db.VarChar(60)
+  chargeType    String          @db.VarChar(60)
+  cgstRate      Decimal         @default(0) @db.Decimal(7, 4)
+  sgstRate      Decimal         @default(0) @db.Decimal(7, 4)
+  igstRate      Decimal         @default(0) @db.Decimal(7, 4)
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+
+  @@index([clientId, chargeType, effectiveFrom])
+}
+
+model RiderInvoiceSequence {
+  clientId      String
+  financialYear String @db.VarChar(9)
+  lastNumber    Int    @default(0)
+
+  @@id([clientId, financialYear])
+}
+
+model RiderPayment {
+  id                  String                    @id @default(uuid())
+  clientId            String
+  riderId             String
+  rider               Rider                     @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  amount              Decimal                   @db.Decimal(14, 2)
+  unallocatedAmount   Decimal                   @db.Decimal(14, 2)
+  refundedAmount      Decimal                   @default(0) @db.Decimal(14, 2)
+  currency            String                    @db.Char(3)
+  method              String                    @db.VarChar(30)
+  externalReference   String?                   @db.VarChar(160)
+  idempotencyKey      String                    @db.VarChar(120)
+  status              String                    @default("CONFIRMED") @db.VarChar(30)
+  receivedAt          DateTime
+  createdById         String
+  createdAt           DateTime                  @default(now())
+  allocations         RiderPaymentAllocation[]
+  providerTransaction PaymentTransaction?
+  collectionRequest   PaymentCollectionRequest?
+  refunds             PaymentRefund[]
+
+  @@unique([clientId, idempotencyKey])
+  @@unique([clientId, id])
+  @@unique([clientId, method, externalReference])
+  @@index([clientId, riderId, receivedAt])
+}
+
+model RiderPaymentAllocation {
+  id             String       @id @default(uuid())
+  clientId       String
+  riderId        String
+  rider          Rider        @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  paymentId      String
+  payment        RiderPayment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  invoiceId      String
+  invoice        RiderInvoice @relation(fields: [clientId, invoiceId], references: [clientId, id], onDelete: Restrict)
+  amount         Decimal      @db.Decimal(14, 2)
+  reversedAt     DateTime?
+  reversalReason String?
+  createdAt      DateTime     @default(now())
+  createdById    String
+
+  @@index([clientId, paymentId])
+  @@index([clientId, invoiceId])
+}
+
+model PaymentRefund {
+  id                String       @id @default(uuid())
+  refundNumber      String?      @unique @db.VarChar(50)
+  clientId          String
+  riderId           String
+  paymentId         String
+  payment           RiderPayment @relation(fields: [clientId, paymentId], references: [clientId, id], onDelete: Restrict)
+  amount            Decimal      @db.Decimal(14, 2)
+  currency          String       @db.Char(3)
+  reason            String       @db.VarChar(500)
+  treatment         String       @default("PAYMENT_REVERSAL") @db.VarChar(30)
+  status            String       @default("CREATING") @db.VarChar(30)
+  provider          String       @db.VarChar(30)
+  providerRefundId  String       @unique @db.VarChar(120)
+  providerReference String?      @db.VarChar(120)
+  idempotencyKey    String       @db.VarChar(120)
+  requestedById     String
+  requestedAt       DateTime     @default(now())
+  completedAt       DateTime?
+  updatedAt         DateTime     @updatedAt
+
+  @@unique([clientId, idempotencyKey])
+  @@index([clientId, paymentId, status])
+  @@index([clientId, riderId, status])
+}
+
+/// Provider statement import. No rider balance is inferred from an unmatched row.
+model ProviderSettlement {
+  id                   String                   @id @default(uuid())
+  clientId             String
+  provider             String                   @db.VarChar(30)
+  providerSettlementId String                   @db.VarChar(160)
+  currency             String                   @db.Char(3)
+  grossAmount          Decimal                  @db.Decimal(18, 2)
+  refundAmount         Decimal                  @db.Decimal(18, 2)
+  feeAmount            Decimal                  @db.Decimal(18, 2)
+  taxAmount            Decimal                  @db.Decimal(18, 2)
+  netAmount            Decimal                  @db.Decimal(18, 2)
+  settledAt            DateTime
+  utr                  String?                  @db.VarChar(160)
+  importHash           String                   @db.VarChar(64)
+  status               String                   @default("REQUIRES_REVIEW") @db.VarChar(30)
+  importedById         String
+  createdAt            DateTime                 @default(now())
+  items                ProviderSettlementItem[]
+
+  @@unique([clientId, provider, providerSettlementId])
+  @@unique([clientId, id])
+  @@index([clientId, status, settledAt])
+}
+
+model ProviderSettlementItem {
+  id                String             @id @default(uuid())
+  clientId          String
+  settlementId      String
+  settlement        ProviderSettlement @relation(fields: [clientId, settlementId], references: [clientId, id], onDelete: Restrict)
+  kind              String             @db.VarChar(20)
+  providerReference String             @db.VarChar(160)
+  amount            Decimal            @db.Decimal(18, 2)
+  status            String             @db.VarChar(30)
+  localReferenceId  String?
+  reviewCode        String?            @db.VarChar(60)
+  createdAt         DateTime           @default(now())
+
+  @@unique([settlementId, kind, providerReference])
+  @@index([clientId, status, createdAt])
 }
 
 model RiderOnboardingProgress {
@@ -2399,9 +2983,9 @@ model ClientBranding {
 /// Campaign commercial and eligibility rules become immutable after activation.
 /// A new campaign must be created for changed terms; each Referral also snapshots them.
 model ReferralCampaign {
-  id                            String                 @id @default(uuid())
+  id                            String                      @id @default(uuid())
   clientId                      String
-  client                        Client                 @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  client                        Client                      @relation(fields: [clientId], references: [id], onDelete: Restrict)
   code                          String
   name                          String
   description                   String?
@@ -2409,27 +2993,27 @@ model ReferralCampaign {
   displayDescription            String?
   shareMessageTemplate          String?
   termsAndConditions            String
-  status                        ReferralCampaignStatus @default(DRAFT)
+  status                        ReferralCampaignStatus      @default(DRAFT)
   startAt                       DateTime
   endAt                         DateTime
   registrationValidityDays      Int
   qualificationValidityDays     Int
   referrerRewardType            ReferralRewardType?
-  referrerRewardValue           Decimal                @default(0) @db.Decimal(14, 2)
+  referrerRewardValue           Decimal                     @default(0) @db.Decimal(14, 2)
   refereeRewardType             ReferralRewardType?
-  refereeRewardValue            Decimal                @default(0) @db.Decimal(14, 2)
+  refereeRewardValue            Decimal                     @default(0) @db.Decimal(14, 2)
   maxReferralsPerRider          Int?
-  referralLimitPeriod           ReferralLimitPeriod    @default(LIFETIME)
+  referralLimitPeriod           ReferralLimitPeriod         @default(LIFETIME)
   maxQualifiedReferralsPerRider Int?
-  maxRewardPerRider             Decimal?               @db.Decimal(14, 2)
-  campaignBudget                Decimal?               @db.Decimal(14, 2)
-  budgetReserved                Decimal                @default(0) @db.Decimal(14, 2)
-  currency                      String                 @default("INR") @db.Char(3)
+  maxRewardPerRider             Decimal?                    @db.Decimal(14, 2)
+  campaignBudget                Decimal?                    @db.Decimal(14, 2)
+  budgetReserved                Decimal                     @default(0) @db.Decimal(14, 2)
+  currency                      String                      @default("INR") @db.Char(3)
   createdById                   String
   updatedById                   String
   activatedAt                   DateTime?
-  createdAt                     DateTime               @default(now())
-  updatedAt                     DateTime               @updatedAt
+  createdAt                     DateTime                    @default(now())
+  updatedAt                     DateTime                    @updatedAt
   milestones                    ReferralCampaignMilestone[]
   referrals                     Referral[]
   rewards                       ReferralReward[]
@@ -2440,18 +3024,18 @@ model ReferralCampaign {
 }
 
 model ReferralCampaignMilestone {
-  id              String                    @id @default(uuid())
-  campaignId      String
-  campaign        ReferralCampaign          @relation(fields: [campaignId], references: [id], onDelete: Restrict)
-  milestoneType   ReferralMilestoneType
-  operator        ReferralMilestoneOperator @default(GTE)
-  targetValue     Decimal                   @db.Decimal(16, 4)
-  sequence        Int
-  mandatory       Boolean                   @default(true)
-  config          Json?
-  isActive        Boolean                   @default(true)
-  createdAt       DateTime                  @default(now())
-  progress        ReferralMilestoneProgress[]
+  id            String                      @id @default(uuid())
+  campaignId    String
+  campaign      ReferralCampaign            @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  milestoneType ReferralMilestoneType
+  operator      ReferralMilestoneOperator   @default(GTE)
+  targetValue   Decimal                     @db.Decimal(16, 4)
+  sequence      Int
+  mandatory     Boolean                     @default(true)
+  config        Json?
+  isActive      Boolean                     @default(true)
+  createdAt     DateTime                    @default(now())
+  progress      ReferralMilestoneProgress[]
 
   @@unique([campaignId, milestoneType])
   @@unique([campaignId, sequence])
@@ -2466,29 +3050,29 @@ model ReferralIdentity {
   code      String   @unique @db.VarChar(24)
   createdAt DateTime @default(now())
 
-  @@index([clientId, code])
   @@unique([clientId, riderId])
+  @@index([clientId, code])
 }
 
 model Referral {
-  id                      String                    @id @default(uuid())
+  id                      String                       @id @default(uuid())
   clientId                String
-  client                  Client                    @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  client                  Client                       @relation(fields: [clientId], references: [id], onDelete: Restrict)
   campaignId              String
-  campaign                ReferralCampaign          @relation(fields: [clientId, campaignId], references: [clientId, id], onDelete: Restrict)
+  campaign                ReferralCampaign             @relation(fields: [clientId, campaignId], references: [clientId, id], onDelete: Restrict)
   referrerRiderId         String
-  referrerRider           Rider                     @relation("ReferralReferrer", fields: [clientId, referrerRiderId], references: [clientId, id], onDelete: Restrict)
+  referrerRider           Rider                        @relation("ReferralReferrer", fields: [clientId, referrerRiderId], references: [clientId, id], onDelete: Restrict)
   refereeUserId           String?
-  refereeUser             User?                     @relation("ReferralRefereeUser", fields: [clientId, refereeUserId], references: [clientId, id], onDelete: Restrict)
+  refereeUser             User?                        @relation("ReferralRefereeUser", fields: [clientId, refereeUserId], references: [clientId, id], onDelete: Restrict)
   refereeRiderId          String?
-  refereeRider            Rider?                    @relation("ReferralReferee", fields: [clientId, refereeRiderId], references: [clientId, id], onDelete: Restrict)
-  referralCode            String                    @db.VarChar(24)
-  inviteToken             String?                   @unique @db.VarChar(64)
+  refereeRider            Rider?                       @relation("ReferralReferee", fields: [clientId, refereeRiderId], references: [clientId, id], onDelete: Restrict)
+  referralCode            String                       @db.VarChar(24)
+  inviteToken             String?                      @unique @db.VarChar(64)
   attributionSource       ReferralAttributionSource
-  status                  ReferralStatus            @default(INVITED)
+  status                  ReferralStatus               @default(INVITED)
   ruleSnapshot            Json
   termsSnapshot           String
-  invitedAt               DateTime                  @default(now())
+  invitedAt               DateTime                     @default(now())
   registeredAt            DateTime?
   kycVerifiedAt           DateTime?
   activatedAt             DateTime?
@@ -2497,8 +3081,8 @@ model Referral {
   qualificationDeadlineAt DateTime?
   rejectedAt              DateTime?
   rejectionReason         String?
-  createdAt               DateTime                  @default(now())
-  updatedAt               DateTime                  @updatedAt
+  createdAt               DateTime                     @default(now())
+  updatedAt               DateTime                     @updatedAt
   progress                ReferralMilestoneProgress[]
   rewards                 ReferralReward[]
   fraudChecks             ReferralFraudCheck[]
@@ -2514,20 +3098,20 @@ model Referral {
 }
 
 model ReferralMilestoneProgress {
-  id              String                    @id @default(uuid())
-  clientId        String
-  client          Client                    @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  referralId      String
-  referral        Referral                  @relation(fields: [clientId, referralId], references: [clientId, id], onDelete: Restrict)
-  milestoneId     String
-  milestone       ReferralCampaignMilestone @relation(fields: [milestoneId], references: [id], onDelete: Restrict)
-  milestoneType   ReferralMilestoneType
-  operator        ReferralMilestoneOperator
-  targetValue     Decimal                   @db.Decimal(16, 4)
-  currentValue    Decimal                   @default(0) @db.Decimal(16, 4)
-  mandatory       Boolean                   @default(true)
-  completedAt     DateTime?
-  updatedAt       DateTime                  @updatedAt
+  id            String                    @id @default(uuid())
+  clientId      String
+  client        Client                    @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  referralId    String
+  referral      Referral                  @relation(fields: [clientId, referralId], references: [clientId, id], onDelete: Restrict)
+  milestoneId   String
+  milestone     ReferralCampaignMilestone @relation(fields: [milestoneId], references: [id], onDelete: Restrict)
+  milestoneType ReferralMilestoneType
+  operator      ReferralMilestoneOperator
+  targetValue   Decimal                   @db.Decimal(16, 4)
+  currentValue  Decimal                   @default(0) @db.Decimal(16, 4)
+  mandatory     Boolean                   @default(true)
+  completedAt   DateTime?
+  updatedAt     DateTime                  @updatedAt
 
   @@unique([referralId, milestoneId])
   @@index([clientId, referralId])
@@ -2548,14 +3132,14 @@ model ReferralReward {
   amount             Decimal              @db.Decimal(14, 2)
   currency           String               @db.Char(3)
   status             ReferralRewardStatus @default(EARNED)
-  earnedAt           DateTime              @default(now())
+  earnedAt           DateTime             @default(now())
   approvedAt         DateTime?
   approvedById       String?
   rejectedAt         DateTime?
   rejectionReason    String?
   payout             ReferralPayout?
-  createdAt          DateTime              @default(now())
-  updatedAt          DateTime              @updatedAt
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
 
   @@unique([referralId, beneficiary])
   @@unique([clientId, id])
@@ -2564,18 +3148,18 @@ model ReferralReward {
 }
 
 model ReferralPayout {
-  id                String         @id @default(uuid())
-  clientId          String
-  client            Client         @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  rewardId          String         @unique
-  reward            ReferralReward @relation(fields: [clientId, rewardId], references: [clientId, id], onDelete: Restrict)
-  paymentReference  String         @db.VarChar(120)
-  paymentMethod     String         @db.VarChar(40)
-  amount            Decimal        @db.Decimal(14, 2)
-  currency          String         @db.Char(3)
-  markedPaidById    String
-  paidAt            DateTime       @default(now())
-  createdAt         DateTime       @default(now())
+  id               String         @id @default(uuid())
+  clientId         String
+  client           Client         @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  rewardId         String         @unique
+  reward           ReferralReward @relation(fields: [clientId, rewardId], references: [clientId, id], onDelete: Restrict)
+  paymentReference String         @db.VarChar(120)
+  paymentMethod    String         @db.VarChar(40)
+  amount           Decimal        @db.Decimal(14, 2)
+  currency         String         @db.Char(3)
+  markedPaidById   String
+  paidAt           DateTime       @default(now())
+  createdAt        DateTime       @default(now())
 
   @@unique([clientId, paymentReference])
   @@unique([clientId, rewardId])
@@ -2583,15 +3167,15 @@ model ReferralPayout {
 }
 
 model ReferralFraudCheck {
-  id          String              @id @default(uuid())
-  clientId    String
-  client      Client              @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  referralId  String
-  referral    Referral            @relation(fields: [clientId, referralId], references: [clientId, id], onDelete: Restrict)
-  checkType   ReferralFraudType
-  result      ReferralFraudResult
-  details     Json?
-  checkedAt   DateTime            @default(now())
+  id         String              @id @default(uuid())
+  clientId   String
+  client     Client              @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  referralId String
+  referral   Referral            @relation(fields: [clientId, referralId], references: [clientId, id], onDelete: Restrict)
+  checkType  ReferralFraudType
+  result     ReferralFraudResult
+  details    Json?
+  checkedAt  DateTime            @default(now())
 
   @@unique([referralId, checkType])
   @@index([clientId, result, checkedAt])
@@ -2629,4 +3213,1583 @@ model ReferralNotificationOutbox {
   deliveredAt DateTime?
 
   @@index([clientId, status, createdAt])
+}
+
+model RoutingProviderUsage {
+  id           String   @id @default(uuid())
+  provider     String
+  billingMonth String
+  requestCount Int      @default(0)
+  usageUnits   Int      @default(0)
+  successCount Int      @default(0)
+  failureCount Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([provider, billingMonth])
+}
+
+enum RiderRateCardStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  EXPIRED
+}
+
+enum RentalPeriodType {
+  DAILY
+  WEEKLY
+  FORTNIGHTLY
+  MONTHLY
+  QUARTERLY
+  CUSTOM
+}
+
+enum RiderChargeNature {
+  ONE_TIME
+  RECURRING
+  USAGE_BASED
+  REFUNDABLE_DEPOSIT
+  PENALTY
+  ADJUSTMENT
+}
+
+enum RiderAdjustmentCalculationType {
+  FIXED_AMOUNT
+  PERCENTAGE
+}
+
+enum RiderAdjustmentType {
+  LOCATION
+  HUB
+  VEHICLE
+  VEHICLE_AGE
+  VEHICLE_GRADE
+  BATTERY_PLAN
+  RIDER_TIER
+  CLIENT_SUBSIDY
+  PROMOTION
+  MANUAL
+  DISCOUNT
+  OTHER
+}
+
+enum AdjustmentBasis {
+  BASE_AMOUNT
+  CURRENT_AMOUNT
+}
+
+enum RiderAdjustmentTarget {
+  RENTAL
+  DEPOSIT
+}
+
+enum RiderRuleSelection {
+  EXCLUSIVE
+  STACKABLE
+}
+
+enum FeeEligibility {
+  EVERY_NEW_AGREEMENT
+  FIRST_RENTAL_ONLY
+  ONCE_PER_CLIENT_RIDER_RELATIONSHIP
+  MANUAL
+}
+
+enum BatteryPricingType {
+  INCLUDED
+  FIXED_SUBSCRIPTION
+  PER_SWAP
+  PER_KM
+  PER_KWH
+  SWAPS_INCLUDED
+  UNLIMITED_SWAP
+}
+
+model RiderRateCard {
+  id                        String                 @id @default(uuid())
+  clientId                  String
+  client                    Client                 @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  code                      String                 @db.VarChar(80)
+  name                      String                 @db.VarChar(150)
+  description               String?
+  currency                  String                 @default("INR") @db.Char(3)
+  status                    RiderRateCardStatus    @default(DRAFT)
+  priority                  Int                    @default(0)
+  isDefault                 Boolean                @default(false)
+  collectFirstRentalUpfront Boolean                @default(true)
+  offerValidityMinutes      Int                    @default(60)
+  versions                  RiderRateCardVersion[]
+  createdById               String?
+  updatedById               String?
+  createdAt                 DateTime               @default(now())
+  updatedAt                 DateTime               @updatedAt
+
+  @@unique([clientId, code])
+  @@unique([clientId, id])
+  @@index([clientId, status, priority])
+}
+
+model RiderRateCardVersion {
+  id            String               @id @default(uuid())
+  clientId      String
+  rateCardId    String
+  rateCard      RiderRateCard        @relation(fields: [clientId, rateCardId], references: [clientId, id], onDelete: Restrict)
+  version       Int
+  effectiveFrom DateTime             @db.Date
+  effectiveTo   DateTime?            @db.Date
+  status        RiderRateCardStatus  @default(DRAFT)
+  currency      String               @default("INR") @db.Char(3)
+  description   String?
+  rentalRates   RateCardRentalRate[]
+  fees          RateCardFee[]
+  deposits      RateCardDeposit[]
+  adjustments   RateCardAdjustment[]
+  createdById   String?
+  updatedById   String?
+  approvedById  String?
+  approvedAt    DateTime?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  @@unique([clientId, rateCardId, version])
+  @@unique([clientId, id])
+  @@index([clientId, rateCardId, status, effectiveFrom, effectiveTo])
+}
+
+model RateCardRentalRate {
+  id                String               @id @default(uuid())
+  clientId          String
+  rateCardVersionId String
+  version           RiderRateCardVersion @relation(fields: [clientId, rateCardVersionId], references: [clientId, id], onDelete: Restrict)
+  vehicleCategoryId String?
+  vehicleTypeId     String?
+  oemId             String?
+  modelName         String?              @db.VarChar(100)
+  variantName       String?              @db.VarChar(100)
+  fleetId           String?
+  rentalPeriodType  RentalPeriodType
+  durationValue     Int?
+  durationUnit      String?              @db.VarChar(20)
+  amount            Decimal              @db.Decimal(12, 2)
+  currency          String               @default("INR") @db.Char(3)
+  includedKm        Decimal?             @db.Decimal(12, 2)
+  extraKmRate       Decimal?             @db.Decimal(12, 2)
+  taxable           Boolean              @default(false)
+  taxCode           String?
+  taxRate           Decimal?             @db.Decimal(7, 4)
+  priceIncludesTax  Boolean              @default(false)
+  priority          Int                  @default(0)
+  isActive          Boolean              @default(true)
+  createdById       String?
+  updatedById       String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@index([clientId, rateCardVersionId, rentalPeriodType, isActive])
+  @@index([vehicleCategoryId, vehicleTypeId, oemId, modelName, variantName, fleetId])
+}
+
+model RateCardFee {
+  id                String               @id @default(uuid())
+  clientId          String
+  rateCardVersionId String
+  version           RiderRateCardVersion @relation(fields: [clientId, rateCardVersionId], references: [clientId, id], onDelete: Restrict)
+  code              String               @db.VarChar(80)
+  name              String               @db.VarChar(150)
+  chargeType        String               @db.VarChar(80)
+  nature            RiderChargeNature
+  eligibility       FeeEligibility       @default(EVERY_NEW_AGREEMENT)
+  amount            Decimal              @db.Decimal(12, 2)
+  currency          String               @default("INR") @db.Char(3)
+  taxable           Boolean              @default(false)
+  taxCode           String?
+  taxRate           Decimal?             @db.Decimal(7, 4)
+  priceIncludesTax  Boolean              @default(false)
+  isActive          Boolean              @default(true)
+  createdById       String?
+  updatedById       String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@unique([clientId, rateCardVersionId, code])
+  @@index([clientId, rateCardVersionId, nature, isActive])
+}
+
+model RateCardDeposit {
+  id                String               @id @default(uuid())
+  clientId          String
+  rateCardVersionId String
+  version           RiderRateCardVersion @relation(fields: [clientId, rateCardVersionId], references: [clientId, id], onDelete: Restrict)
+  code              String               @db.VarChar(80)
+  name              String               @db.VarChar(150)
+  depositType       String               @db.VarChar(80)
+  amount            Decimal              @db.Decimal(12, 2)
+  currency          String               @default("INR") @db.Char(3)
+  waiverAmount      Decimal              @default(0) @db.Decimal(12, 2)
+  waiverReason      String?
+  guaranteedBy      String?
+  vehicleCategoryId String?
+  vehicleTypeId     String?
+  fleetId           String?
+  isActive          Boolean              @default(true)
+  createdById       String?
+  updatedById       String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@unique([clientId, rateCardVersionId, code])
+  @@index([clientId, rateCardVersionId, depositType, isActive])
+}
+
+model RateCardAdjustment {
+  id                     String                         @id @default(uuid())
+  clientId               String
+  rateCardVersionId      String
+  version                RiderRateCardVersion           @relation(fields: [clientId, rateCardVersionId], references: [clientId, id], onDelete: Restrict)
+  code                   String                         @db.VarChar(80)
+  description            String?
+  adjustmentType         RiderAdjustmentType
+  calculationType        RiderAdjustmentCalculationType
+  target                 RiderAdjustmentTarget          @default(RENTAL)
+  targetDepositCode      String?                        @db.VarChar(80)
+  percentageBasis        AdjustmentBasis                @default(BASE_AMOUNT)
+  selection              RiderRuleSelection             @default(EXCLUSIVE)
+  amount                 Decimal?                       @db.Decimal(12, 2)
+  percentage             Decimal?                       @db.Decimal(7, 4)
+  maximumDiscount        Decimal?                       @db.Decimal(12, 2)
+  vehicleCategoryId      String?
+  vehicleTypeId          String?
+  oemId                  String?
+  modelName              String?                        @db.VarChar(100)
+  variantName            String?                        @db.VarChar(100)
+  fleetId                String?
+  country                String?                        @db.VarChar(100)
+  state                  String?                        @db.VarChar(100)
+  city                   String?                        @db.VarChar(100)
+  zone                   String?                        @db.VarChar(100)
+  hubId                  String?
+  minVehicleAgeMonths    Int?
+  maxVehicleAgeMonths    Int?
+  vehicleCommercialGrade String?                        @db.VarChar(30)
+  rentalPeriodType       RentalPeriodType?
+  batteryPlanId          String?
+  priority               Int                            @default(0)
+  effectiveFrom          DateTime?                      @db.Date
+  effectiveTo            DateTime?                      @db.Date
+  isActive               Boolean                        @default(true)
+  createdById            String?
+  updatedById            String?
+  createdAt              DateTime                       @default(now())
+  updatedAt              DateTime                       @updatedAt
+
+  @@unique([clientId, rateCardVersionId, code])
+  @@index([clientId, rateCardVersionId, adjustmentType, isActive])
+  @@index([city, hubId, fleetId, rentalPeriodType])
+}
+
+model RiderBatteryPlan {
+  id               String             @id @default(uuid())
+  clientId         String
+  client           Client             @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  code             String             @db.VarChar(80)
+  name             String             @db.VarChar(150)
+  description      String?
+  pricingType      BatteryPricingType
+  rentalPeriodType RentalPeriodType?
+  amount           Decimal            @default(0) @db.Decimal(12, 2)
+  currency         String             @default("INR") @db.Char(3)
+  includedSwaps    Int?
+  taxable          Boolean            @default(false)
+  taxCode          String?
+  taxRate          Decimal?           @db.Decimal(7, 4)
+  priceIncludesTax Boolean            @default(false)
+  isActive         Boolean            @default(true)
+  createdById      String?
+  updatedById      String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@unique([clientId, code])
+  @@index([clientId, isActive, pricingType])
+}
+
+model VehicleCommercialGradeAssignment {
+  id            String    @id @default(uuid())
+  clientId      String
+  client        Client    @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  fleetId       String
+  fleet         Fleet     @relation(fields: [fleetId], references: [id], onDelete: Restrict)
+  grade         String    @db.VarChar(30)
+  effectiveFrom DateTime  @db.Date
+  effectiveTo   DateTime? @db.Date
+  reason        String
+  assessedById  String
+  assessedAt    DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+
+  @@index([clientId, fleetId, effectiveFrom, effectiveTo])
+}
+
+model RiderPromotion {
+  id                 String                         @id @default(uuid())
+  clientId           String
+  client             Client                         @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  code               String                         @db.VarChar(80)
+  description        String?
+  calculationType    RiderAdjustmentCalculationType
+  amount             Decimal?                       @db.Decimal(12, 2)
+  percentage         Decimal?                       @db.Decimal(7, 4)
+  maximumDiscount    Decimal?                       @db.Decimal(12, 2)
+  validFrom          DateTime                       @db.Date
+  validTo            DateTime?                      @db.Date
+  rentalPeriodType   RentalPeriodType?
+  maxUsage           Int?
+  perRiderUsageLimit Int?
+  isActive           Boolean                        @default(true)
+  createdById        String?
+  updatedById        String?
+  createdAt          DateTime                       @default(now())
+  updatedAt          DateTime                       @updatedAt
+
+  @@unique([clientId, code])
+  @@index([clientId, isActive, validFrom, validTo])
+}
+
+enum RiderCommercialOfferStatus {
+  CALCULATED
+  PRESENTED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CANCELLED
+  SUPERSEDED
+}
+
+enum RiderRentalAgreementStatus {
+  PENDING_ACTIVATION
+  ACTIVE
+  SUSPENDED
+  TERMINATION_PENDING
+  TERMINATED
+  COMPLETED
+  CANCELLED
+}
+
+enum RiderAcceptanceMethod {
+  APP_CONFIRMATION
+  OPERATIONS_ASSISTED
+}
+
+enum RiderCommercialTermsStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+}
+
+model RiderCommercialTerms {
+  id            String                     @id @default(uuid())
+  clientId      String
+  client        Client                     @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  code          String                     @db.VarChar(80)
+  version       Int
+  title         String                     @db.VarChar(200)
+  content       String
+  contentHash   String                     @db.Char(64)
+  status        RiderCommercialTermsStatus @default(DRAFT)
+  createdById   String?
+  activatedById String?
+  activatedAt   DateTime?
+  createdAt     DateTime                   @default(now())
+
+  @@unique([clientId, code, version])
+  @@index([clientId, code, status])
+}
+
+model RiderCommercialOffer {
+  id                           String                     @id @default(uuid())
+  clientId                     String
+  client                       Client                     @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  offerNumber                  String                     @unique @db.VarChar(50)
+  riderId                      String
+  vehicleId                    String
+  hubId                        String?
+  rateCardId                   String
+  rateCardVersionId            String
+  rentalPeriodType             RentalPeriodType
+  durationValue                Int?
+  durationUnit                 String?
+  batteryPlanId                String?
+  promotionCode                String?
+  effectiveDate                DateTime                   @db.Date
+  currency                     String                     @db.Char(3)
+  status                       RiderCommercialOfferStatus @default(CALCULATED)
+  finalRecurringAmount         Decimal                    @db.Decimal(12, 2)
+  upfrontAmount                Decimal                    @db.Decimal(12, 2)
+  refundableAmount             Decimal                    @db.Decimal(12, 2)
+  pricingSnapshot              Json
+  pricingSnapshotSchemaVersion Int                        @default(1)
+  calculationHash              String                     @db.Char(64)
+  selectionHash                String                     @db.Char(64)
+  termsVersion                 String                     @db.VarChar(100)
+  termsTitle                   String                     @db.VarChar(200)
+  termsSnapshot                String
+  termsHash                    String                     @db.Char(64)
+  expiresAt                    DateTime
+  presentedAt                  DateTime?
+  acceptedAt                   DateTime?
+  rejectedAt                   DateTime?
+  cancelledAt                  DateTime?
+  supersededAt                 DateTime?
+  supersededByOfferId          String?
+  rejectionReason              String?
+  cancellationReason           String?
+  acceptedById                 String?
+  rejectedById                 String?
+  cancelledById                String?
+  acceptanceMethod             RiderAcceptanceMethod?
+  riderConsentReference        String?
+  assistedReason               String?
+  idempotencyKey               String?
+  createdById                  String
+  updatedById                  String?
+  createdAt                    DateTime                   @default(now())
+  updatedAt                    DateTime                   @updatedAt
+  agreement                    RiderRentalAgreement?
+
+  @@unique([clientId, idempotencyKey])
+  @@unique([clientId, id])
+  @@index([clientId, riderId, status, createdAt])
+  @@index([clientId, vehicleId, status, expiresAt])
+  @@index([clientId, rateCardVersionId])
+}
+
+model RiderRentalAgreement {
+  id                             String                              @id @default(uuid())
+  clientId                       String
+  client                         Client                              @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  agreementNumber                String                              @unique @db.VarChar(50)
+  commercialOfferId              String                              @unique
+  commercialOffer                RiderCommercialOffer                @relation(fields: [commercialOfferId], references: [id], onDelete: Restrict)
+  riderId                        String
+  vehicleId                      String
+  currentVehicleId               String?
+  currentCommercialVersionNumber Int                                 @default(1)
+  hubId                          String?
+  rateCardId                     String
+  rateCardVersionId              String
+  rentalPeriodType               RentalPeriodType
+  durationValue                  Int?
+  durationUnit                   String?
+  batteryPlanId                  String?
+  currency                       String                              @db.Char(3)
+  startDate                      DateTime?                           @db.Date
+  endDate                        DateTime?                           @db.Date
+  billingAnchorDate              DateTime?                           @db.Date
+  status                         RiderRentalAgreementStatus          @default(PENDING_ACTIVATION)
+  finalRecurringAmount           Decimal                             @db.Decimal(12, 2)
+  upfrontAmount                  Decimal                             @db.Decimal(12, 2)
+  refundableAmount               Decimal                             @db.Decimal(12, 2)
+  pricingSnapshot                Json
+  pricingSnapshotSchemaVersion   Int
+  pricingHash                    String                              @db.Char(64)
+  pricingSource                  String                              @default("COMMERCIAL_OFFER") @db.VarChar(40)
+  termsSnapshot                  String
+  termsVersion                   String                              @db.VarChar(100)
+  termsTitle                     String                              @db.VarChar(200)
+  termsHash                      String                              @db.Char(64)
+  acceptedAt                     DateTime
+  acceptedById                   String
+  acceptanceMethod               RiderAcceptanceMethod
+  riderConsentReference          String?
+  assistedReason                 String?
+  activatedAt                    DateTime?
+  terminatedAt                   DateTime?
+  completedAt                    DateTime?
+  terminationRequestedAt         DateTime?
+  terminationEffectiveAt         DateTime?
+  terminationReason              String?
+  commercialClosureState         String                              @default("ACTIVE") @db.VarChar(32)
+  financiallyClosedAt            DateTime?
+  createdById                    String
+  updatedById                    String?
+  createdAt                      DateTime                            @default(now())
+  updatedAt                      DateTime                            @updatedAt
+  statusHistory                  RiderRentalAgreementStatusHistory[]
+  amendments                     RiderRentalAgreementAmendment[]
+  commercialVersions             RiderAgreementCommercialVersion[]
+  billingSchedule                RiderBillingSchedule?
+  exchanges                      VehicleExchangeRequest[]
+  deposits                       RiderDeposit[]
+  finalSettlement                RiderFinalSettlement?
+  terminationRequest             RentalTerminationRequest?
+
+  @@unique([clientId, id])
+  @@index([clientId, riderId, status, createdAt])
+  @@index([clientId, vehicleId, status])
+  @@index([clientId, startDate, endDate])
+}
+
+model RentalTerminationRequest {
+  id                       String               @id @default(uuid())
+  clientId                 String
+  riderId                  String
+  agreementId              String               @unique
+  agreement                RiderRentalAgreement @relation(fields: [clientId, agreementId], references: [clientId, id], onDelete: Restrict)
+  requestedTerminationDate DateTime
+  actualTerminationDate    DateTime?
+  reasonCode               String               @db.VarChar(60)
+  reasonText               String?              @db.VarChar(500)
+  requestedById            String
+  status                   String               @default("REQUESTED") @db.VarChar(30)
+  idempotencyKey           String               @db.VarChar(120)
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
+
+  @@unique([clientId, idempotencyKey])
+  @@unique([clientId, agreementId])
+  @@index([clientId, riderId, status])
+}
+
+model RiderFinalSettlement {
+  id               String                         @id @default(uuid())
+  clientId         String
+  riderId          String
+  agreementId      String                         @unique
+  agreement        RiderRentalAgreement           @relation(fields: [clientId, agreementId], references: [clientId, id], onDelete: Restrict)
+  settlementNumber String                         @db.VarChar(80)
+  status           String                         @default("DRAFT") @db.VarChar(32)
+  version          Int                            @default(1)
+  terminationDate  DateTime
+  billingCutoffAt  DateTime
+  currency         String                         @db.Char(3)
+  snapshot         Json?
+  createdById      String
+  approvedById     String?
+  approvedAt       DateTime?
+  closedAt         DateTime?
+  createdAt        DateTime                       @default(now())
+  updatedAt        DateTime                       @updatedAt
+  charges          SettlementChargeAssessment[]
+  holds            SettlementDepositHold[]
+  applications     SettlementDepositApplication[]
+  refunds          SettlementRefundRequest[]
+  adjustments      SettlementAdjustment[]
+  revisions        SettlementRevision[]
+
+  @@unique([clientId, id])
+  @@unique([clientId, agreementId])
+  @@unique([clientId, settlementNumber])
+  @@index([clientId, riderId, status])
+}
+
+model SettlementRevision {
+  id           String               @id @default(uuid())
+  clientId     String
+  settlementId String
+  settlement   RiderFinalSettlement @relation(fields: [clientId, settlementId], references: [clientId, id], onDelete: Restrict)
+  version      Int
+  snapshot     Json
+  createdById  String
+  createdAt    DateTime             @default(now())
+
+  @@unique([settlementId, version])
+}
+
+model SettlementChargeAssessment {
+  id             String               @id @default(uuid())
+  clientId       String
+  settlementId   String
+  settlement     RiderFinalSettlement @relation(fields: [clientId, settlementId], references: [clientId, id], onDelete: Restrict)
+  chargeType     String               @db.VarChar(60)
+  sourceType     String?              @db.VarChar(60)
+  sourceId       String?              @db.VarChar(120)
+  description    String               @db.VarChar(300)
+  assessedAmount Decimal              @db.Decimal(14, 2)
+  approvedAmount Decimal?             @db.Decimal(14, 2)
+  status         String               @default("ASSESSED") @db.VarChar(30)
+  evidence       Json?
+  assessedById   String
+  approvedById   String?
+  createdAt      DateTime             @default(now())
+  approvedAt     DateTime?
+
+  @@index([clientId, settlementId, status])
+}
+
+model SettlementDepositHold {
+  id           String               @id @default(uuid())
+  clientId     String
+  settlementId String
+  settlement   RiderFinalSettlement @relation(fields: [clientId, settlementId], references: [clientId, id], onDelete: Restrict)
+  depositId    String
+  amount       Decimal              @db.Decimal(14, 2)
+  reason       String               @db.VarChar(500)
+  holdUntil    DateTime?
+  status       String               @default("ACTIVE") @db.VarChar(20)
+  createdById  String
+  createdAt    DateTime             @default(now())
+  releasedAt   DateTime?
+
+  @@index([clientId, depositId, status])
+}
+
+model SettlementDepositApplication {
+  id                   String               @id @default(uuid())
+  clientId             String
+  settlementId         String
+  settlement           RiderFinalSettlement @relation(fields: [clientId, settlementId], references: [clientId, id], onDelete: Restrict)
+  depositId            String
+  depositTransactionId String               @unique
+  paymentId            String               @unique
+  amount               Decimal              @db.Decimal(14, 2)
+  createdAt            DateTime             @default(now())
+
+  @@unique([settlementId, depositId])
+}
+
+model SettlementRefundRequest {
+  id                String               @id @default(uuid())
+  clientId          String
+  riderId           String
+  settlementId      String
+  settlement        RiderFinalSettlement @relation(fields: [clientId, settlementId], references: [clientId, id], onDelete: Restrict)
+  depositId         String?
+  depositRefundId   String?              @unique
+  paymentId         String?
+  paymentRefundId   String?              @unique
+  refundType        String               @db.VarChar(40)
+  destinationType   String               @db.VarChar(40)
+  amount            Decimal              @db.Decimal(14, 2)
+  currency          String               @db.Char(3)
+  status            String               @default("REQUESTED") @db.VarChar(30)
+  idempotencyKey    String               @db.VarChar(120)
+  externalReference String?              @db.VarChar(160)
+  requestedById     String
+  requestedAt       DateTime             @default(now())
+  completedAt       DateTime?
+  failureReason     String?              @db.VarChar(500)
+
+  @@unique([clientId, idempotencyKey])
+  @@index([clientId, settlementId, status])
+}
+
+model SettlementAdjustment {
+  id           String               @id @default(uuid())
+  clientId     String
+  settlementId String
+  settlement   RiderFinalSettlement @relation(fields: [clientId, settlementId], references: [clientId, id], onDelete: Restrict)
+  type         String               @db.VarChar(10)
+  reason       String               @db.VarChar(500)
+  amount       Decimal              @db.Decimal(14, 2)
+  status       String               @default("PENDING") @db.VarChar(20)
+  createdById  String
+  approvedById String?
+  createdAt    DateTime             @default(now())
+  approvedAt   DateTime?
+
+  @@index([clientId, settlementId, status])
+}
+
+model RiderFinancialNote {
+  id          String   @id @default(uuid())
+  clientId    String
+  riderId     String
+  agreementId String?
+  invoiceId   String?
+  noteNumber  String   @db.VarChar(80)
+  kind        String   @db.VarChar(10)
+  reasonCode  String   @db.VarChar(60)
+  description String   @db.VarChar(300)
+  subtotal    Decimal  @db.Decimal(14, 2)
+  taxAmount   Decimal  @default(0) @db.Decimal(14, 2)
+  totalAmount Decimal  @db.Decimal(14, 2)
+  currency    String   @db.Char(3)
+  taxSnapshot Json?
+  status      String   @default("ISSUED") @db.VarChar(20)
+  sourceId    String?  @unique
+  createdById String
+  issuedAt    DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@unique([clientId, noteNumber])
+  @@index([clientId, riderId, issuedAt])
+}
+
+model SettlementSequence {
+  clientId   String
+  kind       String @db.VarChar(20)
+  year       String @db.VarChar(9)
+  lastNumber Int    @default(0)
+
+  @@id([clientId, kind, year])
+}
+
+model RiderRentalAgreementStatusHistory {
+  id             String                      @id @default(uuid())
+  clientId       String
+  agreementId    String
+  agreement      RiderRentalAgreement        @relation(fields: [agreementId], references: [id], onDelete: Restrict)
+  previousStatus RiderRentalAgreementStatus?
+  newStatus      RiderRentalAgreementStatus
+  reason         String?
+  changedById    String
+  changedAt      DateTime                    @default(now())
+
+  @@index([clientId, agreementId, changedAt])
+}
+
+model RiderRentalAgreementAmendment {
+  id                      String               @id @default(uuid())
+  clientId                String
+  agreementId             String
+  agreement               RiderRentalAgreement @relation(fields: [agreementId], references: [id], onDelete: Restrict)
+  amendmentNumber         Int
+  reason                  String
+  previousPricingHash     String               @db.Char(64)
+  proposedPricingHash     String               @db.Char(64)
+  proposedPricingSnapshot Json
+  status                  String               @default("DRAFT") @db.VarChar(30)
+  createdById             String
+  createdAt               DateTime             @default(now())
+  approvedById            String?
+  approvedAt              DateTime?
+  exchangeRequestId       String?              @unique
+  previousVehicleId       String?
+  replacementVehicleId    String?
+  effectiveAt             DateTime?
+  acceptedAt              DateTime?
+  activatedAt             DateTime?
+  commercialDifference    Json?
+
+  @@unique([agreementId, amendmentNumber])
+  @@index([clientId, agreementId, status])
+}
+
+model ClientExchangePolicy {
+  clientId             String                      @id
+  client               Client                      @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  exchangeAllowed      Boolean                     @default(false)
+  minimumDaysOnVehicle Int                         @default(0)
+  prorationMode        ExchangeProrationMode       @default(NONE)
+  prorationPolicy      ExchangeProrationPolicy     @default(NO_PRORATION)
+  depositExcessPolicy  ExchangeDepositExcessPolicy @default(REFUND_REQUEST)
+  exchangeFeeAmount    Decimal                     @default(0) @db.Decimal(12, 2)
+  feeWaiverReasonCodes Json                        @default("[]")
+  offerValidityMinutes Int                         @default(60)
+  reservationMinutes   Int                         @default(120)
+  updatedById          String?
+  updatedAt            DateTime                    @updatedAt
+}
+
+model RiderAgreementCommercialVersion {
+  id                String               @id @default(uuid())
+  clientId          String
+  agreementId       String
+  agreement         RiderRentalAgreement @relation(fields: [agreementId], references: [id], onDelete: Restrict)
+  versionNumber     Int
+  vehicleId         String
+  rateCardVersionId String
+  pricingSnapshot   Json
+  pricingHash       String               @db.Char(64)
+  termsVersion      String               @db.VarChar(100)
+  termsHash         String               @db.Char(64)
+  termsSnapshot     String
+  termsTitle        String               @db.VarChar(200)
+  recurringAmount   Decimal              @db.Decimal(12, 2)
+  effectiveFrom     DateTime
+  billingStartAt    DateTime?
+  effectiveTo       DateTime?
+  amendmentId       String?              @unique
+  status            String               @db.VarChar(20)
+  createdAt         DateTime             @default(now())
+
+  @@unique([agreementId, versionNumber])
+  @@index([clientId, agreementId, effectiveFrom])
+}
+
+model VehicleExchangeRequest {
+  id                   String                 @id @default(uuid())
+  clientId             String
+  agreementId          String
+  agreement            RiderRentalAgreement   @relation(fields: [agreementId], references: [id], onDelete: Restrict)
+  riderId              String
+  oldVehicleId         String
+  replacementVehicleId String?
+  replacementSelection Json?
+  baseVersionNumber    Int
+  reasonCode           String                 @db.VarChar(80)
+  reason               String?
+  status               VehicleExchangeStatus  @default(REQUESTED)
+  oldAllocationId      String?
+  returnInspectionId   String?
+  newAllocationId      String?
+  proposedEffectiveAt  DateTime?
+  effectiveAt          DateTime?
+  reservationExpiresAt DateTime?
+  acceptedAt           DateTime?
+  completedAt          DateTime?
+  createdById          String
+  updatedById          String?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  offers               VehicleExchangeOffer[]
+
+  @@index([clientId, agreementId, status])
+  @@index([clientId, replacementVehicleId, status])
+}
+
+model VehicleExchangeOffer {
+  id                    String                     @id @default(uuid())
+  clientId              String
+  exchangeRequestId     String
+  exchangeRequest       VehicleExchangeRequest     @relation(fields: [exchangeRequestId], references: [id], onDelete: Restrict)
+  status                VehicleExchangeOfferStatus @default(PRESENTED)
+  pricingSnapshot       Json
+  pricingHash           String                     @db.Char(64)
+  commercialDifference  Json
+  offerHash             String                     @db.Char(64)
+  termsSnapshot         String
+  termsTitle            String                     @db.VarChar(200)
+  termsHash             String                     @db.Char(64)
+  termsVersion          String                     @db.VarChar(100)
+  expiresAt             DateTime
+  acceptedAt            DateTime?
+  acceptedById          String?
+  acceptanceMethod      RiderAcceptanceMethod?
+  riderConsentReference String?
+  assistedReason        String?
+  createdById           String
+  createdAt             DateTime                   @default(now())
+
+  @@index([clientId, exchangeRequestId, status])
+}
+
+// Phase 8 collection records are client scoped. Invoice and rider ids are validated
+// by the service and protected by composite foreign keys in the migration.
+model CollectionPolicy {
+  id        String                    @id @default(uuid())
+  clientId  String
+  code      String
+  name      String
+  status    String                    @default("ACTIVE")
+  createdAt DateTime                  @default(now())
+  updatedAt DateTime                  @updatedAt
+  versions  CollectionPolicyVersion[]
+
+  @@unique([clientId, code])
+  @@unique([clientId, id])
+  @@index([clientId, status])
+}
+
+model CollectionPolicyVersion {
+  id                          String                  @id @default(uuid())
+  clientId                    String
+  policyId                    String
+  policy                      CollectionPolicy        @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  version                     Int
+  effectiveFrom               DateTime                @db.Date
+  effectiveTo                 DateTime?               @db.Date
+  gracePeriodDays             Int                     @default(0)
+  dunningEnabled              Boolean                 @default(false)
+  autoPayRetryEnabled         Boolean                 @default(false)
+  promiseToPayEnabled         Boolean                 @default(false)
+  promiseHoldEnabled          Boolean                 @default(false)
+  maximumPromiseDays          Int                     @default(14)
+  lateFeeEnabled              Boolean                 @default(false)
+  restrictionEnabled          Boolean                 @default(false)
+  maximumMessagesPerDay       Int                     @default(1)
+  minimumMessageIntervalHours Int                     @default(24)
+  communicationStartHour      Int                     @default(8)
+  communicationEndHour        Int                     @default(20)
+  timezone                    String                  @default("Asia/Kolkata")
+  stages                      CollectionPolicyStage[]
+  createdAt                   DateTime                @default(now())
+
+  @@unique([policyId, version])
+  @@unique([clientId, id])
+  @@index([clientId, effectiveFrom, effectiveTo])
+}
+
+model CollectionPolicyStage {
+  id              String                  @id @default(uuid())
+  clientId        String
+  policyVersionId String
+  policyVersion   CollectionPolicyVersion @relation(fields: [policyVersionId], references: [id], onDelete: Restrict)
+  stageCode       String
+  stageName       String
+  daysFromDue     Int
+  severity        Int                     @default(0)
+  displayOrder    Int
+  actions         Json
+  isActive        Boolean                 @default(true)
+
+  @@unique([policyVersionId, stageCode])
+  @@index([policyVersionId, daysFromDue])
+}
+
+model RiderCollectionCase {
+  id                 String                  @id @default(uuid())
+  clientId           String
+  riderId            String
+  agreementId        String?
+  policyVersionId    String
+  caseNumber         String                  @unique
+  status             String                  @default("OPEN")
+  delinquencyState   String
+  totalOutstanding   Decimal                 @default(0) @db.Decimal(14, 2)
+  overdueOutstanding Decimal                 @default(0) @db.Decimal(14, 2)
+  oldestDueDate      DateTime?               @db.Date
+  daysPastDue        Int                     @default(0)
+  currentStage       String?
+  assignedToId       String?
+  assignedAt         DateTime?
+  assignedById       String?
+  nextActionAt       DateTime?
+  openedAt           DateTime                @default(now())
+  resolvedAt         DateTime?
+  resolutionType     String?
+  activeRiderId      String?                 @unique
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  invoices           CollectionCaseInvoice[]
+  actions            CollectionAction[]
+  promises           PromiseToPay[]
+  notes              CollectionCaseNote[]
+  tasks              CollectionTask[]
+  waivers            CollectionWaiver[]
+  disputes           CollectionDispute[]
+  restrictions       CommercialRestriction[]
+  events             CollectionEvent[]
+
+  @@unique([clientId, id])
+  @@index([clientId, riderId, status])
+  @@index([clientId, status, daysPastDue])
+  @@index([clientId, assignedToId, status])
+}
+
+model CollectionCaseInvoice {
+  id        String              @id @default(uuid())
+  clientId  String
+  caseId    String
+  case      RiderCollectionCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  invoiceId String
+  linkedAt  DateTime            @default(now())
+
+  @@unique([caseId, invoiceId])
+  @@index([clientId, invoiceId])
+}
+
+model CollectionAction {
+  id             String              @id @default(uuid())
+  clientId       String
+  caseId         String
+  case           RiderCollectionCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  stageCode      String
+  actionType     String
+  status         String              @default("PENDING")
+  scheduledAt    DateTime
+  executedAt     DateTime?
+  updatedAt      DateTime            @updatedAt
+  result         Json?
+  idempotencyKey String
+  createdAt      DateTime            @default(now())
+
+  @@unique([clientId, idempotencyKey])
+  @@index([clientId, status, scheduledAt])
+}
+
+model PromiseToPay {
+  id                 String              @id @default(uuid())
+  clientId           String
+  riderId            String
+  caseId             String
+  case               RiderCollectionCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  promisedAmount     Decimal             @db.Decimal(14, 2)
+  baselinePaidAmount Decimal             @default(0) @db.Decimal(14, 2)
+  paidSince          Decimal             @default(0) @db.Decimal(14, 2)
+  promiseDate        DateTime            @db.Date
+  status             String              @default("ACTIVE")
+  activeCaseId       String?             @unique
+  source             String
+  notes              String?
+  createdById        String
+  createdAt          DateTime            @default(now())
+  fulfilledAt        DateTime?
+  brokenAt           DateTime?
+
+  @@index([clientId, riderId, status])
+}
+
+model CollectionCaseNote {
+  id          String              @id @default(uuid())
+  clientId    String
+  caseId      String
+  case        RiderCollectionCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  note        String
+  noteType    String
+  createdById String
+  createdAt   DateTime            @default(now())
+
+  @@index([clientId, caseId, createdAt])
+}
+
+model CollectionTask {
+  id             String              @id @default(uuid())
+  clientId       String
+  caseId         String
+  case           RiderCollectionCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  taskType       String
+  assignedToId   String?
+  dueAt          DateTime
+  status         String              @default("OPEN")
+  completedAt    DateTime?
+  result         String?
+  idempotencyKey String?             @unique
+  createdAt      DateTime            @default(now())
+
+  @@index([clientId, status, dueAt])
+}
+
+model CollectionWaiver {
+  id            String              @id @default(uuid())
+  clientId      String
+  caseId        String
+  case          RiderCollectionCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  waiverType    String
+  amount        Decimal?            @db.Decimal(14, 2)
+  reason        String
+  status        String              @default("REQUESTED")
+  requestedById String
+  approvedById  String?
+  approvedAt    DateTime?
+  createdAt     DateTime            @default(now())
+
+  @@index([clientId, caseId, status])
+}
+
+model LateFeePolicy {
+  id                 String   @id @default(uuid())
+  clientId           String   @unique
+  enabled            Boolean  @default(false)
+  feeType            String   @default("NONE")
+  amount             Decimal  @default(0) @db.Decimal(14, 2)
+  minimumDaysPastDue Int      @default(0)
+  updatedAt          DateTime @updatedAt
+}
+
+model CollectionDispute {
+  id          String              @id @default(uuid())
+  clientId    String
+  caseId      String
+  case        RiderCollectionCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  reason      String
+  status      String              @default("OPEN")
+  createdById String
+  createdAt   DateTime            @default(now())
+  resolvedAt  DateTime?
+
+  @@index([clientId, caseId, status])
+}
+
+model CommercialRestriction {
+  id          String              @id @default(uuid())
+  clientId    String
+  riderId     String
+  caseId      String
+  sourceType  String              @default("COLLECTION_CASE")
+  sourceId    String
+  case        RiderCollectionCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  code        String
+  reason      String
+  status      String              @default("RECOMMENDED")
+  appliedById String?
+  appliedAt   DateTime?
+  removedById String?
+  removedAt   DateTime?
+  createdAt   DateTime            @default(now())
+
+  @@unique([caseId, code])
+  @@index([clientId, riderId, status, code])
+}
+
+model CollectionEvent {
+  id        String              @id @default(uuid())
+  clientId  String
+  caseId    String
+  case      RiderCollectionCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  eventType String
+  actorId   String?
+  details   Json?
+  createdAt DateTime            @default(now())
+
+  @@index([clientId, caseId, createdAt])
+}
+
+model CollectionEvaluationQueue {
+  id          String   @id @default(uuid())
+  clientId    String
+  riderId     String
+  requestedAt DateTime @default(now())
+
+  @@unique([clientId, riderId])
+  @@index([requestedAt])
+}
+
+// Rider cash is a liability: CREDIT increases the rider balance, DEBIT decreases it.
+enum WalletStatus {
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+enum WalletAccountType {
+  CASH
+  SECURITY_DEPOSIT
+  REWARD
+  RECEIVABLE
+  ADJUSTMENT
+  CLEARING
+  PROVIDER_CLEARING
+}
+
+enum WalletTransactionType {
+  TOP_UP
+  PAYMENT
+  RENTAL
+  ONBOARDING_FEE
+  SECURITY_DEPOSIT
+  SECURITY_DEPOSIT_REFUND
+  SECURITY_DEPOSIT_DEDUCTION
+  SECURITY_DEPOSIT_FORFEITURE
+  REWARD
+  REFERRAL_REWARD
+  SELF_SUBMISSION_REWARD
+  REFUND
+  PENALTY
+  REPAIR_CHARGE
+  SERVICE_CHARGE
+  BATTERY_CHARGE
+  SWAP_CHARGE
+  EXCHANGE_FEE
+  TRAFFIC_CHALLAN
+  ACCESSORY_CHARGE
+  LOST_EQUIPMENT_CHARGE
+  ADJUSTMENT
+  REVERSAL
+}
+
+enum WalletTransactionStatus {
+  CREATED
+  PENDING
+  PROCESSING
+  POSTED
+  FAILED
+  CANCELLED
+  REVERSED
+  PARTIALLY_REVERSED
+}
+
+enum WalletEntryType {
+  DEBIT
+  CREDIT
+}
+
+enum WalletHoldStatus {
+  ACTIVE
+  RELEASED
+  CAPTURED
+  EXPIRED
+  CANCELLED
+}
+
+model RiderWallet {
+  securityDeposits WalletSecurityDeposit[]
+  id               String                  @id @default(uuid())
+  clientId         String
+  client           Client                  @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId          String
+  rider            Rider                   @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  currency         String                  @default("INR") @db.Char(3)
+  status           WalletStatus            @default(ACTIVE)
+  accounts         WalletAccount[]
+  transactions     WalletTransaction[]
+  holds            WalletHold[]
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  createdById      String?
+  updatedById      String?
+
+  @@unique([clientId, riderId, currency])
+  @@unique([clientId, id])
+  @@unique([clientId, riderId, id])
+}
+
+model WalletAccount {
+  id          String              @id @default(uuid())
+  clientId    String
+  client      Client              @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  walletId    String
+  wallet      RiderWallet         @relation(fields: [clientId, walletId], references: [clientId, id], onDelete: Restrict)
+  accountType WalletAccountType
+  currency    String              @db.Char(3)
+  status      WalletStatus        @default(ACTIVE)
+  entries     WalletLedgerEntry[]
+  holds       WalletHold[]
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@unique([clientId, walletId, accountType])
+  @@unique([clientId, walletId, id])
+}
+
+model WalletTransaction {
+  id                    String                    @id @default(uuid())
+  clientId              String
+  client                Client                    @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  walletId              String
+  wallet                RiderWallet               @relation(fields: [clientId, walletId], references: [clientId, id], onDelete: Restrict)
+  transactionNumber     String                    @unique @db.VarChar(60)
+  transactionType       WalletTransactionType
+  status                WalletTransactionStatus   @default(CREATED)
+  currency              String                    @db.Char(3)
+  amount                Decimal                   @db.Decimal(18, 2)
+  description           String                    @db.VarChar(300)
+  referenceType         String?                   @db.VarChar(60)
+  referenceId           String?                   @db.VarChar(120)
+  idempotencyKey        String                    @db.VarChar(160)
+  requestHash           String                    @db.VarChar(64)
+  parentTransactionId   String?
+  parentTransaction     WalletTransaction?        @relation("WalletReversal", fields: [parentTransactionId], references: [id], onDelete: Restrict)
+  reversals             WalletTransaction[]       @relation("WalletReversal")
+  metadata              Json?
+  entries               WalletLedgerEntry[]
+  invoiceAllocations    WalletInvoiceAllocation[]
+  rewardClaims          RewardClaim[]
+  rewardLotConsumptions RewardLotConsumption[]
+  postedAt              DateTime?
+  failedAt              DateTime?
+  reversedAt            DateTime?
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
+  createdById           String?
+  updatedById           String?
+
+  @@unique([clientId, idempotencyKey])
+  @@unique([clientId, id])
+  @@index([clientId, walletId, createdAt])
+}
+
+model WalletLedgerEntry {
+  id            String            @id @default(uuid())
+  clientId      String
+  client        Client            @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  transactionId String
+  transaction   WalletTransaction @relation(fields: [clientId, transactionId], references: [clientId, id], onDelete: Restrict)
+  walletId      String
+  accountId     String
+  account       WalletAccount     @relation(fields: [clientId, walletId, accountId], references: [clientId, walletId, id], onDelete: Restrict)
+  entryType     WalletEntryType
+  amount        Decimal           @db.Decimal(18, 2)
+  currency      String            @db.Char(3)
+  sequence      Int
+  description   String?           @db.VarChar(300)
+  createdAt     DateTime          @default(now())
+  createdById   String?
+
+  @@unique([transactionId, sequence])
+  @@index([clientId, accountId, createdAt])
+}
+
+model WalletHold {
+  id             String           @id @default(uuid())
+  clientId       String
+  client         Client           @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  walletId       String
+  wallet         RiderWallet      @relation(fields: [clientId, walletId], references: [clientId, id], onDelete: Restrict)
+  accountId      String
+  account        WalletAccount    @relation(fields: [clientId, walletId, accountId], references: [clientId, walletId, id], onDelete: Restrict)
+  amount         Decimal          @db.Decimal(18, 2)
+  capturedAmount Decimal          @default(0) @db.Decimal(18, 2)
+  currency       String           @db.Char(3)
+  status         WalletHoldStatus @default(ACTIVE)
+  idempotencyKey String           @db.VarChar(160)
+  referenceType  String?          @db.VarChar(60)
+  referenceId    String?          @db.VarChar(120)
+  reason         String           @db.VarChar(300)
+  expiresAt      DateTime?
+  releasedAt     DateTime?
+  capturedAt     DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([clientId, idempotencyKey])
+  @@index([clientId, walletId, status])
+}
+
+enum WalletDepositStatus {
+  PENDING
+  PARTIALLY_PAID
+  PAID
+  LOCKED
+  PARTIALLY_DEDUCTED
+  REFUND_ELIGIBLE
+  REFUND_REQUESTED
+  REFUNDED
+  FORFEITED
+  CANCELLED
+}
+
+enum WalletDepositRefundStatus {
+  REQUESTED
+  UNDER_REVIEW
+  APPROVED
+  PROCESSING
+  RETURNED
+  FAILED
+  REJECTED
+  CANCELLED
+}
+
+model WalletPolicy {
+  id                                 String    @id @default(uuid())
+  clientId                           String
+  client                             Client    @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  version                            Int
+  effectiveFrom                      DateTime  @default(now())
+  effectiveUntil                     DateTime?
+  allowNegativeCashBalance           Boolean   @default(false)
+  negativeBalanceLimit               Decimal   @default(0) @db.Decimal(18, 2)
+  minimumCashBalance                 Decimal   @default(0) @db.Decimal(18, 2)
+  allowRewardUsage                   Boolean   @default(false)
+  maxRewardUsagePercent              Decimal   @default(0) @db.Decimal(5, 2)
+  rewardCategories                   String[]  @default([])
+  allowDepositDeduction              Boolean   @default(false)
+  depositDeductionReasons            String[]  @default([])
+  allowPartialSecurityDeposit        Boolean   @default(true)
+  requireFullDepositBeforeAllocation Boolean   @default(false)
+  allowDepositRefundRequest          Boolean   @default(false)
+  fundingPriority                    String[]  @default(["REWARD", "CASH", "EXTERNAL_PAYMENT"])
+  createdById                        String?
+  createdAt                          DateTime  @default(now())
+
+  @@unique([clientId, version])
+  @@index([clientId, effectiveFrom])
+}
+
+model WalletSecurityDeposit {
+  id             String                       @id @default(uuid())
+  clientId       String
+  client         Client                       @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId        String
+  rider          Rider                        @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  walletId       String
+  wallet         RiderWallet                  @relation(fields: [clientId, riderId, walletId], references: [clientId, riderId, id], onDelete: Restrict)
+  currency       String                       @db.Char(3)
+  requiredAmount Decimal                      @db.Decimal(18, 2)
+  sourceType     String                       @db.VarChar(60)
+  sourceId       String                       @db.VarChar(120)
+  policyVersion  Int
+  status         WalletDepositStatus          @default(PENDING)
+  lockedAt       DateTime?
+  effectiveFrom  DateTime                     @default(now())
+  effectiveUntil DateTime?
+  createdAt      DateTime                     @default(now())
+  updatedAt      DateTime                     @updatedAt
+  createdById    String?
+  updatedById    String?
+  refundRequests WalletDepositRefundRequest[]
+
+  @@unique([clientId, riderId, sourceType, sourceId])
+  @@unique([clientId, id])
+  @@index([clientId, walletId, status])
+}
+
+model WalletDepositRefundRequest {
+  id                String                    @id @default(uuid())
+  clientId          String
+  client            Client                    @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  depositId         String
+  deposit           WalletSecurityDeposit     @relation(fields: [clientId, depositId], references: [clientId, id], onDelete: Restrict)
+  amount            Decimal                   @db.Decimal(18, 2)
+  status            WalletDepositRefundStatus @default(REQUESTED)
+  reason            String                    @db.VarChar(500)
+  destinationType   String                    @default("WALLET_CASH") @db.VarChar(40)
+  externalReference String?                   @db.VarChar(160)
+  idempotencyKey    String                    @db.VarChar(160)
+  requestedById     String
+  approvedById      String?
+  approvedAt        DateTime?
+  completedAt       DateTime?
+  requestedAt       DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  @@unique([clientId, idempotencyKey])
+  @@unique([clientId, externalReference])
+  @@index([clientId, depositId, status])
+}
+
+enum WalletInvoiceAllocationKind {
+  APPLY
+  REVERSAL
+}
+
+model WalletInvoiceAllocation {
+  id            String                      @id @default(uuid())
+  clientId      String
+  client        Client                      @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  invoiceId     String
+  invoice       RiderInvoice                @relation(fields: [clientId, invoiceId], references: [clientId, id], onDelete: Restrict)
+  transactionId String
+  transaction   WalletTransaction           @relation(fields: [clientId, transactionId], references: [clientId, id], onDelete: Restrict)
+  kind          WalletInvoiceAllocationKind @default(APPLY)
+  sourceType    String                      @db.VarChar(30)
+  amount        Decimal                     @db.Decimal(18, 2)
+  currency      String                      @db.Char(3)
+  reversalOfId  String?
+  reversalOf    WalletInvoiceAllocation?    @relation("WalletInvoiceAllocationReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversals     WalletInvoiceAllocation[]   @relation("WalletInvoiceAllocationReversal")
+  createdAt     DateTime                    @default(now())
+  createdById   String
+
+  @@unique([transactionId, sourceType])
+  @@unique([reversalOfId])
+  @@index([clientId, invoiceId, createdAt])
+}
+
+/// Client-owned reward program. Referral campaigns retain their own commercial rules.
+model RewardProgram {
+  id          String        @id @default(uuid())
+  clientId    String
+  client      Client        @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  code        String        @db.VarChar(100)
+  name        String        @db.VarChar(160)
+  type        String        @db.VarChar(40)
+  status      String        @default("DRAFT") @db.VarChar(20)
+  currency    String        @default("INR") @db.Char(3)
+  validFrom   DateTime
+  validUntil  DateTime?
+  totalBudget Decimal?      @db.Decimal(18, 2)
+  createdById String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  rules       RewardRule[]
+  claims      RewardClaim[]
+
+  @@unique([clientId, code])
+  @@unique([clientId, id])
+  @@index([clientId, status, validFrom, validUntil])
+}
+
+model RewardRule {
+  id               String        @id @default(uuid())
+  clientId         String
+  programId        String
+  program          RewardProgram @relation(fields: [clientId, programId], references: [clientId, id], onDelete: Restrict)
+  code             String        @db.VarChar(100)
+  name             String        @db.VarChar(160)
+  triggerType      String        @db.VarChar(60)
+  rewardType       String        @default("FIXED") @db.VarChar(20)
+  rewardValue      Decimal       @db.Decimal(18, 2)
+  approvalMode     String        @default("MANUAL_APPROVAL") @db.VarChar(30)
+  expiryDays       Int?
+  expiryAt         DateTime?
+  monthlyCountCap  Int?
+  monthlyAmountCap Decimal?      @db.Decimal(18, 2)
+  version          Int           @default(1)
+  isActive         Boolean       @default(true)
+  conditions       Json?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  claims           RewardClaim[]
+
+  @@unique([clientId, programId, code])
+  @@unique([clientId, id])
+  @@index([clientId, triggerType, isActive])
+}
+
+model RewardClaim {
+  id                  String             @id @default(uuid())
+  clientId            String
+  riderId             String
+  rider               Rider              @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  programId           String
+  program             RewardProgram      @relation(fields: [clientId, programId], references: [clientId, id], onDelete: Restrict)
+  ruleId              String
+  rule                RewardRule         @relation(fields: [clientId, ruleId], references: [clientId, id], onDelete: Restrict)
+  sourceType          String             @db.VarChar(40)
+  sourceId            String             @db.VarChar(120)
+  status              String             @default("APPROVAL_PENDING") @db.VarChar(30)
+  currency            String             @default("INR") @db.Char(3)
+  calculatedAmount    Decimal            @db.Decimal(18, 2)
+  creditedAmount      Decimal            @default(0) @db.Decimal(18, 2)
+  unrecoveredAmount   Decimal            @default(0) @db.Decimal(18, 2)
+  snapshot            Json
+  earnedAt            DateTime           @default(now())
+  approvedAt          DateTime?
+  approvedById        String?
+  creditedAt          DateTime?
+  expiresAt           DateTime?
+  reversedAt          DateTime?
+  cancelledAt         DateTime?
+  rejectionReason     String?            @db.VarChar(500)
+  walletTransactionId String?            @unique
+  walletTransaction   WalletTransaction? @relation(fields: [clientId, walletTransactionId], references: [clientId, id], onDelete: Restrict)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  lot                 RewardLot?
+  events              RewardEvent[]
+
+  @@unique([clientId, ruleId, sourceType, sourceId, riderId])
+  @@unique([clientId, sourceType, sourceId])
+  @@unique([clientId, id])
+  @@index([clientId, riderId, createdAt])
+  @@index([clientId, status, createdAt])
+  @@index([clientId, programId, status])
+}
+
+model RewardLot {
+  id              String                 @id @default(uuid())
+  clientId        String
+  riderId         String
+  claimId         String                 @unique
+  claim           RewardClaim            @relation(fields: [clientId, claimId], references: [clientId, id], onDelete: Restrict)
+  originalAmount  Decimal                @db.Decimal(18, 2)
+  remainingAmount Decimal                @db.Decimal(18, 2)
+  expiresAt       DateTime?
+  status          String                 @default("AVAILABLE") @db.VarChar(20)
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  consumptions    RewardLotConsumption[]
+
+  @@unique([clientId, id])
+  @@unique([clientId, claimId])
+  @@index([clientId, riderId, status, expiresAt])
+}
+
+model RewardLotConsumption {
+  id            String            @id @default(uuid())
+  clientId      String
+  lotId         String
+  lot           RewardLot         @relation(fields: [clientId, lotId], references: [clientId, id], onDelete: Restrict)
+  transactionId String
+  transaction   WalletTransaction @relation(fields: [clientId, transactionId], references: [clientId, id], onDelete: Restrict)
+  amount        Decimal           @db.Decimal(18, 2)
+  kind          String            @default("SPEND") @db.VarChar(20)
+  createdAt     DateTime          @default(now())
+
+  @@unique([lotId, transactionId])
+  @@index([clientId, transactionId])
+}
+
+model RewardEvent {
+  id        String      @id @default(uuid())
+  clientId  String
+  claimId   String
+  claim     RewardClaim @relation(fields: [clientId, claimId], references: [clientId, id], onDelete: Restrict)
+  type      String      @db.VarChar(60)
+  payload   Json?
+  createdAt DateTime    @default(now())
+
+  @@index([clientId, claimId, createdAt])
 }

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
   Headers,
@@ -11,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { IsIn, IsOptional } from 'class-validator';
 import type { RawBodyRequest } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { ClientContextService } from '../auth/client-context.service.js';
@@ -20,6 +22,11 @@ import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { MandateService } from './mandate.service.js';
+
+class CreateMandateDto {
+  @IsOptional() @IsIn(['UPI_AUTOPAY', 'ENACH']) method?:
+    'UPI_AUTOPAY' | 'ENACH';
+}
 
 @ApiTags('Rider AutoPay')
 @Controller('rider-app/payments/autopay')
@@ -58,14 +65,65 @@ export class RiderMandateController {
   async create(
     @CurrentUser() user: AuthUser,
     @Headers('idempotency-key') key?: string,
+    @Body() dto?: CreateMandateDto,
   ) {
     return {
       data: await this.mandates.create(
         this.clients.requireClientId(user),
         user.id,
         key ?? '',
+        dto?.method ?? 'UPI_AUTOPAY',
       ),
     };
+  }
+
+  @Post(':mandateId/cancel')
+  @ApiHeader({ name: 'Idempotency-Key', required: true })
+  async cancel(
+    @CurrentUser() user: AuthUser,
+    @Param('mandateId') mandateId: string,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    return {
+      data: await this.mandates.cancel(
+        this.clients.requireClientId(user),
+        user.id,
+        mandateId,
+        key ?? '',
+      ),
+    };
+  }
+
+  @Post(':mandateId/pause')
+  @ApiHeader({ name: 'Idempotency-Key', required: true })
+  async pause(@CurrentUser() user: AuthUser, @Param('mandateId') mandateId: string, @Headers('idempotency-key') key?: string) {
+    return { data: await this.mandates.manage(this.clients.requireClientId(user), user.id, mandateId, key ?? '', 'PAUSE') };
+  }
+
+  @Post(':mandateId/resume')
+  @ApiHeader({ name: 'Idempotency-Key', required: true })
+  async resume(@CurrentUser() user: AuthUser, @Param('mandateId') mandateId: string, @Headers('idempotency-key') key?: string) {
+    return { data: await this.mandates.manage(this.clients.requireClientId(user), user.id, mandateId, key ?? '', 'RESUME') };
+  }
+
+  @Post('disable')
+  async disable(@CurrentUser() user: AuthUser) {
+    return { data: await this.mandates.setLocalEnabled(this.clients.requireClientId(user), user.id, false) };
+  }
+
+  @Post('enable')
+  async enable(@CurrentUser() user: AuthUser) {
+    return { data: await this.mandates.setLocalEnabled(this.clients.requireClientId(user), user.id, true) };
+  }
+
+  @Get('upcoming')
+  async upcoming(@CurrentUser() user: AuthUser) {
+    return { data: await this.mandates.upcoming(this.clients.requireClientId(user), user.id) };
+  }
+
+  @Get('debits')
+  async debits(@CurrentUser() user: AuthUser) {
+    return { data: await this.mandates.debits(this.clients.requireClientId(user), user.id) };
   }
 
   @Post(':mandateId/verify')

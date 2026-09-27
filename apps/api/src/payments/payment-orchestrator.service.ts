@@ -11,7 +11,9 @@ import { PaymentTransactionStatus, Prisma } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import type { Environment } from '../config/environment.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { CashfreeProviderError } from './cashfree/cashfree-http.client.js';
+import { RiderPaymentsService } from '../rider-billing/rider-payments.service.js';
+import { WalletService } from '../wallet/wallet.service.js';
+import { ProviderRequestError } from './payment-provider.interface.js';
 import {
   PAYMENT_PROVIDER,
   type PaymentProvider,
@@ -27,6 +29,8 @@ export class PaymentOrchestratorService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<Environment, true>,
     @Inject(PAYMENT_PROVIDER) private readonly provider: PaymentProvider,
+    private readonly riderPayments: RiderPaymentsService,
+    private readonly wallet: WalletService,
   ) {}
 
   private async serializable<T>(work: (tx: Tx) => Promise<T>): Promise<T> {
@@ -92,6 +96,7 @@ export class PaymentOrchestratorService {
       throw new BadRequestException(
         'A valid ISO payment schedule date is required.',
       );
+    await this.wallet.ensure(clientId, riderId, 'SYSTEM');
     let reserved;
     let created = false;
     try {
@@ -100,25 +105,40 @@ export class PaymentOrchestratorService {
           where: { id: invoiceId, clientId, riderId },
         });
         if (!invoice) throw new NotFoundException('Rider invoice not found.');
-        const previous = await tx.paymentTransaction.findUnique({
-          where: { clientId_invoiceId: { clientId, invoiceId } },
+        const retry = await tx.paymentTransaction.findUnique({
+          where: { clientId_requestKey: { clientId, requestKey } },
+        });
+        if (retry) {
+          if (retry.invoiceId !== invoiceId || retry.riderId !== riderId)
+            throw new ConflictException(
+              'Collection key belongs to another invoice.',
+            );
+          return retry;
+        }
+        const previous = await tx.paymentTransaction.findFirst({
+          where: {
+            clientId,
+            invoiceId,
+            status: { in: ['CREATING', 'PENDING', 'UNKNOWN', 'SUCCESS'] },
+          },
+          orderBy: { createdAt: 'desc' },
         });
         if (previous) {
-          if (previous.requestKey !== requestKey)
-            throw new ConflictException(
-              'This invoice already has a collection. Use its existing payment ID.',
-            );
-          return previous;
+          throw new ConflictException(
+            'This invoice already has an active collection. Use its existing payment ID.',
+          );
         }
-        // Cashfree ignores the time component and executes by the calendar date in IST.
-        const istDay = (value: Date) =>
-          new Date(value.getTime() + 330 * 60_000).toISOString().slice(0, 10);
-        if (
-          scheduledAt <= new Date() ||
-          istDay(scheduledAt) <= istDay(new Date())
-        )
-          throw new BadRequestException(
-            'Cashfree charge date must be after today in India.',
+        const checkout = await tx.paymentCollectionRequest.findFirst({
+          where: {
+            clientId,
+            riderId,
+            OR: [{ invoiceId }, { collectionType: 'OUTSTANDING_PAYMENT' }],
+            status: { in: ['CREATING', 'PENDING', 'UNKNOWN'] },
+          },
+        });
+        if (checkout)
+          throw new ConflictException(
+            'A checkout payment is already in progress for this invoice.',
           );
         if (
           !openInvoiceStatuses.includes(
@@ -129,15 +149,21 @@ export class PaymentOrchestratorService {
           throw new ConflictException(
             'Only a finalized invoice with an outstanding amount can be collected.',
           );
-        if (invoice.currency !== 'INR')
+        if (scheduledAt <= new Date())
           throw new BadRequestException(
-            'Cashfree AutoPay currently supports INR invoices only.',
+            'Payment schedule must be in the future.',
           );
+        this.provider.assertChargeEligible({
+          amount: invoice.outstandingAmount.toFixed(2),
+          currency: invoice.currency,
+          scheduledAt,
+        });
         const mandate = await tx.paymentMandate.findFirst({
           where: {
             clientId,
             riderId,
             status: 'ACTIVE',
+            autoDebitEnabled: true,
             expiresAt: { gt: scheduledAt },
             currency: invoice.currency,
           },
@@ -161,6 +187,7 @@ export class PaymentOrchestratorService {
             requestKey,
             provider: this.config.getOrThrow('PAYMENT_PROVIDER').toUpperCase(),
             providerPaymentId,
+            debitNumber: `EVD-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}-${randomUUID().slice(0, 12).toUpperCase()}`,
             status: 'CREATING',
             amount: invoice.outstandingAmount,
             currency: invoice.currency,
@@ -175,6 +202,8 @@ export class PaymentOrchestratorService {
             },
           },
         });
+        await tx.auditLog.create({ data: { clientId, actorId: null, action: 'AUTODEBIT_SCHEDULED', entityType: 'PaymentTransaction', entityId: item.id,
+          newData: { invoiceId, mandateId: mandate.id, amount: invoice.outstandingAmount.toFixed(2), scheduledAt: scheduledAt.toISOString() } } });
         created = true;
         return item;
       });
@@ -193,8 +222,7 @@ export class PaymentOrchestratorService {
         try {
           return await this.verify(clientId, riderId, reserved.id);
         } catch (error) {
-          if (error instanceof CashfreeProviderError)
-            return this.view(reserved);
+          if (error instanceof ProviderRequestError) return this.view(reserved);
           throw error;
         }
       }
@@ -203,6 +231,37 @@ export class PaymentOrchestratorService {
     const mandate = await this.prisma.paymentMandate.findFirstOrThrow({
       where: { id: reserved.mandateId, clientId },
     });
+    const latestInvoice = await this.prisma.riderInvoice.findFirst({
+      where: { id: invoiceId, clientId, riderId },
+    });
+    if (
+      !latestInvoice ||
+      !openInvoiceStatuses.includes(
+        latestInvoice.status as (typeof openInvoiceStatuses)[number],
+      ) ||
+      !latestInvoice.outstandingAmount.eq(reserved.amount)
+    ) {
+      await this.prisma.paymentTransaction.update({
+        where: { id: reserved.id },
+        data: {
+          status: 'CANCELLED',
+          attempts: {
+            update: {
+              where: {
+                transactionId_sequence: {
+                  transactionId: reserved.id,
+                  sequence: 1,
+                },
+              },
+              data: { status: 'CANCELLED' },
+            },
+          },
+        },
+      });
+      throw new ConflictException(
+        'Invoice outstanding changed before the provider debit request.',
+      );
+    }
     let result: PaymentResult;
     try {
       result = await this.provider.createPayment({
@@ -215,12 +274,16 @@ export class PaymentOrchestratorService {
       });
     } catch (error) {
       const knownRejection =
-        error instanceof CashfreeProviderError &&
+        error instanceof ProviderRequestError &&
         error.category === 'INVALID_REQUEST';
       await this.prisma.paymentTransaction.update({
         where: { id: reserved.id },
         data: {
           status: knownRejection ? 'FAILED' : 'UNKNOWN',
+          failureCode: knownRejection
+            ? 'PROVIDER_REJECTED'
+            : 'PROVIDER_UNAVAILABLE',
+          retryability: knownRejection ? 'NON_RETRYABLE' : 'UNKNOWN',
           attempts: {
             update: {
               where: {
@@ -241,7 +304,7 @@ export class PaymentOrchestratorService {
       });
       if (knownRejection)
         throw new BadRequestException(
-          'Cashfree rejected the scheduled invoice charge.',
+          'Payment provider rejected the scheduled invoice charge.',
         );
       throw new ServiceUnavailableException(
         'Charge creation is uncertain. Verify its status before any further attempt.',
@@ -286,6 +349,7 @@ export class PaymentOrchestratorService {
         );
       if (item.status === 'SUCCESS') return item;
       const next = result.status as PaymentTransactionStatus;
+      let riderPaymentId: string | undefined;
       if (next === 'SUCCESS') {
         if (
           !verified ||
@@ -305,37 +369,39 @@ export class PaymentOrchestratorService {
           invoice.clientId !== item.clientId ||
           invoice.riderId !== item.riderId ||
           invoice.currency !== item.currency ||
-          !openInvoiceStatuses.includes(
-            invoice.status as (typeof openInvoiceStatuses)[number],
-          ) ||
-          invoice.outstandingAmount.lt(item.amount)
+          invoice.status === 'VOID'
         )
           throw new ConflictException(
             'Invoice state no longer permits payment settlement.',
           );
-        const outstanding = invoice.outstandingAmount.minus(item.amount);
-        const now = new Date();
-        await tx.riderLedgerEntry.create({
-          data: {
+        const payment =
+          await this.riderPayments.confirmProviderPaymentInTransaction(tx, {
             clientId: item.clientId,
             riderId: item.riderId,
-            entryType: 'PAYMENT',
-            sourceType: 'PAYMENT_TRANSACTION',
-            sourceId: item.id,
-            description: `Cashfree payment for invoice ${invoice.invoiceNumber}`,
-            creditAmount: item.amount,
+            amount: item.amount,
             currency: item.currency,
-            effectiveAt: now,
-          },
-        });
-        await tx.riderInvoice.update({
-          where: { id: invoice.id },
-          data: {
-            paidAmount: invoice.paidAmount.plus(item.amount),
-            outstandingAmount: outstanding,
-            status: outstanding.eq(0) ? 'PAID' : 'PARTIALLY_PAID',
-            paidAt: outstanding.eq(0) ? now : null,
-          },
+            method: mandate.method,
+            provider: item.provider,
+            providerPaymentId: item.providerPaymentId,
+            sourceId: item.id,
+            invoiceId: item.invoiceId,
+          });
+        riderPaymentId = payment.id;
+        const wallet = await tx.riderWallet.findFirst({ where: { clientId: item.clientId, riderId: item.riderId, currency: item.currency } });
+        if (!wallet) throw new ConflictException('Rider wallet is missing for recurring payment.');
+        const accounts = await tx.walletAccount.findMany({ where: { clientId: item.clientId, walletId: wallet.id } });
+        const clearing = accounts.find(account => account.accountType === 'CLEARING');
+        const providerClearing = accounts.find(account => account.accountType === 'PROVIDER_CLEARING');
+        if (!clearing || !providerClearing) throw new ConflictException('Wallet clearing accounts are missing.');
+        const amount = item.amount.toFixed(2);
+        await this.wallet.postInTransaction(tx, {
+          clientId: item.clientId, walletId: wallet.id, actorId: 'SYSTEM', type: 'PAYMENT', amount,
+          currency: item.currency, description: `Verified recurring invoice payment ${item.id}`,
+          idempotencyKey: `provider:autopay:${item.id}`, referenceType: 'RIDER_INVOICE', referenceId: item.invoiceId,
+          entries: [
+            { accountId: clearing.id, entryType: 'DEBIT', amount },
+            { accountId: providerClearing.id, entryType: 'CREDIT', amount },
+          ],
         });
         await tx.auditLog.create({
           data: {
@@ -347,6 +413,7 @@ export class PaymentOrchestratorService {
             newData: {
               paymentTransactionId: item.id,
               amount: item.amount.toFixed(2),
+              riderPaymentId: payment.id,
               providerReference: result.providerReference,
             },
           },
@@ -356,9 +423,16 @@ export class PaymentOrchestratorService {
         where: { id: item.id },
         data: {
           status: next,
+          ...(next === 'FAILED'
+            ? {
+                failureCode: result.failureCode ?? 'UNKNOWN',
+                retryability: result.retryability ?? 'UNKNOWN',
+              }
+            : {}),
           providerReference: result.providerReference ?? item.providerReference,
           lastVerifiedAt: verified ? new Date() : item.lastVerifiedAt,
           completedAt: next === 'SUCCESS' ? new Date() : item.completedAt,
+          ...(riderPaymentId ? { riderPaymentId } : {}),
         },
       });
       await tx.paymentAttempt.update({
@@ -371,6 +445,29 @@ export class PaymentOrchestratorService {
           providerReference: result.providerReference,
         },
       });
+      if (next === 'FAILED') {
+        await tx.auditLog.create({ data: { clientId: item.clientId, actorId: null, action: 'AUTODEBIT_FAILED', entityType: 'PaymentTransaction', entityId: item.id,
+          newData: { failureCode: result.failureCode ?? 'UNKNOWN', retryability: result.retryability ?? 'UNKNOWN' } } });
+        const policy = await tx.paymentCollectionPolicy.findUnique({ where: { clientId: item.clientId } });
+        const failedAttempts = await tx.paymentTransaction.count({ where: { clientId: item.clientId, invoiceId: item.invoiceId, status: 'FAILED' } });
+        const retryable = policy?.retryEnabled && result.retryability === 'RETRYABLE' && failedAttempts < policy.maximumAttempts;
+        const intervals = Array.isArray(policy?.retryIntervalsDays) ? policy.retryIntervalsDays as number[] : [];
+        const retryDays = intervals[failedAttempts - 1] ?? 1;
+        const profile = await tx.riderPaymentProfile.findUnique({ where: { clientId_riderId: { clientId: item.clientId, riderId: item.riderId } } });
+        await tx.autoPayDunningCase.upsert({ where: { clientId_invoiceId: { clientId: item.clientId, invoiceId: item.invoiceId } }, create: {
+          clientId: item.clientId, riderId: item.riderId, invoiceId: item.invoiceId,
+          status: retryable ? 'RETRY_SCHEDULED' : 'RIDER_ACTION_REQUIRED', failedAttempts,
+          nextRetryAt: retryable ? new Date(Date.now() + retryDays * 86400000) : null,
+          graceUntil: profile ? new Date(item.scheduledAt.getTime() + profile.gracePeriodDays * 86400000) : null,
+          failureCode: result.failureCode ?? 'UNKNOWN',
+        }, update: {
+          status: retryable ? 'RETRY_SCHEDULED' : 'RIDER_ACTION_REQUIRED', failedAttempts,
+          nextRetryAt: retryable ? new Date(Date.now() + retryDays * 86400000) : null,
+          failureCode: result.failureCode ?? 'UNKNOWN',
+        } });
+      } else if (next === 'SUCCESS') {
+        await tx.autoPayDunningCase.updateMany({ where: { clientId: item.clientId, invoiceId: item.invoiceId, status: { not: 'RESOLVED' } }, data: { status: 'RESOLVED', resolvedAt: new Date(), nextRetryAt: null } });
+      }
       return updated;
     });
   }

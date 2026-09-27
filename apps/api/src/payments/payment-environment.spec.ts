@@ -17,8 +17,9 @@ describe('payment provider environment', () => {
         CASHFREE_WEBHOOK_SECRET: 'webhook-secret',
         CASHFREE_SUBSCRIPTION_RETURN_URL: 'http://localhost:3001/return',
         CASHFREE_WEBHOOK_URL: 'http://localhost:3000/webhook',
+        CASHFREE_PG_WEBHOOK_URL: 'http://localhost:3000/checkout-webhook',
       }).CASHFREE_API_VERSION,
-    ).toBe('2026-01-01');
+    ).toBe('2025-01-01');
   });
   it('blocks the mock provider in production', () => {
     expect(() =>

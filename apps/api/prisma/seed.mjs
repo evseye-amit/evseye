@@ -21,6 +21,7 @@ import { packageCatalog } from './catalog/packages.mjs';
 import { packageVehicleTierPricingCatalog } from './catalog/package-vehicle-tier-pricing.mjs';
 import { vehicleCategoryCatalog } from './catalog/vehicle-categories.mjs';
 import { vehicleTypeCatalog } from './catalog/vehicle-types.mjs';
+import { seedRiderRateCardDemo } from './catalog/rider-rate-card-demo.mjs';
 
 const prisma = new PrismaClient();
 
@@ -748,6 +749,8 @@ async function main() {
       }
     }
   }
+
+  await seedRiderRateCardDemo(prisma);
 
   console.info('Seeded platform master data, client configuration, fleet components, manager users, and Super Admin account.');
 }

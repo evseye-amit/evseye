@@ -10,7 +10,7 @@ function setup() {
     riderCharge: { findUnique: vi.fn().mockResolvedValue(null), findMany: vi.fn().mockResolvedValue([]), create: vi.fn().mockResolvedValue({ id: 'charge-a', description: 'Rent' }), update: vi.fn() },
     riderCredit: { findUnique: vi.fn().mockResolvedValue(null), findMany: vi.fn().mockResolvedValue([]), create: vi.fn().mockResolvedValue({ id: 'credit-a', description: 'Reward', effectiveAt: new Date() }), update: vi.fn() },
     riderLedgerEntry: { create: vi.fn().mockResolvedValue({}) },
-    riderInvoice: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({ id: 'invoice-a' }), update: vi.fn(), findUniqueOrThrow: vi.fn().mockResolvedValue({ id: 'invoice-a', lines: [] }) },
+    riderInvoice: { findFirst: vi.fn().mockResolvedValue(null), findUnique: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({ id: 'invoice-a' }), update: vi.fn(), findUniqueOrThrow: vi.fn().mockResolvedValue({ id: 'invoice-a', lines: [] }) },
     riderInvoiceLine: { create: vi.fn() },
     auditLog: { create: vi.fn() },
   };

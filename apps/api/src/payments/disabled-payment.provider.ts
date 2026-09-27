@@ -3,8 +3,33 @@ import type { PaymentProvider } from './payment-provider.interface.js';
 
 @Injectable()
 export class DisabledPaymentProvider {
+  assertChargeEligible(): void {
+    this.unavailable();
+  }
   private unavailable(): never {
     throw new ServiceUnavailableException('Payment provider is disabled.');
+  }
+  createCheckoutOrder(): ReturnType<PaymentProvider['createCheckoutOrder']> {
+    return this.unavailable();
+  }
+  fetchCheckoutPayments(): ReturnType<
+    PaymentProvider['fetchCheckoutPayments']
+  > {
+    return this.unavailable();
+  }
+  fetchCheckoutOrder(): ReturnType<PaymentProvider['fetchCheckoutOrder']> {
+    return this.unavailable();
+  }
+  verifyCheckoutWebhook(): ReturnType<
+    PaymentProvider['verifyCheckoutWebhook']
+  > {
+    return this.unavailable();
+  }
+  createCheckoutRefund(): ReturnType<PaymentProvider['createCheckoutRefund']> {
+    return this.unavailable();
+  }
+  fetchCheckoutRefund(): ReturnType<PaymentProvider['fetchCheckoutRefund']> {
+    return this.unavailable();
   }
   createMandate(): ReturnType<PaymentProvider['createMandate']> {
     return this.unavailable();

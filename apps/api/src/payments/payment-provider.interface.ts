@@ -1,4 +1,19 @@
 /** Provider-neutral contract. Amounts are decimal strings in INR. */
+export type ProviderErrorCategory =
+  | 'PROVIDER_UNAVAILABLE'
+  | 'AUTHENTICATION_FAILED'
+  | 'INVALID_REQUEST'
+  | 'RATE_LIMITED'
+  | 'NETWORK_ERROR'
+  | 'UNKNOWN';
+export class ProviderRequestError extends Error {
+  constructor(
+    public readonly category: ProviderErrorCategory,
+    public readonly httpStatus?: number,
+  ) {
+    super(`Payment provider request failed: ${category}`);
+  }
+}
 export type MandateStatus =
   | 'CREATED'
   | 'AUTHORIZATION_PENDING'
@@ -53,6 +68,8 @@ export interface PaymentResult {
   paymentType?: string;
   providerReference?: string;
   authorizationUrl?: string;
+  failureCode?: string;
+  retryability?: 'RETRYABLE' | 'NON_RETRYABLE' | 'UNKNOWN';
 }
 export interface RefundInput {
   providerMandateId: string;
@@ -67,12 +84,64 @@ export interface RefundResult {
   providerRefundId: string;
   status: RefundStatus;
   rawStatus: string;
+  amount?: string;
+  currency?: string;
 }
 export interface VerifiedWebhook {
   payload: unknown;
 }
+export interface CheckoutOrderInput {
+  orderId: string;
+  idempotencyKey: string;
+  amount: string;
+  currency: string;
+  customer: { id: string; phone: string; name?: string };
+  notifyUrl?: string;
+}
+export interface CheckoutOrderResult {
+  orderId: string;
+  paymentSessionId: string;
+  rawStatus: string;
+  expiresAt?: string;
+}
+export interface CheckoutOrderStatus {
+  orderId: string;
+  status: 'ACTIVE' | 'PAID' | 'EXPIRED' | 'UNKNOWN';
+  expiresAt?: string;
+}
+export interface CheckoutPaymentResult {
+  orderId: string;
+  providerPaymentId: string;
+  status: PaymentStatus;
+  rawStatus: string;
+  amount: string;
+  currency: string;
+  providerReference?: string;
+}
+export interface CheckoutRefundInput {
+  orderId: string;
+  refundId: string;
+  amount: string;
+  note: string;
+  idempotencyKey: string;
+}
 
 export interface PaymentProvider {
+  assertChargeEligible(input: {
+    amount: string;
+    currency: string;
+    scheduledAt: Date;
+  }): void;
+  createCheckoutOrder(input: CheckoutOrderInput): Promise<CheckoutOrderResult>;
+  fetchCheckoutOrder(orderId: string): Promise<CheckoutOrderStatus>;
+  fetchCheckoutPayments(orderId: string): Promise<CheckoutPaymentResult[]>;
+  verifyCheckoutWebhook(
+    rawBody: Buffer,
+    timestamp: string,
+    signature: string,
+  ): VerifiedWebhook;
+  createCheckoutRefund(input: CheckoutRefundInput): Promise<RefundResult>;
+  fetchCheckoutRefund(orderId: string, refundId: string): Promise<RefundResult>;
   createMandate(input: CreateMandateInput): Promise<MandateResult>;
   fetchMandate(providerMandateId: string): Promise<MandateResult>;
   pauseMandate(

@@ -7,6 +7,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 import type { Environment } from '../../config/environment.js';
 import type {
+  CheckoutOrderInput,
+  CheckoutOrderResult,
+  CheckoutPaymentResult,
+  CheckoutRefundInput,
   CreateMandateInput,
   MandateResult,
   PaymentInput,
@@ -27,6 +31,38 @@ import {
 type Payload = Record<string, unknown>;
 const id = (value: string) => encodeURIComponent(value);
 const field = (value: unknown) => (typeof value === 'string' ? value : '');
+function failure(raw: string): {
+  failureCode: string;
+  retryability: 'RETRYABLE' | 'NON_RETRYABLE' | 'UNKNOWN';
+} {
+  const code = raw.toUpperCase();
+  if (code.includes('INSUFFICIENT') || code.includes('BALANCE'))
+    return { failureCode: 'INSUFFICIENT_FUNDS', retryability: 'RETRYABLE' };
+  if (
+    code.includes('ISSUER_NOT_AVAILABLE') ||
+    code.includes('BANK_UNAVAILABLE') ||
+    code.includes('TIMEOUT')
+  )
+    return { failureCode: 'PROVIDER_UNAVAILABLE', retryability: 'RETRYABLE' };
+  if (
+    code.includes('MANDATE') &&
+    (code.includes('REVOK') || code.includes('CANCEL'))
+  )
+    return { failureCode: 'MANDATE_REVOKED', retryability: 'NON_RETRYABLE' };
+  if (code.includes('MANDATE') && code.includes('EXPIR'))
+    return { failureCode: 'MANDATE_EXPIRED', retryability: 'NON_RETRYABLE' };
+  if (code.includes('LIMIT') || code.includes('AMOUNT_EXCEEDED'))
+    return {
+      failureCode: 'MANDATE_LIMIT_EXCEEDED',
+      retryability: 'NON_RETRYABLE',
+    };
+  if (
+    code.includes('MANDATE') &&
+    (code.includes('INVALID') || code.includes('INACTIVE'))
+  )
+    return { failureCode: 'MANDATE_INACTIVE', retryability: 'NON_RETRYABLE' };
+  return { failureCode: 'UNKNOWN', retryability: 'UNKNOWN' };
+}
 
 @Injectable()
 export class CashfreePaymentProvider implements PaymentProvider {
@@ -34,6 +70,167 @@ export class CashfreePaymentProvider implements PaymentProvider {
     private readonly http: CashfreeHttpClient,
     private readonly config: ConfigService<Environment, true>,
   ) {}
+  assertChargeEligible(input: {
+    amount: string;
+    currency: string;
+    scheduledAt: Date;
+  }): void {
+    if (input.currency !== 'INR')
+      throw new BadRequestException('Cashfree AutoPay supports INR only.');
+    const istDay = (value: Date) =>
+      new Date(value.getTime() + 330 * 60000).toISOString().slice(0, 10);
+    if (
+      input.scheduledAt <= new Date() ||
+      input.scheduledAt.getTime() < Date.now() + 24 * 3600000 ||
+      istDay(input.scheduledAt) <= istDay(new Date())
+    )
+      throw new BadRequestException(
+        'Cashfree charge must be scheduled at least 24 hours ahead and after today in India.',
+      );
+    moneyToProvider(input.amount);
+  }
+
+  async createCheckoutOrder(
+    input: CheckoutOrderInput,
+  ): Promise<CheckoutOrderResult> {
+    if (input.currency !== 'INR')
+      throw new BadRequestException(
+        'Cashfree checkout currently supports INR.',
+      );
+    const result = await this.http.request<Payload>(
+      'POST',
+      '/orders',
+      {
+        order_id: input.orderId,
+        order_amount: moneyToProvider(input.amount),
+        order_currency: input.currency,
+        customer_details: {
+          customer_id: input.customer.id,
+          customer_phone: input.customer.phone,
+          ...(input.customer.name
+            ? { customer_name: input.customer.name }
+            : {}),
+        },
+        ...(input.notifyUrl
+          ? { order_meta: { notify_url: input.notifyUrl } }
+          : {}),
+      },
+      input.idempotencyKey,
+      '2025-01-01',
+    );
+    const orderId = field(result.order_id),
+      paymentSessionId = field(result.payment_session_id);
+    if (orderId !== input.orderId || !paymentSessionId)
+      throw new BadRequestException(
+        'Cashfree checkout response is incomplete.',
+      );
+    return { orderId, paymentSessionId, rawStatus: field(result.order_status), expiresAt: field(result.order_expiry_time) || undefined };
+  }
+
+  async fetchCheckoutOrder(orderId: string) {
+    const result = await this.http.request<Payload>('GET', `/orders/${id(orderId)}`, undefined, undefined, '2025-01-01');
+    if (field(result.order_id) !== orderId) throw new BadRequestException('Cashfree checkout order identity mismatch.');
+    const rawStatus = field(result.order_status);
+    return {
+      orderId,
+      status: (['ACTIVE', 'PAID', 'EXPIRED'].includes(rawStatus) ? rawStatus : 'UNKNOWN') as 'ACTIVE' | 'PAID' | 'EXPIRED' | 'UNKNOWN',
+      expiresAt: field(result.order_expiry_time) || undefined,
+    };
+  }
+
+  async fetchCheckoutPayments(
+    orderId: string,
+  ): Promise<CheckoutPaymentResult[]> {
+    const response = await this.http.request<Payload[]>(
+      'GET',
+      `/orders/${id(orderId)}/payments`,
+      undefined,
+      undefined,
+      '2025-01-01',
+    );
+    if (!Array.isArray(response))
+      throw new BadRequestException(
+        'Cashfree payment verification response is invalid.',
+      );
+    return response.map((item) => ({
+      orderId: field(item.order_id),
+      providerPaymentId:
+        item.cf_payment_id == null ? '' : String(item.cf_payment_id),
+      status:
+        field(item.payment_status) === 'USER_DROPPED'
+          ? 'FAILED'
+          : paymentStatus(item.payment_status),
+      rawStatus: field(item.payment_status),
+      amount: item.payment_amount == null ? '' : String(item.payment_amount),
+      currency: field(item.payment_currency),
+      providerReference: field(item.bank_reference) || undefined,
+    }));
+  }
+  verifyCheckoutWebhook(
+    rawBody: Buffer,
+    timestamp: string,
+    signature: string,
+  ): VerifiedWebhook {
+    const secret = this.config.getOrThrow('CASHFREE_CLIENT_SECRET');
+    const expected = createHmac('sha256', secret)
+      .update(timestamp)
+      .update(rawBody)
+      .digest();
+    const actual = Buffer.from(signature, 'base64');
+    if (
+      !timestamp ||
+      !signature ||
+      actual.length !== expected.length ||
+      !timingSafeEqual(actual, expected)
+    )
+      throw new UnauthorizedException(
+        'Invalid Cashfree checkout webhook signature.',
+      );
+    try {
+      return { payload: JSON.parse(rawBody.toString('utf8')) as unknown };
+    } catch {
+      throw new BadRequestException(
+        'Invalid Cashfree checkout webhook payload.',
+      );
+    }
+  }
+  async createCheckoutRefund(
+    input: CheckoutRefundInput,
+  ): Promise<RefundResult> {
+    const response = await this.http.request<Payload | Payload[]>(
+      'POST',
+      `/orders/${id(input.orderId)}/refunds`,
+      {
+        refund_amount: moneyToProvider(input.amount),
+        refund_id: input.refundId,
+        refund_note: input.note,
+        refund_speed: 'STANDARD',
+      },
+      input.idempotencyKey,
+      '2025-01-01',
+    );
+    const payload = Array.isArray(response) ? response[0] : response;
+    if (!payload)
+      throw new BadRequestException('Checkout refund response is empty.');
+    if (field(payload.refund_id) !== input.refundId)
+      throw new BadRequestException('Checkout refund identity mismatch.');
+    return this.refund(payload);
+  }
+  async fetchCheckoutRefund(
+    orderId: string,
+    refundId: string,
+  ): Promise<RefundResult> {
+    const payload = await this.http.request<Payload>(
+      'GET',
+      `/orders/${id(orderId)}/refunds/${id(refundId)}`,
+      undefined,
+      undefined,
+      '2025-01-01',
+    );
+    if (field(payload.refund_id) !== refundId)
+      throw new BadRequestException('Checkout refund identity mismatch.');
+    return this.refund(payload);
+  }
 
   private mandate(payload: Payload): MandateResult {
     const rawStatus = field(payload.subscription_status);
@@ -46,12 +243,19 @@ export class CashfreePaymentProvider implements PaymentProvider {
   }
   private payment(payload: Payload): PaymentResult {
     const rawStatus = field(payload.payment_status);
+    const normalizedStatus = paymentStatus(rawStatus);
     const data = payload.data as Payload | undefined;
     return {
       providerMandateId: field(payload.subscription_id),
       providerPaymentId: field(payload.payment_id),
-      status: paymentStatus(rawStatus),
+      status: normalizedStatus,
       rawStatus,
+      ...(normalizedStatus === 'FAILED'
+        ? failure(
+            field(payload.payment_error_code) ||
+              field(payload.payment_failure_reason),
+          )
+        : {}),
       amount:
         typeof payload.payment_amount === 'number' ||
         typeof payload.payment_amount === 'string'
@@ -72,6 +276,11 @@ export class CashfreePaymentProvider implements PaymentProvider {
       providerRefundId: field(payload.refund_id),
       status: refundStatus(rawStatus),
       rawStatus,
+      amount:
+        payload.refund_amount == null
+          ? undefined
+          : String(payload.refund_amount),
+      currency: field(payload.refund_currency) || undefined,
     };
   }
   async createMandate(input: CreateMandateInput): Promise<MandateResult> {

@@ -14,7 +14,7 @@ const settings: Record<string, string> = {
   CASHFREE_ENVIRONMENT: 'SANDBOX',
   CASHFREE_CLIENT_ID: 'test-id',
   CASHFREE_CLIENT_SECRET: 'test-secret',
-  CASHFREE_API_VERSION: '2026-01-01',
+  CASHFREE_API_VERSION: '2025-01-01',
   CASHFREE_WEBHOOK_SECRET: 'test-webhook-secret',
   CASHFREE_SUBSCRIPTION_RETURN_URL: 'https://app.example/return',
 };

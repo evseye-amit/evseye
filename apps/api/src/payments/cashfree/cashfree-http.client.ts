@@ -2,14 +2,14 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Environment } from '../../config/environment.js';
 import { providerErrorCategory } from './cashfree-mapper.js';
+import { ProviderRequestError } from '../payment-provider.interface.js';
 
-export class CashfreeProviderError extends Error {
+export class CashfreeProviderError extends ProviderRequestError {
   constructor(
-    public readonly category:
-      ReturnType<typeof providerErrorCategory> | 'NETWORK_ERROR',
-    public readonly httpStatus?: number,
+    category: ReturnType<typeof providerErrorCategory> | 'NETWORK_ERROR',
+    httpStatus?: number,
   ) {
-    super(`Cashfree request failed: ${category}`);
+    super(category, httpStatus);
   }
 }
 
@@ -24,6 +24,7 @@ export class CashfreeHttpClient {
     path: string,
     body?: unknown,
     idempotencyKey?: string,
+    apiVersion?: string,
   ): Promise<T> {
     if (!path.startsWith('/') || path.startsWith('//'))
       throw new Error('Invalid Cashfree path.');
@@ -38,6 +39,7 @@ export class CashfreeHttpClient {
       .split('?')[0]
       .replace(/\/subscriptions\/[^/]+/, '/subscriptions/:id')
       .replace(/\/payments\/[^/]+/, '/payments/:id')
+      .replace(/\/orders\/[^/]+/, '/orders/:id')
       .replace(/\/refunds\/[^/]+/, '/refunds/:id');
     this.logger.log(
       `Cashfree ${method} ${route} initiated requestId=${requestId}`,
@@ -50,7 +52,8 @@ export class CashfreeHttpClient {
         headers: {
           'x-client-id': this.config.getOrThrow('CASHFREE_CLIENT_ID'),
           'x-client-secret': this.config.getOrThrow('CASHFREE_CLIENT_SECRET'),
-          'x-api-version': this.config.getOrThrow('CASHFREE_API_VERSION'),
+          'x-api-version':
+            apiVersion ?? this.config.getOrThrow('CASHFREE_API_VERSION'),
           'x-request-id': requestId,
           ...(idempotencyKey ? { 'x-idempotency-key': idempotencyKey } : {}),
           'content-type': 'application/json',

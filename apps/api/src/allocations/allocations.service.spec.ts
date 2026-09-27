@@ -12,6 +12,9 @@ import { AllocationsService } from './allocations.service.js';
 describe('AllocationsService concurrency guard', () => {
   it('uses a conditional AVAILABLE fleet update to prevent double allocation', async () => {
     const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'fleet-1' }]),
+      vehicleExchangeRequest: { findFirst: vi.fn().mockResolvedValue(null) },
+      commercialRestriction: { findFirst: vi.fn().mockResolvedValue(null) },
       rider: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'rider-1',
@@ -45,6 +48,9 @@ describe('AllocationsService concurrency guard', () => {
 
   it('rejects allocation when a required fleet onboarding photo is missing', async () => {
     const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'fleet-1' }]),
+      vehicleExchangeRequest: { findFirst: vi.fn().mockResolvedValue(null) },
+      commercialRestriction: { findFirst: vi.fn().mockResolvedValue(null) },
       rider: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'rider-1',
@@ -81,6 +87,9 @@ describe('AllocationsService concurrency guard', () => {
 
   it('rejects allocation for an inactive rider even when called directly', async () => {
     const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'fleet-1' }]),
+      vehicleExchangeRequest: { findFirst: vi.fn().mockResolvedValue(null) },
+      commercialRestriction: { findFirst: vi.fn().mockResolvedValue(null) },
       rider: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'rider-1',
@@ -148,5 +157,21 @@ describe('AllocationsService concurrency guard', () => {
         data: { status: FleetStatus.ALLOCATED },
       }),
     );
+  });
+});
+
+describe('collection allocation restriction', () => {
+  it('blocks a new allocation before reserving a fleet', async () => {
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'fleet-1' }]),
+      vehicleExchangeRequest: { findFirst: vi.fn().mockResolvedValue(null) },
+      rider: { findFirst: vi.fn().mockResolvedValue({ id: 'rider-1', status: RiderStatus.ACTIVE }) },
+      commercialRestriction: { findFirst: vi.fn().mockResolvedValue({ caseId: 'case-1' }) },
+      fleet: { updateMany: vi.fn() },
+    };
+    const prisma = { $transaction: vi.fn(async (operation: (client: typeof tx) => unknown) => operation(tx)) };
+    const service = new AllocationsService(prisma as never);
+    await expect(service.initiate('client-a','fleet-1','rider-1','operator-1')).rejects.toMatchObject({ status: 409 });
+    expect(tx.fleet.updateMany).not.toHaveBeenCalled();
   });
 });

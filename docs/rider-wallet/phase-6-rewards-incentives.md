@@ -1,0 +1,31 @@
+# Rider Wallet Phase 6: Rewards and incentives
+
+## Architecture
+
+The central reward system adds client-scoped `RewardProgram`, `RewardRule`, `RewardClaim`, `RewardLot`, `RewardLotConsumption`, and `RewardEvent`. Programs cover REFERRAL, SELF_SUBMISSION, and MANUAL now; the type column can represent later business events without another wallet. Rules currently calculate fixed INR amounts. Claims retain a snapshot of program/rule version, source, configured value, calculation time, and amount. Changing future rules does not recalculate an old claim. A program can be DRAFT, ACTIVE, or INACTIVE. New rules are configured while a program is DRAFT; changed terms should use a new program/code.
+
+The existing referral campaign, QR/code attribution, milestones, fraud checks, limit checks, and budget reservation remain the referral qualification source. The hourly referral reconciler now recognizes a confirmed first rental payment allocation when that milestone is configured. On client approval, `ReferralRewardService` creates a central claim and credits the existing REWARD account inside the same database transaction. It no longer creates a new legacy RiderCredit for newly approved wallet rewards. Referral campaign budget and per-rider caps stay in that module, avoiding a second referral budget. Historical RiderCredit records are not silently converted because prior spending would need reconciliation.
+
+No native Self Submission record or approval module exists in this repository. The client-admin endpoint `POST /client/rewards/self-submissions/:sourceId/approved` therefore records an authorized approval event with a stable external source ID and rider ID. This is the integration boundary for a future source module; it does not fabricate quality scores or submissions. Only an active SELF_SUBMISSION program and fixed rule can calculate the reward. It is idempotent by client, source type, and source ID. A client admin may also issue a MANUAL reward with an amount, reason, and Idempotency-Key. The configured MANUAL rule value is the per-event maximum. Neither endpoint is available to a rider.
+
+## Claim, budget, approval, and accounting
+
+Qualification locks the program row inside a serializable transaction, checks active dates and rider, monthly count/amount caps, and optional total budget. Budget usage is derived from claims that still reserve or hold value; rejected and cancelled claims release that reservation. Reversed claims release only the recovered portion; unrecovered value continues to count against the budget. `APPROVAL_PENDING` claims await client approval; AUTO rules create `APPROVED` claims that the posting service credits. Approve and post commit together. Reject and cancel require valid state and record events and audit. A unique source key and ledger idempotency key prevent duplicate claims and credits. Program budget projections expose total, committed, credited, and remaining values without treating counters as the financial authority.
+
+`RewardPostingService` posts one immutable transaction: CLEARING debit and REWARD credit. It links the wallet transaction to the claim and creates a lot atomically. The wallet double-entry ledger remains the only balance authority; lots attribute unspent credit for expiry. WalletPolicy still decides whether the REWARD bucket may fund a rental or other invoice and enforces percentage and category restrictions. No spending rule is copied into the reward engine.
+
+## Lots, FEFO, expiry, and reversal
+
+Any REWARD debit through `WalletService.postInTransaction` allocates available lots in expiry order inside the wallet lock and the same transaction as the ledger entry. The earliest expiring lot is consumed first. Expired tracked lots cannot be spent while waiting for the hourly expiry job. Older untracked reward adjustments remain spendable as legacy non-expiring value. Reversing an invoice wallet transaction restores the original lot allocations; the expiry job handles a restored lot whose date has passed.
+
+The hourly expiry job debits only each expired lot's remaining value from REWARD to CLEARING. A targeted idempotency key, wallet lock, and lot status prevent a second expiration. A credited claim can be reversed through the client reward API. The service debits up to the unspent lot value and available wallet reward balance; any spent amount is recorded as `unrecoveredAmount` on the claim for finance follow-up. It never creates a negative reward balance. Original credit and reversal ledger entries remain immutable. Generic wallet reversal of a `REWARD_CLAIM` credit is blocked so operations use the claim-aware reversal path.
+
+## APIs and access
+
+Rider: `GET /rider-app/wallet/rewards`, `GET /rider-app/wallet/rewards/summary`, and `GET /rider-app/wallet/rewards/:id`. The existing wallet summary also shows rewards earned, used or expired, and expiring within seven days. Details omit risk metadata.
+
+Client admin: `GET /client/rewards/programs`, `POST /client/rewards/programs`, `POST /client/rewards/programs/:id/rules`, activate/deactivate, `GET /client/rewards/programs/:id/budget`, `GET /client/rewards/claims`, `POST /client/rewards/manual`, `POST /client/rewards/self-submissions/:sourceId/approved`, and claim approve/reject/cancel/reverse actions. Client identity comes from the access token on every route. All reads and writes are scoped to that client, with composite foreign keys for rider, program, rule, claim, lot, and wallet transaction relationships.
+
+## Operations and limits
+
+Migrations `20260927170000_reward_engine` and `20260927171000_reward_fixed_expiry` create the reward tables, composite client keys, amount/date checks, source uniqueness, and fixed-date expiry support. Rules may have no expiry, a number of days, or a fixed expiry date. Configure at least one active MANUAL or SELF_SUBMISSION program/rule before invoking those source endpoints. Referral programs/rules are materialized from an approved existing campaign when the first reward is posted; the referral's immutable rule snapshot is copied to the claim. Tests cover posting, duplicate source protection, monthly caps, budget exhaustion, FEFO, and expired-lot spending. No Flutter UI, source-submission workflow, external cash payout migration, or Phase 7 finance reconciliation is implemented here.

@@ -57,11 +57,13 @@ function fixture(providerType = 'mock') {
     riderPaymentProfile: { upsert: vi.fn() },
     $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
       fn({
+        $queryRaw: vi.fn().mockResolvedValue([]),
         paymentMandate: {
           findUniqueOrThrow: vi
             .fn()
             .mockImplementation(() => Promise.resolve(storedMandate)),
           findFirst: vi.fn().mockResolvedValue(null),
+          create: prisma.paymentMandate.create,
           update: vi
             .fn()
             .mockImplementation(({ data }: { data: Record<string, unknown> }) =>
@@ -69,6 +71,7 @@ function fixture(providerType = 'mock') {
             ),
         },
         riderPaymentProfile: prisma.riderPaymentProfile,
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
       }),
     ),
     paymentProviderEvent: {
@@ -76,6 +79,7 @@ function fixture(providerType = 'mock') {
       upsert: vi.fn(),
       update: vi.fn(),
     },
+    paymentTransaction: { findFirst: vi.fn().mockResolvedValue({ id: 'payment-1' }), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
   };
   const provider = {
     createMandate: vi
@@ -310,5 +314,20 @@ describe('UPI AutoPay mandate service', () => {
         paymentTransactionId: 'payment-1',
       }),
     });
+  });
+
+  it('records a signed pre-debit notification without treating it as payment success', async () => {
+    const { service, prisma, provider, collections } = fixture('cashfree');
+    const payload = { type: 'SUBSCRIPTION_PAYMENT_NOTIFICATION_INITIATED', data: {
+      subscription_id: mandate.providerMandateId, payment_id: 'EVSEYE_PAY_1',
+    } };
+    provider.verifyWebhook.mockReturnValue({ payload });
+    prisma.paymentMandate.findUnique.mockResolvedValue(mandate);
+    prisma.paymentProviderEvent.upsert.mockResolvedValue({ id: 'notification-event' });
+    await expect(service.webhook(Buffer.from(JSON.stringify(payload)), 'timestamp', 'signature')).resolves.toEqual({ accepted: true });
+    expect(prisma.paymentTransaction.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'payment-1', preDebitNotifiedAt: null }),
+    }));
+    expect(collections.processWebhook).not.toHaveBeenCalled();
   });
 });
