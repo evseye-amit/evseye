@@ -2206,6 +2206,7 @@ export default function SuperAdminDashboard() {
               ))}
             </div>
           ))}
+          <Link href="/platform/kyc" className="sa-nav-child">KYC Command Center</Link>
         </nav>
         <div className="sa-user">
           <span>S</span>
