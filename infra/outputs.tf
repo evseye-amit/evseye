@@ -64,8 +64,8 @@ output "github_actions_role_arn" {
 }
 
 output "name_servers" {
-  description = "Route 53 name servers — update your domain registrar to point to these."
-  value       = aws_route53_zone.main.name_servers
+  description = "Application hosted-zone name servers: delegate staging in its parent zone; use production root zone servers at the registrar only after migration."
+  value       = data.aws_route53_zone.application.name_servers
 }
 
 output "rds_endpoint" {
