@@ -125,6 +125,9 @@ If it says "already exists", that's fine — skip.
 
 ## Step 5 — Run Terraform (~15 min)
 
+> [!IMPORTANT]
+> For the existing staging deployment, follow [the staging DNS migration runbook](staging-dns-migration.md) before running `terraform plan` or `terraform apply`. The staging application stack now looks up the existing `staging.evseye.com` hosted zone; it no longer owns the `evseye.com` parent zone.
+
 ```bash
 cd infra
 
@@ -143,7 +146,7 @@ When prompted "Do you want to perform these actions?" type `yes`.
 After it completes, note these outputs:
 
 ```bash
-terraform output name_servers       # → 4 NS records for your domain registrar
+terraform output name_servers       # → staging-zone NS records for delegation in the evseye.com parent zone
 terraform output github_actions_role_arn
 terraform output ecr_api_url
 terraform output ecr_web_url
@@ -154,12 +157,9 @@ terraform output ecs_web_service_name
 
 ---
 
-## Step 6 — Point Your Domain to AWS (~5 min + up to 48h propagation)
+## Step 6 — Delegate the staging subdomain
 
-1. Log in to wherever you bought `evseye.com` (GoDaddy, Namecheap, Google Domains, etc.).
-2. Find **DNS settings** or **Nameservers**.
-3. Replace the existing nameservers with the 4 NS values from `terraform output name_servers`.
-4. Save. DNS propagation can take up to 48 hours, but is usually done in 1–2 hours.
+Create an NS record for `staging.evseye.com` in the authoritative `evseye.com` parent zone, using the four nameservers from `terraform output name_servers`. Follow [the staging DNS migration runbook](staging-dns-migration.md) for the current two-account migration and its verification and rollback steps. Do not enter the staging-zone nameservers at GoDaddy; GoDaddy delegates only the `evseye.com` parent zone.
 
 > [!NOTE]
 > You can test the ALB immediately (before DNS propagates) by using the raw ALB DNS name:
