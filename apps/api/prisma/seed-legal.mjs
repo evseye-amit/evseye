@@ -38,4 +38,30 @@ export async function seedLegal(prisma) {
       data: { retiredAt: new Date() },
     });
   });
+
+  const privacyContent = await readFile(new URL('./legal/yogmaya-rider-privacy-1.0.0.html', import.meta.url), 'utf8');
+  const privacyHash = createHash('sha256').update(privacyContent, 'utf8').digest('hex');
+  const privacyIdentity = { ...identity, kind: 'PRIVACY_POLICY' };
+  const privacyExisting = await prisma.appLegalDocument.findFirst({ where: privacyIdentity });
+  if (privacyExisting) {
+    if (privacyExisting.contentHash !== privacyHash) throw new Error('Published Yogmaya Rider Privacy Policy 1.0.0 differs from the seed. Publish a new version instead.');
+    if (!privacyExisting.publishedAt) throw new Error('Yogmaya Rider Privacy Policy 1.0.0 exists as a draft. Publish it through Client Operations.');
+    return;
+  }
+  await prisma.$transaction(async (tx) => {
+    await tx.appLegalDocument.create({ data: {
+      id: randomUUID(), ...privacyIdentity, title: 'Rider Privacy Policy',
+      content: privacyContent, contentHash: privacyHash,
+      effectiveAt: new Date('2026-10-01T00:00:00+05:30'), publishedAt: new Date(),
+    } });
+    await tx.appLegalDocument.updateMany({
+      where: {
+        clientId: client.id, appCode: privacyIdentity.appCode,
+        role: privacyIdentity.role, kind: privacyIdentity.kind,
+        locale: privacyIdentity.locale, version: { not: privacyIdentity.version },
+        retiredAt: null,
+      },
+      data: { retiredAt: new Date() },
+    });
+  });
 }
