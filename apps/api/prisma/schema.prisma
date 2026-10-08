@@ -803,6 +803,8 @@ enum PaymentTransactionStatus {
 }
 
 model Client {
+  legalDocuments              AppLegalDocument[]
+  legalAcceptances            AppLegalAcceptance[]
   kycClientPolicies           KycClientPolicy[]
   featureConsumptions         FeatureUsageConsumption[]
   kycVerifications            KycVerification[]
@@ -1834,6 +1836,7 @@ model FleetTransfer {
 }
 
 model User {
+  legalAcceptances         AppLegalAcceptance[]
   id                       String                    @id @default(uuid())
   clientId                 String?
   client                   Client?                   @relation(fields: [clientId], references: [id], onDelete: Restrict)
@@ -4338,6 +4341,48 @@ model RiderCommercialTerms {
 
   @@unique([clientId, code, version])
   @@index([clientId, code, status])
+}
+
+/// Published app-wide legal text. Keep commercial offer terms separate.
+model AppLegalDocument {
+  id          String   @id @default(uuid())
+  clientId    String?
+  client      Client?  @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  appCode     String   @db.VarChar(40)
+  role        UserRole
+  kind        String   @db.VarChar(40)
+  locale      String   @db.VarChar(10)
+  version     String   @db.VarChar(80)
+  title       String   @db.VarChar(200)
+  content     String
+  contentHash String   @db.Char(64)
+  effectiveAt DateTime
+  publishedAt DateTime?
+  retiredAt   DateTime?
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  acceptances AppLegalAcceptance[]
+
+  @@unique([clientId, appCode, role, kind, locale, version])
+  @@index([clientId, appCode, role, kind, locale, effectiveAt])
+}
+
+/// The server records a verified account's acknowledgement of a specific document.
+model AppLegalAcceptance {
+  id          String           @id @default(uuid())
+  clientId    String
+  client      Client           @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  userId      String
+  user        User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  documentId  String
+  document    AppLegalDocument @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  deviceId    String?          @db.VarChar(128)
+  acceptedAt  DateTime         @default(now())
+  deviceAcceptedAt DateTime?
+  contentHash String           @db.Char(64)
+
+  @@unique([userId, documentId])
+  @@index([clientId, userId, acceptedAt])
 }
 
 model RiderCommercialOffer {

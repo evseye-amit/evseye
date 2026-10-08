@@ -1,0 +1,32 @@
+Rider Terms & Conditions
+EVsEye Rider App | Fleet Operator: Yogmaya
+1. Definitions and parties
+“Platform” means the EVsEye Rider App and supporting technology operated by Yogmaya. “Fleet Operator” means Yogmaya, the entity responsible for the vehicle and rider-facing rental/service arrangement. “Rider” means the individual using the App. Identify the actual contracting entities and their roles before publishing.
+2. Eligibility and onboarding
+Riders must be at least 18 years old, legally eligible to use the assigned vehicle, and hold a valid licence whenever required. Riders must provide accurate mobile, identity, address, licence and other onboarding details and update changes promptly. Approval and vehicle allocation may depend on verification and operator policies.
+3. Account access and security
+Access may use a registered mobile number and OTP. Riders must safeguard their devices and report suspected unauthorized access. Account access is personal and must not be sold or transferred.
+4. Services and operator relationship
+The App supports onboarding, verification, vehicle allocation, hubs, rentals, wallets, payments, maintenance reporting, referrals, training and support where enabled. Availability varies by Fleet Operator, city and subscribed package. The Fleet Operator, not the technology provider merely by operating the App, is responsible for the vehicle rental contract unless explicitly stated otherwise.
+5. Vehicle use and safety
+Follow traffic laws, safety requirements, vehicle capacity limits, manufacturer guidance and Fleet Operator instructions. Do not lend, sublet, tamper with, modify or use a vehicle or battery for unauthorized purposes. Report accidents, theft, damage, battery issues and breakdowns promptly.
+6. Charges, rate cards and deposits
+Applicable onboarding fees, rentals, penalties, taxes, refundable deposits, deductions and billing cycles must be shown before acceptance or transaction. Location, vehicle age/category and plan may affect prices only where disclosed in the applicable rate card. A deposit is not automatically forfeited and any deductions must be itemized under the signed rental agreement.
+7. Wallet, payments and mandates
+Wallet balances, credits, refunds, failed payments and adjustments are displayed in the App where offered. Payment gateways and mandate providers may process payments. UPI AutoPay or eNACH is optional unless clearly disclosed as a condition of a particular rental product; separate, revocable mandate authorization and provider rules apply. No debit beyond a valid authorization is permitted.
+8. Location and connected vehicle information
+Where vehicles are GPS/IoT enabled, trip, vehicle status, location and safety events may be processed as described in the Privacy Policy. Device or app location permissions must be explained in context. Do not claim tracking only occurs during shifts unless the deployed hardware and operations actually enforce this.
+9. Referrals, rewards and training
+Referral rewards, self-submission bonuses and training are governed by campaign-specific rules shown in the App, including eligibility, validation, expiry, fraud controls and payout timing. Rewards may be reversed for proven abuse subject to applicable law.
+10. Prohibited activity
+Do not submit forged documents, impersonate another person, manipulate GPS/odometer/telematics, misuse payment systems, compromise accounts, harass others or use services unlawfully.
+11. Suspension and termination
+Access may be restricted for safety, fraud, material breach, legal requirements or unpaid dues, with notice and an opportunity to respond where appropriate. On exit, return any allocated vehicle and equipment and complete an itemized settlement. Statutory rights and lawful dispute remedies remain unaffected.
+12. Availability and liability
+Service features may be interrupted for maintenance, network failures or external events. Nothing excludes liability or consumer rights that cannot lawfully be excluded. Any agreed limitation of liability must be reviewed for fairness and enforceability.
+13. Updates and disputes
+Material changes will be communicated before taking effect when required. Changes do not retroactively alter an accepted rental contract without appropriate consent. Indian law applies, subject to mandatory consumer protections and legally competent courts/tribunals.
+14. Contact and notices
+Fleet Operator: Yogmaya, Gurugram, Haryana-122001, help@yogmaya.com, +91-9911459717. Platform support: office@evsparesindia.com, +91-9871675222. Grievance contact: Amit Goyal (Director), office@evsparesindia.com, Gurugram, Haryana-122001. Notices may be sent by in-app message, SMS or registered email, subject to applicable law.
+Effective date and version
+Effective date: 01 October 2026. Version: 1.0.0. The Fleet Operator and Platform will retain the version accepted by each Rider.

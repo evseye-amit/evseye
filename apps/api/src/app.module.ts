@@ -32,6 +32,7 @@ import { NearestHubModule } from './nearest-hub/nearest-hub.module.js';
 import { CollectionsModule } from './collections/collections.module.js';
 import { FinalSettlementModule } from './final-settlement/final-settlement.module.js';
 import { RewardsModule } from './rewards/rewards.module.js';
+import { LegalModule } from './legal/legal.module.js';
 
 @Module({
   imports: [
@@ -64,6 +65,7 @@ import { RewardsModule } from './rewards/rewards.module.js';
     RiderBillingModule,
     WalletModule,
     RewardsModule,
+    LegalModule,
     PaymentsModule,
     CollectionsModule,
     FinalSettlementModule,
