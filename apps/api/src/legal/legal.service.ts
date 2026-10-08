@@ -2,12 +2,41 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { createHash } from 'node:crypto';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { validateLegalTemplate } from './legal-templates.js';
 
 export const legalHash = (content: string) => createHash('sha256').update(content, 'utf8').digest('hex');
 
 @Injectable()
 export class LegalService {
   constructor(private readonly db: PrismaService) {}
+
+  listTemplates() {
+    return this.db.appLegalTemplate.findMany({ where: { deletedAt: null }, orderBy: [{ appCode: 'asc' }, { role: 'asc' }, { kind: 'asc' }, { locale: 'asc' }] });
+  }
+
+  async createTemplate(input: { appCode: string; role: UserRole; kind: string; locale: string; version: string; title: string; content: string; isActive?: boolean }) {
+    validateLegalTemplate(input.title);
+    validateLegalTemplate(input.content);
+    const identity = { appCode: input.appCode, role: input.role, kind: input.kind, locale: input.locale, version: input.version };
+    if (await this.db.appLegalTemplate.findFirst({ where: identity })) throw new BadRequestException('This template version already exists.');
+    return this.db.appLegalTemplate.create({ data: { ...identity, title: input.title, content: input.content, isActive: input.isActive ?? true } });
+  }
+
+  async updateTemplate(id: string, input: { appCode: string; role: UserRole; kind: string; locale: string; version: string; title: string; content: string; isActive?: boolean }) {
+    validateLegalTemplate(input.title);
+    validateLegalTemplate(input.content);
+    const current = await this.db.appLegalTemplate.findUnique({ where: { id } });
+    if (!current || current.deletedAt) throw new NotFoundException('Legal template unavailable.');
+    const duplicate = await this.db.appLegalTemplate.findFirst({ where: { id: { not: id }, appCode: input.appCode, role: input.role, kind: input.kind, locale: input.locale, version: input.version } });
+    if (duplicate) throw new BadRequestException('This template version already exists.');
+    return this.db.appLegalTemplate.update({ where: { id }, data: input });
+  }
+
+  async deleteTemplate(id: string) {
+    const current = await this.db.appLegalTemplate.findUnique({ where: { id } });
+    if (!current || current.deletedAt) throw new NotFoundException('Legal template unavailable.');
+    return this.db.appLegalTemplate.update({ where: { id }, data: { isActive: false, deletedAt: new Date() } });
+  }
 
   async clientIdForCode(companyCode: string, resolvedClientId?: string) {
     const client = await this.db.client.findFirst({
@@ -59,6 +88,8 @@ export class LegalService {
     appCode: string; role: UserRole; kind: string; locale: string; version: string;
     title: string; content: string; effectiveAt: string;
   }) {
+    if (input.title.includes('[CLIENT_REVIEW_REQUIRED') || input.content.includes('[CLIENT_REVIEW_REQUIRED'))
+      throw new BadRequestException('Complete all client-specific legal review fields before publishing.');
     const effectiveAt = new Date(input.effectiveAt);
     if (Number.isNaN(effectiveAt.valueOf())) throw new BadRequestException('Invalid effective date.');
     const existing = await this.db.appLegalDocument.findFirst({ where: {
@@ -135,6 +166,8 @@ export class LegalService {
     const document = await this.db.appLegalDocument.findUnique({ where: { id } });
     if (!document || (!isPlatformAdmin && document.clientId !== clientId)) throw new NotFoundException('Legal document unavailable.');
     if (document.publishedAt || document.deletedAt) throw new BadRequestException('Only active drafts can be published.');
+    if (document.title.includes('[CLIENT_REVIEW_REQUIRED') || document.content.includes('[CLIENT_REVIEW_REQUIRED'))
+      throw new BadRequestException('Complete all client-specific legal review fields before publishing.');
     const updated = await this.db.appLegalDocument.updateMany({
       where: { id, publishedAt: null, deletedAt: null }, data: { publishedAt: new Date() },
     });

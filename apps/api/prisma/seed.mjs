@@ -24,6 +24,7 @@ import { vehicleTypeCatalog } from './catalog/vehicle-types.mjs';
 import { seedRiderRateCardDemo } from './catalog/rider-rate-card-demo.mjs';
 import { seedKyc } from './seed-kyc.mjs';
 import { seedLegal } from './seed-legal.mjs';
+import { seedLegalTemplates } from './seed-legal-templates.mjs';
 
 const prisma = new PrismaClient();
 
@@ -62,6 +63,7 @@ async function seedOemLogo(id, code) {
 }
 
 async function main() {
+  await seedLegalTemplates(prisma);
   const existingSuperAdmin = await prisma.user.findFirst({
     where: { clientId: null, mobile: '+919100000000' },
   });

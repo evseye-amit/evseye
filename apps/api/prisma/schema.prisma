@@ -4367,6 +4367,25 @@ model AppLegalDocument {
   @@index([clientId, appCode, role, kind, locale, effectiveAt])
 }
 
+/// Platform-owned source documents. They are copied into client drafts, never served to riders.
+model AppLegalTemplate {
+  id          String   @id @default(uuid())
+  appCode     String   @db.VarChar(40)
+  role        UserRole
+  kind        String   @db.VarChar(40)
+  locale      String   @db.VarChar(10)
+  version     String   @db.VarChar(80)
+  title       String   @db.VarChar(200)
+  content     String
+  isActive    Boolean  @default(true)
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([appCode, role, kind, locale, version])
+  @@index([isActive, deletedAt])
+}
+
 /// The server records a verified account's acknowledgement of a specific document.
 model AppLegalAcceptance {
   id          String           @id @default(uuid())

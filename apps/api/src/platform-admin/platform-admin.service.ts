@@ -24,6 +24,7 @@ import { randomUUID } from 'node:crypto';
 import { AuditService } from '../audit/audit.service.js';
 import { assertUserMobileAvailable, normalizeIndianMobile, USER_MOBILE_CONFLICT_MESSAGE } from '../common/phone.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { copyLegalTemplatesToClient } from '../legal/legal-templates.js';
 import { CommercialService } from '../commercial/commercial.service.js';
 import type { ClientLogoUploadDto, CompleteClientLogoDto } from './dto/client-logo.dto.js';
 import type {
@@ -710,6 +711,7 @@ export class PlatformAdminService {
             role: UserRole.CLIENT_ADMIN,
           },
         });
+        await copyLegalTemplatesToClient(tx, created, dto.legalEntityName?.trim() || '[CLIENT_REVIEW_REQUIRED: legal company name]');
         return created;
       });
       await this.audit.record({
@@ -763,6 +765,7 @@ export class PlatformAdminService {
             estimatedUserCount: dto.estimatedUserCount,
           },
         });
+        await copyLegalTemplatesToClient(tx, created, dto.legalEntityName);
         return created;
       });
       await this.audit.record({

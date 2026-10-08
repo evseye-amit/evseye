@@ -3,6 +3,7 @@ import { INDIAN_MOBILE_INPUT_PATTERN } from '../../common/phone.js';
 
 export class CreateClientDto {
   @IsString() @MaxLength(120) name!: string;
+  @IsOptional() @IsString() @MaxLength(200) legalEntityName?: string;
   @IsString() @Matches(/^[a-z0-9-]+$/) @MaxLength(80) slug!: string;
   @IsOptional() @IsEmail() adminEmail?: string;
   @IsString() @MaxLength(120) adminName!: string;
