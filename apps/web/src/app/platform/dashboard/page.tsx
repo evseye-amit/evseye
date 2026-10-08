@@ -2027,7 +2027,7 @@ export default function SuperAdminDashboard() {
     label?: string;
     items: Array<[Tab, string, IconName]>;
   }> = [
-    { items: [["legalDocuments", "Legal Documents", "audit"], ["dashboard", "Dashboard", "dashboard"]] },
+    { items: [["dashboard", "Dashboard", "dashboard"], ["legalDocuments", "Legal Documents", "audit"]] },
     {
       label: "Vehicle Management",
       items: [
