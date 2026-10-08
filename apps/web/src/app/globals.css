@@ -4314,6 +4314,7 @@ body:has(.sa-dialog[open]) {
 .legal-documents-form textarea { width: 100%; font-family: ui-monospace, SFMono-Regular, monospace; line-height: 1.5; }
 .legal-documents-preview iframe { display: block; width: 100%; min-height: 650px; border: 1px solid var(--border, #d6dbe1); border-radius: 8px; background: white; }
 .sa-legal-documents .sa-page-head { margin-bottom: 20px; }
+.sa-legal-documents .sa-table-wrap table { min-width: 900px; }
 .sa-dialog .sa-legal-active { display: flex; align-items: center; gap: 8px; }
 .sa-dialog .sa-legal-active input { width: 16px; height: 16px; }
 .sa-legal-help { margin: 0; color: #69726a; font-size: 13px; }
