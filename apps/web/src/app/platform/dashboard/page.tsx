@@ -26,7 +26,6 @@ import {
 } from "react";
 import Link from "next/link";
 import { ClientCommercialSettings, type ClientCommercialSection } from "../../components/client-commercial-settings";
-import { PlatformLegalDocuments } from "../../components/platform-legal-documents";
 import { ClientDomainSettings } from "../../components/client-domain-settings";
 import { ClientLogoUpload } from "../../components/client-logo-upload";
 import { LanguageSwitcher, useLocale } from "../../components/locale-provider";
@@ -2287,7 +2286,7 @@ export default function SuperAdminDashboard() {
             setTab={setTab}
           />
         )}
-        {tab === "legalDocuments" && <PlatformLegalDocuments />}
+        {tab === "legalDocuments" && <LegalDocumentsView token={token} />}
         {tab === "clients" && (
           <ClientsView
             clients={clients}
@@ -3850,6 +3849,218 @@ export default function SuperAdminDashboard() {
         onClose={() => setDeleteConfirmation(null)}
       />
     </main>
+  );
+}
+
+type LegalTemplate = {
+  id: string;
+  appCode: string;
+  role: string;
+  kind: string;
+  locale: string;
+  version: string;
+  title: string;
+  content: string;
+  isActive: boolean;
+};
+
+type LegalTemplateForm = Omit<LegalTemplate, "id">;
+
+function emptyLegalTemplate(): LegalTemplateForm {
+  return {
+    appCode: "RIDER",
+    role: "RIDER",
+    kind: "TERMS_AND_CONDITIONS",
+    locale: "en",
+    version: "1.0.0",
+    title: "Rider Terms & Conditions",
+    content: "",
+    isActive: true,
+  };
+}
+
+function LegalDocumentsView({ token }: { token: string }) {
+  const [templates, setTemplates] = useState<LegalTemplate[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(true);
+  const [form, setForm] = useState<LegalTemplateForm>(emptyLegalTemplate);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [preview, setPreview] = useState<LegalTemplate | null>(null);
+  const [confirmation, setConfirmation] = useState<DeleteConfirmation | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const formTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const previewTriggerRef = useRef<HTMLButtonElement | null>(null);
+
+  const loadTemplates = useCallback(async () => {
+    setLoadingTemplates(true);
+    try {
+      setTemplates(await request("/platform/legal-templates", {}, token));
+      setError("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to load legal documents.");
+    } finally {
+      setLoadingTemplates(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadTemplates(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadTemplates]);
+
+  function openForm(trigger: HTMLButtonElement, template?: LegalTemplate) {
+    formTriggerRef.current = trigger;
+    setEditingId(template?.id ?? null);
+    setForm(template ? {
+      appCode: template.appCode, role: template.role, kind: template.kind,
+      locale: template.locale, version: template.version, title: template.title,
+      content: template.content, isActive: template.isActive,
+    } : emptyLegalTemplate());
+    setError("");
+    setNotice("");
+    setFormOpen(true);
+  }
+
+  async function saveTemplate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const payload = {
+        ...form,
+        appCode: form.appCode.trim().toUpperCase(),
+        locale: form.locale.trim().toLowerCase(),
+        version: form.version.trim(),
+        title: form.title.trim(),
+        content: form.content.trim(),
+      };
+      await request(`/platform/legal-templates${editingId ? `/${editingId}` : ""}`, {
+        method: editingId ? "PATCH" : "POST", body: JSON.stringify(payload),
+      }, token);
+      setFormOpen(false);
+      setEditingId(null);
+      setNotice(editingId ? "Legal document template updated." : "Legal document template created.");
+      setTemplates(await request("/platform/legal-templates", {}, token));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to save legal document template.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function confirmRemove(template: LegalTemplate) {
+    setConfirmation({
+      title: `Remove ${template.title}?`,
+      description: "This template will no longer be copied to new clients. Existing client drafts remain available.",
+      confirmLabel: "Remove template",
+      onConfirm: async () => {
+        setBusy(true);
+        setError("");
+        try {
+          await request(`/platform/legal-templates/${template.id}`, { method: "DELETE" }, token);
+          setTemplates(await request("/platform/legal-templates", {}, token));
+          setNotice("Legal document template removed.");
+        } catch (cause) {
+          setError(cause instanceof Error ? cause.message : "Unable to remove legal document template.");
+        } finally {
+          setBusy(false);
+        }
+      },
+    });
+  }
+
+  const kindOptions = ["TERMS_AND_CONDITIONS", "PRIVACY_POLICY"];
+  const roleOptions = ["RIDER", "FLEET_MANAGER", "TEAM_LEAD", "OPERATIONS_MANAGER", "CLIENT_ADMIN", "KYC_OPERATOR"];
+  return (
+    <section className="sa-legal-documents">
+      <section className="sa-page-head">
+        <div className="sa-actions">
+          <button type="button" onClick={(event) => openForm(event.currentTarget)}>
+            + Add Legal Document
+          </button>
+        </div>
+      </section>
+      {notice && <p className="notice" role="status">{notice}</p>}
+      {error && !formOpen && <p className="error" role="alert">{error}</p>}
+      {loadingTemplates && templates.length === 0 ? <p className="muted">Loading legal documents…</p> : templates.length ? (
+        <DataTable
+          headings={["Document", "Type", "App", "Role", "Language", "Version", "Status", "Actions"]}
+          columnFilters={[{ type: "text" }, { type: "select", options: kindOptions.map((kind) => kind.replaceAll("_", " ")) }, { type: "text" },
+            { type: "select", options: roleOptions.map((role) => role.replaceAll("_", " ")) }, { type: "text" }, { type: "text" },
+            { type: "select", options: ["Active", "Inactive"] }, null]}
+          nonSortableColumns={[7]}
+          rows={templates.map((template) => [
+            template.title,
+            template.kind.replaceAll("_", " "),
+            template.appCode,
+            template.role.replaceAll("_", " "),
+            template.locale,
+            template.version,
+            template.isActive ? "Active" : "Inactive",
+            <span key={template.id} className="sa-client-actions">
+              <button type="button" className="secondary" onClick={(event) => {
+                previewTriggerRef.current = event.currentTarget;
+                setPreview(template);
+              }}>Preview</button>
+              <button type="button" className="secondary" onClick={(event) => openForm(event.currentTarget, template)}>Edit</button>
+              <button type="button" className="danger" onClick={() => confirmRemove(template)}>Remove</button>
+            </span>,
+          ])}
+        />
+      ) : !error && (
+        <section className="sa-empty-catalog">
+          <h3>No legal document templates yet</h3>
+          <p>Add a default document to prepare drafts for newly created clients.</p>
+          <div><button type="button" onClick={(event) => openForm(event.currentTarget)}>Add Legal Document</button></div>
+        </section>
+      )}
+      <CatalogFormDialog
+        open={formOpen}
+        title={editingId ? "Edit Legal Document" : "Add Legal Document"}
+        description="Active templates are copied to new clients as unpublished drafts. Review client-specific details before publishing."
+        error={error}
+        busy={busy}
+        size="wide"
+        triggerRef={formTriggerRef}
+        onClose={() => setFormOpen(false)}
+        onDialogClose={() => setFormOpen(false)}
+        onSubmit={saveTemplate}
+        actions={<>
+          <button type="button" className="secondary" disabled={busy} onClick={() => setFormOpen(false)}>Cancel</button>
+          <button type="submit" disabled={busy}>{busy ? "Saving…" : editingId ? "Update Document" : "Save Document"}</button>
+        </>}
+      >
+        <div className="sa-field-grid">
+          <label>App code *<input required maxLength={40} value={form.appCode} onChange={(event) => setForm({ ...form, appCode: event.target.value })} /></label>
+          <label>User role *<select required value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}>{roleOptions.map((role) => <option key={role} value={role}>{role.replaceAll("_", " ")}</option>)}</select></label>
+          <label>Document type *<select required value={form.kind} onChange={(event) => setForm({ ...form, kind: event.target.value })}>{kindOptions.map((kind) => <option key={kind} value={kind}>{kind.replaceAll("_", " ")}</option>)}</select></label>
+          <label>Language *<input required pattern="[a-z]{2}" maxLength={2} value={form.locale} onChange={(event) => setForm({ ...form, locale: event.target.value })} /></label>
+          <label>Version *<input required maxLength={80} value={form.version} onChange={(event) => setForm({ ...form, version: event.target.value })} /></label>
+          <label>Title *<input required maxLength={200} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
+        </div>
+        <label className="sa-legal-active"><input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} /> Active for new clients</label>
+        <label>Document HTML *<textarea required rows={14} maxLength={100000} value={form.content} onChange={(event) => setForm({ ...form, content: event.target.value })} /></label>
+        <p className="sa-legal-help">Use {"{{CLIENT_LEGAL_NAME}}"}, {"{{CLIENT_NAME}}"}, and {"{{CLIENT_CODE}}"} for client details. Mark facts needing review with [CLIENT_REVIEW_REQUIRED].</p>
+      </CatalogFormDialog>
+      <CatalogFormDialog
+        open={preview !== null}
+        title={preview ? `${preview.title} · ${preview.version}` : "Document preview"}
+        description="Preview of the saved document template."
+        error=""
+        busy={false}
+        size="wide"
+        triggerRef={previewTriggerRef}
+        onClose={() => setPreview(null)}
+        onDialogClose={() => setPreview(null)}
+        onSubmit={(event) => event.preventDefault()}
+        actions={<button type="button" className="secondary" onClick={() => setPreview(null)}>Close</button>}
+      >
+        <div className="legal-documents-preview"><iframe title={`${preview?.title ?? "Document"} preview`} sandbox="" srcDoc={preview?.content ?? ""} /></div>
+      </CatalogFormDialog>
+      <DeleteConfirmationDialog confirmation={confirmation} busy={busy} onClose={() => setConfirmation(null)} />
+    </section>
   );
 }
 
