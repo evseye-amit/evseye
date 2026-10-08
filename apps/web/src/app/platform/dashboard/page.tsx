@@ -26,6 +26,7 @@ import {
 } from "react";
 import Link from "next/link";
 import { ClientCommercialSettings, type ClientCommercialSection } from "../../components/client-commercial-settings";
+import { PlatformLegalDocuments } from "../../components/platform-legal-documents";
 import { ClientDomainSettings } from "../../components/client-domain-settings";
 import { ClientLogoUpload } from "../../components/client-logo-upload";
 import { LanguageSwitcher, useLocale } from "../../components/locale-provider";
@@ -45,6 +46,7 @@ const API_URL =
 const ACCESS_TOKEN_KEY = "evs-eye-session-present";
 const REFRESH_TOKEN_KEY = "evs-eye-session-refreshable";
 type Tab =
+  | "legalDocuments"
   | "dashboard"
   | "clients"
   | "oems"
@@ -442,6 +444,13 @@ export default function SuperAdminDashboard() {
       : (sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? ""),
   );
   const [tab, setTab] = useState<Tab>("dashboard");
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("tab") === "legalDocuments") {
+      // Keep the previous Legal Templates URL usable inside the portal shell.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setTab("legalDocuments");
+    }
+  }, []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -2018,7 +2027,7 @@ export default function SuperAdminDashboard() {
     label?: string;
     items: Array<[Tab, string, IconName]>;
   }> = [
-    { items: [["dashboard", "Dashboard", "dashboard"]] },
+    { items: [["legalDocuments", "Legal Documents", "audit"], ["dashboard", "Dashboard", "dashboard"]] },
     {
       label: "Vehicle Management",
       items: [
@@ -2060,6 +2069,7 @@ export default function SuperAdminDashboard() {
     },
   ];
   const pageSubtitles: Partial<Record<Tab, string>> = {
+    legalDocuments: "Manage default legal documents copied as drafts when a client is created.",
     oems: "Create and manage manufacturers visible across the platform.",
     vehicleCategories:
       "Define platform-wide vehicle classifications used in fleet onboarding and reporting.",
@@ -2194,6 +2204,7 @@ export default function SuperAdminDashboard() {
                   className={`${tab === key ? "active" : ""} ${groupIndex ? "sa-nav-child" : ""}`}
                   onClick={() => {
                     setTab(key);
+                    window.history.replaceState(null, "", key === "legalDocuments" ? "/platform/dashboard?tab=legalDocuments" : "/platform/dashboard");
                     if (key === "dashboard") setExpandedNavGroups({});
                     setBulkImportEntity(null);
                     setShowClientForm(false);
@@ -2207,7 +2218,6 @@ export default function SuperAdminDashboard() {
             </div>
           ))}
           <Link href="/platform/kyc" className="sa-nav-child">KYC Command Center</Link>
-          <Link href="/platform/legal-templates" className="sa-nav-child">Legal Document Templates</Link>
         </nav>
         <div className="sa-user">
           <span>S</span>
@@ -2277,6 +2287,7 @@ export default function SuperAdminDashboard() {
             setTab={setTab}
           />
         )}
+        {tab === "legalDocuments" && <PlatformLegalDocuments />}
         {tab === "clients" && (
           <ClientsView
             clients={clients}
