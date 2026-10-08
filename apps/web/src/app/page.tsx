@@ -2410,6 +2410,8 @@ export default function Home() {
         </nav>
         {userRoles.some((role) => role === "CLIENT_ADMIN" || role === "KYC_OPERATOR") &&
           <Link className="sa-nav-child" href="/client/kyc">KYC &amp; Verification</Link>}
+        {userRoles.includes("CLIENT_ADMIN") &&
+          <Link className="sa-nav-child" href="/client/legal">Legal documents</Link>}
         <ClientBrandingSettings token={token} />
         <div className="sa-user client-sidebar-footer">
           <span aria-hidden="true">C</span>

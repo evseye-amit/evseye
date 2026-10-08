@@ -23,6 +23,7 @@ import { vehicleCategoryCatalog } from './catalog/vehicle-categories.mjs';
 import { vehicleTypeCatalog } from './catalog/vehicle-types.mjs';
 import { seedRiderRateCardDemo } from './catalog/rider-rate-card-demo.mjs';
 import { seedKyc } from './seed-kyc.mjs';
+import { seedLegal } from './seed-legal.mjs';
 
 const prisma = new PrismaClient();
 
@@ -754,6 +755,8 @@ async function main() {
   await seedRiderRateCardDemo(prisma);
 
   await seedKyc(prisma, process.env.KYC_ENABLED === 'true', process.env.KYC_SANDBOX_SECRET_REFERENCE);
+
+  await seedLegal(prisma);
 
   console.info('Seeded platform master data, client configuration, fleet components, manager users, and Super Admin account.');
 }
