@@ -14,7 +14,7 @@ class CurrentLegalQuery {
   @IsString() @Length(1, 80) companyCode!: string;
   @IsString() @Length(1, 40) appCode!: string;
   @IsEnum(UserRole) role!: UserRole;
-  @IsIn(['TERMS_AND_CONDITIONS']) kind!: string;
+  @IsIn(['TERMS_AND_CONDITIONS', 'PRIVACY_POLICY']) kind!: string;
   @Matches(/^[a-z]{2}$/) locale!: string;
 }
 
@@ -29,7 +29,7 @@ class PublishLegalBody {
   @IsOptional() @IsUUID() clientId?: string;
   @IsString() @Length(1, 40) appCode!: string;
   @IsEnum(UserRole) role!: UserRole;
-  @IsIn(['TERMS_AND_CONDITIONS']) kind!: string;
+  @IsIn(['TERMS_AND_CONDITIONS', 'PRIVACY_POLICY']) kind!: string;
   @Matches(/^[a-z]{2}$/) locale!: string;
   @IsString() @Length(1, 80) version!: string;
   @IsString() @Length(1, 200) title!: string;

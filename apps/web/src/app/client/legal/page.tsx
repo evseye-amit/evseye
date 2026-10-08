@@ -149,7 +149,7 @@ export default function ClientLegalDocumentsPage() {
   return <main className="client-dashboard legal-documents-page">
     <header className="legal-documents-header">
       <div><p className="eyebrow">CLIENT OPERATIONS</p><h1>Legal documents</h1>
-        <p className="muted">Prepare terms for each app and user role. Published versions remain available as a permanent record.</p></div>
+        <p className="muted">Prepare terms and privacy policies for each app and user role. Published versions remain available as a permanent record.</p></div>
       <div className="sa-actions"><Link className="secondary" href="/?workspace=operations">Back to operations</Link>
         {authorized && <button type="button" onClick={startNew}>+ New draft</button>}</div>
     </header>
@@ -177,6 +177,9 @@ export default function ClientLegalDocumentsPage() {
           <label>App code *<input required maxLength={40} value={form.appCode} onChange={(event) => setForm({ ...form, appCode: event.target.value })} /></label>
           <label>User role *<select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}>
             {["RIDER", "FLEET_MANAGER", "TEAM_LEAD", "OPERATIONS_MANAGER", "CLIENT_ADMIN", "KYC_OPERATOR"].map((role) => <option key={role} value={role}>{role.replaceAll("_", " ")}</option>)}</select></label>
+          <label>Document type *<select value={form.kind} onChange={(event) => setForm({ ...form, kind: event.target.value, title: event.target.value === "PRIVACY_POLICY" ? "Rider Privacy Policy" : "Rider Terms & Conditions" })}>
+            <option value="TERMS_AND_CONDITIONS">Terms & Conditions</option>
+            <option value="PRIVACY_POLICY">Privacy Policy</option></select></label>
           <label>Language *<input required pattern="[a-z]{2}" maxLength={2} value={form.locale} onChange={(event) => setForm({ ...form, locale: event.target.value })} /></label>
           <label>Version *<input required maxLength={80} value={form.version} onChange={(event) => setForm({ ...form, version: event.target.value })} placeholder="1.0.1" /></label>
           <label>Effective date *<input required type="date" value={form.effectiveAt} onChange={(event) => setForm({ ...form, effectiveAt: event.target.value })} /></label>
