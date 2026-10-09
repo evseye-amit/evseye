@@ -11,6 +11,7 @@ import { TelipiaSmsProvider } from './sms/telipia-sms.provider.js';
 import { SMS_PROVIDER } from './sms/sms-provider.interface.js';
 import { ClientContextService } from './client-context.service.js';
 import { SmsQuotaService } from './sms-quota.service.js';
+import { LoginFlowService } from './login-flow.service.js';
 import type { Environment } from '../config/environment.js';
 
 @Module({
@@ -19,6 +20,7 @@ import type { Environment } from '../config/environment.js';
   providers: [
     AuthService,
     SmsQuotaService,
+    LoginFlowService,
     AccessTokenGuard,
     RolesGuard,
     ClientContextService,

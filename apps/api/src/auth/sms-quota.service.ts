@@ -7,14 +7,14 @@ export class SmsQuotaService {
 
   async reserve(clientId: string, requestId: string) {
     return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${clientId + ':SMS_LOGIN_OTP'}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${clientId + ':SEND_OTP_VIA_SMS'}))`;
       const now = new Date();
       const subscription = await tx.clientSubscription.findFirst({
         where: { clientId, status: 'ACTIVE', startDate: { lte: now }, OR: [{ endDate: null }, { endDate: { gt: now } }] },
-        include: { package: { include: { features: { where: { feature: { code: 'SMS_LOGIN_OTP' }, isIncluded: true } } } } },
+        include: { package: { include: { features: { where: { feature: { code: 'SEND_OTP_VIA_SMS' }, isIncluded: true } } } } },
       });
       if (!subscription) throw new ConflictException('An active subscription is required for SMS.');
-      const feature = await tx.feature.findUnique({ where: { code: 'SMS_LOGIN_OTP' }, select: { id: true } });
+      const feature = await tx.feature.findUnique({ where: { code: 'SEND_OTP_VIA_SMS' }, select: { id: true } });
       if (!feature) throw new ConflictException('SMS quota feature is not configured.');
       const allowance = subscription.package.features[0];
       if (allowance?.isUnlimited) return [];

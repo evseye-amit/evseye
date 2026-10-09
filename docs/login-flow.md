@@ -1,0 +1,7 @@
+# Configured client login
+
+Super Admin manages login through **Feature Step**, **Feature**, and **Package Feature**. `LOGIN_IDENTIFIER` and `LOGIN_VERIFICATION` are children of `LOGIN`. A client app reads its active package's included LOGIN features from `GET /api/v1/auth/login-flow?companyCode=<code>&appCode=<app>`. On a verified client domain, the host identifies the client and `companyCode` is optional.
+
+Supported app codes are `RIDER_APP`, `CLIENT_PANEL`, `FLEET_MANAGER_APP`, and `TEAM_LEADER_APP`. Super Admin login remains independent. In the Package Feature editor, the **Login availability** checkboxes save `configuration.loginAppCodes`. Omitting this property makes the feature available to every supported app; an explicit list limits it to those apps. The API checks the account's role against the requesting app before sending an OTP and binds the OTP request to that app.
+
+The currently implemented method is mobile number plus SMS OTP. The required included features are `CAPTURE_MOBILE_NUMBER`, `CAPTURE_LOGIN_OTP`, and `SEND_OTP_VIA_SMS`. `SEND_OTP_VIA_EMAIL` remains in the catalog but is not offered until an email OTP delivery adapter and verification path are implemented. OTP length, expiry, cooldown, and attempt limits remain server controlled. Disabling one of the three required features for an app makes that app's login unavailable until Super Admin restores a supported flow.

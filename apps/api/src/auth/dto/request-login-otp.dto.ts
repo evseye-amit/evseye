@@ -17,4 +17,9 @@ export class RequestLoginOtpDto {
   @Matches(/^[a-z0-9-]+$/)
   @MaxLength(80)
   clientSlug?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^(RIDER_APP|CLIENT_PANEL|FLEET_MANAGER_APP|TEAM_LEADER_APP)$/)
+  appCode?: string;
 }

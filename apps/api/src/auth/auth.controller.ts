@@ -10,6 +10,7 @@ import {
   HttpCode,
   Ip,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { AuthService } from './auth.service.js';
@@ -19,6 +20,7 @@ import { RequestLoginOtpDto } from './dto/request-login-otp.dto.js';
 import { VerifyOtpDto } from './dto/verify-otp.dto.js';
 import { AccessTokenGuard } from './guards/access-token.guard.js';
 import type { AuthUser } from './interfaces/auth-user.interface.js';
+import { LoginFlowService } from './login-flow.service.js';
 
 @Controller('auth')
 @ApiHeader({ name: 'Accept-Language', required: false, description: 'Response language: en-IN, hi-IN, te-IN, or kn-IN. Defaults to English.' })
@@ -26,7 +28,19 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly clientsResolver: ClientResolverService,
+    private readonly loginFlow: LoginFlowService,
   ) {}
+
+  @Header('Cache-Control', 'no-store')
+  @Get('login-flow')
+  async loginConfiguration(
+    @Query('appCode') appCode: string,
+    @Query('companyCode') companyCode: string | undefined,
+    @Req() request: FastifyRequest,
+  ) {
+    const client = await this.clientsResolver.fromRequest(request);
+    return { data: await this.loginFlow.resolve(client?.companyCode ?? companyCode ?? '', appCode) };
+  }
 
   @Header('Cache-Control', 'no-store')
   @Post('otp/request')
@@ -42,6 +56,7 @@ export class AuthController {
       clientContext?.companyCode ?? dto.companyCode ?? dto.clientSlug,
       ip,
       clientContext?.clientId,
+      dto.appCode,
     );
     return { data };
   }
@@ -57,6 +72,7 @@ export class AuthController {
         dto.otpRequestId,
         dto.code,
         (await this.clientsResolver.fromRequest(request))?.clientId,
+        dto.appCode,
       ),
     };
   }

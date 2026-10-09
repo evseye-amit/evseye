@@ -51,6 +51,11 @@ function createService() {
   };
   const sms = { send: vi.fn().mockResolvedValue(undefined) };
   const smsQuota = { reserve: vi.fn().mockResolvedValue([]), refund: vi.fn().mockResolvedValue(undefined) };
+  const loginFlow = {
+    resolve: vi.fn().mockResolvedValue({ methods: ['SMS_OTP'] }),
+    roleAllowed: vi.fn().mockReturnValue(true),
+    isAppCode: vi.fn().mockReturnValue(true),
+  };
   const config = {
     getOrThrow: vi.fn((key: keyof typeof configValues) => configValues[key]),
   };
@@ -59,17 +64,49 @@ function createService() {
     prisma,
     jwt,
     sms,
+    loginFlow,
     service: new AuthService(
       prisma as never,
       jwt as never,
       config as never,
       sms,
       smsQuota as never,
+      loginFlow as never,
     ),
   };
 }
 
 describe('AuthService', () => {
+  it('binds a client OTP to the requesting app', async () => {
+    const { service, prisma, loginFlow } = createService();
+    await service.requestLoginOtp('+919999999999', 'demo-client', '127.0.0.1', undefined, 'CLIENT_PANEL');
+    expect(loginFlow.resolve).toHaveBeenCalledWith('demo-client', 'CLIENT_PANEL');
+    expect(prisma.otpRequest.create.mock.calls[0][0].data.context).toEqual({ loginAppCode: 'CLIENT_PANEL', method: 'SMS_OTP' });
+  });
+
+  it('does not send a client OTP to a role outside the requesting app', async () => {
+    const { service, prisma, loginFlow, sms } = createService();
+    loginFlow.roleAllowed.mockReturnValue(false);
+    await service.requestLoginOtp('+919999999999', 'demo-client', undefined, undefined, 'RIDER_APP');
+    expect(prisma.otpRequest.create).not.toHaveBeenCalled();
+    expect(sms.send).not.toHaveBeenCalled();
+  });
+
+  it('rejects verification from a different app than the OTP request', async () => {
+    const { service, prisma, sms } = createService();
+    await service.requestLoginOtp('+919999999999', 'demo-client', undefined, undefined, 'CLIENT_PANEL');
+    const code = sms.send.mock.calls[0][0].code;
+    const created = prisma.otpRequest.create.mock.calls[0][0].data;
+    prisma.otpRequest.findUnique.mockResolvedValue({
+      id: 'otp-1', clientId: 'client-1', purpose: OtpPurpose.LOGIN,
+      phone: '+919999999999', otpHash: created.otpHash, context: created.context,
+      status: OtpStatus.PENDING, attempts: 0, maxAttempts: 5,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await expect(service.verifyLoginOtp('otp-1', code, undefined, 'RIDER_APP'))
+      .rejects.toThrow('Login is unavailable for this application');
+  });
+
   it('rejects a refresh already consumed by a concurrent request', async () => {
     const { service, prisma, jwt } = createService();
     jwt.verifyAsync.mockResolvedValue({ typ: 'refresh', id: 'user-1', sid: 'session-1', clientId: 'client-1' });
@@ -122,7 +159,7 @@ describe('AuthService', () => {
         role: UserRole.SUPER_ADMIN,
         isActive: true,
       },
-      select: { id: true, mobile: true },
+      select: { id: true, mobile: true, role: true },
     });
     expect(
       prisma.otpRequest.create.mock.calls[0][0].data.clientId,

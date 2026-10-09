@@ -7,11 +7,23 @@ export const featureCatalog = [
     "featureType": "CONFIGURATION",
     "billingUnit": "LIFE_TIME",
     "description": "Capture mobile number of user to login in the platform",
-    "configuration": {},
-    "displayOrder": 10,
+    "configuration": {
+      "label": "Mobile Number",
+      "dataType": "STRING",
+      "editable": true,
+      "required": true,
+      "fieldCode": "MOBILE_NUMBER",
+      "fieldType": "MOBILE",
+      "importable": true,
+      "storageKey": "mobile",
+      "validation": {
+        "pattern": "^[6-9][0-9]{9}$"
+      }
+    },
+    "displayOrder": 1,
     "isActive": true,
     "isAddOnEligible": false,
-    "featureStepCode": "LOGIN"
+    "featureStepCode": "LOGIN_IDENTIFIER"
   },
   {
     "code": "CAPTURE_EMAIL",
@@ -20,55 +32,159 @@ export const featureCatalog = [
     "featureType": "CONFIGURATION",
     "billingUnit": "LIFE_TIME",
     "description": "Capture email address of user to login in the platform",
-    "configuration": {},
-    "displayOrder": 20,
+    "configuration": {
+      "label": "Email",
+      "dataType": "STRING",
+      "editable": true,
+      "required": true,
+      "fieldCode": "EMAIL",
+      "fieldType": "EMAIL",
+      "importable": true,
+      "storageKey": "email",
+      "validation": {
+        "pattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+      }
+    },
+    "displayOrder": 2,
     "isActive": true,
     "isAddOnEligible": false,
-    "featureStepCode": "LOGIN"
+    "featureStepCode": "LOGIN_IDENTIFIER"
   },
   {
-    "code": "CAPTRUE_LOGIN_OTP",
+    "code": "Social Login Google",
+    "name": "Social Login Google",
+    "category": "LOGIN",
+    "featureType": "CONFIGURATION",
+    "billingUnit": "LIFE_TIME",
+    "description": "Enable 'Social Login Google' capability for the Evs Eye platform.",
+    "configuration": {
+      "fieldCode": "SOCIAL_LOGIN_GOOGLE",
+      "fieldType": "GOOGLE",
+      "importable": true,
+      "storageKey": "social_login_google",
+      "validation": {
+      }
+    },
+    "displayOrder": 3,
+    "isActive": true,
+    "isAddOnEligible": false,
+    "featureStepCode": "LOGIN_IDENTIFIER"
+  },
+  {
+    "code": "Social Login Facebook",
+    "name": "Social Login Facebook",
+    "category": "LOGIN",
+    "featureType": "CONFIGURATION",
+    "billingUnit": "LIFE_TIME",
+    "description": "Enable 'Social Login Facebook' capability for the Evs Eye platform.",
+    "configuration": {
+      "fieldCode": "SOCIAL_LOGIN_FACEBOOK",
+      "fieldType": "GOOGLE",
+      "importable": true,
+      "storageKey": "social_login_facebook",
+      "validation": {
+      }
+    },
+    "displayOrder": 4,
+    "isActive": true,
+    "isAddOnEligible": false,
+    "featureStepCode": "LOGIN_IDENTIFIER"
+  },
+  {
+    "code": "CAPTURE_PASSWORD",
+    "name": "Capture PASSWROD",
+    "category": "LOGIN",
+    "featureType": "CONFIGURATION",
+    "billingUnit": "LIFE_TIME",
+    "description": "Capture the login PASSWORD from user to login in the platform",
+    "configuration": {
+      "label": "Password",
+      "dataType": "STRING",
+      "editable": true,
+      "required": true,
+      "fieldCode": "PASSWORD",
+      "fieldType": "PASSWORD",
+      "importable": true,
+      "storageKey": "password",
+      "validation": {
+        "minLength": 8,
+        "maxLength": 20,
+        "contentVisibility": "MASKED"
+      }
+    },
+    "displayOrder": 5,
+    "isActive": true,
+    "isAddOnEligible": false,
+    "featureStepCode": "LOGIN_VERIFICATION"
+  },
+  {
+    "code": "CAPTURE_LOGIN_OTP",
     "name": "Capture Login OTP",
     "category": "LOGIN",
     "featureType": "CONFIGURATION",
     "billingUnit": "LIFE_TIME",
     "description": "Capture the login otp from user to login in the platform",
     "configuration": {
-      "length": 6,
+      "label": "Login OTP",
+      "dataType": "STRING",
+      "editable": true,
+      "required": true,
+      "fieldCode": "LOGIN_OTP",
       "fieldType": "OTP_DIGIT_INPUT",
-      "contentType": "NUMERIC",
-      "contentVisibility": "MASKED"
+      "importable": true,
+      "storageKey": "otp",
+      "validation": {
+        "length": 6,
+        "contentType": "NUMERIC",
+        "contentVisibility": "MASKED"
+      }
     },
-    "displayOrder": 30,
+    "displayOrder": 6,
     "isActive": true,
     "isAddOnEligible": false,
-    "featureStepCode": "LOGIN"
+    "featureStepCode": "LOGIN_VERIFICATION"
   },
   {
-    "code": "SMS_LOGIN_OTP",
-    "name": "SMS OTP based Mobile Login",
+    "code": "SEND_OTP_VIA_SMS",
+    "name": "Send OTP via SMS",
     "category": "LOGIN",
     "featureType": "USAGE_BASED",
     "billingUnit": "SMS",
-    "description": "SMS OTP capability for the Evs Eye platform.",
-    "configuration": {},
-    "displayOrder": 40,
+    "description": "Enable 'Send OTP via SMS' capability for the Evs Eye platform.",
+    "configuration": {
+      "fieldCode": "SEND_OTP_VIA_SMS",
+      "fieldType": "SMS",
+      "importable": true,
+      "storageKey": "otp_via_sms",
+      "validation": {
+        "length": 6
+      }
+    },
+    "displayOrder": 7,
     "isActive": true,
     "isAddOnEligible": true,
-    "featureStepCode": "LOGIN"
+    "featureStepCode": "LOGIN_VERIFICATION"
   },
   {
-    "code": "EMAIL_LOGIN_OTP",
-    "name": "Email OTP based Login",
+    "code": "SEND_OTP_VIA_EMAIL",
+    "name": "Send OTP via Email",
     "category": "LOGIN",
     "featureType": "USAGE_BASED",
     "billingUnit": "EMAIL",
-    "description": "Email OTP capability for the Evs Eye platform.",
-    "configuration": {},
-    "displayOrder": 50,
+    "description": "Enable 'Send OTP via Email' capability for the Evs Eye platform.",
+    "configuration": {
+      "fieldCode": "SEND_OTP_VIA_EMAIL",
+      "fieldType": "EMAIL",
+      "importable": true,
+      "storageKey": "otp_via_email",
+      "validation": {
+        "length": 6
+      }
+    },
+    "displayOrder": 8,
     "isActive": true,
     "isAddOnEligible": true,
-    "featureStepCode": "LOGIN"
+    "featureStepCode": "LOGIN_VERIFICATION"
   },
   {
     "code": "CAPTURE_FULL_NAME",

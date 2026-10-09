@@ -5754,6 +5754,11 @@ function PackageFeaturesView({
       setError("Feature configuration must be valid JSON.");
       return;
     }
+    const selected = features.find((feature) => feature.id === form.featureId);
+    if (selected?.category === "LOGIN" && Array.isArray(configuration?.loginAppCodes) && configuration.loginAppCodes.length === 0) {
+      setError("Select at least one app, or exclude this Feature from the package.");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -5792,6 +5797,19 @@ function PackageFeaturesView({
   const assignedToSelectedPackage = new Set(
     links.filter((link) => link.packageId === form.packageId).map((link) => link.featureId),
   );
+  const selectedFeature = features.find((feature) => feature.id === form.featureId);
+  const loginApps = [
+    ["RIDER_APP", "Rider app"],
+    ["CLIENT_PANEL", "Client Operations panel"],
+    ["FLEET_MANAGER_APP", "Fleet Manager app"],
+    ["TEAM_LEADER_APP", "Team Leader app"],
+  ] as const;
+  const parsedConfiguration = (() => { try { return form.configuration ? JSON.parse(form.configuration) as Record<string, unknown> : {}; } catch { return {}; } })();
+  const scopedApps = Array.isArray(parsedConfiguration.loginAppCodes) ? parsedConfiguration.loginAppCodes as string[] : loginApps.map(([code]) => code);
+  const toggleLoginApp = (appCode: string, checked: boolean) => {
+    const next = checked ? [...new Set([...scopedApps, appCode])] : scopedApps.filter((code) => code !== appCode);
+    setForm((current) => ({ ...current, configuration: JSON.stringify({ ...parsedConfiguration, loginAppCodes: next }, null, 2) }));
+  };
   return (
     <>
       <section className="sa-page-head">
@@ -5846,6 +5864,11 @@ function PackageFeaturesView({
           <label>Display order<input type="number" min="0" step="1" value={form.displayOrder} onChange={(event) => setForm((current) => ({ ...current, displayOrder: event.target.value }))} /></label>
         </div>
         <label>Feature configuration (optional JSON)<textarea value={form.configuration} placeholder={'{"workflow":"standard"}'} onChange={(event) => setForm((current) => ({ ...current, configuration: event.target.value }))} /></label>
+        {selectedFeature?.category === "LOGIN" && <fieldset className="sa-feature-fields">
+          <legend>Login availability</legend>
+          <p className="muted">Choose the apps that can use this login Feature. The API also checks the user role and package assignment before sending an OTP.</p>
+          {loginApps.map(([code, label]) => <label className="sa-toggle" key={code}><input type="checkbox" checked={scopedApps.includes(code)} onChange={(event) => toggleLoginApp(code, event.target.checked)} />{label}</label>)}
+        </fieldset>}
       </CatalogFormDialog>
       {error && !open ? <p className="error">{error}</p> : null}
       <section className="sa-management oem-table-only">

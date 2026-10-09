@@ -20,6 +20,7 @@ import { indianMobileVariants } from '../common/phone.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from './interfaces/auth-user.interface.js';
 import { SmsQuotaService } from './sms-quota.service.js';
+import { LoginFlowService, type LoginAppCode } from './login-flow.service.js';
 import {
   SMS_PROVIDER,
   type SmsProvider,
@@ -38,6 +39,7 @@ export class AuthService {
     private readonly config: ConfigService<Environment, true>,
     @Inject(SMS_PROVIDER) private readonly smsProvider: SmsProvider,
     private readonly smsQuota: SmsQuotaService,
+    private readonly loginFlow: LoginFlowService,
   ) {}
 
   async requestLoginOtp(
@@ -45,6 +47,7 @@ export class AuthService {
     companyCode?: string,
     requestedIp?: string,
     expectedClientId?: string,
+    requestedAppCode?: string,
   ) {
     const mobileCandidates = indianMobileVariants(phone);
     const client = companyCode
@@ -69,6 +72,8 @@ export class AuthService {
       return { otpRequestId: randomUUID(), expiresAt: new Date(Date.now() + this.config.getOrThrow('OTP_TTL_SECONDS') * 1000) };
     }
 
+    const appCode = client ? requestedAppCode ?? 'CLIENT_PANEL' : undefined;
+    if (client && appCode) await this.loginFlow.resolve(companyCode!, appCode);
     const user = await this.prisma.user.findFirst({
       where: client
         ? { clientId: client.id, mobile: { in: mobileCandidates }, isActive: true }
@@ -78,10 +83,10 @@ export class AuthService {
             role: UserRole.SUPER_ADMIN,
             isActive: true,
           },
-      select: { id: true, mobile: true },
+      select: { id: true, mobile: true, role: true },
     });
 
-    if (!user) {
+    if (!user || (client && !this.loginFlow.roleAllowed(appCode as LoginAppCode, user.role))) {
       return { otpRequestId: randomUUID(), expiresAt: new Date(Date.now() + this.config.getOrThrow('OTP_TTL_SECONDS') * 1000) };
     }
     // Use the stored representation for OTP audit and dispatch. This supports
@@ -121,6 +126,7 @@ export class AuthService {
         expiresAt,
         maxAttempts: this.config.getOrThrow('OTP_MAX_ATTEMPTS'),
         requestedIp,
+        ...(appCode ? { context: { loginAppCode: appCode, method: 'SMS_OTP' } } : {}),
       },
       select: { id: true, expiresAt: true },
     });
@@ -145,7 +151,7 @@ export class AuthService {
     return { otpRequestId: otpRequest.id, expiresAt: otpRequest.expiresAt };
   }
 
-  async verifyLoginOtp(otpRequestId: string, code: string, expectedClientId?: string) {
+  async verifyLoginOtp(otpRequestId: string, code: string, expectedClientId?: string, requestedAppCode?: string) {
     const otp = await this.prisma.otpRequest.findUnique({
       where: { id: otpRequestId },
     });
@@ -156,6 +162,14 @@ export class AuthService {
       otp.status !== OtpStatus.PENDING
     ) {
       throw new UnauthorizedException('Invalid OTP request.');
+    }
+
+    const boundAppCode = otp.context && typeof otp.context === 'object' && !Array.isArray(otp.context)
+      ? (otp.context as Record<string, unknown>).loginAppCode : undefined;
+    if (otp.clientId && boundAppCode &&
+      (typeof boundAppCode !== 'string' || !this.loginFlow.isAppCode(boundAppCode) ||
+        (requestedAppCode && requestedAppCode !== boundAppCode))) {
+      throw new UnauthorizedException('Login is unavailable for this application.');
     }
 
     if (otp.expiresAt <= new Date()) {
@@ -199,6 +213,12 @@ export class AuthService {
     });
     if (!user) {
       throw new UnauthorizedException('Account is unavailable.');
+    }
+
+    if (otp.clientId && boundAppCode) {
+      if (!this.loginFlow.roleAllowed(boundAppCode as LoginAppCode, user.role)) {
+        throw new UnauthorizedException('Login is unavailable for this application.');
+      }
     }
 
     return this.issueTokens(user);

@@ -2,6 +2,8 @@
 // platform-owned: clients select from it but cannot modify its definitions.
 export const featureStepSpecs = [
   { id: '6b48d8ab-f99c-4cc7-bff9-0c6461f654ad', code: 'LOGIN', displayName: 'Login', description: 'Login to the platform.', displayOrder: 1 },
+  { id: 'aab80609-5049-49bf-8630-40c74243d06c', code: 'LOGIN_IDENTIFIER', displayName: 'Identify account', description: 'Collect the account identifier before verification.', parentCode: 'LOGIN', displayOrder: 1 },
+  { id: '53a1197c-87a1-4c22-ba0a-8d176e9411d2', code: 'LOGIN_VERIFICATION', displayName: 'Verify account', description: 'Verify the account using an enabled login method.', parentCode: 'LOGIN', displayOrder: 2 },
   { id: 'b3998f75-a3eb-5ea7-b481-5c120dcb646d', code: 'RIDER_ONBOARDING', displayName: 'Rider Onboarding', description: 'End-to-end workflow for registering, verifying, training, contracting, and onboarding a rider onto the EVsEye platform.', displayOrder: 2 },
   { id: 'c8b17b1e-8cc5-52f5-817b-5c574e5e7702', code: 'RIDER_PERSONAL_PROFILE', displayName: 'Personal Profile', description: "Captures the rider's basic personal information including name, mobile number, date of birth, address, referral details, and profile photo.", parentCode: 'RIDER_ONBOARDING', displayOrder: 1 },
   { id: 'f54905a5-960c-53ae-b217-ac729b5d832e', code: 'RIDER_KYC', displayName: 'Identity & KYC', description: 'Captures and verifies the rider\'s identity and KYC information including Aadhaar and PAN details.', parentCode: 'RIDER_ONBOARDING', displayOrder: 2 },

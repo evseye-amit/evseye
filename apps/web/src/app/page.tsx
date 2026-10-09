@@ -32,6 +32,8 @@ const REFRESH_TOKEN_KEY = "evs-eye-session-refreshable";
 const AUTH_CHANGED_EVENT = "evs-eye-auth-changed";
 const indianMobileInput = (value: string) =>
   value.replace(/\D/g, "").slice(-10);
+type LoginFlow = { appCode: string; version: string; methods: string[]; steps: Array<{ code: string; fields: Array<{ featureCode: string; label: string; placeholder: string }> }> };
+const loginField = (flow: LoginFlow | null, featureCode: string) => flow?.steps.flatMap((step) => step.fields).find((field) => field.featureCode === featureCode);
 type Tab =
   | "dashboard"
   | "legal-documents"
@@ -673,6 +675,7 @@ export default function Home() {
   const { t } = useLocale();
   const [phone, setPhone] = useState("");
   const [companyCode, setCompanyCode] = useState("");
+  const [loginFlow, setLoginFlow] = useState<LoginFlow | null>(null);
   const [otpRequestId, setOtpRequestId] = useState("");
   const [code, setCode] = useState("");
   const [token, setToken] = useState("");
@@ -945,14 +948,30 @@ export default function Home() {
     window.history.replaceState({}, "", url);
   }
 
+  useEffect(() => {
+    if (!hostClient && !companyCode.trim()) return;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      const query = new URLSearchParams({ appCode: "CLIENT_PANEL", ...(hostClient ? {} : { companyCode: companyCode.trim() }) });
+      void request(`/auth/login-flow?${query}`).then((data) => {
+        if (active) setLoginFlow(data as LoginFlow);
+      }).catch(() => { if (active) setLoginFlow(null); });
+    }, hostClient ? 0 : 350);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [companyCode, hostClient]);
+
   async function sendOtp(event: FormEvent) {
     event.preventDefault();
     setLoading(true);
     setError("");
     try {
+      const query = new URLSearchParams({ appCode: "CLIENT_PANEL", ...(hostClient ? {} : { companyCode: companyCode.trim() }) });
+      const flow = await request(`/auth/login-flow?${query}`) as LoginFlow;
+      if (!flow.methods.includes("SMS_OTP")) throw new Error("SMS login is unavailable for this workspace.");
+      setLoginFlow(flow);
       const data = (await request("/auth/otp/request", {
         method: "POST",
-        body: JSON.stringify({ phone, ...(hostClient ? {} : { companyCode }) }),
+        body: JSON.stringify({ phone, appCode: "CLIENT_PANEL", ...(hostClient ? {} : { companyCode }) }),
       })) as { otpRequestId: string };
       setOtpRequestId(data.otpRequestId);
       setNotice("OTP sent successfully. Enter the six-digit code below to continue.");
@@ -972,7 +991,7 @@ export default function Home() {
     try {
       const data = (await request("/auth/otp/verify", {
         method: "POST",
-        body: JSON.stringify({ otpRequestId, code }),
+        body: JSON.stringify({ otpRequestId, code, appCode: "CLIENT_PANEL" }),
       })) as TokenPair;
       if (!data.authenticated) throw new Error("Sign-in failed.");
       sessionStorage.removeItem("evs-eye-access-token");
@@ -2334,13 +2353,13 @@ export default function Home() {
                   </span>
                 </label>}
                 <label>
-                  {t("Mobile number")} *
+                  {t(loginField(loginFlow, "CAPTURE_MOBILE_NUMBER")?.label ?? "Mobile number")} *
                  <span className="auth-input">
                     <UiIcon name="phone" />
                     <input
                       value={phone}
                       onChange={(e) => setPhone(indianMobileInput(e.target.value))}
-                      placeholder={t("10-digit mobile number")}
+                      placeholder={t(loginField(loginFlow, "CAPTURE_MOBILE_NUMBER")?.placeholder ?? "10-digit mobile number")}
                       type="tel"
                       inputMode="numeric"
                       autoComplete="tel"
@@ -2358,7 +2377,7 @@ export default function Home() {
             ) : (
               <form onSubmit={verifyOtp} className="auth-form">
                 <label className="otp-code-label">
-                  <span>{t("Six-digit OTP")} <span className="sa-required-star" aria-hidden="true">*</span></span>
+                  <span>{t(loginField(loginFlow, "CAPTURE_LOGIN_OTP")?.label ?? "Six-digit OTP")} <span className="sa-required-star" aria-hidden="true">*</span></span>
                   <span className="otp-code-hint">{t("One digit per box. You can type, paste, or use SMS auto-fill.")}</span>
                   <OtpCodeInput value={code} onChange={setCode} disabled={loading} />
                 </label>
