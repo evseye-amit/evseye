@@ -104,8 +104,13 @@ export class RiderAppService {
         if (source === 'REFERRAL_CODE' && !methods.includes(/^(?:\+?91|0)?[6-9]\d{9}$/.test(referralText) ? 'MOBILE' : 'CODE')) throw new BadRequestException('This referral input method is disabled.');
       }
       const { referralCode } = await this.referrals.resolveInput(clientId, referralText);
-      const inviteToken = /^https?:\/\//i.test(referralText) ? new URL(referralText).searchParams.get('invite') ?? undefined : undefined;
-      await this.referrals.attribute(clientId, userId, { referralCode, source: source as ReferralAttributionSource, ...(inviteToken ? { inviteToken } : {}) });
+      const inviteToken = /^https?:\/\//i.test(referralText)
+        ? new URL(referralText).searchParams.get('invite') ?? undefined
+        : typeof referralInput.inviteToken === 'string' ? referralInput.inviteToken : undefined;
+      const campaignCode = /^https?:\/\//i.test(referralText)
+        ? new URL(referralText).searchParams.get('campaign') ?? undefined
+        : typeof referralInput.campaignCode === 'string' ? referralInput.campaignCode : undefined;
+      await this.referrals.attribute(clientId, userId, { referralCode, source: source as ReferralAttributionSource, ...(inviteToken ? { inviteToken } : {}), ...(campaignCode ? { campaignCode } : {}) });
       values = { ...values, REFERRAL_CODE: referralCode };
     }
     const referencesField = step.fields.find((field) => field.featureCode === 'CAPTURE_REFERENCE');

@@ -32,6 +32,20 @@ describe('ReferralService.attribute', () => {
     await expect(service.attribute('client-a', 'new-user', { referralCode: 'EVS-ABCDEFGH' })).rejects.toMatchObject({ status: 409 });
     expect(prisma.referral.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { clientId: 'client-a', refereeUserId: 'new-user' } }));
   });
+
+  it('does not reassign a campaign-bound link to a later campaign', async () => {
+    const { prisma, service } = setup();
+    const findFirst = vi.fn().mockResolvedValue(null);
+    Object.assign(prisma, { referralCampaign: { findFirst } });
+    const activeCampaign = vi.spyOn(service, 'activeCampaign');
+    await expect(service.attribute('client-a', 'new-user', {
+      referralCode: 'EVS-ABCDEFGH', campaignCode: 'OLD_CAMPAIGN',
+    })).rejects.toMatchObject({ status: 400 });
+    expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ clientId: 'client-a', code: 'OLD_CAMPAIGN', status: 'ACTIVE' }),
+    }));
+    expect(activeCampaign).not.toHaveBeenCalled();
+  });
 });
 
 describe('ReferralService.resolveInput', () => {

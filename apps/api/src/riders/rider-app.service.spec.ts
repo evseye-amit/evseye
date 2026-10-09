@@ -117,13 +117,13 @@ describe('RiderAppService.saveStep', () => {
     const resolveInput = vi.fn().mockResolvedValue({ referralCode: 'EVS-ABCDEFGH' });
     const service = new RiderAppService(prisma as never, resolver, {} as never, { attribute, resolveInput } as never);
     vi.spyOn(service, 'onboarding').mockResolvedValue({ screen: 'WAITING_FOR_FLEET' } as never);
-    const link = 'https://example.test/rider/referral?code=EVS-ABCDEFGH&invite=token-123';
+    const link = 'https://example.test/rider/referral?code=EVS-ABCDEFGH&invite=token-123&campaign=RIDER_BONUS';
     await service.saveStep('client-1', 'user-1', 'step-1', {
       FULL_NAME: 'Aman Singh', MOBILE_NUMBER: '6573838383',
       REFERRAL_CODE: { input: link, source: 'QR_CODE' },
     });
     expect(resolveInput).toHaveBeenCalledWith('client-1', link);
-    expect(attribute).toHaveBeenCalledWith('client-1', 'user-1', { referralCode: 'EVS-ABCDEFGH', source: 'QR_CODE', inviteToken: 'token-123' });
+    expect(attribute).toHaveBeenCalledWith('client-1', 'user-1', { referralCode: 'EVS-ABCDEFGH', source: 'QR_CODE', inviteToken: 'token-123', campaignCode: 'RIDER_BONUS' });
   });
 
   it('enforces the configured reference count and saves structured references', async () => {

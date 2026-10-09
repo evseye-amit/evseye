@@ -5,7 +5,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 export class ReferralLinkService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async shareLink(clientId: string, code: string, inviteToken?: string) {
+  async shareLink(clientId: string, code: string, inviteToken?: string, campaignCode?: string) {
     const domain = await this.prisma.clientDomain.findFirst({
       where: { clientId, isPrimary: true, isVerified: true }, select: { hostname: true },
     });
@@ -14,6 +14,7 @@ export class ReferralLinkService {
     const url = new URL(`${local ? 'http' : 'https'}://${domain.hostname}${local ? ':3001' : ''}/rider/referral`);
     url.searchParams.set('code', code);
     if (inviteToken) url.searchParams.set('invite', inviteToken);
+    if (campaignCode) url.searchParams.set('campaign', campaignCode);
     return url.toString();
   }
 }

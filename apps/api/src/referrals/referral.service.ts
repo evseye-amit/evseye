@@ -88,7 +88,7 @@ export class ReferralService {
     const campaign = await this.activeCampaign(clientId);
     if (!campaign) return { campaign: null, referral: null, rewards: null, summary: await this.summary(clientId, rider.id) };
     const identity = await this.identity(clientId, rider.id);
-    const shareLink = await this.links.shareLink(clientId, identity.code);
+    const shareLink = await this.links.shareLink(clientId, identity.code, undefined, campaign.code);
     const template = campaign.shareMessageTemplate ?? 'Join as a rider using my EVsEye referral. Use code {{referralCode}} or join using {{referralLink}}.';
     return {
       campaign: { code: campaign.code, title: campaign.displayTitle ?? campaign.name, description: campaign.displayDescription ?? campaign.description, terms: campaign.termsAndConditions, startAt: campaign.startAt, endAt: campaign.endAt, milestones: campaign.milestones.map((item) => ({ type: item.milestoneType, operator: item.operator, target: item.targetValue.toString(), sequence: item.sequence })) },
@@ -154,7 +154,9 @@ export class ReferralService {
     if (invite && invite.expiresAt <= now) throw error('REFERRAL_CODE_EXPIRED', 'Referral invitation has expired.');
     const campaign = invite
       ? await this.prisma.referralCampaign.findFirst({ where: { id: invite.campaignId, clientId, status: 'ACTIVE', startAt: { lte: now }, endAt: { gt: now } }, include: { milestones: { where: { isActive: true }, orderBy: { sequence: 'asc' } } } })
-      : await this.activeCampaign(clientId);
+      : dto.campaignCode
+        ? await this.prisma.referralCampaign.findFirst({ where: { clientId, code: dto.campaignCode, status: 'ACTIVE', startAt: { lte: now }, endAt: { gt: now } }, include: { milestones: { where: { isActive: true }, orderBy: { sequence: 'asc' } } } })
+        : await this.activeCampaign(clientId);
     if (!campaign) throw error('REFERRAL_CAMPAIGN_INACTIVE', 'No active referral campaign is available.');
     const source = dto.source ?? ReferralAttributionSource.REFERRAL_CODE;
     try {

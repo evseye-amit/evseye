@@ -70,6 +70,7 @@ export class AttributionDto {
   @IsString() @Matches(/^EVS-[A-Z2-9]{8}$/i) referralCode!: string;
   @IsOptional() @IsEnum(ReferralAttributionSource) source?: ReferralAttributionSource;
   @IsOptional() @IsString() inviteToken?: string;
+  @IsOptional() @IsString() @Matches(/^[A-Z0-9_]{3,48}$/) campaignCode?: string;
 }
 
 export class ReasonDto { @IsString() @IsNotEmpty() @MaxLength(1000) reason!: string; }

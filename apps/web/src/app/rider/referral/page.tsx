@@ -1,5 +1,5 @@
 type ReferralPageProps = {
-  searchParams: Promise<{ code?: string | string[]; invite?: string | string[] }>;
+  searchParams: Promise<{ code?: string | string[]; invite?: string | string[]; campaign?: string | string[] }>;
 };
 
 export default async function RiderReferralPage({ searchParams }: ReferralPageProps) {
@@ -11,6 +11,8 @@ export default async function RiderReferralPage({ searchParams }: ReferralPagePr
   if (validCode) deepLink.searchParams.set("utm_source", code);
   const invite = Array.isArray(params.invite) ? params.invite[0] : params.invite;
   if (invite) deepLink.searchParams.set("invite", invite);
+  const campaign = Array.isArray(params.campaign) ? params.campaign[0] : params.campaign;
+  if (campaign && /^[A-Z0-9_]{3,48}$/.test(campaign)) deepLink.searchParams.set("campaign", campaign);
 
   return <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24, background: "#f4f8f5", color: "#18372b" }}>
     <section style={{ width: "min(100%, 440px)", background: "white", border: "1px solid #dcebe1", borderRadius: 20, padding: 28, boxShadow: "0 14px 40px #18372b12" }}>
