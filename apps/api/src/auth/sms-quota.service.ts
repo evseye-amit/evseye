@@ -13,10 +13,12 @@ export class SmsQuotaService {
         where: { clientId, status: 'ACTIVE', startDate: { lte: now }, OR: [{ endDate: null }, { endDate: { gt: now } }] },
         include: { package: { include: { features: { where: { feature: { code: 'SMS_LOGIN_OTP' }, isIncluded: true } } } } },
       });
-      const allowance = subscription?.package.features[0];
-      if (!subscription || !allowance) throw new ConflictException('SMS is not included in the active package.');
-      if (allowance.isUnlimited) return [];
-      if (allowance.includedQuantity && allowance.resetPeriod === 'MONTHLY') {
+      if (!subscription) throw new ConflictException('An active subscription is required for SMS.');
+      const feature = await tx.feature.findUnique({ where: { code: 'SMS_LOGIN_OTP' }, select: { id: true } });
+      if (!feature) throw new ConflictException('SMS quota feature is not configured.');
+      const allowance = subscription.package.features[0];
+      if (allowance?.isUnlimited) return [];
+      if (allowance?.includedQuantity && allowance.resetPeriod === 'MONTHLY') {
         const anchor = subscription.startDate;
         const month = (now.getUTCFullYear() - anchor.getUTCFullYear()) * 12 + now.getUTCMonth() - anchor.getUTCMonth();
         const periodDate = (offset: number) => {
@@ -27,22 +29,22 @@ export class SmsQuotaService {
         const sourceKey = `allowance:${subscription.id}:${allowance.id}:${periodStart.toISOString().slice(0, 10)}`;
         if (!await tx.featureCreditLot.findUnique({ where: { sourceKey } })) {
           if (!allowance.rolloverAllowed) {
-            const old = await tx.featureCreditLot.findMany({ where: { subscriptionId: subscription.id, featureId: allowance.featureId, sourceType: 'PACKAGE_ALLOWANCE', periodStart: { lt: periodStart }, quantityAvailable: { gt: 0 } } });
+            const old = await tx.featureCreditLot.findMany({ where: { subscriptionId: subscription.id, featureId: feature.id, sourceType: 'PACKAGE_ALLOWANCE', periodStart: { lt: periodStart }, quantityAvailable: { gt: 0 } } });
             for (const lot of old) {
               await tx.featureCreditLot.update({ where: { id: lot.id }, data: { quantityAvailable: 0 } });
-              await tx.featureUsageLedger.create({ data: { clientId, subscriptionId: subscription.id, featureId: allowance.featureId, creditLotId: lot.id, sourceType: 'PACKAGE_ALLOWANCE', sourceId: allowance.id, transactionType: 'EXPIRE', quantity: lot.quantityAvailable.negated(), balanceAfter: 0, referenceType: 'ALLOWANCE_RESET', referenceId: sourceKey, occurredAt: now } });
+              await tx.featureUsageLedger.create({ data: { clientId, subscriptionId: subscription.id, featureId: feature.id, creditLotId: lot.id, sourceType: 'PACKAGE_ALLOWANCE', sourceId: allowance.id, transactionType: 'EXPIRE', quantity: lot.quantityAvailable.negated(), balanceAfter: 0, referenceType: 'ALLOWANCE_RESET', referenceId: sourceKey, occurredAt: now } });
             }
           }
-          const lot = await tx.featureCreditLot.create({ data: { clientId, subscriptionId: subscription.id, featureId: allowance.featureId, sourceType: 'PACKAGE_ALLOWANCE', sourceId: allowance.id, sourceKey, quantityOriginal: allowance.includedQuantity, quantityAvailable: allowance.includedQuantity, periodStart } });
-          await tx.featureUsageLedger.create({ data: { clientId, subscriptionId: subscription.id, featureId: allowance.featureId, creditLotId: lot.id, sourceType: 'PACKAGE_ALLOWANCE', sourceId: allowance.id, transactionType: 'CREDIT', quantity: allowance.includedQuantity, referenceType: 'PACKAGE_ALLOWANCE_RESET', referenceId: sourceKey, occurredAt: now } });
+          const lot = await tx.featureCreditLot.create({ data: { clientId, subscriptionId: subscription.id, featureId: feature.id, sourceType: 'PACKAGE_ALLOWANCE', sourceId: allowance.id, sourceKey, quantityOriginal: allowance.includedQuantity, quantityAvailable: allowance.includedQuantity, periodStart } });
+          await tx.featureUsageLedger.create({ data: { clientId, subscriptionId: subscription.id, featureId: feature.id, creditLotId: lot.id, sourceType: 'PACKAGE_ALLOWANCE', sourceId: allowance.id, transactionType: 'CREDIT', quantity: allowance.includedQuantity, referenceType: 'PACKAGE_ALLOWANCE_RESET', referenceId: sourceKey, occurredAt: now } });
         }
       }
-      const lots = await tx.featureCreditLot.findMany({ where: { clientId, featureId: allowance.featureId, quantityAvailable: { gt: 0 }, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }], AND: [{ OR: [{ sourceType: 'PACKAGE_ALLOWANCE', subscriptionId: subscription.id }, { sourceType: 'FEATURE_ADDON', purchase: { status: 'ACTIVE' } }] }] }, orderBy: [{ expiresAt: 'asc' }, { createdAt: 'asc' }] });
+      const lots = await tx.featureCreditLot.findMany({ where: { clientId, featureId: feature.id, quantityAvailable: { gt: 0 }, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }], AND: [{ OR: [{ sourceType: 'PACKAGE_ALLOWANCE', subscriptionId: subscription.id }, { sourceType: 'FEATURE_ADDON', purchase: { status: 'ACTIVE' } }] }] }, orderBy: [{ expiresAt: 'asc' }, { createdAt: 'asc' }] });
       const lot = lots.find((item) => item.sourceType === 'PACKAGE_ALLOWANCE') ?? lots[0];
       if (!lot) throw new ConflictException('SMS quota exhausted. Activate an SMS add-on to continue.');
       await tx.featureCreditLot.update({ where: { id: lot.id }, data: { quantityAvailable: { decrement: 1 } } });
       if (lot.purchaseId) await tx.clientFeatureAddOnPurchase.update({ where: { id: lot.purchaseId }, data: { quantityConsumed: { increment: 1 }, quantityRemaining: { decrement: 1 }, ...(lot.quantityAvailable.lte(1) ? { status: 'CONSUMED' } : {}) } });
-      await tx.featureUsageLedger.create({ data: { clientId, subscriptionId: subscription.id, featureId: allowance.featureId, creditLotId: lot.id, sourceType: lot.sourceType, sourceId: lot.sourceId, transactionType: 'DEBIT', quantity: -1, balanceAfter: lot.quantityAvailable.minus(1), referenceType: 'LOGIN_OTP', referenceId: requestId, occurredAt: now } });
+      await tx.featureUsageLedger.create({ data: { clientId, subscriptionId: subscription.id, featureId: feature.id, creditLotId: lot.id, sourceType: lot.sourceType, sourceId: lot.sourceId, transactionType: 'DEBIT', quantity: -1, balanceAfter: lot.quantityAvailable.minus(1), referenceType: 'LOGIN_OTP', referenceId: requestId, occurredAt: now } });
       return [lot.id];
     });
   }

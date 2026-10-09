@@ -976,7 +976,6 @@ model Package {
   isActive           Boolean                     @default(true)
   features           PackageFeature[]
   vehicleTierPricing PackageVehicleTierPricing[]
-  featureAddOns      PackageFeatureAddOn[]
   subscriptions      ClientSubscription[]
   createdAt          DateTime                    @default(now())
   updatedAt          DateTime                    @updatedAt
@@ -1108,7 +1107,6 @@ model FeatureAddOn {
   isActive            Boolean                      @default(true)
   effectiveFrom       DateTime                     @default(now()) @db.Date
   effectiveTo         DateTime?                    @db.Date
-  packageAvailability PackageFeatureAddOn[]
   purchases           ClientFeatureAddOnPurchase[]
   createdAt           DateTime                     @default(now())
   updatedAt           DateTime                     @updatedAt
@@ -1134,20 +1132,6 @@ model TrainingContent {
   updatedAt      DateTime @updatedAt
 
   @@index([featureId, isActive, displayOrder])
-}
-
-model PackageFeatureAddOn {
-  id             String       @id @default(uuid())
-  packageId      String
-  package        Package      @relation(fields: [packageId], references: [id], onDelete: Cascade)
-  featureAddOnId String
-  featureAddOn   FeatureAddOn @relation(fields: [featureAddOnId], references: [id], onDelete: Restrict)
-  isAvailable    Boolean      @default(true)
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-
-  @@unique([packageId, featureAddOnId])
-  @@index([featureAddOnId, isAvailable])
 }
 
 model ClientBusinessProfile {

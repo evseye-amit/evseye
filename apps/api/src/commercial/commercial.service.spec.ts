@@ -162,6 +162,32 @@ describe('CommercialService adjustments and feature credits', () => {
     });
   });
 
+  it('activates an add-on for an active subscription without a package availability link', async () => {
+    const purchase = { id: 'purchase-1', featureAddOnId: 'addon-1', subscriptionId: 'sub-1' };
+    const createPurchase = vi.fn().mockResolvedValue(purchase);
+    const service = makeService({
+      clientFeatureAddOnPurchase: { findUnique: vi.fn().mockResolvedValue(null) },
+      featureAddOn: { findUnique: vi.fn().mockResolvedValue({
+        id: 'addon-1', featureId: 'sms-feature', feature: { isActive: true },
+        isActive: true, effectiveFrom: new Date('2026-01-01'), effectiveTo: null,
+        salePrice: decimal(500), quantity: decimal(1000), currency: 'INR', validityMonths: 12,
+      }) },
+      clientPricingAdjustment: { findMany: vi.fn().mockResolvedValue([]) },
+      $transaction: async (callback: (tx: unknown) => Promise<unknown>) => callback({
+        clientFeatureAddOnPurchase: { create: createPurchase },
+        featureCreditLot: { create: vi.fn().mockResolvedValue({ id: 'lot-1' }) },
+        featureUsageLedger: { create: vi.fn().mockResolvedValue({}) },
+      }),
+    });
+
+    await expect(service.purchaseAddOn('client-1', {
+      subscriptionId: 'sub-1', featureAddOnId: 'addon-1', activationReference: 'payment-1',
+    }, 'admin-1')).resolves.toEqual(purchase);
+    expect(createPurchase).toHaveBeenCalledWith({ data: expect.objectContaining({
+      activationReference: 'payment-1', quantityPurchased: decimal(1000), status: 'ACTIVE',
+    }) });
+  });
+
   it('consumes credits in earliest-expiry order', async () => {
     const updates: Array<{ id: string; quantityAvailable: Prisma.Decimal }> = [];
     const ledger: Array<Record<string, unknown>> = [];

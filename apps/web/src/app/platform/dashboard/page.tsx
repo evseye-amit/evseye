@@ -57,7 +57,6 @@ type Tab =
   | "pricing"
   | "featureAddOns"
   | "packageFeatures"
-  | "packageAddOns"
   | "packageTierPricing"
   | "clientPricingAdjustments"
   | "clientAddOnPurchases"
@@ -2050,7 +2049,7 @@ export default function SuperAdminDashboard() {
         ["featureSteps", "Feature Step", "category"],
         ["features", "Feature", "feature"],
         ["pricing", "Pricing", "pricing"],
-        ["featureAddOns", "Quota Add-Ons", "feature"],
+        ["featureAddOns", "Add-ons", "feature"],
       ],
     },
     {
@@ -2059,7 +2058,6 @@ export default function SuperAdminDashboard() {
         ["packages", "Package", "package"],
         ["packageFeatures", "Package Feature", "packageFeature"],
         ["packageTierPricing", "Package Tier Pricing", "pricing"],
-        ["packageAddOns", "Available Add-Ons", "packageFeature"],
       ],
     },
     {
@@ -3392,13 +3390,6 @@ export default function SuperAdminDashboard() {
             token={token}
             onSaved={() => void load()}
             onDelete={(path, label) => void remove(path, label)}
-          />
-        )}
-        {tab === "packageAddOns" && (
-          <PackageAddOnsView
-            packages={packages}
-            featureAddOns={featureAddOns}
-            token={token}
           />
         )}
         {tab === "packageTierPricing" && (
@@ -5523,124 +5514,6 @@ function BulkImportWorkspace({
         </section>
       </div>
     </section>
-  );
-}
-
-function PackageAddOnsView({
-  packages,
-  featureAddOns,
-  token,
-}: {
-  packages: Item[];
-  featureAddOns: Item[];
-  token: string;
-}) {
-  const activePackages = packages.filter((item) => item.isActive);
-  const [packageId, setPackageId] = useState("");
-  const [availableAddOnIds, setAvailableAddOnIds] = useState<string[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (!packageId && activePackages[0]?.id) setPackageId(activePackages[0].id);
-  }, [activePackages, packageId]);
-
-  const loadAvailability = useCallback(async () => {
-    if (!packageId) {
-      setAvailableAddOnIds([]);
-      return;
-    }
-    setLoading(true);
-    setError("");
-    try {
-      const available = await request(
-        `/platform/commercial/feature-addons?packageId=${encodeURIComponent(packageId)}`,
-        {},
-        token,
-      );
-      setAvailableAddOnIds(
-        available.map((item: Item) => item.featureAddOn?.id ?? item.featureAddOnId),
-      );
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to load Package Add-Ons.");
-    } finally {
-      setLoading(false);
-    }
-  }, [packageId, token]);
-
-  useEffect(() => {
-    if (packageId) void loadAvailability();
-  }, [packageId, loadAvailability]);
-
-  const setAvailability = async (addOnId: string, isAvailable: boolean) => {
-    if (!packageId) return;
-    setLoading(true);
-    setError("");
-    try {
-      await request(
-        `/platform/commercial/packages/${packageId}/feature-addons/${addOnId}`,
-        { method: "PUT", body: JSON.stringify({ isAvailable }) },
-        token,
-      );
-      setAvailableAddOnIds((current) =>
-        isAvailable
-          ? [...new Set([...current, addOnId])]
-          : current.filter((id) => id !== addOnId),
-      );
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to update Package Add-On availability.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <>
-      <section className="sa-page-head">
-        <div>
-          <h2>Package Add-Ons</h2>
-          <p>Control which active Feature Add-Ons clients can purchase with each Package.</p>
-        </div>
-      </section>
-      <section className="sa-management oem-table-only">
-        <label className="sa-client-picker">
-          Package
-          <select value={packageId} onChange={(event) => setPackageId(event.target.value)}>
-            <option value="">Select Package</option>
-            {activePackages.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </select>
-        </label>
-        {error && <p className="error" role="alert">{error}</p>}
-        {packageId && featureAddOns.length ? (
-          <DataTable
-            headings={["Code", "Feature", "Quantity", "Sale price", "Validity", "Available"]}
-            columnFilters={[{ type: "text" }, { type: "select" }, { type: "number" }, { type: "text" }, { type: "text" }, null]}
-            nonSortableColumns={[5]}
-            rows={featureAddOns.map((item) => {
-              const available = availableAddOnIds.includes(item.id);
-              return [
-                item.code,
-                item.feature?.name ?? "—",
-                item.quantity,
-                `${item.currency} ${item.salePrice}`,
-                item.validityMonths ? `${item.validityMonths} months` : item.validityDays ? `${item.validityDays} days` : "No expiry",
-                <label className="sa-toggle" key={`availability-${item.id}`}>
-                  <input
-                    type="checkbox"
-                    checked={available}
-                    disabled={loading || !item.isActive}
-                    onChange={(event) => void setAvailability(item.id, event.target.checked)}
-                  />
-                  {available ? "Available" : "Unavailable"}
-                </label>,
-              ];
-            })}
-          />
-        ) : packageId && !loading ? (
-          <section className="sa-empty-catalog"><h3>No Feature Add-Ons yet</h3><p>Create a Feature Add-On before making it available to a Package.</p></section>
-        ) : null}
-      </section>
-    </>
   );
 }
 

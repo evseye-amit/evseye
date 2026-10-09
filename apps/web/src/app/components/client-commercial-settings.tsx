@@ -136,10 +136,13 @@ export function ClientCommercialSettings({
       setEligibleFeatures(eligible);
       const active = nextSubscriptions.find((item) => item.status === "ACTIVE");
       const [offers, purchases] = await Promise.all([
-        active ? request(`/feature-addons?packageId=${encodeURIComponent(String(active.packageId))}`) : Promise.resolve([]),
+        active ? request('/feature-addons') : Promise.resolve([]),
         request(`/clients/${encodeURIComponent(clientId)}/addon-purchases`),
       ]);
-      setQuotaOffers((offers as Item[]).filter((item) => item.isAvailable && (item.featureAddOn as Item)?.isActive));
+      const now = Date.now();
+      setQuotaOffers((offers as Item[]).filter((item) => item.isActive && (item.feature as Item)?.isActive
+        && new Date(String(item.effectiveFrom)).getTime() <= now
+        && (!item.effectiveTo || new Date(String(item.effectiveTo)).getTime() > now)));
       setQuotaPurchases(purchases as Item[]);
       setAdjustment((current) => ({
         ...current,
@@ -342,7 +345,7 @@ export function ClientCommercialSettings({
           {(!section || section === "quotaPacks") && <section className="sa-commercial-section">
             <div className="sa-commercial-section-head"><div><h3>Quota add-ons</h3><p>Activate a purchased pack using the approved payment or grant reference. Package credits are used before add-on credits.</p></div></div>
             {activeSubscription ? <form className="sa-commercial-grid" onSubmit={activateQuotaPack}>
-              <label><span>Available pack <b className="sa-required-star">*</b></span><select required value={selectedQuotaOffer} onChange={(event) => setSelectedQuotaOffer(event.target.value)}><option value="">Select a pack</option>{quotaOffers.map((link) => { const offer = link.featureAddOn as Item; return <option key={String(offer.id)} value={String(offer.id)}>{String(offer.name)} · {number(offer.quantity)} credits · {String(offer.currency)} {number(offer.salePrice)} · {offer.validityMonths ? `${offer.validityMonths} months` : `${offer.validityDays} days`}</option>; })}</select></label>
+              <label><span>Available pack <b className="sa-required-star">*</b></span><select required value={selectedQuotaOffer} onChange={(event) => setSelectedQuotaOffer(event.target.value)}><option value="">Select a pack</option>{quotaOffers.map((offer) => <option key={String(offer.id)} value={String(offer.id)}>{String(offer.name)} · {number(offer.quantity)} credits · {String(offer.currency)} {number(offer.salePrice)} · {offer.validityMonths ? `${offer.validityMonths} months` : `${offer.validityDays} days`}</option>)}</select></label>
               <label><span>Payment or grant reference <b className="sa-required-star">*</b></span><input required maxLength={120} value={activationReference} onChange={(event) => setActivationReference(event.target.value)} placeholder="Approved transaction or grant ID" /><small>A reference can activate only one pack for this client.</small></label>
               <div className="sa-commercial-form-action"><button type="submit" disabled={busy || !selectedQuotaOffer}>Activate pack</button></div>
             </form> : <p className="muted">Create an active subscription before activating quota packs.</p>}

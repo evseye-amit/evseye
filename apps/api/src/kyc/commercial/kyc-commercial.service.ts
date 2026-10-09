@@ -52,13 +52,20 @@ export class KycCommercialService {
     const clientFeature = await this.prisma.clientFeature.findFirst({ where: { clientId, subscriptionId: subscription.id,
       featureId: feature.id, enabled: true, effectiveFrom: { lte: now },
       OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }] } });
-    if (!clientFeature) throw new BadRequestException('KYC_FEATURE_NOT_ENABLED');
-    if (clientFeature.source === 'PACKAGE') {
+    if (!clientFeature) {
+      const purchased = await this.prisma.clientFeatureAddOnPurchase.findFirst({ where: {
+        clientId, featureId: feature.id, status: 'ACTIVE', quantityRemaining: { gt: 0 },
+        validFrom: { lte: now }, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      } });
+      if (!purchased) throw new BadRequestException('KYC_FEATURE_NOT_ENABLED');
+    }
+    if (clientFeature?.source === 'PACKAGE') {
       const packageFeature = await this.prisma.packageFeature.findUnique({ where: {
         packageId_featureId: { packageId: subscription.packageId, featureId: feature.id } } });
       if (!packageFeature?.isIncluded) throw new BadRequestException('KYC_FEATURE_NOT_ENABLED');
     }
-    return { policy, feature, subscription, clientFeature };
+    return { policy, feature, subscription,
+      clientFeature: clientFeature ?? { id: '', unlimitedUsage: false, source: 'ADD_ON' as const } };
   }
 
   /** Called in the same transaction that creates the one business verification. */
@@ -76,8 +83,11 @@ export class KycCommercialService {
     const period = billingPeriod(subscription.startDate, subscription.billingCycle, now);
     const lots = await tx.$queryRaw<Array<{ id: string; sourceType: 'PACKAGE_ALLOWANCE' | 'FEATURE_ADDON' | 'MANUAL_ADJUSTMENT' | 'PROMOTIONAL_CREDIT'; purchaseId: string | null; quantityAvailable: Prisma.Decimal; sourceId: string | null }>>(Prisma.sql`
       SELECT "id", "sourceType", "purchaseId", "quantityAvailable", "sourceId" FROM "FeatureCreditLot"
-      WHERE "clientId" = ${clientId} AND "subscriptionId" = ${subscription.id} AND "featureId" = ${feature.id}
+      WHERE "clientId" = ${clientId} AND "featureId" = ${feature.id}
         AND "quantityAvailable" >= 1 AND ("expiresAt" IS NULL OR "expiresAt" > ${now})
+        AND (("sourceType" = 'PACKAGE_ALLOWANCE' AND "subscriptionId" = ${subscription.id})
+          OR ("sourceType" = 'FEATURE_ADDON' AND EXISTS (SELECT 1 FROM "ClientFeatureAddOnPurchase" p
+            WHERE p."id" = "purchaseId" AND p."status" = 'ACTIVE')))
       ORDER BY CASE WHEN "sourceType" = 'PACKAGE_ALLOWANCE' THEN 0 ELSE 1 END,
         "expiresAt" ASC NULLS LAST, "createdAt" ASC FOR UPDATE`);
     const lot = lots[0];
@@ -85,6 +95,7 @@ export class KycCommercialService {
     let pricing: { basePrice: Prisma.Decimal; discount: Prisma.Decimal; effectivePrice: Prisma.Decimal;
       currency: string; pricingReferenceId: string } | null = null;
     if (lot) source = lot.sourceType === 'FEATURE_ADDON' ? 'ADD_ON' : 'INCLUDED';
+    else if (!clientFeature.id) throw new BadRequestException('KYC_USAGE_LIMIT_EXCEEDED');
     else if (clientFeature.unlimitedUsage) source = 'UNLIMITED';
     else if (policy?.overagePolicy === 'ALLOW_AND_CHARGE' || policy?.overagePolicy === 'ALLOW_WITH_WARNING') {
       source = 'OVERAGE';

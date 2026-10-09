@@ -103,17 +103,18 @@ export class KycCommercialAdminController {
     if (!subscription) return { data: { available: [], purchased: [] } };
     const codes = ['PAN_VERIFICATION', 'AADHAAR_VERIFICATION', 'BANK_VERIFICATION', 'IFSC_VERIFICATION'];
     const [available, purchased] = await Promise.all([
-      this.prisma.packageFeatureAddOn.findMany({ where: { packageId: subscription.packageId, isAvailable: true,
-        featureAddOn: { isActive: true, feature: { code: { in: codes } } } },
-      select: { featureAddOn: { select: { id: true, code: true, name: true, quantity: true, salePrice: true,
-        currency: true, validityDays: true, feature: { select: { code: true } } } } } }),
+      this.prisma.featureAddOn.findMany({ where: { isActive: true, effectiveFrom: { lte: new Date() },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gt: new Date() } }],
+        feature: { isActive: true, code: { in: codes } } },
+        select: { id: true, code: true, name: true, quantity: true, salePrice: true,
+          currency: true, validityDays: true, validityMonths: true, feature: { select: { code: true } } } }),
       this.prisma.clientFeatureAddOnPurchase.findMany({ where: { clientId },
         select: { id: true, status: true, quantityPurchased: true, quantityConsumed: true,
           quantityRemaining: true, purchasedAt: true, expiresAt: true,
           featureAddOn: { select: { code: true, name: true } } },
       orderBy: { purchasedAt: 'desc' }, take: 50 }),
     ]);
-    return { data: { available: available.map((item) => item.featureAddOn), purchased } };
+    return { data: { available, purchased } };
   }
 
   @Get('usage/ledger')
