@@ -16,6 +16,8 @@ import { ReferralService } from './referral.service.js';
 export class ReferralRiderController {
   constructor(private readonly referrals: ReferralService, private readonly clients: ClientContextService) {}
   @Get('home') async home(@CurrentUser() user: AuthUser) { return { data: await this.referrals.home(this.clients.requireClientId(user), user.id) }; }
+  @Get('resolve-input') @Throttle({ default: { limit: 20, ttl: 60000 } })
+  async resolveInput(@CurrentUser() user: AuthUser, @Query('input') input: string) { return { data: await this.referrals.resolveInput(this.clients.requireClientId(user), input ?? '') }; }
   @Post('invites') @Throttle({ default: { limit: 10, ttl: 60000 } })
   async invite(@CurrentUser() user: AuthUser) { return { data: await this.referrals.invite(this.clients.requireClientId(user), user.id) }; }
   @Post('attribute') @Throttle({ default: { limit: 10, ttl: 60000 } })

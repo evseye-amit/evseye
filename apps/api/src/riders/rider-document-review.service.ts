@@ -12,6 +12,7 @@ export class RiderDocumentReviewService {
   ) {}
 
   async list(clientId: string, query: ListRiderDocumentsDto) {
+    const nameFieldCode = await this.riderNameFieldCode(clientId);
     const where: Prisma.RiderOnboardingDocumentWhereInput = {
       clientId,
       supersededAt: null,
@@ -28,26 +29,27 @@ export class RiderDocumentReviewService {
       include: {
         feature: { select: { id: true, code: true, name: true } },
         photo: { select: { id: true, objectKey: true, mimeType: true, sizeBytes: true, status: true, uploadedAt: true } },
-        user: { select: { id: true, name: true, mobile: true } },
+        user: { select: { id: true, name: true, mobile: true, riderOnboardingProgress: { select: { values: true } } } },
         rider: { select: { id: true, riderCode: true, name: true, mobile: true } },
       },
       orderBy: { createdAt: 'asc' },
     });
-    return documents.map((document) => this.withFileName(document));
+    return documents.map((document) => this.withRiderName(document, nameFieldCode));
   }
 
   async get(clientId: string, id: string) {
+    const nameFieldCode = await this.riderNameFieldCode(clientId);
     const document = await this.prisma.riderOnboardingDocument.findFirst({
       where: { id, clientId },
       include: {
         feature: { select: { id: true, code: true, name: true } },
         photo: { select: { id: true, objectKey: true, mimeType: true, sizeBytes: true, status: true, uploadedAt: true } },
-        user: { select: { id: true, name: true, mobile: true } },
+        user: { select: { id: true, name: true, mobile: true, riderOnboardingProgress: { select: { values: true } } } },
         rider: { select: { id: true, riderCode: true, name: true, mobile: true } },
       },
     });
     if (!document) throw new NotFoundException('Rider document not found.');
-    return this.withFileName(document);
+    return this.withRiderName(document, nameFieldCode);
   }
 
   async approve(clientId: string, reviewerId: string, id: string) {
@@ -90,6 +92,21 @@ export class RiderDocumentReviewService {
   private withFileName<T extends { photo: { objectKey: string } }>(document: T) {
     const fileName = document.photo.objectKey.split('/').pop() ?? document.photo.objectKey;
     return { ...document, photo: { ...document.photo, fileName } };
+  }
+
+  private async riderNameFieldCode(clientId: string) {
+    const configuration = await this.configuration.getEffectiveConfiguration(clientId);
+    return configuration.onboarding.steps.flatMap((step) => step.fields).find((field) => field.storageKey === 'name')?.fieldCode;
+  }
+
+  private withRiderName<T extends { photo: { objectKey: string }; rider: { name: string } | null; user: { name: string; riderOnboardingProgress: { values: unknown } | null } }>(document: T, nameFieldCode?: string) {
+    const values = document.user.riderOnboardingProgress?.values;
+    const enteredName = nameFieldCode && values && typeof values === 'object' && !Array.isArray(values)
+      ? (values as Record<string, unknown>)[nameFieldCode]
+      : null;
+    const riderName = document.rider?.name?.trim() || (typeof enteredName === 'string' ? enteredName.trim() : '') || (document.user.name === 'Pending Rider' ? 'Name not provided' : document.user.name);
+    const { riderOnboardingProgress: _progress, ...user } = document.user;
+    return this.withFileName({ ...document, user, riderName });
   }
 
   private async assertPending(clientId: string, id: string) {

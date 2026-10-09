@@ -2,7 +2,7 @@
 
 ## Architecture
 
-The client’s active subscription must include the `REFER_AND_EARN` package feature. A Client Admin creates a draft campaign, defines its milestones, then activates or schedules it. A Rider gets a stable client-scoped referral code and share URL. Another authenticated Rider can submit the code while onboarding or call the attribution endpoint. Attribution stores the campaign rules and terms as a snapshot. Progress is driven by idempotent KYC, activation, allocation and trusted activity events. Qualification creates separate referrer and referee reward ledger entries and reserves the configured campaign budget in the same serializable transaction. Client Admins review rewards and record manual payouts. Analytics aggregate the persisted funnel and reward ledger.
+The client’s active subscription must include the `REFERRAL_BENEFIT` package feature. A Client Admin creates a draft campaign, defines its milestones, then activates or schedules it. A Rider gets a stable client-scoped referral code and share URL. Another authenticated Rider can submit the code while onboarding or call the attribution endpoint. Attribution stores the campaign rules and terms as a snapshot. Progress is driven by idempotent KYC, activation, allocation and trusted activity events. Qualification creates separate referrer and referee reward ledger entries and reserves the configured campaign budget in the same serializable transaction. Client Admins review rewards and record manual payouts. Analytics aggregate the persisted funnel and reward ledger.
 
 All referral business tables have `clientId`. Foreign keys between the important entities include `clientId`; normal Client Operations and Rider endpoints obtain it from the authenticated session. Only Super Admin can post upstream activity events for a specified Client. The rider-facing API returns masked referee mobile numbers and never exposes the reward payment reference.
 
@@ -76,13 +76,12 @@ Every response uses the existing `{ "data": ... }` envelope. Use an authenticate
 | Client Ops | `POST /api/v1/client/referrals/rewards/:id/{approve,reject,processing,paid}` | Reward workflow and manual payout reference |
 | Super Admin | `POST /api/v1/platform/clients/:clientId/referral-events` | Trusted ride/delivery/training/payment milestone event |
 
-For campaign creation, send a code, name, terms, ISO start/end dates, registration and qualification validity days, reward types and decimal values, and a nonempty `milestones` array. Each milestone has `milestoneType`, `operator`, decimal `targetValue`, `sequence`, and optional `mandatory`. Optional limits and budget are Client-specific. Example:
+For campaign creation, send a code, name, ISO start/end dates, registration and qualification validity days, reward types and decimal values, and a nonempty `milestones` array. The published Rider Terms & Conditions for the client apply to every campaign and are recorded by the API; campaign operators do not enter separate terms. Each milestone has `milestoneType`, `operator`, decimal `targetValue`, `sequence`, and optional `mandatory`. Optional limits and budget are Client-specific. Example:
 
 ```json
 {
   "code": "GURGAON_RIDERS",
   "name": "Gurgaon Rider Acquisition",
-  "termsAndConditions": "Client-approved campaign terms",
   "startAt": "2026-10-01T00:00:00.000Z",
   "endAt": "2026-11-01T00:00:00.000Z",
   "registrationValidityDays": 7,
@@ -107,7 +106,7 @@ The values above are an example, not runtime defaults. A trusted ride source sen
 
 ## Configuration and rollout
 
-The feature catalog seeds `REFER_AND_EARN` in `RIDER_MANAGEMENT` and changes `CAPTURE_REFERRAL` to an optional `REFERRAL_CODE` onboarding field. Attach both features to the intended package through existing Package Feature administration. No package receives Refer & Earn by default. `SEED_REFERRAL_DEMO=1` during a development seed enables a sample entitlement and draft campaign; leave it unset outside development. A campaign must be activated by Client Admin before Rider sharing works.
+The feature catalog uses `REFERRAL_BENEFIT` to control Refer & Earn campaigns and `CAPTURE_REFERRAL` for the optional `REFERRAL_CODE` onboarding field. Attach both features to the intended package through existing Package Feature administration. `SEED_REFERRAL_DEMO=1` during a development seed enables a sample entitlement and draft campaign; leave it unset outside development. A campaign must be activated by Client Admin before Rider sharing works.
 
 The Rider app should render `home` and `mine`, generate a QR image from the returned `qrPayload`, retain `code` and optional `invite` from a link, then submit them with the authenticated Rider session. `CAPTURE_REFERRAL` on the onboarding step also submits the code to the same attribution logic. The client’s verified primary domain must serve `/rider/referral` and route it to the app or store. The backend resolves codes; app universal links and deferred install attribution need mobile/web routing.
 

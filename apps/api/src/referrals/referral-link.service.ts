@@ -10,7 +10,8 @@ export class ReferralLinkService {
       where: { clientId, isPrimary: true, isVerified: true }, select: { hostname: true },
     });
     if (!domain) throw new ServiceUnavailableException('A verified primary client domain is required for referral links.');
-    const url = new URL(`${domain.hostname.endsWith('.localhost') ? 'http' : 'https'}://${domain.hostname}/rider/referral`);
+    const local = domain.hostname.endsWith('.localhost');
+    const url = new URL(`${local ? 'http' : 'https'}://${domain.hostname}${local ? ':3001' : ''}/rider/referral`);
     url.searchParams.set('code', code);
     if (inviteToken) url.searchParams.set('invite', inviteToken);
     return url.toString();

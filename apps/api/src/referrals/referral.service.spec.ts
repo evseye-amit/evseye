@@ -34,6 +34,23 @@ describe('ReferralService.attribute', () => {
   });
 });
 
+describe('ReferralService.resolveInput', () => {
+  it('extracts a QR share-link code and validates it in the current Client', async () => {
+    const findFirst = vi.fn().mockResolvedValue({ code: 'EVS-ABCDEFGH', rider: { status: 'ACTIVE', deletedAt: null } });
+    const service = new ReferralService({ referralIdentity: { findFirst } } as never, { requireFeature: vi.fn().mockResolvedValue({}) } as never, {} as never, {} as never);
+    await expect(service.resolveInput('client-a', 'https://example.test/rider/referral?code=EVS-ABCDEFGH')).resolves.toEqual({ referralCode: 'EVS-ABCDEFGH' });
+    expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { clientId: 'client-a', code: 'EVS-ABCDEFGH' } }));
+  });
+
+  it('resolves a referrer mobile to a canonical code', async () => {
+    const rider = { findFirst: vi.fn().mockResolvedValue({ id: 'rider-a' }) };
+    const referralIdentity = { findUnique: vi.fn().mockResolvedValue({ code: 'EVS-ABCDEFGH' }) };
+    const service = new ReferralService({ rider, referralIdentity } as never, { requireFeature: vi.fn().mockResolvedValue({}) } as never, {} as never, {} as never);
+    await expect(service.resolveInput('client-a', '9876543210')).resolves.toEqual({ referralCode: 'EVS-ABCDEFGH' });
+    expect(rider.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ clientId: 'client-a', status: 'ACTIVE', deletedAt: null }) }));
+  });
+});
+
 describe('ReferralService.notifications', () => {
   it('limits in-app events to referrals belonging to the authenticated Client and Rider', async () => {
     const findMany = vi.fn().mockReturnValue(Promise.resolve([]));

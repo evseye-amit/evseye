@@ -2,6 +2,7 @@
 import { sessionFetch as fetch } from "../../lib/session-fetch";
 import { useEffect, useState, type FormEvent } from "react";
 import { ClientFormDialog } from "./client-form-dialog";
+import { UiIcon } from "./ui-icon";
 import { useClientAppearance } from "./client-provider";
 export function ClientBrandingSettings({ token }: { token: string }) {
   const { appearance, setAppearance } = useClientAppearance();
@@ -106,7 +107,7 @@ export function ClientBrandingSettings({ token }: { token: string }) {
   return (
     <>
       <button
-        className="secondary"
+        className="client-nav-utility"
         type="button"
         onClick={() => {
           setDraft(appearance.branding);
@@ -115,7 +116,7 @@ export function ClientBrandingSettings({ token }: { token: string }) {
           setOpen(true);
         }}
       >
-        Branding settings
+        <UiIcon name="feature" /> Branding settings
       </button>
       {open && (
         <ClientFormDialog

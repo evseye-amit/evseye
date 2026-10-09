@@ -17,7 +17,6 @@ export class CampaignDto {
   @IsOptional() @IsString() @MaxLength(160) displayTitle?: string;
   @IsOptional() @IsString() @MaxLength(1000) displayDescription?: string;
   @IsOptional() @IsString() @MaxLength(1000) shareMessageTemplate?: string;
-  @IsString() @IsNotEmpty() termsAndConditions!: string;
   @IsDateString() startAt!: string;
   @IsDateString() endAt!: string;
   @IsInt() @Min(1) registrationValidityDays!: number;

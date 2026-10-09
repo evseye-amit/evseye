@@ -184,6 +184,9 @@ async function main() {
       });
     }),
   );
+  // Earlier referral builds introduced a duplicate feature code. Keep its history,
+  // but remove it from package configuration; REFERRAL_BENEFIT is the entitlement.
+  await prisma.feature.updateMany({ where: { code: 'REFER_AND_EARN' }, data: { isActive: false } });
 
   // A feature can have several historical prices that share an effective date.
   // The complete commercial identity is used here instead of only feature + date,
@@ -741,7 +744,7 @@ async function main() {
     const subscription = await prisma.clientSubscription.findFirst({ where: { status: 'ACTIVE', client: { isActive: true } }, include: { client: true } });
     const actor = subscription && await prisma.user.findFirst({ where: { clientId: subscription.clientId, role: 'CLIENT_ADMIN' } });
     if (subscription && actor) {
-      const feature = await prisma.feature.findUniqueOrThrow({ where: { code: 'REFER_AND_EARN' } });
+      const feature = await prisma.feature.findUniqueOrThrow({ where: { code: 'REFERRAL_BENEFIT' } });
       await prisma.packageFeature.upsert({ where: { packageId_featureId: { packageId: subscription.packageId, featureId: feature.id } }, create: { packageId: subscription.packageId, featureId: feature.id, isIncluded: true }, update: { isIncluded: true } });
       const campaign = await prisma.referralCampaign.upsert({
         where: { clientId_code: { clientId: subscription.clientId, code: 'DEMO_RIDER_ACQUISITION' } },

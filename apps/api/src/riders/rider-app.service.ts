@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, Logger, Optional } from '@nestjs/common';
-import { PhotoEntityType, PhotoStatus, Prisma, RiderDocumentReviewStatus, UserRole } from '@prisma/client';
+import { PhotoEntityType, PhotoStatus, Prisma, ReferralAttributionSource, RiderDocumentReviewStatus, UserRole } from '@prisma/client';
 import { normalizeIndianMobile } from '../common/phone.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RiderOnboardingConfigurationService } from './rider-onboarding-configuration.service.js';
@@ -82,16 +82,49 @@ export class RiderAppService {
     if (!step) throw new BadRequestException('This onboarding step is not available in the active package.');
     const allowed = new Set(step.fields.filter((field) => field.fieldCode).map((field) => field.fieldCode));
     for (const code of Object.keys(values)) if (!allowed.has(code)) throw new BadRequestException(`${code} is not available in this onboarding step.`);
+    if (allowed.has('PAN_NUMBER') && typeof values.PAN_NUMBER === 'string') {
+      values = { ...values, PAN_NUMBER: values.PAN_NUMBER.trim().toUpperCase() };
+    }
     const current = await this.prisma.riderOnboardingProgress.findUnique({ where: { userId } });
     if (!current) throw new BadRequestException('Rider onboarding has not been started.');
     // Attribution belongs to the authenticated Rider. It is deliberately not part of
     // the generic Rider field mapper because that mapper only persists profile data.
-    const referralCode = !skip && allowed.has('REFERRAL_CODE') ? String(values.REFERRAL_CODE ?? '').trim().toUpperCase() : '';
-    if (referralCode) {
-      if (!/^EVS-[A-Z2-9]{8}$/.test(referralCode)) throw new BadRequestException('REFERRAL_CODE is invalid.');
+    const referralValue = !skip && allowed.has('REFERRAL_CODE') ? values.REFERRAL_CODE : null;
+    const referralInput = referralValue && typeof referralValue === 'object' && !Array.isArray(referralValue)
+      ? referralValue as Record<string, unknown> : { input: referralValue, source: 'REFERRAL_CODE' };
+    const referralText = String(referralInput.input ?? '').trim();
+    if (referralText) {
       if (!this.referrals) throw new BadRequestException('Referral attribution is unavailable.');
-      await this.referrals.attribute(clientId, userId, { referralCode });
+      const source = String(referralInput.source ?? 'REFERRAL_CODE');
+      if (!['REFERRAL_CODE', 'QR_CODE', 'DEEP_LINK'].includes(source)) throw new BadRequestException('Referral source is invalid.');
+      const referralField = step.fields.find((field) => field.fieldCode === 'REFERRAL_CODE');
+      const methods = referralField?.configuration.inputMethods;
+      if (Array.isArray(methods)) {
+        if (source === 'QR_CODE' && !methods.includes('QR')) throw new BadRequestException('QR referral capture is disabled.');
+        if (source === 'REFERRAL_CODE' && !methods.includes(/^(?:\+?91|0)?[6-9]\d{9}$/.test(referralText) ? 'MOBILE' : 'CODE')) throw new BadRequestException('This referral input method is disabled.');
+      }
+      const { referralCode } = await this.referrals.resolveInput(clientId, referralText);
+      const inviteToken = /^https?:\/\//i.test(referralText) ? new URL(referralText).searchParams.get('invite') ?? undefined : undefined;
+      await this.referrals.attribute(clientId, userId, { referralCode, source: source as ReferralAttributionSource, ...(inviteToken ? { inviteToken } : {}) });
       values = { ...values, REFERRAL_CODE: referralCode };
+    }
+    const referencesField = step.fields.find((field) => field.featureCode === 'CAPTURE_REFERENCE');
+    if (!skip && referencesField) {
+      const raw = values[referencesField.fieldCode];
+      if (!Array.isArray(raw)) throw new BadRequestException('References must be a list.');
+      const min = Math.max(0, Number(referencesField.configuration.minReferences ?? 0));
+      const max = Math.max(min, Number(referencesField.configuration.maxReferences ?? 10));
+      if (raw.length < min || raw.length > max) throw new BadRequestException(`Please provide ${min} to ${max} references.`);
+      const usedMobiles = new Set<string>();
+      const ownMobile = normalizeIndianMobile(String(values.MOBILE_NUMBER ?? (current.values as Record<string, unknown>).MOBILE_NUMBER ?? ''));
+      for (const [index, item] of raw.entries()) {
+        const entry = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {};
+        if (!String(entry.name ?? '').trim() || !String(entry.relation ?? '').trim() || !/^(?:\+?91|0)?[6-9]\d{9}$/.test(String(entry.mobile ?? '').trim())) throw new BadRequestException(`Reference ${index + 1} is incomplete.`);
+        const mobile = normalizeIndianMobile(String(entry.mobile).trim());
+        if (mobile === ownMobile) throw new BadRequestException(`Reference ${index + 1} cannot use the Rider's mobile number.`);
+        if (usedMobiles.has(mobile)) throw new BadRequestException('Each reference needs a different mobile number.');
+        usedMobiles.add(mobile);
+      }
     }
     if (!skip) {
       const uploaded = await this.prisma.riderOnboardingDocument.findMany({ where: { clientId, userId, supersededAt: null }, select: { fieldCode: true, status: true } });

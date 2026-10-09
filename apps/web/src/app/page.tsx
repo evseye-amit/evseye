@@ -20,6 +20,8 @@ import { ClientFormDialog } from "./components/client-form-dialog";
 import { useClientAppearance } from "./components/client-provider";
 import { LanguageSwitcher, useLocale } from "./components/locale-provider";
 import { ClientBrandingSettings } from "./components/client-branding-settings";
+import { ClientLegalDocuments } from "./components/client-legal-documents";
+import { ClientReferAndEarn } from "./components/client-refer-and-earn";
 import { ClientBrand } from "./components/client-brand";
 import Link from "next/link";
 
@@ -32,6 +34,8 @@ const indianMobileInput = (value: string) =>
   value.replace(/\D/g, "").slice(-10);
 type Tab =
   | "dashboard"
+  | "legal-documents"
+  | "refer-and-earn"
   | "fleets"
   | "riders"
   | "allocations"
@@ -112,7 +116,7 @@ const CLIENT_NAVIGATION: Array<{
   label: string;
   items: Array<{ id: Tab; label: string }>;
 }> = [
-  { label: "", items: [{ id: "dashboard", label: "Dashboard" }] },
+  { label: "", items: [{ id: "dashboard", label: "Dashboard" }, { id: "legal-documents", label: "Legal Documents" }, { id: "refer-and-earn", label: "Refer & Earn" }] },
   {
     label: "Team Management",
     items: [
@@ -169,6 +173,8 @@ const CLIENT_NAVIGATION: Array<{
 
 const CLIENT_TAB_TITLES: Record<Tab, string> = {
   dashboard: "Dashboard",
+  "legal-documents": "Legal Documents",
+  "refer-and-earn": "Refer & Earn",
   fleets: "Fleet",
   riders: "Rider",
   allocations: "Allocation",
@@ -199,6 +205,8 @@ const CLIENT_TAB_TITLES: Record<Tab, string> = {
 
 const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
   dashboard: "dashboard",
+  "legal-documents": "audit",
+  "refer-and-earn": "earnings",
   fleets: "vehicle",
   riders: "user",
   allocations: "allocation",
@@ -229,6 +237,8 @@ const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
 
 const ACTIVE_CLIENT_TABS = new Set<Tab>([
   "dashboard",
+  "legal-documents",
+  "refer-and-earn",
   "fleets",
   "riders",
   "allocations",
@@ -254,7 +264,6 @@ const PHOTO_EVIDENCE_TABS = new Set<Tab>([
   "allocation-evidence",
   "deallocation-evidence",
   "rider-evidence",
-  "rider-document-review",
 ]);
 
 function evidenceEntityType(tab: Tab): PhotoRequirementEntityType {
@@ -644,10 +653,9 @@ function clientColumns(tab: Tab): ClientColumn<RecordItem>[] {
       status("status", "Status", (row) => row.status),
     ];
     case "rider-document-review": return [
-      text("rider", "Rider", (row) => (row.rider as RecordItem | undefined)?.name ?? (row.user as RecordItem | undefined)?.name),
+      text("rider", "Rider", (row) => row.riderName ?? (row.rider as RecordItem | undefined)?.name ?? (row.user as RecordItem | undefined)?.name),
       text("mobile", "Mobile", (row) => (row.rider as RecordItem | undefined)?.mobile ?? (row.user as RecordItem | undefined)?.mobile),
       text("document", "Document", (row) => (row.feature as RecordItem | undefined)?.name ?? row.fieldCode),
-      text("file", "File", (row) => (row.photo as RecordItem | undefined)?.fileName),
       text("uploaded", "Uploaded", (row) => row.createdAt ? new Date(String(row.createdAt)).toLocaleString() : "—"),
       status("status", "Review status", (row) => row.status),
     ];
@@ -669,6 +677,8 @@ export default function Home() {
   const [code, setCode] = useState("");
   const [token, setToken] = useState("");
   const [tab, setTab] = useState<Tab>("dashboard");
+  const [legalRefreshKey, setLegalRefreshKey] = useState(0);
+  const [referralRefreshKey, setReferralRefreshKey] = useState(0);
   const [expandedClientNavGroups, setExpandedClientNavGroups] = useState<Record<string, boolean>>({});
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [items, setItems] = useState<RecordItem[]>([]);
@@ -758,6 +768,9 @@ export default function Home() {
   const [showDetailIotForm, setShowDetailIotForm] = useState(false);
   const [showPhotoTypeForm, setShowPhotoTypeForm] = useState(false);
   const [rejectingDocument, setRejectingDocument] = useState<RecordItem | null>(null);
+  const [reviewBusyId, setReviewBusyId] = useState("");
+  const [previewDocument, setPreviewDocument] = useState<{ item: RecordItem; url: string; mimeType: string } | null>(null);
+  const [previewLoadingId, setPreviewLoadingId] = useState("");
   const [documentRejectionReason, setDocumentRejectionReason] = useState("");
   const [ingestSecret, setIngestSecret] = useState("");
   const [loading, setLoading] = useState(false);
@@ -776,6 +789,14 @@ export default function Home() {
       window.clearTimeout(timer);
       window.removeEventListener(AUTH_CHANGED_EVENT, syncToken);
     };
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const requestedTab = new URLSearchParams(window.location.search).get("tab");
+      if (requestedTab === "legal-documents" || requestedTab === "refer-and-earn") setTab(requestedTab);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -809,6 +830,11 @@ export default function Home() {
   }, [token, tab]);
 
   async function loadView(nextTab: Tab) {
+    if (nextTab === "legal-documents" || nextTab === "refer-and-earn") {
+      setItems([]);
+      setLoading(false);
+      return;
+    }
     if (!ACTIVE_CLIENT_TABS.has(nextTab)) {
       setItems([]);
       setLoading(false);
@@ -913,6 +939,10 @@ export default function Home() {
       setPhotoRequirementEntityType(evidenceEntityType(nextTab));
     }
     setTab(nextTab);
+    const url = new URL(window.location.href);
+    if (nextTab === "legal-documents" || nextTab === "refer-and-earn") url.searchParams.set("tab", nextTab);
+    else url.searchParams.delete("tab");
+    window.history.replaceState({}, "", url);
   }
 
   async function sendOtp(event: FormEvent) {
@@ -973,50 +1003,55 @@ export default function Home() {
   }
 
   async function approveRiderDocument(id: string) {
-    setLoading(true);
+    if (reviewBusyId) return;
+    setReviewBusyId(id);
     setError("");
     try {
-      await request(`/rider-documents/${id}/approve`, { method: "POST" }, token);
+      const updated = await request(`/rider-documents/${id}/approve`, { method: "POST" }, token) as RecordItem;
+      setItems((current) => current.map((item) => String(item.id) === id ? { ...item, ...updated } : item));
       setNotice("Document approved.");
-      await loadView("rider-document-review");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to approve document.");
     } finally {
-      setLoading(false);
+      setReviewBusyId("");
     }
   }
 
   async function rejectRiderDocument(event: FormEvent) {
     event.preventDefault();
-    if (!rejectingDocument) return;
-    setLoading(true);
+    if (!rejectingDocument || reviewBusyId) return;
+    const id = String(rejectingDocument.id);
+    setReviewBusyId(id);
     setError("");
     try {
-      await request(`/rider-documents/${String(rejectingDocument.id)}/reject`, {
+      const updated = await request(`/rider-documents/${id}/reject`, {
         method: "POST",
         body: JSON.stringify({ rejectionReason: documentRejectionReason }),
-      }, token);
+      }, token) as RecordItem;
+      setItems((current) => current.map((item) => String(item.id) === id ? { ...item, ...updated } : item));
       setRejectingDocument(null);
       setDocumentRejectionReason("");
       setNotice("Document rejected. The Rider will be asked to upload a replacement.");
-      await loadView("rider-document-review");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to reject document.");
     } finally {
-      setLoading(false);
+      setReviewBusyId("");
     }
   }
 
-  async function downloadRiderDocument(item: RecordItem) {
+  async function previewRiderDocument(item: RecordItem) {
     const photo = item.photo as RecordItem | undefined;
     if (!photo?.id) return;
     setError("");
+    setPreviewLoadingId(String(item.id));
     try {
       const result = await request(`/media/${String(photo.id)}/download-url`, {}, token) as { url?: string };
-      if (!result.url) throw new Error("Document download is unavailable.");
-      window.open(result.url, "_blank", "noopener,noreferrer");
+      if (!result.url) throw new Error("Document preview is unavailable.");
+      setPreviewDocument({ item, url: result.url, mimeType: String(photo.mimeType ?? "") });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to open document.");
+      setError(cause instanceof Error ? cause.message : "Unable to preview document.");
+    } finally {
+      setPreviewLoadingId("");
     }
   }
 
@@ -2391,7 +2426,7 @@ export default function Home() {
                 className="client-nav-items"
                 hidden={Boolean(section.label) && !(expandedClientNavGroups[section.label] ?? false)}
               >
-                {section.items.map((item) => (
+                {section.items.filter((item) => !["legal-documents", "refer-and-earn"].includes(item.id) || userRoles.includes("CLIENT_ADMIN")).map((item) => (
                   <button
                     key={item.id}
                     type="button"
@@ -2409,9 +2444,7 @@ export default function Home() {
           ))}
         </nav>
         {userRoles.some((role) => role === "CLIENT_ADMIN" || role === "KYC_OPERATOR") &&
-          <Link className="sa-nav-child" href="/client/kyc">KYC &amp; Verification</Link>}
-        {userRoles.includes("CLIENT_ADMIN") &&
-          <Link className="sa-nav-child" href="/client/legal">Legal documents</Link>}
+          <Link className="client-nav-utility" href="/client/kyc"><UiIcon name="shield" /> KYC &amp; Verification</Link>}
         <ClientBrandingSettings token={token} />
         <div className="sa-user client-sidebar-footer">
           <span aria-hidden="true">C</span>
@@ -2426,7 +2459,7 @@ export default function Home() {
           </div>
           <div className="header-actions">
             <LanguageSwitcher />
-            <button className="secondary" onClick={() => void loadView(tab)}>
+            <button className="secondary" onClick={() => tab === "legal-documents" ? setLegalRefreshKey((key) => key + 1) : tab === "refer-and-earn" ? setReferralRefreshKey((key) => key + 1) : void loadView(tab)}>
               ↻ {t("Refresh")}
             </button>
             <button onClick={signOut}>{t("Sign out")}</button>
@@ -2440,6 +2473,9 @@ export default function Home() {
         {notice && <p className="notice">{notice}</p>}
         {error && <p className="error">{error}</p>}
         {loading && <p className="muted">Loading current data…</p>}
+        {tab === "legal-documents" && userRoles.includes("CLIENT_ADMIN") && <ClientLegalDocuments key={legalRefreshKey} />}
+        {tab === "refer-and-earn" && userRoles.includes("CLIENT_ADMIN") && <ClientReferAndEarn key={referralRefreshKey} />}
+        {!loading && tab === "rider-document-review" && <section className="action-card client-review-intro"><p className="eyebrow">RIDER ONBOARDING</p><h2>Review rider documents</h2><p className="muted">Open each uploaded document, then approve it or record a rejection reason.</p><div className="client-review-counts"><span><strong>{items.filter((item) => item.status === "PENDING").length}</strong> Pending</span><span><strong>{items.filter((item) => item.status === "APPROVED").length}</strong> Approved</span><span><strong>{items.filter((item) => item.status === "REJECTED").length}</strong> Rejected</span></div></section>}
         {!loading && (tab === "fleets" || tab === "riders" || tab === "batteries" || tab === "controllers" || tab === "iot-devices" || tab === "fleet-component-mapping") && <section className="sa-page-head client-page-head"><div className="sa-actions"><button className="secondary" onClick={() => openBulkImport(tab as ClientBulkTab)}>Bulk upload</button>{tab === "fleets" ? <button onClick={() => void openFleetForm()}>+ Add Fleet</button> : tab === "riders" ? <button onClick={() => void openRiderForm()}>+ Add Rider</button> : tab === "iot-devices" ? <button onClick={() => void openIotForm()}>+ Add IoT device</button> : tab === "fleet-component-mapping" ? <button onClick={() => void openMappingForm()}>+ Add mapping</button> : <button onClick={() => void openComponentForm(tab)}>+ Add {tab === "batteries" ? "Battery" : "Controller"}</button>}</div></section>}
         {tab === "iot-devices" && showIotForm && <ClientFormDialog title={editingIotDeviceId ? "Edit IoT device" : "Register IoT device"} busy={loading} error={error} onClose={() => setShowIotForm(false)}><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void registerIotDevice(iotFleetId); }}>
           <h2>{editingIotDeviceId ? "Edit IoT device" : "Register IoT device"}</h2>
@@ -2962,6 +2998,8 @@ export default function Home() {
         {!loading &&
           !isNotIncluded &&
           tab !== "dashboard" &&
+          tab !== "legal-documents" &&
+          tab !== "refer-and-earn" &&
           tab !== "locations" &&
           tab !== "evidence" && (
             <>
@@ -2976,7 +3014,7 @@ export default function Home() {
                   : tab === "iot-devices" ? (item) => <button className="secondary table-action" onClick={() => void openIotForm(item)}>Edit</button>
                   : tab === "batteries" || tab === "controllers" ? (item) => <button className="secondary table-action" onClick={() => void openExistingComponentForm(tab, item)}>Edit</button>
                   : tab === "fleet-component-mapping" ? (item) => <button className="secondary table-action" onClick={() => void openMappingForm(item)}>Edit</button>
-                  : tab === "rider-document-review" ? (item) => <><button className="secondary table-action" onClick={() => void downloadRiderDocument(item)}>View</button>{item.status === "PENDING" && <><button className="table-action" onClick={() => void approveRiderDocument(String(item.id))}>Approve</button><button className="danger table-action" onClick={() => { setDocumentRejectionReason(""); setRejectingDocument(item); }}>Reject</button></>}</>
+                  : tab === "rider-document-review" ? (item) => <><button className="secondary table-action" disabled={previewLoadingId === String(item.id)} onClick={() => void previewRiderDocument(item)}>{previewLoadingId === String(item.id) ? "Opening…" : "View"}</button>{item.status === "PENDING" && <><button className="table-action" disabled={Boolean(reviewBusyId)} onClick={() => void approveRiderDocument(String(item.id))}>{reviewBusyId === String(item.id) ? "Saving…" : "Approve"}</button><button className="danger table-action" disabled={Boolean(reviewBusyId)} onClick={() => { setDocumentRejectionReason(""); setRejectingDocument(item); }}>Reject</button></>}</>
                   : tab === "allocations" ? (item) => <>
                     <button className="secondary table-action" onClick={() => void openAllocationDetail(String(item.id))}>View</button>
                     <button className="secondary table-action" onClick={() => void openInspection(item)}>Inspect</button>
@@ -3077,8 +3115,21 @@ export default function Home() {
               </form></ClientFormDialog>}
         {fleetDetail && showDetailIotForm && <ClientFormDialog title="Register IoT device" busy={loading} error={error} onClose={() => setShowDetailIotForm(false)}><h2>Register IoT device</h2><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void registerIotDevice(String(fleetDetail.id)); }}><label>Device number *<input required value={iotDeviceNumber} onChange={(event) => setIotDeviceNumber(event.target.value)} /></label><div className="form-actions"><button disabled={loading}>Register device</button><button type="button" className="secondary" onClick={() => setShowDetailIotForm(false)}>Cancel</button></div></form></ClientFormDialog>}
         {componentForm && <ClientFormDialog title={`${editingComponentId ? "Edit" : "Add"} ${componentForm === "batteries" ? "battery" : "controller"}`} busy={loading} error={error} onClose={() => setComponentForm(null)}><h2>{editingComponentId ? "Edit" : "Add"} {componentForm === "batteries" ? "battery" : "controller"}</h2><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void saveComponent(componentFleetId, componentForm); }}><label>Fleet (optional)<select disabled={Boolean(editingComponentId)} value={componentFleetId} onChange={(event) => setComponentFleetId(event.target.value)}><option value="">Leave unassigned</option>{iotFleetOptions.map((fleet) => <option key={String(fleet.id)} value={String(fleet.id)}>{String(fleet.fleetCode ?? fleet.vehicleNumber ?? fleet.chassisNumber)}</option>)}</select></label><label>{componentForm === "batteries" ? "Battery serial number" : "Controller number"} *<input required value={componentSerial} onChange={(event) => setComponentSerial(event.target.value)} /></label><div className="form-grid"><label>Manufacturer<input value={componentDetails.manufacturer} onChange={(event) => setComponentDetails((current) => ({ ...current, manufacturer: event.target.value }))} /></label><label>Model<input value={componentDetails.model} onChange={(event) => setComponentDetails((current) => ({ ...current, model: event.target.value }))} /></label>{componentForm === "batteries" ? <><label>Battery code<input value={componentDetails.batteryCode} onChange={(event) => setComponentDetails((current) => ({ ...current, batteryCode: event.target.value }))} /></label><label>Battery type<select value={componentDetails.batteryType} onChange={(event) => setComponentDetails((current) => ({ ...current, batteryType: event.target.value }))}><option value="FIXED_SINGLE">Fixed single</option><option value="FIXED_DOUBLE">Fixed double</option><option value="SWAP_IF">Swap IF</option><option value="SWAP_BS">Swap BS</option><option value="SWAP_MOVING">Swap moving</option><option value="SWAP_OTHER">Swap other</option></select></label><label>Battery slot<select value={componentDetails.batterySlot} onChange={(event) => setComponentDetails((current) => ({ ...current, batterySlot: event.target.value }))}><option value="PRIMARY">Primary</option><option value="SECONDARY">Secondary</option></select></label><label>Chemistry<input value={componentDetails.chemistry} onChange={(event) => setComponentDetails((current) => ({ ...current, chemistry: event.target.value }))} placeholder="LFP, NMC, LTO…" /></label><label>Capacity (kWh)<input type="number" min="0" step="0.001" value={componentDetails.capacityKwh} onChange={(event) => setComponentDetails((current) => ({ ...current, capacityKwh: event.target.value }))} /></label><label>Voltage<input type="number" min="0" step="0.01" value={componentDetails.voltage} onChange={(event) => setComponentDetails((current) => ({ ...current, voltage: event.target.value }))} /></label><label>Amp hour<input type="number" min="0" step="0.01" value={componentDetails.ampHour} onChange={(event) => setComponentDetails((current) => ({ ...current, ampHour: event.target.value }))} /></label><label>Installed odometer (km)<input type="number" min="0" step="0.01" value={componentDetails.installedOdometerKm} onChange={(event) => setComponentDetails((current) => ({ ...current, installedOdometerKm: event.target.value }))} /></label><label>Manufacturing date<input type="date" value={componentDetails.manufacturingDate} onChange={(event) => setComponentDetails((current) => ({ ...current, manufacturingDate: event.target.value }))} /></label><label>Warranty start date<input type="date" value={componentDetails.warrantyStartDate} onChange={(event) => setComponentDetails((current) => ({ ...current, warrantyStartDate: event.target.value }))} /></label><label>Warranty end date<input type="date" value={componentDetails.warrantyEndDate} onChange={(event) => setComponentDetails((current) => ({ ...current, warrantyEndDate: event.target.value }))} /></label></> : <><label>Rated voltage<input type="number" min="0" step="0.01" value={componentDetails.ratedVoltage} onChange={(event) => setComponentDetails((current) => ({ ...current, ratedVoltage: event.target.value }))} /></label><label>Rated current<input type="number" min="0" step="0.01" value={componentDetails.ratedCurrent} onChange={(event) => setComponentDetails((current) => ({ ...current, ratedCurrent: event.target.value }))} /></label></>}</div><div className="form-actions"><button disabled={loading || !componentSerial.trim()}>{editingComponentId ? "Save" : "Add"} {componentForm === "batteries" ? "battery" : "controller"}</button><button type="button" className="secondary" onClick={() => setComponentForm(null)}>Cancel</button></div></form></ClientFormDialog>}
-        {rejectingDocument && <ClientFormDialog title="Reject rider document" busy={loading} error={error} onClose={() => setRejectingDocument(null)}><form className="form-stack" onSubmit={rejectRiderDocument}><p className="muted">Provide a clear reason so the Rider knows what to correct before uploading a replacement.</p><label>Rejection reason *<textarea required minLength={3} maxLength={1000} value={documentRejectionReason} onChange={(event) => setDocumentRejectionReason(event.target.value)} placeholder="For example, document is blurred or does not match the submitted details." /></label><div className="form-actions"><button className="danger" disabled={loading || !documentRejectionReason.trim()}>Reject document</button><button type="button" className="secondary" onClick={() => setRejectingDocument(null)}>Cancel</button></div></form></ClientFormDialog>}
+        {rejectingDocument && <ClientFormDialog title="Reject rider document" busy={Boolean(reviewBusyId)} error={error} onClose={() => setRejectingDocument(null)}><form className="form-stack" onSubmit={rejectRiderDocument}><p className="muted">Provide a clear reason so the Rider knows what to correct before uploading a replacement.</p><label>Rejection reason *<textarea required minLength={3} maxLength={1000} value={documentRejectionReason} onChange={(event) => setDocumentRejectionReason(event.target.value)} placeholder="For example, document is blurred or does not match the submitted details." /></label><div className="form-actions"><button className="danger" disabled={Boolean(reviewBusyId) || !documentRejectionReason.trim()}>{reviewBusyId ? "Rejecting…" : "Reject document"}</button><button type="button" className="secondary" disabled={Boolean(reviewBusyId)} onClick={() => setRejectingDocument(null)}>Cancel</button></div></form></ClientFormDialog>}
         {showMappingForm && <ClientFormDialog title="Fleet Component Mapping" busy={loading} error={error} onClose={() => setShowMappingForm(false)}><form className="form-stack" onSubmit={saveMapping}><h2>Map Fleet components</h2><label>Fleet *<select required value={mappingFleetId} onChange={(event) => setMappingFleetId(event.target.value)}><option value="">Select Fleet</option>{mappingOptions.fleets.map((fleet) => <option key={String(fleet.id)} value={String(fleet.id)}>{String(fleet.fleetCode ?? fleet.vehicleNumber)}</option>)}</select></label><div className="form-grid"><label>IoT device<select value={mappingIotId} onChange={(event) => setMappingIotId(event.target.value)}><option value="">Unassigned</option>{mappingOptions.devices.map((device) => <option key={String(device.id)} value={String(device.id)}>{String(device.deviceNumber)}</option>)}</select></label><label>Controller<select value={mappingControllerId} onChange={(event) => setMappingControllerId(event.target.value)}><option value="">Unassigned</option>{mappingOptions.controllers.map((controller) => <option key={String(controller.id)} value={String(controller.id)}>{String(controller.controllerNumber)}</option>)}</select></label><label>Primary battery<select value={mappingBatteryIds[0] ?? ""} onChange={(event) => setMappingBatteryIds((current) => [event.target.value, current[1]].filter(Boolean))}><option value="">Unassigned</option>{mappingOptions.batteries.map((battery) => <option key={String(battery.id)} value={String(battery.id)}>{String(battery.batteryCode ?? battery.serialNumber)}</option>)}</select></label><label>Secondary battery<select value={mappingBatteryIds[1] ?? ""} onChange={(event) => setMappingBatteryIds((current) => [current[0], event.target.value].filter(Boolean))}><option value="">Unassigned</option>{mappingOptions.batteries.map((battery) => <option key={String(battery.id)} value={String(battery.id)}>{String(battery.batteryCode ?? battery.serialNumber)}</option>)}</select></label></div><div className="form-actions"><button disabled={loading || !mappingFleetId}>Save mapping</button><button type="button" className="secondary" onClick={() => setShowMappingForm(false)}>Cancel</button></div></form></ClientFormDialog>}
+        {previewDocument && <ClientFormDialog title="Rider document preview" wide onClose={() => setPreviewDocument(null)}>
+          <p className="eyebrow">RIDER DOCUMENT</p>
+          <h2>{String((previewDocument.item.feature as RecordItem | undefined)?.name ?? previewDocument.item.fieldCode ?? "Document")}</h2>
+          <p className="muted">{String(previewDocument.item.riderName ?? (previewDocument.item.rider as RecordItem | undefined)?.name ?? (previewDocument.item.user as RecordItem | undefined)?.name ?? "Rider")}</p>
+          <div className="rider-document-preview">
+            {previewDocument.mimeType.startsWith("image/")
+              ? <img src={previewDocument.url} alt="Uploaded rider document" referrerPolicy="no-referrer" />
+              : previewDocument.mimeType === "application/pdf"
+                ? <iframe src={previewDocument.url} title="Uploaded rider document PDF" referrerPolicy="no-referrer" />
+                : <p className="muted">A preview is unavailable for this file type.</p>}
+          </div>
+          <div className="form-actions"><button type="button" className="secondary" onClick={() => setPreviewDocument(null)}>Close preview</button></div>
+        </ClientFormDialog>}
         <ClientDeleteDialog confirmation={deleteConfirmation} busy={loading} onClose={() => setDeleteConfirmation(null)} />
         <footer className="client-operations-footer">Powered by EV Spares India Pvt Ltd</footer>
       </section>

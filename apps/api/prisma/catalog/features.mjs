@@ -248,13 +248,16 @@ export const featureCatalog = [
     "description": "Optional referral code used to attribute a Rider to a Refer & Earn campaign",
     "configuration": {
       "fieldCode": "REFERRAL_CODE",
-      "fieldType": "TEXT",
+      "fieldType": "REFERRAL",
       "contentType": "ALPHANUMERIC",
       "label": "Referral code",
-      "placeholder": "EVS-XXXXXXXX",
+      "placeholder": "Referral code or mobile number",
+      "inputMethods": ["CODE", "MOBILE", "QR"],
+      "linkParameter": "utm_source",
+      "lockWhenFromLink": true,
       "required": false,
       "importable": false,
-      "validation": { "pattern": "^EVS-[A-Z2-9]{8}$" }
+      "validation": {}
     },
     "displayOrder": 120,
     "isActive": true,
@@ -467,6 +470,10 @@ export const featureCatalog = [
     "billingUnit": "LIFE_TIME",
     "description": "Capture Reference of the rider for vehicle safety",
     "configuration": {
+      "fieldCode": "RIDER_REFERENCES",
+      "fieldType": "REFERENCE",
+      "storageKey": "metadata.references",
+      "label": "References",
       "allowAdd": true,
       "allowRemove": true,
       "maxReferences": 2,
@@ -760,17 +767,6 @@ export const featureCatalog = [
     "displayOrder": 470,
     "isActive": true,
     "featureStepCode": "RIDER_AGREEMENT_ESIGN"
-  },
-  {
-    "code": "REFER_AND_EARN",
-    "name": "Refer & Earn",
-    "category": "RIDER_MANAGEMENT",
-    "featureType": "BOOLEAN",
-    "billingUnit": "LIFE_TIME",
-    "description": "Client-configured rider referral campaigns, milestones, rewards, and payouts.",
-    "configuration": {},
-    "displayOrder": 480,
-    "isActive": true
   },
   {
     "code": "RIDER_AUTO_PAY",

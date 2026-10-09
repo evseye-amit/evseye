@@ -1,7 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, ReferralCampaignStatus } from '@prisma/client';
+import { Prisma, ReferralCampaignStatus, UserRole } from '@prisma/client';
 import { AuditService } from '../audit/audit.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { LegalService } from '../legal/legal.service.js';
 import { CampaignDto, ListCampaignsDto } from './dto/referral.dto.js';
 import { ReferralAccessService } from './referral-access.service.js';
 
@@ -10,7 +11,7 @@ const invalid = (message: string) => new BadRequestException({ code: 'REFERRAL_C
 
 @Injectable()
 export class ReferralCampaignService {
-  constructor(private readonly prisma: PrismaService, private readonly access: ReferralAccessService, private readonly audit: AuditService) {}
+  constructor(private readonly prisma: PrismaService, private readonly access: ReferralAccessService, private readonly audit: AuditService, private readonly legal: LegalService) {}
 
   private validated(dto: CampaignDto) {
     const startAt = new Date(dto.startAt); const endAt = new Date(dto.endAt);
@@ -30,12 +31,12 @@ export class ReferralCampaignService {
     return { startAt, endAt, referrer, referee };
   }
 
-  private fields(dto: CampaignDto) {
+  private fields(dto: CampaignDto, termsAndConditions: string) {
     const checked = this.validated(dto);
     return {
       code: dto.code.toUpperCase(), name: dto.name.trim(), description: dto.description?.trim(),
       displayTitle: dto.displayTitle?.trim(), displayDescription: dto.displayDescription?.trim(),
-      shareMessageTemplate: dto.shareMessageTemplate?.trim(), termsAndConditions: dto.termsAndConditions.trim(),
+      shareMessageTemplate: dto.shareMessageTemplate?.trim(), termsAndConditions,
       startAt: checked.startAt, endAt: checked.endAt,
       registrationValidityDays: dto.registrationValidityDays, qualificationValidityDays: dto.qualificationValidityDays,
       referrerRewardType: dto.referrerRewardType ?? null, referrerRewardValue: checked.referrer,
@@ -51,10 +52,11 @@ export class ReferralCampaignService {
 
   async create(clientId: string, actorId: string, dto: CampaignDto) {
     await this.access.requireFeature(clientId);
+    const terms = await this.legal.current(clientId, 'RIDER', UserRole.RIDER, 'TERMS_AND_CONDITIONS', 'en');
     let campaign;
     try {
       campaign = await this.prisma.referralCampaign.create({ data: {
-        ...this.fields(dto), clientId, createdById: actorId, updatedById: actorId,
+        ...this.fields(dto, terms.content), clientId, createdById: actorId, updatedById: actorId,
         milestones: { create: dto.milestones.map((item) => ({ milestoneType: item.milestoneType, operator: item.operator, targetValue: money(item.targetValue), sequence: item.sequence, mandatory: item.mandatory ?? true })) },
       }, include: { milestones: { orderBy: { sequence: 'asc' } } } });
     } catch (cause) {
@@ -69,12 +71,13 @@ export class ReferralCampaignService {
     await this.access.requireFeature(clientId);
     const campaign = await this.get(clientId, id);
     if (campaign.status !== ReferralCampaignStatus.DRAFT) throw new ConflictException('Active campaign rules are immutable. Duplicate the campaign to change them.');
+    const terms = await this.legal.current(clientId, 'RIDER', UserRole.RIDER, 'TERMS_AND_CONDITIONS', 'en');
     let updated;
     try {
       updated = await this.prisma.$transaction(async (tx) => {
         await tx.referralCampaignMilestone.deleteMany({ where: { campaignId: id } });
         return tx.referralCampaign.update({ where: { id }, data: {
-          ...this.fields(dto), updatedById: actorId,
+          ...this.fields(dto, terms.content), updatedById: actorId,
           milestones: { create: dto.milestones.map((item) => ({ milestoneType: item.milestoneType, operator: item.operator, targetValue: money(item.targetValue), sequence: item.sequence, mandatory: item.mandatory ?? true })) },
         }, include: { milestones: { orderBy: { sequence: 'asc' } } } });
       });
@@ -133,7 +136,7 @@ export class ReferralCampaignService {
     const dto: CampaignDto = {
       code, name: `${original.name} copy`, description: original.description ?? undefined,
       displayTitle: original.displayTitle ?? undefined, displayDescription: original.displayDescription ?? undefined,
-      shareMessageTemplate: original.shareMessageTemplate ?? undefined, termsAndConditions: original.termsAndConditions,
+      shareMessageTemplate: original.shareMessageTemplate ?? undefined,
       startAt: new Date().toISOString(), endAt: new Date(Math.max(Date.now() + 86400000, original.endAt.getTime() + 86400000)).toISOString(),
       registrationValidityDays: original.registrationValidityDays, qualificationValidityDays: original.qualificationValidityDays,
       referrerRewardType: original.referrerRewardType ?? undefined, referrerRewardValue: original.referrerRewardValue.toString(),

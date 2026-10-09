@@ -11,12 +11,12 @@ export class ReferralAccessService {
       where: {
         clientId, status: 'ACTIVE', startDate: { lte: now },
         OR: [{ endDate: null }, { endDate: { gte: now } }],
-        package: { isActive: true, features: { some: { isIncluded: true, feature: { code: 'REFER_AND_EARN', isActive: true } } } },
+        package: { isActive: true, features: { some: { isIncluded: true, feature: { code: 'REFERRAL_BENEFIT', isActive: true } } } },
       },
       select: { id: true, packageId: true },
       orderBy: { startDate: 'desc' },
     });
-    if (!subscription) throw new ForbiddenException({ code: 'REFERRAL_FEATURE_NOT_ENABLED', message: 'Refer & Earn is not enabled in the active client package.' });
+    if (!subscription) throw new ForbiddenException({ code: 'REFERRAL_FEATURE_NOT_ENABLED', message: 'Referral Benefit is not enabled in the active client package.' });
     return subscription;
   }
 

@@ -168,8 +168,8 @@ export class RiderOnboardingConfigurationService {
         },
       };
       const configuredFieldCode = String(configuration.fieldCode ?? '').trim();
-      const fieldCode = configuredFieldCode || (feature.billingUnit === 'UPLOAD' ? feature.code : '');
-      const storageKey = String(configuration.storageKey ?? '').trim();
+      const fieldCode = configuredFieldCode || (feature.code === 'CAPTURE_REFERENCE' ? 'RIDER_REFERENCES' : feature.code === 'CAPTURE_REFERRAL' ? 'REFERRAL_CODE' : feature.billingUnit === 'UPLOAD' ? feature.code : '');
+      const storageKey = String(configuration.storageKey ?? (feature.code === 'CAPTURE_REFERENCE' ? 'metadata.references' : '')).trim();
       if (configuration.enabled === false) continue;
 
       const field: RiderField = {
@@ -185,7 +185,7 @@ export class RiderOnboardingConfigurationService {
           typeof configuration.placeholder === 'string'
             ? configuration.placeholder
             : undefined,
-        fieldType: String(configuration.fieldType ?? 'TEXT'),
+        fieldType: String(configuration.fieldType ?? (feature.code === 'CAPTURE_REFERENCE' ? 'REFERENCE' : 'TEXT')),
         dataType:
           typeof configuration.dataType === 'string'
             ? configuration.dataType
@@ -257,7 +257,27 @@ export class RiderOnboardingConfigurationService {
     for (const field of inputFields) {
       if (mode === 'EDIT' && (!field.editable || field.readOnly || field.disabled)) continue;
       const supplied = values[field.fieldCode];
-      const value = supplied === undefined || supplied === null ? '' : String(supplied).trim();
+      if (field.fieldType === 'REFERENCE') {
+        if (supplied === undefined && (mode === 'EDIT' || options.requireAll === false)) continue;
+        const entries = supplied == null ? [] : supplied;
+        if (!Array.isArray(entries)) throw new BadRequestException(`${field.fieldCode} must be a list.`);
+        const minimum = Math.max(0, Number(field.configuration.minReferences ?? 0));
+        const maximum = Math.max(minimum, Number(field.configuration.maxReferences ?? 10));
+        if (entries.length < minimum || entries.length > maximum) throw new BadRequestException(`${field.fieldCode} requires ${minimum} to ${maximum} references.`);
+        const references = entries.map((entry, index) => {
+          const reference = asRecord(entry);
+          const name = String(reference.name ?? '').trim();
+          const mobile = String(reference.mobile ?? '').trim();
+          const relation = String(reference.relation ?? '').trim();
+          if (!name || name.length > 120 || !relation || relation.length > 80 || !/^(?:\+?91|0)?[6-9]\d{9}$/.test(mobile)) throw new BadRequestException(`Reference ${index + 1} needs a valid name, mobile and relation.`);
+          return { name, mobile: normalizeIndianMobile(mobile), relation };
+        });
+        if (field.storageKey.startsWith('metadata.')) metadata[field.storageKey.slice('metadata.'.length)] = references;
+        else mapped[field.storageKey] = references;
+        continue;
+      }
+      const rawValue = supplied === undefined || supplied === null ? '' : String(supplied).trim();
+      const value = field.fieldCode === 'PAN_NUMBER' ? rawValue.toUpperCase() : rawValue;
       if (options.requireAll !== false && field.required && !value) {
         throw new BadRequestException(`${field.fieldCode} is required.`);
       }

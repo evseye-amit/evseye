@@ -6,6 +6,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { AttributionDto, ListReferralNotificationsDto, ListReferralsDto } from './dto/referral.dto.js';
 import { ReferralAccessService } from './referral-access.service.js';
 import { ReferralLinkService } from './referral-link.service.js';
+import { indianMobileVariants } from '../common/phone.js';
 
 const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const codeCandidate = () => `EVS-${Array.from(randomBytes(8), (byte) => alphabet[byte % alphabet.length]).join('')}`;
@@ -16,6 +17,28 @@ const safeRider = (rider: { name: string; mobile: string } | null) => rider ? { 
 @Injectable()
 export class ReferralService {
   constructor(private readonly prisma: PrismaService, private readonly access: ReferralAccessService, private readonly links: ReferralLinkService, private readonly audit: AuditService) {}
+
+  async resolveInput(clientId: string, input: string) {
+    await this.access.requireFeature(clientId);
+    const raw = input.trim();
+    let candidate = raw;
+    if (/^https?:\/\//i.test(raw)) {
+      let url: URL;
+      try { url = new URL(raw); } catch { throw error('REFERRAL_CODE_INVALID', 'Referral link is invalid.'); }
+      candidate = url.searchParams.get('utm_source') ?? url.searchParams.get('code') ?? '';
+    }
+    const code = candidate.trim().toUpperCase();
+    let referralCode: string | null = null;
+    if (/^EVS-[A-Z2-9]{8}$/.test(code)) {
+      const identity = await this.prisma.referralIdentity.findFirst({ where: { clientId, code }, include: { rider: { select: { status: true, deletedAt: true } } } });
+      if (identity && !identity.rider.deletedAt && identity.rider.status === RiderStatus.ACTIVE) referralCode = identity.code;
+    } else if (/^(?:\+?91|0)?[6-9]\d{9}$/.test(candidate.trim())) {
+      const rider = await this.prisma.rider.findFirst({ where: { clientId, mobile: { in: indianMobileVariants(candidate) }, status: RiderStatus.ACTIVE, deletedAt: null }, select: { id: true } });
+      if (rider) referralCode = (await this.identity(clientId, rider.id)).code;
+    }
+    if (!referralCode) throw error('REFERRAL_CODE_INVALID', 'Referral code or mobile number is invalid.');
+    return { referralCode };
+  }
 
   async identity(clientId: string, riderId: string) {
     const existing = await this.prisma.referralIdentity.findUnique({ where: { riderId } });

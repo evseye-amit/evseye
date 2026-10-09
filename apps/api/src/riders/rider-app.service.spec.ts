@@ -56,6 +56,30 @@ describe('RiderAppService.saveStep', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
+  it('stores a lowercase PAN in uppercase in progress and the Rider profile', async () => {
+    const { service, transaction, resolver } = createService();
+    vi.spyOn(resolver, 'getEffectiveConfiguration').mockResolvedValue({
+      ...configuration,
+      onboarding: { ...configuration.onboarding, steps: [{
+        ...configuration.onboarding.steps[0],
+        fields: [...configuration.onboarding.steps[0].fields, {
+          fieldCode: 'PAN_NUMBER', storageKey: 'metadata.panNumber', fieldType: 'TEXT', dataType: 'STRING',
+          required: false, isUpload: false, editable: true, readOnly: false, disabled: false,
+          validation: { pattern: '^[A-Z]{5}[0-9]{4}[A-Z]$' }, configuration: {},
+        }],
+      }] },
+    } as never);
+    await service.saveStep('client-1', 'user-1', 'step-1', {
+      FULL_NAME: 'Aman Singh', MOBILE_NUMBER: '6573838383', PAN_NUMBER: 'abcde1234f',
+    });
+    expect(transaction.riderOnboardingProgress.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ values: expect.objectContaining({ PAN_NUMBER: 'ABCDE1234F' }) }),
+    }));
+    expect(transaction.rider.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      metadata: expect.objectContaining({ panNumber: 'ABCDE1234F' }),
+    }) });
+  });
+
   it('attributes an optional referral code without writing it into Rider profile fields', async () => {
     const { prisma, transaction, resolver } = createService();
     const attribute = vi.fn().mockResolvedValue({ attributed: true });
@@ -69,13 +93,61 @@ describe('RiderAppService.saveStep', () => {
         }],
       }] },
     } as never);
-    const service = new RiderAppService(prisma as never, resolver, {} as never, { attribute } as never);
+    const resolveInput = vi.fn().mockResolvedValue({ referralCode: 'EVS-ABCDEFGH' });
+    const service = new RiderAppService(prisma as never, resolver, {} as never, { attribute, resolveInput } as never);
     vi.spyOn(service, 'onboarding').mockResolvedValue({ screen: 'WAITING_FOR_FLEET' } as never);
     await service.saveStep('client-1', 'user-1', 'step-1', {
       FULL_NAME: 'Aman Singh', MOBILE_NUMBER: '6573838383', REFERRAL_CODE: 'evs-abcdefgh',
     });
-    expect(attribute).toHaveBeenCalledWith('client-1', 'user-1', { referralCode: 'EVS-ABCDEFGH' });
+    expect(resolveInput).toHaveBeenCalledWith('client-1', 'evs-abcdefgh');
+    expect(attribute).toHaveBeenCalledWith('client-1', 'user-1', { referralCode: 'EVS-ABCDEFGH', source: 'REFERRAL_CODE' });
     expect(transaction.rider.create).toHaveBeenCalledWith({ data: expect.not.objectContaining({ referralCode: expect.anything() }) });
+  });
+
+  it('passes an invite token from a scanned QR link to attribution', async () => {
+    const { prisma, resolver } = createService();
+    vi.spyOn(resolver, 'getEffectiveConfiguration').mockResolvedValue({
+      ...configuration,
+      onboarding: { ...configuration.onboarding, steps: [{ ...configuration.onboarding.steps[0], fields: [
+        ...configuration.onboarding.steps[0].fields,
+        { fieldCode: 'REFERRAL_CODE', storageKey: '', fieldType: 'REFERRAL', required: false, isUpload: false, configuration: {} },
+      ] }] },
+    } as never);
+    const attribute = vi.fn().mockResolvedValue({ attributed: true });
+    const resolveInput = vi.fn().mockResolvedValue({ referralCode: 'EVS-ABCDEFGH' });
+    const service = new RiderAppService(prisma as never, resolver, {} as never, { attribute, resolveInput } as never);
+    vi.spyOn(service, 'onboarding').mockResolvedValue({ screen: 'WAITING_FOR_FLEET' } as never);
+    const link = 'https://example.test/rider/referral?code=EVS-ABCDEFGH&invite=token-123';
+    await service.saveStep('client-1', 'user-1', 'step-1', {
+      FULL_NAME: 'Aman Singh', MOBILE_NUMBER: '6573838383',
+      REFERRAL_CODE: { input: link, source: 'QR_CODE' },
+    });
+    expect(resolveInput).toHaveBeenCalledWith('client-1', link);
+    expect(attribute).toHaveBeenCalledWith('client-1', 'user-1', { referralCode: 'EVS-ABCDEFGH', source: 'QR_CODE', inviteToken: 'token-123' });
+  });
+
+  it('enforces the configured reference count and saves structured references', async () => {
+    const { service, resolver, transaction, prisma } = createService();
+    vi.spyOn(resolver, 'getEffectiveConfiguration').mockResolvedValue({
+      ...configuration,
+      onboarding: { ...configuration.onboarding, steps: [{
+        ...configuration.onboarding.steps[0],
+        fields: [...configuration.onboarding.steps[0].fields, {
+          featureCode: 'CAPTURE_REFERENCE', fieldCode: 'RIDER_REFERENCES',
+          storageKey: 'metadata.references', fieldType: 'REFERENCE', required: false,
+          isUpload: false, editable: true, readOnly: false, disabled: false,
+          validation: {}, configuration: { minReferences: 1, maxReferences: 2 },
+        }],
+      }] },
+    } as never);
+    const profile = { FULL_NAME: 'Aman Singh', MOBILE_NUMBER: '6573838383' };
+    const reference = { name: 'Nisha Singh', mobile: '9876543210', relation: 'Sister' };
+    await expect(service.saveStep('client-1', 'user-1', 'step-1', { ...profile, RIDER_REFERENCES: [] })).rejects.toThrow('Please provide 1 to 2 references.');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    await service.saveStep('client-1', 'user-1', 'step-1', { ...profile, RIDER_REFERENCES: [reference] });
+    expect(transaction.rider.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      metadata: expect.objectContaining({ references: [{ ...reference, mobile: '+919876543210' }] }),
+    }) });
   });
 });
 
@@ -167,5 +239,23 @@ describe('RiderOnboardingConfigurationService', () => {
     expect(result.onboarding.steps[0].fields[0]).toMatchObject({
       fieldCode: 'ADDRESS_PROOF_DOCUMENT', isUpload: true,
     });
+  });
+
+  it('exposes legacy reference and referral features as onboarding fields', async () => {
+    const featureStep = { id: 'step-1', code: 'PROFILE', displayName: 'Profile', description: null, parentId: null, displayOrder: 1, isActive: true };
+    const feature = (code: string, configuration: Record<string, unknown>) => ({
+      isIncluded: true, displayOrder: 1, configuration: null,
+      feature: { id: code, code, name: code, description: null, billingUnit: 'LIFE_TIME', displayOrder: 1, configuration, featureStep },
+    });
+    const prisma = { clientSubscription: { findFirst: vi.fn().mockResolvedValue({ package: {
+      id: 'package-1', code: 'BASIC', name: 'Basic',
+      features: [feature('CAPTURE_REFERENCE', { minReferences: 1, maxReferences: 2 }), feature('CAPTURE_REFERRAL', { fieldType: 'MOBILE' })],
+    } }) } };
+    const resolver = new RiderOnboardingConfigurationService(prisma as never);
+    const result = resolver.toPublicConfiguration(await resolver.getEffectiveConfiguration('client-1'));
+    expect(result.onboarding.steps[0].fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ featureCode: 'CAPTURE_REFERENCE', fieldCode: 'RIDER_REFERENCES', configuration: expect.objectContaining({ fieldType: 'REFERENCE', minReferences: 1, maxReferences: 2, storageKey: 'metadata.references' }) }),
+      expect.objectContaining({ featureCode: 'CAPTURE_REFERRAL', fieldCode: 'REFERRAL_CODE' }),
+    ]));
   });
 });

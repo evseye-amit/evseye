@@ -8,5 +8,6 @@ import { LegalService } from './legal.service.js';
   imports: [AuthModule, ClientResolutionModule],
   controllers: [LegalController, PublicLegalController, LegalAdminController, LegalTemplateController],
   providers: [LegalService],
+  exports: [LegalService],
 })
 export class LegalModule {}
