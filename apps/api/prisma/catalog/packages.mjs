@@ -1,6 +1,4 @@
-// Source of truth: 4 Package records exported from the local development database on 2026-09-21.
-// MAX_INT (2147483647) represents an unlimited package limit.
-
+// Exported from the development database on 2026-10-09. Package codes remain stable across databases.
 export const packageCatalog = [
   {
     "code": "BASIC",

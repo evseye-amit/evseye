@@ -1,4 +1,4 @@
-// Source of truth: 21 Package Vehicle Tier Pricing records exported from the local development database on 2026-09-21.
+// Exported from the development database on 2026-10-09: 12 package vehicle tiers.
 // Each tier uses its configured pricing mode; packageCode keeps this catalog portable.
 
 export const packageVehicleTierPricingCatalog = [

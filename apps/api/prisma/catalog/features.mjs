@@ -1,5 +1,4 @@
-// Initial catalog was exported from the local development database on 2026-09-21.
-// `featureStepCode` is resolved by seed.mjs.
+// Exported from the development database on 2026-10-09. Feature Step codes are resolved by seed.mjs.
 export const featureCatalog = [
   {
     "code": "CAPTURE_MOBILE_NUMBER",
@@ -11,6 +10,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 10,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "LOGIN"
   },
   {
@@ -23,6 +23,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 20,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "LOGIN"
   },
   {
@@ -40,6 +41,7 @@ export const featureCatalog = [
     },
     "displayOrder": 30,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "LOGIN"
   },
   {
@@ -52,6 +54,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 40,
     "isActive": true,
+    "isAddOnEligible": true,
     "featureStepCode": "LOGIN"
   },
   {
@@ -64,6 +67,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 50,
     "isActive": true,
+    "isAddOnEligible": true,
     "featureStepCode": "LOGIN"
   },
   {
@@ -88,6 +92,7 @@ export const featureCatalog = [
     },
     "displayOrder": 51,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_PERSONAL_PROFILE"
   },
   {
@@ -113,6 +118,7 @@ export const featureCatalog = [
     },
     "displayOrder": 52,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_PERSONAL_PROFILE"
   },
   {
@@ -136,6 +142,7 @@ export const featureCatalog = [
     },
     "displayOrder": 60,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_PERSONAL_PROFILE"
   },
   {
@@ -155,6 +162,7 @@ export const featureCatalog = [
     },
     "displayOrder": 70,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_COMPLIANCE_ELIGIBILITY"
   },
   {
@@ -165,9 +173,9 @@ export const featureCatalog = [
     "billingUnit": "UPLOAD",
     "description": "Age Proof Document Upload capability for the Evs Eye platform.",
     "configuration": {
-      "fieldCode": "AGE_PROOF_DOCUMENT",
       "maxFiles": 1,
       "minFiles": 1,
+      "fieldCode": "AGE_PROOF_DOCUMENT",
       "maxFileSizeMB": 2,
       "allowedFileTypes": [
         "PDF",
@@ -178,6 +186,7 @@ export const featureCatalog = [
     },
     "displayOrder": 80,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_PERSONAL_PROFILE"
   },
   {
@@ -202,6 +211,7 @@ export const featureCatalog = [
     },
     "displayOrder": 90,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_PERSONAL_PROFILE"
   },
   {
@@ -214,6 +224,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 100,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_PERSONAL_PROFILE"
   },
   {
@@ -224,9 +235,9 @@ export const featureCatalog = [
     "billingUnit": "UPLOAD",
     "description": "Address Proof Document Upload capability for the Evs Eye platform.",
     "configuration": {
-      "fieldCode": "ADDRESS_PROOF_DOCUMENT",
       "maxFiles": 1,
       "minFiles": 1,
+      "fieldCode": "ADDRESS_PROOF_DOCUMENT",
       "maxFileSizeMB": 2,
       "allowedFileTypes": [
         "PDF",
@@ -237,6 +248,7 @@ export const featureCatalog = [
     },
     "displayOrder": 110,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_PERSONAL_PROFILE"
   },
   {
@@ -245,22 +257,14 @@ export const featureCatalog = [
     "category": "RIDER_ONBOARDING",
     "featureType": "CONFIGURATION",
     "billingUnit": "LIFE_TIME",
-    "description": "Optional referral code used to attribute a Rider to a Refer & Earn campaign",
+    "description": "Capture the referral mobile to give the referral benefits",
     "configuration": {
-      "fieldCode": "REFERRAL_CODE",
-      "fieldType": "REFERRAL",
-      "contentType": "ALPHANUMERIC",
-      "label": "Referral code",
-      "placeholder": "Referral code or mobile number",
-      "inputMethods": ["CODE", "MOBILE", "QR"],
-      "linkParameter": "utm_source",
-      "lockWhenFromLink": true,
-      "required": false,
-      "importable": false,
-      "validation": {}
+      "fieldType": "MOBILE",
+      "contentType": "MOBILE"
     },
     "displayOrder": 120,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_PERSONAL_PROFILE"
   },
   {
@@ -273,6 +277,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 130,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_PERSONAL_PROFILE"
   },
   {
@@ -282,9 +287,12 @@ export const featureCatalog = [
     "featureType": "USAGE_BASED",
     "billingUnit": "UPLOAD",
     "description": "Profile Photo Upload capability for the Evs Eye platform.",
-    "configuration": { "fieldCode": "UPLOAD_PROFILE_PHOTO" },
+    "configuration": {
+      "fieldCode": "UPLOAD_PROFILE_PHOTO"
+    },
     "displayOrder": 140,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_PERSONAL_PROFILE"
   },
   {
@@ -297,6 +305,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 150,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_REVIEW_SUBMIT"
   },
   {
@@ -321,6 +330,7 @@ export const featureCatalog = [
     },
     "displayOrder": 160,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_KYC"
   },
   {
@@ -333,6 +343,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 170,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_KYC"
   },
   {
@@ -343,9 +354,9 @@ export const featureCatalog = [
     "billingUnit": "UPLOAD",
     "description": "Aadhar Proof Document Upload capability for the Evs Eye platform.",
     "configuration": {
-      "fieldCode": "AADHAR_PROOF_DOCUMENT",
       "maxFiles": 2,
       "minFiles": 2,
+      "fieldCode": "AADHAR_PROOF_DOCUMENT",
       "maxFileSizeMB": 2,
       "allowedFileTypes": [
         "JPG",
@@ -355,6 +366,7 @@ export const featureCatalog = [
     },
     "displayOrder": 180,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_KYC"
   },
   {
@@ -379,6 +391,7 @@ export const featureCatalog = [
     },
     "displayOrder": 190,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_KYC"
   },
   {
@@ -391,6 +404,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 200,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_KYC"
   },
   {
@@ -401,9 +415,9 @@ export const featureCatalog = [
     "billingUnit": "UPLOAD",
     "description": "PAN Proof Document Upload capability for the Evs Eye platform.",
     "configuration": {
-      "fieldCode": "PAN_PROOF_DOCUMENT",
       "maxFiles": 1,
       "minFiles": 1,
+      "fieldCode": "PAN_PROOF_DOCUMENT",
       "maxFileSizeMB": 2,
       "allowedFileTypes": [
         "PDF",
@@ -414,6 +428,7 @@ export const featureCatalog = [
     },
     "displayOrder": 210,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_KYC"
   },
   {
@@ -426,6 +441,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 220,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_COMPLIANCE_ELIGIBILITY"
   },
   {
@@ -438,6 +454,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 230,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_COMPLIANCE_ELIGIBILITY"
   },
   {
@@ -448,9 +465,9 @@ export const featureCatalog = [
     "billingUnit": "UPLOAD",
     "description": "Driving License Proof Document Upload capability for the Evs Eye platform.",
     "configuration": {
-      "fieldCode": "DRIVING_LICENCE_PROOF_DOCUMENT",
       "maxFiles": 2,
       "minFiles": 2,
+      "fieldCode": "DRIVING_LICENCE_PROOF_DOCUMENT",
       "maxFileSizeMB": 2,
       "allowedFileTypes": [
         "JPG",
@@ -460,6 +477,7 @@ export const featureCatalog = [
     },
     "displayOrder": 240,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_COMPLIANCE_ELIGIBILITY"
   },
   {
@@ -470,10 +488,6 @@ export const featureCatalog = [
     "billingUnit": "LIFE_TIME",
     "description": "Capture Reference of the rider for vehicle safety",
     "configuration": {
-      "fieldCode": "RIDER_REFERENCES",
-      "fieldType": "REFERENCE",
-      "storageKey": "metadata.references",
-      "label": "References",
       "allowAdd": true,
       "allowRemove": true,
       "maxReferences": 2,
@@ -481,6 +495,7 @@ export const featureCatalog = [
     },
     "displayOrder": 250,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_COMPLIANCE_ELIGIBILITY"
   },
   {
@@ -493,6 +508,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 260,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_COMPLIANCE_ELIGIBILITY"
   },
   {
@@ -505,6 +521,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 270,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_COMPLIANCE_ELIGIBILITY"
   },
   {
@@ -517,6 +534,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 280,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_COMPLIANCE_ELIGIBILITY"
   },
   {
@@ -529,6 +547,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 290,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_COMPLIANCE_ELIGIBILITY"
   },
   {
@@ -539,9 +558,9 @@ export const featureCatalog = [
     "billingUnit": "UPLOAD",
     "description": "Medical Proof Document Upload capability for the Evs Eye platform.",
     "configuration": {
-      "fieldCode": "MEDICAL_PROOF_DOCUMENT",
       "maxFiles": 1,
       "minFiles": 1,
+      "fieldCode": "MEDICAL_PROOF_DOCUMENT",
       "maxFileSizeMB": 5,
       "allowedFileTypes": [
         "PDF"
@@ -549,6 +568,7 @@ export const featureCatalog = [
     },
     "displayOrder": 300,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_COMPLIANCE_ELIGIBILITY"
   },
   {
@@ -561,6 +581,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 310,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_COMPLIANCE_ELIGIBILITY"
   },
   {
@@ -573,6 +594,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 320,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_COMPLIANCE_ELIGIBILITY"
   },
   {
@@ -585,6 +607,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 330,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_COMMERCIALS"
   },
   {
@@ -597,6 +620,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 340,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_COMMERCIALS"
   },
   {
@@ -607,9 +631,9 @@ export const featureCatalog = [
     "billingUnit": "UPLOAD",
     "description": "BANK Proof Document Upload capability for the Evs Eye platform.",
     "configuration": {
-      "fieldCode": "BANK_PROOF_DOCUMENT",
       "maxFiles": 1,
       "minFiles": 1,
+      "fieldCode": "BANK_PROOF_DOCUMENT",
       "maxFileSizeMB": 2,
       "allowedFileTypes": [
         "PDF",
@@ -620,6 +644,7 @@ export const featureCatalog = [
     },
     "displayOrder": 350,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_COMMERCIALS"
   },
   {
@@ -632,6 +657,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 360,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_COMMERCIALS"
   },
   {
@@ -644,6 +670,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 370,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_COMMERCIALS"
   },
   {
@@ -656,6 +683,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 380,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_COMMERCIALS"
   },
   {
@@ -668,6 +696,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 390,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_COMMERCIALS"
   },
   {
@@ -680,6 +709,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 400,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_COMMERCIALS"
   },
   {
@@ -692,6 +722,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 410,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_COMMERCIALS"
   },
   {
@@ -704,6 +735,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 420,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_COMMERCIALS"
   },
   {
@@ -716,6 +748,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 430,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_COMMERCIALS"
   },
   {
@@ -728,6 +761,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 440,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_COMMERCIALS"
   },
   {
@@ -742,6 +776,7 @@ export const featureCatalog = [
     },
     "displayOrder": 450,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_TRAINING"
   },
   {
@@ -754,6 +789,7 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 460,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_TRAINING"
   },
   {
@@ -766,17 +802,19 @@ export const featureCatalog = [
     "configuration": {},
     "displayOrder": 470,
     "isActive": true,
+    "isAddOnEligible": false,
     "featureStepCode": "RIDER_AGREEMENT_ESIGN"
   },
   {
-    "code": "RIDER_AUTO_PAY",
-    "name": "Rider AutoPay",
-    "category": "OTHER",
+    "code": "REFER_AND_EARN",
+    "name": "Refer & Earn",
+    "category": "RIDER_MANAGEMENT",
     "featureType": "BOOLEAN",
     "billingUnit": "LIFE_TIME",
-    "description": "UPI AutoPay authorization for rider billing. Mandate terms are configured per package feature.",
+    "description": "Client-configured rider referral campaigns, milestones, rewards, and payouts.",
     "configuration": {},
-    "displayOrder": 490,
-    "isActive": true
+    "displayOrder": 480,
+    "isActive": false,
+    "isAddOnEligible": false
   }
 ];
