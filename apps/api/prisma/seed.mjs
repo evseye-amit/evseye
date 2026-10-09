@@ -21,8 +21,7 @@ import { vehicleCategoryCatalog } from './catalog/vehicle-categories.mjs';
 import { vehicleTypeCatalog } from './catalog/vehicle-types.mjs';
 import { seedRiderRateCardDemo } from './catalog/rider-rate-card-demo.mjs';
 import { seedKyc } from './seed-kyc.mjs';
-import { seedLegal } from './seed-legal.mjs';
-import { seedLegalTemplates } from './seed-legal-templates.mjs';
+import { seedLegal, seedLegalTemplates } from './seed-legal.mjs';
 
 const prisma = new PrismaClient();
 

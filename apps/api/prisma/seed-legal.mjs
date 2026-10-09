@@ -1,67 +1,46 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
-export async function seedLegal(prisma) {
-  const clientCode = 'yogmaya';
-  const content = await readFile(new URL('./legal/yogmaya-rider-terms-1.0.0.html', import.meta.url), 'utf8');
-  const contentHash = createHash('sha256').update(content, 'utf8').digest('hex');
-  const client = await prisma.client.findFirst({ where: { OR: [{ companyCode: clientCode }, { slug: clientCode }] }, select: { id: true } });
-  if (!client) throw new Error('Yogmaya client is absent. Run the development client seed first.');
-  const identity = {
-    clientId: client.id,
-    appCode: 'RIDER',
-    role: 'RIDER',
-    kind: 'TERMS_AND_CONDITIONS',
-    locale: 'en',
-    version: '1.0.0',
-  };
-  const existing = await prisma.appLegalDocument.findFirst({ where: identity });
-  if (existing) {
-    if (existing.contentHash !== contentHash) throw new Error('Published Yogmaya Rider Terms 1.0.0 differs from the seed. Publish a new version instead.');
+async function legalSeedData() {
+  const snapshot = JSON.parse(await readFile(new URL('./legal-seed-data.json', import.meta.url), 'utf8'));
+  if (snapshot.formatVersion !== 1 || !Array.isArray(snapshot.templates) || !Array.isArray(snapshot.documents)) {
+    throw new Error('Unsupported legal seed snapshot. Export it again from the development database.');
   }
-  await prisma.$transaction(async (tx) => {
-    if (!existing) await tx.appLegalDocument.create({ data: {
-      id: randomUUID(), ...identity, title: 'Rider Terms & Conditions', content, contentHash,
-      effectiveAt: new Date('2026-10-01T00:00:00+05:30'),
-      publishedAt: new Date(),
-    } });
-    await tx.appLegalDocument.updateMany({
-      where: {
-        clientId: client.id,
-        appCode: identity.appCode,
-        role: identity.role,
-        kind: identity.kind,
-        locale: identity.locale,
-        version: { not: identity.version },
-        retiredAt: null,
-      },
-      data: { retiredAt: new Date() },
-    });
-  });
+  return snapshot;
+}
 
-  const privacyContent = await readFile(new URL('./legal/yogmaya-rider-privacy-1.0.0.html', import.meta.url), 'utf8');
-  const privacyHash = createHash('sha256').update(privacyContent, 'utf8').digest('hex');
-  const privacyIdentity = { ...identity, kind: 'PRIVACY_POLICY' };
-  const privacyExisting = await prisma.appLegalDocument.findFirst({ where: privacyIdentity });
-  if (privacyExisting) {
-    if (privacyExisting.contentHash !== privacyHash) throw new Error('Published Yogmaya Rider Privacy Policy 1.0.0 differs from the seed. Publish a new version instead.');
-    if (!privacyExisting.publishedAt) throw new Error('Yogmaya Rider Privacy Policy 1.0.0 exists as a draft. Publish it through Client Operations.');
-    return;
-  }
-  await prisma.$transaction(async (tx) => {
-    await tx.appLegalDocument.create({ data: {
-      id: randomUUID(), ...privacyIdentity, title: 'Rider Privacy Policy',
-      content: privacyContent, contentHash: privacyHash,
-      effectiveAt: new Date('2026-10-01T00:00:00+05:30'), publishedAt: new Date(),
-    } });
-    await tx.appLegalDocument.updateMany({
-      where: {
-        clientId: client.id, appCode: privacyIdentity.appCode,
-        role: privacyIdentity.role, kind: privacyIdentity.kind,
-        locale: privacyIdentity.locale, version: { not: privacyIdentity.version },
-        retiredAt: null,
-      },
-      data: { retiredAt: new Date() },
+export async function seedLegalTemplates(prisma) {
+  const { templates } = await legalSeedData();
+  for (const template of templates) {
+    const { appCode, role, kind, locale, version, title, content, isActive } = template;
+    await prisma.appLegalTemplate.upsert({
+      where: { appCode_role_kind_locale_version: { appCode, role, kind, locale, version } },
+      create: { appCode, role, kind, locale, version, title, content, isActive },
+      update: {},
     });
-  });
+  }
+}
+
+export async function seedLegal(prisma) {
+  const { documents } = await legalSeedData();
+  for (const document of documents) {
+    const { clientCode, appCode, role, kind, locale, version, title, content, contentHash, effectiveAt, publishedAt } = document;
+    const calculatedHash = createHash('sha256').update(content, 'utf8').digest('hex');
+    if (calculatedHash !== contentHash) throw new Error(`Legal seed hash mismatch: ${clientCode}/${kind}/${version}`);
+    const client = await prisma.client.findFirst({
+      where: { OR: [{ companyCode: clientCode }, { slug: clientCode }] },
+      select: { id: true },
+    });
+    if (!client) throw new Error(`Client ${clientCode} is absent. Seed clients before legal documents.`);
+    const identity = { clientId: client.id, appCode, role, kind, locale, version };
+    const existing = await prisma.appLegalDocument.findFirst({ where: identity });
+    if (existing) {
+      if (existing.contentHash !== contentHash) throw new Error(`Published legal document differs from seed: ${clientCode}/${kind}/${version}`);
+      continue;
+    }
+    await prisma.appLegalDocument.create({ data: {
+      ...identity, title, content, contentHash,
+      effectiveAt: new Date(effectiveAt), publishedAt: new Date(publishedAt),
+    } });
+  }
 }
