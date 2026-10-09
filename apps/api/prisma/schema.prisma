@@ -1104,6 +1104,7 @@ model FeatureAddOn {
   discount            Decimal                      @default(0) @db.Decimal(5, 2)
   currency            String                       @default("INR") @db.Char(3)
   validityDays        Int?
+  validityMonths      Int?
   isActive            Boolean                      @default(true)
   effectiveFrom       DateTime                     @default(now()) @db.Date
   effectiveTo         DateTime?                    @db.Date
@@ -1418,7 +1419,8 @@ model ClientFeatureAddOnPurchase {
   currency          String                     @default("INR") @db.Char(3)
   purchasedAt       DateTime                   @default(now())
   validFrom         DateTime                   @db.Date
-  expiresAt         DateTime?                  @db.Date
+  expiresAt         DateTime?                  @db.Timestamptz(3)
+  activationReference String?                  @db.VarChar(120)
   status            FeatureAddOnPurchaseStatus @default(PENDING)
   creditLots        FeatureCreditLot[]
   createdAt         DateTime                   @default(now())
@@ -1426,6 +1428,7 @@ model ClientFeatureAddOnPurchase {
 
   @@index([clientId, featureId, status, expiresAt])
   @@index([subscriptionId, status])
+  @@unique([clientId, activationReference])
 }
 
 model FeatureCreditLot {
@@ -1443,7 +1446,7 @@ model FeatureCreditLot {
   purchase          ClientFeatureAddOnPurchase? @relation(fields: [purchaseId], references: [id], onDelete: Restrict)
   quantityOriginal  Decimal                     @db.Decimal(18, 4)
   quantityAvailable Decimal                     @db.Decimal(18, 4)
-  expiresAt         DateTime?                   @db.Date
+  expiresAt         DateTime?                   @db.Timestamptz(3)
   periodStart       DateTime?                   @db.Date
   createdAt         DateTime                    @default(now())
   updatedAt         DateTime                    @updatedAt

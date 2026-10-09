@@ -61,6 +61,7 @@ type Tab =
   | "packageTierPricing"
   | "clientPricingAdjustments"
   | "clientAddOnPurchases"
+  | "clientQuotaPacks"
   | "clientCreditLots"
   | "clientUsageLedger";
 type Item = Record<string, any>;
@@ -306,6 +307,7 @@ const emptyFeatureAddOn = {
   quantity: "",
   discount: "0",
   validityDays: "",
+  validityMonths: "",
   effectiveFrom: new Date().toISOString().slice(0, 10),
   effectiveTo: "",
   isActive: true,
@@ -545,6 +547,7 @@ export default function SuperAdminDashboard() {
         featureStepList,
         featureList,
         priceList,
+        addOnList,
       ] = await Promise.all([
         request("/platform/dashboard", {}, token),
         request("/platform/clients", {}, token),
@@ -555,6 +558,7 @@ export default function SuperAdminDashboard() {
         request("/platform/feature-steps", {}, token),
         request("/platform/features", {}, token),
         request("/platform/feature-pricing", {}, token),
+        request("/platform/commercial/feature-addons", {}, token),
       ]);
       setSummary(dashboard);
       setClients(clientList);
@@ -565,6 +569,7 @@ export default function SuperAdminDashboard() {
       setFeatureSteps(featureStepList);
       setFeatures(featureList);
       setPricing(priceList);
+      setFeatureAddOns(addOnList);
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -797,6 +802,7 @@ export default function SuperAdminDashboard() {
         quantity: String(item.quantity ?? ""),
         discount: String(item.discount ?? 0),
         validityDays: item.validityDays === null ? "" : String(item.validityDays ?? ""),
+        validityMonths: item.validityMonths === null ? "" : String(item.validityMonths ?? ""),
         effectiveFrom: item.effectiveFrom.slice(0, 10),
         effectiveTo: item.effectiveTo ? item.effectiveTo.slice(0, 10) : "",
         isActive: item.isActive,
@@ -1498,6 +1504,9 @@ export default function SuperAdminDashboard() {
               ...(featureAddOn.validityDays
                 ? { validityDays: Number(featureAddOn.validityDays) }
                 : {}),
+              ...(featureAddOn.validityMonths
+                ? { validityMonths: Number(featureAddOn.validityMonths) }
+                : {}),
               effectiveFrom: featureAddOn.effectiveFrom,
               ...(featureAddOn.effectiveTo
                 ? { effectiveTo: featureAddOn.effectiveTo }
@@ -2041,6 +2050,7 @@ export default function SuperAdminDashboard() {
         ["featureSteps", "Feature Step", "category"],
         ["features", "Feature", "feature"],
         ["pricing", "Pricing", "pricing"],
+        ["featureAddOns", "Quota Add-Ons", "feature"],
       ],
     },
     {
@@ -2049,6 +2059,7 @@ export default function SuperAdminDashboard() {
         ["packages", "Package", "package"],
         ["packageFeatures", "Package Feature", "packageFeature"],
         ["packageTierPricing", "Package Tier Pricing", "pricing"],
+        ["packageAddOns", "Available Add-Ons", "packageFeature"],
       ],
     },
     {
@@ -2062,6 +2073,7 @@ export default function SuperAdminDashboard() {
       items: [
         ["clientPricingAdjustments", "Pricing Adjustments", "pricing"],
         ["clientAddOnPurchases", "Features & Pricing", "feature"],
+        ["clientQuotaPacks", "Quota Add-Ons", "packageFeature"],
         ["clientCreditLots", "Feature Credit Lots", "packageFeature"],
         ["clientUsageLedger", "Feature Usage Ledger", "dashboard"],
       ],
@@ -2321,6 +2333,9 @@ export default function SuperAdminDashboard() {
         )}
         {tab === "clientAddOnPurchases" && (
           <ClientCommercialDirectory clients={clients} section="addOns" />
+        )}
+        {tab === "clientQuotaPacks" && (
+          <ClientCommercialDirectory clients={clients} section="quotaPacks" />
         )}
         {tab === "clientCreditLots" && (
           <ClientCommercialDirectory clients={clients} section="creditLots" />
@@ -3670,6 +3685,7 @@ export default function SuperAdminDashboard() {
                     ["quantity", "Included quantity"],
                     ["discount", "Discount (%)"],
                     ["validityDays", "Validity days"],
+                    ["validityMonths", "Validity months"],
                     ["effectiveFrom", "Effective from"],
                     ["effectiveTo", "Effective to"],
                   ]}
@@ -3677,7 +3693,6 @@ export default function SuperAdminDashboard() {
                     "code",
                     "name",
                     "quantity",
-                    "salePrice",
                     "effectiveFrom",
                   ]}
                 />
@@ -3781,7 +3796,7 @@ export default function SuperAdminDashboard() {
                     item.feature?.name,
                     item.quantity,
                     `${item.currency} ${item.salePrice}`,
-                    item.validityDays ? `${item.validityDays} days` : "No expiry",
+                    item.validityMonths ? `${item.validityMonths} months` : item.validityDays ? `${item.validityDays} days` : "No expiry",
                     item.isActive ? "ACTIVE" : "INACTIVE",
                     <button
                       key="edit"
@@ -4408,8 +4423,12 @@ function ClientCommercialDirectory({
       description: "Create and review client-specific commercial adjustments without changing package or Feature master prices.",
     },
     addOns: {
-      title: "Client Feature Add-On Purchases",
-      description: "Purchase configured Feature Add-Ons against each client’s active package subscription.",
+      title: "Client Features & Pricing",
+      description: "Manage custom client feature access and pricing.",
+    },
+    quotaPacks: {
+      title: "Client Quota Add-Ons",
+      description: "Activate purchasable quota packs against a client's active package subscription.",
     },
     creditLots: {
       title: "Client Feature Credit Lots",
@@ -4425,6 +4444,8 @@ function ClientCommercialDirectory({
     ? "Manage pricing"
     : section === "addOns"
       ? "Manage Add-Ons"
+      : section === "quotaPacks"
+        ? "Manage quota packs"
       : section === "creditLots"
         ? "View credit lots"
         : "View ledger";
@@ -5602,7 +5623,7 @@ function PackageAddOnsView({
                 item.feature?.name ?? "—",
                 item.quantity,
                 `${item.currency} ${item.salePrice}`,
-                item.validityDays ? `${item.validityDays} days` : "No expiry",
+                item.validityMonths ? `${item.validityMonths} months` : item.validityDays ? `${item.validityDays} days` : "No expiry",
                 <label className="sa-toggle" key={`availability-${item.id}`}>
                   <input
                     type="checkbox"

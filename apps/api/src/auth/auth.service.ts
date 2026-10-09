@@ -19,6 +19,7 @@ import type { Environment } from '../config/environment.js';
 import { indianMobileVariants } from '../common/phone.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from './interfaces/auth-user.interface.js';
+import { SmsQuotaService } from './sms-quota.service.js';
 import {
   SMS_PROVIDER,
   type SmsProvider,
@@ -36,6 +37,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly config: ConfigService<Environment, true>,
     @Inject(SMS_PROVIDER) private readonly smsProvider: SmsProvider,
+    private readonly smsQuota: SmsQuotaService,
   ) {}
 
   async requestLoginOtp(
@@ -124,16 +126,19 @@ export class AuthService {
     });
 
     try {
+      if (client) await this.smsQuota.reserve(client.id, otpRequest.id);
       await this.smsProvider.send({
         phone,
         purpose: OtpPurpose.LOGIN,
         code,
       });
-    } catch {
+    } catch (error) {
+      if (client) await this.smsQuota.refund(client.id, otpRequest.id);
       await this.prisma.otpRequest.update({
         where: { id: otpRequest.id },
         data: { status: OtpStatus.FAILED },
       });
+      if (error instanceof HttpException) throw error;
       throw new ServiceUnavailableException('SMS delivery is temporarily unavailable.');
     }
 

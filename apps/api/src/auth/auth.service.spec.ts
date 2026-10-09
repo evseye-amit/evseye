@@ -50,6 +50,7 @@ function createService() {
       .mockResolvedValueOnce('refresh-token'),
   };
   const sms = { send: vi.fn().mockResolvedValue(undefined) };
+  const smsQuota = { reserve: vi.fn().mockResolvedValue([]), refund: vi.fn().mockResolvedValue(undefined) };
   const config = {
     getOrThrow: vi.fn((key: keyof typeof configValues) => configValues[key]),
   };
@@ -63,6 +64,7 @@ function createService() {
       jwt as never,
       config as never,
       sms,
+      smsQuota as never,
     ),
   };
 }

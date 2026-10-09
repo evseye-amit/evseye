@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { ClientFormDialog } from "./client-form-dialog";
 
 type Item = Record<string, unknown>;
-export type ClientCommercialSection = "pricing" | "addOns" | "creditLots" | "ledger";
+export type ClientCommercialSection = "pricing" | "addOns" | "quotaPacks" | "creditLots" | "ledger";
 
 const adjustmentScopes = [
   "SETUP_FEE",
@@ -58,6 +58,10 @@ export function ClientCommercialSettings({
   const [creditLots, setCreditLots] = useState<Item[]>([]);
   const [ledger, setLedger] = useState<Item[]>([]);
   const [eligibleFeatures, setEligibleFeatures] = useState<Item[]>([]);
+  const [quotaOffers, setQuotaOffers] = useState<Item[]>([]);
+  const [quotaPurchases, setQuotaPurchases] = useState<Item[]>([]);
+  const [selectedQuotaOffer, setSelectedQuotaOffer] = useState("");
+  const [activationReference, setActivationReference] = useState("");
   const [adjustment, setAdjustment] = useState({
     subscriptionId: "",
     adjustmentScope: "PACKAGE",
@@ -131,6 +135,12 @@ export function ClientCommercialSettings({
       );
       setEligibleFeatures(eligible);
       const active = nextSubscriptions.find((item) => item.status === "ACTIVE");
+      const [offers, purchases] = await Promise.all([
+        active ? request(`/feature-addons?packageId=${encodeURIComponent(String(active.packageId))}`) : Promise.resolve([]),
+        request(`/clients/${encodeURIComponent(clientId)}/addon-purchases`),
+      ]);
+      setQuotaOffers((offers as Item[]).filter((item) => item.isAvailable && (item.featureAddOn as Item)?.isActive));
+      setQuotaPurchases(purchases as Item[]);
       setAdjustment((current) => ({
         ...current,
         subscriptionId: active ? String(active.id) : "",
@@ -201,6 +211,27 @@ export function ClientCommercialSettings({
     }
   }
 
+  async function activateQuotaPack(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!activeSubscription || !selectedQuotaOffer || !activationReference.trim()) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await request(`/clients/${encodeURIComponent(clientId)}/addon-purchases`, "POST", {
+        subscriptionId: activeSubscription.id,
+        featureAddOnId: selectedQuotaOffer,
+        activationReference: activationReference.trim(),
+      });
+      setActivationReference("");
+      setNotice("Quota pack activated.");
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to activate quota pack.");
+      setBusy(false);
+    }
+  }
+
   async function setClientFeatureEnabled(featureId: string, enabled: boolean) {
     setBusy(true);
     setError("");
@@ -245,6 +276,8 @@ export function ClientCommercialSettings({
     ? "Pricing adjustments"
     : section === "addOns"
       ? "Features & Pricing"
+      : section === "quotaPacks"
+        ? "Quota add-ons"
       : section === "creditLots"
         ? "Feature credit lots"
         : section === "ledger"
@@ -306,8 +339,20 @@ export function ClientCommercialSettings({
             </CommercialTable>
           </section>}
 
+          {(!section || section === "quotaPacks") && <section className="sa-commercial-section">
+            <div className="sa-commercial-section-head"><div><h3>Quota add-ons</h3><p>Activate a purchased pack using the approved payment or grant reference. Package credits are used before add-on credits.</p></div></div>
+            {activeSubscription ? <form className="sa-commercial-grid" onSubmit={activateQuotaPack}>
+              <label><span>Available pack <b className="sa-required-star">*</b></span><select required value={selectedQuotaOffer} onChange={(event) => setSelectedQuotaOffer(event.target.value)}><option value="">Select a pack</option>{quotaOffers.map((link) => { const offer = link.featureAddOn as Item; return <option key={String(offer.id)} value={String(offer.id)}>{String(offer.name)} · {number(offer.quantity)} credits · {String(offer.currency)} {number(offer.salePrice)} · {offer.validityMonths ? `${offer.validityMonths} months` : `${offer.validityDays} days`}</option>; })}</select></label>
+              <label><span>Payment or grant reference <b className="sa-required-star">*</b></span><input required maxLength={120} value={activationReference} onChange={(event) => setActivationReference(event.target.value)} placeholder="Approved transaction or grant ID" /><small>A reference can activate only one pack for this client.</small></label>
+              <div className="sa-commercial-form-action"><button type="submit" disabled={busy || !selectedQuotaOffer}>Activate pack</button></div>
+            </form> : <p className="muted">Create an active subscription before activating quota packs.</p>}
+            <CommercialTable headings={["Pack", "Reference", "Purchased", "Remaining", "Price", "Expires", "Status"]}>
+              {quotaPurchases.map((item) => <tr key={String(item.id)}><td>{String((item.featureAddOn as Item)?.name ?? "—")}</td><td>{String(item.activationReference ?? "—")}</td><td>{number(item.quantityPurchased)}</td><td>{number(item.quantityRemaining)}</td><td>{String(item.currency)} {number(item.totalAmount)}</td><td>{date(item.expiresAt, true)}</td><td>{label(item.status)}</td></tr>)}
+            </CommercialTable>
+          </section>}
+
           {(!section || section === "creditLots") && <section className="sa-commercial-section">
-            <div className="sa-commercial-section-head"><div><h3>Feature credit lots</h3><p>Credits are consumed by earliest expiry first. Expired lots are excluded from available balances.</p></div></div>
+            <div className="sa-commercial-section-head"><div><h3>Feature credit lots</h3><p>Package allowance is used first, followed by purchased packs in expiry order. Expired lots are excluded from available balances.</p></div></div>
             <div className="sa-credit-balances">{balances.length ? balances.map(([code, item]) => <article key={code}><span>{String(item.feature.name ?? code)}</span><strong>{number(item.available)} {String(item.feature.billingUnit ?? "credits")}</strong></article>) : <p className="muted">No active feature credits are available.</p>}</div>
             <CommercialTable headings={["Feature", "Source", "Original", "Available", "Period", "Expires"]}>
               {creditLots.map((item) => <tr key={String(item.id)}><td>{String((item.feature as Item)?.name ?? "—")}</td><td>{label(item.sourceType)}</td><td>{number(item.quantityOriginal)}</td><td>{number(item.quantityAvailable)}</td><td>{date(item.periodStart)}</td><td>{date(item.expiresAt)}</td></tr>)}

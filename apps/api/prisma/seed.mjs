@@ -11,9 +11,7 @@ import { batteries } from './catalog/batteries.mjs';
 import { controllers } from './catalog/controllers.mjs';
 import { fleetComponentMappings } from './catalog/fleet-component-mappings.mjs';
 import { featureCatalog } from './catalog/features.mjs';
-import { featureAddOnCatalog } from './catalog/feature-addons.mjs';
 import { featurePricingCatalog } from './catalog/feature-pricing.mjs';
-import { packageFeatureAddOnCatalog } from './catalog/package-feature-addons.mjs';
 import { packageFeatureCatalog } from './catalog/package-features.mjs';
 import { featureStepSpecs } from './catalog/feature-steps.mjs';
 import { featureStepTranslations } from './catalog/feature-step-translations.mjs';
@@ -285,37 +283,6 @@ async function main() {
       update: data,
     });
   }
-  for (const { featureCode, effectiveFrom: addOnEffectiveFrom, effectiveTo, ...addOnData } of featureAddOnCatalog) {
-    const feature = await prisma.feature.findUniqueOrThrow({ where: { code: featureCode } });
-    await prisma.featureAddOn.upsert({
-      where: { code: addOnData.code },
-      create: { ...addOnData, featureId: feature.id, effectiveFrom: new Date(addOnEffectiveFrom), effectiveTo: effectiveTo ? new Date(effectiveTo) : null },
-      update: { ...addOnData, featureId: feature.id, effectiveFrom: new Date(addOnEffectiveFrom), effectiveTo: effectiveTo ? new Date(effectiveTo) : null },
-    });
-  }
-
-  for (const { packageCode, featureAddOnCode, isAvailable } of packageFeatureAddOnCatalog) {
-    const pkg = packageByCode.get(packageCode);
-    const featureAddOn = await prisma.featureAddOn.findUnique({
-      where: { code: featureAddOnCode },
-    });
-    if (!pkg || !featureAddOn) {
-      throw new Error(
-        `Package Add-On seed references a missing ${!pkg ? 'Package' : 'Feature Add-On'}: ${!pkg ? packageCode : featureAddOnCode}`,
-      );
-    }
-    await prisma.packageFeatureAddOn.upsert({
-      where: {
-        packageId_featureAddOnId: {
-          packageId: pkg.id,
-          featureAddOnId: featureAddOn.id,
-        },
-      },
-      create: { packageId: pkg.id, featureAddOnId: featureAddOn.id, isAvailable },
-      update: { isAvailable },
-    });
-  }
-
   for (const clientSeed of clientCatalog) {
     const client = await prisma.client.upsert({
       where: { slug: clientSeed.client.slug },

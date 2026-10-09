@@ -47,10 +47,15 @@ export class FeatureAddOnDto {
   @IsString() featureId!: string; @IsNumber() @Min(0.0001) quantity!: number;
   @IsOptional() @IsNumber() @Min(0) @Max(100) discount?: number;
   @IsOptional() @IsInt() @Min(1) validityDays?: number;
+  @IsOptional() @IsInt() @Min(1) validityMonths?: number;
   @IsDateString() effectiveFrom!: string; @IsOptional() @IsDateString() effectiveTo?: string; @IsOptional() @IsBoolean() isActive?: boolean;
 }
 export class UpdateFeatureAddOnDto extends FeatureAddOnDto {}
 export class UpdateActiveStatusDto { @IsBoolean() isActive!: boolean; }
 
-export class PurchaseAddOnDto { @IsString() subscriptionId!: string; @IsString() featureAddOnId!: string; }
+export class PurchaseAddOnDto {
+  @IsString() subscriptionId!: string;
+  @IsString() featureAddOnId!: string;
+  @IsString() activationReference!: string;
+}
 export class ConsumeFeatureDto { @IsString() subscriptionId!: string; @IsString() featureCode!: string; @IsNumber() @Min(0.0001) quantity!: number; @IsOptional() @IsString() referenceType?: string; @IsOptional() @IsString() referenceId?: string; @IsOptional() @IsObject() metadata?: Record<string, unknown>; }

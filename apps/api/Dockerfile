@@ -8,7 +8,7 @@ RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY apps/api apps/api
 RUN DATABASE_URL=postgresql://unused:unused@localhost:5432/unused pnpm --filter @evs-eye/api exec prisma generate \
   && pnpm --filter @evs-eye/api build \
-  && pnpm --filter @evs-eye/api deploy --prod --legacy /app/api-deploy \
+  && pnpm --filter @evs-eye/api deploy --legacy /app/api-deploy \
   && DATABASE_URL=postgresql://unused:unused@localhost:5432/unused /app/apps/api/node_modules/.bin/prisma generate --schema=/app/api-deploy/prisma/schema.prisma
 
 FROM node:22-alpine AS production

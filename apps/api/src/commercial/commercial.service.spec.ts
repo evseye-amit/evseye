@@ -7,7 +7,7 @@ const decimal = (value: number | string) => new Prisma.Decimal(value);
 
 const makeService = (prisma: Record<string, unknown>) =>
   new CommercialService(
-    prisma as never,
+    { clientSubscription: { findFirst: vi.fn().mockResolvedValue({ id: 'sub-1' }) }, ...prisma } as never,
     { record: vi.fn().mockResolvedValue(undefined) } as never,
   );
 
