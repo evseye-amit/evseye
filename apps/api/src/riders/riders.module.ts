@@ -10,9 +10,10 @@ import { RiderDocumentReviewService } from './rider-document-review.service.js';
 import { RiderAppController } from './rider-app.controller.js';
 import { RiderAppService } from './rider-app.service.js';
 import { ReferralModule } from '../referrals/referral.module.js';
+import { WorkflowModule } from '../workflow/workflow.module.js';
 
 @Module({
-  imports: [AuthModule, AuditModule, MediaModule, ReferralModule],
+  imports: [AuthModule, AuditModule, MediaModule, ReferralModule, WorkflowModule],
   controllers: [RidersController, RiderAppController, RiderDocumentReviewController],
   providers: [RidersService, RiderOnboardingConfigurationService, RiderAppService, RiderDocumentReviewService],
   exports: [RiderDocumentReviewService],

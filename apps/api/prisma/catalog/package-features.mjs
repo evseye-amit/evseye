@@ -27,6 +27,22 @@ export const basicPackageFeatureCatalog = [
 ];
 
 export const packageFeatureCatalog = [
+  {"packageCode":"BASIC","featureCode":"SELECT_APP_LANGUAGE","isIncluded":true,"resetPeriod":"NONE","isUnlimited":false,"rolloverAllowed":false,"configuration":null,"displayOrder":1,"includedQuantity":null},
+  {"packageCode":"BASIC","featureCode":"ACCEPT_RIDER_PRIVACY_CONSENT","isIncluded":true,"resetPeriod":"NONE","isUnlimited":false,"rolloverAllowed":false,"configuration":null,"displayOrder":2,"includedQuantity":null},
+  {"packageCode":"BASIC","featureCode":"ACCEPT_APP_TERMS","isIncluded":true,"resetPeriod":"NONE","isUnlimited":false,"rolloverAllowed":false,"configuration":null,"displayOrder":2,"includedQuantity":null},
+  {"packageCode":"BASIC","featureCode":"SHOW_APP_INTRO","isIncluded":true,"resetPeriod":"NONE","isUnlimited":false,"rolloverAllowed":false,"configuration":null,"displayOrder":3,"includedQuantity":null},
+  {"packageCode":"STANDARD","featureCode":"SELECT_APP_LANGUAGE","isIncluded":true,"resetPeriod":"NONE","isUnlimited":false,"rolloverAllowed":false,"configuration":null,"displayOrder":1,"includedQuantity":null},
+  {"packageCode":"STANDARD","featureCode":"ACCEPT_RIDER_PRIVACY_CONSENT","isIncluded":true,"resetPeriod":"NONE","isUnlimited":false,"rolloverAllowed":false,"configuration":null,"displayOrder":2,"includedQuantity":null},
+  {"packageCode":"STANDARD","featureCode":"ACCEPT_APP_TERMS","isIncluded":true,"resetPeriod":"NONE","isUnlimited":false,"rolloverAllowed":false,"configuration":null,"displayOrder":2,"includedQuantity":null},
+  {"packageCode":"STANDARD","featureCode":"SHOW_APP_INTRO","isIncluded":true,"resetPeriod":"NONE","isUnlimited":false,"rolloverAllowed":false,"configuration":null,"displayOrder":3,"includedQuantity":null},
+  {"packageCode":"PREMIUM","featureCode":"SELECT_APP_LANGUAGE","isIncluded":true,"resetPeriod":"NONE","isUnlimited":false,"rolloverAllowed":false,"configuration":null,"displayOrder":1,"includedQuantity":null},
+  {"packageCode":"PREMIUM","featureCode":"ACCEPT_RIDER_PRIVACY_CONSENT","isIncluded":true,"resetPeriod":"NONE","isUnlimited":false,"rolloverAllowed":false,"configuration":null,"displayOrder":2,"includedQuantity":null},
+  {"packageCode":"PREMIUM","featureCode":"ACCEPT_APP_TERMS","isIncluded":true,"resetPeriod":"NONE","isUnlimited":false,"rolloverAllowed":false,"configuration":null,"displayOrder":2,"includedQuantity":null},
+  {"packageCode":"PREMIUM","featureCode":"SHOW_APP_INTRO","isIncluded":true,"resetPeriod":"NONE","isUnlimited":false,"rolloverAllowed":false,"configuration":null,"displayOrder":3,"includedQuantity":null},
+  {"packageCode":"CUSTOM","featureCode":"SELECT_APP_LANGUAGE","isIncluded":true,"resetPeriod":"NONE","isUnlimited":false,"rolloverAllowed":false,"configuration":null,"displayOrder":1,"includedQuantity":null},
+  {"packageCode":"CUSTOM","featureCode":"ACCEPT_RIDER_PRIVACY_CONSENT","isIncluded":true,"resetPeriod":"NONE","isUnlimited":false,"rolloverAllowed":false,"configuration":null,"displayOrder":2,"includedQuantity":null},
+  {"packageCode":"CUSTOM","featureCode":"ACCEPT_APP_TERMS","isIncluded":true,"resetPeriod":"NONE","isUnlimited":false,"rolloverAllowed":false,"configuration":null,"displayOrder":2,"includedQuantity":null},
+  {"packageCode":"CUSTOM","featureCode":"SHOW_APP_INTRO","isIncluded":true,"resetPeriod":"NONE","isUnlimited":false,"rolloverAllowed":false,"configuration":null,"displayOrder":3,"includedQuantity":null},
   ...basicPackageFeatureCatalog,
   {"packageCode":"STANDARD","featureCode":"CAPTURE_FULL_NAME","isIncluded":true,"resetPeriod":"MONTHLY","isUnlimited":false,"rolloverAllowed":false,"configuration":null,"displayOrder":5,"includedQuantity":"500"},
   {"packageCode":"STANDARD","featureCode":"SHOW_MOBILE_NUMBER","isIncluded":true,"resetPeriod":"MONTHLY","isUnlimited":false,"rolloverAllowed":false,"configuration":null,"displayOrder":6,"includedQuantity":"500"},

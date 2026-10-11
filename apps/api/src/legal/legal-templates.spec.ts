@@ -35,4 +35,41 @@ describe('legal templates', () => {
     }), updateMany: vi.fn() } } as never);
     await expect(service.publishDraft('document-1', client.id, false)).rejects.toThrow('Complete all client-specific');
   });
+
+  it('keeps the mandatory Rider privacy consent template active', async () => {
+    const template = { id: 'template-1', appCode: 'RIDER', role: UserRole.RIDER,
+      kind: 'PRIVACY_CONSENT', locale: 'en', deletedAt: null };
+    const update = vi.fn();
+    const service = new LegalService({ appLegalTemplate: {
+      findUnique: vi.fn().mockResolvedValue(template), update,
+    } } as never);
+    await expect(service.deleteTemplate(template.id)).rejects.toThrow('cannot be removed');
+    await expect(service.updateTemplate(template.id, { ...template, version: '1',
+      title: 'Rider consent', content: '<p>Consent</p>', isActive: false }))
+      .rejects.toThrow('must remain active');
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('copies a new mandatory consent template to existing clients as a draft', async () => {
+    const createDocument = vi.fn().mockResolvedValue({});
+    const tx = {
+      appLegalTemplate: { create: vi.fn().mockResolvedValue({ id: 'template-1' }) },
+      client: { findMany: vi.fn().mockResolvedValue([{ ...client,
+        businessProfile: { legalCompanyName: 'Example Fleet Private Limited' } }]) },
+      appLegalDocument: { findFirst: vi.fn().mockResolvedValue(null), create: createDocument },
+    };
+    const service = new LegalService({
+      appLegalTemplate: { findFirst: vi.fn().mockResolvedValue(null) },
+      $transaction: (callback: (value: typeof tx) => unknown) => callback(tx),
+    } as never);
+    await service.createTemplate({ appCode: 'RIDER', role: UserRole.RIDER,
+      kind: 'PRIVACY_CONSENT', locale: 'en', version: '1.0.0',
+      title: 'Consent', content: '<p>{{CLIENT_LEGAL_NAME}}</p>' });
+    expect(createDocument).toHaveBeenCalledWith({ data: expect.objectContaining({
+      clientId: client.id, kind: 'PRIVACY_CONSENT',
+      content: '<p>Example Fleet Private Limited</p>',
+      contentHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+    }) });
+    expect(createDocument.mock.calls[0][0].data.publishedAt).toBeUndefined();
+  });
 });

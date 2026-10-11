@@ -38,10 +38,36 @@ export class CommercialService {
     const availableAddOns = await this.prisma.featureAddOn.findMany({ where: { isActive: true, feature: { isActive: true }, effectiveFrom: { lte: effectiveDate }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: effectiveDate } }] }, include: { feature: true }, orderBy: { code: 'asc' } });
     return { packageCode: pkg.code, packageId: pkg.id, vehicleCount: dto.vehicleCount, billingCycle: dto.billingCycle ?? BillingCycle.MONTHLY, tier: { minVehicles: tier.minVehicles, maxVehicles: tier.maxVehicles, tierMode: tier.tierMode }, pricePerVehicle: tier.pricePerVehicle, baseRecurringAmount, discountAmount: recurringAdjustment.discount, finalRecurringAmount: recurringAdjustment.final, setupFee: setup.final, setupFeeDiscountAmount: setup.discount, currency: tier.currency, includedFeatures: pkg.features.map((link) => ({ featureCode: link.feature.code, featureName: link.feature.name, includedQuantity: link.includedQuantity, resetPeriod: link.resetPeriod, isUnlimited: link.isUnlimited })), availableAddOns: availableAddOns.map((addOn) => ({ id: addOn.id, code: addOn.code, name: addOn.name, featureId: addOn.featureId, quantity: addOn.quantity, salePrice: addOn.salePrice, currency: addOn.currency, validityDays: addOn.validityDays, validityMonths: addOn.validityMonths })), adjustments };
   }
-  async createSubscription(dto: SubscriptionDto, actorId: string) { const quote = await this.calculateSubscriptionPrice(dto); const startDate = new Date(dto.startDate); const row = await this.prisma.$transaction(async (tx) => { await tx.clientSubscription.updateMany({ where: { clientId: dto.clientId, status: 'ACTIVE' }, data: { status: 'CANCELLED', endDate: startDate } }); const subscription = await tx.clientSubscription.create({ data: { clientId: dto.clientId, packageId: quote.packageId, status: 'ACTIVE', billingCycle: quote.billingCycle, startDate, endDate: dto.endDate ? new Date(dto.endDate) : undefined, vehicleCount: dto.vehicleCount, setupFee: quote.setupFee, pricePerVehicle: quote.pricePerVehicle, recurringAmount: quote.finalRecurringAmount, tierMinVehicles: quote.tier.minVehicles, tierMaxVehicles: quote.tier.maxVehicles, tierMode: quote.tier.tierMode, currency: quote.currency } }); await this.grantPackageAllowances(tx, subscription.id, dto.clientId, quote.packageId, startDate); return subscription; }); await this.audit.record({ clientId: dto.clientId, actorId, action: 'CLIENT_SUBSCRIPTION_CREATED', entityType: 'ClientSubscription', entityId: row.id, newData: { packageId: quote.packageId, vehicleCount: dto.vehicleCount } }); return row; }
+  async createSubscription(dto: SubscriptionDto, actorId: string) {
+    const quote = await this.calculateSubscriptionPrice(dto);
+    const packageRevision = await this.prisma.packageRevision.findFirst({
+      where: { packageId: quote.packageId, publishedAt: { not: null } }, orderBy: { version: 'desc' },
+    });
+    if (!packageRevision) throw new BadRequestException('Publish a Package version before assigning it to a client.');
+    const startDate = new Date(dto.startDate);
+    const row = await this.prisma.$transaction(async (tx) => {
+      await tx.clientSubscription.updateMany({ where: { clientId: dto.clientId, status: 'ACTIVE' },
+        data: { status: 'CANCELLED', endDate: startDate } });
+      const subscription = await tx.clientSubscription.create({ data: {
+        clientId: dto.clientId, packageId: quote.packageId, packageRevisionId: packageRevision.id,
+        status: 'ACTIVE', billingCycle: quote.billingCycle, startDate,
+        endDate: dto.endDate ? new Date(dto.endDate) : undefined, vehicleCount: dto.vehicleCount,
+        setupFee: quote.setupFee, pricePerVehicle: quote.pricePerVehicle,
+        recurringAmount: quote.finalRecurringAmount, tierMinVehicles: quote.tier.minVehicles,
+        tierMaxVehicles: quote.tier.maxVehicles, tierMode: quote.tier.tierMode, currency: quote.currency,
+      } });
+      await this.grantPackageAllowances(tx, subscription.id, dto.clientId, packageRevision.id,
+        packageRevision.snapshot, startDate);
+      return subscription;
+    });
+    await this.audit.record({ clientId: dto.clientId, actorId,
+      action: 'CLIENT_SUBSCRIPTION_CREATED', entityType: 'ClientSubscription', entityId: row.id,
+      newData: { packageId: quote.packageId, packageRevisionId: packageRevision.id, vehicleCount: dto.vehicleCount } });
+    return row;
+  }
   async updateVehicleCount(subscriptionId: string, dto: VehicleCountDto, actorId: string) { const sub = await this.prisma.clientSubscription.findUnique({ where: { id: subscriptionId }, include: { package: true } }); if (!sub) throw new NotFoundException('Subscription not found.'); const quote = await this.calculateSubscriptionPrice({ clientId: sub.clientId, packageCode: sub.package.code, vehicleCount: dto.vehicleCount, billingCycle: sub.billingCycle, effectiveDate: dto.effectiveDate }); const row = await this.prisma.clientSubscription.update({ where: { id: subscriptionId }, data: { vehicleCount: dto.vehicleCount, pricePerVehicle: quote.pricePerVehicle, recurringAmount: quote.finalRecurringAmount, tierMinVehicles: quote.tier.minVehicles, tierMaxVehicles: quote.tier.maxVehicles, tierMode: quote.tier.tierMode } }); await this.audit.record({ clientId: sub.clientId, actorId, action: 'CLIENT_SUBSCRIPTION_VEHICLE_COUNT_UPDATED', entityType: 'ClientSubscription', entityId: subscriptionId }); return row; }
   async getSubscription(id: string) { const row = await this.prisma.clientSubscription.findUnique({ where: { id }, include: { package: true, featureAddOnPurchases: { include: { featureAddOn: true }, orderBy: { purchasedAt: 'desc' } } } }); if (!row) throw new NotFoundException('Subscription not found.'); return row; }
-  async listSubscriptions(clientId?: string) { return this.prisma.clientSubscription.findMany({ where: clientId ? { clientId } : {}, include: { client: { select: { id: true, name: true, companyCode: true } }, package: true }, orderBy: [{ status: 'asc' }, { createdAt: 'desc' }] }); }
+  async listSubscriptions(clientId?: string) { return this.prisma.clientSubscription.findMany({ where: clientId ? { clientId } : {}, include: { client: { select: { id: true, name: true, companyCode: true } }, package: true, packageRevision: { select: { id: true, version: true, publishedAt: true } } }, orderBy: [{ status: 'asc' }, { createdAt: 'desc' }] }); }
   async changePackage(subscriptionId: string, dto: PackageChangeDto, actorId: string) { const current = await this.prisma.clientSubscription.findUnique({ where: { id: subscriptionId } }); const pkg = await this.requirePackage(dto.packageId); if (!current) throw new NotFoundException('Subscription not found.'); return this.createSubscription({ clientId: current.clientId, packageCode: pkg.code, vehicleCount: dto.vehicleCount, billingCycle: current.billingCycle, startDate: new Date().toISOString(), effectiveDate: dto.effectiveDate }, actorId); }
   async addAdjustment(dto: AdjustmentDto, actorId: string) { if (dto.validTo && new Date(dto.validTo) <= new Date(dto.validFrom)) throw new BadRequestException('Adjustment end must be after its start.'); const row = await this.prisma.clientPricingAdjustment.create({ data: { ...dto, validFrom: new Date(dto.validFrom), validTo: dto.validTo ? new Date(dto.validTo) : undefined, createdBy: actorId } }); await this.audit.record({ clientId: dto.clientId, actorId, action: 'CLIENT_PRICING_ADJUSTMENT_CREATED', entityType: 'ClientPricingAdjustment', entityId: row.id }); return row; }
   async listAdjustments(clientId?: string) { return this.prisma.clientPricingAdjustment.findMany({ where: clientId ? { clientId } : {}, include: { client: { select: { id: true, name: true, companyCode: true } }, subscription: { select: { id: true, packageId: true } } }, orderBy: { createdAt: 'desc' } }); }
@@ -157,6 +183,21 @@ export class CommercialService {
   private async assertNoTierOverlap(packageId: string, dto: VehicleTierDto, ignoreId?: string) { if (dto.isActive === false) return; const rows = await this.prisma.packageVehicleTierPricing.findMany({ where: { packageId, isActive: true, ...(ignoreId ? { id: { not: ignoreId } } : {}) } }); const from = new Date(dto.effectiveFrom), to = dto.effectiveTo ? new Date(dto.effectiveTo) : null; const overlaps = rows.some((row) => { const dateOverlap = row.effectiveFrom <= (to ?? new Date('9999-12-31')) && (row.effectiveTo ?? new Date('9999-12-31')) >= from; const quantityOverlap = row.minVehicles <= (dto.maxVehicles ?? Number.MAX_SAFE_INTEGER) && (row.maxVehicles ?? Number.MAX_SAFE_INTEGER) >= dto.minVehicles; return dateOverlap && quantityOverlap; }); if (overlaps) throw new ConflictException('Active vehicle-tier ranges cannot overlap for the same package and effective period.'); }
   private async activeAdjustments(clientId: string, date: Date, scopes: PricingAdjustmentScope[], referenceId: string) { return this.prisma.clientPricingAdjustment.findMany({ where: { clientId, isActive: true, adjustmentScope: { in: scopes }, validFrom: { lte: date }, OR: [{ validTo: null }, { validTo: { gte: date } }], AND: [{ OR: [{ referenceId: null }, { referenceId }] }] } }); }
   private applyAdjustments(amount: Prisma.Decimal, adjustments: Array<{ adjustmentType: PricingAdjustmentType; adjustmentValue: Prisma.Decimal }>) { let final = new D(amount); for (const adjustment of adjustments) final = adjustment.adjustmentType === 'PERCENTAGE' ? final.minus(final.mul(adjustment.adjustmentValue).div(100)) : adjustment.adjustmentType === 'FIXED_AMOUNT' ? final.minus(adjustment.adjustmentValue) : new D(adjustment.adjustmentValue); final = Prisma.Decimal.max(final, new D(0)); return { final: money(final), discount: money(new D(amount).minus(final)) }; }
-  private async grantPackageAllowances(tx: Prisma.TransactionClient, subscriptionId: string, clientId: string, packageId: string, startsAt: Date) { const features = await tx.packageFeature.findMany({ where: { packageId, isIncluded: true, isUnlimited: false, includedQuantity: { gt: 0 } } }); for (const item of features) { const lot = await tx.featureCreditLot.create({ data: { clientId, subscriptionId, featureId: item.featureId, sourceType: 'PACKAGE_ALLOWANCE', sourceId: item.id, sourceKey: `allowance:${subscriptionId}:${item.id}:${startsAt.toISOString().slice(0, 10)}`, quantityOriginal: item.includedQuantity!, quantityAvailable: item.includedQuantity!, periodStart: startsAt } }); await tx.featureUsageLedger.create({ data: { clientId, subscriptionId, featureId: item.featureId, creditLotId: lot.id, sourceType: 'PACKAGE_ALLOWANCE', sourceId: item.id, transactionType: 'CREDIT', quantity: item.includedQuantity!, referenceType: 'SUBSCRIPTION_START', referenceId: subscriptionId, occurredAt: startsAt } }); } }
+  private async grantPackageAllowances(tx: Prisma.TransactionClient, subscriptionId: string,
+    clientId: string, packageRevisionId: string, rawSnapshot: Prisma.JsonValue, startsAt: Date) {
+    const snapshot = rawSnapshot as { features?: Array<{ featureId: string; includedQuantity?: string | null; isUnlimited?: boolean }> };
+    for (const item of snapshot.features ?? []) {
+      const quantity = new D(item.includedQuantity ?? 0);
+      if (item.isUnlimited || quantity.lte(0)) continue;
+      const sourceKey = `allowance:${subscriptionId}:${packageRevisionId}:${item.featureId}:${startsAt.toISOString().slice(0, 10)}`;
+      const lot = await tx.featureCreditLot.create({ data: { clientId, subscriptionId,
+        featureId: item.featureId, sourceType: 'PACKAGE_ALLOWANCE', sourceId: packageRevisionId,
+        sourceKey, quantityOriginal: quantity, quantityAvailable: quantity, periodStart: startsAt } });
+      await tx.featureUsageLedger.create({ data: { clientId, subscriptionId, featureId: item.featureId,
+        creditLotId: lot.id, sourceType: 'PACKAGE_ALLOWANCE', sourceId: packageRevisionId,
+        transactionType: 'CREDIT', quantity, referenceType: 'SUBSCRIPTION_START',
+        referenceId: subscriptionId, occurredAt: startsAt } });
+    }
+  }
   private async requirePackage(id: string) { const pkg = await this.prisma.package.findUnique({ where: { id } }); if (!pkg) throw new NotFoundException('Package not found.'); return pkg; }
 }

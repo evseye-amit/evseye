@@ -26,6 +26,7 @@ import {
 } from "react";
 import Link from "next/link";
 import { ClientCommercialSettings, type ClientCommercialSection } from "../../components/client-commercial-settings";
+import { ClientWorkflowSettings } from "../../components/client-workflow-settings";
 import { ClientDomainSettings } from "../../components/client-domain-settings";
 import { ClientLogoUpload } from "../../components/client-logo-upload";
 import { LanguageSwitcher, useLocale } from "../../components/locale-provider";
@@ -464,6 +465,11 @@ export default function SuperAdminDashboard() {
   const [packages, setPackages] = useState<Item[]>([]);
   const [featureSteps, setFeatureSteps] = useState<Item[]>([]);
   const [features, setFeatures] = useState<Item[]>([]);
+  const [revisionTarget, setRevisionTarget] = useState<{ kind: "feature" | "package"; item: Item } | null>(null);
+  const [revisions, setRevisions] = useState<Item[]>([]);
+  const [revisionBusy, setRevisionBusy] = useState(false);
+  const [revisionError, setRevisionError] = useState("");
+  const revisionTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [pricing, setPricing] = useState<Item[]>([]);
   const [featureAddOns, setFeatureAddOns] = useState<Item[]>([]);
   const [selectedClientId, setSelectedClientId] = useState("");
@@ -2174,8 +2180,73 @@ export default function SuperAdminDashboard() {
       }[bulkImportEntity]
     : null;
 
+  async function openRevisions(kind: "feature" | "package", item: Item, trigger: HTMLButtonElement) {
+    revisionTriggerRef.current = trigger;
+    setRevisionTarget({ kind, item });
+    setRevisionError("");
+    try {
+      setRevisions(await request(`/platform/${kind === "feature" ? "features" : "packages"}/${item.id}/revisions`, {}, token));
+    } catch (cause) {
+      setRevisionError(cause instanceof Error ? cause.message : "Could not load versions.");
+    }
+  }
+
+  async function createRevision() {
+    if (!revisionTarget) return;
+    setRevisionBusy(true);
+    setRevisionError("");
+    try {
+      await request(`/platform/${revisionTarget.kind === "feature" ? "features" : "packages"}/${revisionTarget.item.id}/revisions`, { method: "POST" }, token);
+      setRevisions(await request(`/platform/${revisionTarget.kind === "feature" ? "features" : "packages"}/${revisionTarget.item.id}/revisions`, {}, token));
+      setNotice("Draft version created. Review its snapshot before publishing.");
+    } catch (cause) {
+      setRevisionError(cause instanceof Error ? cause.message : "Could not create a draft version.");
+    } finally {
+      setRevisionBusy(false);
+    }
+  }
+
+  async function publishRevision(id: string) {
+    if (!revisionTarget) return;
+    setRevisionBusy(true);
+    setRevisionError("");
+    try {
+      await request(`/platform/${revisionTarget.kind === "feature" ? "feature" : "package"}-revisions/${id}/publish`, { method: "POST" }, token);
+      setRevisions(await request(`/platform/${revisionTarget.kind === "feature" ? "features" : "packages"}/${revisionTarget.item.id}/revisions`, {}, token));
+      setNotice("Version published. Existing subscriptions keep their assigned Package version.");
+    } catch (cause) {
+      setRevisionError(cause instanceof Error ? cause.message : "Could not publish this version.");
+    } finally {
+      setRevisionBusy(false);
+    }
+  }
+
   return (
     <main className="sa-shell">
+      <CatalogFormDialog
+        open={revisionTarget !== null}
+        title={`${revisionTarget?.kind === "feature" ? "Feature" : "Package"} versions`}
+        description={`Review immutable versions of ${String(revisionTarget?.item.name ?? "this catalog item")}. Changes to the catalog require a new draft and an explicit publish.`}
+        error={revisionError}
+        busy={revisionBusy}
+        size="wide"
+        triggerRef={revisionTriggerRef}
+        onClose={() => setRevisionTarget(null)}
+        onDialogClose={() => setRevisionTarget(null)}
+        onSubmit={(event) => { event.preventDefault(); void createRevision(); }}
+        actions={<><button type="button" className="secondary" onClick={() => setRevisionTarget(null)} disabled={revisionBusy}>Close</button><button type="submit" disabled={revisionBusy}>Create draft from current catalog</button></>}
+      >
+        {revisions.length ? <DataTable
+          headings={["Version", "Status", "Published", "Snapshot", "Action"]}
+          rows={revisions.map((revision) => [
+            `v${revision.version}`,
+            revision.publishedAt ? "Published" : "Draft",
+            revision.publishedAt ? new Date(revision.publishedAt).toLocaleDateString() : "—",
+            <details key="snapshot"><summary>Review configuration</summary><pre>{JSON.stringify(revision.snapshot, null, 2)}</pre></details>,
+            revision.publishedAt ? "—" : <button key="publish" type="button" onClick={() => void publishRevision(String(revision.id))} disabled={revisionBusy}>Publish</button>,
+          ])}
+        /> : <p className="muted">No versions yet. Create a draft from the current catalog record.</p>}
+      </CatalogFormDialog>
       <aside className="sa-sidebar">
         <div className="sa-brand">
           <span><UiIcon name="eye" /></span>
@@ -3165,15 +3236,10 @@ export default function SuperAdminDashboard() {
                     item.billingUnit,
                     item.isActive ? "YES" : "NO",
                     item.isAddOnEligible ? "YES" : "NO",
-                    <button
-                      key="edit"
-                      className="secondary"
-                      onClick={(event) =>
-                        openFeatureModal(event.currentTarget, item, true)
-                      }
-                    >
-                      Edit
-                    </button>,
+                    <span key="manage" className="sa-client-actions">
+                      <button className="secondary" onClick={(event) => openFeatureModal(event.currentTarget, item, true)}>Edit</button>
+                      <button className="secondary" onClick={(event) => void openRevisions("feature", item, event.currentTarget)}>Versions</button>
+                    </span>,
                     <button
                       key="delete"
                       className="danger"
@@ -3342,15 +3408,10 @@ export default function SuperAdminDashboard() {
                     `${displayPackageLimit(item.maxFleets)} fleets · ${displayPackageLimit(item.maxRiders)} riders`,
                     `${item.isActive ? "ACTIVE" : "INACTIVE"}${item.isCustom ? " · CUSTOM" : ""}`,
                     item.features?.length ?? 0,
-                    <button
-                      key="edit"
-                      className="secondary"
-                      onClick={(event) =>
-                        openPackageModal(event.currentTarget, item)
-                      }
-                    >
-                      Edit
-                    </button>,
+                    <span key="manage" className="sa-client-actions">
+                      <button className="secondary" onClick={(event) => openPackageModal(event.currentTarget, item)}>Edit</button>
+                      <button className="secondary" onClick={(event) => void openRevisions("package", item, event.currentTarget)}>Versions</button>
+                    </span>,
                     <button
                       key="delete"
                       className="danger"
@@ -3977,7 +4038,7 @@ function LegalDocumentsView({ token }: { token: string }) {
     });
   }
 
-  const kindOptions = ["TERMS_AND_CONDITIONS", "PRIVACY_POLICY"];
+  const kindOptions = ["TERMS_AND_CONDITIONS", "PRIVACY_POLICY", "PRIVACY_CONSENT"];
   const roleOptions = ["RIDER", "FLEET_MANAGER", "TEAM_LEAD", "OPERATIONS_MANAGER", "CLIENT_ADMIN", "KYC_OPERATOR"];
   return (
     <section className="sa-legal-documents">
@@ -4011,7 +4072,7 @@ function LegalDocumentsView({ token }: { token: string }) {
                 setPreview(template);
               }}>Preview</button>
               <button type="button" className="secondary" onClick={(event) => openForm(event.currentTarget, template)}>Edit</button>
-              <button type="button" className="danger" onClick={() => confirmRemove(template)}>Remove</button>
+              <button type="button" className="danger" disabled={template.appCode === "RIDER" && template.role === "RIDER" && template.kind === "PRIVACY_CONSENT"} onClick={() => confirmRemove(template)}>Remove</button>
             </span>,
           ])}
         />
@@ -4041,12 +4102,12 @@ function LegalDocumentsView({ token }: { token: string }) {
         <div className="sa-field-grid">
           <label>App code *<input required maxLength={40} value={form.appCode} onChange={(event) => setForm({ ...form, appCode: event.target.value })} /></label>
           <label>User role *<select required value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}>{roleOptions.map((role) => <option key={role} value={role}>{role.replaceAll("_", " ")}</option>)}</select></label>
-          <label>Document type *<select required value={form.kind} onChange={(event) => setForm({ ...form, kind: event.target.value })}>{kindOptions.map((kind) => <option key={kind} value={kind}>{kind.replaceAll("_", " ")}</option>)}</select></label>
+          <label>Document type *<select required value={form.kind} onChange={(event) => setForm({ ...form, kind: event.target.value, isActive: event.target.value === "PRIVACY_CONSENT" ? true : form.isActive })}>{kindOptions.map((kind) => <option key={kind} value={kind}>{kind.replaceAll("_", " ")}</option>)}</select></label>
           <label>Language *<input required pattern="[a-z]{2}" maxLength={2} value={form.locale} onChange={(event) => setForm({ ...form, locale: event.target.value })} /></label>
           <label>Version *<input required maxLength={80} value={form.version} onChange={(event) => setForm({ ...form, version: event.target.value })} /></label>
           <label>Title *<input required maxLength={200} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
         </div>
-        <label className="sa-legal-active"><input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} /> Active for new clients</label>
+        <label className="sa-legal-active"><input type="checkbox" checked={form.isActive} disabled={form.appCode === "RIDER" && form.role === "RIDER" && form.kind === "PRIVACY_CONSENT"} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} /> Active for new clients</label>
         <label>Document HTML *<textarea required rows={14} maxLength={100000} value={form.content} onChange={(event) => setForm({ ...form, content: event.target.value })} /></label>
         <p className="sa-legal-help">Use {"{{CLIENT_LEGAL_NAME}}"}, {"{{CLIENT_NAME}}"}, and {"{{CLIENT_CODE}}"} for client details. Mark facts needing review with [CLIENT_REVIEW_REQUIRED].</p>
       </CatalogFormDialog>
@@ -5158,6 +5219,7 @@ function ClientsView({
                 Edit client
               </button>
               <ClientCommercialSettings clientId={item.id} clientName={item.name} />
+              <ClientWorkflowSettings clientId={item.id} clientName={item.name} />
               <ClientDomainSettings clientId={item.id} clientName={item.name} />
             </span>
           ) : (

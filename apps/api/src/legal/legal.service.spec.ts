@@ -28,8 +28,31 @@ describe('LegalService', () => {
     } as never);
     await expect(service.accept('client-1', 'user-1', [UserRole.RIDER], {
       documentId: document.id, contentHash: document.contentHash,
-    })).rejects.toThrow('Terms have changed');
+    })).rejects.toThrow('The legal document has changed');
     expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it('records verified Rider consent against its exact document and device time', async () => {
+    const consent = { ...document, kind: 'PRIVACY_CONSENT' };
+    const upsert = vi.fn().mockResolvedValue({ id: 'acceptance-1' });
+    const service = new LegalService({
+      appLegalDocument: {
+        findUnique: vi.fn().mockResolvedValue(consent),
+        findMany: vi.fn().mockResolvedValue([consent]),
+      },
+      appLegalAcceptance: { upsert },
+    } as never);
+    const deviceAcceptedAt = new Date(Date.now() - 60_000).toISOString();
+    await service.accept('client-1', 'rider-1', [UserRole.RIDER], {
+      documentId: consent.id, contentHash: consent.contentHash, deviceAcceptedAt,
+    });
+    expect(upsert).toHaveBeenCalledWith({
+      where: { userId_documentId: { userId: 'rider-1', documentId: consent.id } },
+      create: expect.objectContaining({ clientId: 'client-1', userId: 'rider-1',
+        documentId: consent.id, contentHash: consent.contentHash,
+        deviceAcceptedAt: new Date(deviceAcceptedAt) }),
+      update: {},
+    });
   });
 
   it('cannot soft-delete a published document', async () => {

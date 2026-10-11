@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { FeatureCategory } from '@prisma/client';
 import { normalizeIndianMobile } from '../common/phone.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { WorkflowResolverService } from '../workflow/workflow-resolver.service.js';
 import { translatedProperty, type ApiLocale } from '../common/locale.js';
 import { riderCatalogLabel } from './rider-field-locales.js';
 
@@ -56,7 +57,7 @@ const asRecord = (value: unknown): JsonRecord =>
 
 @Injectable()
 export class RiderOnboardingConfigurationService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly workflows: WorkflowResolverService) {}
 
   /** Keep the resolved validation model private; expose each rule only in configuration. */
   toPublicConfiguration(effective: RiderOnboardingConfiguration, locale: ApiLocale = 'en') {
@@ -106,50 +107,19 @@ export class RiderOnboardingConfigurationService {
   }
 
   async getEffectiveConfiguration(clientId: string): Promise<RiderOnboardingConfiguration> {
-    const now = new Date();
-    const subscription = await this.prisma.clientSubscription.findFirst({
-      where: {
-        clientId,
-        status: 'ACTIVE',
-        startDate: { lte: now },
-        OR: [{ endDate: null }, { endDate: { gte: now } }],
-        package: { isActive: true },
-      },
-      orderBy: { startDate: 'desc' },
-      include: {
-        package: {
-          include: {
-            features: {
-              where: {
-                isIncluded: true,
-                feature: {
-                  isActive: true,
-                  category: FeatureCategory.RIDER_ONBOARDING,
-                  featureStep: { isActive: true },
-                },
-              },
-              include: { feature: { include: { featureStep: true } } },
-            },
-          },
-        },
-      },
-    });
-    if (!subscription) {
-      throw new BadRequestException(
-        'No active package is available for Rider Onboarding.',
-      );
-    }
+    const resolved = await this.workflows.resolve(clientId, 'RIDER_ONBOARDING', 'RIDER');
 
     const grouped = new Map<
       string,
       RiderOnboardingConfiguration['onboarding']['steps'][number]
     >();
-    for (const packageFeature of subscription.package.features) {
-      const feature = packageFeature.feature;
-      const step = feature.featureStep;
-      if (!step) continue;
-      const featureConfiguration = asRecord(feature.configuration);
-      const packageConfiguration = asRecord(packageFeature.configuration);
+    for (const component of resolved.components) {
+      const feature = { id: component.featureId, code: component.featureCode,
+        name: component.featureName, description: component.description,
+        billingUnit: component.billingUnit, displayOrder: component.order };
+      const step = component.step;
+      const featureConfiguration = component.configuration;
+      const packageConfiguration: JsonRecord = {};
       const featureTranslations = asRecord(featureConfiguration.translations);
       const packageTranslations = asRecord(packageConfiguration.translations);
       const translations = Object.fromEntries(
@@ -198,23 +168,21 @@ export class RiderOnboardingConfigurationService {
         billingUnit: feature.billingUnit,
         isUpload: feature.billingUnit === 'UPLOAD',
         sequence:
-          packageFeature.displayOrder > 0
-            ? packageFeature.displayOrder
-            : feature.displayOrder,
+          component.order,
         validation: asRecord(configuration.validation),
         configuration,
       };
       const current = grouped.get(step.id) ?? {
         stepId: step.id,
         stepCode: step.code,
-        stepName: step.displayName,
+        stepName: step.name,
         description: step.description,
         parentId: step.parentId,
-        sequence: step.displayOrder,
-        active: step.isActive,
+        sequence: step.order,
+        active: true,
         enabled: true,
         translations: step.translations,
-        fields: [],
+        fields: [] as RiderField[],
       };
       current.fields.push(field);
       grouped.set(step.id, current);
@@ -227,11 +195,7 @@ export class RiderOnboardingConfigurationService {
       }))
       .sort((left, right) => left.sequence - right.sequence);
     return {
-      package: {
-        id: subscription.package.id,
-        code: subscription.package.code,
-        name: subscription.package.name,
-      },
+      package: resolved.package,
       onboarding: { category: FeatureCategory.RIDER_ONBOARDING, steps },
     };
   }

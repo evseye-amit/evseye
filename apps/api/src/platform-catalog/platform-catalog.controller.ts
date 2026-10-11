@@ -44,12 +44,45 @@ import {
   UpdateVehicleTypeDto,
 } from './dto/catalog.dto.js';
 import { PlatformCatalogService } from './platform-catalog.service.js';
+import { CatalogRevisionService } from './catalog-revision.service.js';
 
 @Controller('platform')
 @UseGuards(AccessTokenGuard, RolesGuard)
 @Roles(UserRole.SUPER_ADMIN)
 export class PlatformCatalogController {
-  constructor(private readonly catalog: PlatformCatalogService) {}
+  constructor(private readonly catalog: PlatformCatalogService, private readonly revisions: CatalogRevisionService) {}
+  @Get('features/:id/revisions') featureRevisions(@Param('id') id: string) {
+    return this.revisions.featureRevisions(id).then((data) => ({ data }));
+  }
+  @Post('features/:id/revisions') draftFeature(@Param('id') id: string) {
+    return this.revisions.draftFeature(id).then((data) => ({ data }));
+  }
+  @Post('feature-revisions/:id/publish') publishFeature(@Param('id') id: string) {
+    return this.revisions.publishFeature(id).then((data) => ({ data }));
+  }
+  @Get('packages/:id/revisions') packageRevisions(@Param('id') id: string) {
+    return this.revisions.packageRevisions(id).then((data) => ({ data }));
+  }
+  @Post('packages/:id/revisions') draftPackage(@Param('id') id: string) {
+    return this.revisions.draftPackage(id).then((data) => ({ data }));
+  }
+  @Post('package-revisions/:id/publish') publishPackage(@Param('id') id: string) {
+    return this.revisions.publishPackage(id).then((data) => ({ data }));
+  }
+  @Post('subscriptions/:id/package-revisions/:revisionId') assignPackageRevision(
+    @Param('id') id: string, @Param('revisionId') revisionId: string,
+  ) {
+    return this.revisions.assignPackageRevision(id, revisionId).then((data) => ({ data }));
+  }
+  @Get('subscriptions/:id/workflow-revisions') clientWorkflowRevisions(@Param('id') id: string) {
+    return this.revisions.clientWorkflowRevisions(id).then((data) => ({ data }));
+  }
+  @Post('subscriptions/:id/workflow-revisions') draftClientWorkflow(@Param('id') id: string, @Body() body: unknown) {
+    return this.revisions.draftClientWorkflow(id, body).then((data) => ({ data }));
+  }
+  @Post('workflow-revisions/:id/publish') publishClientWorkflow(@Param('id') id: string) {
+    return this.revisions.publishClientWorkflow(id).then((data) => ({ data }));
+  }
   @Get('dashboard') dashboard() {
     return this.catalog.dashboard().then((data) => ({ data }));
   }

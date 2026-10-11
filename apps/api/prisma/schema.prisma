@@ -479,6 +479,7 @@ enum ClientIndustry {
 }
 
 enum FeatureCategory {
+  PRE_LOGIN
   LOGIN
   RIDER_ONBOARDING
   RIDER_VERIFICATION
@@ -975,6 +976,7 @@ model Package {
   isCustom           Boolean                     @default(false)
   isActive           Boolean                     @default(true)
   features           PackageFeature[]
+  revisions          PackageRevision[]
   vehicleTierPricing PackageVehicleTierPricing[]
   subscriptions      ClientSubscription[]
   createdAt          DateTime                    @default(now())
@@ -995,6 +997,7 @@ model Feature {
   configuration            Json?
   featureStepId            String?
   featureStep              FeatureStep?                 @relation(fields: [featureStepId], references: [id], onDelete: SetNull)
+  revisions                FeatureRevision[]
   displayOrder             Int                          @default(0)
   isActive                 Boolean                      @default(true)
   isAddOnEligible          Boolean                      @default(false)
@@ -1030,6 +1033,37 @@ model FeatureStep {
   updatedAt    DateTime      @updatedAt
 
   @@index([parentId, isActive, displayOrder])
+}
+
+/// Published revisions are immutable. Feature is the stable catalog identity.
+model FeatureRevision {
+  id          String    @id @default(uuid())
+  featureId   String
+  feature     Feature   @relation(fields: [featureId], references: [id], onDelete: Restrict)
+  version     Int
+  snapshot    Json
+  contentHash String    @db.Char(64)
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@unique([featureId, version])
+  @@index([featureId, publishedAt])
+}
+
+/// A Package revision freezes its limits, ordered steps and exact Feature revisions.
+model PackageRevision {
+  id            String               @id @default(uuid())
+  packageId     String
+  package       Package              @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  version       Int
+  snapshot      Json
+  contentHash   String               @db.Char(64)
+  publishedAt   DateTime?
+  createdAt     DateTime             @default(now())
+  subscriptions ClientSubscription[]
+
+  @@unique([packageId, version])
+  @@index([packageId, publishedAt])
 }
 
 model PackageFeature {
@@ -1283,6 +1317,9 @@ model ClientSubscription {
   client                Client                       @relation(fields: [clientId], references: [id], onDelete: Restrict)
   packageId             String
   package               Package                      @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  packageRevisionId     String?
+  packageRevision       PackageRevision?             @relation(fields: [packageRevisionId], references: [id], onDelete: Restrict)
+  workflowRevisions     ClientWorkflowRevision[]
   pricingAdjustments    ClientPricingAdjustment[]
   features              ClientFeature[]
   featureAddOnPurchases ClientFeatureAddOnPurchase[]
@@ -1305,6 +1342,21 @@ model ClientSubscription {
   updatedAt             DateTime                     @updatedAt
 
   @@index([clientId, status])
+}
+
+/// Published client configuration overrides for a pinned subscription.
+model ClientWorkflowRevision {
+  id             String             @id @default(uuid())
+  subscriptionId String
+  subscription   ClientSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  version        Int
+  snapshot       Json
+  contentHash    String             @db.Char(64)
+  publishedAt    DateTime?
+  createdAt      DateTime           @default(now())
+
+  @@unique([subscriptionId, version])
+  @@index([subscriptionId, publishedAt])
 }
 
 /// A client-specific feature entitlement.  ADD_ON rows are deliberately kept

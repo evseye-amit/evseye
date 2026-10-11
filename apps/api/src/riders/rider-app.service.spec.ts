@@ -18,6 +18,25 @@ const configuration = {
   },
 };
 
+function workflowFromLegacyFixture(prisma: any) {
+  return { resolve: async () => {
+    const { package: pkg } = await prisma.clientSubscription.findFirst();
+    return { package: { id: pkg.id, code: pkg.code, name: pkg.name }, components:
+      pkg.features.map((assignment: any) => ({
+        featureId: assignment.feature.id, featureCode: assignment.feature.code,
+        featureName: assignment.feature.name, description: assignment.feature.description,
+        billingUnit: assignment.feature.billingUnit, order: assignment.displayOrder,
+        configuration: { ...assignment.feature.configuration, ...assignment.configuration },
+        step: { id: assignment.feature.featureStep.id, code: assignment.feature.featureStep.code,
+          name: assignment.feature.featureStep.displayName,
+          description: assignment.feature.featureStep.description,
+          parentId: assignment.feature.featureStep.parentId,
+          order: assignment.feature.featureStep.displayOrder,
+          translations: null },
+      })) };
+  } };
+}
+
 function createService() {
   const transaction = {
     riderOnboardingProgress: { update: vi.fn().mockResolvedValue({}) },
@@ -30,7 +49,7 @@ function createService() {
     riderOnboardingDocument: { findMany: vi.fn().mockResolvedValue([]) },
     $transaction: vi.fn(async (callback: (tx: typeof transaction) => Promise<unknown>) => callback(transaction)),
   };
-  const resolver = new RiderOnboardingConfigurationService(prisma as never);
+  const resolver = new RiderOnboardingConfigurationService(prisma as never, {} as never);
   vi.spyOn(resolver, 'getEffectiveConfiguration').mockResolvedValue(configuration as never);
   const service = new RiderAppService(prisma as never, resolver, {} as never);
   vi.spyOn(service, 'onboarding').mockResolvedValue({ screen: 'WAITING_FOR_FLEET' } as never);
@@ -153,7 +172,7 @@ describe('RiderAppService.saveStep', () => {
 
 describe('RiderOnboardingConfigurationService', () => {
   it('localizes catalog fields while preserving codes and validation in the public response', () => {
-    const resolver = new RiderOnboardingConfigurationService({} as never);
+    const resolver = new RiderOnboardingConfigurationService({} as never, {} as never);
     const result = resolver.toPublicConfiguration({
       package: { id: 'package-1', code: 'BASIC', name: 'Basic' },
       onboarding: { category: 'RIDER_ONBOARDING' as never, steps: [{
@@ -180,7 +199,7 @@ describe('RiderOnboardingConfigurationService', () => {
   });
 
   it('returns field identity beside configuration without duplicate rules', async () => {
-    const resolver = new RiderOnboardingConfigurationService({} as never);
+    const resolver = new RiderOnboardingConfigurationService({} as never, {} as never);
     const result = resolver.toPublicConfiguration({
       package: { id: 'package-1', code: 'BASIC', name: 'Basic' },
       onboarding: { category: 'RIDER_ONBOARDING' as never, steps: [{
@@ -234,7 +253,7 @@ describe('RiderOnboardingConfigurationService', () => {
         }),
       },
     };
-    const resolver = new RiderOnboardingConfigurationService(prisma as never);
+    const resolver = new RiderOnboardingConfigurationService(prisma as never, workflowFromLegacyFixture(prisma) as never);
     const result = await resolver.getEffectiveConfiguration('client-1');
     expect(result.onboarding.steps[0].fields[0]).toMatchObject({
       fieldCode: 'ADDRESS_PROOF_DOCUMENT', isUpload: true,
@@ -251,7 +270,7 @@ describe('RiderOnboardingConfigurationService', () => {
       id: 'package-1', code: 'BASIC', name: 'Basic',
       features: [feature('CAPTURE_REFERENCE', { minReferences: 1, maxReferences: 2 }), feature('CAPTURE_REFERRAL', { fieldType: 'MOBILE' })],
     } }) } };
-    const resolver = new RiderOnboardingConfigurationService(prisma as never);
+    const resolver = new RiderOnboardingConfigurationService(prisma as never, workflowFromLegacyFixture(prisma) as never);
     const result = resolver.toPublicConfiguration(await resolver.getEffectiveConfiguration('client-1'));
     expect(result.onboarding.steps[0].fields).toEqual(expect.arrayContaining([
       expect.objectContaining({ featureCode: 'CAPTURE_REFERENCE', fieldCode: 'RIDER_REFERENCES', configuration: expect.objectContaining({ fieldType: 'REFERENCE', minReferences: 1, maxReferences: 2, storageKey: 'metadata.references' }) }),

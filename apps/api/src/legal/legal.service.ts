@@ -2,9 +2,11 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { createHash } from 'node:crypto';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { validateLegalTemplate } from './legal-templates.js';
+import { renderLegalTemplate, validateLegalTemplate } from './legal-templates.js';
 
 export const legalHash = (content: string) => createHash('sha256').update(content, 'utf8').digest('hex');
+const mandatoryRiderConsent = (value: { appCode: string; role: UserRole; kind: string }) =>
+  value.appCode === 'RIDER' && value.role === UserRole.RIDER && value.kind === 'PRIVACY_CONSENT';
 
 @Injectable()
 export class LegalService {
@@ -17,9 +19,35 @@ export class LegalService {
   async createTemplate(input: { appCode: string; role: UserRole; kind: string; locale: string; version: string; title: string; content: string; isActive?: boolean }) {
     validateLegalTemplate(input.title);
     validateLegalTemplate(input.content);
+    if (mandatoryRiderConsent(input) && input.isActive === false)
+      throw new BadRequestException('Rider privacy consent templates must remain active.');
     const identity = { appCode: input.appCode, role: input.role, kind: input.kind, locale: input.locale, version: input.version };
     if (await this.db.appLegalTemplate.findFirst({ where: identity })) throw new BadRequestException('This template version already exists.');
-    return this.db.appLegalTemplate.create({ data: { ...identity, title: input.title, content: input.content, isActive: input.isActive ?? true } });
+    if (!mandatoryRiderConsent(input))
+      return this.db.appLegalTemplate.create({ data: { ...identity, title: input.title, content: input.content, isActive: input.isActive ?? true } });
+    return this.db.$transaction(async (tx) => {
+      const template = await tx.appLegalTemplate.create({ data: {
+        ...identity, title: input.title, content: input.content, isActive: true,
+      } });
+      const clients = await tx.client.findMany({ include: { businessProfile: true } });
+      for (const client of clients) {
+        const existing = await tx.appLegalDocument.findFirst({ where: {
+          clientId: client.id, appCode: input.appCode, role: input.role,
+          kind: input.kind, locale: input.locale, deletedAt: null,
+        } });
+        if (existing) continue;
+        const legalName = client.businessProfile?.legalCompanyName?.trim() ||
+          '[CLIENT_REVIEW_REQUIRED: legal company name]';
+        const content = renderLegalTemplate(input.content, client, legalName, true);
+        await tx.appLegalDocument.create({ data: {
+          clientId: client.id, appCode: input.appCode, role: input.role,
+          kind: input.kind, locale: input.locale, version: input.version,
+          title: renderLegalTemplate(input.title, client, legalName), content,
+          contentHash: legalHash(content), effectiveAt: new Date(),
+        } });
+      }
+      return template;
+    });
   }
 
   async updateTemplate(id: string, input: { appCode: string; role: UserRole; kind: string; locale: string; version: string; title: string; content: string; isActive?: boolean }) {
@@ -27,6 +55,9 @@ export class LegalService {
     validateLegalTemplate(input.content);
     const current = await this.db.appLegalTemplate.findUnique({ where: { id } });
     if (!current || current.deletedAt) throw new NotFoundException('Legal template unavailable.');
+    if (mandatoryRiderConsent(current) && (!mandatoryRiderConsent(input) || input.isActive === false ||
+      current.locale !== input.locale))
+      throw new BadRequestException('The mandatory Rider privacy consent template must remain active for this language.');
     const duplicate = await this.db.appLegalTemplate.findFirst({ where: { id: { not: id }, appCode: input.appCode, role: input.role, kind: input.kind, locale: input.locale, version: input.version } });
     if (duplicate) throw new BadRequestException('This template version already exists.');
     return this.db.appLegalTemplate.update({ where: { id }, data: input });
@@ -35,6 +66,8 @@ export class LegalService {
   async deleteTemplate(id: string) {
     const current = await this.db.appLegalTemplate.findUnique({ where: { id } });
     if (!current || current.deletedAt) throw new NotFoundException('Legal template unavailable.');
+    if (mandatoryRiderConsent(current))
+      throw new BadRequestException('The mandatory Rider privacy consent template cannot be removed.');
     return this.db.appLegalTemplate.update({ where: { id }, data: { isActive: false, deletedAt: new Date() } });
   }
 
@@ -72,7 +105,7 @@ export class LegalService {
       throw new NotFoundException('Legal document unavailable.');
     const current = await this.current(clientId, document.appCode, document.role, document.kind, document.locale);
     if (current.id !== document.id || current.contentHash !== input.contentHash)
-      throw new BadRequestException('Terms have changed. Please review the current version.');
+      throw new BadRequestException('The legal document has changed. Please review the current version.');
     const deviceAcceptedAt = input.deviceAcceptedAt ? new Date(input.deviceAcceptedAt) : undefined;
     if (deviceAcceptedAt && (Number.isNaN(deviceAcceptedAt.valueOf()) || deviceAcceptedAt > new Date()))
       throw new BadRequestException('Invalid device acceptance time.');

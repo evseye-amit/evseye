@@ -53,6 +53,8 @@ export function ClientCommercialSettings({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [subscriptions, setSubscriptions] = useState<Item[]>([]);
+  const [packageRevisions, setPackageRevisions] = useState<Item[]>([]);
+  const [selectedPackageRevision, setSelectedPackageRevision] = useState("");
   const [adjustments, setAdjustments] = useState<Item[]>([]);
   const [clientFeatures, setClientFeatures] = useState<Item[]>([]);
   const [creditLots, setCreditLots] = useState<Item[]>([]);
@@ -135,6 +137,11 @@ export function ClientCommercialSettings({
       );
       setEligibleFeatures(eligible);
       const active = nextSubscriptions.find((item) => item.status === "ACTIVE");
+      const availableRevisions = active
+        ? await platformRequest(`/packages/${encodeURIComponent(String(active.packageId))}/revisions`)
+        : [];
+      setPackageRevisions((availableRevisions as Item[]).filter((item) => item.publishedAt));
+      setSelectedPackageRevision(String((active?.packageRevision as Item)?.id ?? ""));
       const [offers, purchases] = await Promise.all([
         active ? request('/feature-addons') : Promise.resolve([]),
         request(`/clients/${encodeURIComponent(clientId)}/addon-purchases`),
@@ -160,6 +167,21 @@ export function ClientCommercialSettings({
       setBusy(false);
     }
   }, [clientId]);
+
+  async function upgradePackageVersion() {
+    if (!activeSubscription || !selectedPackageRevision) return;
+    setBusy(true);
+    setError("");
+    try {
+      await platformRequest(`/subscriptions/${activeSubscription.id}/package-revisions/${selectedPackageRevision}`, "POST");
+      setNotice("Published Package version assigned to this subscription.");
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not assign the Package version.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (open) void load();
@@ -308,6 +330,14 @@ export function ClientCommercialSettings({
             <button type="button" className="secondary" onClick={() => void load()} disabled={busy}>Refresh</button>
           </header>
           {notice && <p className="notice" role="status">{notice}</p>}
+
+          {activeSubscription && <section className="sa-commercial-section">
+            <div className="sa-commercial-section-head"><div><h3>Published Package version</h3><p>This subscription keeps its assigned version until you upgrade it. Changes to commercial allowances require a new subscription.</p></div></div>
+            <div className="sa-commercial-grid">
+              <label><span>Package version</span><select value={selectedPackageRevision} onChange={(event) => setSelectedPackageRevision(event.target.value)}>{packageRevisions.map((revision) => <option key={String(revision.id)} value={String(revision.id)}>v{String(revision.version)}{revision.id === (activeSubscription.packageRevision as Item)?.id ? " · current" : ""}</option>)}</select></label>
+              <div className="sa-commercial-form-action"><button type="button" disabled={busy || !selectedPackageRevision || selectedPackageRevision === (activeSubscription.packageRevision as Item)?.id} onClick={() => void upgradePackageVersion()}>Assign selected version</button></div>
+            </div>
+          </section>}
 
           {(!section || section === "pricing") && <section className="sa-commercial-section">
             <div className="sa-commercial-section-head"><div><h3>Client pricing adjustments</h3><p>Changes apply only to this client and never alter master pricing.</p></div></div>

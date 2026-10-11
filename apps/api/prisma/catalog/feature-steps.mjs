@@ -1,6 +1,11 @@
 // Imported from the approved Feature List workbook. Keep this catalog
 // platform-owned: clients select from it but cannot modify its definitions.
 export const featureStepSpecs = [
+  { id: '6e0d5b12-90c9-4d54-9d90-7d6e51f51200', code: 'PRE_LOGIN', displayName: 'Before login', description: 'Resolve language and legal consent before sign in.', displayOrder: 0 },
+  { id: '6e0d5b12-90c9-4d54-9d90-7d6e51f51201', code: 'PRE_LOGIN_LANGUAGE', displayName: 'Language', description: 'Choose an available language.', parentCode: 'PRE_LOGIN', displayOrder: 1 },
+  { id: '6e0d5b12-90c9-4d54-9d90-7d6e51f51204', code: 'PRE_LOGIN_PRIVACY_CONSENT', displayName: 'Privacy consent', description: 'Review and record the current role-specific privacy notice and consent.', parentCode: 'PRE_LOGIN', displayOrder: 2 },
+  { id: '6e0d5b12-90c9-4d54-9d90-7d6e51f51202', code: 'PRE_LOGIN_CONSENT', displayName: 'Terms', description: 'Review and accept the current role-specific terms.', parentCode: 'PRE_LOGIN', displayOrder: 3 },
+  { id: '6e0d5b12-90c9-4d54-9d90-7d6e51f51203', code: 'PRE_LOGIN_INTRO', displayName: 'Introduction', description: 'Optional introduction to the application.', parentCode: 'PRE_LOGIN', displayOrder: 4 },
   { id: '6b48d8ab-f99c-4cc7-bff9-0c6461f654ad', code: 'LOGIN', displayName: 'Login', description: 'Login to the platform.', displayOrder: 1 },
   { id: 'aab80609-5049-49bf-8630-40c74243d06c', code: 'LOGIN_IDENTIFIER', displayName: 'Identify account', description: 'Collect the account identifier before verification.', parentCode: 'LOGIN', displayOrder: 1 },
   { id: '53a1197c-87a1-4c22-ba0a-8d176e9411d2', code: 'LOGIN_VERIFICATION', displayName: 'Verify account', description: 'Verify the account using an enabled login method.', parentCode: 'LOGIN', displayOrder: 2 },

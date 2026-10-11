@@ -4,6 +4,7 @@ import { featureStepTranslations } from './catalog/feature-step-translations.mjs
 import { featureCatalog } from './catalog/features.mjs';
 import { featurePricingCatalog } from './catalog/feature-pricing.mjs';
 import { packageFeatureCatalog } from './catalog/package-features.mjs';
+import { seedInitialRevisions } from './catalog/seed-revisions.mjs';
 
 const prisma = new PrismaClient();
 
@@ -57,6 +58,7 @@ try {
       update: data,
     });
   }
+  await seedInitialRevisions(prisma);
   console.info(`Seeded ${featureStepSpecs.length} Feature Steps, ${featureCatalog.length} Features, ${featurePricingCatalog.length} prices, and ${packageFeatureCatalog.length} package assignments.`);
 } finally {
   await prisma.$disconnect();

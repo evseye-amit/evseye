@@ -4,10 +4,11 @@ import { AuthModule } from '../auth/auth.module.js';
 import { MediaModule } from '../media/media.module.js';
 import { PlatformCatalogController } from './platform-catalog.controller.js';
 import { PlatformCatalogService } from './platform-catalog.service.js';
+import { CatalogRevisionService } from './catalog-revision.service.js';
 
 @Module({
   imports: [AuthModule, AuditModule, MediaModule],
   controllers: [PlatformCatalogController],
-  providers: [PlatformCatalogService],
+  providers: [PlatformCatalogService, CatalogRevisionService],
 })
 export class PlatformCatalogModule {}

@@ -12,10 +12,11 @@ import { SMS_PROVIDER } from './sms/sms-provider.interface.js';
 import { ClientContextService } from './client-context.service.js';
 import { SmsQuotaService } from './sms-quota.service.js';
 import { LoginFlowService } from './login-flow.service.js';
+import { WorkflowModule } from '../workflow/workflow.module.js';
 import type { Environment } from '../config/environment.js';
 
 @Module({
-  imports: [JwtModule.register({}), ClientResolutionModule],
+  imports: [JwtModule.register({}), ClientResolutionModule, WorkflowModule],
   controllers: [AuthController],
   providers: [
     AuthService,

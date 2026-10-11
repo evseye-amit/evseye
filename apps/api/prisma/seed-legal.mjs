@@ -44,3 +44,34 @@ export async function seedLegal(prisma) {
     } });
   }
 }
+
+// The new privacy-consent template must also reach clients created before it existed.
+// Copies are drafts: the source form contains client-specific facts requiring review.
+export async function seedRiderPrivacyConsentDrafts(prisma) {
+  const { templates } = await legalSeedData();
+  const template = templates.find((item) => item.appCode === 'RIDER' && item.role === 'RIDER' &&
+    item.kind === 'PRIVACY_CONSENT' && item.locale === 'en' && item.isActive);
+  if (!template) throw new Error('Mandatory Rider privacy-consent template is absent.');
+  const clients = await prisma.client.findMany({ include: { businessProfile: true } });
+  for (const client of clients) {
+    const existing = await prisma.appLegalDocument.findFirst({ where: {
+      clientId: client.id, appCode: 'RIDER', role: 'RIDER', kind: 'PRIVACY_CONSENT',
+      locale: template.locale, deletedAt: null,
+    } });
+    if (existing) continue;
+    const legalName = client.businessProfile?.legalCompanyName?.trim() ||
+      '[CLIENT_REVIEW_REQUIRED: legal company name]';
+    const escape = (value) => value.replace(/[&<>"']/g, (char) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+    const content = template.content.replaceAll('{{CLIENT_LEGAL_NAME}}', escape(legalName))
+      .replaceAll('{{CLIENT_NAME}}', escape(client.name))
+      .replaceAll('{{CLIENT_CODE}}', escape(client.companyCode || client.slug));
+    await prisma.appLegalDocument.create({ data: {
+      clientId: client.id, appCode: 'RIDER', role: 'RIDER', kind: 'PRIVACY_CONSENT',
+      locale: template.locale, version: template.version,
+      title: template.title, content,
+      contentHash: createHash('sha256').update(content, 'utf8').digest('hex'),
+      effectiveAt: new Date(),
+    } });
+  }
+}

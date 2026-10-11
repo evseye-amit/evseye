@@ -1,4 +1,5 @@
 import { ConflictException, Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 @Injectable()
@@ -11,12 +12,20 @@ export class SmsQuotaService {
       const now = new Date();
       const subscription = await tx.clientSubscription.findFirst({
         where: { clientId, status: 'ACTIVE', startDate: { lte: now }, OR: [{ endDate: null }, { endDate: { gt: now } }] },
-        include: { package: { include: { features: { where: { feature: { code: 'SEND_OTP_VIA_SMS' }, isIncluded: true } } } } },
+        include: { packageRevision: true },
       });
       if (!subscription) throw new ConflictException('An active subscription is required for SMS.');
       const feature = await tx.feature.findUnique({ where: { code: 'SEND_OTP_VIA_SMS' }, select: { id: true } });
       if (!feature) throw new ConflictException('SMS quota feature is not configured.');
-      const allowance = subscription.package.features[0];
+      const snapshot = subscription.packageRevision?.snapshot as { features?: Array<{
+        featureId: string; includedQuantity: string | null; resetPeriod: string;
+        isUnlimited: boolean; rolloverAllowed: boolean;
+      }> } | undefined;
+      const configured = snapshot?.features?.find((item) => item.featureId === feature.id);
+      const allowance = configured ? { ...configured,
+        id: subscription.packageRevisionId!,
+        includedQuantity: configured.includedQuantity ? new Prisma.Decimal(configured.includedQuantity) : null,
+      } : null;
       if (allowance?.isUnlimited) return [];
       if (allowance?.includedQuantity && allowance.resetPeriod === 'MONTHLY') {
         const anchor = subscription.startDate;
@@ -26,7 +35,7 @@ export class SmsQuotaService {
           return new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), Math.min(anchor.getUTCDate(), new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate())));
         };
         const periodStart = periodDate(month) > now ? periodDate(month - 1) : periodDate(month);
-        const sourceKey = `allowance:${subscription.id}:${allowance.id}:${periodStart.toISOString().slice(0, 10)}`;
+        const sourceKey = `allowance:${subscription.id}:${allowance.id}:${feature.id}:${periodStart.toISOString().slice(0, 10)}`;
         if (!await tx.featureCreditLot.findUnique({ where: { sourceKey } })) {
           if (!allowance.rolloverAllowed) {
             const old = await tx.featureCreditLot.findMany({ where: { subscriptionId: subscription.id, featureId: feature.id, sourceType: 'PACKAGE_ALLOWANCE', periodStart: { lt: periodStart }, quantityAvailable: { gt: 0 } } });

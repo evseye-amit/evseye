@@ -21,7 +21,8 @@ import { vehicleCategoryCatalog } from './catalog/vehicle-categories.mjs';
 import { vehicleTypeCatalog } from './catalog/vehicle-types.mjs';
 import { seedRiderRateCardDemo } from './catalog/rider-rate-card-demo.mjs';
 import { seedKyc } from './seed-kyc.mjs';
-import { seedLegal, seedLegalTemplates } from './seed-legal.mjs';
+import { seedLegal, seedLegalTemplates, seedRiderPrivacyConsentDrafts } from './seed-legal.mjs';
+import { seedInitialRevisions } from './catalog/seed-revisions.mjs';
 
 const prisma = new PrismaClient();
 
@@ -282,6 +283,7 @@ async function main() {
       update: data,
     });
   }
+  await seedInitialRevisions(prisma);
   for (const clientSeed of clientCatalog) {
     const client = await prisma.client.upsert({
       where: { slug: clientSeed.client.slug },
@@ -728,6 +730,10 @@ async function main() {
   await seedKyc(prisma, process.env.KYC_ENABLED === 'true', process.env.KYC_SANDBOX_SECRET_REFERENCE);
 
   await seedLegal(prisma);
+  await seedRiderPrivacyConsentDrafts(prisma);
+
+  // Existing development subscriptions are pinned after their records are seeded.
+  await seedInitialRevisions(prisma);
 
   console.info('Seeded platform master data, client configuration, fleet components, manager users, and Super Admin account.');
 }
