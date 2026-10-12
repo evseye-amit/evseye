@@ -833,6 +833,7 @@ model Client {
   name                        String
   slug                        String                             @unique
   companyCode                 String?                            @unique
+  requestedLocales            String[]                           @default(["en"])
   status                      ClientStatus                       @default(DRAFT)
   isActive                    Boolean                            @default(true)
   domains                     ClientDomain[]

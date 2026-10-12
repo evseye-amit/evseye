@@ -122,7 +122,7 @@ export class LegalService {
     title: string; content: string; effectiveAt: string;
   }) {
     if (input.title.includes('[CLIENT_REVIEW_REQUIRED') || input.content.includes('[CLIENT_REVIEW_REQUIRED'))
-      throw new BadRequestException('Complete all client-specific legal review fields before publishing.');
+      throw new BadRequestException('Resolve all legal review markers, including pending translations, before publishing.');
     const effectiveAt = new Date(input.effectiveAt);
     if (Number.isNaN(effectiveAt.valueOf())) throw new BadRequestException('Invalid effective date.');
     const existing = await this.db.appLegalDocument.findFirst({ where: {
@@ -200,7 +200,7 @@ export class LegalService {
     if (!document || (!isPlatformAdmin && document.clientId !== clientId)) throw new NotFoundException('Legal document unavailable.');
     if (document.publishedAt || document.deletedAt) throw new BadRequestException('Only active drafts can be published.');
     if (document.title.includes('[CLIENT_REVIEW_REQUIRED') || document.content.includes('[CLIENT_REVIEW_REQUIRED'))
-      throw new BadRequestException('Complete all client-specific legal review fields before publishing.');
+      throw new BadRequestException('Resolve all legal review markers, including pending translations, before publishing.');
     const updated = await this.db.appLegalDocument.updateMany({
       where: { id, publishedAt: null, deletedAt: null }, data: { publishedAt: new Date() },
     });

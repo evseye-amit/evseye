@@ -139,6 +139,7 @@ const emptyClient = {
   id: "",
   businessFleetName: "",
   companyCode: "",
+  requestedLocales: ["en"] as string[],
   legalEntityName: "",
   clientType: "",
   businessType: "",
@@ -528,6 +529,7 @@ export default function SuperAdminDashboard() {
   const [showClientForm, setShowClientForm] = useState(false);
   const clientTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [client, setClient] = useState<Item>(emptyClient);
+  const [languages, setLanguages] = useState<Array<{ code: string; name: string; nativeName: string }>>([]);
   const [clientLogoFile, setClientLogoFile] = useState<File | null>(null);
   const [clientDocumentFiles, setClientDocumentFiles] = useState<
     Record<string, File | undefined>
@@ -553,6 +555,7 @@ export default function SuperAdminDashboard() {
         featureList,
         priceList,
         addOnList,
+        languageList,
       ] = await Promise.all([
         request("/platform/dashboard", {}, token),
         request("/platform/clients", {}, token),
@@ -564,6 +567,7 @@ export default function SuperAdminDashboard() {
         request("/platform/features", {}, token),
         request("/platform/feature-pricing", {}, token),
         request("/platform/commercial/feature-addons", {}, token),
+        request("/public/app/languages"),
       ]);
       setSummary(dashboard);
       setClients(clientList);
@@ -575,6 +579,7 @@ export default function SuperAdminDashboard() {
       setFeatures(featureList);
       setPricing(priceList);
       setFeatureAddOns(addOnList);
+      setLanguages(languageList);
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -1568,6 +1573,7 @@ export default function SuperAdminDashboard() {
                 method: "PATCH",
                 body: JSON.stringify({
                   businessFleetName: client.businessFleetName,
+                  requestedLocales: client.requestedLocales,
                   legalEntityName: client.legalEntityName,
                   businessType: client.businessType,
                   clientType: client.clientType,
@@ -1598,6 +1604,7 @@ export default function SuperAdminDashboard() {
               body: JSON.stringify({
                 businessFleetName: client.businessFleetName,
                 companyCode: client.companyCode,
+                requestedLocales: client.requestedLocales,
                 legalEntityName: client.legalEntityName,
                 businessType: client.businessType,
                 clientType: client.clientType,
@@ -1935,6 +1942,7 @@ export default function SuperAdminDashboard() {
         logoUrl: detail.logoUrl ?? "",
         businessFleetName: detail.name ?? "",
         companyCode: detail.companyCode ?? detail.slug ?? "",
+        requestedLocales: detail.requestedLocales ?? ["en"],
         legalEntityName: profile.legalCompanyName ?? "",
         clientType: profile.clientType ?? "",
         businessType: profile.businessType ?? "",
@@ -2040,7 +2048,7 @@ export default function SuperAdminDashboard() {
     label?: string;
     items: Array<[Tab, string, IconName]>;
   }> = [
-    { items: [["dashboard", "Dashboard", "dashboard"], ["legalDocuments", "Legal Documents", "audit"]] },
+    { items: [["dashboard", "Dashboard", "dashboard"]] },
     {
       label: "Vehicle Management",
       items: [
@@ -2082,6 +2090,7 @@ export default function SuperAdminDashboard() {
         ["clientUsageLedger", "Feature Usage Ledger", "dashboard"],
       ],
     },
+    { items: [["legalDocuments", "Legal Documents", "audit"]] },
   ];
   const pageSubtitles: Partial<Record<Tab, string>> = {
     legalDocuments: "Manage default legal documents copied as drafts when a client is created.",
@@ -2257,7 +2266,7 @@ export default function SuperAdminDashboard() {
         </div>
         <nav>
           {navGroups.map((group, groupIndex) => (
-            <div className="sa-nav-group" key={group.label ?? "root"}>
+            <div className="sa-nav-group" key={`${group.label ?? "root"}-${groupIndex}`}>
               {group.label ? (
                 <button
                   type="button"
@@ -2281,7 +2290,7 @@ export default function SuperAdminDashboard() {
                 group.items.map(([key, label, icon]) => (
                 <button
                   key={key}
-                  className={`${tab === key ? "active" : ""} ${groupIndex ? "sa-nav-child" : ""}`}
+                  className={`${tab === key ? "active" : ""} ${group.label ? "sa-nav-child" : ""}`}
                   onClick={() => {
                     setTab(key);
                     window.history.replaceState(null, "", key === "legalDocuments" ? "/platform/dashboard?tab=legalDocuments" : "/platform/dashboard");
@@ -2371,6 +2380,7 @@ export default function SuperAdminDashboard() {
         {tab === "clients" && (
           <ClientsView
             clients={clients}
+            languages={languages}
             packages={packages}
             vehicleCategories={vehicleCategories}
             showForm={showClientForm}
@@ -4062,7 +4072,7 @@ function LegalDocumentsView({ token }: { token: string }) {
           headings={["Document", "Type", "App", "Role", "Language", "Version", "Status", "Actions"]}
           columnFilters={[{ type: "text" }, { type: "select", options: kindOptions.map((kind) => kind.replaceAll("_", " ")) }, { type: "text" },
             { type: "select", options: roleOptions.map((role) => role.replaceAll("_", " ")) }, { type: "text" }, { type: "text" },
-            { type: "select", options: ["Active", "Inactive"] }, null]}
+            { type: "select", options: ["Active", "Active · Translation pending", "Inactive"] }, null]}
           nonSortableColumns={[7]}
           rows={templates.map((template) => [
             template.title,
@@ -4071,7 +4081,8 @@ function LegalDocumentsView({ token }: { token: string }) {
             template.role.replaceAll("_", " "),
             template.locale,
             template.version,
-            template.isActive ? "Active" : "Inactive",
+            template.isActive ? template.content.includes("[CLIENT_REVIEW_REQUIRED: English placeholder")
+              ? "Active · Translation pending" : "Active" : "Inactive",
             <span key={template.id} className="sa-client-actions">
               <button type="button" className="secondary" onClick={(event) => {
                 previewTriggerRef.current = event.currentTarget;
@@ -4547,6 +4558,7 @@ function ClientCommercialDirectory({
 
 function ClientsView({
   clients,
+  languages,
   packages,
   vehicleCategories,
   showForm,
@@ -4857,6 +4869,22 @@ function ClientsView({
               />
               {step === 1 && (
                 <>
+                  <fieldset className="sa-client-language-picker">
+                    <legend>App languages</legend>
+                    <p className="muted">English is the fallback. Other languages stay in a draft workflow until their legal documents and app copy are reviewed and published.</p>
+                    <div>
+                      {languages.map((language: { code: string; name: string; nativeName: string }) => (
+                        <label key={language.code}>
+                          <input type="checkbox" checked={(client.requestedLocales as string[]).includes(language.code)}
+                            disabled={language.code === "en"}
+                            onChange={(event) => change("requestedLocales", event.target.checked
+                              ? [...(client.requestedLocales as string[]), language.code]
+                              : (client.requestedLocales as string[]).filter((code) => code !== language.code))} />
+                          <span>{language.nativeName} <small>({language.name})</small></span>
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
                   <ClientLogoUpload file={logoFile} savedUrl={client.logoUrl} onChange={setLogoFile} />
                   <Select
                     label="Industry"
@@ -5125,6 +5153,7 @@ function ClientsView({
                     package, billing, and uploaded documents. Creating the
                     workspace makes it available to the Client Admin.
                   </p>
+                  <p>Requested app languages: {(client.requestedLocales as string[]).map((code) => languages.find((language: { code: string; name: string }) => language.code === code)?.name ?? code).join(", ")}</p>
                   <label className="sa-toggle">
                     <input
                       type="checkbox"

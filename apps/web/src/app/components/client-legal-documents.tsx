@@ -12,7 +12,8 @@ type LegalDocument = {
 };
 type LegalForm = Pick<LegalDocument, "appCode" | "role" | "kind" | "locale" | "version" | "title" | "content"> & { effectiveAt: string };
 const emptyForm = (): LegalForm => ({ appCode: "RIDER", role: "RIDER", kind: "TERMS_AND_CONDITIONS", locale: "en", version: "", title: "Rider Terms & Conditions", content: "", effectiveAt: new Date().toISOString().slice(0, 10) });
-const statusOf = (document: LegalDocument) => document.retiredAt ? "Retired" : document.publishedAt ? "Published" : "Draft";
+const statusOf = (document: LegalDocument) => document.retiredAt ? "Retired" : document.publishedAt ? "Published"
+  : document.content.includes("[CLIENT_REVIEW_REQUIRED: English placeholder") ? "Translation pending" : "Draft";
 const dateOf = (value: string) => new Date(value).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric" });
 
 async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -27,7 +28,7 @@ const columns: ClientColumn<LegalDocument>[] = [
   { key: "audience", label: "App / Role", value: (row) => `${row.appCode} / ${row.role.replaceAll("_", " ")}` },
   { key: "version", label: "Version", value: (row) => row.version },
   { key: "effectiveAt", label: "Effective date", value: (row) => row.effectiveAt, render: (row) => dateOf(row.effectiveAt) },
-  { key: "status", label: "Status", value: statusOf, render: (row) => <span className={`status status-${statusOf(row).toLowerCase()}`}>{statusOf(row)}</span>, filterOptions: ["Draft", "Published", "Retired"] },
+  { key: "status", label: "Status", value: statusOf, render: (row) => <span className={`status status-${statusOf(row).toLowerCase().replaceAll(" ", "-")}`}>{statusOf(row)}</span>, filterOptions: ["Translation pending", "Draft", "Published", "Retired"] },
 ];
 
 export function ClientLegalDocuments() {
@@ -83,7 +84,7 @@ export function ClientLegalDocuments() {
   return <div className="client-legal-documents">
     <section className="action-card client-legal-intro"><div><p className="eyebrow">CLIENT LEGAL LIBRARY</p><h2>Legal documents</h2><p className="muted">Prepare terms, privacy policies and privacy consent for each app and user role. Published versions stay available as a permanent record.</p></div><button type="button" onClick={startNew}>+ New draft</button></section>
     {error && !showForm && <p className="error" role="alert">{error}</p>}{notice && <p className="notice" role="status">{notice}</p>}
-    {loading ? <p className="muted">Loading documents…</p> : <ClientDataTable rows={documents} columns={columns} getRowId={(row) => row.id} emptyMessage="No legal documents yet. Create a draft to begin." actions={(document) => <><button type="button" className="secondary table-action" onClick={() => setPreview(document)}>Preview</button>{!document.publishedAt && <><button type="button" className="secondary table-action" disabled={busy} onClick={() => startEdit(document)}>Edit</button><button type="button" className="table-action" disabled={busy} onClick={() => void publish(document)}>Publish</button><button type="button" className="danger table-action" disabled={busy} onClick={() => void remove(document)}>Delete draft</button></>}</>} />}
+    {loading ? <p className="muted">Loading documents…</p> : <ClientDataTable rows={documents} columns={columns} getRowId={(row) => row.id} emptyMessage="No legal documents yet. Create a draft to begin." actions={(document) => <><button type="button" className="secondary table-action" onClick={() => setPreview(document)}>Preview</button>{!document.publishedAt && <><button type="button" className="secondary table-action" disabled={busy} onClick={() => startEdit(document)}>Edit</button><button type="button" className="table-action" disabled={busy || document.content.includes("[CLIENT_REVIEW_REQUIRED")} title={document.content.includes("[CLIENT_REVIEW_REQUIRED") ? "Translate the document and resolve every legal review marker before publishing." : undefined} onClick={() => void publish(document)}>Publish</button><button type="button" className="danger table-action" disabled={busy} onClick={() => void remove(document)}>Delete draft</button></>}</>} />}
     {showForm && <ClientFormDialog title={editingId ? "Edit legal draft" : "Create legal draft"} wide busy={busy} error={error} onClose={() => setShowForm(false)}><p className="eyebrow">LEGAL DOCUMENT</p><h2>{editingId ? "Edit draft" : "Create a draft"}</h2><p className="muted">Write the document in HTML, then preview it before publishing.</p><form className="form-stack" onSubmit={(event) => void save(event)}><div className="form-grid">
       <label>App code *<input required maxLength={40} value={form.appCode} onChange={(event) => setForm({ ...form, appCode: event.target.value })} /></label>
       <label>User role *<select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}>{["RIDER", "FLEET_MANAGER", "TEAM_LEAD", "OPERATIONS_MANAGER", "CLIENT_ADMIN", "KYC_OPERATOR"].map((role) => <option key={role} value={role}>{role.replaceAll("_", " ")}</option>)}</select></label>

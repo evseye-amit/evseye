@@ -33,7 +33,7 @@ describe('legal templates', () => {
       id: 'document-1', clientId: client.id, title: 'Terms', content: '[CLIENT_REVIEW_REQUIRED: contact]',
       publishedAt: null, deletedAt: null,
     }), updateMany: vi.fn() } } as never);
-    await expect(service.publishDraft('document-1', client.id, false)).rejects.toThrow('Complete all client-specific');
+    await expect(service.publishDraft('document-1', client.id, false)).rejects.toThrow('Resolve all legal review markers');
   });
 
   it('keeps the mandatory Rider privacy consent template active', async () => {

@@ -20,7 +20,7 @@ import {
   UserRole,
 } from '@prisma/client';
 import { ClientWelcomeService } from '../email/client-welcome.service.js';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { AuditService } from '../audit/audit.service.js';
 import { assertUserMobileAvailable, normalizeIndianMobile, USER_MOBILE_CONFLICT_MESSAGE } from '../common/phone.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -744,6 +744,7 @@ export class PlatformAdminService {
             name: dto.businessFleetName,
             slug: dto.companyCode,
             companyCode: dto.companyCode,
+            requestedLocales: dto.requestedLocales ?? ['en'],
             status: ClientStatus.DRAFT,
             isActive: true,
           },
@@ -823,7 +824,7 @@ export class PlatformAdminService {
     await this.prisma.$transaction([
       this.prisma.client.update({
         where: { id: clientId },
-        data: { name: dto.businessFleetName },
+        data: { name: dto.businessFleetName, requestedLocales: dto.requestedLocales },
       }),
       this.prisma.clientBusinessProfile.update({
         where: { clientId },
@@ -1003,7 +1004,7 @@ export class PlatformAdminService {
     ]);
     if (!packageRecord) throw new NotFoundException('Selected package is unavailable.');
     if (!operations?.numberOfFleets) throw new BadRequestException('Save Fleet Operations with at least one vehicle before selecting a package.');
-    await this.commercial!.createSubscription({
+    const subscription = await this.commercial!.createSubscription({
       clientId,
       packageCode: packageRecord.code,
       vehicleCount: operations.numberOfFleets,
@@ -1011,6 +1012,21 @@ export class PlatformAdminService {
       startDate: dto.startDate,
       endDate: dto.endDate,
     }, actorId);
+    const client = await this.prisma.client.findUniqueOrThrow({ where: { id: clientId },
+      select: { requestedLocales: true } });
+    const revision = await this.prisma.packageRevision.findUniqueOrThrow({
+      where: { id: subscription.packageRevisionId },
+    });
+    const languageFeature = (revision.snapshot as { features?: Array<{ featureId: string;
+      feature: { code: string } }> }).features?.find((part) => part.feature.code === 'SELECT_APP_LANGUAGE');
+    if (!languageFeature) throw new BadRequestException('The selected Package has no language Feature.');
+    const snapshot = { subscriptionId: subscription.id, packageRevisionId: revision.id,
+      overrides: [{ featureId: languageFeature.featureId, enabled: true,
+        configuration: { supportedLocales: client.requestedLocales } }] };
+    await this.prisma.clientWorkflowRevision.create({ data: {
+      subscriptionId: subscription.id, version: 1, snapshot,
+      contentHash: createHash('sha256').update(JSON.stringify(snapshot)).digest('hex'),
+    } });
     await this.audit.record({
       actorId,
       action: 'CLIENT_PACKAGE_SELECTED',

@@ -118,7 +118,7 @@ const CLIENT_NAVIGATION: Array<{
   label: string;
   items: Array<{ id: Tab; label: string }>;
 }> = [
-  { label: "", items: [{ id: "dashboard", label: "Dashboard" }, { id: "legal-documents", label: "Legal Documents" }, { id: "refer-and-earn", label: "Refer & Earn" }] },
+  { label: "", items: [{ id: "dashboard", label: "Dashboard" }, { id: "refer-and-earn", label: "Refer & Earn" }] },
   {
     label: "Team Management",
     items: [
@@ -2445,7 +2445,7 @@ export default function Home() {
                 className="client-nav-items"
                 hidden={Boolean(section.label) && !(expandedClientNavGroups[section.label] ?? false)}
               >
-                {section.items.filter((item) => !["legal-documents", "refer-and-earn"].includes(item.id) || userRoles.includes("CLIENT_ADMIN")).map((item) => (
+                {section.items.filter((item) => item.id !== "refer-and-earn" || userRoles.includes("CLIENT_ADMIN")).map((item) => (
                   <button
                     key={item.id}
                     type="button"
@@ -2464,6 +2464,10 @@ export default function Home() {
         </nav>
         {userRoles.some((role) => role === "CLIENT_ADMIN" || role === "KYC_OPERATOR") &&
           <Link className="client-nav-utility" href="/client/kyc"><UiIcon name="shield" /> KYC &amp; Verification</Link>}
+        {userRoles.includes("CLIENT_ADMIN") &&
+          <button type="button" className={`client-nav-utility${tab === "legal-documents" ? " active" : ""}`} onClick={() => navigateTo("legal-documents")}>
+            <UiIcon name={CLIENT_TAB_ICONS["legal-documents"]} /> {t("Legal Documents")}
+          </button>}
         <ClientBrandingSettings token={token} />
         <div className="sa-user client-sidebar-footer">
           <span aria-hidden="true">C</span>
