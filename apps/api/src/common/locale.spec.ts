@@ -7,6 +7,7 @@ describe('mobile API localization', () => {
     expect(requestLocale('en-IN;q=0.4,te-IN;q=0.9')).toBe('te');
     expect(requestLocale('kn-IN,hi;q=0.8')).toBe('kn');
     expect(requestLocale('hi-IN')).toBe('hi');
+    expect(requestLocale('mr-IN,mr;q=0.7')).toBe('mr');
     expect(requestLocale('fr-FR')).toBe('en');
     expect(requestLocale('te;q=0')).toBe('en');
   });
@@ -15,6 +16,8 @@ describe('mobile API localization', () => {
     const translations = { te: { displayName: 'వ్యక్తిగత వివరాలు' } };
     expect(translatedProperty('Personal Profile', translations, 'te', 'displayName')).toBe('వ్యక్తిగత వివరాలు');
     expect(translatedProperty('Personal Profile', translations, 'kn', 'displayName')).toBe('Personal Profile');
+    expect(translatedProperty('Personal Profile', { mr: { displayName: 'वैयक्तिक तपशील' } }, 'mr', 'displayName')).toBe('वैयक्तिक तपशील');
+    expect(localizeApiError('Invalid OTP.', 'mr')).toBe('Invalid OTP.');
   });
 
   it('translates mobile workflow and field errors without changing field codes', () => {

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { isSupportedLanguage } from '../common/language-catalog.js';
 
 const json = (value: unknown): Prisma.InputJsonValue => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -112,8 +113,10 @@ export class CatalogRevisionService {
     const language = features.find((item) => item.feature?.code === 'SELECT_APP_LANGUAGE');
     const languageConfiguration = { ...language?.feature?.configuration, ...language?.configuration };
     if (!Array.isArray(languageConfiguration.supportedLocales) ||
-        languageConfiguration.supportedLocales.length === 0)
-      throw new BadRequestException('At least one pre-login language is required.');
+        languageConfiguration.supportedLocales.length === 0 ||
+        !languageConfiguration.supportedLocales.every(isSupportedLanguage) ||
+        new Set(languageConfiguration.supportedLocales).size !== languageConfiguration.supportedLocales.length)
+      throw new BadRequestException('Select distinct languages from the platform language catalog.');
     const newerPublished = await this.prisma.packageRevision.findFirst({
       where: { packageId: revision.packageId, version: { gt: revision.version }, publishedAt: { not: null } },
     });
@@ -189,8 +192,8 @@ export class CatalogRevisionService {
         throw new BadRequestException('Mandatory pre-login Features cannot be hidden from an app.');
       const locales = (configuration as Record<string, unknown>).supportedLocales;
       if (locales !== undefined && (!Array.isArray(locales) || locales.length === 0 ||
-          !locales.every((locale) => typeof locale === 'string' && /^[a-z]{2}$/.test(locale))))
-        throw new BadRequestException('Supported languages must be two-letter locale codes.');
+          !locales.every(isSupportedLanguage) || new Set(locales).size !== locales.length))
+        throw new BadRequestException('Select distinct languages from the platform language catalog.');
       return { featureId, enabled: item.enabled !== false, configuration };
     });
     const snapshot = { subscriptionId, packageRevisionId: subscription.packageRevisionId, overrides };
@@ -216,6 +219,45 @@ export class CatalogRevisionService {
       where: { subscriptionId: revision.subscriptionId, version: { gt: revision.version }, publishedAt: { not: null } },
     });
     if (newerPublished) throw new BadRequestException('A newer client workflow revision is already published.');
+    const packageRevision = await this.prisma.packageRevision.findUnique({ where: { id: subscription.packageRevisionId! } });
+    const packageFeatures = ((packageRevision?.snapshot as { features?: Array<{
+      featureId: string; feature: { code: string; configuration?: Record<string, unknown> };
+      configuration?: Record<string, unknown>;
+    }> })?.features ?? []);
+    const overrides = new Map((((revision.snapshot as { overrides?: Array<{
+      featureId: string; enabled?: boolean; configuration?: Record<string, unknown>;
+    }> }).overrides) ?? []).map((item) => [item.featureId, item]));
+    const featureConfig = (code: string, appCode: string) => {
+      const item = packageFeatures.find((part) => part.feature.code === code);
+      if (!item || overrides.get(item.featureId)?.enabled === false) return null;
+      const configuration = { ...item.feature.configuration, ...item.configuration,
+        ...overrides.get(item.featureId)?.configuration };
+      const apps = configuration.appCodes;
+      return configuration.enabled === false || (Array.isArray(apps) && !apps.includes(appCode))
+        ? null : configuration;
+    };
+    for (const [appCode, role] of [['RIDER', 'RIDER'], ['FLEET_MANAGER', 'FLEET_MANAGER']] as const) {
+      const language = featureConfig('SELECT_APP_LANGUAGE', appCode);
+      if (!language) continue;
+      const locales = language.supportedLocales;
+      if (!Array.isArray(locales) || locales.length === 0 || !locales.every(isSupportedLanguage))
+        throw new BadRequestException(`${appCode}: select languages from the platform catalog.`);
+      const kinds = ['TERMS_AND_CONDITIONS', 'PRIVACY_POLICY'];
+      if (appCode === 'RIDER' && featureConfig('ACCEPT_RIDER_PRIVACY_CONSENT', appCode))
+        kinds.push('PRIVACY_CONSENT');
+      const now = new Date();
+      const documents = await this.prisma.appLegalDocument.findMany({ where: {
+        appCode, role, kind: { in: kinds }, locale: { in: locales },
+        publishedAt: { not: null }, deletedAt: null, effectiveAt: { lte: now },
+        AND: [{ OR: [{ clientId: subscription.clientId }, { clientId: null }] },
+          { OR: [{ retiredAt: null }, { retiredAt: { gt: now } }] }],
+      }, select: { kind: true, locale: true } });
+      const available = new Set(documents.map((document) => `${document.kind}:${document.locale}`));
+      const missing = locales.flatMap((locale) => kinds.filter((kind) => !available.has(`${kind}:${locale}`))
+        .map((kind) => `${locale} ${kind}`));
+      if (missing.length)
+        throw new BadRequestException(`${appCode}: publish legal documents before enabling these languages: ${missing.join(', ')}.`);
+    }
     return this.prisma.clientWorkflowRevision.update({
       where: { id: revisionId }, data: { publishedAt: new Date() },
     });

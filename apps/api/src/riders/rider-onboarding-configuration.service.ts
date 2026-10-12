@@ -123,7 +123,7 @@ export class RiderOnboardingConfigurationService {
       const featureTranslations = asRecord(featureConfiguration.translations);
       const packageTranslations = asRecord(packageConfiguration.translations);
       const translations = Object.fromEntries(
-        ['hi', 'te', 'kn'].map((locale) => [locale, {
+        [...new Set([...Object.keys(featureTranslations), ...Object.keys(packageTranslations)])].map((locale) => [locale, {
           ...asRecord(featureTranslations[locale]),
           ...asRecord(packageTranslations[locale]),
         }]),

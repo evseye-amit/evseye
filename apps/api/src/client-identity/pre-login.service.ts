@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { WorkflowResolverService } from '../workflow/workflow-resolver.service.js';
 import { ClientBrandingService } from './client-branding.service.js';
+import { isSupportedLanguage, languageDetails } from '../common/language-catalog.js';
 
 type Obj = Record<string, unknown>;
 const object = (value: unknown): Obj => value && typeof value === 'object' && !Array.isArray(value) ? value as Obj : {};
@@ -39,7 +40,8 @@ export class PreLoginService {
       throw new NotFoundException('Mandatory rider privacy consent Feature is unavailable.');
     const configured = language.configuration.supportedLocales;
     if (!Array.isArray(configured) || configured.length === 0 ||
-        !configured.every((value) => typeof value === 'string' && /^[a-z]{2}$/.test(value)))
+        !configured.every((value) => isSupportedLanguage(value)) ||
+        new Set(configured).size !== configured.length)
       throw new NotFoundException('Supported languages are not configured.');
     return { resolved, configuredLocales: configured as string[], riderPrivacyConsent: !!riderPrivacyConsent,
       intro: resolved.components.find((part) => part.featureCode === 'SHOW_APP_INTRO') };
@@ -84,7 +86,7 @@ export class PreLoginService {
       .sort((a, b) => a.order - b.order);
     return { client: { id: client.id, companyCode: client.companyCode ?? client.slug,
         displayName: client.name }, branding: (await this.branding.context(client.id)).branding,
-      appCode, role, supportedLocales, workflowVersion: resolved.version,
+      appCode, role, supportedLocales, languages: languageDetails(supportedLocales), workflowVersion: resolved.version,
       packageRevisionId: resolved.packageRevisionId, packageVersion: resolved.packageVersion,
       rendererSchemaVersion: 1, steps,
       // The old mobile release reads this projection while it upgrades to the component contract.

@@ -38,6 +38,7 @@ describe('PreLoginService', () => {
       'PRE_LOGIN_ACCEPT_APP_TERMS', 'PRE_LOGIN_SHOW_APP_INTRO',
     ]);
     expect(result.supportedLocales).toEqual(['en']);
+    expect(result.languages).toEqual([{ code: 'en', name: 'English', nativeName: 'English' }]);
   });
 
   it('fails closed when a configured language lacks published consent', async () => {
@@ -48,6 +49,20 @@ describe('PreLoginService', () => {
     ]);
     await expect(service.publicBootstrap('yogmaya', 'RIDER', UserRole.RIDER))
       .rejects.toThrow('Published terms, privacy policy and rider consent');
+  });
+
+  it('offers a newly configured language only with its published legal documents', async () => {
+    const { service } = fixture(['en', 'mr']);
+    const result = await service.publicBootstrap('yogmaya', 'RIDER', UserRole.RIDER);
+    expect(result.supportedLocales).toEqual(['en', 'mr']);
+    expect(result.languages[1]).toEqual({ code: 'mr', name: 'Marathi', nativeName: 'मराठी' });
+    expect(result.workflow.find((step) => step.code === 'INTRO')).toMatchObject({ enabled: false });
+  });
+
+  it('rejects a locale outside the platform catalog', async () => {
+    const { service } = fixture(['en', 'fr']);
+    await expect(service.publicBootstrap('yogmaya', 'RIDER', UserRole.RIDER))
+      .rejects.toThrow('Supported languages are not configured');
   });
 
   it('does not offer a role without a published privacy policy', async () => {

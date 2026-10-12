@@ -52,7 +52,7 @@ const iotStatuses: Record<string, Labels> = {
 };
 
 export function mobileStatusLabels(locale: ApiLocale) {
-  const index = { en: 0, hi: 1, te: 2, kn: 3 }[locale];
+  const index = { en: 0, hi: 1, te: 2, kn: 3 }[locale as 'en' | 'hi' | 'te' | 'kn'] ?? 0;
   const translate = (values: Record<string, Labels>) => Object.fromEntries(
     Object.entries(values).map(([code, labels]) => [code, labels[index]]),
   );

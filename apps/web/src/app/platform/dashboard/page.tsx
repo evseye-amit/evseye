@@ -3948,6 +3948,7 @@ function emptyLegalTemplate(): LegalTemplateForm {
 
 function LegalDocumentsView({ token }: { token: string }) {
   const [templates, setTemplates] = useState<LegalTemplate[]>([]);
+  const [languages, setLanguages] = useState<Array<{ code: string; name: string; nativeName: string }>>([]);
   const [loadingTemplates, setLoadingTemplates] = useState(true);
   const [form, setForm] = useState<LegalTemplateForm>(emptyLegalTemplate);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -3963,7 +3964,12 @@ function LegalDocumentsView({ token }: { token: string }) {
   const loadTemplates = useCallback(async () => {
     setLoadingTemplates(true);
     try {
-      setTemplates(await request("/platform/legal-templates", {}, token));
+      const [templates, languages] = await Promise.all([
+        request("/platform/legal-templates", {}, token),
+        request("/public/app/languages"),
+      ]);
+      setTemplates(templates);
+      setLanguages(languages);
       setError("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to load legal documents.");
@@ -4103,7 +4109,10 @@ function LegalDocumentsView({ token }: { token: string }) {
           <label>App code *<input required maxLength={40} value={form.appCode} onChange={(event) => setForm({ ...form, appCode: event.target.value })} /></label>
           <label>User role *<select required value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}>{roleOptions.map((role) => <option key={role} value={role}>{role.replaceAll("_", " ")}</option>)}</select></label>
           <label>Document type *<select required value={form.kind} onChange={(event) => setForm({ ...form, kind: event.target.value, isActive: event.target.value === "PRIVACY_CONSENT" ? true : form.isActive })}>{kindOptions.map((kind) => <option key={kind} value={kind}>{kind.replaceAll("_", " ")}</option>)}</select></label>
-          <label>Language *<input required pattern="[a-z]{2}" maxLength={2} value={form.locale} onChange={(event) => setForm({ ...form, locale: event.target.value })} /></label>
+          <label>Language *<select required value={form.locale} onChange={(event) => setForm({ ...form, locale: event.target.value })}>
+            {languages.map((language) => <option key={language.code} value={language.code}>{language.nativeName} ({language.name})</option>)}
+            {form.locale && !languages.some((language) => language.code === form.locale) && <option value={form.locale}>{form.locale}</option>}
+          </select></label>
           <label>Version *<input required maxLength={80} value={form.version} onChange={(event) => setForm({ ...form, version: event.target.value })} /></label>
           <label>Title *<input required maxLength={200} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
         </div>

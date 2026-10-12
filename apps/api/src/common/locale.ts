@@ -1,6 +1,6 @@
-export type ApiLocale = 'en' | 'hi' | 'te' | 'kn';
+import { isSupportedLanguage, type ApiLocale } from './language-catalog.js';
 
-const supported = new Set<ApiLocale>(['en', 'hi', 'te', 'kn']);
+export type { ApiLocale } from './language-catalog.js';
 
 /** Negotiates a mobile request's language without trusting a client-supplied package or locale in the body. */
 export function requestLocale(header: string | string[] | undefined): ApiLocale {
@@ -11,7 +11,7 @@ export function requestLocale(header: string | string[] | undefined): ApiLocale 
     const q = quality ? Number(quality.trim().slice(2)) : 1;
     return { locale: tag?.toLowerCase().split('-')[0] as ApiLocale, q: Number.isFinite(q) ? q : 0 };
   }).filter((item) => item.q > 0).sort((left, right) => right.q - left.q);
-  return preferences.find((item) => supported.has(item.locale))?.locale ?? 'en';
+  return preferences.find((item) => isSupportedLanguage(item.locale))?.locale ?? 'en';
 }
 
 type Translation = Record<string, unknown>;
