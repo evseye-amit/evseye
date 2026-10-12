@@ -4072,7 +4072,7 @@ function LegalDocumentsView({ token }: { token: string }) {
                 setPreview(template);
               }}>Preview</button>
               <button type="button" className="secondary" onClick={(event) => openForm(event.currentTarget, template)}>Edit</button>
-              <button type="button" className="danger" disabled={template.appCode === "RIDER" && template.role === "RIDER" && template.kind === "PRIVACY_CONSENT"} onClick={() => confirmRemove(template)}>Remove</button>
+              <button type="button" className="danger" disabled={template.appCode === "RIDER" && template.role === "RIDER" && template.kind === "PRIVACY_CONSENT"} title={template.appCode === "RIDER" && template.role === "RIDER" && template.kind === "PRIVACY_CONSENT" ? "Required template cannot be removed" : undefined} onClick={() => confirmRemove(template)}>Remove</button>
             </span>,
           ])}
         />
@@ -4124,7 +4124,7 @@ function LegalDocumentsView({ token }: { token: string }) {
         onSubmit={(event) => event.preventDefault()}
         actions={<button type="button" className="secondary" onClick={() => setPreview(null)}>Close</button>}
       >
-        <div className="legal-documents-preview"><iframe title={`${preview?.title ?? "Document"} preview`} sandbox="" srcDoc={preview?.content ?? ""} /></div>
+        {preview && <div className="legal-documents-preview"><iframe key={preview.id} title={`${preview.title} preview`} sandbox="" srcDoc={preview.content} /></div>}
       </CatalogFormDialog>
       <DeleteConfirmationDialog confirmation={confirmation} busy={busy} onClose={() => setConfirmation(null)} />
     </section>
