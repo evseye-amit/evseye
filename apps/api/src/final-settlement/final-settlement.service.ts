@@ -31,17 +31,6 @@ const amount = (s: string) => {
 const fail = (code: string): never => {
   throw new ConflictException({ code });
 };
-const allowedReasons = new Set([
-  'RIDER_REQUEST',
-  'CLIENT_REQUEST',
-  'VEHICLE_RETURN',
-  'RENTAL_COMPLETED',
-  'PAYMENT_DEFAULT',
-  'VEHICLE_UNAVAILABLE',
-  'VEHICLE_REPLACED',
-  'POLICY_VIOLATION',
-  'OTHER',
-]);
 const chargeTypes = new Set([
   'DAMAGE',
   'MISSING_ACCESSORY',
@@ -186,166 +175,6 @@ export class FinalSettlementService {
     });
     if (!row) throw new NotFoundException('Settlement not found.');
     return row;
-  }
-  async termination(
-    clientId: string,
-    agreementId: string,
-    actorId: string,
-    key: string,
-    input: {
-      requestedTerminationDate: string;
-      reasonCode: string;
-      reasonText?: string;
-    },
-  ) {
-    if (!key || key.length > 120)
-      throw new BadRequestException('Idempotency-Key is required.');
-    if (!allowedReasons.has(input.reasonCode))
-      throw new BadRequestException('Invalid termination reason.');
-    const requested = new Date(input.requestedTerminationDate);
-    if (Number.isNaN(requested.getTime()))
-      throw new BadRequestException('Invalid requested termination date.');
-    return this.serializable(async (tx) => {
-      const agreement = await tx.riderRentalAgreement.findFirst({
-        where: { id: agreementId, clientId },
-      });
-      if (!agreement) throw new NotFoundException('Agreement not found.');
-      const previous = await tx.rentalTerminationRequest.findUnique({
-        where: { agreementId },
-      });
-      if (previous) {
-        if (
-          previous.idempotencyKey !== key ||
-          previous.reasonCode !== input.reasonCode ||
-          previous.requestedTerminationDate.getTime() !== requested.getTime() ||
-          previous.reasonText !== (input.reasonText ?? null)
-        )
-          fail('TERMINATION_ALREADY_REQUESTED');
-        return previous;
-      }
-      if (
-        !['ACTIVE', 'SUSPENDED', 'TERMINATION_PENDING'].includes(
-          agreement.status,
-        )
-      )
-        fail('AGREEMENT_NOT_TERMINABLE');
-      const row = await tx.rentalTerminationRequest.create({
-        data: {
-          clientId,
-          riderId: agreement.riderId,
-          agreementId,
-          requestedTerminationDate: requested,
-          reasonCode: input.reasonCode,
-          reasonText: input.reasonText,
-          requestedById: actorId,
-          idempotencyKey: key,
-        },
-      });
-      if (agreement.status !== 'TERMINATION_PENDING') {
-        await tx.riderRentalAgreement.update({
-          where: { id: agreementId },
-          data: {
-            status: 'TERMINATION_PENDING',
-            commercialClosureState: 'TERMINATION_REQUESTED',
-            terminationRequestedAt: new Date(),
-            terminationReason: input.reasonCode,
-            updatedById: actorId,
-          },
-        });
-        await tx.riderRentalAgreementStatusHistory.create({
-          data: {
-            clientId,
-            agreementId,
-            previousStatus: agreement.status,
-            newStatus: 'TERMINATION_PENDING',
-            reason: input.reasonCode,
-            changedById: actorId,
-          },
-        });
-      }
-      await this.audit(
-        tx,
-        clientId,
-        actorId,
-        'RENTAL_TERMINATION_REQUESTED',
-        'RentalTerminationRequest',
-        row.id,
-        { agreementId },
-      );
-      return row;
-    });
-  }
-  async recordReturn(clientId: string, agreementId: string, actorId: string) {
-    return this.serializable(async (tx) => {
-      const agreement = await tx.riderRentalAgreement.findFirst({
-        where: { id: agreementId, clientId },
-      });
-      const request = await tx.rentalTerminationRequest.findUnique({
-        where: { agreementId },
-      });
-      if (!agreement || !request)
-        throw new NotFoundException('Termination request not found.');
-      if (request.status === 'RETURNED') return request;
-      const allocation = await tx.allocation.findFirst({
-        where: {
-          clientId,
-          riderId: agreement.riderId,
-          fleetId: agreement.currentVehicleId ?? agreement.vehicleId,
-          status: 'COMPLETED',
-          deallocatedAt: { not: null },
-        },
-        orderBy: { deallocatedAt: 'desc' },
-        include: {
-          inspections: {
-            where: { type: 'POST_DEALLOCATION', status: 'COMPLETED' },
-          },
-        },
-      });
-      if (!allocation?.deallocatedAt || !allocation.inspections.length)
-        throw new ConflictException('VEHICLE_RETURN_INSPECTION_REQUIRED');
-      if (agreement.startDate && allocation.deallocatedAt < agreement.startDate)
-        fail('RETURN_BEFORE_AGREEMENT');
-      const row = await tx.rentalTerminationRequest.update({
-        where: { id: request.id },
-        data: {
-          status: 'RETURNED',
-          actualTerminationDate: allocation.deallocatedAt,
-        },
-      });
-      await tx.riderRentalAgreement.update({
-        where: { id: agreementId },
-        data: {
-          status: 'TERMINATED',
-          commercialClosureState: 'FINAL_BILLING_PENDING',
-          terminationEffectiveAt: allocation.deallocatedAt,
-          terminatedAt: new Date(),
-          updatedById: actorId,
-        },
-      });
-      await tx.riderRentalAgreementStatusHistory.create({
-        data: {
-          clientId,
-          agreementId,
-          previousStatus: agreement.status,
-          newStatus: 'TERMINATED',
-          reason: 'VEHICLE_RETURN',
-          changedById: actorId,
-        },
-      });
-      await this.audit(
-        tx,
-        clientId,
-        actorId,
-        'RENTAL_TERMINATED',
-        'RiderRentalAgreement',
-        agreementId,
-        {
-          returnInspectionId: allocation.inspections[0].id,
-          returnedAt: allocation.deallocatedAt.toISOString(),
-        },
-      );
-      return row;
-    });
   }
   private async estimateRental(
     clientId: string,
@@ -582,6 +411,14 @@ export class FinalSettlementService {
       throw new BadRequestException('Invalid charge type.');
     const value = amount(input.amount);
     const row = await this.settlement(clientId, id);
+    if (input.chargeType === 'DAMAGE' || input.chargeType === 'MISSING_ACCESSORY') {
+      const returnRequest = await this.db.rentalTerminationRequest.findUnique({
+        where: { agreementId: row.agreementId },
+        select: { allocationId: true },
+      });
+      if (returnRequest?.allocationId)
+        throw new ConflictException('RETURN_PENALTY_WORKFLOW_REQUIRED');
+    }
     if (row.status !== 'DRAFT') fail('SETTLEMENT_IMMUTABLE');
     if (!input.description?.trim() || input.description.length > 300)
       throw new BadRequestException('Description is required.');
