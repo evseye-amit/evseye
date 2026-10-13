@@ -257,6 +257,47 @@ describe('AuthService', () => {
     });
     expect(sms.send).toHaveBeenCalledOnce();
   });
+
+  it('commits an invalid return-penalty OTP attempt before throwing', async () => {
+    const { service, prisma } = createService();
+    const otp = {
+      id: 'return-otp-1',
+      clientId: 'client-1',
+      purpose: OtpPurpose.RETURN_PENALTY_APPROVAL,
+      status: OtpStatus.PENDING,
+      attempts: 0,
+      maxAttempts: 5,
+      expiresAt: new Date(Date.now() + 60_000),
+      otpHash: createHmac('sha256', configValues.OTP_HASH_SECRET).update('123456').digest('hex'),
+      context: { caseId: 'case-1', riderId: 'rider-1', revision: 1, digest: 'a'.repeat(64), totalAmount: '10.00', currency: 'INR' },
+    };
+    const tx = {
+      otpRequest: { findFirst: vi.fn().mockResolvedValue(otp), update: vi.fn() },
+      returnPenaltyCase: { findFirst: vi.fn() },
+      auditLog: { create: vi.fn() },
+    };
+    (prisma as any).$transaction = vi.fn((fn: (client: typeof tx) => Promise<unknown>) => fn(tx));
+
+    await expect(service.verifyReturnPenaltyOtp('client-1', otp.id, '000000', {
+      caseId: 'case-1', riderId: 'rider-1', revision: 1, digest: 'a'.repeat(64), totalAmount: '10.00', currency: 'INR',
+    })).rejects.toThrow('Invalid return penalty OTP.');
+    expect(tx.otpRequest.update).toHaveBeenCalledWith({ where: { id: otp.id }, data: { attempts: 1, status: OtpStatus.PENDING } });
+  });
+
+  it('commits expiry before rejecting an expired return-penalty OTP', async () => {
+    const { service, prisma } = createService();
+    const otp = {
+      id: 'return-otp-2', clientId: 'client-1', purpose: OtpPurpose.RETURN_PENALTY_APPROVAL, status: OtpStatus.PENDING,
+      attempts: 0, maxAttempts: 5, expiresAt: new Date(Date.now() - 1), otpHash: 'not-used', context: {},
+    };
+    const tx = { otpRequest: { findFirst: vi.fn().mockResolvedValue(otp), update: vi.fn() } };
+    (prisma as any).$transaction = vi.fn((fn: (client: typeof tx) => Promise<unknown>) => fn(tx));
+
+    await expect(service.verifyReturnPenaltyOtp('client-1', otp.id, '000000', {
+      caseId: 'case-1', riderId: 'rider-1', revision: 1, digest: 'a'.repeat(64), totalAmount: '10.00', currency: 'INR',
+    })).rejects.toThrow('Return penalty OTP has expired.');
+    expect(tx.otpRequest.update).toHaveBeenCalledWith({ where: { id: otp.id }, data: { status: OtpStatus.EXPIRED } });
+  });
 });
 
 describe('Client host login binding', () => {

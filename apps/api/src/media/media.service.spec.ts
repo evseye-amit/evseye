@@ -3,6 +3,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { MediaService } from './media.service.js';
 
 describe('MediaService photo requirements', () => {
+  it('keeps support attachments on the dedicated support routes', async () => {
+    const service = new MediaService({} as never, {} as never);
+
+    await expect(service.requirements('client-a', PhotoEntityType.SUPPORT_TICKET)).rejects.toThrow('Support attachments use the support ticket routes.');
+    await expect(service.upsertRequirement('client-a', PhotoEntityType.SUPPORT_TICKET, 'CHAT', { isRequired: false })).rejects.toThrow('Support attachments use the support ticket routes.');
+  });
+
   it('queries configurable requirements within the caller client only', async () => {
     const prisma = {
       photoRequirement: {
