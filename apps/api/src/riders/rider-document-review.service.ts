@@ -101,10 +101,10 @@ export class RiderDocumentReviewService {
 
   private withRiderName<T extends { photo: { objectKey: string }; rider: { name: string } | null; user: { name: string; riderOnboardingProgress: { values: unknown } | null } }>(document: T, nameFieldCode?: string) {
     const values = document.user.riderOnboardingProgress?.values;
-    const enteredName = nameFieldCode && values && typeof values === 'object' && !Array.isArray(values)
-      ? (values as Record<string, unknown>)[nameFieldCode]
+    const enteredName = values && typeof values === 'object' && !Array.isArray(values)
+      ? ((values as Record<string, unknown>)[nameFieldCode ?? 'FULL_NAME'] ?? (values as Record<string, unknown>).FULL_NAME)
       : null;
-    const riderName = document.rider?.name?.trim() || (typeof enteredName === 'string' ? enteredName.trim() : '') || (document.user.name === 'Pending Rider' ? 'Name not provided' : document.user.name);
+    const riderName = document.rider?.name?.trim() || (typeof enteredName === 'string' ? enteredName.trim() : '') || (/^pending (rider|user)$/i.test(document.user.name.trim()) ? 'Name not provided' : document.user.name);
     const { riderOnboardingProgress: _progress, ...user } = document.user;
     return this.withFileName({ ...document, user, riderName });
   }

@@ -806,6 +806,7 @@ enum PaymentTransactionStatus {
 }
 
 model Client {
+  riderReferenceReviews RiderReferenceReview[]
   legalDocuments              AppLegalDocument[]
   legalAcceptances            AppLegalAcceptance[]
   kycClientPolicies           KycClientPolicy[]
@@ -1889,6 +1890,7 @@ model FleetTransfer {
 }
 
 model User {
+  riderReferenceReviews RiderReferenceReview[] @relation("ReferenceReviewer")
   legalAcceptances         AppLegalAcceptance[]
   id                       String                    @id @default(uuid())
   clientId                 String?
@@ -5805,4 +5807,29 @@ model RewardEvent {
   createdAt DateTime    @default(now())
 
   @@index([clientId, claimId, createdAt])
+}
+
+
+// Decisions apply to an immutable reference fingerprint. Unreviewed references
+// are projected from onboarding/profile data; changed details get a new identity.
+enum RiderReferenceReviewStatus {
+  APPROVED
+  REJECTED
+}
+
+model RiderReferenceReview {
+  id              String                     @id @db.VarChar(64)
+  clientId        String
+  client          Client                     @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  ownerKey        String                     @db.VarChar(100)
+  name            String                     @db.VarChar(120)
+  mobile          String                     @db.VarChar(20)
+  relation        String                     @db.VarChar(80)
+  status          RiderReferenceReviewStatus
+  rejectionReason String?                    @db.VarChar(1000)
+  reviewedById    String
+  reviewedBy      User                       @relation("ReferenceReviewer", fields: [clientId, reviewedById], references: [clientId, id], onDelete: Restrict)
+  reviewedAt      DateTime                   @default(now())
+
+  @@index([clientId, ownerKey])
 }

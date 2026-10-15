@@ -12,6 +12,8 @@ import {
 import { Dispatch, FormEvent, SetStateAction, useEffect, useState } from "react";
 import { OtpCodeInput } from "./components/otp-code-input";
 import { UiIcon, type IconName } from "./components/ui-icon";
+import { SupportTickets } from "./components/support-tickets";
+import { RiderReferenceReview } from "./components/rider-reference-review";
 import { ClientDataTable, type ClientColumn } from "./components/client-data-table";
 import { ClientUserManager, parseCsv } from "./components/client-user-manager";
 import { ClientBulkImportWorkspace, type ClientImportHistoryEntry } from "./components/client-bulk-import-workspace";
@@ -61,6 +63,8 @@ type Tab =
   | "rider-vendor-mapping"
   | "rider-earnings"
   | "rider-document-review"
+  | "rider-reference-review"
+  | "support-tickets"
   | "zones"
   | "reports"
   | "feature-usage";
@@ -154,6 +158,7 @@ const CLIENT_NAVIGATION: Array<{
       { id: "rider-vendor-mapping", label: "Rider Vendor Mapping" },
       { id: "rider-earnings", label: "Rider Earnings" },
       { id: "rider-document-review", label: "Document Verification" },
+      { id: "rider-reference-review", label: "Reference Verification" },
     ],
   },
   {
@@ -162,6 +167,10 @@ const CLIENT_NAVIGATION: Array<{
       { id: "locations", label: "Hub" },
       { id: "zones", label: "Zone" },
     ],
+  },
+  {
+    label: "",
+    items: [{ id: "support-tickets", label: "Support Tickets" }],
   },
   {
     label: "",
@@ -200,6 +209,8 @@ const CLIENT_TAB_TITLES: Record<Tab, string> = {
   "rider-vendor-mapping": "Rider Vendor Mapping",
   "rider-earnings": "Rider Earnings",
   "rider-document-review": "Rider Document Verification",
+  "rider-reference-review": "Rider Reference Verification",
+  "support-tickets": "Support Tickets",
   zones: "Zone",
   reports: "Reports",
   "feature-usage": "Feature Usage",
@@ -232,6 +243,8 @@ const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
   "rider-vendor-mapping": "link",
   "rider-earnings": "earnings",
   "rider-document-review": "shield",
+  "rider-reference-review": "shield",
+  "support-tickets": "support",
   zones: "zone",
   reports: "reports",
   "feature-usage": "usage",
@@ -258,6 +271,8 @@ const ACTIVE_CLIENT_TABS = new Set<Tab>([
   "deallocation-evidence",
   "rider-evidence",
   "rider-document-review",
+  "rider-reference-review",
+  "support-tickets",
 ]);
 
 const PHOTO_EVIDENCE_TABS = new Set<Tab>([
@@ -771,9 +786,14 @@ export default function Home() {
   const [showDetailIotForm, setShowDetailIotForm] = useState(false);
   const [showPhotoTypeForm, setShowPhotoTypeForm] = useState(false);
   const [rejectingDocument, setRejectingDocument] = useState<RecordItem | null>(null);
+  const [supportRefreshKey, setSupportRefreshKey] = useState(0);
+  const [referenceRefreshKey, setReferenceRefreshKey] = useState(0);
   const [reviewBusyId, setReviewBusyId] = useState("");
   const [previewDocument, setPreviewDocument] = useState<{ item: RecordItem; url: string; mimeType: string } | null>(null);
   const [previewLoadingId, setPreviewLoadingId] = useState("");
+  useEffect(() => {
+    return () => { if (previewDocument) URL.revokeObjectURL(previewDocument.url); };
+  }, [previewDocument]);
   const [documentRejectionReason, setDocumentRejectionReason] = useState("");
   const [ingestSecret, setIngestSecret] = useState("");
   const [loading, setLoading] = useState(false);
@@ -833,7 +853,7 @@ export default function Home() {
   }, [token, tab]);
 
   async function loadView(nextTab: Tab) {
-    if (nextTab === "legal-documents" || nextTab === "refer-and-earn") {
+    if (nextTab === "legal-documents" || nextTab === "refer-and-earn" || nextTab === "rider-reference-review" || nextTab === "support-tickets") {
       setItems([]);
       setLoading(false);
       return;
@@ -1066,7 +1086,11 @@ export default function Home() {
     try {
       const result = await request(`/media/${String(photo.id)}/download-url`, {}, token) as { url?: string };
       if (!result.url) throw new Error("Document preview is unavailable.");
-      setPreviewDocument({ item, url: result.url, mimeType: String(photo.mimeType ?? "") });
+      const response = await fetch(result.url, { credentials: "omit" });
+      if (!response.ok) throw new Error("Unable to load document preview.");
+      const mimeType = String(photo.mimeType ?? "");
+      const blob = new Blob([await response.arrayBuffer()], { type: mimeType || "application/octet-stream" });
+      setPreviewDocument({ item, url: URL.createObjectURL(blob), mimeType });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to preview document.");
     } finally {
@@ -2488,7 +2512,7 @@ export default function Home() {
           </div>
           <div className="header-actions">
             <LanguageSwitcher />
-            <button className="secondary" onClick={() => tab === "legal-documents" ? setLegalRefreshKey((key) => key + 1) : tab === "refer-and-earn" ? setReferralRefreshKey((key) => key + 1) : void loadView(tab)}>
+            <button className="secondary" onClick={() => tab === "support-tickets" ? setSupportRefreshKey((key) => key + 1) : tab === "rider-reference-review" ? setReferenceRefreshKey((key) => key + 1) : tab === "legal-documents" ? setLegalRefreshKey((key) => key + 1) : tab === "refer-and-earn" ? setReferralRefreshKey((key) => key + 1) : void loadView(tab)}>
               ↻ {t("Refresh")}
             </button>
             <button onClick={signOut}>{t("Sign out")}</button>
@@ -2504,6 +2528,8 @@ export default function Home() {
         {loading && <p className="muted">Loading current data…</p>}
         {tab === "legal-documents" && userRoles.includes("CLIENT_ADMIN") && <ClientLegalDocuments key={legalRefreshKey} />}
         {tab === "refer-and-earn" && userRoles.includes("CLIENT_ADMIN") && <ClientReferAndEarn key={referralRefreshKey} />}
+        {tab === "rider-reference-review" && <RiderReferenceReview key={referenceRefreshKey} />}
+        {tab === "support-tickets" && <SupportTickets key={supportRefreshKey} />}
         {!loading && tab === "rider-document-review" && <section className="action-card client-review-intro"><p className="eyebrow">RIDER ONBOARDING</p><h2>Review rider documents</h2><p className="muted">Open each uploaded document, then approve it or record a rejection reason.</p><div className="client-review-counts"><span><strong>{items.filter((item) => item.status === "PENDING").length}</strong> Pending</span><span><strong>{items.filter((item) => item.status === "APPROVED").length}</strong> Approved</span><span><strong>{items.filter((item) => item.status === "REJECTED").length}</strong> Rejected</span></div></section>}
         {!loading && (tab === "fleets" || tab === "riders" || tab === "batteries" || tab === "controllers" || tab === "iot-devices" || tab === "fleet-component-mapping") && <section className="sa-page-head client-page-head"><div className="sa-actions"><button className="secondary" onClick={() => openBulkImport(tab as ClientBulkTab)}>Bulk upload</button>{tab === "fleets" ? <button onClick={() => void openFleetForm()}>+ Add Fleet</button> : tab === "riders" ? <button onClick={() => void openRiderForm()}>+ Add Rider</button> : tab === "iot-devices" ? <button onClick={() => void openIotForm()}>+ Add IoT device</button> : tab === "fleet-component-mapping" ? <button onClick={() => void openMappingForm()}>+ Add mapping</button> : <button onClick={() => void openComponentForm(tab)}>+ Add {tab === "batteries" ? "Battery" : "Controller"}</button>}</div></section>}
         {tab === "iot-devices" && showIotForm && <ClientFormDialog title={editingIotDeviceId ? "Edit IoT device" : "Register IoT device"} busy={loading} error={error} onClose={() => setShowIotForm(false)}><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void registerIotDevice(iotFleetId); }}>
@@ -3029,6 +3055,8 @@ export default function Home() {
           tab !== "dashboard" &&
           tab !== "legal-documents" &&
           tab !== "refer-and-earn" &&
+          tab !== "rider-reference-review" &&
+          tab !== "support-tickets" &&
           tab !== "locations" &&
           tab !== "evidence" && (
             <>
@@ -3157,7 +3185,7 @@ export default function Home() {
                 ? <iframe src={previewDocument.url} title="Uploaded rider document PDF" referrerPolicy="no-referrer" />
                 : <p className="muted">A preview is unavailable for this file type.</p>}
           </div>
-          <div className="form-actions"><button type="button" className="secondary" onClick={() => setPreviewDocument(null)}>Close preview</button></div>
+          <div className="form-actions"><a className="button secondary" href={previewDocument.url} download={String((previewDocument.item.photo as RecordItem | undefined)?.fileName ?? "rider-document")}>Download document</a><button type="button" className="secondary" onClick={() => setPreviewDocument(null)}>Close preview</button></div>
         </ClientFormDialog>}
         <ClientDeleteDialog confirmation={deleteConfirmation} busy={loading} onClose={() => setDeleteConfirmation(null)} />
         <footer className="client-operations-footer">Powered by EV Spares India Pvt Ltd</footer>

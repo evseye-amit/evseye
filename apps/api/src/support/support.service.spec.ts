@@ -39,3 +39,46 @@ describe('SupportService', () => {
     expect(db.supportTicket.findFirst).not.toHaveBeenCalled();
   });
 });
+
+
+describe('Support ticket panel projections', () => {
+  const staff: AuthUser = { id: 'manager-1', clientId: 'client-a', roles: [UserRole.FLEET_MANAGER] };
+  it('includes rider/hub names and preserves fleet manager hub scope and cursor pagination', async () => {
+    const rows = [1, 2].map((number) => ({ id: `ticket-${number}`, lastActivityAt: new Date('2026-10-16T00:00:00Z'), rider: { name: 'Aman' }, hub: { name: 'Main Hub' } }));
+    const db = { userHub: { findMany: vi.fn().mockResolvedValue([{ hubId: 'hub-1' }]) }, supportTicket: { findMany: vi.fn().mockResolvedValue(rows) } };
+    const service = new SupportService(db as never, {} as never);
+    const result = await service.list('client-a', staff, { limit: 1 });
+    expect(result.items).toEqual([rows[0]]);
+    expect(result.nextCursor).toBeTruthy();
+    expect(db.supportTicket.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { clientId: 'client-a', hubId: { in: ['hub-1'] } }, take: 2,
+      include: { rider: { select: { id: true, name: true, mobile: true } }, hub: { select: { id: true, name: true, code: true } } },
+    }));
+    await service.list('client-a', staff, { limit: 1, cursor: result.nextCursor! });
+    expect(db.supportTicket.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: expect.objectContaining({ AND: expect.any(Array) }) }));
+  });
+
+  it('includes conversation author names only from the authenticated client', async () => {
+    const ticket = { id: 'ticket-1', hubId: 'hub-1', riderId: 'rider-1', replies: [
+      { id: 'reply-1', authorId: 'rider-user', body: 'Help' }, { id: 'reply-2', authorId: 'manager-1', body: 'Checking' },
+    ] };
+    const db = {
+      supportTicket: { findFirst: vi.fn().mockResolvedValue(ticket), findUniqueOrThrow: vi.fn().mockResolvedValue(ticket) },
+      userHub: { findMany: vi.fn().mockResolvedValue([{ hubId: 'hub-1' }]) },
+      photo: { findMany: vi.fn().mockResolvedValue([]) },
+      user: { findMany: vi.fn().mockResolvedValue([{ id: 'rider-user', name: 'Aman', role: 'RIDER' }]) },
+    };
+    const service = new SupportService(db as never, {} as never);
+    const result = await service.get('client-a', staff, 'ticket-1');
+    expect(result.replies[0].author).toMatchObject({ name: 'Aman' });
+    expect(result.replies[1].author).toBeNull();
+    expect(db.user.findMany).toHaveBeenCalledWith({ where: { clientId: 'client-a', id: { in: ['rider-user', 'manager-1'] } }, select: { id: true, name: true, role: true } });
+  });
+
+  it('does not load conversation details for a hub outside the fleet manager assignments', async () => {
+    const db = { supportTicket: { findFirst: vi.fn().mockResolvedValue({ id: 'ticket-1', hubId: 'other-hub' }), findUniqueOrThrow: vi.fn() },
+      userHub: { findMany: vi.fn().mockResolvedValue([{ hubId: 'hub-1' }]) } };
+    await expect(new SupportService(db as never, {} as never).get('client-a', staff, 'ticket-1')).rejects.toThrow('Support ticket is not in an assigned Hub.');
+    expect(db.supportTicket.findUniqueOrThrow).not.toHaveBeenCalled();
+  });
+});

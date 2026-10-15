@@ -4433,3 +4433,18 @@ body:has(.sa-dialog[open]) {
 .rider-document-preview iframe { display: block; width: 100%; height: 62dvh; border: 0; background: white; }
 @media (max-width: 720px) { .client-legal-intro { align-items: stretch; flex-direction: column; } }
 @media (max-width: 720px) { .legal-documents-header { flex-direction: column; } }
+
+.support-ticket-heading, .support-ticket-message header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.support-ticket-heading h2 { margin-top: 4px; }
+.support-ticket-id { font-size: 12px; overflow-wrap: anywhere; }
+.support-ticket-conversation { display: grid; gap: 12px; margin: 24px 0; }
+.support-ticket-message { padding: 16px; border: 1px solid #d7e4dc; border-radius: 10px; background: #f7faf8; min-width: 0; }
+.support-ticket-message time { color: var(--muted); font-size: 12px; }
+.support-ticket-message p { white-space: pre-wrap; overflow-wrap: anywhere; margin-bottom: 0; }
+.support-ticket-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0; }
+.support-ticket-attachments h3 { flex-basis: 100%; }
+.support-ticket-attachments button { max-width: 100%; overflow-wrap: anywhere; }
+.support-ticket-status-form { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; margin: 20px 0; }
+.support-ticket-status-form label { display: grid; gap: 8px; flex: 1; min-width: 180px; }
+.support-ticket-status-open { color: #875e11; background: #fff3d5; }
+.support-ticket-status-in_progress { color: #1b5a99; background: #e7f0fc; }

@@ -11,7 +11,8 @@ Multi-client EV fleet-management MVP with strict client isolation.
 
 The API health endpoints are `/health` and `/health/ready`.
 
-Fresh databases use the single `20261016000000_init` migration. It includes the
+Fresh databases start with the consolidated `20261016000000_init` migration,
+followed by any newer migrations. The initial migration includes the
 PostGIS extensions, database triggers, check and overlap constraints, and custom
 indexes alongside the Prisma schema. The normal seed runner populates the
 catalogs and local demo tenant; it does not restore operational history. Existing

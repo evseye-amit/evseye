@@ -126,7 +126,9 @@ export class SupportService {
     }
     if (cursor) where.AND = [{ OR: [{ lastActivityAt: { lt: cursor.lastActivityAt } }, { lastActivityAt: cursor.lastActivityAt, id: { lt: cursor.id } }] }];
     const limit = Math.min(Math.max(query.limit ?? 25, 1), 100);
-    const rows = await this.db.supportTicket.findMany({ where, orderBy: [{ lastActivityAt: 'desc' }, { id: 'desc' }], take: limit + 1 });
+    const rows = await this.db.supportTicket.findMany({ where, orderBy: [{ lastActivityAt: 'desc' }, { id: 'desc' }], take: limit + 1,
+      include: { rider: { select: { id: true, name: true, mobile: true } }, hub: { select: { id: true, name: true, code: true } } },
+    });
     const hasMore = rows.length > limit;
     const items = hasMore ? rows.slice(0, limit) : rows;
     const last = items.at(-1);
@@ -137,10 +139,16 @@ export class SupportService {
     const rider = actor.roles.includes(UserRole.RIDER) ? await this.rider(clientId, actor.id) : undefined;
     const row = await this.assertAccess(clientId, actor, ticketId, rider?.id);
     const [ticket, photos] = await Promise.all([
-      this.db.supportTicket.findUniqueOrThrow({ where: { id: row.id }, include: { replies: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] } } }),
+      this.db.supportTicket.findUniqueOrThrow({ where: { id: row.id }, include: { rider: { select: { id: true, name: true, mobile: true } }, hub: { select: { id: true, name: true, code: true } },
+        replies: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] } } }),
       this.db.photo.findMany({ where: { clientId, entityType: 'SUPPORT_TICKET', entityId: row.id, status: 'COMPLETE' }, orderBy: { uploadedAt: 'asc' } }),
     ]);
-    return { ...ticket, photos };
+    const authors = ticket.replies.length ? await this.db.user.findMany({
+      where: { clientId, id: { in: [...new Set(ticket.replies.map((reply) => reply.authorId))] } },
+      select: { id: true, name: true, role: true },
+    }) : [];
+    const byId = new Map(authors.map((author) => [author.id, author]));
+    return { ...ticket, replies: ticket.replies.map((reply) => ({ ...reply, author: byId.get(reply.authorId) ?? null })), photos };
   }
 
   async reply(clientId: string, actor: AuthUser, ticketId: string, input: CreateSupportReplyDto) {
