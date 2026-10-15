@@ -20,7 +20,6 @@ function fixture(locales = ['en']) {
     components: [
       part('SELECT_APP_LANGUAGE', 'LANGUAGE_SELECTOR', { supportedLocales: locales }, 1),
       part('ACCEPT_RIDER_PRIVACY_CONSENT', 'LEGAL_CONSENT', { kind: 'PRIVACY_CONSENT' }, 2),
-      part('ACCEPT_APP_TERMS', 'LEGAL_CONSENT', { kind: 'TERMS_AND_CONDITIONS' }, 2),
       part('SHOW_APP_INTRO', 'INTRO_CAROUSEL', { version: '3', translations: { en: [{ key: 'one', title: 'Welcome', body: 'Body', highlights: [] }] } }, 3),
     ] }) };
   const branding = { context: vi.fn().mockResolvedValue({ branding: {} }) };
@@ -35,7 +34,7 @@ describe('PreLoginService', () => {
     expect(result.packageRevisionId).toBe('pkg-r1');
     expect(result.steps.map((step) => step.code)).toEqual([
       'PRE_LOGIN_SELECT_APP_LANGUAGE', 'PRE_LOGIN_ACCEPT_RIDER_PRIVACY_CONSENT',
-      'PRE_LOGIN_ACCEPT_APP_TERMS', 'PRE_LOGIN_SHOW_APP_INTRO',
+      'PRE_LOGIN_SHOW_APP_INTRO',
     ]);
     expect(result.supportedLocales).toEqual(['en']);
     expect(result.languages).toEqual([{ code: 'en', name: 'English', nativeName: 'English' }]);

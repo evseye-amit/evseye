@@ -19,15 +19,15 @@ describe('CatalogRevisionService', () => {
     expect(prisma.clientSubscription.update).not.toHaveBeenCalled();
   });
 
-  it('does not permit disabling mandatory consent in a client draft', async () => {
+  it('does not permit disabling mandatory language selection in a client draft', async () => {
     const prisma = {
       clientSubscription: { findUnique: vi.fn().mockResolvedValue({
         packageRevisionId: 'pkg-r1', packageRevision: { publishedAt: new Date(),
-          snapshot: { features: [{ featureId: 'terms', feature: { code: 'ACCEPT_APP_TERMS' } }] } },
+          snapshot: { features: [{ featureId: 'language', feature: { code: 'SELECT_APP_LANGUAGE' } }] } },
       }) },
     };
     await expect(new CatalogRevisionService(prisma as never).draftClientWorkflow('sub', {
-      overrides: [{ featureId: 'terms', enabled: false, configuration: {} }],
+      overrides: [{ featureId: 'language', enabled: false, configuration: {} }],
     })).rejects.toThrow('cannot be disabled');
   });
 

@@ -20,6 +20,7 @@ describe('WorkflowResolverService', () => {
               componentType: 'LANGUAGE_SELECTOR', supportedLocales: ['en'] })] } },
       }) },
       featureStep: { findMany: vi.fn().mockResolvedValue([]) },
+      feature: { findMany: vi.fn().mockResolvedValue([]) },
       clientWorkflowRevision: { findFirst: vi.fn().mockResolvedValue({ id: 'client-r1',
         contentHash: 'client-hash', snapshot: { packageRevisionId: 'pkg-r1', overrides: [
           { featureId: 'SELECT_APP_LANGUAGE', enabled: true,
@@ -46,6 +47,7 @@ describe('WorkflowResolverService', () => {
               componentType: 'INTRO_CAROUSEL', appCodes: ['RIDER'] })] } },
       }) },
       featureStep: { findMany: vi.fn().mockResolvedValue([]) },
+      feature: { findMany: vi.fn().mockResolvedValue([]) },
       clientWorkflowRevision: { findFirst: vi.fn().mockResolvedValue(null) },
     };
     const result = await new WorkflowResolverService(prisma as never)
@@ -62,6 +64,7 @@ describe('WorkflowResolverService', () => {
             features: [feature('SELECT_APP_LANGUAGE', 'PRE_LOGIN')] } },
       }) },
       clientWorkflowRevision: { findFirst: vi.fn().mockResolvedValue(null) },
+      feature: { findMany: vi.fn().mockResolvedValue([]) },
       featureStep: { findMany: vi.fn().mockResolvedValue([{ code: 'PRE_LOGIN_LANGUAGE',
         displayName: 'Language', description: 'Choose a language.',
         translations: { as: { displayName: 'ভাষা', description: 'এটা ভাষা বাছনি কৰক।', translationStatus: 'ACTIVE' } },
@@ -76,6 +79,28 @@ describe('WorkflowResolverService', () => {
     expect(prisma.featureStep.findMany).toHaveBeenCalledWith({
       where: { code: { in: ['PRE_LOGIN_LANGUAGE'] } },
       select: { code: true, displayName: true, description: true, translations: true },
+    });
+  });
+
+  it('uses current Feature copy and translations with the published workflow', async () => {
+    const prisma = {
+      clientSubscription: { findFirst: vi.fn().mockResolvedValue({
+        id: 'sub-1', packageId: 'pkg-1', packageRevisionId: 'pkg-r1',
+        packageRevision: { id: 'pkg-r1', version: 1, publishedAt: new Date(),
+          contentHash: 'hash', snapshot: { id: 'pkg-1', code: 'BASIC', name: 'Basic',
+            features: [feature('CAPTURE_NAME', 'RIDER_ONBOARDING', { label: 'Name' })] } },
+      }) },
+      clientWorkflowRevision: { findFirst: vi.fn().mockResolvedValue(null) },
+      featureStep: { findMany: vi.fn().mockResolvedValue([]) },
+      feature: { findMany: vi.fn().mockResolvedValue([{ id: 'CAPTURE_NAME', name: 'Capture name',
+        description: 'Enter your name', translations: { hi: { name: 'नाम', label: 'पूरा नाम',
+          translationStatus: 'ACTIVE' } } }]) },
+    };
+    const result = await new WorkflowResolverService(prisma as never)
+      .resolve('client-1', 'RIDER_ONBOARDING', 'RIDER');
+    expect(result.components[0].featureName).toBe('Capture name');
+    expect(result.components[0].configuration.translations).toMatchObject({
+      hi: { label: 'पूरा नाम', translationStatus: 'ACTIVE' },
     });
   });
 });

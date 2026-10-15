@@ -131,6 +131,7 @@ export class CreateFeatureDto {
   @IsEnum(FeatureType) featureType!: FeatureType;
   @IsEnum(FeatureBillingUnit) billingUnit!: FeatureBillingUnit;
   @IsOptional() @IsString() @MaxLength(500) description?: string;
+  @IsOptional() @IsObject() translations?: Record<string, unknown>;
   @IsOptional() @IsObject() configuration?: Record<string, unknown>;
   @IsOptional() @IsUUID() featureStepId?: string;
   @IsOptional() @IsNumber() @Min(0) displayOrder?: number;

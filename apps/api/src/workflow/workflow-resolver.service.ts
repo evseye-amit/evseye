@@ -93,7 +93,36 @@ export class WorkflowResolverService {
           parentCode: typeof step.parentCode === 'string' ? step.parentCode : null },
       });
     }
-    // Workflow structure stays pinned to the published revision; platform step copy follows the current catalog.
+    // Workflow structure stays pinned; catalog copy can be reviewed and activated independently.
+    const featureIds = [...new Set(components.map((component) => component.featureId))];
+    if (featureIds.length) {
+      const localizedFeatures = await this.prisma.feature.findMany({
+        where: { id: { in: featureIds } },
+        select: { id: true, name: true, description: true, translations: true },
+      });
+      const currentCopy = new Map(localizedFeatures.map((feature) => [feature.id, feature]));
+      for (const component of components) {
+        const current = currentCopy.get(component.featureId);
+        if (!current) continue;
+        component.featureName = current.name;
+        component.description = current.description;
+        if (component.componentType === 'INTRO_CAROUSEL') continue;
+        const catalogTranslations = object(current.translations);
+        const configuredTranslations = object(component.configuration.translations);
+        component.configuration.translations = Object.fromEntries(
+          [...new Set([...Object.keys(catalogTranslations), ...Object.keys(configuredTranslations)])]
+            .map((locale) => {
+              const configured = object(configuredTranslations[locale]);
+              return [locale, {
+                ...object(catalogTranslations[locale]), ...configured,
+                ...(Object.keys(configured).length && !('translationStatus' in configured)
+                  ? { translationStatus: 'ACTIVE' } : {}),
+              }];
+            }),
+        );
+      }
+    }
+    // Platform step copy follows the current catalog as well.
     const stepCodes = [...new Set(components.map((component) => component.step.code))];
     if (stepCodes.length) {
       const localizedSteps = await this.prisma.featureStep.findMany({

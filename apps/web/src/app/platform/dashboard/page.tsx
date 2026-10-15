@@ -305,6 +305,7 @@ const emptyFeature = {
   code: "",
   name: "",
   description: "",
+  translations: {} as CatalogTranslations,
   category: "",
   featureType: "",
   billingUnit: "",
@@ -729,6 +730,11 @@ export default function SuperAdminDashboard() {
         code: item.code,
         name: item.name,
         description: item.description ?? "",
+        translations: completeCatalogTranslations(
+          { name: item.name, description: item.description ?? "",
+            label: item.configuration?.label ?? "", placeholder: item.configuration?.placeholder ?? "" },
+          ["name", "description", "label", "placeholder"], item.translations ?? {},
+        ),
         category: item.category,
         featureType: item.featureType,
         billingUnit: item.billingUnit,
@@ -3172,6 +3178,15 @@ export default function SuperAdminDashboard() {
                     ["description", "Description"],
                     ["displayOrder", "Display order"],
                   ]}
+                />
+                <CatalogTranslationFields
+                  base={{ name: feature.name, description: feature.description,
+                    label: (() => { try { return JSON.parse(feature.configuration || "{}").label ?? ""; } catch { return ""; } })(),
+                    placeholder: (() => { try { return JSON.parse(feature.configuration || "{}").placeholder ?? ""; } catch { return ""; } })() }}
+                  fields={[{ key: "name", label: "Feature name" }, { key: "description", label: "Description" },
+                    { key: "label", label: "Field label" }, { key: "placeholder", label: "Field placeholder" }]}
+                  translations={feature.translations}
+                  onChange={(translations) => setFeature((current) => ({ ...current, translations }))}
                 />
                 <label>
                   Feature configuration (optional JSON)

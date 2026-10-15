@@ -31,9 +31,8 @@ export class PreLoginService {
   private async definition(clientId: string, appCode: string) {
     const resolved = await this.workflows.resolve(clientId, 'PRE_LOGIN', appCode);
     const language = resolved.components.find((part) => part.featureCode === 'SELECT_APP_LANGUAGE');
-    const consent = resolved.components.find((part) => part.featureCode === 'ACCEPT_APP_TERMS');
     const riderPrivacyConsent = resolved.components.find((part) => part.featureCode === 'ACCEPT_RIDER_PRIVACY_CONSENT');
-    if (!language || !consent || language.componentType !== 'LANGUAGE_SELECTOR' || consent.componentType !== 'LEGAL_CONSENT')
+    if (!language || language.componentType !== 'LANGUAGE_SELECTOR')
       throw new NotFoundException('Mandatory pre-login Features are unavailable.');
     if (riderPrivacyConsent && (riderPrivacyConsent.componentType !== 'LEGAL_CONSENT' ||
       riderPrivacyConsent.configuration.kind !== 'PRIVACY_CONSENT'))

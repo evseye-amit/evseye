@@ -101,14 +101,14 @@ export class CatalogRevisionService {
     const snapshot = revision.snapshot as { features?: Array<{ feature?: { code?: string; configuration?: Record<string, unknown> }; configuration?: Record<string, unknown> }> };
     const features = snapshot.features ?? [];
     const codes = new Set(features.map((item) => item.feature?.code));
-    if (!codes.has('SELECT_APP_LANGUAGE') || !codes.has('ACCEPT_APP_TERMS'))
-      throw new BadRequestException('A Package must include language and legal consent Features.');
-    const mandatory = features.filter((item) => ['SELECT_APP_LANGUAGE', 'ACCEPT_APP_TERMS'].includes(item.feature?.code ?? ''));
+    if (!codes.has('SELECT_APP_LANGUAGE'))
+      throw new BadRequestException('A Package must include the language Feature.');
+    const mandatory = features.filter((item) => item.feature?.code === 'SELECT_APP_LANGUAGE');
     for (const item of mandatory) {
       const configuration = { ...item.feature?.configuration, ...item.configuration };
       if (configuration.enabled === false || !['RIDER', 'FLEET_MANAGER'].every((app) =>
         Array.isArray(configuration.appCodes) && configuration.appCodes.includes(app)))
-        throw new BadRequestException('Language and legal consent must be available to both mobile apps.');
+        throw new BadRequestException('Language selection must be available to both mobile apps.');
     }
     const language = features.find((item) => item.feature?.code === 'SELECT_APP_LANGUAGE');
     const languageConfiguration = { ...language?.feature?.configuration, ...language?.configuration };
@@ -177,9 +177,9 @@ export class CatalogRevisionService {
       if (typeof featureId !== 'string' || !included.has(featureId) || seen.has(featureId))
         throw new BadRequestException('Override must reference one included Feature exactly once.');
       seen.add(featureId);
-      const mandatory = ['SELECT_APP_LANGUAGE', 'ACCEPT_APP_TERMS'].includes(included.get(featureId)!);
+      const mandatory = included.get(featureId) === 'SELECT_APP_LANGUAGE';
       if (item.enabled === false && mandatory)
-        throw new BadRequestException('Language and legal consent cannot be disabled.');
+        throw new BadRequestException('Language selection cannot be disabled.');
       const configuration = item.configuration ?? {};
       if (!configuration || typeof configuration !== 'object' || Array.isArray(configuration))
         throw new BadRequestException('Feature override configuration must be an object.');

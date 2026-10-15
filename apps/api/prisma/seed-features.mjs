@@ -24,10 +24,11 @@ try {
   for (const { featureStepCode, ...feature } of featureCatalog) {
     const featureStepId = featureStepCode ? steps.get(featureStepCode)?.id : null;
     if (featureStepCode && !featureStepId) throw new Error(`Missing Feature Step ${featureStepCode} for ${feature.code}`);
+    const existing = await prisma.feature.findUnique({ where: { code: feature.code }, select: { translations: true } });
     await prisma.feature.upsert({
       where: { code: feature.code },
       create: { ...feature, featureStepId },
-      update: { ...feature, featureStepId },
+      update: { ...feature, ...(existing?.translations ? { translations: existing.translations } : {}), featureStepId },
     });
   }
 

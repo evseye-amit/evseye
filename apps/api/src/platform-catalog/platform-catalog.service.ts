@@ -512,13 +512,14 @@ export class PlatformCatalogService {
     });
   }
   async createFeature(dto: CreateFeatureDto, actorId: string) {
-    const { configuration, featureStepId, ...data } = dto;
+    const { configuration, translations, featureStepId, ...data } = dto;
     if (featureStepId) await this.requireFeatureStep(featureStepId);
     const effectiveConfiguration = uploadFeatureConfiguration(dto.billingUnit, dto.code, configuration);
     return this.createWithAudit('FEATURE_CREATED', 'Feature', actorId, () =>
       this.prisma.feature.create({
         data: {
           ...data,
+          ...(translations ? { translations: translations as Prisma.InputJsonValue } : {}),
           ...(featureStepId ? { featureStepId } : {}),
           ...(effectiveConfiguration !== undefined
             ? { configuration: effectiveConfiguration as Prisma.InputJsonValue }
@@ -530,7 +531,7 @@ export class PlatformCatalogService {
   async updateFeature(id: string, dto: UpdateFeatureDto, actorId: string) {
     const existing = await this.prisma.feature.findUnique({ where: { id }, select: { configuration: true } });
     if (!existing) throw new NotFoundException('Feature not found.');
-    const { configuration, featureStepId, ...data } = dto;
+    const { configuration, translations, featureStepId, ...data } = dto;
     if (featureStepId) await this.requireFeatureStep(featureStepId);
     const currentConfiguration = existing.configuration && typeof existing.configuration === 'object' && !Array.isArray(existing.configuration)
       ? existing.configuration as Record<string, unknown>
@@ -541,6 +542,7 @@ export class PlatformCatalogService {
         where: { id },
         data: {
           ...data,
+          ...(translations ? { translations: translations as Prisma.InputJsonValue } : {}),
           ...(featureStepId !== undefined ? { featureStepId } : {}),
           ...(effectiveConfiguration !== undefined
             ? { configuration: effectiveConfiguration as Prisma.InputJsonValue }

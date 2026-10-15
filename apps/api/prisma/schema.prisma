@@ -998,6 +998,7 @@ model Feature {
   featureType              FeatureType
   billingUnit              FeatureBillingUnit
   description              String?
+  translations             Json?
   configuration            Json?
   featureStepId            String?
   featureStep              FeatureStep?                 @relation(fields: [featureStepId], references: [id], onDelete: SetNull)

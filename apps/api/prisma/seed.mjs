@@ -148,17 +148,18 @@ async function main() {
     featureSteps.set(code, saved);
   }
   await Promise.all(
-    featureCatalog.map(({ featureStepCode, ...feature }) => {
+    featureCatalog.map(async ({ featureStepCode, ...feature }) => {
       const featureStep = featureSteps.get(featureStepCode);
       if (featureStepCode && !featureStep) {
         throw new Error(
           `Feature seed references missing Feature Step code: ${featureStepCode}`,
         );
       }
+      const existing = await prisma.feature.findUnique({ where: { code: feature.code }, select: { translations: true } });
       return prisma.feature.upsert({
         where: { code: feature.code },
         create: { ...feature, featureStepId: featureStep?.id ?? null },
-        update: { ...feature, featureStepId: featureStep?.id ?? null },
+        update: { ...feature, ...(existing?.translations ? { translations: existing.translations } : {}), featureStepId: featureStep?.id ?? null },
       });
     }),
   );

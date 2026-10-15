@@ -6,10 +6,12 @@ export type CatalogTranslation = {
   name?: string | null;
   displayName?: string | null;
   description?: string | null;
+  label?: string | null;
+  placeholder?: string | null;
   translationStatus?: "DRAFT" | "ACTIVE";
 };
 export type CatalogTranslations = Record<string, CatalogTranslation>;
-type Field = "name" | "displayName" | "description";
+type Field = "name" | "displayName" | "description" | "label" | "placeholder";
 
 export const indianLanguages = [
   { code: "as", name: "Assamese", nativeName: "অসমীয়া" },
