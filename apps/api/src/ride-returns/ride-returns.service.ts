@@ -31,6 +31,7 @@ import type {
 
 type Tx = Prisma.TransactionClient;
 type RequestSource = 'RIDER' | 'STAFF';
+type RequestInput = CreateRideReturnDto & { agreementId?: string };
 type PenaltyItemInput = ReplaceReturnPenaltiesDto['items'][number];
 
 const RETURNABLE_AGREEMENTS = new Set(['ACTIVE', 'SUSPENDED', 'TERMINATION_PENDING']);
@@ -185,7 +186,7 @@ export class RideReturnsService {
   async request(
     clientId: string,
     actor: AuthUser,
-    input: CreateRideReturnDto,
+    input: RequestInput,
     key: string,
     source: RequestSource,
   ) {
@@ -215,22 +216,61 @@ export class RideReturnsService {
     if (!hub) throw new NotFoundException('Planned Hub not found.');
 
     return this.serializable(async (tx) => {
-      const agreement = await tx.riderRentalAgreement.findFirst({
-        where: { id: input.agreementId, clientId, riderId: rider.id },
+      const reasonText = input.notes?.trim() || null;
+      const existingByKey = await tx.rentalTerminationRequest.findUnique({
+        where: { clientId_idempotencyKey: { clientId, idempotencyKey: key } },
       });
-      if (!agreement) throw new NotFoundException('Agreement not found.');
-      if (!RETURNABLE_AGREEMENTS.has(agreement.status)) fail('AGREEMENT_NOT_TERMINABLE');
-      const allocation = await tx.allocation.findFirst({
+      if (existingByKey) {
+        if (existingByKey.riderId !== rider.id || (input.agreementId && input.agreementId !== existingByKey.agreementId))
+          fail('RETURN_ALREADY_REQUESTED');
+        if (existingByKey.status !== 'CANCELLED') {
+          if (
+            existingByKey.requestedTerminationDate.getTime() !== requested.getTime() ||
+            existingByKey.reasonCode !== reasonCode ||
+            existingByKey.reasonText !== reasonText ||
+            existingByKey.plannedHubId !== input.plannedHubId
+          )
+            fail('RETURN_ALREADY_REQUESTED');
+          return existingByKey;
+        }
+      }
+
+      const agreementId = input.agreementId ?? existingByKey?.agreementId;
+      const agreements = await tx.riderRentalAgreement.findMany({
+        where: agreementId
+          ? { id: agreementId, clientId, riderId: rider.id }
+          : {
+              clientId,
+              riderId: rider.id,
+              status: { in: ['ACTIVE', 'SUSPENDED', 'TERMINATION_PENDING'] },
+            },
+      });
+      if (!agreements.length) {
+        if (agreementId) throw new NotFoundException('Agreement not found.');
+        throw new ConflictException('ACTIVE_ALLOCATION_REQUIRED');
+      }
+      if (agreementId && !RETURNABLE_AGREEMENTS.has(agreements[0].status)) fail('AGREEMENT_NOT_TERMINABLE');
+
+      const fleetIds = agreements.map((candidate) => candidate.currentVehicleId ?? candidate.vehicleId);
+      const allocations = await tx.allocation.findMany({
         where: {
           clientId,
           riderId: rider.id,
           status: 'ACTIVE',
-          fleetId: agreement.currentVehicleId ?? agreement.vehicleId,
+          fleetId: agreementId ? fleetIds[0] : { in: fleetIds },
         },
         include: { fleet: { select: { currentHubId: true } } },
       });
-      if (!allocation) throw new ConflictException('ACTIVE_ALLOCATION_REQUIRED');
-      const existing = await tx.rentalTerminationRequest.findUnique({
+      const matches = agreements.flatMap((candidate) => {
+        const fleetId = candidate.currentVehicleId ?? candidate.vehicleId;
+        return allocations
+          .filter((candidateAllocation) => candidateAllocation.fleetId === fleetId)
+          .map((candidateAllocation) => ({ agreement: candidate, allocation: candidateAllocation }));
+      });
+      if (!matches.length) throw new ConflictException('ACTIVE_ALLOCATION_REQUIRED');
+      if (matches.length > 1) fail('MULTIPLE_ACTIVE_RENTALS', 'Multiple active rentals prevent automatic resolution.');
+      const [{ agreement, allocation }] = matches;
+      const existing = existingByKey ?? await tx.rentalTerminationRequest.findUnique({
         where: { agreementId: agreement.id },
       });
       if (existing && existing.status !== 'CANCELLED') {
@@ -238,7 +278,7 @@ export class RideReturnsService {
           existing.idempotencyKey !== key ||
           existing.requestedTerminationDate.getTime() !== requested.getTime() ||
           existing.reasonCode !== reasonCode ||
-          existing.reasonText !== (input.notes?.trim() ?? null) ||
+          existing.reasonText !== reasonText ||
           existing.plannedHubId !== input.plannedHubId ||
           existing.riderId !== rider.id
         )
@@ -255,7 +295,7 @@ export class RideReturnsService {
               requestedTerminationDate: requested,
               actualTerminationDate: null,
               reasonCode,
-              reasonText: input.notes?.trim() || null,
+              reasonText,
               requestedById: actor.id,
               requestSource: source,
               cancelledAt: null,
