@@ -6,14 +6,16 @@ All routes use `/api/v1`, bearer authentication, DTO validation, and the
 ## Rider return sequence
 
 1. Request a return. The key is required and must be reused for an identical
-   retry.
+   retry. The server resolves the authenticated rider's eligible rental. Do
+   not send an agreement ID; no eligible rental returns a conflict, and
+   multiple eligible rentals are rejected rather than guessed.
 
    ```sh
    curl -X POST "$API/rider-app/ride-returns" \
      -H "Authorization: Bearer $TOKEN" \
      -H 'Idempotency-Key: return-rider-001' \
      -H 'Content-Type: application/json' \
-     -d '{"agreementId":"<agreement>","reasonCode":"MOVING","plannedHubId":"<hub>","plannedReturnDate":"2026-10-20T10:00:00Z"}'
+     -d '{"reasonCode":"MOVING","plannedHubId":"<hub>","plannedReturnDate":"2026-10-20T10:00:00Z"}'
    ```
 
 2. Track the rider's own return with `GET /rider-app/ride-returns` or
@@ -40,15 +42,23 @@ All routes use `/api/v1`, bearer authentication, DTO validation, and the
 Fleet and operations managers use `/client/ride-returns`; fleet managers are
 limited to their assigned planned/received hubs. Client admin and operations
 access is client-wide. Staff can request on behalf of a rider, receive at the
-actual hub, and complete the post-deallocation inspection. Receipt records the
+actual hub, and complete the post-deallocation inspection. For a staff request,
+send `riderId`; the server resolves that rider's eligible rental within the
+client. Do not send an agreement ID. No eligible rental returns a conflict, and
+multiple eligible rentals are rejected rather than guessed. Receipt records the
 billing cutoff before inspection or penalty work. A future receipt is rejected;
 a backdated receipt needs `backdateReason`.
+
+The existing `/client/agreements/:agreementId/termination` and
+`/client/agreements/:agreementId/return` compatibility routes keep their
+agreement-scoped path. This does not make `agreementId` part of either modern
+create body.
 
 ```sh
 curl -X POST "$API/client/ride-returns" \
   -H "Authorization: Bearer $STAFF_TOKEN" \
   -H 'Idempotency-Key: return-staff-001' -H 'Content-Type: application/json' \
-  -d '{"agreementId":"<agreement>","riderId":"<rider>","reasonCode":"VEHICLE_RETURN","plannedHubId":"<hub>","plannedReturnDate":"2026-10-20T10:00:00Z"}'
+  -d '{"riderId":"<rider>","reasonCode":"VEHICLE_RETURN","plannedHubId":"<hub>","plannedReturnDate":"2026-10-20T10:00:00Z"}'
 curl -X POST "$API/client/ride-returns/<return>/receive" \
   -H "Authorization: Bearer $STAFF_TOKEN" -H 'Content-Type: application/json' \
   -d '{"receivedHubId":"<hub>"}'

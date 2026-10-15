@@ -20,7 +20,6 @@ import {
 const currency = /^[A-Z]{3}$/;
 
 export class CreateRideReturnDto {
-  @IsUUID() agreementId!: string;
   @IsOptional() @IsUUID() riderId?: string;
   @IsString() @IsNotEmpty() @MaxLength(60) reasonCode!: string;
   @IsUUID() plannedHubId!: string;

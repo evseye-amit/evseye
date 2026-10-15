@@ -1,21 +1,23 @@
 import { createHash } from 'node:crypto';
 import { Prisma, UserRole } from '@prisma/client';
+import { ValidationPipe } from '@nestjs/common';
 import { validate } from 'class-validator';
 import 'reflect-metadata';
 import { describe, expect, it, vi } from 'vitest';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
-import { UpdateReturnPenaltyPriceDto } from './dto/ride-return.dto.js';
+import { CreateRideReturnDto, UpdateReturnPenaltyPriceDto } from './dto/ride-return.dto.js';
 import { RideReturnsService } from './ride-returns.service.js';
 
 const D = (value: string) => new Prisma.Decimal(value);
 const ops: AuthUser = { id: 'ops-1', clientId: 'client-a', roles: [UserRole.OPERATIONS_MANAGER] };
+const riderUser: AuthUser = { id: 'rider-user-1', clientId: 'client-a', roles: [UserRole.RIDER] };
 
 function setup() {
   const tx = {
-    riderRentalAgreement: { findFirst: vi.fn(), update: vi.fn() },
+    riderRentalAgreement: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn() },
     riderRentalAgreementStatusHistory: { create: vi.fn() },
     rentalTerminationRequest: { findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
-    allocation: { findFirst: vi.fn(), update: vi.fn(), findUniqueOrThrow: vi.fn() },
+    allocation: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn(), findUniqueOrThrow: vi.fn() },
     fleet: { update: vi.fn() },
     inspection: { findFirst: vi.fn() },
     returnPenaltyCase: { findUnique: vi.fn(), findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
@@ -289,7 +291,6 @@ describe('RideReturnsService receipt timestamps', () => {
 
 describe('RideReturnsService request reason boundary', () => {
   const input = (reasonCode: unknown) => ({
-    agreementId: 'agreement-1',
     riderId: 'rider-1',
     reasonCode,
     plannedHubId: 'hub-1',
@@ -346,14 +347,14 @@ describe('RideReturnsService request reason boundary', () => {
     };
     context.db.rider.findFirst.mockResolvedValue({ id: 'rider-1', status: 'ACTIVE' });
     context.db.hub.findFirst.mockResolvedValue({ id: 'hub-1' });
-    context.tx.riderRentalAgreement.findFirst.mockResolvedValue({
+    context.tx.riderRentalAgreement.findMany.mockResolvedValue([{
       id: 'agreement-1',
       riderId: 'rider-1',
       status: 'ACTIVE',
       currentVehicleId: 'fleet-1',
       vehicleId: 'fleet-1',
-    });
-    context.tx.allocation.findFirst.mockResolvedValue({ id: 'allocation-1', fleet: { currentHubId: 'hub-1' } });
+    }]);
+    context.tx.allocation.findMany.mockResolvedValue([{ id: 'allocation-1', fleetId: 'fleet-1', fleet: { currentHubId: 'hub-1' } }]);
     context.tx.rentalTerminationRequest.findUnique
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(created);
@@ -372,7 +373,225 @@ describe('RideReturnsService request reason boundary', () => {
   });
 });
 
+describe('RideReturnsService request rental resolution', () => {
+  const modernInput = (riderId?: string): CreateRideReturnDto => ({
+    ...(riderId ? { riderId } : {}),
+    reasonCode: 'VEHICLE_RETURN',
+    plannedHubId: 'hub-1',
+    plannedReturnDate: '2026-10-13T08:00:00.000Z',
+  });
+
+  const agreement = (id: string, status: string, fleetId: string) => ({
+    id,
+    clientId: 'client-a',
+    riderId: 'rider-1',
+    status,
+    currentVehicleId: fleetId,
+    vehicleId: fleetId,
+  });
+
+  const allocation = (id: string, fleetId: string) => ({
+    id,
+    clientId: 'client-a',
+    riderId: 'rider-1',
+    status: 'ACTIVE',
+    fleetId,
+    fleet: { currentHubId: 'hub-1' },
+  });
+
+  function prepare(
+    context: ReturnType<typeof setup>,
+    agreements: Record<string, unknown>[],
+    allocations: Record<string, unknown>[],
+  ) {
+    context.db.rider.findFirst.mockResolvedValue({ id: 'rider-1', status: 'ACTIVE' });
+    context.db.hub.findFirst.mockResolvedValue({ id: 'hub-1' });
+    context.tx.riderRentalAgreement.findMany.mockResolvedValue(agreements);
+    context.tx.allocation.findMany.mockResolvedValue(allocations);
+    context.tx.rentalTerminationRequest.findUnique.mockResolvedValue(null);
+    context.tx.rentalTerminationRequest.create.mockResolvedValue({
+      id: 'return-1',
+      clientId: 'client-a',
+      agreementId: agreements[0]?.id,
+      riderId: 'rider-1',
+      allocationId: allocations[0]?.id,
+      status: 'REQUESTED',
+      idempotencyKey: 'key-123456',
+      requestedTerminationDate: new Date('2026-10-13T08:00:00.000Z'),
+      reasonCode: 'VEHICLE_RETURN',
+      reasonText: null,
+      plannedHubId: 'hub-1',
+    });
+    context.tx.auditLog.create.mockResolvedValue({});
+  }
+
+  it('allows staff and rider requests without an agreementId and resolves one eligible rental', async () => {
+    const staff = setup();
+    prepare(staff, [agreement('agreement-1', 'ACTIVE', 'fleet-1')], [allocation('allocation-1', 'fleet-1')]);
+    await expect(staff.service.request('client-a', ops, modernInput('rider-1'), 'key-staff-1', 'STAFF'))
+      .resolves.toMatchObject({ agreementId: 'agreement-1', allocationId: 'allocation-1' });
+
+    const rider = setup();
+    prepare(rider, [agreement('agreement-2', 'SUSPENDED', 'fleet-2')], [allocation('allocation-2', 'fleet-2')]);
+    await expect(rider.service.request('client-a', riderUser, modernInput(), 'key-rider-1', 'RIDER'))
+      .resolves.toMatchObject({ agreementId: 'agreement-2', allocationId: 'allocation-2' });
+  });
+
+  it.each(['ACTIVE', 'SUSPENDED', 'TERMINATION_PENDING'])(
+    'accepts an eligible %s rental status without a caller agreementId',
+    async (status) => {
+      const context = setup();
+      prepare(context, [agreement('agreement-1', status, 'fleet-1')], [allocation('allocation-1', 'fleet-1')]);
+      await expect(context.service.request('client-a', ops, modernInput('rider-1'), `key-${status}`, 'STAFF'))
+        .resolves.toMatchObject({ agreementId: 'agreement-1' });
+    },
+  );
+
+  it('rejects when the rider has no eligible rental with an active allocation', async () => {
+    const context = setup();
+    prepare(context, [], []);
+    await expect(context.service.request('client-a', ops, modernInput('rider-1'), 'key-none-1', 'STAFF'))
+      .rejects.toThrow('ACTIVE_ALLOCATION_REQUIRED');
+    expect(context.tx.rentalTerminationRequest.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects ambiguous eligible rentals instead of choosing one', async () => {
+    const context = setup();
+    prepare(
+      context,
+      [agreement('agreement-1', 'ACTIVE', 'fleet-1'), agreement('agreement-2', 'TERMINATION_PENDING', 'fleet-2')],
+      [allocation('allocation-1', 'fleet-1'), allocation('allocation-2', 'fleet-2')],
+    );
+    await expect(context.service.request('client-a', ops, modernInput('rider-1'), 'key-many-1', 'STAFF'))
+      .rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'MULTIPLE_ACTIVE_RENTALS',
+          message: 'Multiple active rentals prevent automatic resolution.',
+        }),
+      });
+    expect(context.tx.rentalTerminationRequest.create).not.toHaveBeenCalled();
+  });
+
+  it('replays the same key after receipt before resolving a current rental', async () => {
+    const context = setup();
+    const returned = {
+      id: 'return-1',
+      clientId: 'client-a',
+      agreementId: 'agreement-old',
+      riderId: 'rider-1',
+      allocationId: 'allocation-old',
+      status: 'RETURNED',
+      idempotencyKey: 'key-receipt-1',
+      requestedTerminationDate: new Date('2026-10-13T08:00:00.000Z'),
+      reasonCode: 'VEHICLE_RETURN',
+      reasonText: null,
+      plannedHubId: 'hub-1',
+    };
+    context.db.rider.findFirst.mockResolvedValue({ id: 'rider-1', status: 'ACTIVE' });
+    context.db.hub.findFirst.mockResolvedValue({ id: 'hub-1' });
+    context.tx.rentalTerminationRequest.findUnique.mockImplementation(({ where }: { where: Record<string, unknown> }) =>
+      Promise.resolve(Object.hasOwn(where, 'clientId_idempotencyKey') ? returned : null));
+
+    await expect(context.service.request('client-a', ops, modernInput('rider-1'), 'key-receipt-1', 'STAFF'))
+      .resolves.toBe(returned);
+    expect(context.tx.riderRentalAgreement.findMany).not.toHaveBeenCalled();
+    expect(context.tx.allocation.findMany).not.toHaveBeenCalled();
+    expect(context.tx.rentalTerminationRequest.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a same-key retry when the request body does not match', async () => {
+    const context = setup();
+    const existing = {
+      id: 'return-1',
+      clientId: 'client-a',
+      agreementId: 'agreement-old',
+      riderId: 'rider-1',
+      allocationId: 'allocation-old',
+      status: 'REQUESTED',
+      idempotencyKey: 'key-body-1',
+      requestedTerminationDate: new Date('2026-10-13T08:00:00.000Z'),
+      reasonCode: 'VEHICLE_RETURN',
+      reasonText: null,
+      plannedHubId: 'hub-1',
+    };
+    context.db.rider.findFirst.mockResolvedValue({ id: 'rider-1', status: 'ACTIVE' });
+    context.db.hub.findFirst.mockResolvedValue({ id: 'hub-1' });
+    context.tx.rentalTerminationRequest.findUnique.mockResolvedValue(existing);
+
+    await expect(context.service.request(
+      'client-a',
+      ops,
+      { ...modernInput('rider-1'), reasonCode: 'MOVING' },
+      'key-body-1',
+      'STAFF',
+    )).rejects.toMatchObject({ response: expect.objectContaining({ code: 'RETURN_ALREADY_REQUESTED' }) });
+    expect(context.tx.riderRentalAgreement.findMany).not.toHaveBeenCalled();
+    expect(context.tx.allocation.findMany).not.toHaveBeenCalled();
+  });
+
+  it('reopens a cancelled retry against its original agreement after the vehicle changes', async () => {
+    const context = setup();
+    const cancelled = {
+      id: 'return-1',
+      clientId: 'client-a',
+      agreementId: 'agreement-old',
+      riderId: 'rider-1',
+      allocationId: 'allocation-old',
+      status: 'CANCELLED',
+      idempotencyKey: 'key-cancelled-1',
+      requestedTerminationDate: new Date('2026-10-13T08:00:00.000Z'),
+      reasonCode: 'VEHICLE_RETURN',
+      reasonText: null,
+      plannedHubId: 'hub-1',
+    };
+    const oldAgreement = agreement('agreement-old', 'ACTIVE', 'fleet-old');
+    const newAgreement = agreement('agreement-new', 'ACTIVE', 'fleet-new');
+    context.db.rider.findFirst.mockResolvedValue({ id: 'rider-1', status: 'ACTIVE' });
+    context.db.hub.findFirst.mockResolvedValue({ id: 'hub-1' });
+    context.tx.rentalTerminationRequest.findUnique.mockImplementation(({ where }: { where: Record<string, unknown> }) =>
+      Promise.resolve(
+        Object.hasOwn(where, 'clientId_idempotencyKey') || Object.hasOwn(where, 'agreementId') ? cancelled : null,
+      ));
+    context.tx.riderRentalAgreement.findMany.mockImplementation(({ where }: { where: { id?: string } }) =>
+      Promise.resolve(where.id === 'agreement-old' ? [oldAgreement] : [newAgreement]));
+    context.tx.allocation.findMany.mockImplementation(({ where }: { where: { fleetId?: string } }) =>
+      Promise.resolve(where.fleetId === 'fleet-old' ? [allocation('allocation-old', 'fleet-old')] : [allocation('allocation-new', 'fleet-new')]));
+    context.tx.rentalTerminationRequest.update.mockResolvedValue({ ...cancelled, status: 'REQUESTED' });
+    context.tx.auditLog.create.mockResolvedValue({});
+
+    await expect(context.service.request('client-a', ops, modernInput('rider-1'), 'key-cancelled-1', 'STAFF'))
+      .resolves.toMatchObject({ agreementId: 'agreement-old', allocationId: 'allocation-old', status: 'REQUESTED' });
+    expect(context.tx.rentalTerminationRequest.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ allocationId: 'allocation-old' }),
+    }));
+  });
+});
+
 describe('RideReturnsService DTO boundaries', () => {
+  it('matches the production HTTP boundary for a removed agreementId field', async () => {
+    const pipe = new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true });
+    const metadata = { type: 'body' as const, metatype: CreateRideReturnDto, data: '' };
+    const modern = {
+      reasonCode: 'MOVING',
+      plannedHubId: '00000000-0000-4000-8000-000000000001',
+      plannedReturnDate: '2026-10-20T10:00:00.000Z',
+    };
+    await expect(pipe.transform(modern, metadata)).resolves.toBeInstanceOf(CreateRideReturnDto);
+
+    const legacyField = {
+      agreementId: '00000000-0000-4000-8000-000000000002',
+      reasonCode: 'MOVING',
+      plannedHubId: '00000000-0000-4000-8000-000000000001',
+      plannedReturnDate: '2026-10-20T10:00:00.000Z',
+    };
+    await expect(pipe.transform(legacyField, metadata)).rejects.toMatchObject({
+      response: expect.objectContaining({
+        statusCode: 400,
+        message: expect.arrayContaining(['property agreementId should not exist']),
+      }),
+    });
+  });
+
   it('rejects string isActive values while accepting booleans', async () => {
     const invalid = Object.assign(new UpdateReturnPenaltyPriceDto(), { isActive: 'false' });
     const valid = Object.assign(new UpdateReturnPenaltyPriceDto(), { isActive: false });
@@ -382,6 +601,46 @@ describe('RideReturnsService DTO boundaries', () => {
 });
 
 describe('RideReturnsService legacy return adapter', () => {
+  it('keeps the agreement-scoped legacy request bound to its path agreement', async () => {
+    const context = setup();
+    context.db.riderRentalAgreement.findFirst.mockResolvedValue({
+      riderId: 'rider-1',
+      currentVehicleId: 'fleet-1',
+      vehicleId: 'fleet-1',
+    });
+    context.db.allocation.findFirst.mockResolvedValue({ fleet: { currentHubId: 'hub-1' } });
+    context.db.rider.findFirst.mockResolvedValue({ id: 'rider-1', status: 'ACTIVE' });
+    context.db.hub.findFirst.mockResolvedValue({ id: 'hub-1' });
+    context.tx.riderRentalAgreement.findMany.mockResolvedValue([{
+      id: 'agreement-1',
+      riderId: 'rider-1',
+      status: 'ACTIVE',
+      currentVehicleId: 'fleet-1',
+      vehicleId: 'fleet-1',
+    }]);
+    context.tx.allocation.findMany.mockResolvedValue([{ id: 'allocation-1', fleetId: 'fleet-1', fleet: { currentHubId: 'hub-1' } }]);
+    context.tx.rentalTerminationRequest.findUnique.mockResolvedValue(null);
+    context.tx.rentalTerminationRequest.create.mockResolvedValue({
+      id: 'return-1',
+      agreementId: 'agreement-1',
+      allocationId: 'allocation-1',
+      riderId: 'rider-1',
+      status: 'REQUESTED',
+    });
+    context.tx.auditLog.create.mockResolvedValue({});
+
+    await expect(context.service.legacyRequest(
+      'client-a',
+      'agreement-1',
+      'ops-1',
+      'key-legacy-1',
+      { requestedTerminationDate: '2026-10-13T08:00:00.000Z', reasonCode: 'VEHICLE_RETURN' },
+    )).resolves.toMatchObject({ agreementId: 'agreement-1', allocationId: 'allocation-1' });
+    expect(context.tx.rentalTerminationRequest.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ agreementId: 'agreement-1' }),
+    }));
+  });
+
   it('replays a received request without requiring an active allocation', async () => {
     const { db, service } = setup();
     const returned = {
