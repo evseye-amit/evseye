@@ -4318,10 +4318,12 @@ body:has(.sa-dialog[open]) {
 .sa-legal-documents .sa-table-wrap table { min-width: 1200px; }
 .sa-legal-documents .sa-table-wrap th,
 .sa-legal-documents .sa-table-wrap td { white-space: nowrap; }
+.sa-legal-documents .sa-client-actions .danger:disabled,
+.sa-legal-documents .sa-client-actions .danger:disabled:hover { opacity: 1; color: #b34a3c; background: #f9e3df; cursor: not-allowed; }
 .sa-dialog .sa-legal-active { display: flex; align-items: center; gap: 8px; }
 .sa-dialog .sa-legal-active input { width: 16px; height: 16px; }
 .sa-legal-help { margin: 0; color: #69726a; font-size: 13px; }
-.sa-dialog .legal-documents-preview iframe { width: min(100%, 390px); min-height: min(60dvh, 650px); margin-inline: auto; border-radius: 22px; box-shadow: 0 16px 36px rgba(24, 49, 42, .12); }
+.sa-dialog .legal-documents-preview iframe { width: 100%; height: min(70dvh, 760px); min-height: 320px; border-radius: 8px; }
 .client-legal-intro { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
 .client-legal-intro .muted { max-width: 740px; }
 .client-legal-intro button { flex: none; }

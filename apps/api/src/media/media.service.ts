@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -25,16 +26,57 @@ export class MediaService {
     uploadedById: string,
     dto: CreateUploadIntentDto,
   ) {
-    await this.assertEntityOwnership(clientId, dto.entityType, dto.entityId);
+    if ((dto.entityType as string) === PhotoEntityType.SUPPORT_TICKET)
+      throw new ForbiddenException('Support attachments use the support ticket routes.');
+    return this.createUploadIntentForEntity(
+      clientId,
+      uploadedById,
+      dto.entityType,
+      dto.entityId,
+      dto.photoType,
+      dto,
+    );
+  }
+
+  async createSupportUploadIntent(
+    clientId: string,
+    uploadedById: string,
+    ticketId: string,
+    dto: Omit<CreateUploadIntentDto, 'entityType' | 'entityId'>,
+  ) {
+    const ticket = await this.prisma.supportTicket.findFirst({
+      where: { id: ticketId, clientId },
+      select: { id: true },
+    });
+    if (!ticket) throw new NotFoundException('Support ticket not found.');
+    return this.createUploadIntentForEntity(
+      clientId,
+      uploadedById,
+      PhotoEntityType.SUPPORT_TICKET,
+      ticketId,
+      dto.photoType,
+      dto,
+    );
+  }
+
+  private async createUploadIntentForEntity(
+    clientId: string,
+    uploadedById: string,
+    entityType: PhotoEntityType,
+    entityId: string,
+    photoType: string,
+    dto: Omit<CreateUploadIntentDto, 'entityType' | 'entityId'>,
+  ) {
+    await this.assertEntityOwnership(clientId, entityType, entityId);
     this.assertExtensionMatchesMime(dto.fileName, dto.mimeType);
 
-    const objectKey = `clients/${clientId}/${dto.entityType.toLowerCase()}/${dto.entityId}/${randomUUID()}.${this.extensionFor(dto.mimeType)}`;
+    const objectKey = `clients/${clientId}/${entityType.toLowerCase()}/${entityId}/${randomUUID()}.${this.extensionFor(dto.mimeType)}`;
     const photo = await this.prisma.photo.create({
       data: {
         clientId,
-        entityType: dto.entityType,
-        entityId: dto.entityId,
-        photoType: dto.photoType,
+        entityType,
+        entityId,
+        photoType,
         objectKey,
         mimeType: dto.mimeType,
         sizeBytes: dto.sizeBytes,
@@ -51,6 +93,8 @@ export class MediaService {
   }
 
   async requirements(clientId: string, entityType: PhotoEntityType) {
+    if (entityType === PhotoEntityType.SUPPORT_TICKET)
+      throw new ForbiddenException('Support attachments use the support ticket routes.');
     return this.prisma.photoRequirement.findMany({
       where: { clientId, entityType },
       orderBy: [{ isRequired: 'desc' }, { photoType: 'asc' }],
@@ -62,6 +106,8 @@ export class MediaService {
     entityType: PhotoEntityType,
     entityId: string,
   ) {
+    if (entityType === PhotoEntityType.SUPPORT_TICKET)
+      throw new ForbiddenException('Support attachments use the support ticket routes.');
     await this.assertEntityOwnership(clientId, entityType, entityId);
     return this.prisma.photo.findMany({
       where: { clientId, entityType, entityId },
@@ -75,6 +121,8 @@ export class MediaService {
     photoType: string,
     input: { isRequired: boolean; sortOrder?: number },
   ) {
+    if (entityType === PhotoEntityType.SUPPORT_TICKET)
+      throw new ForbiddenException('Support attachments use the support ticket routes.');
     return this.prisma.photoRequirement.upsert({
       where: {
         clientId_entityType_photoType: { clientId, entityType, photoType },
@@ -97,6 +145,19 @@ export class MediaService {
 
   async complete(clientId: string, photoId: string) {
     const photo = await this.getPhoto(clientId, photoId);
+    if (photo.entityType === PhotoEntityType.SUPPORT_TICKET)
+      throw new ForbiddenException('Support attachments use the support ticket routes.');
+    return this.completePhoto(clientId, photo);
+  }
+
+  async completeSupport(clientId: string, ticketId: string, photoId: string) {
+    const photo = await this.getPhoto(clientId, photoId);
+    if (photo.entityType !== PhotoEntityType.SUPPORT_TICKET || photo.entityId !== ticketId)
+      throw new NotFoundException('Support attachment not found.');
+    return this.completePhoto(clientId, photo);
+  }
+
+  private async completePhoto(clientId: string, photo: Awaited<ReturnType<MediaService['getPhoto']>>) {
     if (photo.status !== PhotoStatus.PENDING_UPLOAD) {
       throw new BadRequestException('Photo is not awaiting upload completion.');
     }
@@ -126,6 +187,19 @@ export class MediaService {
 
   async downloadUrl(clientId: string, photoId: string) {
     const photo = await this.getPhoto(clientId, photoId);
+    if (photo.entityType === PhotoEntityType.SUPPORT_TICKET)
+      throw new ForbiddenException('Support attachments use the support ticket routes.');
+    return this.downloadPhoto(photo);
+  }
+
+  async supportDownloadUrl(clientId: string, ticketId: string, photoId: string) {
+    const photo = await this.getPhoto(clientId, photoId);
+    if (photo.entityType !== PhotoEntityType.SUPPORT_TICKET || photo.entityId !== ticketId)
+      throw new NotFoundException('Support attachment not found.');
+    return this.downloadPhoto(photo);
+  }
+
+  private async downloadPhoto(photo: Awaited<ReturnType<MediaService['getPhoto']>>) {
     if (photo.status !== PhotoStatus.COMPLETE) {
       throw new BadRequestException('Photo is not available.');
     }
@@ -188,6 +262,12 @@ export class MediaService {
         where: { id: entityId, clientId },
       });
       if (inspection) return;
+    }
+    if (entityType === PhotoEntityType.SUPPORT_TICKET) {
+      const ticket = await this.prisma.supportTicket.findFirst({
+        where: { id: entityId, clientId },
+      });
+      if (ticket) return;
     }
     throw new NotFoundException('Media entity not found.');
   }

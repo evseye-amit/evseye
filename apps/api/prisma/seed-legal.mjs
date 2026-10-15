@@ -75,3 +75,36 @@ export async function seedRiderPrivacyConsentDrafts(prisma) {
     } });
   }
 }
+
+// Yogmaya's Fleet Manager documents are review drafts. Keep them unpublished
+// until the client-specific facts and final legal wording are approved.
+export async function seedYogmayaFleetManagerLegalDrafts(prisma) {
+  const { templates } = await legalSeedData();
+  const client = await prisma.client.findFirst({
+    where: { OR: [{ companyCode: 'yogmaya' }, { slug: 'yogmaya' }] },
+    include: { businessProfile: true },
+  });
+  if (!client) return;
+  const legalName = client.businessProfile?.legalCompanyName?.trim() ||
+    '[CLIENT_REVIEW_REQUIRED: legal company name]';
+  const escape = (value) => value.replace(/[&<>"']/g, (char) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+  for (const kind of ['TERMS_AND_CONDITIONS', 'PRIVACY_POLICY']) {
+    const template = templates.find((item) => item.appCode === 'FLEET_MANAGER' &&
+      item.role === 'FLEET_MANAGER' && item.kind === kind && item.locale === 'en' && item.isActive);
+    if (!template) throw new Error(`Fleet Manager ${kind} template is absent.`);
+    const identity = {
+      clientId: client.id, appCode: 'FLEET_MANAGER', role: 'FLEET_MANAGER',
+      kind, locale: template.locale, version: template.version,
+    };
+    if (await prisma.appLegalDocument.findFirst({ where: identity })) continue;
+    const content = template.content.replaceAll('{{CLIENT_LEGAL_NAME}}', escape(legalName))
+      .replaceAll('{{CLIENT_NAME}}', escape(client.name))
+      .replaceAll('{{CLIENT_CODE}}', escape(client.companyCode || client.slug));
+    await prisma.appLegalDocument.create({ data: {
+      ...identity, title: template.title, content,
+      contentHash: createHash('sha256').update(content, 'utf8').digest('hex'),
+      effectiveAt: new Date(),
+    } });
+  }
+}
