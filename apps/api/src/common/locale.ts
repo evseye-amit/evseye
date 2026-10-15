@@ -25,6 +25,7 @@ export function translatedProperty(
   if (locale === 'en' || !translations || typeof translations !== 'object' || Array.isArray(translations)) return fallback;
   const value = (translations as Translation)[locale];
   if (!value || typeof value !== 'object' || Array.isArray(value)) return fallback;
+  if ((value as Translation).translationStatus === 'DRAFT') return fallback;
   const translated = (value as Translation)[property];
   return typeof translated === 'string' && translated.trim() ? translated : fallback;
 }

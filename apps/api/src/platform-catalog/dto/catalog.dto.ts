@@ -28,6 +28,7 @@ import {
   MasterRecordStatus,
   EnergyType,
   VehicleUsageType,
+  Prisma,
 } from '@prisma/client';
 
 export class CreateOemDto {
@@ -37,6 +38,7 @@ export class CreateOemDto {
   @IsEnum(MasterRecordStatus) status!: MasterRecordStatus;
   @IsOptional() @IsUrl() website?: string;
   @IsOptional() @IsString() @MaxLength(1000) description?: string;
+  @IsOptional() @IsObject() translations?: Prisma.InputJsonObject;
 }
 
 export class UpdateOemDto extends CreateOemDto {}
@@ -47,6 +49,7 @@ export class CreateVehicleCategoryDto {
   @IsOptional() @IsString() @MaxLength(500) description?: string;
   @IsOptional() @IsEnum(MasterRecordStatus) status?: MasterRecordStatus;
   @IsOptional() @IsInt() @Min(0) displayOrder?: number;
+  @IsOptional() @IsObject() translations?: Prisma.InputJsonObject;
 }
 
 export class UpdateVehicleCategoryDto extends CreateVehicleCategoryDto {}
@@ -72,6 +75,7 @@ export class CreateVehicleTypeDto {
   @IsEnum(EnergyType) energyType!: EnergyType;
   @IsOptional() @IsEnum(VehicleUsageType) usageType?: VehicleUsageType;
   @IsOptional() @IsEnum(MasterRecordStatus) status?: MasterRecordStatus;
+  @IsOptional() @IsObject() translations?: Prisma.InputJsonObject;
 }
 export class UpdateVehicleTypeDto extends CreateVehicleTypeDto {}
 

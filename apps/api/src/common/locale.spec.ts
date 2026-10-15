@@ -17,6 +17,7 @@ describe('mobile API localization', () => {
     expect(translatedProperty('Personal Profile', translations, 'te', 'displayName')).toBe('వ్యక్తిగత వివరాలు');
     expect(translatedProperty('Personal Profile', translations, 'kn', 'displayName')).toBe('Personal Profile');
     expect(translatedProperty('Personal Profile', { mr: { displayName: 'वैयक्तिक तपशील' } }, 'mr', 'displayName')).toBe('वैयक्तिक तपशील');
+    expect(translatedProperty('Personal Profile', { hi: { displayName: 'व्यक्तिगत विवरण', translationStatus: 'DRAFT' } }, 'hi', 'displayName')).toBe('Personal Profile');
     expect(localizeApiError('Invalid OTP.', 'mr')).toBe('Invalid OTP.');
   });
 

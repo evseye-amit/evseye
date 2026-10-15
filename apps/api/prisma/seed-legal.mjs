@@ -52,7 +52,7 @@ export async function seedLegalTemplates(prisma) {
   }
 }
 
-// Existing clients receive English placeholders for each locale as unpublished drafts.
+// Existing clients receive localized seed copies as unpublished review drafts.
 // A published document, or any document edited in the portal, is never overwritten.
 export async function seedLocalizedLegalDrafts(prisma) {
   const templates = await translatedLegalTemplates();

@@ -916,6 +916,7 @@ model Oem {
   logoObjectKey String?
   website       String?
   description   String?
+  translations  Json?
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
   fleets        Fleet[]
@@ -928,6 +929,7 @@ model VehicleCategory {
   code             String                            @unique
   name             String
   description      String?
+  translations     Json?
   status           MasterRecordStatus                @default(ACTIVE)
   displayOrder     Int                               @default(0)
   createdAt        DateTime                          @default(now())
@@ -947,6 +949,7 @@ model VehicleType {
   name        String
   subCategory String?
   description String?
+  translations Json?
   energyType  EnergyType
   usageType   VehicleUsageType?
   status      MasterRecordStatus @default(ACTIVE)

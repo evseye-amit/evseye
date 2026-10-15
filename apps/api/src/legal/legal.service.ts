@@ -5,6 +5,22 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { renderLegalTemplate, validateLegalTemplate } from './legal-templates.js';
 
 export const legalHash = (content: string) => createHash('sha256').update(content, 'utf8').digest('hex');
+const legalReviewMarkers = [
+  '[CLIENT_REVIEW_REQUIRED',
+  '[ক্লায়েন্টের পর্যালোচনা প্রয়োজন',
+  '[ક્લાયન્ટની સમીક્ષા જરૂરી',
+  '[क्लाइंट की समीक्षा ज़रूरी है',
+  '[ಗ್ರಾಹಕರ ಪರಿಶೀಲನೆ ಅಗತ್ಯ',
+  '[ക്ലയന്റ് പരിശോധന ആവശ്യമാണ്',
+  '[ग्राहकाने पुनरावलोकन करणे आवश्यक',
+  '[କ୍ଲାଏଣ୍ଟଙ୍କ ସମୀକ୍ଷା ଆବଶ୍ୟକ',
+  '[ਕਲਾਇੰਟ ਦੁਆਰਾ ਸਮੀਖਿਆ ਲੋੜੀਂਦੀ',
+  '[ਗਾਹਕ ਦੁਆਰਾ ਸਮੀਖਿਆ ਲੋੜੀਂਦੀ',
+  '[வாடிக்கையாளர் ஆய்வு தேவை',
+  '[క్లయింట్ సమీక్ష అవసరం',
+  '[کلائنٹ کا جائزہ درکار ہے',
+];
+const hasLegalReviewMarker = (value: string) => legalReviewMarkers.some((marker) => value.includes(marker));
 const mandatoryRiderConsent = (value: { appCode: string; role: UserRole; kind: string }) =>
   value.appCode === 'RIDER' && value.role === UserRole.RIDER && value.kind === 'PRIVACY_CONSENT';
 
@@ -121,7 +137,7 @@ export class LegalService {
     appCode: string; role: UserRole; kind: string; locale: string; version: string;
     title: string; content: string; effectiveAt: string;
   }) {
-    if (input.title.includes('[CLIENT_REVIEW_REQUIRED') || input.content.includes('[CLIENT_REVIEW_REQUIRED'))
+    if (hasLegalReviewMarker(input.title) || hasLegalReviewMarker(input.content))
       throw new BadRequestException('Resolve all legal review markers, including pending translations, before publishing.');
     const effectiveAt = new Date(input.effectiveAt);
     if (Number.isNaN(effectiveAt.valueOf())) throw new BadRequestException('Invalid effective date.');
@@ -199,7 +215,7 @@ export class LegalService {
     const document = await this.db.appLegalDocument.findUnique({ where: { id } });
     if (!document || (!isPlatformAdmin && document.clientId !== clientId)) throw new NotFoundException('Legal document unavailable.');
     if (document.publishedAt || document.deletedAt) throw new BadRequestException('Only active drafts can be published.');
-    if (document.title.includes('[CLIENT_REVIEW_REQUIRED') || document.content.includes('[CLIENT_REVIEW_REQUIRED'))
+    if (hasLegalReviewMarker(document.title) || hasLegalReviewMarker(document.content))
       throw new BadRequestException('Resolve all legal review markers, including pending translations, before publishing.');
     const updated = await this.db.appLegalDocument.updateMany({
       where: { id, publishedAt: null, deletedAt: null }, data: { publishedAt: new Date() },

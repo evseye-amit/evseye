@@ -93,6 +93,22 @@ export class WorkflowResolverService {
           parentCode: typeof step.parentCode === 'string' ? step.parentCode : null },
       });
     }
+    // Workflow structure stays pinned to the published revision; platform step copy follows the current catalog.
+    const stepCodes = [...new Set(components.map((component) => component.step.code))];
+    if (stepCodes.length) {
+      const localizedSteps = await this.prisma.featureStep.findMany({
+        where: { code: { in: stepCodes } },
+        select: { code: true, displayName: true, description: true, translations: true },
+      });
+      const currentCopy = new Map(localizedSteps.map((step) => [step.code, step]));
+      for (const component of components) {
+        const current = currentCopy.get(component.step.code);
+        if (!current) continue;
+        component.step.name = current.displayName;
+        component.step.description = current.description;
+        component.step.translations = current.translations;
+      }
+    }
     components.sort((a, b) => a.step.order - b.step.order || a.order - b.order);
     const version = createHash('sha256').update(JSON.stringify({ packageRevisionId: revision.id,
       packageHash: revision.contentHash, clientRevisionHash: clientRevision?.contentHash ?? null,

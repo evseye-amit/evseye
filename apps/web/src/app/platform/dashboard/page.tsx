@@ -25,6 +25,7 @@ import {
   useState,
 } from "react";
 import Link from "next/link";
+import { CatalogTranslationFields, completeCatalogTranslations, type CatalogTranslations } from "./catalog-translation-fields";
 import { ClientCommercialSettings, type ClientCommercialSection } from "../../components/client-commercial-settings";
 import { ClientWorkflowSettings } from "../../components/client-workflow-settings";
 import { ClientDomainSettings } from "../../components/client-domain-settings";
@@ -65,6 +66,35 @@ type Tab =
   | "clientCreditLots"
   | "clientUsageLedger";
 type Item = Record<string, any>;
+
+function orderFeatureSteps(steps: Item[]): Item[] {
+  const byParent = new Map<string | null, Item[]>();
+  for (const step of steps) {
+    const parentId = step.parentId ?? step.parent?.id ?? null;
+    const siblings = byParent.get(parentId) ?? [];
+    siblings.push(step);
+    byParent.set(parentId, siblings);
+  }
+  for (const siblings of byParent.values()) {
+    siblings.sort((a, b) =>
+      (a.displayOrder ?? 0) - (b.displayOrder ?? 0) ||
+      String(a.code).localeCompare(String(b.code)),
+    );
+  }
+
+  const ordered: Item[] = [];
+  const visited = new Set<string>();
+  function append(step: Item) {
+    if (visited.has(step.id)) return;
+    visited.add(step.id);
+    ordered.push(step);
+    for (const child of byParent.get(step.id) ?? []) append(child);
+  }
+  for (const root of byParent.get(null) ?? []) append(root);
+  // Keep records with a missing parent visible until their relationship is fixed.
+  for (const step of steps) append(step);
+  return ordered;
+}
 type BulkImportEntity =
   | "oem"
   | "vehicle-category"
@@ -134,6 +164,7 @@ const emptyOem = {
   status: "ACTIVE",
   website: "",
   description: "",
+  translations: {} as CatalogTranslations,
 };
 const emptyClient = {
   id: "",
@@ -219,6 +250,7 @@ const emptyVehicleCategory = {
   description: "",
   status: "ACTIVE",
   displayOrder: "0",
+  translations: {} as CatalogTranslations,
 };
 const emptyVehicleType = {
   categoryId: "",
@@ -229,6 +261,7 @@ const emptyVehicleType = {
   energyType: "",
   usageType: "",
   status: "ACTIVE",
+  translations: {} as CatalogTranslations,
 };
 const emptyPackage = {
   code: "",
@@ -285,6 +318,7 @@ const emptyFeatureStep = {
   code: "",
   displayName: "",
   description: "",
+  translations: {} as CatalogTranslations,
   parentId: "",
   displayOrder: "0",
   isActive: true,
@@ -608,6 +642,7 @@ export default function SuperAdminDashboard() {
         status: item.status,
         website: item.website ?? "",
         description: item.description ?? "",
+        translations: item.translations ?? {},
       });
       setEditingOemId(item.id);
     } else {
@@ -637,6 +672,7 @@ export default function SuperAdminDashboard() {
         description: item.description ?? "",
         status: item.status,
         displayOrder: String(item.displayOrder ?? 0),
+        translations: item.translations ?? {},
       });
       setEditingVehicleCategoryId(item.id);
     } else {
@@ -667,6 +703,7 @@ export default function SuperAdminDashboard() {
         energyType: item.energyType,
         usageType: item.usageType ?? "",
         status: item.status,
+        translations: item.translations ?? {},
       });
       setEditingVehicleTypeId(item.id);
     } else {
@@ -722,6 +759,7 @@ export default function SuperAdminDashboard() {
         code: item.code,
         displayName: item.displayName,
         description: item.description ?? "",
+        translations: completeCatalogTranslations({ displayName: item.displayName, description: item.description ?? "" }, ["displayName", "description"], item.translations ?? {}),
         parentId: item.parentId ?? "",
         displayOrder: String(item.displayOrder ?? 0),
         isActive: item.isActive,
@@ -854,7 +892,10 @@ export default function SuperAdminDashboard() {
       async () => {
         const saved = await request(
           editingOemId ? `/platform/oems/${editingOemId}` : "/platform/oems",
-          { method: editingOemId ? "PUT" : "POST", body: JSON.stringify(oem) },
+          { method: editingOemId ? "PUT" : "POST", body: JSON.stringify({
+            ...oem,
+            translations: completeCatalogTranslations(oem, ["description"], oem.translations),
+          }) },
           token,
         );
         if (!editingOemId) setEditingOemId(saved.id);
@@ -916,6 +957,7 @@ export default function SuperAdminDashboard() {
             body: JSON.stringify({
               ...vehicleCategory,
               displayOrder: Number(vehicleCategory.displayOrder || 0),
+              translations: completeCatalogTranslations(vehicleCategory, ["name", "description"], vehicleCategory.translations),
             }),
           },
           token,
@@ -943,6 +985,7 @@ export default function SuperAdminDashboard() {
             body: JSON.stringify({
               ...vehicleType,
               ...(vehicleType.usageType ? {} : { usageType: undefined }),
+              translations: completeCatalogTranslations(vehicleType, ["name", "description"], vehicleType.translations),
             }),
           },
           token,
@@ -2450,6 +2493,7 @@ export default function SuperAdminDashboard() {
             </section>
             <CatalogFormDialog
               open={showOemForm}
+              size="wide"
               title={editingOemId ? "Edit OEM" : "Add OEM"}
               description="Enter the manufacturer details shown across the platform."
               error={error}
@@ -2477,6 +2521,8 @@ export default function SuperAdminDashboard() {
             >
               <TextFields
                 value={oem}
+                disabledKeys={editingOemId ? ["code"] : []}
+                softWarnings={{ code: editingOemId ? "Code is permanent after creation." : "Choose a unique code. It cannot be changed later." }}
                 change={(key, value) =>
                   setOem((current) => ({ ...current, [key]: value }))
                 }
@@ -2487,6 +2533,12 @@ export default function SuperAdminDashboard() {
                   ["website", "Website"],
                   ["description", "Description"],
                 ]}
+              />
+              <CatalogTranslationFields
+                base={oem}
+                fields={[{ key: "description", label: "Description" }]}
+                translations={oem.translations}
+                onChange={(translations) => setOem((current) => ({ ...current, translations }))}
               />
               <Select
                 label="Status"
@@ -2638,6 +2690,7 @@ export default function SuperAdminDashboard() {
             <section className="sa-management oem-table-only">
               <CatalogFormDialog
                 open={showVehicleCategoryForm}
+                size="wide"
                 title={
                   editingVehicleCategoryId
                     ? "Edit Vehicle Category"
@@ -2670,6 +2723,8 @@ export default function SuperAdminDashboard() {
               >
                 <TextFields
                   value={vehicleCategory}
+                  disabledKeys={editingVehicleCategoryId ? ["code"] : []}
+                  softWarnings={{ code: editingVehicleCategoryId ? "Code is permanent after creation." : "Choose a unique code. It cannot be changed later." }}
                   change={(key, value) =>
                     setVehicleCategory((current) => ({
                       ...current,
@@ -2682,6 +2737,12 @@ export default function SuperAdminDashboard() {
                     ["description", "Description"],
                     ["displayOrder", "Display order"],
                   ]}
+                />
+                <CatalogTranslationFields
+                  base={vehicleCategory}
+                  fields={[{ key: "name", label: "Category name" }, { key: "description", label: "Description" }]}
+                  translations={vehicleCategory.translations}
+                  onChange={(translations) => setVehicleCategory((current) => ({ ...current, translations }))}
                 />
                 <Select
                   label="Status"
@@ -2791,6 +2852,7 @@ export default function SuperAdminDashboard() {
             <section className="sa-management oem-table-only">
               <CatalogFormDialog
                 open={showVehicleTypeForm}
+                size="wide"
                 title={
                   editingVehicleTypeId
                     ? "Edit Vehicle Type"
@@ -2849,6 +2911,8 @@ export default function SuperAdminDashboard() {
                 </label>
                 <TextFields
                   value={vehicleType}
+                  disabledKeys={editingVehicleTypeId ? ["code"] : []}
+                  softWarnings={{ code: editingVehicleTypeId ? "Code is permanent after creation." : "Choose a unique code. It cannot be changed later." }}
                   change={(key, value) =>
                     setVehicleType((current) => ({
                       ...current,
@@ -2861,6 +2925,12 @@ export default function SuperAdminDashboard() {
                     ["subCategory", "Sub-category"],
                     ["description", "Description"],
                   ]}
+                />
+                <CatalogTranslationFields
+                  base={vehicleType}
+                  fields={[{ key: "name", label: "Type name" }, { key: "description", label: "Description" }]}
+                  translations={vehicleType.translations}
+                  onChange={(translations) => setVehicleType((current) => ({ ...current, translations }))}
                 />
                 <Select
                   label="Energy type"
@@ -2994,6 +3064,12 @@ export default function SuperAdminDashboard() {
                   fields={[["code", "Step code"], ["displayName", "Step name"], ["description", "Description"], ["displayOrder", "Display order"]]}
                   requiredKeys={["code", "displayName"]}
                 />
+                <CatalogTranslationFields
+                  base={featureStep}
+                  fields={[{ key: "displayName", label: "Step name" }, { key: "description", label: "Description" }]}
+                  translations={featureStep.translations}
+                  onChange={(translations) => setFeatureStep((current) => ({ ...current, translations }))}
+                />
                 <label>
                   Parent step
                   <select value={featureStep.parentId} onChange={(event) => setFeatureStep((current) => ({ ...current, parentId: event.target.value }))}>
@@ -3012,9 +3088,10 @@ export default function SuperAdminDashboard() {
                 <DataTable
                   headings={["Code", "Feature Step", "Parent", "Features", "Status", "", ""]}
                   columnFilters={[{ type: "text" }, { type: "text" }, { type: "select" }, { type: "number" }, { type: "select" }, null, null]}
-                  rows={featureSteps.map((item) => [
+                  nonSortableColumns={[0, 1, 2, 3, 4, 5, 6]}
+                  rows={orderFeatureSteps(featureSteps).map((item) => [
                     item.code,
-                    item.displayName,
+                    item.parentId || item.parent ? `↳ ${item.displayName}` : item.displayName,
                     item.parent?.displayName ?? "—",
                     item._count?.features ?? 0,
                     item.isActive ? "ACTIVE" : "INACTIVE",

@@ -3,18 +3,17 @@ import { PrismaClient, UserRole } from '@prisma/client';
 import { readFile } from 'node:fs/promises';
 import { oemCatalog } from './catalog/oems.mjs';
 import { clientCatalog } from './catalog/clients.mjs';
-import { clientManagerCatalog } from './catalog/client-managers.mjs';
-import { hubCatalog } from './catalog/hubs.mjs';
-import { fleets } from './catalog/fleets.mjs';
-import { iotDevices } from './catalog/iot-devices.mjs';
-import { batteries } from './catalog/batteries.mjs';
-import { controllers } from './catalog/controllers.mjs';
-import { fleetComponentMappings } from './catalog/fleet-component-mappings.mjs';
+import { clientManagerCatalog } from './client/yogmaya/client-managers.mjs';
+import { hubCatalog } from './client/yogmaya/hubs.mjs';
+import { fleets } from './client/yogmaya/fleets.mjs';
+import { iotDevices } from './client/yogmaya/iot-devices.mjs';
+import { batteries } from './client/yogmaya/batteries.mjs';
+import { controllers } from './client/yogmaya/controllers.mjs';
+import { fleetComponentMappings } from './client/yogmaya/fleet-component-mappings.mjs';
 import { featureCatalog } from './catalog/features.mjs';
 import { featurePricingCatalog } from './catalog/feature-pricing.mjs';
 import { packageFeatureCatalog } from './catalog/package-features.mjs';
 import { featureStepSpecs } from './catalog/feature-steps.mjs';
-import { featureStepTranslations } from './catalog/feature-step-translations.mjs';
 import { packageCatalog } from './catalog/packages.mjs';
 import { packageVehicleTierPricingCatalog } from './catalog/package-vehicle-tier-pricing.mjs';
 import { vehicleCategoryCatalog } from './catalog/vehicle-categories.mjs';
@@ -84,34 +83,19 @@ async function main() {
     });
   }
 
-  await prisma.oem.upsert({
-    where: { code: 'EVSEYE' },
-    create: {
-      code: 'EVSEYE',
-      name: 'EVs Eye Mobility Systems',
-      displayName: 'EVs Eye',
-      status: 'ACTIVE',
-      description: 'Platform sample OEM record.',
-    },
-    update: {
-      name: 'EVs Eye Mobility Systems',
-      displayName: 'EVs Eye',
-      status: 'ACTIVE',
-    },
-  });
-
   await Promise.all(
-    oemCatalog.map(async ({ logoSourceUrl: _logoSourceUrl, ...oem }) => {
-      const existing = await prisma.oem.findUnique({
+    oemCatalog.map(async (oem) => {
+      const saved = await prisma.oem.upsert({
         where: { code: oem.code },
-        select: { id: true, logoObjectKey: true },
+        create: oem,
+        update: oem,
       });
-      const id = existing?.id ?? crypto.randomUUID();
-      const logoObjectKey = await seedOemLogo(id, oem.code);
-      return prisma.oem.upsert({
-        where: { code: oem.code },
-        create: { id, ...oem, logoObjectKey },
-        update: { ...oem, logoObjectKey },
+      if (oem.code === 'EVSEYE') return saved;
+      const logoObjectKey = await seedOemLogo(saved.id, oem.code);
+      if (saved.logoObjectKey === logoObjectKey) return saved;
+      return prisma.oem.update({
+        where: { id: saved.id },
+        data: { logoObjectKey },
       });
     }),
   );
@@ -147,25 +131,21 @@ async function main() {
   );
 
   const featureSteps = new Map();
-  for (const step of featureStepSpecs.filter((item) => !item.parentCode)) {
-    const { parentCode: _parentCode, ...stepData } = step;
-    const translations = featureStepTranslations[step.code];
+  for (const step of [
+    ...featureStepSpecs.filter((item) => !item.parentCode),
+    ...featureStepSpecs.filter((item) => item.parentCode),
+  ]) {
+    const { code, parentCode, ...data } = step;
+    const parentId = parentCode ? featureSteps.get(parentCode)?.id : null;
+    if (parentCode && !parentId) {
+      throw new Error(`Missing parent Feature Step ${parentCode}`);
+    }
     const saved = await prisma.featureStep.upsert({
-      where: { code: step.code },
-      create: { ...stepData, ...(translations ? { translations } : {}) },
-      update: { displayName: step.displayName, description: step.description, ...(translations ? { translations } : {}), displayOrder: step.displayOrder, isActive: true },
+      where: { code },
+      create: { code, ...data, parentId },
+      update: { ...data, parentId },
     });
-    featureSteps.set(step.code, saved);
-  }
-  for (const step of featureStepSpecs.filter((item) => item.parentCode)) {
-    const { parentCode, ...stepData } = step;
-    const translations = featureStepTranslations[step.code];
-    const saved = await prisma.featureStep.upsert({
-      where: { code: step.code },
-      create: { ...stepData, parentId: featureSteps.get(parentCode).id, ...(translations ? { translations } : {}) },
-      update: { displayName: step.displayName, parentId: featureSteps.get(parentCode).id, ...(translations ? { translations } : {}), displayOrder: step.displayOrder, isActive: true },
-    });
-    featureSteps.set(step.code, saved);
+    featureSteps.set(code, saved);
   }
   await Promise.all(
     featureCatalog.map(({ featureStepCode, ...feature }) => {

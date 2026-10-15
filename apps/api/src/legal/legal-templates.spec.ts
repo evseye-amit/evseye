@@ -36,6 +36,34 @@ describe('legal templates', () => {
     await expect(service.publishDraft('document-1', client.id, false)).rejects.toThrow('Resolve all legal review markers');
   });
 
+  it('also blocks untranslated Bangla client-review notes', async () => {
+    const service = new LegalService({ appLegalDocument: { findUnique: vi.fn().mockResolvedValue({
+      id: 'document-1', clientId: client.id, title: 'সম্মতিপত্র',
+      content: '[ক্লায়েন্টের পর্যালোচনা প্রয়োজন: যোগাযোগ নিশ্চিত করুন।]',
+      publishedAt: null, deletedAt: null,
+    }), updateMany: vi.fn() } } as never);
+    await expect(service.publishDraft('document-1', client.id, false)).rejects.toThrow('Resolve all legal review markers');
+  });
+
+  it.each([
+    '[ક્લાયન્ટની સમીક્ષા જરૂરી: સંપર્ક તપાસો.]',
+    '[क्लाइंट की समीक्षा ज़रूरी है: संपर्क जाँचें।]',
+    '[ಗ್ರಾಹಕರ ಪರಿಶೀಲನೆ ಅಗತ್ಯವಿದೆ: ಸಂಪರ್ಕವನ್ನು ಪರಿಶೀಲಿಸಿ.]',
+    '[ക്ലയന്റ് പരിശോധന ആവശ്യമാണ്: ബന്ധപ്പെടാനുള്ള വിവരങ്ങൾ സ്ഥിരീകരിക്കുക.]',
+    '[ग्राहकाने पुनरावलोकन करणे आवश्यक: संपर्क तपासा.]',
+    '[କ୍ଲାଏଣ୍ଟଙ୍କ ସମୀକ୍ଷା ଆବଶ୍ୟକ: ଯୋଗାଯୋଗ ଯାଞ୍ଚ କରନ୍ତୁ।]',
+    '[ਕਲਾਇੰਟ ਦੁਆਰਾ ਸਮੀਖਿਆ ਲੋੜੀਂਦੀ: ਸੰਪਰਕ ਦੀ ਪੁਸ਼ਟੀ ਕਰੋ।]',
+    '[வாடிக்கையாளர் ஆய்வு தேவை: தொடர்பை உறுதிப்படுத்தவும்.]',
+    '[క్లయింట్ సమీక్ష అవసరం: సంప్రదింపును నిర్ధారించండి.]',
+    '[کلائنٹ کا جائزہ درکار ہے: رابطے کی تصدیق کریں۔]',
+  ])('blocks localized client-review note %s', async (content) => {
+    const service = new LegalService({ appLegalDocument: { findUnique: vi.fn().mockResolvedValue({
+      id: 'document-1', clientId: client.id, title: 'Consent', content,
+      publishedAt: null, deletedAt: null,
+    }), updateMany: vi.fn() } } as never);
+    await expect(service.publishDraft('document-1', client.id, false)).rejects.toThrow('Resolve all legal review markers');
+  });
+
   it('keeps the mandatory Rider privacy consent template active', async () => {
     const template = { id: 'template-1', appCode: 'RIDER', role: UserRole.RIDER,
       kind: 'PRIVACY_CONSENT', locale: 'en', deletedAt: null };
