@@ -35,6 +35,7 @@ import { RewardsModule } from './rewards/rewards.module.js';
 import { LegalModule } from './legal/legal.module.js';
 import { RideReturnsModule } from './ride-returns/ride-returns.module.js';
 import { SupportModule } from './support/support.module.js';
+import { AttendanceModule } from './attendance/attendance.module.js';
 
 @Module({
   imports: [
@@ -70,6 +71,7 @@ import { SupportModule } from './support/support.module.js';
     LegalModule,
     RideReturnsModule,
     SupportModule,
+    AttendanceModule,
     PaymentsModule,
     CollectionsModule,
     FinalSettlementModule,
