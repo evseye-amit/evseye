@@ -186,6 +186,7 @@ export class RiderBillingService {
       effectiveAt: Date;
       expectedOverdueAmount?: string;
     },
+    scope?: { agreementId: string; vehicleId: string },
   ) {
     if (
       (dto.chargeType === 'RETURN_PENALTY' ||
@@ -220,8 +221,8 @@ export class RiderBillingService {
       if (!expectedOverdueAmount || !due._sum.outstandingAmount?.eq(new Prisma.Decimal(expectedOverdueAmount))) throw new ConflictException('OUTSTANDING_BALANCE_CHANGED');
     }
     await this.profile(tx, clientId, riderId, currency);
-    const charge = await tx.riderCharge.create({ data: { clientId, riderId, sourceKey, chargeType: dto.chargeType, description: dto.description, referenceType: dto.referenceType, referenceId: dto.referenceId, quantity, unitAmount, amount, currency, effectiveAt } });
-    await tx.riderLedgerEntry.create({ data: { clientId, riderId, entryType: RiderLedgerEntryType.CHARGE, sourceType: 'RIDER_CHARGE', sourceId: charge.id, description: charge.description, debitAmount: amount, currency, effectiveAt } });
+    const charge = await tx.riderCharge.create({ data: { ...scope, clientId, riderId, sourceKey, chargeType: dto.chargeType, description: dto.description, referenceType: dto.referenceType, referenceId: dto.referenceId, quantity, unitAmount, amount, currency, effectiveAt } });
+    await tx.riderLedgerEntry.create({ data: { ...scope, clientId, riderId, entryType: RiderLedgerEntryType.CHARGE, sourceType: 'RIDER_CHARGE', sourceId: charge.id, description: charge.description, debitAmount: amount, currency, effectiveAt } });
     await this.log(tx, clientId, riderId, actorId, 'RIDER_CHARGE_POSTED', 'RiderCharge', charge.id, { amount: amountString(amount), currency, sourceKey });
     return charge;
   }

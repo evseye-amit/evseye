@@ -352,6 +352,12 @@ export class AllocationsService {
     if (!inspection)
       throw new ConflictException('Post-deallocation inspection is incomplete.');
 
+    const submission = await tx.vehicleSubmission.findUnique({ where: { allocationId } });
+    const requiredReturn = await tx.rentalTerminationRequest.findFirst({ where: { clientId, allocationId, submissionRequired: true, status: { not: 'CANCELLED' } }, select: { id: true } });
+    const requiredExchange = await tx.vehicleExchangeRequest.findFirst({ where: { clientId, oldAllocationId: allocationId, submissionRequired: true, status: { notIn: ['CANCELLED', 'REJECTED'] } }, select: { id: true } });
+    if ((submission || requiredReturn || requiredExchange) && submission?.status !== 'CONFIRMED')
+      throw new ConflictException('Vehicle photos, mechanic report and rider/team lead confirmation are required.');
+
     const receivedReturn = await tx.rentalTerminationRequest.findFirst({
       where: { clientId, allocationId, status: 'RETURNED' },
       select: { id: true },
@@ -359,7 +365,7 @@ export class AllocationsService {
     if (receivedReturn && typeof inspection.safeForReuse !== 'boolean')
       throw new ConflictException('Return inspection safety outcome is required.');
 
-    if (!receivedReturn) {
+    if (!receivedReturn && !submission) {
       const otps = await tx.otpRequest.findMany({
         where: {
           clientId,
@@ -380,7 +386,7 @@ export class AllocationsService {
         throw new ConflictException('Both deallocation OTPs must be verified.');
     }
 
-    const safeForReuse = inspection.safeForReuse ?? true;
+    const safeForReuse = (inspection.safeForReuse ?? true) && (!submission || submission.mechanicChecksComplete);
     await tx.allocation.update({
       where: { id: allocationId },
       data: {

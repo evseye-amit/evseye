@@ -1,3 +1,4 @@
+import { VehicleSubmissionModule } from './vehicle-submissions/submission.module.js';
 import { WalletModule } from './wallet/wallet.module.js';
 import { ClientIdentityModule } from './client-identity/client-identity.module.js';
 import { Module } from '@nestjs/common';
@@ -70,6 +71,7 @@ import { AttendanceModule } from './attendance/attendance.module.js';
     RewardsModule,
     LegalModule,
     RideReturnsModule,
+    VehicleSubmissionModule,
     SupportModule,
     AttendanceModule,
     PaymentsModule,

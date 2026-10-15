@@ -12,7 +12,8 @@ const vehicleId = '44444444-4444-4444-8444-444444444444';
 const replacementId = '55555555-5555-4555-8555-555555555555';
 const exchangeId = '66666666-6666-4666-8666-666666666666';
 const actorId = '77777777-7777-4777-8777-777777777777';
-const input = { agreementId, reasonCode: 'UPGRADE' };
+const hubId = '88888888-8888-4888-8888-888888888888';
+const input = { agreementId, reasonCode: 'UPGRADE', plannedReturnDate: '2099-10-16', plannedHubId: hubId };
 
 function fixture() {
   const agreement = {
@@ -37,6 +38,7 @@ function fixture() {
     offers: [],
   };
   const tx = {
+    rentalTerminationRequest: { findFirst: vi.fn().mockResolvedValue(null) },
     vehicleExchangeRequest: {
       create: vi.fn().mockResolvedValue(exchange),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -48,6 +50,7 @@ function fixture() {
     auditLog: { create: vi.fn().mockResolvedValue({}) },
   };
   const db = {
+    hub: { findMany: vi.fn().mockResolvedValue([{ id: hubId, name: 'Hub' }]) },
     riderRentalAgreement: { findFirst: vi.fn().mockResolvedValue(agreement) },
     commercialRestriction: { findFirst: vi.fn().mockResolvedValue(null) },
     clientExchangePolicy: {
@@ -143,7 +146,7 @@ describe('collection exchange restriction', () => {
     const { service, db } = fixture();
     db.commercialRestriction.findFirst.mockResolvedValue({ caseId: 'case-1' });
     await expect(service.request(clientId, actorId, input, riderId)).rejects.toMatchObject({ status: 409 });
-    await expect(service.request(clientId, actorId, { agreementId, reasonCode: 'SAFETY_EXCHANGE' }, riderId)).resolves.toBeDefined();
+    await expect(service.request(clientId, actorId, { ...input, reasonCode: 'SAFETY_EXCHANGE' }, riderId)).resolves.toBeDefined();
     expect(db.commercialRestriction.findFirst).toHaveBeenCalledTimes(1);
   });
 });

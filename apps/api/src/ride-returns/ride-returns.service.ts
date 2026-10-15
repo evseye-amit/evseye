@@ -1,3 +1,4 @@
+import { plannedDate, selectSubmissionHub } from '../vehicle-submissions/submission-hub.js';
 import {
   BadRequestException,
   ConflictException,
@@ -192,9 +193,9 @@ export class RideReturnsService {
   ) {
     if (!key || !/^[A-Za-z0-9:_-]{8,120}$/.test(key))
       throw new BadRequestException('An Idempotency-Key is required.');
-    const reasonCode = typeof input.reasonCode === 'string' ? input.reasonCode.trim() : '';
+    const reasonCode = input.reasonCode === undefined && source === 'RIDER' ? 'VEHICLE_RETURN' : typeof input.reasonCode === 'string' ? input.reasonCode.trim() : '';
     if (!reasonCode) throw new BadRequestException('A return reason is required.');
-    const requested = parseDate(input.plannedReturnDate, 'Invalid planned return date.');
+    const requested = plannedDate(input.plannedReturnDate, true);
     const rider = source === 'RIDER'
       ? await this.riderForUser(clientId, actor.id)
       : input.riderId
@@ -208,9 +209,20 @@ export class RideReturnsService {
     if (source === 'RIDER' && input.riderId && input.riderId !== rider.id)
       throw new ForbiddenException('A rider can only return their own vehicle.');
 
+    if (!input.plannedHubId) {
+      // An idempotent retry keeps the originally selected hub even if the vehicle moves.
+      const retry = await this.db.rentalTerminationRequest.findUnique({ where: { clientId_idempotencyKey: { clientId, idempotencyKey: key } } });
+      if (retry && retry.riderId !== rider.id) throw new NotFoundException('Return request not found.');
+      if (retry?.status !== 'CANCELLED' && retry?.plannedHubId) input = { ...input, plannedHubId: retry.plannedHubId };
+      else {
+        const allocation = await this.db.allocation.findFirst({ where: { clientId, riderId: rider.id, status: 'ACTIVE' }, orderBy: { allocatedAt: 'desc' }, select: { fleetId: true } });
+        if (!allocation) throw new ConflictException('ACTIVE_ALLOCATION_REQUIRED');
+        input = { ...input, plannedHubId: (await selectSubmissionHub(this.db, clientId, allocation.fleetId, undefined, input)).hub.id };
+      }
+    }
     await this.assertHubAccess(clientId, actor, input.plannedHubId);
     const hub = await this.db.hub.findFirst({
-      where: { id: input.plannedHubId, clientId, deletedAt: null },
+      where: { id: input.plannedHubId, clientId, deletedAt: null, status: 'ACTIVE', supportsDeallocation: true },
       select: { id: true },
     });
     if (!hub) throw new NotFoundException('Planned Hub not found.');
@@ -235,6 +247,7 @@ export class RideReturnsService {
         }
       }
 
+      if (source === 'RIDER') plannedDate(input.plannedReturnDate);
       const agreementId = input.agreementId ?? existingByKey?.agreementId;
       const agreements = await tx.riderRentalAgreement.findMany({
         where: agreementId
@@ -270,6 +283,7 @@ export class RideReturnsService {
       if (!matches.length) throw new ConflictException('ACTIVE_ALLOCATION_REQUIRED');
       if (matches.length > 1) fail('MULTIPLE_ACTIVE_RENTALS', 'Multiple active rentals prevent automatic resolution.');
       const [{ agreement, allocation }] = matches;
+      if (await tx.vehicleExchangeRequest.findFirst({ where: { clientId, oldAllocationId: allocation.id, status: { in: ['REQUESTED', 'APPROVED', 'REPLACEMENT_SELECTED', 'OFFER_PRESENTED', 'ACCEPTED', 'RETURN_PENDING', 'DEPOSIT_PENDING', 'HANDOVER_PENDING'] } } })) throw new ConflictException('An exchange is already requested for this vehicle.');
       const existing = existingByKey ?? await tx.rentalTerminationRequest.findUnique({
         where: { agreementId: agreement.id },
       });
@@ -290,6 +304,7 @@ export class RideReturnsService {
             where: { id: existing.id },
             data: {
               allocationId: allocation.id,
+              submissionRequired: true,
               plannedHubId: input.plannedHubId,
               receivedHubId: null,
               requestedTerminationDate: requested,
@@ -457,6 +472,7 @@ export class RideReturnsService {
         throw new NotFoundException('Termination request not found.');
       if (request.status === 'RETURNED') return request;
       if (request.status !== 'REQUESTED') fail('RETURN_NOT_RECEIVABLE');
+      if (request.submissionRequired) throw new ConflictException('Complete vehicle photos, mechanic report and rider/team lead OTPs or recorded bypasses through the vehicle submission workflow first.');
 
       const allocation = await tx.allocation.findFirst({
         where: {
@@ -540,6 +556,7 @@ export class RideReturnsService {
           riderId: rider.id,
           status: 'REQUESTED',
           actualTerminationDate: null,
+          vehicleSubmission: { is: null },
         },
         data: { status: 'CANCELLED', cancelledAt: new Date(), cancelledById: actor.id },
       });
@@ -591,7 +608,7 @@ export class RideReturnsService {
     }
     const rows = await this.db.rentalTerminationRequest.findMany({
       where,
-      include: { returnPenaltyCase: { include: { items: true } } },
+      include: { returnPenaltyCase: { include: { items: true } }, vehicleSubmission: true },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
       take: limit + 1,
     });
@@ -612,6 +629,7 @@ export class RideReturnsService {
       where: { id: requestId, clientId },
       include: {
         returnPenaltyCase: { include: { items: true } },
+        vehicleSubmission: { include: { reports: { orderBy: { createdAt: 'asc' } } } },
         allocation: { include: { fleet: true, inspections: true } },
       },
     });
@@ -628,7 +646,7 @@ export class RideReturnsService {
     const rider = await this.riderForUser(clientId, actor.id);
     const row = await this.db.rentalTerminationRequest.findFirst({
       where: { id: requestId, clientId, riderId: rider.id },
-      include: { returnPenaltyCase: { include: { items: true } } },
+      include: { returnPenaltyCase: { include: { items: true } }, vehicleSubmission: true },
     });
     if (!row) throw new NotFoundException('Return not found.');
     return row;
@@ -658,6 +676,7 @@ export class RideReturnsService {
         ) return request;
         fail('RETURN_ALREADY_RECEIVED');
       }
+      if (request.submissionRequired) throw new ConflictException('Complete vehicle photos, mechanic report and rider/team lead OTPs or recorded bypasses through the vehicle submission workflow first.');
       if (request.status !== 'REQUESTED') fail('RETURN_NOT_RECEIVABLE');
       if (request.agreement.startDate && receivedAt < request.agreement.startDate)
         fail('RETURN_BEFORE_AGREEMENT');
@@ -876,6 +895,7 @@ export class RideReturnsService {
     await this.assertStaffReturnAccess(clientId, user, requestId);
     return this.serializable(async (tx) => {
       const request = await tx.rentalTerminationRequest.findFirst({ where: { id: requestId, clientId } });
+      if (request?.submissionRequired) throw new ConflictException('Use the proof-backed vehicle submission reports for initial and additional penalties.');
       if (!request?.actualTerminationDate || !request.allocationId) throw new ConflictException('VEHICLE_RETURN_REQUIRED');
       const inspection = await tx.inspection.findFirst({ where: { clientId, allocationId: request.allocationId, type: 'POST_DEALLOCATION', status: 'COMPLETED' } });
       if (!inspection) throw new ConflictException('VEHICLE_RETURN_INSPECTION_REQUIRED');
@@ -898,6 +918,7 @@ export class RideReturnsService {
     await this.assertStaffReturnAccess(clientId, user, requestId);
     return this.serializable(async (tx) => {
       const request = await tx.rentalTerminationRequest.findFirst({ where: { id: requestId, clientId } });
+      if (request?.submissionRequired) throw new ConflictException('Use the proof-backed vehicle submission reports for initial and additional penalties.');
       if (!request?.actualTerminationDate || !request.allocationId) throw new ConflictException('VEHICLE_RETURN_REQUIRED');
       const inspection = await tx.inspection.findFirst({ where: { allocationId: request.allocationId, type: 'POST_DEALLOCATION', status: 'COMPLETED' } });
       if (!inspection) throw new ConflictException('VEHICLE_RETURN_INSPECTION_REQUIRED');

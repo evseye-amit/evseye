@@ -179,6 +179,8 @@ describe('collection allocation restriction', () => {
 describe('deallocation completion safety gate', () => {
   it('finalizes a received return from its safety result without legacy OTPs', async () => {
     const tx = {
+      vehicleSubmission: { findUnique: vi.fn().mockResolvedValue(null) },
+      vehicleExchangeRequest: { findFirst: vi.fn().mockResolvedValue(null) },
       allocation: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'allocation-1',
@@ -191,7 +193,7 @@ describe('deallocation completion safety gate', () => {
         findFirst: vi.fn().mockResolvedValue({ safeForReuse: false }),
       },
       rentalTerminationRequest: {
-        findFirst: vi.fn().mockResolvedValue({ id: 'return-1' }),
+        findFirst: vi.fn().mockImplementation(({ where }) => where.submissionRequired ? null : { id: 'return-1' }),
       },
       otpRequest: { findMany: vi.fn() },
       fleet: { update: vi.fn().mockResolvedValue({}) },
@@ -215,6 +217,8 @@ describe('deallocation completion safety gate', () => {
 
   it('keeps the legacy dual OTP gate for standalone deallocation', async () => {
     const tx = {
+      vehicleSubmission: { findUnique: vi.fn().mockResolvedValue(null) },
+      vehicleExchangeRequest: { findFirst: vi.fn().mockResolvedValue(null) },
       allocation: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'allocation-1',
@@ -255,6 +259,8 @@ describe('deallocation completion safety gate', () => {
 
   it('reuses an already initiated allocation for a legacy return adapter', async () => {
     const tx = {
+      vehicleSubmission: { findUnique: vi.fn().mockResolvedValue(null) },
+      vehicleExchangeRequest: { findFirst: vi.fn().mockResolvedValue(null) },
       allocation: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'allocation-1',

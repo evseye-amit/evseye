@@ -3,10 +3,13 @@ import { Prisma, UserRole } from '@prisma/client';
 import { ValidationPipe } from '@nestjs/common';
 import { validate } from 'class-validator';
 import 'reflect-metadata';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { CreateRideReturnDto, UpdateReturnPenaltyPriceDto } from './dto/ride-return.dto.js';
 import { RideReturnsService } from './ride-returns.service.js';
+
+beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-12T00:00:00Z')); });
+afterEach(() => vi.useRealTimers());
 
 const D = (value: string) => new Prisma.Decimal(value);
 const ops: AuthUser = { id: 'ops-1', clientId: 'client-a', roles: [UserRole.OPERATIONS_MANAGER] };
@@ -14,6 +17,7 @@ const riderUser: AuthUser = { id: 'rider-user-1', clientId: 'client-a', roles: [
 
 function setup() {
   const tx = {
+    vehicleExchangeRequest: { findFirst: vi.fn().mockResolvedValue(null) },
     riderRentalAgreement: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn() },
     riderRentalAgreementStatusHistory: { create: vi.fn() },
     rentalTerminationRequest: { findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },

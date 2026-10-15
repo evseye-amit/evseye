@@ -3,7 +3,16 @@
 All routes use `/api/v1`, bearer authentication, DTO validation, and the
 `{ data }` response envelope. IDs below are examples.
 
-## Rider return sequence
+## Current vehicle return and exchange workflow
+
+New requests use the shared proof-backed submission workflow documented in
+[Vehicle submission API](vehicle-submission-api.md). It requires vehicle/component
+photos, a Fleet Manager recorded mechanic report, and Rider plus Team Lead OTPs
+or separate Fleet Manager bypass reasons. This applies even when there are no
+penalties. The receipt and penalty sequence below applies to historical requests
+with `submissionRequired: false`. Support ticket APIs later in this document are unchanged.
+
+## Historical rider return sequence
 
 1. Request a return. The key is required and must be reused for an identical
    retry. The server resolves the authenticated rider's eligible rental. Do

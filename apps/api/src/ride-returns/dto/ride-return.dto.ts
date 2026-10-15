@@ -14,6 +14,7 @@ import {
   Max,
   MaxLength,
   Min,
+  IsNumber,
   ValidateNested,
 } from 'class-validator';
 
@@ -21,9 +22,11 @@ const currency = /^[A-Z]{3}$/;
 
 export class CreateRideReturnDto {
   @IsOptional() @IsUUID() riderId?: string;
-  @IsString() @IsNotEmpty() @MaxLength(60) reasonCode!: string;
-  @IsUUID() plannedHubId!: string;
+  @IsOptional() @IsString() @IsNotEmpty() @MaxLength(60) reasonCode?: string;
+  @IsOptional() @IsUUID() plannedHubId?: string;
   @IsISO8601() plannedReturnDate!: string;
+  @IsOptional() @IsNumber() @Min(-90) @Max(90) latitude?: number;
+  @IsOptional() @IsNumber() @Min(-180) @Max(180) longitude?: number;
   @IsOptional() @IsString() @MaxLength(500) notes?: string;
 }
 

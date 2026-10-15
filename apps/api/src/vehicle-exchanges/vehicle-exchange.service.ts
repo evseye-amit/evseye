@@ -1,3 +1,4 @@
+import { plannedDate, selectSubmissionHub } from '../vehicle-submissions/submission-hub.js';
 import {
   BadRequestException,
   ConflictException,
@@ -78,7 +79,7 @@ export class VehicleExchangeService {
   private async get(clientId: string, id: string, riderId?: string) {
     const exchange = await this.db.vehicleExchangeRequest.findFirst({
       where: { id, clientId, ...(riderId ? { riderId } : {}) },
-      include: { offers: { orderBy: { createdAt: 'desc' } }, agreement: true },
+      include: { offers: { orderBy: { createdAt: 'desc' } }, agreement: true, vehicleSubmission: { include: { reports: { orderBy: { createdAt: 'asc' } } } } },
     });
     if (!exchange) throw new NotFoundException({ code: 'EXCHANGE_NOT_FOUND' });
     return exchange;
@@ -90,6 +91,7 @@ export class VehicleExchangeService {
     return this.db.vehicleExchangeRequest.findMany({
       where: { clientId, ...(riderId ? { riderId } : {}) },
       orderBy: { createdAt: 'desc' },
+      include: { vehicleSubmission: true },
     });
   }
   async history(clientId: string, agreementId: string, riderId?: string) {
@@ -189,13 +191,24 @@ export class VehicleExchangeService {
     const input = parseInput(
       z
         .object({
-          agreementId: uuid,
-          reasonCode: z.string().min(1).max(80),
+          agreementId: uuid.optional(),
+          reasonCode: z.string().min(1).max(80).default('VEHICLE_EXCHANGE'),
           reason: z.string().max(500).optional(),
+          plannedReturnDate: z.string().optional(),
+          plannedHubId: uuid.optional(),
+          latitude: z.number().min(-90).max(90).optional(),
+          longitude: z.number().min(-180).max(180).optional(),
         })
         .strict(),
       raw,
     );
+    if (!input.agreementId && !riderId) throw new BadRequestException('agreementId is required for a staff exchange request.');
+    if (!input.agreementId && riderId) {
+      const candidates = await this.db.riderRentalAgreement.findMany({ where: { clientId, riderId, status: 'ACTIVE' }, select: { id: true }, take: 2 });
+      if (candidates.length !== 1) throw new ConflictException('A single active rental agreement is required.');
+      input.agreementId = candidates[0]!.id;
+    }
+    const date = riderId || input.plannedReturnDate ? plannedDate(input.plannedReturnDate) : null;
     const agreement = await this.db.riderRentalAgreement.findFirst({
       where: {
         clientId,
@@ -229,7 +242,10 @@ export class VehicleExchangeService {
       policy.minimumDaysOnVehicle * 86_400_000
     )
       fail('MINIMUM_DAYS_NOT_MET');
+    const hub = date || input.plannedHubId ? await selectSubmissionHub(this.db, clientId, currentVehicleId, input.plannedHubId, input) : null;
     return this.db.$transaction(async (tx) => {
+      const competing = await tx.rentalTerminationRequest.findFirst({ where: { clientId, allocationId: allocation.id, status: 'REQUESTED' } });
+      if (competing) throw new ConflictException('A vehicle return is already requested. Cancel it before requesting an exchange.');
       const created = await tx.vehicleExchangeRequest.create({
         data: {
           clientId,
@@ -240,6 +256,8 @@ export class VehicleExchangeService {
           baseVersionNumber: agreement.currentCommercialVersionNumber,
           reasonCode: input.reasonCode,
           reason: input.reason,
+          plannedReturnDate: date,
+          plannedHubId: hub?.hub.id ?? null,
           createdById: actorId,
         },
       });
@@ -913,6 +931,7 @@ export class VehicleExchangeService {
     )
       fail('EXCHANGE_STATE_INVALID');
     if (exchange.returnInspectionId) fail('OLD_RETURN_ALREADY_COMPLETED');
+    if (exchange.submissionRequired) throw new ConflictException('Start the shared vehicle submission workflow to capture photos, mechanic report and both confirmations.');
     if (exchange.status === 'RETURN_PENDING') return exchange;
     const pending = await this.db.inspection.findFirst({
       where: {
@@ -949,6 +968,10 @@ export class VehicleExchangeService {
   }
   async confirmReturn(clientId: string, id: string, actorId: string) {
     const exchange = await this.get(clientId, id);
+    if (exchange.submissionRequired) {
+      if (exchange.vehicleSubmission?.status === 'CONFIRMED') return exchange;
+      throw new ConflictException('Vehicle submission report and OTP confirmations are required.');
+    }
     if (exchange.status !== 'RETURN_PENDING' || !exchange.oldAllocationId)
       fail('EXCHANGE_STATE_INVALID');
     const allocation = await this.db.allocation.findFirst({

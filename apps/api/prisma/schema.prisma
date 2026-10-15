@@ -23,6 +23,8 @@ enum OtpPurpose {
   DEALLOCATION_OPERATOR
   PHONE_VERIFICATION
   RETURN_PENALTY_APPROVAL
+  VEHICLE_SUBMISSION_RIDER
+  VEHICLE_SUBMISSION_TEAM_LEAD
 }
 
 enum OtpStatus {
@@ -806,6 +808,7 @@ enum PaymentTransactionStatus {
 }
 
 model Client {
+  vehicleSubmissions VehicleSubmission[]
   riderReferenceReviews RiderReferenceReview[]
   legalDocuments              AppLegalDocument[]
   legalAcceptances            AppLegalAcceptance[]
@@ -2234,6 +2237,7 @@ model RiderPaymentProfile {
 }
 
 model RiderCharge {
+  submissionReport VehicleSubmissionReport?
   id                  String            @id @default(uuid())
   clientId            String
   client              Client            @relation(fields: [clientId], references: [id], onDelete: Restrict)
@@ -2813,6 +2817,7 @@ model ImportJob {
 }
 
 model Allocation {
+  vehicleSubmission VehicleSubmission?
   id               String                    @id @default(uuid())
   clientId         String
   fleetId          String
@@ -2886,6 +2891,7 @@ model DeploymentPayment {
 }
 
 model Inspection {
+  vehicleSubmission VehicleSubmission?
   id           String           @id @default(uuid())
   clientId     String
   allocationId String
@@ -4607,6 +4613,8 @@ model RiderRentalAgreement {
 }
 
 model RentalTerminationRequest {
+  submissionRequired Boolean @default(true)
+  vehicleSubmission VehicleSubmission?
   id                       String               @id @default(uuid())
   clientId                 String
   riderId                  String
@@ -5024,6 +5032,10 @@ model RiderAgreementCommercialVersion {
 }
 
 model VehicleExchangeRequest {
+  submissionRequired Boolean @default(true)
+  plannedHubId String?
+  plannedReturnDate DateTime?
+  vehicleSubmission VehicleSubmission?
   id                   String                 @id @default(uuid())
   clientId             String
   agreementId          String
@@ -5832,4 +5844,74 @@ model RiderReferenceReview {
   reviewedAt      DateTime                   @default(now())
 
   @@index([clientId, ownerKey])
+}
+
+
+model VehicleSubmission {
+  id                     String @id @default(uuid())
+  clientId               String
+  client                 Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  allocationId           String @unique
+  allocation             Allocation @relation(fields: [allocationId], references: [id], onDelete: Restrict)
+  inspectionId           String @unique
+  inspection             Inspection @relation(fields: [inspectionId], references: [id], onDelete: Restrict)
+  returnRequestId        String? @unique
+  returnRequest          RentalTerminationRequest? @relation(fields: [returnRequestId], references: [id], onDelete: Restrict)
+  exchangeRequestId      String? @unique
+  exchangeRequest        VehicleExchangeRequest? @relation(fields: [exchangeRequestId], references: [id], onDelete: Restrict)
+  riderId                String
+  fleetId                String
+  agreementId            String
+  hubId                  String
+  status                 String @default("IN_PROGRESS") @db.VarChar(30)
+  assetSnapshot          Json
+  requiredPhotoTypes     String[]
+  mechanicChecksComplete Boolean @default(false)
+  confirmedAt            DateTime?
+  confirmedById          String?
+  createdById            String
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  reports                VehicleSubmissionReport[]
+  @@index([clientId, riderId, createdAt])
+  @@index([clientId, hubId, status])
+  @@index([clientId, agreementId])
+}
+
+model VehicleSubmissionReport {
+  id                    String @id @default(uuid())
+  clientId              String
+  submissionId          String
+  submission            VehicleSubmission @relation(fields: [submissionId], references: [id], onDelete: Restrict)
+  requestKey            String @db.VarChar(120)
+  stage                 String @db.VarChar(10)
+  mechanicName          String @db.VarChar(150)
+  summary               String @db.VarChar(4000)
+  safeForReuse          Boolean
+  unsafeReason          String? @db.VarChar(500)
+  checksComplete        Boolean @default(false)
+  evidencePhotoIds      String[]
+  items                 Json
+  totalAmount           Decimal @db.Decimal(14,2)
+  currency              String @db.Char(3)
+  digest                String @db.Char(64)
+  status                String @default("DRAFT") @db.VarChar(20)
+  recordedById          String
+  imposedById           String?
+  imposedAt             DateTime?
+  riderOtpRequestId     String?
+  riderVerifiedUserId   String?
+  teamLeadOtpRequestId  String?
+  teamLeadVerifiedUserId String?
+  riderBypassReason     String? @db.VarChar(500)
+  teamLeadBypassReason  String? @db.VarChar(500)
+  confirmedById         String?
+  confirmedAt           DateTime?
+  postedChargeId        String? @unique
+  postedCharge RiderCharge? @relation(fields: [postedChargeId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  cancelledById         String?
+  cancellationReason   String? @db.VarChar(500)
+  createdAt             DateTime @default(now())
+  @@unique([clientId, submissionId, requestKey])
+  @@index([clientId, submissionId, createdAt])
 }

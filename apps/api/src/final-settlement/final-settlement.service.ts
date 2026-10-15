@@ -586,8 +586,47 @@ export class FinalSettlementService {
       return tx.riderFinalSettlement.findUniqueOrThrow({ where: { id } });
     });
   }
+  private async assertMechanicChecksComplete(
+    clientId: string,
+    agreementId: string,
+  ) {
+    const request = await this.db.rentalTerminationRequest.findUnique({
+      where: { agreementId },
+    });
+    if (!request?.submissionRequired) return;
+    const pending = await this.db.vehicleSubmission.findFirst({
+      where: {
+        clientId,
+        agreementId,
+        OR: [
+          { status: { not: "CONFIRMED" } },
+          { mechanicChecksComplete: false },
+          { reports: { some: { status: { in: ["DRAFT", "SUBMITTED"] } } } },
+        ],
+      },
+      select: { id: true },
+    });
+    if (pending)
+      throw new ConflictException(
+        "Vehicle mechanic checks and report confirmations must finish before final settlement.",
+      );
+    const charge = await this.db.riderCharge.findFirst({
+      where: {
+        clientId,
+        agreementId,
+        referenceType: "VEHICLE_SUBMISSION_REPORT",
+        status: "OPEN",
+      },
+      select: { id: true },
+    });
+    if (charge)
+      throw new ConflictException(
+        "Submission penalties must be invoiced before final settlement approval.",
+      );
+  }
   async approve(clientId: string, id: string, actorId: string) {
     const row = await this.settlement(clientId, id);
+    await this.assertMechanicChecksComplete(clientId, row.agreementId);
     if (
       row.status === 'APPROVED' ||
       row.status === 'PAYMENT_PENDING' ||
@@ -1816,6 +1855,7 @@ export class FinalSettlementService {
   }
   async close(clientId: string, id: string, actorId: string) {
     const row = await this.settlement(clientId, id);
+    await this.assertMechanicChecksComplete(clientId, row.agreementId);
     if (row.status === 'SETTLED') return row;
     if (!['APPROVED', 'PAYMENT_PENDING', 'REFUND_PENDING'].includes(row.status))
       fail('SETTLEMENT_NOT_APPROVED');
