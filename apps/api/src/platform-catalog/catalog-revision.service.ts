@@ -26,7 +26,8 @@ export class CatalogRevisionService {
     const snapshot = {
       id: feature.id, code: feature.code, name: feature.name, category: feature.category,
       featureType: feature.featureType, billingUnit: feature.billingUnit,
-      description: feature.description, configuration: feature.configuration,
+      description: feature.description, translations: feature.translations,
+      configuration: feature.configuration,
       displayOrder: feature.displayOrder, isActive: feature.isActive,
       step: feature.featureStep ? {
         id: feature.featureStep.id, parentId: feature.featureStep.parentId,
@@ -77,7 +78,7 @@ export class CatalogRevisionService {
         rolloverAllowed: assignment.rolloverAllowed,
       });
     }
-    features.sort((a, b) => a.displayOrder - b.displayOrder);
+    features.sort((a, b) => a.displayOrder - b.displayOrder || a.featureId.localeCompare(b.featureId));
     const snapshot = {
       id: pkg.id, code: pkg.code, name: pkg.name, description: pkg.description,
       limits: { maxFleets: pkg.maxFleets, maxRiders: pkg.maxRiders, maxAdmins: pkg.maxAdmins,
@@ -100,20 +101,18 @@ export class CatalogRevisionService {
     const snapshot = revision.snapshot as { features?: Array<{ feature?: { code?: string; configuration?: Record<string, unknown> }; configuration?: Record<string, unknown> }> };
     const features = snapshot.features ?? [];
     const codes = new Set(features.map((item) => item.feature?.code));
-    if (!codes.has('SELECT_APP_LANGUAGE') || !codes.has('ACCEPT_APP_TERMS'))
-      throw new BadRequestException('A Package must include language and legal consent Features.');
-    const mandatory = features.filter((item) => ['SELECT_APP_LANGUAGE', 'ACCEPT_APP_TERMS'].includes(item.feature?.code ?? ''));
+    if (!codes.has('ACCEPT_APP_TERMS'))
+      throw new BadRequestException('A Package must include the legal consent Feature.');
+    const mandatory = features.filter((item) => item.feature?.code === 'ACCEPT_APP_TERMS');
     for (const item of mandatory) {
       const configuration = { ...item.feature?.configuration, ...item.configuration };
       if (configuration.enabled === false || !['RIDER', 'FLEET_MANAGER'].every((app) =>
         Array.isArray(configuration.appCodes) && configuration.appCodes.includes(app)))
-        throw new BadRequestException('Language and legal consent must be available to both mobile apps.');
+        throw new BadRequestException('Legal consent must be available to both mobile apps.');
     }
     const language = features.find((item) => item.feature?.code === 'SELECT_APP_LANGUAGE');
-    const languageConfiguration = { ...language?.feature?.configuration, ...language?.configuration };
-    if (!Array.isArray(languageConfiguration.supportedLocales) ||
-        languageConfiguration.supportedLocales.length === 0)
-      throw new BadRequestException('At least one pre-login language is required.');
+    if (language && { ...language.feature?.configuration, ...language.configuration }.enabled === false)
+      throw new BadRequestException('Included language selection cannot be disabled.');
     const newerPublished = await this.prisma.packageRevision.findFirst({
       where: { packageId: revision.packageId, version: { gt: revision.version }, publishedAt: { not: null } },
     });
@@ -174,9 +173,12 @@ export class CatalogRevisionService {
       if (typeof featureId !== 'string' || !included.has(featureId) || seen.has(featureId))
         throw new BadRequestException('Override must reference one included Feature exactly once.');
       seen.add(featureId);
-      const mandatory = ['SELECT_APP_LANGUAGE', 'ACCEPT_APP_TERMS'].includes(included.get(featureId)!);
+      const mandatory = included.get(featureId) === 'ACCEPT_APP_TERMS';
+      const packageControlled = included.get(featureId) === 'SELECT_APP_LANGUAGE';
       if (item.enabled === false && mandatory)
-        throw new BadRequestException('Language and legal consent cannot be disabled.');
+        throw new BadRequestException('Legal consent cannot be disabled.');
+      if (item.enabled === false && packageControlled)
+        throw new BadRequestException('Language selection is controlled by the Package.');
       const configuration = item.configuration ?? {};
       if (!configuration || typeof configuration !== 'object' || Array.isArray(configuration))
         throw new BadRequestException('Feature override configuration must be an object.');
@@ -187,10 +189,9 @@ export class CatalogRevisionService {
       if (mandatory && ((configuration as Record<string, unknown>).enabled === false ||
           Object.hasOwn(configuration, 'appCodes') || Object.hasOwn(configuration, 'loginAppCodes')))
         throw new BadRequestException('Mandatory pre-login Features cannot be hidden from an app.');
-      const locales = (configuration as Record<string, unknown>).supportedLocales;
-      if (locales !== undefined && (!Array.isArray(locales) || locales.length === 0 ||
-          !locales.every((locale) => typeof locale === 'string' && /^[a-z]{2}$/.test(locale))))
-        throw new BadRequestException('Supported languages must be two-letter locale codes.');
+      if (packageControlled && ((configuration as Record<string, unknown>).enabled === false ||
+          Object.hasOwn(configuration, 'appCodes') || Object.hasOwn(configuration, 'loginAppCodes')))
+        throw new BadRequestException('Language selection is controlled by the Package.');
       return { featureId, enabled: item.enabled !== false, configuration };
     });
     const snapshot = { subscriptionId, packageRevisionId: subscription.packageRevisionId, overrides };

@@ -326,6 +326,7 @@ export class PlatformCatalogService {
         code: row.code?.trim().toUpperCase(),
         name: row.name?.trim(),
         description: row.description?.trim() || undefined,
+        translations: row.translations,
         status: (row.status ?? 'ACTIVE').toString().toUpperCase(),
         displayOrder: Number(row.displayOrder ?? 0),
       };
@@ -429,6 +430,7 @@ export class PlatformCatalogService {
         name: row.name?.trim(),
         subCategory: row.subCategory?.trim() || undefined,
         description: row.description?.trim() || undefined,
+        translations: row.translations,
         energyType: row.energyType?.toString().trim().toUpperCase(),
         usageType: row.usageType?.toString().trim().toUpperCase() || undefined,
         status: (row.status ?? 'ACTIVE').toString().toUpperCase(),

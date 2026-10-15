@@ -2040,7 +2040,7 @@ export default function SuperAdminDashboard() {
     label?: string;
     items: Array<[Tab, string, IconName]>;
   }> = [
-    { items: [["dashboard", "Dashboard", "dashboard"], ["legalDocuments", "Legal Documents", "audit"]] },
+    { items: [["dashboard", "Dashboard", "dashboard"]] },
     {
       label: "Vehicle Management",
       items: [
@@ -2082,6 +2082,7 @@ export default function SuperAdminDashboard() {
         ["clientUsageLedger", "Feature Usage Ledger", "dashboard"],
       ],
     },
+    { items: [["legalDocuments", "Legal Documents", "audit"]] },
   ];
   const pageSubtitles: Partial<Record<Tab, string>> = {
     legalDocuments: "Manage default legal documents copied as drafts when a client is created.",
@@ -2257,7 +2258,7 @@ export default function SuperAdminDashboard() {
         </div>
         <nav>
           {navGroups.map((group, groupIndex) => (
-            <div className="sa-nav-group" key={group.label ?? "root"}>
+            <div className="sa-nav-group" key={group.label ?? `root-${groupIndex}`}>
               {group.label ? (
                 <button
                   type="button"

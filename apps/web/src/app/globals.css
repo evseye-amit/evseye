@@ -4426,7 +4426,7 @@ body:has(.sa-dialog[open]) {
 .client-review-counts span { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 8px; background: #f0f6f2; color: #496a58; }
 .client-review-counts strong { font-size: 18px; color: #21694c; }
 .client-operations-shell .sa-sidebar .client-nav-utility { display: flex; align-items: center; gap: 12px; margin: 4px 11px; padding: 11px; border-radius: 7px; color: #69716b; background: transparent; border: 0; font-size: 16px; font-weight: 600; text-decoration: none; text-align: left; width: calc(100% - 22px); cursor: pointer; }
-.client-operations-shell .sa-sidebar .client-nav-utility:hover, .client-operations-shell .sa-sidebar .client-nav-utility:focus-visible { color: #247a58; background: #e9f7ef; }
+.client-operations-shell .sa-sidebar .client-nav-utility:hover, .client-operations-shell .sa-sidebar .client-nav-utility:focus-visible, .client-operations-shell .sa-sidebar .client-nav-utility.active { color: #247a58; background: #e9f7ef; }
 .client-operations-shell .sa-sidebar .client-nav-utility .ui-icon { width: 20px; height: 20px; }
 .rider-document-preview { display: grid; place-items: center; min-height: 280px; max-height: 65dvh; margin: 18px 0; overflow: auto; border: 1px solid #d7e4dc; border-radius: 10px; background: #f7faf8; }
 .rider-document-preview img { display: block; max-width: 100%; max-height: 62dvh; object-fit: contain; }

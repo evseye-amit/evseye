@@ -11,6 +11,7 @@ export type ResolvedComponent = {
   featureCode: string;
   featureName: string;
   description: string | null;
+  translations: unknown;
   billingUnit: string;
   featureVersion: number;
   componentType: string;
@@ -63,7 +64,8 @@ export class WorkflowResolverService {
       const assignment = object(raw);
       const feature = object(assignment.feature);
       if (feature.category !== category || feature.isActive === false) continue;
-      const clientOverride = clientOverrides.get(String(assignment.featureId));
+      const clientOverride = feature.code === 'SELECT_APP_LANGUAGE' ? undefined :
+        clientOverrides.get(String(assignment.featureId));
       if (clientOverride?.enabled === false) continue;
       const step = object(feature.step);
       if (typeof step.code !== 'string') continue;
@@ -80,6 +82,7 @@ export class WorkflowResolverService {
         featureCode: String(feature.code),
         featureName: String(feature.name ?? feature.code),
         description: typeof feature.description === 'string' ? feature.description : null,
+        translations: feature.translations ?? null,
         billingUnit: String(feature.billingUnit ?? 'LIFE_TIME'),
         featureVersion: Number(assignment.featureVersion ?? 1),
         componentType: String(configuration.componentType ?? configuration.fieldType ?? 'FIELD'),

@@ -118,7 +118,7 @@ const CLIENT_NAVIGATION: Array<{
   label: string;
   items: Array<{ id: Tab; label: string }>;
 }> = [
-  { label: "", items: [{ id: "dashboard", label: "Dashboard" }, { id: "legal-documents", label: "Legal Documents" }, { id: "refer-and-earn", label: "Refer & Earn" }] },
+  { label: "", items: [{ id: "dashboard", label: "Dashboard" }, { id: "refer-and-earn", label: "Refer & Earn" }] },
   {
     label: "Team Management",
     items: [
@@ -2464,6 +2464,16 @@ export default function Home() {
         </nav>
         {userRoles.some((role) => role === "CLIENT_ADMIN" || role === "KYC_OPERATOR") &&
           <Link className="client-nav-utility" href="/client/kyc"><UiIcon name="shield" /> KYC &amp; Verification</Link>}
+        {userRoles.includes("CLIENT_ADMIN") && (
+          <button
+            type="button"
+            className={`client-nav-utility${tab === "legal-documents" ? " active" : ""}`}
+            onClick={() => navigateTo("legal-documents")}
+          >
+            <UiIcon name={CLIENT_TAB_ICONS["legal-documents"]} />
+            {t("Legal Documents")}
+          </button>
+        )}
         <ClientBrandingSettings token={token} />
         <div className="sa-user client-sidebar-footer">
           <span aria-hidden="true">C</span>

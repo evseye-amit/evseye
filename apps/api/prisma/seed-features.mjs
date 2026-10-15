@@ -1,6 +1,5 @@
 import { PrismaClient } from '@prisma/client';
 import { featureStepSpecs } from './catalog/feature-steps.mjs';
-import { featureStepTranslations } from './catalog/feature-step-translations.mjs';
 import { featureCatalog } from './catalog/features.mjs';
 import { featurePricingCatalog } from './catalog/feature-pricing.mjs';
 import { packageFeatureCatalog } from './catalog/package-features.mjs';
@@ -14,11 +13,11 @@ try {
     const { parentCode, ...data } = step;
     const parentId = parentCode ? steps.get(parentCode)?.id : null;
     if (parentCode && !parentId) throw new Error(`Missing parent Feature Step ${parentCode}`);
-    const translations = featureStepTranslations[step.code];
     const saved = await prisma.featureStep.upsert({
       where: { code: step.code },
-      create: { ...data, parentId, ...(translations ? { translations } : {}) },
-      update: { displayName: data.displayName, description: data.description, displayOrder: data.displayOrder, parentId, isActive: true, ...(translations ? { translations } : {}) },
+      create: { ...data, parentId },
+      update: { displayName: data.displayName, description: data.description,
+        translations: data.translations, displayOrder: data.displayOrder, parentId, isActive: true },
     });
     steps.set(step.code, saved);
   }

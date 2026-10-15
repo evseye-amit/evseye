@@ -1,3 +1,0 @@
--- This migration was applied to the development database before its local SQL
--- file was retained. Pre-login configuration is stored in the existing Feature
--- and FeatureStep tables, so the current Prisma schema requires no DDL here.
