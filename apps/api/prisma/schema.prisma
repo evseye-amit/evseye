@@ -838,6 +838,7 @@ model Client {
   domains                     ClientDomain[]
   branding                    ClientBranding?
   users                       User[]
+  attendancePeriods           AttendancePeriod[]
   riders                      Rider[]
   photos                      Photo[]
   hubs                        Hub[]
@@ -1892,6 +1893,7 @@ model User {
   hubAssignments           UserHub[]
   teamLeaderProfile        TeamLeaderProfile?
   auditLogs                AuditLog[]                @relation("AuditActor")
+  attendancePeriods        AttendancePeriod[]
   referredAsUser           Referral[]                @relation("ReferralRefereeUser")
   createdAt                DateTime                  @default(now())
   updatedAt                DateTime                  @updatedAt
@@ -3678,6 +3680,21 @@ model Session {
   createdAt        DateTime  @default(now())
 
   @@index([userId, expiresAt])
+}
+
+model AttendancePeriod {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  clientId   String?
+  client     Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  checkInAt  DateTime
+  checkOutAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([userId, checkInAt])
+  @@index([clientId, checkInAt])
 }
 
 model AuditLog {

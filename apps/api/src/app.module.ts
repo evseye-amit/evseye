@@ -33,6 +33,7 @@ import { CollectionsModule } from './collections/collections.module.js';
 import { FinalSettlementModule } from './final-settlement/final-settlement.module.js';
 import { RewardsModule } from './rewards/rewards.module.js';
 import { LegalModule } from './legal/legal.module.js';
+import { AttendanceModule } from './attendance/attendance.module.js';
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { LegalModule } from './legal/legal.module.js';
     WalletModule,
     RewardsModule,
     LegalModule,
+    AttendanceModule,
     PaymentsModule,
     CollectionsModule,
     FinalSettlementModule,
