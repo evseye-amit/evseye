@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Headers, Param, Post, UseGuards } from '@nestjs/common';
+import { FleetManagerHomeQueryDto } from '../fleet-manager-home/home.dto.js';
+import { Body, Controller, Get, Headers, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { ApiHeader } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
@@ -20,7 +21,7 @@ export class MobileDeploymentController {
   @Get('localization') @Roles(UserRole.RIDER, UserRole.FLEET_MANAGER)
   localization(@Headers('accept-language') language?: string) { return { data: mobileStatusLabels(requestLocale(language)) }; }
   @Get('fleet-manager/pending-riders') @Roles(UserRole.FLEET_MANAGER)
-  async pendingRiders(@CurrentUser() user: AuthUser) { return { data: await this.deployments.pendingRiders(this.clients.requireClientId(user), user.id) }; }
+  async pendingRiders(@CurrentUser() user: AuthUser, @Query() query: FleetManagerHomeQueryDto) { return { data: await this.deployments.pendingRiders(this.clients.requireClientId(user), user.id, query.hubId) }; }
   @Get('fleet-manager/eligible-fleets') @Roles(UserRole.FLEET_MANAGER)
   async eligibleFleets(@CurrentUser() user: AuthUser) { return { data: await this.deployments.eligibleFleets(this.clients.requireClientId(user), user.id) }; }
   @Post('fleet-manager/allocate') @Roles(UserRole.FLEET_MANAGER)
