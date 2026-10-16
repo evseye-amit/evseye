@@ -1,3 +1,4 @@
+import { NotificationModule } from './notifications/notification.module.js';
 import { VehicleSubmissionModule } from './vehicle-submissions/submission.module.js';
 import { WalletModule } from './wallet/wallet.module.js';
 import { ClientIdentityModule } from './client-identity/client-identity.module.js';
@@ -74,6 +75,7 @@ import { AttendanceModule } from './attendance/attendance.module.js';
     VehicleSubmissionModule,
     SupportModule,
     AttendanceModule,
+    NotificationModule,
     PaymentsModule,
     CollectionsModule,
     FinalSettlementModule,
