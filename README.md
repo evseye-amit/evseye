@@ -11,13 +11,18 @@ Multi-client EV fleet-management MVP with strict client isolation.
 
 The API health endpoints are `/health` and `/health/ready`.
 
-Fresh databases start with the consolidated `20261016000000_init` migration,
-followed by any newer migrations. The initial migration includes the
-PostGIS extensions, database triggers, check and overlap constraints, and custom
-indexes alongside the Prisma schema. The normal seed runner populates the
-catalogs and local demo tenant; it does not restore operational history. Existing
-deployments that retain the previous migration history require baselining before
-using this consolidated migration.
+Fresh databases apply the historical migration chain through
+`20261015233000_attendance`, then the additive catalog translation migration and
+any newer migrations. The chain preserves the PostGIS extensions, database
+triggers, check and overlap constraints, and custom indexes alongside the
+Prisma schema. The normal seed runner populates the catalogs and local demo
+tenant; it does not restore operational history.
+
+If an environment recorded the failed `20261016000000_init` migration, an
+operator must resolve that failed migration as rolled back before deploying the
+restored chain. Do not reset the database or mark the failed baseline applied.
+Databases that already completed the consolidated baseline require a separate
+reconciliation decision.
 
 ### API documentation
 
