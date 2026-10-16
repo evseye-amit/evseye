@@ -4,7 +4,7 @@ The `AppLegalDocument` table holds immutable published text by client, app, user
 
 The main development seed imports all local legal templates and documents from `apps/api/prisma/catalog/legal-documents.mjs`. This consolidated catalog preserves locales, versions, content hashes, timestamps, active flags, and draft/publication/retirement/deletion states. Client references use company codes or slugs. It restores drafts as drafts, updates existing drafts, and preserves existing published content while rejecting a conflicting content hash. It does not generate additional client drafts. Publish later changes under a new version.
 
-Client Admins manage documents at `/client/legal`. They can create, edit, publish, preview, and soft-delete drafts for their client. Publishing locks a version: published documents cannot be edited or deleted, including soft deletion. To change published content, create a new version. The public current-document endpoint only serves published, non-deleted documents. The consolidated `20261016000000_init` migration includes this schema.
+Client Admins manage documents at `/client/legal`. They can create, edit, publish, preview, and soft-delete drafts for their client. Publishing locks a version: published documents cannot be edited or deleted, including soft deletion. To change published content, create a new version. The public current-document endpoint only serves published, non-deleted documents. The restored Prisma migration chain includes this schema.
 
 Endpoints use the `/api/v1` prefix:
 

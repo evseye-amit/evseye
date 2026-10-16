@@ -1,0 +1,2 @@
+ALTER TABLE "PaymentRefund" ADD COLUMN "treatment" VARCHAR(30) NOT NULL DEFAULT 'PAYMENT_REVERSAL';
+ALTER TABLE "PaymentRefund" ADD CONSTRAINT "PaymentRefund_treatment_check" CHECK ("treatment" IN ('UNALLOCATED_RETURN', 'PAYMENT_REVERSAL'));
