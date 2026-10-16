@@ -1,6 +1,6 @@
 import { RideReturnsService } from '../ride-returns/ride-returns.service.js';
 import { VehicleExchangeService } from '../vehicle-exchanges/vehicle-exchange.service.js';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { VehicleSubmissionService } from './submission.service.js';
@@ -12,8 +12,8 @@ import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 
 const url = process.env.SUBMISSION_TEST_DATABASE_URL;
 describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
-  let db!: PrismaClient;
-  let prisma!: PrismaService;
+  const db = new PrismaClient({ datasources: { db: { url } } });
+  const prisma = db as PrismaService;
   const sms = { send: vi.fn().mockResolvedValue(undefined) };
   const settings: Record<string, unknown> = {
     NODE_ENV: 'development',
@@ -23,32 +23,25 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
     OTP_MAX_ATTEMPTS: 2,
     OTP_RESEND_COOLDOWN_SECONDS: 60,
   };
-  let auth!: AuthService;
-  let allocations!: AllocationsService;
-  let service!: VehicleSubmissionService;
-  beforeAll(() => {
-    db = new PrismaClient({ datasources: { db: { url: url! } } });
-    prisma = db as PrismaService;
-    auth = new AuthService(
-      prisma,
-      {} as never,
-      {
-        getOrThrow: (key: string) => settings[key],
-        get: (key: string) => settings[key],
-      } as never,
-      sms as never,
-      {} as never,
-      {} as never,
-    );
-    allocations = new AllocationsService(prisma);
-    service = new VehicleSubmissionService(
-      prisma,
-      allocations,
-      auth,
-      new RiderBillingService(prisma),
-    );
-  });
-  afterAll(() => db?.$disconnect());
+  const auth = new AuthService(
+    prisma,
+    {} as never,
+    {
+      getOrThrow: (key: string) => settings[key],
+      get: (key: string) => settings[key],
+    } as never,
+    sms as never,
+    {} as never,
+    {} as never,
+  );
+  const allocations = new AllocationsService(prisma);
+  const service = new VehicleSubmissionService(
+    prisma,
+    allocations,
+    auth,
+    new RiderBillingService(prisma),
+  );
+  afterAll(() => db.$disconnect());
 
   async function fixture(source: 'RETURN' | 'EXCHANGE' = 'RETURN') {
     const suffix = randomUUID();
