@@ -16,6 +16,7 @@ const configValues = {
 
 function createService() {
   const prisma = {
+    pushDevice: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     client: { findFirst: vi.fn().mockResolvedValue({ id: 'client-1' }) },
     user: {
       findFirst: vi.fn().mockResolvedValue({
@@ -115,6 +116,23 @@ describe('AuthService', () => {
     await expect(service.refresh('refresh-token', 'client-1')).rejects.toThrow('already been used');
     expect(prisma.session.create).not.toHaveBeenCalled();
   });
+  it('unregisters only devices belonging to the logged out session', async () => {
+    const { service, prisma, jwt } = createService();
+    jwt.verifyAsync.mockResolvedValue({ typ: 'refresh', id: 'user-1', sid: 'session-1', clientId: 'client-1' });
+    await service.revokeSession('refresh-token', 'client-1');
+    expect(prisma.pushDevice.updateMany).toHaveBeenCalledWith({ where: { userId: 'user-1', sessionId: 'session-1', isActive: true }, data: { isActive: false, disabledReason: 'LOGGED_OUT' } });
+  });
+
+  it('moves device registrations to the rotated login session', async () => {
+    const { service, prisma, jwt } = createService();
+    jwt.verifyAsync.mockResolvedValue({ typ: 'refresh', id: 'user-1', sid: 'session-1', clientId: 'client-1' });
+    prisma.session.findFirst.mockResolvedValue({ id: 'session-1', refreshTokenHash: createHmac('sha256', configValues.OTP_HASH_SECRET).update('refresh-token').digest('hex') });
+    prisma.session.updateMany.mockResolvedValue({ count: 1 });
+    await service.refresh('refresh-token', 'client-1');
+    expect(prisma.pushDevice.updateMany).toHaveBeenCalledWith({ where: { userId: 'user-1', sessionId: 'session-1', isActive: true }, data: { sessionId: expect.any(String) } });
+    expect(prisma.pushDevice.updateMany.mock.calls[0]![0].data.sessionId).not.toBe('session-1');
+  });
+
   it('rejects logout from another client host without revoking the session', async () => {
     const { service, prisma, jwt } = createService();
     jwt.verifyAsync.mockResolvedValue({ typ: 'refresh', id: 'user-1', sid: 'session-1', clientId: 'client-1' });
