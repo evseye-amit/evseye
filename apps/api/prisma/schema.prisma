@@ -6029,3 +6029,19 @@ model PushDispatchState {
   leaseUntil DateTime?
   claimId String?
 }
+
+// Minimal, client-scoped state revisions used to reconstruct Fleet Manager home metrics.
+model FleetManagerHomeHistory {
+  id BigInt @id @default(autoincrement())
+  clientId String
+  entityType String @db.VarChar(40)
+  entityId String
+  recordedAt DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  data Json?
+  @@index([clientId, entityType, entityId, recordedAt, id], map: "fm_home_history_lookup")
+}
+
+model FleetManagerHomeHistoryCoverage {
+  id String @id @default("initial")
+  availableFrom DateTime @db.Timestamptz(6)
+}
