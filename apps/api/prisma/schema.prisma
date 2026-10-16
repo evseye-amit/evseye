@@ -22,6 +22,9 @@ enum OtpPurpose {
   DEALLOCATION_RIDER
   DEALLOCATION_OPERATOR
   PHONE_VERIFICATION
+  RETURN_PENALTY_APPROVAL
+  VEHICLE_SUBMISSION_RIDER
+  VEHICLE_SUBMISSION_TEAM_LEAD
 }
 
 enum OtpStatus {
@@ -108,6 +111,7 @@ enum PhotoEntityType {
   IOT_DEVICE
   INSPECTION
   RIDER_ONBOARDING
+  SUPPORT_TICKET
 }
 
 enum RiderDocumentReviewStatus {
@@ -804,6 +808,8 @@ enum PaymentTransactionStatus {
 }
 
 model Client {
+  vehicleSubmissions VehicleSubmission[]
+  riderReferenceReviews RiderReferenceReview[]
   legalDocuments              AppLegalDocument[]
   legalAcceptances            AppLegalAcceptance[]
   kycClientPolicies           KycClientPolicy[]
@@ -825,6 +831,10 @@ model Client {
   riderCommercialTerms        RiderCommercialTerms[]
   commercialOffers            RiderCommercialOffer[]
   rentalAgreements            RiderRentalAgreement[]
+  returnPenaltyPrices         ReturnPenaltyPrice[]
+  returnPenaltyCases          ReturnPenaltyCase[]
+  supportTickets              SupportTicket[]
+  supportReplies              SupportReply[]
   riderPromotions             RiderPromotion[]
   riderRateCards              RiderRateCard[]
   batteryPlans                RiderBatteryPlan[]
@@ -839,6 +849,7 @@ model Client {
   domains                     ClientDomain[]
   branding                    ClientBranding?
   users                       User[]
+  attendancePeriods           AttendancePeriod[]
   riders                      Rider[]
   photos                      Photo[]
   hubs                        Hub[]
@@ -1571,6 +1582,9 @@ model Hub {
   currentFleets           Fleet[]                               @relation("FleetCurrentHub")
   outboundFleetTransfers  FleetTransfer[]                       @relation("FleetTransferFromHub")
   inboundFleetTransfers   FleetTransfer[]                       @relation("FleetTransferToHub")
+  plannedReturnRequests   RentalTerminationRequest[]             @relation("TerminationPlannedHub")
+  receivedReturnRequests  RentalTerminationRequest[]             @relation("TerminationReceivedHub")
+  supportTickets          SupportTicket[]
   createdAt               DateTime                              @default(now())
   updatedAt               DateTime                              @updatedAt
 
@@ -1880,6 +1894,7 @@ model FleetTransfer {
 }
 
 model User {
+  riderReferenceReviews RiderReferenceReview[] @relation("ReferenceReviewer")
   legalAcceptances         AppLegalAcceptance[]
   id                       String                    @id @default(uuid())
   clientId                 String?
@@ -1897,6 +1912,7 @@ model User {
   hubAssignments           UserHub[]
   teamLeaderProfile        TeamLeaderProfile?
   auditLogs                AuditLog[]                @relation("AuditActor")
+  attendancePeriods        AttendancePeriod[]
   referredAsUser           Referral[]                @relation("ReferralRefereeUser")
   createdAt                DateTime                  @default(now())
   updatedAt                DateTime                  @updatedAt
@@ -1954,6 +1970,8 @@ model Rider {
   riderPaymentAllocations RiderPaymentAllocation[]
   collectionRequests      PaymentCollectionRequest[]
   billingLedgerEntries    RiderLedgerEntry[]
+  returnPenaltyCases      ReturnPenaltyCase[]
+  supportTickets          SupportTicket[]
   paymentMandates         PaymentMandate[]
   autoPayDunningCases     AutoPayDunningCase[]
   paymentTransactions     PaymentTransaction[]
@@ -2220,6 +2238,7 @@ model RiderPaymentProfile {
 }
 
 model RiderCharge {
+  submissionReport VehicleSubmissionReport?
   id                  String            @id @default(uuid())
   clientId            String
   client              Client            @relation(fields: [clientId], references: [id], onDelete: Restrict)
@@ -2244,6 +2263,7 @@ model RiderCharge {
   status              RiderChargeStatus @default(OPEN)
   invoiceId           String?
   invoice             RiderInvoice?     @relation(fields: [clientId, invoiceId], references: [clientId, id], onDelete: Restrict)
+  returnPenaltyCase   ReturnPenaltyCase?
   createdAt           DateTime          @default(now())
 
   @@unique([clientId, sourceKey])
@@ -2798,6 +2818,7 @@ model ImportJob {
 }
 
 model Allocation {
+  vehicleSubmission VehicleSubmission?
   id               String                    @id @default(uuid())
   clientId         String
   fleetId          String
@@ -2810,6 +2831,7 @@ model Allocation {
   initiatedById    String
   idempotencyKey   String?
   inspections      Inspection[]
+  terminationRequest RentalTerminationRequest? @relation("TerminationAllocation")
   mobileDeployment MobileDeploymentWorkflow?
   createdAt        DateTime                  @default(now())
   updatedAt        DateTime                  @updatedAt
@@ -2870,6 +2892,7 @@ model DeploymentPayment {
 }
 
 model Inspection {
+  vehicleSubmission VehicleSubmission?
   id           String           @id @default(uuid())
   clientId     String
   allocationId String
@@ -2879,6 +2902,9 @@ model Inspection {
   checklist    Json?
   completedBy  String?
   completedAt  DateTime?
+  safeForReuse Boolean?
+  unsafeReason String?          @db.VarChar(500)
+  returnPenaltyCase ReturnPenaltyCase?
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
 
@@ -3683,6 +3709,21 @@ model Session {
   createdAt        DateTime  @default(now())
 
   @@index([userId, expiresAt])
+}
+
+model AttendancePeriod {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  clientId   String?
+  client     Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  checkInAt  DateTime
+  checkOutAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([userId, checkInAt])
+  @@index([clientId, checkInAt])
 }
 
 model AuditLog {
@@ -4573,24 +4614,165 @@ model RiderRentalAgreement {
 }
 
 model RentalTerminationRequest {
+  submissionRequired Boolean @default(true)
+  vehicleSubmission VehicleSubmission?
   id                       String               @id @default(uuid())
   clientId                 String
   riderId                  String
   agreementId              String               @unique
   agreement                RiderRentalAgreement @relation(fields: [clientId, agreementId], references: [clientId, id], onDelete: Restrict)
+  allocationId             String?              @unique
+  allocation               Allocation?          @relation("TerminationAllocation", fields: [allocationId], references: [id], onDelete: Restrict)
+  plannedHubId             String?
+  plannedHub               Hub?                 @relation("TerminationPlannedHub", fields: [plannedHubId], references: [id], onDelete: Restrict)
+  receivedHubId            String?
+  receivedHub             Hub?                 @relation("TerminationReceivedHub", fields: [receivedHubId], references: [id], onDelete: Restrict)
   requestedTerminationDate DateTime
   actualTerminationDate    DateTime?
   reasonCode               String               @db.VarChar(60)
   reasonText               String?              @db.VarChar(500)
   requestedById            String
+  requestSource            String               @default("STAFF") @db.VarChar(20)
+  cancelledAt              DateTime?
+  cancelledById            String?
+  receiptRecordedAt        DateTime?
+  receiptRecordedById      String?
+  receiptBackdateReason    String?              @db.VarChar(500)
   status                   String               @default("REQUESTED") @db.VarChar(30)
   idempotencyKey           String               @db.VarChar(120)
   createdAt                DateTime             @default(now())
   updatedAt                DateTime             @updatedAt
+  returnPenaltyCase        ReturnPenaltyCase?
 
   @@unique([clientId, idempotencyKey])
   @@unique([clientId, agreementId])
   @@index([clientId, riderId, status])
+  @@index([clientId, plannedHubId, status])
+  @@index([clientId, receivedHubId, status])
+}
+
+model ReturnPenaltyPrice {
+  id          String   @id @default(uuid())
+  clientId    String
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  code        String   @db.VarChar(60)
+  category    String   @db.VarChar(30)
+  description String   @db.VarChar(300)
+  amount      Decimal  @db.Decimal(14, 2)
+  currency    String   @db.Char(3)
+  isActive    Boolean  @default(true)
+  createdById String
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  items       ReturnPenaltyItem[]
+
+  @@unique([clientId, code])
+  @@index([clientId, isActive])
+}
+
+model ReturnPenaltyCase {
+  id                     String               @id @default(uuid())
+  clientId               String
+  client                 Client               @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId                String
+  rider                  Rider                @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  terminationRequestId   String               @unique
+  terminationRequest     RentalTerminationRequest @relation(fields: [terminationRequestId], references: [id], onDelete: Restrict)
+  inspectionId           String               @unique
+  inspection             Inspection            @relation(fields: [inspectionId], references: [id], onDelete: Restrict)
+  currentRevision        Int                  @default(0)
+  digest                 String?              @db.Char(64)
+  totalAmount            Decimal              @default(0) @db.Decimal(14, 2)
+  currency               String               @default("INR") @db.Char(3)
+  status                 String               @default("DRAFT") @db.VarChar(40)
+  submittedAt            DateTime?
+  submittedById          String?
+  riderApprovedRevision  Int?
+  riderApprovedAt        DateTime?
+  riderApprovalOtpRequestId String?
+  riderDisputedRevision  Int?
+  riderDisputedAt        DateTime?
+  riderDisputeReason     String?              @db.VarChar(500)
+  adminOverrideRevision  Int?
+  adminOverrideAt        DateTime?
+  adminOverrideById      String?
+  adminOverrideReason    String?              @db.VarChar(500)
+  managerApprovedRevision Int?
+  managerApprovedAt      DateTime?
+  managerApprovedById    String?
+  postedRevision         Int?
+  postedChargeId         String?              @unique
+  postedCharge           RiderCharge?         @relation(fields: [postedChargeId], references: [id], onDelete: Restrict)
+  postedAt               DateTime?
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  items                  ReturnPenaltyItem[]
+
+  @@unique([clientId, id])
+  @@index([clientId, riderId, status, updatedAt])
+  @@index([clientId, status, updatedAt])
+}
+
+model ReturnPenaltyItem {
+  id             String            @id @default(uuid())
+  clientId       String
+  caseId         String
+  case           ReturnPenaltyCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  revision       Int
+  position       Int
+  priceListItemId String
+  priceListItem  ReturnPenaltyPrice @relation(fields: [priceListItemId], references: [id], onDelete: Restrict)
+  priceCode      String?           @db.VarChar(60)
+  category       String?           @db.VarChar(30)
+  description    String?           @db.VarChar(300)
+  amount         Decimal?          @db.Decimal(14, 2)
+  currency       String?           @db.Char(3)
+  details        String            @db.VarChar(1000)
+  evidencePhotoIds String[]        @default([])
+  createdAt      DateTime          @default(now())
+  createdById    String
+
+  @@unique([caseId, revision, position])
+  @@index([clientId, caseId, revision])
+}
+
+model SupportTicket {
+  id             String         @id @default(uuid())
+  clientId       String
+  client          Client         @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId        String
+  rider           Rider          @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  hubId          String?
+  hub            Hub?            @relation(fields: [hubId], references: [id], onDelete: SetNull)
+  status         String          @default("OPEN") @db.VarChar(20)
+  subject        String          @db.VarChar(160)
+  description    String
+  createdById    String
+  lastActivityAt DateTime        @default(now())
+  resolvedAt     DateTime?
+  resolvedById   String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  replies        SupportReply[]
+
+  @@unique([clientId, id])
+  @@index([clientId, riderId, lastActivityAt, id])
+  @@index([clientId, hubId, lastActivityAt, id])
+  @@index([clientId, status, lastActivityAt, id])
+}
+
+model SupportReply {
+  id        String        @id @default(uuid())
+  clientId  String
+  client    Client        @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  ticketId  String
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorId  String
+  body      String
+  createdAt DateTime      @default(now())
+
+  @@index([clientId, ticketId, createdAt, id])
 }
 
 model RiderFinalSettlement {
@@ -4851,6 +5033,10 @@ model RiderAgreementCommercialVersion {
 }
 
 model VehicleExchangeRequest {
+  submissionRequired Boolean @default(true)
+  plannedHubId String?
+  plannedReturnDate DateTime?
+  vehicleSubmission VehicleSubmission?
   id                   String                 @id @default(uuid())
   clientId             String
   agreementId          String
@@ -5634,4 +5820,99 @@ model RewardEvent {
   createdAt DateTime    @default(now())
 
   @@index([clientId, claimId, createdAt])
+}
+
+
+// Decisions apply to an immutable reference fingerprint. Unreviewed references
+// are projected from onboarding/profile data; changed details get a new identity.
+enum RiderReferenceReviewStatus {
+  APPROVED
+  REJECTED
+}
+
+model RiderReferenceReview {
+  id              String                     @id @db.VarChar(64)
+  clientId        String
+  client          Client                     @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  ownerKey        String                     @db.VarChar(100)
+  name            String                     @db.VarChar(120)
+  mobile          String                     @db.VarChar(20)
+  relation        String                     @db.VarChar(80)
+  status          RiderReferenceReviewStatus
+  rejectionReason String?                    @db.VarChar(1000)
+  reviewedById    String
+  reviewedBy      User                       @relation("ReferenceReviewer", fields: [clientId, reviewedById], references: [clientId, id], onDelete: Restrict)
+  reviewedAt      DateTime                   @default(now())
+
+  @@index([clientId, ownerKey])
+}
+
+
+model VehicleSubmission {
+  id                     String @id @default(uuid())
+  clientId               String
+  client                 Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  allocationId           String @unique
+  allocation             Allocation @relation(fields: [allocationId], references: [id], onDelete: Restrict)
+  inspectionId           String @unique
+  inspection             Inspection @relation(fields: [inspectionId], references: [id], onDelete: Restrict)
+  returnRequestId        String? @unique
+  returnRequest          RentalTerminationRequest? @relation(fields: [returnRequestId], references: [id], onDelete: Restrict)
+  exchangeRequestId      String? @unique
+  exchangeRequest        VehicleExchangeRequest? @relation(fields: [exchangeRequestId], references: [id], onDelete: Restrict)
+  riderId                String
+  fleetId                String
+  agreementId            String
+  hubId                  String
+  status                 String @default("IN_PROGRESS") @db.VarChar(30)
+  assetSnapshot          Json
+  requiredPhotoTypes     String[]
+  mechanicChecksComplete Boolean @default(false)
+  confirmedAt            DateTime?
+  confirmedById          String?
+  createdById            String
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  reports                VehicleSubmissionReport[]
+  @@index([clientId, riderId, createdAt])
+  @@index([clientId, hubId, status])
+  @@index([clientId, agreementId])
+}
+
+model VehicleSubmissionReport {
+  id                    String @id @default(uuid())
+  clientId              String
+  submissionId          String
+  submission            VehicleSubmission @relation(fields: [submissionId], references: [id], onDelete: Restrict)
+  requestKey            String @db.VarChar(120)
+  stage                 String @db.VarChar(10)
+  mechanicName          String @db.VarChar(150)
+  summary               String @db.VarChar(4000)
+  safeForReuse          Boolean
+  unsafeReason          String? @db.VarChar(500)
+  checksComplete        Boolean @default(false)
+  evidencePhotoIds      String[]
+  items                 Json
+  totalAmount           Decimal @db.Decimal(14,2)
+  currency              String @db.Char(3)
+  digest                String @db.Char(64)
+  status                String @default("DRAFT") @db.VarChar(20)
+  recordedById          String
+  imposedById           String?
+  imposedAt             DateTime?
+  riderOtpRequestId     String?
+  riderVerifiedUserId   String?
+  teamLeadOtpRequestId  String?
+  teamLeadVerifiedUserId String?
+  riderBypassReason     String? @db.VarChar(500)
+  teamLeadBypassReason  String? @db.VarChar(500)
+  confirmedById         String?
+  confirmedAt           DateTime?
+  postedChargeId        String? @unique
+  postedCharge RiderCharge? @relation(fields: [postedChargeId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  cancelledById         String?
+  cancellationReason   String? @db.VarChar(500)
+  createdAt             DateTime @default(now())
+  @@unique([clientId, submissionId, requestKey])
+  @@index([clientId, submissionId, createdAt])
 }

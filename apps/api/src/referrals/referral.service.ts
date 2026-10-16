@@ -114,7 +114,7 @@ export class ReferralService {
     const rider = await this.access.requireRider(clientId, userId);
     if (rider.status !== RiderStatus.ACTIVE) throw error('REFERRAL_NOT_ELIGIBLE', 'Only an active Rider may invite.');
     const campaign = await this.activeCampaign(clientId);
-    if (!campaign) throw error('REFERRAL_CAMPAIGN_INACTIVE', 'No active referral campaign is available.');
+    if (!campaign) throw error('REFERRAL_CAMPAIGN_INACTIVE', 'Refer and earn is currently unavailable because there is no active campaign.');
     const identity = await this.identity(clientId, rider.id);
     await this.links.shareLink(clientId, identity.code);
     const invitedAt = new Date();
@@ -122,7 +122,7 @@ export class ReferralService {
     const row = await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "ReferralCampaign" WHERE id = ${campaign.id} AND "clientId" = ${clientId} FOR UPDATE`;
       const stillActive = await tx.referralCampaign.count({ where: { id: campaign.id, clientId, status: 'ACTIVE', startAt: { lte: invitedAt }, endAt: { gt: invitedAt } } });
-      if (!stillActive) throw error('REFERRAL_CAMPAIGN_INACTIVE', 'No active referral campaign is available.');
+      if (!stillActive) throw error('REFERRAL_CAMPAIGN_INACTIVE', 'Refer and earn is currently unavailable because there is no active campaign.');
       await this.assertLimits(tx, clientId, campaign, rider.id);
       return tx.referral.create({ data: {
       clientId, campaignId: campaign.id, referrerRiderId: rider.id, referralCode: identity.code,
@@ -157,13 +157,13 @@ export class ReferralService {
       : dto.campaignCode
         ? await this.prisma.referralCampaign.findFirst({ where: { clientId, code: dto.campaignCode, status: 'ACTIVE', startAt: { lte: now }, endAt: { gt: now } }, include: { milestones: { where: { isActive: true }, orderBy: { sequence: 'asc' } } } })
         : await this.activeCampaign(clientId);
-    if (!campaign) throw error('REFERRAL_CAMPAIGN_INACTIVE', 'No active referral campaign is available.');
+    if (!campaign) throw error('REFERRAL_CAMPAIGN_INACTIVE', 'Refer and earn is currently unavailable because there is no active campaign.');
     const source = dto.source ?? ReferralAttributionSource.REFERRAL_CODE;
     try {
       const saved = await this.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM "ReferralCampaign" WHERE id = ${campaign.id} AND "clientId" = ${clientId} FOR UPDATE`;
         const stillActive = await tx.referralCampaign.count({ where: { id: campaign.id, clientId, status: 'ACTIVE', startAt: { lte: now }, endAt: { gt: now } } });
-        if (!stillActive) throw error('REFERRAL_CAMPAIGN_INACTIVE', 'No active referral campaign is available.');
+        if (!stillActive) throw error('REFERRAL_CAMPAIGN_INACTIVE', 'Refer and earn is currently unavailable because there is no active campaign.');
         if (!invite) await this.assertLimits(tx, clientId, campaign, identity.riderId);
         const rider = await tx.rider.findUnique({ where: { userId }, select: { id: true } });
         const deadline = new Date(now.getTime() + campaign.qualificationValidityDays * 86400000);

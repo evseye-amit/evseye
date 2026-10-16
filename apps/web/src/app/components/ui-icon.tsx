@@ -30,6 +30,7 @@ const paths = {
   reports: ["M4 3h12l4 4v14H4V3Z", "M16 3v5h4", "M8 16v2", "M12 13v5", "M16 11v7"],
   audit: ["M4 4h16v16H4z", "M8 9h8", "M8 13h8", "M8 17h5"],
   usage: ["M12 3a9 9 0 1 0 9 9", "M12 3v9l6 3", "M17 3h4v4"],
+  support: ["M21 11a8 8 0 0 1-8 8H7l-4 3V11a9 9 0 0 1 18 0Z", "M8 9h8", "M8 13h5"],
   chevron: ["m6 9 6 6 6-6"],
   arrowRight: ["M4 12h16", "m14 6 6 6-6 6"],
 } as const;

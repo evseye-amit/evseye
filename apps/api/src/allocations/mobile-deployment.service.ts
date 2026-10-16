@@ -1,5 +1,4 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { AllocationStatus, ClientSubscriptionStatus, DeploymentPaymentStatus, FleetStatus, InspectionStatus, InspectionType, MobileDeploymentStatus, PhotoEntityType, PhotoStatus, Prisma, RiderStatus } from '@prisma/client';
 import { STORAGE_PROVIDER, type StorageProvider } from '../media/storage/storage-provider.interface.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -7,7 +6,6 @@ import { translatedProperty, type ApiLocale } from '../common/locale.js';
 import { AllocationsService } from './allocations.service.js';
 import { MediaService } from '../media/media.service.js';
 import type { CreateUploadIntentDto } from '../media/dto/create-upload-intent.dto.js';
-import type { Environment } from '../config/environment.js';
 import { ReferralQualificationService } from '../referrals/referral-qualification.service.js';
 
 @Injectable()
@@ -18,7 +16,6 @@ export class MobileDeploymentService {
     private readonly allocations: AllocationsService,
     private readonly media: MediaService,
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
-    private readonly config: ConfigService<Environment, true>,
     @Optional() private readonly referralQualification?: ReferralQualificationService,
   ) {}
 
@@ -154,7 +151,7 @@ export class MobileDeploymentService {
     const allocation = await this.prisma.allocation.findFirst({ where: { clientId, riderId: rider.id, mobileDeployment: { isNot: null } }, orderBy: { updatedAt: 'desc' }, include: { fleet: true, mobileDeployment: true } });
     if (!allocation?.mobileDeployment) return { screen: 'WAITING' };
     const status = allocation.mobileDeployment.status;
-    const screen = ({ PAYMENT_PENDING: 'PAYMENT', PDI_PENDING_RIDER: 'PDI', TRAINING_PENDING: 'TRAINING', DEVICE_PAIRING_PENDING: 'DEVICE_PAIRING', DEPLOYED: 'HOME' } as Record<string, string>)[status] ?? 'WAITING';
+    const screen = ({ PAYMENT_PENDING: 'PAYMENT', PDI_PENDING_RIDER: 'PDI', TRAINING_PENDING: 'TRAINING', DEVICE_PAIRING_PENDING: 'TRAINING', DEPLOYED: 'HOME' } as Record<string, string>)[status] ?? 'WAITING';
     const payment = await this.prisma.deploymentPayment.findUnique({ where: { workflowId: allocation.mobileDeployment.id } });
     return { screen, allocation, workflow: allocation.mobileDeployment, payment };
   }
@@ -216,11 +213,6 @@ export class MobileDeploymentService {
     const complete = await this.prisma.photo.findMany({ where: { clientId, entityType: 'FLEET', entityId: allocation.fleetId, status: 'COMPLETE' }, select: { photoType: true } });
     const missing = required.map((item) => item.photoType).filter((type) => !complete.some((photo) => photo.photoType === type));
     if (missing.length) throw new BadRequestException(`Fleet evidence is incomplete: ${missing.join(', ')}.`);
-    const device = allocation.fleet.iotDevice;
-    if (!device) throw new BadRequestException('An IoT device must be mapped before fleet deployment.');
-    if (this.config.getOrThrow('NODE_ENV') !== 'development' && (!device.lastHeartbeatAt || Date.now() - device.lastHeartbeatAt.getTime() > 15 * 60 * 1000)) {
-      throw new BadRequestException('IoT heartbeat is unavailable or stale.');
-    }
     return this.prisma.mobileDeploymentWorkflow.update({ where: { id: workflow.id }, data: { status: MobileDeploymentStatus.FLEET_REQUESTED } });
   }
   async askPayment(clientId: string, userId: string, allocationId: string, request: { currency: string; items: Array<{ label: string; amount: string }> }) {
@@ -332,7 +324,7 @@ export class MobileDeploymentService {
   async training(clientId: string, userId: string, allocationId: string, locale: ApiLocale = 'en') {
     await this.assertRiderAllocation(clientId, userId, allocationId);
     const { workflow } = await this.workflow(clientId, allocationId);
-    if (workflow.status !== MobileDeploymentStatus.TRAINING_PENDING) throw new BadRequestException('Training is not pending.');
+    if (workflow.status !== MobileDeploymentStatus.TRAINING_PENDING && workflow.status !== MobileDeploymentStatus.DEVICE_PAIRING_PENDING) throw new BadRequestException('Training is not pending.');
     const viewed = Array.isArray(workflow.trainingViewedContentCodes) ? workflow.trainingViewedContentCodes.map(String) : [];
     const contents = await this.trainingContents(clientId);
     return Promise.all(contents.map(async (content) => ({
@@ -348,7 +340,7 @@ export class MobileDeploymentService {
   async markTrainingViewed(clientId: string, userId: string, allocationId: string, contentCode: string) {
     await this.assertRiderAllocation(clientId, userId, allocationId);
     const { workflow } = await this.workflow(clientId, allocationId);
-    if (workflow.status !== MobileDeploymentStatus.TRAINING_PENDING) throw new BadRequestException('Training is not pending.');
+    if (workflow.status !== MobileDeploymentStatus.TRAINING_PENDING && workflow.status !== MobileDeploymentStatus.DEVICE_PAIRING_PENDING) throw new BadRequestException('Training is not pending.');
     const contents = await this.trainingContents(clientId);
     if (!contents.some((content) => content.code === contentCode)) throw new BadRequestException('Training content is not available in the active package.');
     const viewed = Array.isArray(workflow.trainingViewedContentCodes) ? workflow.trainingViewedContentCodes.map(String) : [];
@@ -358,14 +350,22 @@ export class MobileDeploymentService {
   async completeTraining(clientId: string, userId: string, allocationId: string) {
     await this.assertRiderAllocation(clientId, userId, allocationId);
     const { workflow } = await this.workflow(clientId, allocationId);
-    if (workflow.status !== MobileDeploymentStatus.TRAINING_PENDING) throw new BadRequestException('Training is not pending.');
-    const contents = await this.trainingContents(clientId);
-    const mandatory = contents.filter((content) => content.isMandatory).map((content) => content.code);
-    if (!mandatory.length) throw new BadRequestException('Mandatory Rider training has not been configured for the active package.');
-    const viewed = Array.isArray(workflow.trainingViewedContentCodes) ? workflow.trainingViewedContentCodes.map(String) : [];
-    const missing = mandatory.filter((code) => !viewed.includes(code));
-    if (missing.length) throw new BadRequestException(`Complete mandatory training content first: ${missing.join(', ')}.`);
-    return this.prisma.mobileDeploymentWorkflow.update({ where: { id: workflow.id }, data: { status: MobileDeploymentStatus.DEVICE_PAIRING_PENDING, trainingCompletedAt: new Date() } });
+    if (workflow.status === MobileDeploymentStatus.DEPLOYED) return workflow;
+    if (workflow.status !== MobileDeploymentStatus.TRAINING_PENDING && workflow.status !== MobileDeploymentStatus.DEVICE_PAIRING_PENDING) throw new BadRequestException('Training is not pending.');
+    // Existing pairing-pending workflows have already completed their training.
+    if (workflow.status !== MobileDeploymentStatus.DEVICE_PAIRING_PENDING || !workflow.trainingCompletedAt) {
+      const contents = await this.trainingContents(clientId);
+      const mandatory = contents.filter((content) => content.isMandatory).map((content) => content.code);
+      if (!mandatory.length) throw new BadRequestException('Mandatory Rider training has not been configured for the active package.');
+      const viewed = Array.isArray(workflow.trainingViewedContentCodes) ? workflow.trainingViewedContentCodes.map(String) : [];
+      const missing = mandatory.filter((code) => !viewed.includes(code));
+      if (missing.length) throw new BadRequestException(`Complete mandatory training content first: ${missing.join(', ')}.`);
+    }
+    const deployed = await this.prisma.$transaction((tx) => this.completeDeployment(tx, clientId, allocationId, workflow.id, {
+      trainingCompletedAt: workflow.trainingCompletedAt ?? new Date(),
+    }));
+    await this.referralAllocated(clientId, allocationId);
+    return deployed;
   }
   async iotHealth(clientId: string, userId: string, allocationId: string) {
     await this.assertFleetManagerHub(clientId, userId, allocationId);
@@ -415,26 +415,19 @@ export class MobileDeploymentService {
       data: { ...workflowData, status: MobileDeploymentStatus.DEPLOYED },
     });
   }
-  async pair(clientId: string, userId: string, allocationId: string, deviceNumber: string) {
-    await this.assertRiderAllocation(clientId, userId, allocationId);
-    const { workflow, allocation } = await this.workflow(clientId, allocationId);
-    if (workflow.status !== MobileDeploymentStatus.DEVICE_PAIRING_PENDING) throw new BadRequestException('Device pairing is not pending.');
-    if (!allocation.fleet.iotDevice || allocation.fleet.iotDevice.deviceNumber !== deviceNumber.trim()) throw new BadRequestException('The paired device does not match the Fleet IoT device.');
-    const deployed = await this.prisma.$transaction((tx) => this.completeDeployment(tx, clientId, allocationId, workflow.id, { pairedAt: new Date() }));
-    await this.referralAllocated(clientId, allocationId);
-    return deployed;
+  async pair(clientId: string, userId: string, allocationId: string, _deviceNumber: string) {
+    // Compatibility for older apps: pairing no longer gates deployment.
+    return this.completeTraining(clientId, userId, allocationId);
   }
   async bypassPairing(clientId: string, userId: string, allocationId: string, remarks: string) {
     await this.assertFleetManagerHub(clientId, userId, allocationId);
     const { workflow } = await this.workflow(clientId, allocationId);
     if (workflow.status !== MobileDeploymentStatus.DEVICE_PAIRING_PENDING) throw new BadRequestException('Device pairing is not pending.');
     if (!remarks.trim()) throw new BadRequestException('A bypass reason is required.');
-    const health = await this.iotHealth(clientId, userId, allocationId);
     const deployed = await this.prisma.$transaction((tx) => this.completeDeployment(tx, clientId, allocationId, workflow.id, {
       pairingBypassedAt: new Date(),
       pairingBypassedById: userId,
       pairingBypassReason: remarks.trim(),
-      pairingHealthSnapshot: health as never,
     }));
     await this.referralAllocated(clientId, allocationId);
     return deployed;

@@ -42,6 +42,19 @@ describe('RiderBillingService', () => {
     expect(tx.riderCharge.create).not.toHaveBeenCalled();
   });
 
+  it('keeps the reserved return-penalty charge type behind approval posting', async () => {
+    const { tx, service } = setup();
+    await expect(
+      service.postCharge('client-a', 'rider-a', 'admin-a', 'charge-key-123', {
+        chargeType: 'RETURN_PENALTY',
+        description: 'Return penalty',
+        quantity: '1',
+        unitAmount: '50',
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(tx.riderCharge.create).not.toHaveBeenCalled();
+  });
+
   it('creates a zero payable finalized invoice with charge and credit snapshots', async () => {
     const { tx, service } = setup();
     tx.riderCharge.findMany.mockResolvedValue([{ id: 'charge-a', description: 'Rent', amount: D('100'), currency: 'INR' }]);

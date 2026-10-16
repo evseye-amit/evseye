@@ -18,7 +18,6 @@ function fixture(locales = ['en']) {
   };
   const workflow = { resolve: vi.fn().mockResolvedValue({ version: 'abc123', packageRevisionId: 'pkg-r1', packageVersion: 1,
     components: [
-      part('SELECT_APP_LANGUAGE', 'LANGUAGE_SELECTOR', { supportedLocales: locales }, 1),
       part('ACCEPT_RIDER_PRIVACY_CONSENT', 'LEGAL_CONSENT', { kind: 'PRIVACY_CONSENT' }, 2),
       part('SHOW_APP_INTRO', 'INTRO_CAROUSEL', { version: '3', translations: { en: [{ key: 'one', title: 'Welcome', body: 'Body', highlights: [] }] } }, 3),
     ] }) };
@@ -33,14 +32,35 @@ describe('PreLoginService', () => {
     expect(workflow.resolve).toHaveBeenCalledWith('client-1', 'PRE_LOGIN', 'RIDER');
     expect(result.packageRevisionId).toBe('pkg-r1');
     expect(result.steps.map((step) => step.code)).toEqual([
+<<<<<<< HEAD
       'PRE_LOGIN_SELECT_APP_LANGUAGE', 'PRE_LOGIN_ACCEPT_RIDER_PRIVACY_CONSENT',
       'PRE_LOGIN_SHOW_APP_INTRO',
     ]);
     expect(result.supportedLocales).toEqual(['en']);
     expect(result.languages).toEqual([{ code: 'en', name: 'English', nativeName: 'English' }]);
+=======
+      'PRE_LOGIN_ACCEPT_RIDER_PRIVACY_CONSENT',
+      'PRE_LOGIN_ACCEPT_APP_TERMS', 'PRE_LOGIN_SHOW_APP_INTRO',
+    ]);
+    expect(result.supportedLocales).toEqual(['en']);
+    expect(result.workflow.some((step) => step.code === 'CHANGE_LANGUAGE')).toBe(false);
+>>>>>>> main
   });
 
-  it('fails closed when a configured language lacks published consent', async () => {
+  it('shows language selection only when the resolved package includes it', async () => {
+    const { service, workflow } = fixture();
+    const resolved = await workflow.resolve();
+    workflow.resolve.mockResolvedValue({ ...resolved, components: [
+      part('SELECT_APP_LANGUAGE', 'LANGUAGE_SELECTOR', { supportedLocales: ['en'] }, 1),
+      ...resolved.components,
+    ] });
+    const result = await service.publicBootstrap('yogmaya', 'RIDER', UserRole.RIDER);
+    expect(result.steps.some((step) => step.components.some(
+      (component) => component.featureCode === 'SELECT_APP_LANGUAGE'))).toBe(true);
+    expect(result.workflow.some((step) => step.code === 'CHANGE_LANGUAGE')).toBe(true);
+  });
+
+  it('fails closed when no language has all required published legal documents', async () => {
     const { service, prisma } = fixture(['en', 'hi']);
     prisma.appLegalDocument.findMany.mockResolvedValue([
       { id: 'terms-en', kind: 'TERMS_AND_CONDITIONS', locale: 'en', version: '1' },

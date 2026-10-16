@@ -116,6 +116,12 @@ export class RiderBillingService {
     dto: CreateRiderChargeDto,
     expectedOverdueAmount?: string,
   ) {
+    if (
+      dto.chargeType === 'RETURN_PENALTY' ||
+      dto.referenceType === 'RETURN_PENALTY_CASE' ||
+      dto.referenceType === 'RETURN_PENALTY'
+    )
+      throw new BadRequestException('Return penalties must use the return approval workflow.');
     const quantity = positiveDecimal(dto.quantity, 4, 'Quantity');
     const unitAmount = positiveDecimal(dto.unitAmount, 2, 'Unit amount');
     const amount = chargeAmount(quantity, unitAmount);
@@ -124,111 +130,16 @@ export class RiderBillingService {
       ? dateOnly(dto.effectiveDate)
       : new Date();
     try {
-      return await this.serializable(async (tx) => {
-        await this.rider(tx, clientId, riderId);
-        const previous = await tx.riderCharge.findUnique({
-          where: { clientId_sourceKey: { clientId, sourceKey } },
-        });
-        if (previous) {
-          if (
-            previous.riderId !== riderId ||
-            previous.chargeType !== dto.chargeType ||
-            previous.description !== dto.description ||
-            !previous.quantity.eq(quantity) ||
-            !previous.unitAmount.eq(unitAmount) ||
-            previous.currency !== currency ||
-            previous.referenceType !== (dto.referenceType ?? null) ||
-            previous.referenceId !== (dto.referenceId ?? null) ||
-            (dto.effectiveDate &&
-              previous.effectiveAt.toISOString().slice(0, 10) !==
-                dto.effectiveDate)
-          )
-            throw new ConflictException(
-              'Idempotency key was used for a different charge.',
-            );
-          return previous;
-        }
-        if (
-          dto.chargeType === 'LATE_FEE' &&
-          dto.referenceType === 'COLLECTION_CASE'
-        ) {
-          const collectionCase = await tx.riderCollectionCase.findFirst({
-            where: {
-              clientId,
-              id: dto.referenceId,
-              riderId,
-              activeRiderId: riderId,
-            },
-          });
-          if (!collectionCase)
-            throw new ConflictException('COLLECTION_CASE_NOT_FOUND');
-          const collectionPolicy =
-            await tx.collectionPolicyVersion.findUniqueOrThrow({
-              where: { id: collectionCase.policyVersionId },
-            });
-          const today = new Date(
-            `${localDay(new Date(), collectionPolicy.timezone)}T00:00:00.000Z`,
-          );
-          const due = await tx.riderInvoice.aggregate({
-            where: {
-              clientId,
-              riderId,
-              status: { in: ['FINALIZED', 'PARTIALLY_PAID', 'OVERDUE'] },
-              dueDate: { lt: today },
-              outstandingAmount: { gt: ZERO },
-            },
-            _sum: { outstandingAmount: true },
-          });
-          if (
-            !expectedOverdueAmount ||
-            !due._sum.outstandingAmount?.eq(
-              new Prisma.Decimal(expectedOverdueAmount),
-            )
-          )
-            throw new ConflictException('OUTSTANDING_BALANCE_CHANGED');
-        }
-        await this.profile(tx, clientId, riderId, currency);
-        const charge = await tx.riderCharge.create({
-          data: {
-            clientId,
-            riderId,
-            sourceKey,
-            chargeType: dto.chargeType,
-            description: dto.description,
-            referenceType: dto.referenceType,
-            referenceId: dto.referenceId,
-            quantity,
-            unitAmount,
-            amount,
-            currency,
-            effectiveAt,
-          },
-        });
-        await tx.riderLedgerEntry.create({
-          data: {
-            clientId,
-            riderId,
-            entryType: RiderLedgerEntryType.CHARGE,
-            sourceType: 'RIDER_CHARGE',
-            sourceId: charge.id,
-            description: charge.description,
-            debitAmount: amount,
-            currency,
-            effectiveAt,
-          },
-        });
-        await this.log(
-          tx,
-          clientId,
-          riderId,
-          actorId,
-          'RIDER_CHARGE_POSTED',
-          'RiderCharge',
-          charge.id,
-          { amount: amountString(amount), currency, sourceKey },
-        );
-        return charge;
-      });
+      return await this.serializable((tx) =>
+        this.issueChargeInTransaction(tx, clientId, riderId, actorId, sourceKey, dto, {
+          quantity,
+          unitAmount,
+          amount,
+          currency,
+          effectiveAt,
+          expectedOverdueAmount,
+        }),
+      );
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -258,6 +169,62 @@ export class RiderBillingService {
       }
       throw error;
     }
+  }
+
+  async issueChargeInTransaction(
+    tx: Tx,
+    clientId: string,
+    riderId: string,
+    actorId: string | null,
+    sourceKey: string,
+    dto: CreateRiderChargeDto,
+    parsed?: {
+      quantity: Prisma.Decimal;
+      unitAmount: Prisma.Decimal;
+      amount: Prisma.Decimal;
+      currency: string;
+      effectiveAt: Date;
+      expectedOverdueAmount?: string;
+    },
+    scope?: { agreementId: string; vehicleId: string },
+  ) {
+    if (
+      (dto.chargeType === 'RETURN_PENALTY' ||
+        dto.referenceType === 'RETURN_PENALTY_CASE' ||
+        dto.referenceType === 'RETURN_PENALTY') &&
+      !sourceKey.startsWith('return-penalty:')
+    )
+      throw new BadRequestException('Return penalties must use the return approval workflow.');
+    const quantity = parsed?.quantity ?? positiveDecimal(dto.quantity, 4, 'Quantity');
+    const unitAmount = parsed?.unitAmount ?? positiveDecimal(dto.unitAmount, 2, 'Unit amount');
+    const amount = parsed?.amount ?? chargeAmount(quantity, unitAmount);
+    const currency = parsed?.currency ?? dto.currency ?? 'INR';
+    const effectiveAt = parsed?.effectiveAt ?? (dto.effectiveDate ? dateOnly(dto.effectiveDate) : new Date());
+    const expectedOverdueAmount = parsed?.expectedOverdueAmount;
+    await this.rider(tx, clientId, riderId);
+    const previous = await tx.riderCharge.findUnique({ where: { clientId_sourceKey: { clientId, sourceKey } } });
+    if (previous) {
+      if (
+        previous.riderId !== riderId || previous.chargeType !== dto.chargeType || previous.description !== dto.description ||
+        !previous.quantity.eq(quantity) || !previous.unitAmount.eq(unitAmount) || previous.currency !== currency ||
+        previous.referenceType !== (dto.referenceType ?? null) || previous.referenceId !== (dto.referenceId ?? null) ||
+        (dto.effectiveDate && previous.effectiveAt.toISOString().slice(0, 10) !== dto.effectiveDate)
+      ) throw new ConflictException('Idempotency key was used for a different charge.');
+      return previous;
+    }
+    if (dto.chargeType === 'LATE_FEE' && dto.referenceType === 'COLLECTION_CASE') {
+      const collectionCase = await tx.riderCollectionCase.findFirst({ where: { clientId, id: dto.referenceId, riderId, activeRiderId: riderId } });
+      if (!collectionCase) throw new ConflictException('COLLECTION_CASE_NOT_FOUND');
+      const collectionPolicy = await tx.collectionPolicyVersion.findUniqueOrThrow({ where: { id: collectionCase.policyVersionId } });
+      const today = new Date(`${localDay(new Date(), collectionPolicy.timezone)}T00:00:00.000Z`);
+      const due = await tx.riderInvoice.aggregate({ where: { clientId, riderId, status: { in: ['FINALIZED', 'PARTIALLY_PAID', 'OVERDUE'] }, dueDate: { lt: today }, outstandingAmount: { gt: ZERO } }, _sum: { outstandingAmount: true } });
+      if (!expectedOverdueAmount || !due._sum.outstandingAmount?.eq(new Prisma.Decimal(expectedOverdueAmount))) throw new ConflictException('OUTSTANDING_BALANCE_CHANGED');
+    }
+    await this.profile(tx, clientId, riderId, currency);
+    const charge = await tx.riderCharge.create({ data: { ...scope, clientId, riderId, sourceKey, chargeType: dto.chargeType, description: dto.description, referenceType: dto.referenceType, referenceId: dto.referenceId, quantity, unitAmount, amount, currency, effectiveAt } });
+    await tx.riderLedgerEntry.create({ data: { ...scope, clientId, riderId, entryType: RiderLedgerEntryType.CHARGE, sourceType: 'RIDER_CHARGE', sourceId: charge.id, description: charge.description, debitAmount: amount, currency, effectiveAt } });
+    await this.log(tx, clientId, riderId, actorId, 'RIDER_CHARGE_POSTED', 'RiderCharge', charge.id, { amount: amountString(amount), currency, sourceKey });
+    return charge;
   }
 
   async issueCreditInTransaction(

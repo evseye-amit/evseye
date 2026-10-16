@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { OtpPurpose, OtpStatus, UserRole, type User } from '@prisma/client';
+import { OtpPurpose, OtpStatus, Prisma, UserRole, type User } from '@prisma/client';
 import {
   createHmac,
   randomInt,
@@ -31,6 +31,15 @@ interface RefreshPayload extends AuthUser {
   typ: 'refresh';
 }
 
+interface ReturnPenaltyOtpContext {
+  caseId: string;
+  riderId: string;
+  revision: number;
+  digest: string;
+  totalAmount: string;
+  currency: string;
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -41,6 +50,20 @@ export class AuthService {
     private readonly smsQuota: SmsQuotaService,
     private readonly loginFlow: LoginFlowService,
   ) {}
+
+  private async serializable<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.prisma.$transaction(fn, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          timeout: 10000,
+        });
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034' && attempt < 3) continue;
+        throw error;
+      }
+    }
+  }
 
   async requestLoginOtp(
     phone: string,
@@ -337,6 +360,299 @@ export class AuthService {
     return { verified: true };
   }
 
+  async requestReturnPenaltyOtp(
+    clientId: string,
+    caseId: string,
+    riderId: string,
+    expected: Omit<ReturnPenaltyOtpContext, 'caseId' | 'riderId'>,
+  ) {
+    const rider = await this.prisma.rider.findFirst({
+      where: { id: riderId, clientId, deletedAt: null, status: 'ACTIVE' },
+      select: { id: true, mobile: true },
+    });
+    if (!rider) throw new UnauthorizedException('Rider account is unavailable.');
+    const penaltyCase = await this.prisma.returnPenaltyCase.findFirst({
+      where: {
+        id: caseId,
+        clientId,
+        riderId,
+        status: 'RIDER_APPROVAL_PENDING',
+        currentRevision: expected.revision,
+        digest: expected.digest,
+      },
+      select: { id: true, totalAmount: true, currency: true },
+    });
+    if (!penaltyCase || !penaltyCase.totalAmount.eq(new Prisma.Decimal(expected.totalAmount)) || penaltyCase.currency !== expected.currency)
+      throw new UnauthorizedException('Penalty approval is no longer current.');
+    const cooldownAt = new Date(Date.now() - this.config.getOrThrow<number>('OTP_RESEND_COOLDOWN_SECONDS') * 1000);
+    const recent = await this.prisma.otpRequest.findFirst({
+      where: {
+        clientId,
+        purpose: OtpPurpose.RETURN_PENALTY_APPROVAL,
+        status: OtpStatus.PENDING,
+        phone: rider.mobile,
+        createdAt: { gte: cooldownAt },
+        context: { path: ['caseId'], equals: caseId },
+      },
+      select: { id: true },
+    });
+    if (recent) throw new HttpException('Please wait before requesting another OTP.', HttpStatus.TOO_MANY_REQUESTS);
+    await this.prisma.otpRequest.updateMany({
+      where: { clientId, purpose: OtpPurpose.RETURN_PENALTY_APPROVAL, status: OtpStatus.PENDING, context: { path: ['caseId'], equals: caseId } },
+      data: { status: OtpStatus.CANCELLED },
+    });
+    const code = this.generateOtpCode();
+    const otp = await this.prisma.otpRequest.create({
+      data: {
+        clientId,
+        purpose: OtpPurpose.RETURN_PENALTY_APPROVAL,
+        phone: rider.mobile,
+        otpHash: this.hashSecret(code),
+        expiresAt: new Date(Date.now() + this.config.getOrThrow<number>('OTP_TTL_SECONDS') * 1000),
+        maxAttempts: this.config.getOrThrow<number>('OTP_MAX_ATTEMPTS'),
+        context: { caseId, riderId, ...expected },
+      },
+      select: { id: true, expiresAt: true },
+    });
+    try {
+      await this.smsProvider.send({ phone: rider.mobile, purpose: OtpPurpose.RETURN_PENALTY_APPROVAL, code });
+    } catch {
+      await this.prisma.otpRequest.update({ where: { id: otp.id }, data: { status: OtpStatus.FAILED } });
+      throw new ServiceUnavailableException('SMS delivery is temporarily unavailable.');
+    }
+    return { otpRequestId: otp.id, expiresAt: otp.expiresAt };
+  }
+
+  async verifyReturnPenaltyOtp(
+    clientId: string,
+    otpRequestId: string,
+    code: string,
+    expected: ReturnPenaltyOtpContext,
+    onApproved?: (tx: Prisma.TransactionClient) => Promise<void>,
+  ) {
+    const outcome = await this.serializable(async (tx) => {
+      const otp = await tx.otpRequest.findFirst({
+        where: { id: otpRequestId, clientId, purpose: OtpPurpose.RETURN_PENALTY_APPROVAL, status: OtpStatus.PENDING },
+      });
+      if (!otp) return { kind: 'MISSING' as const };
+      if (otp.expiresAt <= new Date()) {
+        await tx.otpRequest.update({ where: { id: otp.id }, data: { status: OtpStatus.EXPIRED } });
+        return { kind: 'EXPIRED' as const };
+      }
+      const context = otp.context;
+      const current = context && typeof context === 'object' && !Array.isArray(context)
+        ? context as Partial<ReturnPenaltyOtpContext>
+        : {};
+      const contextMatches = current.caseId === expected.caseId && current.riderId === expected.riderId && current.revision === expected.revision && current.digest === expected.digest && current.totalAmount === expected.totalAmount && current.currency === expected.currency;
+      if (!contextMatches) return { kind: 'STALE' as const };
+      if (!this.verifySecret(code, otp.otpHash)) {
+        const attempts = otp.attempts + 1;
+        await tx.otpRequest.update({ where: { id: otp.id }, data: { attempts, status: attempts >= otp.maxAttempts ? OtpStatus.FAILED : OtpStatus.PENDING } });
+        return { kind: 'INVALID_CODE' as const };
+      }
+      const penaltyCase = await tx.returnPenaltyCase.findFirst({ where: { id: expected.caseId, clientId, riderId: expected.riderId, status: 'RIDER_APPROVAL_PENDING', currentRevision: expected.revision, digest: expected.digest } });
+      if (!penaltyCase || !penaltyCase.totalAmount.eq(new Prisma.Decimal(expected.totalAmount)) || penaltyCase.currency !== expected.currency)
+        return { kind: 'STALE' as const };
+      const consumed = await tx.otpRequest.updateMany({ where: { id: otp.id, status: OtpStatus.PENDING }, data: { status: OtpStatus.VERIFIED, verifiedAt: new Date() } });
+      if (consumed.count !== 1) return { kind: 'USED' as const };
+      const updated = await tx.returnPenaltyCase.updateMany({ where: { id: penaltyCase.id, status: 'RIDER_APPROVAL_PENDING', currentRevision: expected.revision, digest: expected.digest }, data: { status: 'MANAGER_APPROVAL_PENDING', riderApprovedRevision: expected.revision, riderApprovedAt: new Date(), riderApprovalOtpRequestId: otp.id } });
+      if (updated.count !== 1) return { kind: 'STALE' as const };
+      await tx.auditLog.create({ data: { clientId, actorId: null, action: 'RETURN_PENALTIES_RIDER_APPROVED', entityType: 'ReturnPenaltyCase', entityId: penaltyCase.id, newData: { revision: expected.revision, digest: expected.digest, totalAmount: expected.totalAmount } } });
+      if (onApproved) await onApproved(tx);
+      return { kind: 'VERIFIED' as const, caseId: penaltyCase.id, revision: expected.revision };
+    });
+    if (outcome.kind === 'MISSING') throw new UnauthorizedException('Invalid return penalty OTP request.');
+    if (outcome.kind === 'EXPIRED') throw new UnauthorizedException('Return penalty OTP has expired.');
+    if (outcome.kind === 'STALE') throw new UnauthorizedException('Return penalty approval is no longer current.');
+    if (outcome.kind === 'INVALID_CODE') throw new UnauthorizedException('Invalid return penalty OTP.');
+    if (outcome.kind === 'USED') throw new UnauthorizedException('OTP has already been used.');
+    return { verified: true, caseId: outcome.caseId, revision: outcome.revision };
+  }
+
+  async requestVehicleSubmissionOtp(
+    clientId: string,
+    reportId: string,
+    digest: string,
+    party: "RIDER" | "TEAM_LEAD",
+    recipientId: string,
+    phone: string,
+  ) {
+    const report = await this.prisma.vehicleSubmissionReport.findFirst({
+      where: { id: reportId, clientId, status: "SUBMITTED", digest },
+    });
+    if (!report)
+      throw new UnauthorizedException(
+        "Submission report is no longer current.",
+      );
+    const purpose =
+      party === "RIDER"
+        ? OtpPurpose.VEHICLE_SUBMISSION_RIDER
+        : OtpPurpose.VEHICLE_SUBMISSION_TEAM_LEAD;
+    const recent = await this.prisma.otpRequest.findFirst({
+      where: {
+        clientId,
+        phone,
+        purpose,
+        status: "PENDING",
+        createdAt: {
+          gte: new Date(
+            Date.now() -
+              this.config.getOrThrow<number>("OTP_RESEND_COOLDOWN_SECONDS") *
+                1000,
+          ),
+        },
+      },
+    });
+    if (recent)
+      throw new HttpException(
+        "Please wait before requesting another OTP.",
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    await this.prisma.otpRequest.updateMany({
+      where: {
+        clientId,
+        purpose,
+        status: "PENDING",
+        context: { path: ["reportId"], equals: reportId },
+      },
+      data: { status: "CANCELLED" },
+    });
+    const code = this.generateOtpCode();
+    const otp = await this.prisma.otpRequest.create({
+      data: {
+        clientId,
+        purpose,
+        phone,
+        otpHash: this.hashSecret(code),
+        expiresAt: new Date(
+          Date.now() + this.config.getOrThrow<number>("OTP_TTL_SECONDS") * 1000,
+        ),
+        maxAttempts: this.config.getOrThrow<number>("OTP_MAX_ATTEMPTS"),
+        context: { reportId, digest, party, recipientId },
+      },
+      select: { id: true, expiresAt: true },
+    });
+    try {
+      await this.smsProvider.send({ phone, purpose, code });
+    } catch {
+      await this.prisma.otpRequest.update({
+        where: { id: otp.id },
+        data: { status: "FAILED" },
+      });
+      throw new ServiceUnavailableException(
+        "SMS delivery is temporarily unavailable.",
+      );
+    }
+    return { otpRequestId: otp.id, expiresAt: otp.expiresAt };
+  }
+
+  async verifyVehicleSubmissionOtp(
+    clientId: string,
+    requestId: string,
+    code: string,
+    expected: {
+      reportId: string;
+      digest: string;
+      party: "RIDER" | "TEAM_LEAD";
+      recipientId: string;
+      phone: string;
+    },
+    actorId: string,
+  ) {
+    const outcome = await this.serializable(async (tx) => {
+      const purpose =
+        expected.party === "RIDER"
+          ? OtpPurpose.VEHICLE_SUBMISSION_RIDER
+          : OtpPurpose.VEHICLE_SUBMISSION_TEAM_LEAD;
+      const otp = await tx.otpRequest.findFirst({
+        where: { id: requestId, clientId, purpose, status: "PENDING" },
+      });
+      if (!otp) return "MISSING";
+      const context = otp.context as Record<string, unknown> | null;
+      if (
+        !context ||
+        context.reportId !== expected.reportId ||
+        context.digest !== expected.digest ||
+        context.party !== expected.party ||
+        context.recipientId !== expected.recipientId ||
+        otp.phone !== expected.phone
+      )
+        return "STALE";
+      if (otp.expiresAt <= new Date()) {
+        await tx.otpRequest.update({
+          where: { id: otp.id },
+          data: { status: "EXPIRED" },
+        });
+        return "EXPIRED";
+      }
+      if (!this.verifySecret(code, otp.otpHash)) {
+        const attempts = otp.attempts + 1;
+        await tx.otpRequest.update({
+          where: { id: otp.id },
+          data: {
+            attempts,
+            status: attempts >= otp.maxAttempts ? "FAILED" : "PENDING",
+          },
+        });
+        return "INVALID";
+      }
+      const report = await tx.vehicleSubmissionReport.findFirst({
+        where: {
+          id: expected.reportId,
+          clientId,
+          status: "SUBMITTED",
+          digest: expected.digest,
+        },
+      });
+      if (!report) return "STALE";
+      const consumed = await tx.otpRequest.updateMany({
+        where: { id: otp.id, status: "PENDING" },
+        data: { status: "VERIFIED", verifiedAt: new Date() },
+      });
+      if (consumed.count !== 1) return "USED";
+      await tx.vehicleSubmissionReport.update({
+        where: { id: report.id },
+        data:
+          expected.party === "RIDER"
+            ? {
+                riderOtpRequestId: otp.id,
+                riderVerifiedUserId: expected.recipientId,
+              }
+            : {
+                teamLeadOtpRequestId: otp.id,
+                teamLeadVerifiedUserId: expected.recipientId,
+              },
+      });
+      await tx.auditLog.create({
+        data: {
+          clientId,
+          actorId,
+          action: "VEHICLE_SUBMISSION_OTP_VERIFIED",
+          entityType: "VehicleSubmission",
+          entityId: report.submissionId,
+          newData: {
+            reportId: report.id,
+            party: expected.party,
+            digest: expected.digest,
+          },
+        },
+      });
+      return "VERIFIED";
+    });
+    if (outcome !== "VERIFIED")
+      throw new UnauthorizedException(
+        outcome === "INVALID"
+          ? "Invalid submission OTP."
+          : outcome === "EXPIRED"
+            ? "Submission OTP has expired."
+            : "Submission OTP is unavailable or no longer current.",
+      );
+    return {
+      verified: true,
+      reportId: expected.reportId,
+      party: expected.party,
+    };
+  }
   async refresh(refreshToken: string, expectedClientId?: string) {
     let payload: RefreshPayload;
     try {

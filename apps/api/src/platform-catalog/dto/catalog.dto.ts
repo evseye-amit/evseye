@@ -47,6 +47,7 @@ export class CreateVehicleCategoryDto {
   @IsString() @Matches(/^[A-Z0-9_-]+$/) @MaxLength(50) code!: string;
   @IsString() @MaxLength(120) name!: string;
   @IsOptional() @IsString() @MaxLength(500) description?: string;
+  @IsOptional() @IsObject() translations?: Prisma.InputJsonObject;
   @IsOptional() @IsEnum(MasterRecordStatus) status?: MasterRecordStatus;
   @IsOptional() @IsInt() @Min(0) displayOrder?: number;
   @IsOptional() @IsObject() translations?: Prisma.InputJsonObject;
@@ -61,6 +62,7 @@ export class BulkCreateVehicleCategoriesDto {
     code: string;
     name: string;
     description?: string;
+    translations?: Prisma.InputJsonObject;
     status?: MasterRecordStatus;
     displayOrder?: number;
   }>;
@@ -72,6 +74,7 @@ export class CreateVehicleTypeDto {
   @IsString() @MaxLength(120) name!: string;
   @IsOptional() @IsString() @MaxLength(120) subCategory?: string;
   @IsOptional() @IsString() @MaxLength(500) description?: string;
+  @IsOptional() @IsObject() translations?: Prisma.InputJsonObject;
   @IsEnum(EnergyType) energyType!: EnergyType;
   @IsOptional() @IsEnum(VehicleUsageType) usageType?: VehicleUsageType;
   @IsOptional() @IsEnum(MasterRecordStatus) status?: MasterRecordStatus;
@@ -88,6 +91,7 @@ export class BulkCreateVehicleTypesDto {
     name: string;
     subCategory?: string;
     description?: string;
+    translations?: Prisma.InputJsonObject;
     energyType: EnergyType;
     usageType?: VehicleUsageType;
     status?: MasterRecordStatus;
@@ -104,6 +108,7 @@ export class BulkCreateOemsDto {
     status: MasterRecordStatus;
     website?: string;
     description?: string;
+    translations?: Prisma.InputJsonObject;
   }>;
 }
 
@@ -131,7 +136,11 @@ export class CreateFeatureDto {
   @IsEnum(FeatureType) featureType!: FeatureType;
   @IsEnum(FeatureBillingUnit) billingUnit!: FeatureBillingUnit;
   @IsOptional() @IsString() @MaxLength(500) description?: string;
+<<<<<<< HEAD
   @IsOptional() @IsObject() translations?: Record<string, unknown>;
+=======
+  @IsOptional() @IsObject() translations?: Prisma.InputJsonObject;
+>>>>>>> main
   @IsOptional() @IsObject() configuration?: Record<string, unknown>;
   @IsOptional() @IsUUID() featureStepId?: string;
   @IsOptional() @IsNumber() @Min(0) displayOrder?: number;
@@ -143,7 +152,7 @@ export class CreateFeatureStepDto {
   @IsString() @Matches(/^[A-Z0-9_-]+$/) @MaxLength(100) code!: string;
   @IsString() @MaxLength(150) displayName!: string;
   @IsOptional() @IsString() @MaxLength(500) description?: string;
-  @IsOptional() @IsObject() translations?: Record<string, unknown>;
+  @IsOptional() @IsObject() translations?: Prisma.InputJsonObject;
   @IsOptional() @IsUUID() parentId?: string;
   @IsOptional() @IsInt() @Min(0) displayOrder?: number;
   @IsOptional() @IsBoolean() isActive?: boolean;
@@ -165,7 +174,7 @@ export class CreateTrainingContentDto {
   @IsString() @Matches(/^[A-Z0-9_-]+$/) @MaxLength(100) code!: string;
   @IsString() @MaxLength(180) title!: string;
   @IsOptional() @IsString() @MaxLength(1000) description?: string;
-  @IsOptional() @IsObject() translations?: Record<string, unknown>;
+  @IsOptional() @IsObject() translations?: Prisma.InputJsonObject;
   @IsString() @Matches(/^platform\/training\/[A-Z0-9_-]+\/[0-9a-f-]+\.(jpeg|png|webp)$/i)
   imageObjectKey!: string;
   @IsOptional() @IsBoolean() isMandatory?: boolean;
@@ -182,6 +191,7 @@ export class BulkCreateFeaturesDto {
     code: string;
     name: string;
     description?: string;
+    translations?: Prisma.InputJsonObject;
     category: FeatureCategory;
     featureType: FeatureType;
     billingUnit: FeatureBillingUnit;

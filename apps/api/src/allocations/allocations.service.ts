@@ -262,11 +262,28 @@ export class AllocationsService {
   }
   async initiateDeallocation(clientId: string, allocationId: string) {
     return this.prisma.$transaction(async (tx) => {
-      const allocation = await tx.allocation.findFirst({
-        where: { id: allocationId, clientId, status: AllocationStatus.ACTIVE },
-      });
-      if (!allocation)
-        throw new NotFoundException('Active allocation not found.');
+      return this.initiateDeallocationInTransaction(tx, clientId, allocationId);
+    });
+  }
+  async initiateDeallocationInTransaction(
+    tx: Prisma.TransactionClient,
+    clientId: string,
+    allocationId: string,
+  ) {
+    const allocation = await tx.allocation.findFirst({
+      where: {
+        id: allocationId,
+        clientId,
+        status: {
+          in: [
+            AllocationStatus.ACTIVE,
+            AllocationStatus.DEALLOCATION_INITIATED,
+          ],
+        },
+      },
+    });
+    if (!allocation) throw new NotFoundException('Active allocation not found.');
+    if (allocation.status === AllocationStatus.ACTIVE) {
       await tx.allocation.update({
         where: { id: allocation.id },
         data: { status: AllocationStatus.DEALLOCATION_INITIATED },
@@ -277,47 +294,78 @@ export class AllocationsService {
           clientId,
           status: { in: [FleetStatus.ALLOCATED, FleetStatus.IN_USE] },
         },
-        data: { status: FleetStatus.DEALLOCATION_IN_PROGRESS },
+        data: { status: FleetStatus.DEALLOCATION_IN_PROGRESS, allocationEnabled: false },
       });
-      const inspection = await tx.inspection.upsert({
-        where: {
-          allocationId_type: {
-            allocationId: allocation.id,
-            type: InspectionType.POST_DEALLOCATION,
-          },
-        },
-        create: {
-          clientId,
+    }
+    const inspection = await tx.inspection.upsert({
+      where: {
+        allocationId_type: {
           allocationId: allocation.id,
           type: InspectionType.POST_DEALLOCATION,
-          status: InspectionStatus.DRAFT,
         },
-        update: {},
-      });
-      return { allocationId: allocation.id, inspectionId: inspection.id };
+      },
+      create: {
+        clientId,
+        allocationId: allocation.id,
+        type: InspectionType.POST_DEALLOCATION,
+        status: InspectionStatus.DRAFT,
+      },
+      update: {},
     });
+    return { allocationId: allocation.id, inspectionId: inspection.id };
   }
   async completeDeallocation(clientId: string, allocationId: string) {
     return this.prisma.$transaction(async (tx) => {
-      const a = await tx.allocation.findFirst({
-        where: {
-          id: allocationId,
-          clientId,
-          status: AllocationStatus.DEALLOCATION_INITIATED,
+      return this.completeDeallocationInTransaction(tx, clientId, allocationId);
+    });
+  }
+
+  /**
+   * Finalize a post-deallocation inspection without duplicating the legacy
+   * route's OTP and fleet-state rules. A physically received return is
+   * identified by its RETURNED termination request; standalone legacy
+   * deallocations still require both legacy OTPs.
+   */
+  async completeDeallocationInTransaction(
+    tx: Prisma.TransactionClient,
+    clientId: string,
+    allocationId: string,
+  ) {
+    const allocation = await tx.allocation.findFirst({
+      where: {
+        id: allocationId,
+        clientId,
+        status: {
+          in: [AllocationStatus.DEALLOCATION_INITIATED, AllocationStatus.OTP_PENDING],
         },
-      });
-      if (!a) throw new NotFoundException('Deallocation not found.');
-      const inspection = await tx.inspection.findFirst({
-        where: {
-          allocationId,
-          type: InspectionType.POST_DEALLOCATION,
-          status: InspectionStatus.COMPLETED,
-        },
-      });
-      if (!inspection)
-        throw new ConflictException(
-          'Post-deallocation inspection is incomplete.',
-        );
+      },
+    });
+    if (!allocation) throw new NotFoundException('Deallocation not found.');
+
+    const inspection = await tx.inspection.findFirst({
+      where: {
+        allocationId,
+        type: InspectionType.POST_DEALLOCATION,
+        status: InspectionStatus.COMPLETED,
+      },
+    });
+    if (!inspection)
+      throw new ConflictException('Post-deallocation inspection is incomplete.');
+
+    const submission = await tx.vehicleSubmission.findUnique({ where: { allocationId } });
+    const requiredReturn = await tx.rentalTerminationRequest.findFirst({ where: { clientId, allocationId, submissionRequired: true, status: { not: 'CANCELLED' } }, select: { id: true } });
+    const requiredExchange = await tx.vehicleExchangeRequest.findFirst({ where: { clientId, oldAllocationId: allocationId, submissionRequired: true, status: { notIn: ['CANCELLED', 'REJECTED'] } }, select: { id: true } });
+    if ((submission || requiredReturn || requiredExchange) && submission?.status !== 'CONFIRMED')
+      throw new ConflictException('Vehicle photos, mechanic report and rider/team lead confirmation are required.');
+
+    const receivedReturn = await tx.rentalTerminationRequest.findFirst({
+      where: { clientId, allocationId, status: 'RETURNED' },
+      select: { id: true },
+    });
+    if (receivedReturn && typeof inspection.safeForReuse !== 'boolean')
+      throw new ConflictException('Return inspection safety outcome is required.');
+
+    if (!receivedReturn && !submission) {
       const otps = await tx.otpRequest.findMany({
         where: {
           clientId,
@@ -328,26 +376,31 @@ export class AllocationsService {
       const purposes = new Set(
         otps
           .filter(
-            (o) =>
-              (o.context as { allocationId?: string } | null)?.allocationId ===
+            (otp) =>
+              (otp.context as { allocationId?: string } | null)?.allocationId ===
               allocationId,
           )
-          .map((o) => o.purpose),
+          .map((otp) => otp.purpose),
       );
-      if (
-        !purposes.has('DEALLOCATION_RIDER') ||
-        !purposes.has('DEALLOCATION_OPERATOR')
-      )
+      if (!purposes.has('DEALLOCATION_RIDER') || !purposes.has('DEALLOCATION_OPERATOR'))
         throw new ConflictException('Both deallocation OTPs must be verified.');
-      await tx.allocation.update({
-        where: { id: allocationId },
-        data: { status: AllocationStatus.COMPLETED, deallocatedAt: new Date() },
-      });
-      await tx.fleet.update({
-        where: { id: a.fleetId },
-        data: { status: FleetStatus.AVAILABLE },
-      });
-      return { completed: true };
+    }
+
+    const safeForReuse = (inspection.safeForReuse ?? true) && (!submission || submission.mechanicChecksComplete);
+    await tx.allocation.update({
+      where: { id: allocationId },
+      data: {
+        status: AllocationStatus.COMPLETED,
+        deallocatedAt: allocation.deallocatedAt ?? new Date(),
+      },
     });
+    await tx.fleet.update({
+      where: { id: allocation.fleetId },
+      data: {
+        status: safeForReuse ? FleetStatus.AVAILABLE : FleetStatus.MAINTENANCE,
+        allocationEnabled: safeForReuse,
+      },
+    });
+    return { completed: true };
   }
 }

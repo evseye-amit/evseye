@@ -57,6 +57,22 @@ function createService() {
 }
 
 describe('RiderAppService.saveStep', () => {
+  it('updates the account name before the remaining onboarding steps are complete', async () => {
+    const { service, transaction, resolver } = createService();
+    vi.spyOn(resolver, 'getEffectiveConfiguration').mockResolvedValue({
+      ...configuration,
+      onboarding: { ...configuration.onboarding, steps: [
+        ...configuration.onboarding.steps,
+        { ...configuration.onboarding.steps[0], stepId: 'documents', fields: [] },
+      ] },
+    } as never);
+    await service.saveStep('client-1', 'user-1', 'step-1', {
+      FULL_NAME: 'Aman Singh', MOBILE_NUMBER: '6573838383',
+    });
+    expect(transaction.user.update).toHaveBeenCalledWith({ where: { id: 'user-1' }, data: { name: 'Aman Singh' } });
+    expect(transaction.rider.create).not.toHaveBeenCalled();
+  });
+
   it('converts a date-only birth date before creating the rider', async () => {
     const { service, transaction } = createService();
     await service.saveStep('client-1', 'user-1', 'step-1', {

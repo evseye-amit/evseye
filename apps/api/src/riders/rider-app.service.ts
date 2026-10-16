@@ -160,6 +160,12 @@ export class RiderAppService {
       : {};
     await this.prisma.$transaction(async (tx) => {
       await tx.riderOnboardingProgress.update({ where: { userId }, data: { values: merged as Prisma.InputJsonValue, completedStepIds: [...completed], skippedStepIds: [...skipped], ...(allFinished ? { completedAt: new Date() } : {}) } });
+      // Keep the account name useful while the remaining onboarding steps are pending.
+      const nameField = effective.onboarding.steps.flatMap((item) => item.fields).find((field) => field.storageKey === 'name');
+      const enteredName = nameField ? merged[nameField.fieldCode] : undefined;
+      if (!allFinished && typeof enteredName === 'string' && enteredName.trim()) {
+        await tx.user.update({ where: { id: userId }, data: { name: enteredName.trim() } });
+      }
       if (allFinished && !(await tx.rider.findUnique({ where: { userId } }))) {
         const data: Record<string, unknown> = {
           ...riderValues,

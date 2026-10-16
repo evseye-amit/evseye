@@ -21,3 +21,16 @@ The API also localizes known validation and workflow error messages. Untranslate
 `fieldCode`, `featureCode`, step codes, payment and workflow statuses, enum values, validation keys, and monetary values stay language-independent. Mobile apps should use those codes for control flow and their own localized labels for status badges. Do not parse translated messages for business decisions.
 
 After login, Rider and Fleet Manager apps can call `GET /api/v1/mobile-deployments/localization` with the same language header. It returns localized labels keyed by stable Rider screen, deployment, payment, Fleet, and IoT status codes.
+
+## Allocation completion without IoT
+
+Fleet requests require the configured fleet photos. IoT mapping, heartbeat and
+device pairing are optional for allocation. After PDI acceptance and mandatory
+training, `POST /api/v1/mobile-deployments/:id/training/complete` activates the
+allocation and returns `status: DEPLOYED`. The app can then show Home.
+
+Existing `DEVICE_PAIRING_PENDING` workflows return `screen: TRAINING` from
+`GET /api/v1/mobile-deployments/rider/current`. The same training completion API
+finishes those allocations using their recorded training completion. Legacy
+pair and Fleet Manager bypass endpoints remain compatible with pending
+allocations and do not require IoT mapping, matching or device health.

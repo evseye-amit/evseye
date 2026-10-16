@@ -20,7 +20,7 @@ import { vehicleCategoryCatalog } from './catalog/vehicle-categories.mjs';
 import { vehicleTypeCatalog } from './catalog/vehicle-types.mjs';
 import { seedRiderRateCardDemo } from './catalog/rider-rate-card-demo.mjs';
 import { seedKyc } from './seed-kyc.mjs';
-import { seedLegal, seedLegalTemplates, seedLocalizedLegalDrafts, seedRiderPrivacyConsentDrafts, seedYogmayaFleetManagerLegalDrafts } from './seed-legal.mjs';
+import { seedLegal, seedLegalTemplates } from './catalog/legal-documents.mjs';
 import { seedInitialRevisions } from './catalog/seed-revisions.mjs';
 
 const prisma = new PrismaClient();
@@ -43,9 +43,14 @@ async function seedOemLogo(id, code) {
     );
   } catch {
     extension = 'svg';
-    image = await readFile(
-      new URL(`./catalog/assets/oem/${code}.svg`, import.meta.url),
-    );
+    try {
+      image = await readFile(
+        new URL(`./catalog/assets/oem/${code}.svg`, import.meta.url),
+      );
+    } catch (error) {
+      if (error?.code === 'ENOENT') return undefined;
+      throw error;
+    }
   }
   const objectKey = `platform/oems/${id}/logo/seed.${extension}`;
   await storage.send(
@@ -90,12 +95,12 @@ async function main() {
         create: oem,
         update: oem,
       });
-      if (oem.code === 'EVSEYE') return saved;
-      const logoObjectKey = await seedOemLogo(saved.id, oem.code);
-      if (saved.logoObjectKey === logoObjectKey) return saved;
-      return prisma.oem.update({
-        where: { id: saved.id },
-        data: { logoObjectKey },
+      const id = existing?.id ?? crypto.randomUUID();
+      const logoObjectKey = await seedOemLogo(id, oem.code);
+      return prisma.oem.upsert({
+        where: { code: oem.code },
+        create: { id, ...oem, ...(logoObjectKey ? { logoObjectKey } : {}) },
+        update: { ...oem, ...(logoObjectKey ? { logoObjectKey } : {}) },
       });
     }),
   );
@@ -163,10 +168,6 @@ async function main() {
       });
     }),
   );
-  // Earlier referral builds introduced a duplicate feature code. Keep its history,
-  // but remove it from package configuration; REFERRAL_BENEFIT is the entitlement.
-  await prisma.feature.updateMany({ where: { code: 'REFER_AND_EARN' }, data: { isActive: false } });
-
   // A feature can have several historical prices that share an effective date.
   // The complete commercial identity is used here instead of only feature + date,
   // which preserves inactive superseded prices alongside the current one.
@@ -711,9 +712,6 @@ async function main() {
   await seedKyc(prisma, process.env.KYC_ENABLED === 'true', process.env.KYC_SANDBOX_SECRET_REFERENCE);
 
   await seedLegal(prisma);
-  await seedLocalizedLegalDrafts(prisma);
-  await seedRiderPrivacyConsentDrafts(prisma);
-  await seedYogmayaFleetManagerLegalDrafts(prisma);
 
   // Existing development subscriptions are pinned after their records are seeded.
   await seedInitialRevisions(prisma);

@@ -131,3 +131,20 @@ describe('final settlement preview', () => {
     });
   });
 });
+
+describe('mechanic completion before settlement', () => {
+  it('blocks approval and closure while reports or mechanic checks are pending', async () => {
+    const { db, service } = fixture();
+    db.rentalTerminationRequest.findUnique.mockResolvedValue({ submissionRequired: true } as never);
+    Object.assign(db, { vehicleSubmission: { findFirst: vi.fn().mockResolvedValue({ id: 'submission' }) } });
+    await expect(service.approve('client', 'settlement', 'checker')).rejects.toThrow('mechanic checks');
+    await expect(service.close('client', 'settlement', 'checker')).rejects.toThrow('mechanic checks');
+  });
+  it('requires confirmed submission penalties to be invoiced before approval', async () => {
+    const { db, service } = fixture();
+    db.rentalTerminationRequest.findUnique.mockResolvedValue({ submissionRequired: true } as never);
+    Object.assign(db, { vehicleSubmission: { findFirst: vi.fn().mockResolvedValue(null) } });
+    Object.assign(db.riderCharge, { findFirst: vi.fn().mockResolvedValue({ id: 'charge' }) });
+    await expect(service.approve('client', 'settlement', 'checker')).rejects.toThrow('invoiced');
+  });
+});

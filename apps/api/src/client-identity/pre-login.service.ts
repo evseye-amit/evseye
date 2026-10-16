@@ -32,17 +32,27 @@ export class PreLoginService {
     const resolved = await this.workflows.resolve(clientId, 'PRE_LOGIN', appCode);
     const language = resolved.components.find((part) => part.featureCode === 'SELECT_APP_LANGUAGE');
     const riderPrivacyConsent = resolved.components.find((part) => part.featureCode === 'ACCEPT_RIDER_PRIVACY_CONSENT');
+<<<<<<< HEAD
     if (!language || language.componentType !== 'LANGUAGE_SELECTOR')
+=======
+    if (!consent || consent.componentType !== 'LEGAL_CONSENT')
+>>>>>>> main
       throw new NotFoundException('Mandatory pre-login Features are unavailable.');
+    if (language && language.componentType !== 'LANGUAGE_SELECTOR')
+      throw new NotFoundException('Language selection Feature is unavailable.');
     if (riderPrivacyConsent && (riderPrivacyConsent.componentType !== 'LEGAL_CONSENT' ||
       riderPrivacyConsent.configuration.kind !== 'PRIVACY_CONSENT'))
       throw new NotFoundException('Mandatory rider privacy consent Feature is unavailable.');
+<<<<<<< HEAD
     const configured = language.configuration.supportedLocales;
     if (!Array.isArray(configured) || configured.length === 0 ||
         !configured.every((value) => isSupportedLanguage(value)) ||
         new Set(configured).size !== configured.length)
       throw new NotFoundException('Supported languages are not configured.');
     return { resolved, configuredLocales: configured as string[], riderPrivacyConsent: !!riderPrivacyConsent,
+=======
+    return { resolved, languageEnabled: !!language, riderPrivacyConsent: !!riderPrivacyConsent,
+>>>>>>> main
       intro: resolved.components.find((part) => part.featureCode === 'SHOW_APP_INTRO') };
   }
 
@@ -51,13 +61,13 @@ export class PreLoginService {
       (appCode === 'FLEET_MANAGER' && role === 'FLEET_MANAGER')))
       throw new NotFoundException('Application role is unavailable.');
     const client = await this.clientForCode(companyCode, hostClientId);
-    const { resolved, configuredLocales, intro, riderPrivacyConsent } = await this.definition(client.id, appCode);
+    const { resolved, languageEnabled, intro, riderPrivacyConsent } = await this.definition(client.id, appCode);
     const now = new Date();
     const legalDocuments = await this.prisma.appLegalDocument.findMany({
       where: { appCode, role, kind: { in: appCode === 'RIDER'
         ? ['TERMS_AND_CONDITIONS', 'PRIVACY_POLICY', 'PRIVACY_CONSENT']
         : ['TERMS_AND_CONDITIONS', 'PRIVACY_POLICY'] },
-        locale: { in: configuredLocales }, publishedAt: { not: null }, deletedAt: null,
+        publishedAt: { not: null }, deletedAt: null,
         effectiveAt: { lte: now }, AND: [
           { OR: [{ clientId: client.id }, { clientId: null }] },
           { OR: [{ retiredAt: null }, { retiredAt: { gt: now } }] },
@@ -65,11 +75,12 @@ export class PreLoginService {
       select: { kind: true, locale: true, id: true, version: true },
     });
     const available = new Set(legalDocuments.map(({ kind, locale }) => `${kind}:${locale}`));
-    const supportedLocales = configuredLocales.filter((locale) =>
+    const supportedLocales = [...new Set(legalDocuments.filter((document) => document.kind === 'TERMS_AND_CONDITIONS')
+      .map((document) => document.locale))].filter((locale) =>
       available.has(`TERMS_AND_CONDITIONS:${locale}`) && available.has(`PRIVACY_POLICY:${locale}`) &&
-      (!riderPrivacyConsent || available.has(`PRIVACY_CONSENT:${locale}`)));
-    if (supportedLocales.length !== configuredLocales.length)
-      throw new NotFoundException('Published terms, privacy policy and rider consent (where applicable) are required in every configured language.');
+      (!riderPrivacyConsent || available.has(`PRIVACY_CONSENT:${locale}`))).sort();
+    if (supportedLocales.length === 0)
+      throw new NotFoundException('Published terms, privacy policy and rider consent (where applicable) are required.');
     const translations = object(intro?.configuration.translations);
     const introEnabled = !!intro && supportedLocales.every((locale) =>
       Array.isArray(translations[locale]) && (translations[locale] as unknown[]).length > 0);
@@ -78,6 +89,7 @@ export class PreLoginService {
     const steps = [...new Map(resolved.components.map((part) => [part.step.code, part.step])).values()]
       .map((step) => ({ ...step, components: resolved.components.filter((part) => part.step.code === step.code)
         .map((part) => ({ featureCode: part.featureCode, featureVersion: part.featureVersion,
+          translations: part.translations,
           componentType: part.componentType, order: part.order,
           contentVersion: part.featureCode === 'SHOW_APP_INTRO' ? introVersion : undefined,
           configuration: part.configuration })) }))
@@ -92,7 +104,7 @@ export class PreLoginService {
       workflow: [
         { code: 'SPLASH', required: true, order: 1 },
         { code: 'CLIENT_RESOLVE', required: true, order: 2 },
-        { code: 'CHANGE_LANGUAGE', required: true, order: 3 },
+        ...(languageEnabled ? [{ code: 'CHANGE_LANGUAGE', required: false, order: 3 }] : []),
         ...(riderPrivacyConsent ? [{ code: 'PRIVACY_CONSENT', required: true, order: 4, kind: 'PRIVACY_CONSENT' }] : []),
         { code: 'CONSENT', required: true, order: 5, kind: 'TERMS_AND_CONDITIONS' },
         { code: 'INTRO', required: false, enabled: introEnabled,

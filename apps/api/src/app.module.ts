@@ -1,3 +1,4 @@
+import { VehicleSubmissionModule } from './vehicle-submissions/submission.module.js';
 import { WalletModule } from './wallet/wallet.module.js';
 import { ClientIdentityModule } from './client-identity/client-identity.module.js';
 import { Module } from '@nestjs/common';
@@ -33,6 +34,9 @@ import { CollectionsModule } from './collections/collections.module.js';
 import { FinalSettlementModule } from './final-settlement/final-settlement.module.js';
 import { RewardsModule } from './rewards/rewards.module.js';
 import { LegalModule } from './legal/legal.module.js';
+import { RideReturnsModule } from './ride-returns/ride-returns.module.js';
+import { SupportModule } from './support/support.module.js';
+import { AttendanceModule } from './attendance/attendance.module.js';
 
 @Module({
   imports: [
@@ -66,6 +70,10 @@ import { LegalModule } from './legal/legal.module.js';
     WalletModule,
     RewardsModule,
     LegalModule,
+    RideReturnsModule,
+    VehicleSubmissionModule,
+    SupportModule,
+    AttendanceModule,
     PaymentsModule,
     CollectionsModule,
     FinalSettlementModule,

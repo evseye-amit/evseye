@@ -78,7 +78,7 @@ export function ClientWorkflowSettings({ clientId, clientName }: { clientId: str
       if (!enabled && String(feature?.code) === "SELECT_APP_LANGUAGE")
         throw new Error("Language selection is mandatory.");
       setOverrides((current) => [...current.filter((item) => item.featureId !== featureId),
-        { featureId, enabled, configuration: parsed as Record<string, unknown> }]);
+      { featureId, enabled, configuration: parsed as Record<string, unknown> }]);
       setNotice("Override added to this draft. Create a version to review it.");
       setError("");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Invalid configuration."); }

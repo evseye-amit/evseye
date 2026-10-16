@@ -56,7 +56,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     if (!(exception instanceof HttpException)) {
       this.logger.error(
-        'Unhandled request exception',
+        { event: 'unhandled_request_exception', requestId: request.id, method: request.method, route: request.routeOptions?.url ?? request.url?.split('?')[0] },
         exception instanceof Error ? exception.stack : String(exception),
       );
     }

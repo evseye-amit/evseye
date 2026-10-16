@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -8,6 +8,7 @@ import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { ClientContextService } from '../auth/client-context.service.js';
 import { InspectionsService } from './inspections.service.js';
+import { CompleteInspectionDto } from './dto/complete-inspection.dto.js';
 
 @Controller('inspections')
 @UseGuards(AccessTokenGuard, RolesGuard)
@@ -37,12 +38,14 @@ export class InspectionsController {
   async complete(
     @CurrentUser() user: AuthUser,
     @Param('id') inspectionId: string,
+    @Body() dto?: CompleteInspectionDto,
   ) {
     const clientId = this.clients.requireClientId(user);
     const inspection = await this.inspections.complete(
       clientId,
       inspectionId,
-      user.id,
+      user,
+      dto,
     );
     await this.audit.record({
       clientId,

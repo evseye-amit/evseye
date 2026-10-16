@@ -1,0 +1,25 @@
+# Bootstrap inputs only. Do not apply until the Hyderabad cost estimate is
+# accepted. Services remain stopped until images and live SMS are ready.
+aws_account_id  = "735792833529"
+aws_region      = "ap-south-2"
+environment     = "production"
+root_domain     = "evseye.com"
+web_subdomain   = "app"
+api_subdomain   = "api"
+media_subdomain = "media"
+ecs_public_egress = true
+
+# Enable before public launch so the private media bucket has a public CDN.
+enable_cloudfront = false
+
+# Initial infrastructure. Increase service counts only after image publication,
+# migration, live SMS configuration, and end-to-end checks.
+db_multi_az       = true
+api_desired_count = 0
+web_desired_count = 0
+
+# Populate Telipia and MSG91 Secrets Manager values before starting API tasks.
+# Sandbox credentials are only needed when paid KYC is enabled later.
+sms_provider = "telipia"
+kyc_provider = "sandbox"
+kyc_enabled  = false

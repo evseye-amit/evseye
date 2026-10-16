@@ -36,6 +36,8 @@ export const SWAGGER_TAGS = [
   ['Client Operations · IoT', 'Client IoT device administration.'],
   ['Client Operations · Media', 'Operational media upload and retrieval.'],
   ['Client Operations · Inspections', 'Fleet and rider inspection operations.'],
+  ['Client Operations · Ride Returns', 'Vehicle returns, penalty approvals, and price administration.'],
+  ['Client Operations · Support', 'Rider support tickets and scoped staff responses.'],
   ['Client Operations · Audit Log', 'Client operational audit trails.'],
   ['Rider App', 'Rider-facing application endpoints.'],
   ['Device Ingestion', 'Device-authenticated IoT ingestion endpoints.'],
@@ -71,6 +73,8 @@ function tagForPath(path: string): string {
   if (path.startsWith('/api/v1/client/referrals') || path.includes('/referral-events')) return 'Client Operations · Referrals';
   if (path.startsWith('/api/v1/allocations') || path.startsWith('/api/v1/mobile-deployments')) return 'Client Operations · Allocation';
   if (path.startsWith('/api/v1/inspections')) return 'Client Operations · Inspections';
+  if (path.startsWith('/api/v1/client/ride-returns') || path.startsWith('/api/v1/client/return-penalty-prices')) return 'Client Operations · Ride Returns';
+  if (path.startsWith('/api/v1/client/support')) return 'Client Operations · Support';
   if (path.startsWith('/api/v1/media')) return 'Client Operations · Media';
   if (path.startsWith('/api/v1/audit-logs')) return 'Client Operations · Audit Log';
   if (path.startsWith('/api/v1/dashboard')) return 'Client Operations · Dashboard';
