@@ -4448,3 +4448,10 @@ body:has(.sa-dialog[open]) {
 .support-ticket-status-form label { display: grid; gap: 8px; flex: 1; min-width: 180px; }
 .support-ticket-status-open { color: #875e11; background: #fff3d5; }
 .support-ticket-status-in_progress { color: #1b5a99; background: #e7f0fc; }
+
+.notification-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.notification-preview { border: 1px solid var(--border, #dce3ed); border-radius: 12px; padding: 16px; }
+.notification-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 12px; margin: 16px 0; }
+.notification-metrics span { background: var(--surface-soft, #f3f6fb); border-radius: 10px; padding: 12px; font-size: 13px; }
+.notification-metrics strong { display: block; font-size: 24px; margin-bottom: 4px; }
+.notification-body { white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -25,6 +25,13 @@ const environmentSchema = z.object({
   CORS_ORIGINS: z.string().default('http://localhost:3001'),
   DATABASE_URL: z.string().url().optional(),
   REDIS_URL: z.string().url().optional(),
+  PUSH_ENABLED: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+  FIREBASE_PROJECT_ID: z.preprocess((value) => value === '' ? undefined : value, z.string().min(1).optional()),
+  GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),
+  PUSH_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(100),
+  PUSH_TOKENS_PER_SECOND: z.coerce.number().int().min(1).max(500).default(100),
+  PUSH_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(6),
+  PUSH_TTL_SECONDS: z.coerce.number().int().min(60).max(2419200).default(86400),
   NEAREST_HUB_ENABLED: z
     .enum(['true', 'false'])
     .default('true')
@@ -373,5 +380,6 @@ export function validateEnvironment(
     if (!result.data.DATABASE_URL)
       throw new Error('DATABASE_URL is required in production.');
   }
+  if (result.data.PUSH_ENABLED && !result.data.FIREBASE_PROJECT_ID) throw new Error('FIREBASE_PROJECT_ID is required when PUSH_ENABLED=true.');
   return result.data;
 }

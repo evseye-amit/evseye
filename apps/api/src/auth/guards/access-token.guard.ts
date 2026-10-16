@@ -79,6 +79,7 @@ export class AccessTokenGuard implements CanActivate {
         id: user.id,
         clientId: user.clientId,
         roles: [user.role],
+        sessionId: session.id,
       };
       return true;
     } catch (error) {

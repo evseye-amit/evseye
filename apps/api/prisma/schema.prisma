@@ -808,6 +808,9 @@ enum PaymentTransactionStatus {
 }
 
 model Client {
+  pushDevices PushDevice[]
+  notificationMessages NotificationMessage[]
+  userNotifications UserNotification[]
   vehicleSubmissions VehicleSubmission[]
   riderReferenceReviews RiderReferenceReview[]
   legalDocuments              AppLegalDocument[]
@@ -1893,6 +1896,9 @@ model FleetTransfer {
 }
 
 model User {
+  pushDevices PushDevice[]
+  inboxNotifications UserNotification[]
+  sentNotifications NotificationMessage[] @relation("NotificationSender")
   riderReferenceReviews RiderReferenceReview[] @relation("ReferenceReviewer")
   legalAcceptances         AppLegalAcceptance[]
   id                       String                    @id @default(uuid())
@@ -3698,6 +3704,7 @@ model PhotoRequirement {
 }
 
 model Session {
+  pushDevices PushDevice[]
   id               String    @id @default(uuid())
   userId           String
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -5914,4 +5921,111 @@ model VehicleSubmissionReport {
   createdAt             DateTime @default(now())
   @@unique([clientId, submissionId, requestKey])
   @@index([clientId, submissionId, createdAt])
+}
+
+
+model PushDevice {
+  id String @id @default(uuid())
+  clientId String
+  client Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  userId String
+  user User @relation(fields: [clientId, userId], references: [clientId, id], onDelete: Cascade)
+  sessionId String
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  installationId String @db.Uuid
+  appCode String @db.VarChar(30)
+  platform String @db.VarChar(10)
+  token String @db.Text
+  tokenHash String @db.Char(64)
+  version Int @default(1)
+  isActive Boolean @default(true)
+  lastRegisteredAt DateTime @default(now())
+  disabledReason String? @db.VarChar(100)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deliveries PushDelivery[]
+  @@unique([installationId, appCode])
+  @@index([clientId, userId, isActive])
+  @@index([sessionId])
+  @@index([tokenHash])
+}
+
+model NotificationMessage {
+  id String @id @default(uuid())
+  clientId String
+  client Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  senderId String?
+  sender User? @relation("NotificationSender", fields: [senderId], references: [id], onDelete: SetNull)
+  title String @db.VarChar(150)
+  body String @db.VarChar(2000)
+  data Json @default("{}")
+  audience String @db.VarChar(30)
+  audiencePhones String[]
+  requestKey String @db.VarChar(150)
+  requestDigest String @db.Char(64)
+  source String @default("MANUAL") @db.VarChar(50)
+  status String @default("QUEUED") @db.VarChar(40)
+  totalUsers Int @default(0)
+  pushExpiresAt DateTime
+  createdAt DateTime @default(now())
+  completedAt DateTime?
+  recipients UserNotification[]
+  deliveries PushDelivery[]
+  @@unique([clientId, requestKey])
+  @@unique([clientId, id])
+  @@index([clientId, createdAt, id])
+  @@index([status, createdAt])
+}
+
+model UserNotification {
+  id String @id @default(uuid())
+  clientId String
+  client Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  userId String
+  user User @relation(fields: [clientId, userId], references: [clientId, id], onDelete: Cascade)
+  messageId String
+  message NotificationMessage @relation(fields: [clientId, messageId], references: [clientId, id], onDelete: Restrict)
+  createdAt DateTime @default(now())
+  readAt DateTime?
+  expandedAt DateTime?
+  noActiveDevice Boolean @default(false)
+  deliveries PushDelivery[]
+  @@unique([messageId, userId])
+  @@unique([id, messageId])
+  @@index([clientId, userId, createdAt, id])
+  @@index([clientId, userId, readAt])
+  @@index([expandedAt, createdAt])
+}
+
+model PushDelivery {
+  id String @id @default(uuid())
+  messageId String
+  message NotificationMessage @relation(fields: [messageId], references: [id], onDelete: Restrict)
+  userNotificationId String
+  userNotification UserNotification @relation(fields: [userNotificationId, messageId], references: [id, messageId], onDelete: Cascade)
+  deviceId String
+  device PushDevice @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  deviceVersion Int
+  status String @default("PENDING") @db.VarChar(20)
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now())
+  firstAttemptAt DateTime?
+  leaseUntil DateTime?
+  claimId String?
+  acceptedAt DateTime?
+  firebaseMessageId String?
+  errorCode String? @db.VarChar(150)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([userNotificationId, deviceId])
+  @@index([status, nextAttemptAt, leaseUntil])
+  @@index([messageId, status])
+}
+
+// Shared across API instances so the configured Firebase project is rate limited globally.
+model PushDispatchState {
+  id String @id
+  nextAllowedAt DateTime @default(now())
+  leaseUntil DateTime?
+  claimId String?
 }

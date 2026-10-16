@@ -12,6 +12,7 @@ import {
 import { Dispatch, FormEvent, SetStateAction, useEffect, useState } from "react";
 import { OtpCodeInput } from "./components/otp-code-input";
 import { UiIcon, type IconName } from "./components/ui-icon";
+import { ClientNotifications } from "./components/client-notifications";
 import { SupportTickets } from "./components/support-tickets";
 import { RiderReferenceReview } from "./components/rider-reference-review";
 import { ClientDataTable, type ClientColumn } from "./components/client-data-table";
@@ -65,6 +66,7 @@ type Tab =
   | "rider-document-review"
   | "rider-reference-review"
   | "support-tickets"
+  | "notifications"
   | "zones"
   | "reports"
   | "feature-usage";
@@ -170,7 +172,7 @@ const CLIENT_NAVIGATION: Array<{
   },
   {
     label: "",
-    items: [{ id: "support-tickets", label: "Support Tickets" }],
+    items: [{ id: "support-tickets", label: "Support Tickets" }, { id: "notifications", label: "Notification" }],
   },
   {
     label: "",
@@ -211,6 +213,7 @@ const CLIENT_TAB_TITLES: Record<Tab, string> = {
   "rider-document-review": "Rider Document Verification",
   "rider-reference-review": "Rider Reference Verification",
   "support-tickets": "Support Tickets",
+  notifications: "Notification",
   zones: "Zone",
   reports: "Reports",
   "feature-usage": "Feature Usage",
@@ -245,6 +248,7 @@ const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
   "rider-document-review": "shield",
   "rider-reference-review": "shield",
   "support-tickets": "support",
+  notifications: "notification",
   zones: "zone",
   reports: "reports",
   "feature-usage": "usage",
@@ -273,6 +277,7 @@ const ACTIVE_CLIENT_TABS = new Set<Tab>([
   "rider-document-review",
   "rider-reference-review",
   "support-tickets",
+  "notifications",
 ]);
 
 const PHOTO_EVIDENCE_TABS = new Set<Tab>([
@@ -787,6 +792,7 @@ export default function Home() {
   const [showPhotoTypeForm, setShowPhotoTypeForm] = useState(false);
   const [rejectingDocument, setRejectingDocument] = useState<RecordItem | null>(null);
   const [supportRefreshKey, setSupportRefreshKey] = useState(0);
+  const [notificationRefreshKey, setNotificationRefreshKey] = useState(0);
   const [referenceRefreshKey, setReferenceRefreshKey] = useState(0);
   const [reviewBusyId, setReviewBusyId] = useState("");
   const [previewDocument, setPreviewDocument] = useState<{ item: RecordItem; url: string; mimeType: string } | null>(null);
@@ -853,7 +859,7 @@ export default function Home() {
   }, [token, tab]);
 
   async function loadView(nextTab: Tab) {
-    if (nextTab === "legal-documents" || nextTab === "refer-and-earn" || nextTab === "rider-reference-review" || nextTab === "support-tickets") {
+    if (nextTab === "legal-documents" || nextTab === "refer-and-earn" || nextTab === "rider-reference-review" || nextTab === "support-tickets" || nextTab === "notifications") {
       setItems([]);
       setLoading(false);
       return;
@@ -2469,7 +2475,7 @@ export default function Home() {
                 className="client-nav-items"
                 hidden={Boolean(section.label) && !(expandedClientNavGroups[section.label] ?? false)}
               >
-                {section.items.filter((item) => !["legal-documents", "refer-and-earn"].includes(item.id) || userRoles.includes("CLIENT_ADMIN")).map((item) => (
+                {section.items.filter((item) => (item.id !== "notifications" || userRoles.some((role) => ["CLIENT_ADMIN", "OPERATIONS_MANAGER"].includes(role))) && (!["legal-documents", "refer-and-earn"].includes(item.id) || userRoles.includes("CLIENT_ADMIN"))).map((item) => (
                   <button
                     key={item.id}
                     type="button"
@@ -2512,7 +2518,7 @@ export default function Home() {
           </div>
           <div className="header-actions">
             <LanguageSwitcher />
-            <button className="secondary" onClick={() => tab === "support-tickets" ? setSupportRefreshKey((key) => key + 1) : tab === "rider-reference-review" ? setReferenceRefreshKey((key) => key + 1) : tab === "legal-documents" ? setLegalRefreshKey((key) => key + 1) : tab === "refer-and-earn" ? setReferralRefreshKey((key) => key + 1) : void loadView(tab)}>
+            <button className="secondary" onClick={() => tab === "notifications" ? setNotificationRefreshKey((key) => key + 1) : tab === "support-tickets" ? setSupportRefreshKey((key) => key + 1) : tab === "rider-reference-review" ? setReferenceRefreshKey((key) => key + 1) : tab === "legal-documents" ? setLegalRefreshKey((key) => key + 1) : tab === "refer-and-earn" ? setReferralRefreshKey((key) => key + 1) : void loadView(tab)}>
               ↻ {t("Refresh")}
             </button>
             <button onClick={signOut}>{t("Sign out")}</button>
@@ -2530,6 +2536,7 @@ export default function Home() {
         {tab === "refer-and-earn" && userRoles.includes("CLIENT_ADMIN") && <ClientReferAndEarn key={referralRefreshKey} />}
         {tab === "rider-reference-review" && <RiderReferenceReview key={referenceRefreshKey} />}
         {tab === "support-tickets" && <SupportTickets key={supportRefreshKey} />}
+        {tab === "notifications" && userRoles.some((role) => ["CLIENT_ADMIN", "OPERATIONS_MANAGER"].includes(role)) && <ClientNotifications key={notificationRefreshKey} />}
         {!loading && tab === "rider-document-review" && <section className="action-card client-review-intro"><p className="eyebrow">RIDER ONBOARDING</p><h2>Review rider documents</h2><p className="muted">Open each uploaded document, then approve it or record a rejection reason.</p><div className="client-review-counts"><span><strong>{items.filter((item) => item.status === "PENDING").length}</strong> Pending</span><span><strong>{items.filter((item) => item.status === "APPROVED").length}</strong> Approved</span><span><strong>{items.filter((item) => item.status === "REJECTED").length}</strong> Rejected</span></div></section>}
         {!loading && (tab === "fleets" || tab === "riders" || tab === "batteries" || tab === "controllers" || tab === "iot-devices" || tab === "fleet-component-mapping") && <section className="sa-page-head client-page-head"><div className="sa-actions"><button className="secondary" onClick={() => openBulkImport(tab as ClientBulkTab)}>Bulk upload</button>{tab === "fleets" ? <button onClick={() => void openFleetForm()}>+ Add Fleet</button> : tab === "riders" ? <button onClick={() => void openRiderForm()}>+ Add Rider</button> : tab === "iot-devices" ? <button onClick={() => void openIotForm()}>+ Add IoT device</button> : tab === "fleet-component-mapping" ? <button onClick={() => void openMappingForm()}>+ Add mapping</button> : <button onClick={() => void openComponentForm(tab)}>+ Add {tab === "batteries" ? "Battery" : "Controller"}</button>}</div></section>}
         {tab === "iot-devices" && showIotForm && <ClientFormDialog title={editingIotDeviceId ? "Edit IoT device" : "Register IoT device"} busy={loading} error={error} onClose={() => setShowIotForm(false)}><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void registerIotDevice(iotFleetId); }}>
@@ -3057,6 +3064,7 @@ export default function Home() {
           tab !== "refer-and-earn" &&
           tab !== "rider-reference-review" &&
           tab !== "support-tickets" &&
+          tab !== "notifications" &&
           tab !== "locations" &&
           tab !== "evidence" && (
             <>

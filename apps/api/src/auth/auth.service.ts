@@ -697,7 +697,7 @@ export class AuthService {
       throw new UnauthorizedException('Account is unavailable.');
     }
 
-    return this.issueTokens(user);
+    return this.issueTokens(user, session.id);
   }
 
   private generateOtpCode(): string {
@@ -719,10 +719,11 @@ export class AuthService {
         where: { id: payload.sid, userId: payload.id, revokedAt: null },
         data: { revokedAt: new Date() },
       });
+      await this.prisma.pushDevice.updateMany({ where: { userId: payload.id, sessionId: payload.sid, isActive: true }, data: { isActive: false, disabledReason: 'LOGGED_OUT' } });
     }
   }
 
-  private async issueTokens(user: User) {
+  private async issueTokens(user: User, previousSessionId?: string) {
     if (user.deletedAt) throw new UnauthorizedException('Account is unavailable.');
     if (user.clientId && !await this.prisma.client.findFirst({ where: { id: user.clientId, isActive: true, status: { notIn: ['DRAFT', 'SUSPENDED'] } }, select: { id: true } })) throw new UnauthorizedException('Account is unavailable.');
     const authUser: AuthUser = {
@@ -752,6 +753,11 @@ export class AuthService {
         refreshTokenHash: this.hashSecret(refreshToken),
         expiresAt: this.futureDate(this.config.getOrThrow('JWT_REFRESH_TTL')),
       },
+    });
+
+    if (previousSessionId) await this.prisma.pushDevice.updateMany({
+      where: { userId: user.id, sessionId: previousSessionId, isActive: true },
+      data: { sessionId },
     });
 
     return { accessToken, refreshToken, tokenType: 'Bearer' as const };
