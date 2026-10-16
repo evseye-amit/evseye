@@ -1,3 +1,4 @@
+import { pendingRiderIdsQuery } from '../fleet-manager-home/home-metrics.js';
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { AllocationStatus, ClientSubscriptionStatus, DeploymentPaymentStatus, FleetStatus, InspectionStatus, InspectionType, MobileDeploymentStatus, PhotoEntityType, PhotoStatus, Prisma, RiderStatus } from '@prisma/client';
 import { STORAGE_PROVIDER, type StorageProvider } from '../media/storage/storage-provider.interface.js';
@@ -86,12 +87,16 @@ export class MobileDeploymentService {
   private async fleetManagerHubIds(clientId: string, userId: string) {
     return (await this.prisma.userHub.findMany({ where: { clientId, userId }, select: { hubId: true } })).map((entry) => entry.hubId);
   }
-  async pendingRiders(clientId: string, userId: string) {
-    const hubIds = await this.fleetManagerHubIds(clientId, userId);
+  async pendingRiders(clientId: string, userId: string, selectedHubId?: string) {
+    const assigned = await this.prisma.userHub.findMany({ where: { clientId, userId, hub: { clientId, status: 'ACTIVE', deletedAt: null } }, select: { hubId: true } });
+    const hubIds = assigned.map((item) => item.hubId);
+    if (selectedHubId && !hubIds.includes(selectedHubId)) throw new NotFoundException('Hub not found in your active assigned hubs.');
     if (!hubIds.length) return [];
+    const eligible = await this.prisma.$queryRaw<{ id: string }[]>(pendingRiderIdsQuery(clientId, selectedHubId ? [selectedHubId] : hubIds));
     return this.prisma.rider.findMany({
       where: {
         clientId,
+        id: { in: eligible.map((item) => item.id) },
         status: RiderStatus.ACTIVE,
         deletedAt: null,
         allocations: { none: { status: { in: [AllocationStatus.INITIATED, AllocationStatus.INSPECTION_PENDING, AllocationStatus.OTP_PENDING, AllocationStatus.ACTIVE, AllocationStatus.DEALLOCATION_INITIATED] } } },
