@@ -44,7 +44,7 @@ describe('LegalService', () => {
     } as never);
     const deviceAcceptedAt = new Date(Date.now() - 60_000).toISOString();
     await service.accept('client-1', 'rider-1', [UserRole.RIDER], {
-      documentId: consent.id, contentHash: consent.contentHash, deviceAcceptedAt,
+      documentId: consent.id, contentHash: consent.contentHash, accepted: true, deviceAcceptedAt,
     });
     expect(upsert).toHaveBeenCalledWith({
       where: { userId_documentId: { userId: 'rider-1', documentId: consent.id } },
@@ -53,6 +53,18 @@ describe('LegalService', () => {
         deviceAcceptedAt: new Date(deviceAcceptedAt) }),
       update: {},
     });
+  });
+
+  it('rejects an unchecked privacy consent submission', async () => {
+    const upsert = vi.fn();
+    const service = new LegalService({ appLegalDocument: { findUnique: vi.fn().mockResolvedValue({ ...document, kind: 'PRIVACY_CONSENT' }) },
+      appLegalAcceptance: { upsert } } as never);
+    for (const accepted of [undefined, false]) {
+      await expect(service.accept('client-1', 'rider-1', [UserRole.RIDER], {
+        documentId: document.id, contentHash: document.contentHash, accepted,
+      })).rejects.toThrow('Explicit consent acceptance is required');
+    }
+    expect(upsert).not.toHaveBeenCalled();
   });
 
   it('cannot soft-delete a published document', async () => {

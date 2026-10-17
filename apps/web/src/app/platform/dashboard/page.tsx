@@ -1,4 +1,6 @@
 "use client";
+
+import { LegalAcceptanceFields, LegalAcceptancePreview, type LegalAcceptanceCopy } from "../../components/legal-acceptance-fields";
 import { sessionFetch as fetch } from "../../../lib/session-fetch";
 import {
   allowanceResetPeriods,
@@ -4036,6 +4038,7 @@ type LegalTemplate = {
   version: string;
   title: string;
   content: string;
+  acceptance?: LegalAcceptanceCopy | null;
   isActive: boolean;
 };
 
@@ -4097,7 +4100,7 @@ function LegalDocumentsView({ token }: { token: string }) {
     setForm(template ? {
       appCode: template.appCode, role: template.role, kind: template.kind,
       locale: template.locale, version: template.version, title: template.title,
-      content: template.content, isActive: template.isActive,
+      content: template.content, acceptance: template.acceptance, isActive: template.isActive,
     } : emptyLegalTemplate());
     setError("");
     setNotice("");
@@ -4227,6 +4230,7 @@ function LegalDocumentsView({ token }: { token: string }) {
         </div>
         <label className="sa-legal-active"><input type="checkbox" checked={form.isActive} disabled={form.appCode === "RIDER" && form.role === "RIDER" && form.kind === "PRIVACY_CONSENT"} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} /> Active for new clients</label>
         <label>Document HTML *<textarea required rows={14} maxLength={100000} value={form.content} onChange={(event) => setForm({ ...form, content: event.target.value })} /></label>
+        {form.kind === "PRIVACY_CONSENT" && <LegalAcceptanceFields locale={form.locale} value={form.acceptance} onChange={(acceptance) => setForm({ ...form, acceptance })} />}
         <p className="sa-legal-help">Use {"{{CLIENT_LEGAL_NAME}}"}, {"{{CLIENT_NAME}}"}, and {"{{CLIENT_CODE}}"} for client details. Mark facts needing review with [CLIENT_REVIEW_REQUIRED].</p>
       </CatalogFormDialog>
       <CatalogFormDialog
@@ -4242,7 +4246,7 @@ function LegalDocumentsView({ token }: { token: string }) {
         onSubmit={(event) => event.preventDefault()}
         actions={<button type="button" className="secondary" onClick={() => setPreview(null)}>Close</button>}
       >
-        {preview && <div className="legal-documents-preview"><iframe key={preview.id} title={`${preview.title} preview`} sandbox="" srcDoc={preview.content} /></div>}
+        {preview && <><div className="legal-documents-preview"><iframe key={preview.id} title={`${preview.title} preview`} sandbox="" srcDoc={preview.content} /></div><LegalAcceptancePreview value={preview.acceptance} /></>}
       </CatalogFormDialog>
       <DeleteConfirmationDialog confirmation={confirmation} busy={busy} onClose={() => setConfirmation(null)} />
     </section>

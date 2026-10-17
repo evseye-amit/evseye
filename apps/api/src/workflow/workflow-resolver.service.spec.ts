@@ -5,7 +5,7 @@ const feature = (code: string, category: string, configuration: Record<string, u
   featureId: code, featureRevisionId: `${code}-r1`, featureVersion: 1,
   displayOrder: 1, configuration: null,
   feature: { id: code, code, name: code, category, billingUnit: 'LIFE_TIME',
-    isActive: true, configuration, step: { id: 'step-1', code: 'PRE_LOGIN_CONSENT',
+    isActive: true, configuration, step: { id: 'step-1', code: 'PRE_LOGIN_LANGUAGE',
       name: 'Terms', order: 1, parentCode: 'PRE_LOGIN' } },
 });
 
@@ -16,14 +16,14 @@ describe('WorkflowResolverService', () => {
         id: 'sub-1', packageId: 'pkg-1', packageRevisionId: 'pkg-r1',
         packageRevision: { id: 'pkg-r1', version: 1, publishedAt: new Date(),
           contentHash: 'package-hash', snapshot: { id: 'pkg-1', code: 'BASIC', name: 'Basic',
-            features: [feature('ACCEPT_APP_TERMS', 'PRE_LOGIN', {
+            features: [feature('ACCEPT_RIDER_PRIVACY_CONSENT', 'PRE_LOGIN', {
               componentType: 'LEGAL_CONSENT', appCodes: ['RIDER', 'FLEET_MANAGER'] })] } },
       }) },
       featureStep: { findMany: vi.fn().mockResolvedValue([]) },
       feature: { findMany: vi.fn().mockResolvedValue([]) },
       clientWorkflowRevision: { findFirst: vi.fn().mockResolvedValue({ id: 'client-r1',
         contentHash: 'client-hash', snapshot: { packageRevisionId: 'pkg-r1', overrides: [
-          { featureId: 'ACCEPT_APP_TERMS', enabled: true,
+          { featureId: 'ACCEPT_RIDER_PRIVACY_CONSENT', enabled: true,
             configuration: { displayTitle: 'Review terms' } },
         ] } }) },
     };
@@ -55,16 +55,11 @@ describe('WorkflowResolverService', () => {
     expect(result.components).toEqual([]);
   });
 
-<<<<<<< HEAD
   it('uses current step translations without changing the pinned workflow structure', async () => {
-=======
-  it('keeps package-included language selection visible despite a stale client override', async () => {
->>>>>>> main
     const prisma = {
       clientSubscription: { findFirst: vi.fn().mockResolvedValue({
         id: 'sub-1', packageId: 'pkg-1', packageRevisionId: 'pkg-r1',
         packageRevision: { id: 'pkg-r1', version: 1, publishedAt: new Date(),
-<<<<<<< HEAD
           contentHash: 'hash', snapshot: { id: 'pkg-1', code: 'BASIC', name: 'Basic',
             features: [feature('SELECT_APP_LANGUAGE', 'PRE_LOGIN')] } },
       }) },
@@ -107,18 +102,5 @@ describe('WorkflowResolverService', () => {
     expect(result.components[0].configuration.translations).toMatchObject({
       hi: { label: 'पूरा नाम', translationStatus: 'ACTIVE' },
     });
-=======
-          contentHash: 'package-hash', snapshot: { features: [feature('SELECT_APP_LANGUAGE', 'PRE_LOGIN', {
-            componentType: 'LANGUAGE_SELECTOR', appCodes: ['RIDER', 'FLEET_MANAGER'] })] } },
-      }) },
-      clientWorkflowRevision: { findFirst: vi.fn().mockResolvedValue({ id: 'client-r1',
-        contentHash: 'client-hash', snapshot: { overrides: [
-          { featureId: 'SELECT_APP_LANGUAGE', enabled: false, configuration: { enabled: false } },
-        ] } }) },
-    };
-    const result = await new WorkflowResolverService(prisma as never)
-      .resolve('client-1', 'PRE_LOGIN', 'RIDER');
-    expect(result.components.map((part) => part.featureCode)).toEqual(['SELECT_APP_LANGUAGE']);
->>>>>>> main
   });
 });

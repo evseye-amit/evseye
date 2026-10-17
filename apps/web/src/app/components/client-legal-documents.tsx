@@ -5,12 +5,15 @@ import { sessionFetch } from "../../lib/session-fetch";
 import { ClientDataTable, type ClientColumn } from "./client-data-table";
 import { ClientFormDialog } from "./client-form-dialog";
 
+import { LegalAcceptanceFields, LegalAcceptancePreview, type LegalAcceptanceCopy } from "./legal-acceptance-fields";
+
 type LegalDocument = {
   id: string; appCode: string; role: string; kind: string; locale: string;
   version: string; title: string; content: string; effectiveAt: string;
+  acceptance?: LegalAcceptanceCopy | null;
   publishedAt: string | null; retiredAt: string | null;
 };
-type LegalForm = Pick<LegalDocument, "appCode" | "role" | "kind" | "locale" | "version" | "title" | "content"> & { effectiveAt: string };
+type LegalForm = Pick<LegalDocument, "appCode" | "role" | "kind" | "locale" | "version" | "title" | "content" | "acceptance"> & { effectiveAt: string };
 const emptyForm = (): LegalForm => ({ appCode: "RIDER", role: "RIDER", kind: "TERMS_AND_CONDITIONS", locale: "en", version: "", title: "Rider Terms & Conditions", content: "", effectiveAt: new Date().toISOString().slice(0, 10) });
 const statusOf = (document: LegalDocument) => document.retiredAt ? "Retired" : document.publishedAt ? "Published"
   : document.content.includes("[CLIENT_REVIEW_REQUIRED: English placeholder") ? "Translation pending" : "Draft";
@@ -62,7 +65,7 @@ export function ClientLegalDocuments() {
   function startEdit(document: LegalDocument) {
     if (document.publishedAt) return;
     setEditingId(document.id);
-    setForm({ appCode: document.appCode, role: document.role, kind: document.kind, locale: document.locale, version: document.version, title: document.title, content: document.content, effectiveAt: new Date(document.effectiveAt).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }) });
+    setForm({ appCode: document.appCode, role: document.role, kind: document.kind, locale: document.locale, version: document.version, title: document.title, content: document.content, acceptance: document.acceptance, effectiveAt: new Date(document.effectiveAt).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }) });
     setShowForm(true); setError(""); setNotice("");
   }
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -101,7 +104,7 @@ export function ClientLegalDocuments() {
       <label>Version *<input required maxLength={80} value={form.version} onChange={(event) => setForm({ ...form, version: event.target.value })} placeholder="1.0.1" /></label>
       <label>Effective date *<input required type="date" value={form.effectiveAt} onChange={(event) => setForm({ ...form, effectiveAt: event.target.value })} /></label>
       <label>Title *<input required maxLength={200} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
-    </div><label>Document HTML *<textarea required rows={16} maxLength={100000} value={form.content} onChange={(event) => setForm({ ...form, content: event.target.value })} /></label><div className="form-actions"><button disabled={busy}>{busy ? "Saving…" : "Save draft"}</button><button type="button" className="secondary" onClick={() => setShowForm(false)}>Cancel</button></div></form></ClientFormDialog>}
-    {preview && <ClientFormDialog title={`Preview ${preview.title}`} wide onClose={() => setPreview(null)}><p className="eyebrow">DOCUMENT PREVIEW · VERSION {preview.version}</p><h2>{preview.title}</h2><div className="legal-documents-preview"><iframe title={`${preview.title} preview`} sandbox="" srcDoc={preview.content} /></div><div className="form-actions"><button type="button" className="secondary" onClick={() => setPreview(null)}>Close preview</button></div></ClientFormDialog>}
+    </div><label>Document HTML *<textarea required rows={16} maxLength={100000} value={form.content} onChange={(event) => setForm({ ...form, content: event.target.value })} /></label>{form.kind === "PRIVACY_CONSENT" && <LegalAcceptanceFields locale={form.locale} value={form.acceptance} onChange={(acceptance) => setForm({ ...form, acceptance })} />}<div className="form-actions"><button disabled={busy}>{busy ? "Saving…" : "Save draft"}</button><button type="button" className="secondary" onClick={() => setShowForm(false)}>Cancel</button></div></form></ClientFormDialog>}
+    {preview && <ClientFormDialog title={`Preview ${preview.title}`} wide onClose={() => setPreview(null)}><p className="eyebrow">DOCUMENT PREVIEW · VERSION {preview.version}</p><h2>{preview.title}</h2><div className="legal-documents-preview"><iframe title={`${preview.title} preview`} sandbox="" srcDoc={preview.content} /></div><LegalAcceptancePreview value={preview.acceptance} /><div className="form-actions"><button type="button" className="secondary" onClick={() => setPreview(null)}>Close preview</button></div></ClientFormDialog>}
   </div>;
 }

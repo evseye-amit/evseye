@@ -74,9 +74,6 @@ export function ClientWorkflowSettings({ clientId, clientName }: { clientId: str
       const parsed: unknown = JSON.parse(configuration);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
         throw new Error("Configuration must be a JSON object.");
-      const feature = included.find((item) => item.featureId === featureId)?.feature as Row | undefined;
-      if (!enabled && String(feature?.code) === "SELECT_APP_LANGUAGE")
-        throw new Error("Language selection is mandatory.");
       setOverrides((current) => [...current.filter((item) => item.featureId !== featureId),
       { featureId, enabled, configuration: parsed as Record<string, unknown> }]);
       setNotice("Override added to this draft. Create a version to review it.");

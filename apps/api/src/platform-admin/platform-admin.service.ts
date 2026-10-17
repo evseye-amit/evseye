@@ -1019,10 +1019,9 @@ export class PlatformAdminService {
     });
     const languageFeature = (revision.snapshot as { features?: Array<{ featureId: string;
       feature: { code: string } }> }).features?.find((part) => part.feature.code === 'SELECT_APP_LANGUAGE');
-    if (!languageFeature) throw new BadRequestException('The selected Package has no language Feature.');
     const snapshot = { subscriptionId: subscription.id, packageRevisionId: revision.id,
-      overrides: [{ featureId: languageFeature.featureId, enabled: true,
-        configuration: { supportedLocales: client.requestedLocales } }] };
+      overrides: languageFeature ? [{ featureId: languageFeature.featureId, enabled: true,
+        configuration: { supportedLocales: client.requestedLocales } }] : [] };
     await this.prisma.clientWorkflowRevision.create({ data: {
       subscriptionId: subscription.id, version: 1, snapshot,
       contentHash: createHash('sha256').update(JSON.stringify(snapshot)).digest('hex'),

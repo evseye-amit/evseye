@@ -50,7 +50,7 @@ export class CreateVehicleCategoryDto {
   @IsOptional() @IsObject() translations?: Prisma.InputJsonObject;
   @IsOptional() @IsEnum(MasterRecordStatus) status?: MasterRecordStatus;
   @IsOptional() @IsInt() @Min(0) displayOrder?: number;
-  @IsOptional() @IsObject() translations?: Prisma.InputJsonObject;
+
 }
 
 export class UpdateVehicleCategoryDto extends CreateVehicleCategoryDto {}
@@ -78,7 +78,7 @@ export class CreateVehicleTypeDto {
   @IsEnum(EnergyType) energyType!: EnergyType;
   @IsOptional() @IsEnum(VehicleUsageType) usageType?: VehicleUsageType;
   @IsOptional() @IsEnum(MasterRecordStatus) status?: MasterRecordStatus;
-  @IsOptional() @IsObject() translations?: Prisma.InputJsonObject;
+
 }
 export class UpdateVehicleTypeDto extends CreateVehicleTypeDto {}
 
@@ -136,11 +136,7 @@ export class CreateFeatureDto {
   @IsEnum(FeatureType) featureType!: FeatureType;
   @IsEnum(FeatureBillingUnit) billingUnit!: FeatureBillingUnit;
   @IsOptional() @IsString() @MaxLength(500) description?: string;
-<<<<<<< HEAD
-  @IsOptional() @IsObject() translations?: Record<string, unknown>;
-=======
   @IsOptional() @IsObject() translations?: Prisma.InputJsonObject;
->>>>>>> main
   @IsOptional() @IsObject() configuration?: Record<string, unknown>;
   @IsOptional() @IsUUID() featureStepId?: string;
   @IsOptional() @IsNumber() @Min(0) displayOrder?: number;

@@ -64,8 +64,7 @@ export class WorkflowResolverService {
       const assignment = object(raw);
       const feature = object(assignment.feature);
       if (feature.category !== category || feature.isActive === false) continue;
-      const clientOverride = feature.code === 'SELECT_APP_LANGUAGE' ? undefined :
-        clientOverrides.get(String(assignment.featureId));
+      const clientOverride = clientOverrides.get(String(assignment.featureId));
       if (clientOverride?.enabled === false) continue;
       const step = object(feature.step);
       if (typeof step.code !== 'string') continue;
