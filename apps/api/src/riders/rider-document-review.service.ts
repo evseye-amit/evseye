@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, RiderDocumentReviewStatus } from '@prisma/client';
+import { Prisma, RiderDocumentReviewStatus, UserRole } from '@prisma/client';
+import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RiderOnboardingConfigurationService } from './rider-onboarding-configuration.service.js';
 import type { ListRiderDocumentsDto } from './dto/rider-document.dto.js';
@@ -11,11 +12,13 @@ export class RiderDocumentReviewService {
     private readonly configuration: RiderOnboardingConfigurationService,
   ) {}
 
-  async list(clientId: string, query: ListRiderDocumentsDto) {
+  async list(clientId: string, query: ListRiderDocumentsDto, actor?: AuthUser) {
     const nameFieldCode = await this.riderNameFieldCode(clientId);
+    const riderIds = await this.fleetManagerRiderIds(clientId, actor);
     const where: Prisma.RiderOnboardingDocumentWhereInput = {
       clientId,
       supersededAt: null,
+      ...(riderIds ? { riderId: { in: riderIds } } : {}),
       ...(query.status ? { status: query.status as RiderDocumentReviewStatus } : {}),
       ...(query.search ? { OR: [
         { fieldCode: { contains: query.search, mode: 'insensitive' } },
@@ -37,10 +40,11 @@ export class RiderDocumentReviewService {
     return documents.map((document) => this.withRiderName(document, nameFieldCode));
   }
 
-  async get(clientId: string, id: string) {
+  async get(clientId: string, id: string, actor?: AuthUser) {
     const nameFieldCode = await this.riderNameFieldCode(clientId);
+    const riderIds = await this.fleetManagerRiderIds(clientId, actor);
     const document = await this.prisma.riderOnboardingDocument.findFirst({
-      where: { id, clientId },
+      where: { id, clientId, ...(riderIds ? { riderId: { in: riderIds } } : {}) },
       include: {
         feature: { select: { id: true, code: true, name: true } },
         photo: { select: { id: true, objectKey: true, mimeType: true, sizeBytes: true, status: true, uploadedAt: true } },
@@ -52,17 +56,17 @@ export class RiderDocumentReviewService {
     return this.withRiderName(document, nameFieldCode);
   }
 
-  async approve(clientId: string, reviewerId: string, id: string) {
-    await this.assertPending(clientId, id);
+  async approve(clientId: string, reviewerId: string, id: string, actor?: AuthUser) {
+    await this.assertPending(clientId, id, actor);
     return this.prisma.riderOnboardingDocument.update({
       where: { id },
       data: { status: RiderDocumentReviewStatus.APPROVED, rejectionReason: null, reviewedById: reviewerId, reviewedAt: new Date() },
     });
   }
 
-  async reject(clientId: string, reviewerId: string, id: string, rejectionReason: string) {
+  async reject(clientId: string, reviewerId: string, id: string, rejectionReason: string, actor?: AuthUser) {
     if (!rejectionReason.trim()) throw new BadRequestException('A rejection reason is required.');
-    await this.assertPending(clientId, id);
+    await this.assertPending(clientId, id, actor);
     return this.prisma.riderOnboardingDocument.update({
       where: { id },
       data: { status: RiderDocumentReviewStatus.REJECTED, rejectionReason: rejectionReason.trim(), reviewedById: reviewerId, reviewedAt: new Date() },
@@ -109,8 +113,51 @@ export class RiderDocumentReviewService {
     return this.withFileName({ ...document, user, riderName });
   }
 
-  private async assertPending(clientId: string, id: string) {
-    const document = await this.prisma.riderOnboardingDocument.findFirst({ where: { id, clientId, supersededAt: null }, select: { status: true } });
+  private fleetScoped(actor?: AuthUser) {
+    return Boolean(
+      actor?.roles.includes(UserRole.FLEET_MANAGER) &&
+        !actor.roles.some(
+          (role) =>
+            role === UserRole.CLIENT_ADMIN ||
+            role === UserRole.OPERATIONS_MANAGER ||
+            role === UserRole.KYC_OPERATOR,
+        ),
+    );
+  }
+
+  private async fleetManagerRiderIds(clientId: string, actor?: AuthUser) {
+    if (!actor || !this.fleetScoped(actor)) return undefined;
+    const hubs = await this.prisma.userHub.findMany({
+      where: { clientId, userId: actor.id },
+      select: { hubId: true },
+    });
+    if (!hubs.length) return [];
+    const riders = await this.prisma.rider.findMany({
+      where: {
+        clientId,
+        deletedAt: null,
+        user: {
+          is: {
+            hubAssignments: {
+              some: {
+                clientId,
+                hubId: { in: hubs.map((hub) => hub.hubId) },
+              },
+            },
+          },
+        },
+      },
+      select: { id: true },
+    });
+    return riders.map((rider) => rider.id);
+  }
+
+  private async assertPending(clientId: string, id: string, actor?: AuthUser) {
+    const riderIds = await this.fleetManagerRiderIds(clientId, actor);
+    const document = await this.prisma.riderOnboardingDocument.findFirst({
+      where: { id, clientId, supersededAt: null, ...(riderIds ? { riderId: { in: riderIds } } : {}) },
+      select: { status: true },
+    });
     if (!document) throw new NotFoundException('Rider document not found.');
     if (document.status !== RiderDocumentReviewStatus.PENDING) throw new BadRequestException('Only pending documents can be reviewed.');
   }
