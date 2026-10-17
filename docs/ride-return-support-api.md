@@ -12,6 +12,42 @@ or separate Fleet Manager bypass reasons. This applies even when there are no
 penalties. The receipt and penalty sequence below applies to historical requests
 with `submissionRequired: false`. Support ticket APIs later in this document are unchanged.
 
+## Fleet manager initiates a return
+
+Use `POST /api/v1/client/ride-returns` with a Fleet Manager bearer token and
+an `Idempotency-Key` header (8–120 letters, digits, colons, underscores or hyphens).
+No rider approval or OTP is needed to create the request.
+
+```json
+{
+  "riderId": "<rider UUID>",
+  "plannedReturnDate": "2026-10-20",
+  "reasonCode": "FLEET_RECALL",
+  "notes": "Return requested for a vehicle check",
+  "plannedHubId": "<hub UUID>"
+}
+```
+
+Rider ID, date and a nonblank reason are required for staff requests. Notes and
+hub are optional. Existing hub selection uses supplied/available vehicle location,
+then current hub/fallback. Fleet managers need access to both the scooter's current
+hub and the selected submission hub. Specify an assigned hub if the automatic
+selection is outside your scope. Admin/operations access remains client-wide.
+
+The response contains `requestSource: "STAFF"`, `requestedById`, planned hub/date
+and `status: "REQUESTED"`. Reuse the same key and body on retry. Conflicting
+returns and ongoing exchanges are rejected.
+
+Requests appear in `GET /api/v1/client/vehicle-submissions/requests?source=RETURN&phase=SCHEDULED`
+and the rider's existing return list/detail APIs. Riders cannot cancel staff
+requests: `STAFF_RETURN_NOT_CANCELLABLE` tells them to contact the fleet manager.
+Rider requests remain cancellable before submission starts.
+
+Creation keeps the allocation and rental active. Continue through
+`POST /api/v1/client/ride-returns/:id/submission/start` and the existing
+[Vehicle submission API](vehicle-submission-api.md) for photos, mechanic reports,
+penalties, OTP/bypass and physical submission. These steps are unchanged.
+
 ## Historical rider return sequence
 
 1. Request a return. The key is required and must be reused for an identical

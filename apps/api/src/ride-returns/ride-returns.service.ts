@@ -243,6 +243,13 @@ export class RideReturnsService {
             existingByKey.plannedHubId !== input.plannedHubId
           )
             fail('RETURN_ALREADY_REQUESTED');
+          if (source === 'STAFF' && this.fleetScoped(actor)) {
+            const allocation = await tx.allocation.findFirst({
+              where: { id: existingByKey.allocationId ?? '', clientId, riderId: rider.id },
+              include: { fleet: { select: { currentHubId: true } } },
+            });
+            await this.assertHubAccess(clientId, actor, allocation?.fleet.currentHubId);
+          }
           return existingByKey;
         }
       }
@@ -289,6 +296,8 @@ export class RideReturnsService {
       });
       if (matches.length > 1) fail('MULTIPLE_ACTIVE_RENTALS', 'Multiple active rentals prevent automatic resolution.');
       const [{ agreement, allocation }] = matches;
+      if (source === 'STAFF')
+        await this.assertHubAccess(clientId, actor, allocation.fleet.currentHubId);
       if (await tx.vehicleExchangeRequest.findFirst({ where: { clientId, oldAllocationId: allocation.id, status: { in: ['REQUESTED', 'APPROVED', 'REPLACEMENT_SELECTED', 'OFFER_PRESENTED', 'ACCEPTED', 'RETURN_PENDING', 'DEPOSIT_PENDING', 'HANDOVER_PENDING'] } } })) throw new ConflictException('An exchange is already requested for this vehicle.');
       const existing = existingByKey ?? await tx.rentalTerminationRequest.findUnique({
         where: { agreementId: agreement.id },
@@ -555,8 +564,14 @@ export class RideReturnsService {
   async cancel(clientId: string, actor: AuthUser, requestId: string) {
     const rider = await this.riderForUser(clientId, actor.id);
     return this.serializable(async (tx) => {
+      const request = await tx.rentalTerminationRequest.findFirst({
+        where: { id: requestId, clientId, riderId: rider.id },
+      });
+      if (request && request.requestSource !== 'RIDER')
+        fail('STAFF_RETURN_NOT_CANCELLABLE', 'This return was initiated by staff and cannot be cancelled by the rider. Contact your fleet manager.');
       const changed = await tx.rentalTerminationRequest.updateMany({
         where: {
+          requestSource: 'RIDER',
           id: requestId,
           clientId,
           riderId: rider.id,
