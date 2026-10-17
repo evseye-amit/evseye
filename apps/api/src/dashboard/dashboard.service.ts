@@ -2,12 +2,14 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { Environment } from '../config/environment.js';
+import { RiderKycStatusService } from '../riders/rider-kyc-status.service.js';
 
 @Injectable()
 export class DashboardService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<Environment, true>,
+    private readonly riderKyc: RiderKycStatusService,
   ) {}
 
   async summary(clientId: string) {
@@ -37,11 +39,7 @@ export class DashboardService {
         where: { clientId, deletedAt: null },
         _count: true,
       }),
-      this.prisma.riderKyc.groupBy({
-        by: ['status'],
-        where: { clientId },
-        _count: true,
-      }),
+      this.riderKyc.summary(clientId),
       this.prisma.allocation.count({ where: { clientId, status: 'ACTIVE' } }),
       this.prisma.allocation.count({
         where: { clientId, allocatedAt: { gte: today } },
@@ -62,7 +60,7 @@ export class DashboardService {
       riders: Object.fromEntries(
         riders.map((item) => [item.status, item._count]),
       ),
-      kyc: Object.fromEntries(kyc.map((item) => [item.status, item._count])),
+      kyc,
       operations: {
         allocationsToday,
         deallocationsToday,

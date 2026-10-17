@@ -5,6 +5,7 @@ import { RiderDocumentReviewService } from './rider-document-review.service.js';
 function setup(nameFieldCode = 'FULL_NAME') {
   const document = {
     id: 'doc-1',
+    userId: 'user-1',
     rider: null,
     photo: { objectKey: 'documents/proof.png' },
     user: {
@@ -37,6 +38,7 @@ function setup(nameFieldCode = 'FULL_NAME') {
     service: new RiderDocumentReviewService(
       prisma as never,
       configuration as never,
+      { fields: vi.fn().mockResolvedValue([]), lockUser: vi.fn(), sync: vi.fn().mockResolvedValue({ kycStatus: 'VERIFIED' }) } as never,
     ),
   };
 }
@@ -75,6 +77,7 @@ describe('RiderDocumentReviewService fleet-manager scope', () => {
   function scopedSetup(riderIds: string[], hubIds = ['hub-1']) {
     const document = {
       id: 'doc-1',
+      userId: 'user-1',
       rider: { id: 'rider-1', name: 'Rider One' },
       photo: { objectKey: 'documents/proof.png' },
       user: {
@@ -101,7 +104,8 @@ describe('RiderDocumentReviewService fleet-manager scope', () => {
       userHub: {
         findMany: vi.fn().mockResolvedValue(hubIds.map((hubId) => ({ hubId }))),
       },
-      riderOnboardingDocument: { findMany, findFirst, update },
+      riderOnboardingDocument: { findMany, findFirst, update, updateMany: update.mockResolvedValue({ count: 1 }), findUniqueOrThrow: vi.fn().mockResolvedValue(document) },
+      $transaction: vi.fn().mockImplementation(fn => fn(prisma)),
     };
     const configuration = {
       getEffectiveConfiguration: vi.fn().mockResolvedValue({
@@ -120,6 +124,7 @@ describe('RiderDocumentReviewService fleet-manager scope', () => {
       service: new RiderDocumentReviewService(
         prisma as never,
         configuration as never,
+        { fields: vi.fn().mockResolvedValue([]), lockUser: vi.fn(), sync: vi.fn().mockResolvedValue({ kycStatus: 'VERIFIED' }) } as never,
       ),
     };
   }
@@ -217,7 +222,7 @@ describe('RiderDocumentReviewService fleet-manager scope', () => {
         supersededAt: null,
         userId: { in: ['rider-1'] },
       },
-      select: { status: true },
+      select: { status: true, userId: true },
     });
     expect(update).toHaveBeenCalledTimes(2);
   });

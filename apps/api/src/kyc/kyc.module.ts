@@ -38,9 +38,10 @@ import { KycRoutingMetricService } from './routing/kyc-routing-metric.service.js
 import { KycIntelligentRoutingController } from './routing/kyc-intelligent-routing.controller.js';
 import { KycIntelligentGuardrailService } from './routing/kyc-intelligent-guardrail.service.js';
 import { KycDistributedCircuitService } from './routing/kyc-distributed-circuit.service.js';
+import { RiderKycStatusModule } from '../riders/rider-kyc-status.module.js';
 
 @Module({
-  imports: [AuthModule, AuditModule, ReferralModule],
+  imports: [AuthModule, AuditModule, ReferralModule, RiderKycStatusModule],
   controllers: [KycController, VerificationController, VerificationAdminController, KycWorkflowController, KycWorkflowAdminController, KycRoutingAdminController, KycCommercialAdminController, KycPlatformCommercialController, KycClientOperationsController, KycPlatformOperationsController, KycClientAnalyticsController, KycPlatformAnalyticsController, KycIntelligentRoutingController],
   providers: [
     KycService,

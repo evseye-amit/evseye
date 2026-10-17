@@ -18,12 +18,14 @@ import type { CreateRiderDto } from './dto/create-rider.dto.js';
 import type { ListRidersDto } from './dto/list-riders.dto.js';
 import type { UpdateRiderDto } from './dto/update-rider.dto.js';
 import { RiderOnboardingConfigurationService } from './rider-onboarding-configuration.service.js';
+import { RiderKycStatusService } from './rider-kyc-status.service.js';
 
 @Injectable()
 export class RidersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly onboardingConfiguration: RiderOnboardingConfigurationService,
+    private readonly kyc: RiderKycStatusService,
   ) {}
 
   async create(clientId: string, dto: CreateRiderDto) {
@@ -162,7 +164,7 @@ export class RidersService {
     ]);
 
     return {
-      items,
+      items: await this.kyc.decorate(clientId, items),
       meta: { page: query.page, pageSize: query.pageSize, total },
     };
   }
@@ -191,7 +193,7 @@ export class RidersService {
     if (!rider) {
       throw new NotFoundException('Rider not found.');
     }
-    return rider;
+    return (await this.kyc.decorate(clientId, [rider]))[0];
   }
 
   async update(clientId: string, id: string, dto: UpdateRiderDto) {
