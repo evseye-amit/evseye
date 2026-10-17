@@ -276,7 +276,7 @@ describe('commercial lifecycle', () => {
   });
   it('does not reveal an offer from another client or rider', async () => {
     const { service, tx } = setup();
-    tx.$queryRaw.mockResolvedValueOnce([]);
+    tx.riderCommercialOffer.findFirst.mockResolvedValueOnce(null as never);
     await expect(
       service.acceptOffer(
         clientId,

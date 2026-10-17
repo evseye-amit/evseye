@@ -1,3 +1,4 @@
+import { DeploymentCommercialService } from './deployment-commercial.service.js';
 import { pendingRiderIdsQuery } from '../fleet-manager-home/home-metrics.js';
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { AllocationStatus, ClientSubscriptionStatus, DeploymentPaymentStatus, FleetStatus, InspectionStatus, InspectionType, MobileDeploymentStatus, PhotoEntityType, PhotoStatus, Prisma, RiderStatus } from '@prisma/client';
@@ -17,6 +18,7 @@ export class MobileDeploymentService {
     private readonly allocations: AllocationsService,
     private readonly media: MediaService,
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
+    private readonly commercial: DeploymentCommercialService,
     @Optional() private readonly referralQualification?: ReferralQualificationService,
   ) {}
 
@@ -66,7 +68,7 @@ export class MobileDeploymentService {
     if (!rider || !(await this.prisma.allocation.findFirst({ where: { id: allocationId, clientId, riderId: rider.id }, select: { id: true } }))) throw new NotFoundException('Deployment request not found.');
   }
   private async assertFleetManagerHub(clientId: string, userId: string, allocationId: string) {
-    const hubs = await this.prisma.userHub.findMany({ where: { clientId, userId }, select: { hubId: true } });
+    const hubs = await this.prisma.userHub.findMany({ where: { clientId, userId, hub: { clientId, status: 'ACTIVE', deletedAt: null } }, select: { hubId: true } });
     if (!(await this.prisma.allocation.findFirst({ where: { id: allocationId, clientId, fleet: { currentHubId: { in: hubs.map((hub) => hub.hubId) } } }, select: { id: true } }))) throw new NotFoundException('Deployment request not found in an assigned Hub.');
   }
   private async allocationEvidence(clientId: string, allocationId: string) {
@@ -167,9 +169,11 @@ export class MobileDeploymentService {
       if (!allocation?.mobileDeployment) throw new NotFoundException('Deployment request not found.');
     }
     const status = allocation.mobileDeployment.status;
-    const screen = ({ PAYMENT_PENDING: 'PAYMENT', PDI_PENDING_RIDER: 'PDI', TRAINING_PENDING: 'TRAINING', DEVICE_PAIRING_PENDING: 'TRAINING', DEPLOYED: 'HOME' } as Record<string, string>)[status] ?? 'WAITING';
+    let screen = ({ PAYMENT_PENDING: 'PAYMENT', PDI_PENDING_RIDER: 'PDI', TRAINING_PENDING: 'TRAINING', DEVICE_PAIRING_PENDING: 'TRAINING', DEPLOYED: 'HOME' } as Record<string, string>)[status] ?? 'WAITING';
     const payment = await this.prisma.deploymentPayment.findUnique({ where: { workflowId: allocation.mobileDeployment.id } });
-    return { screen, allocation, workflow: allocation.mobileDeployment, payment };
+    const commercial = allocation.commercialOfferId ? await this.commercial.getOffer(clientId, { id: userId, clientId, roles: [] }, allocation.id, true) : null;
+    if (!allocation.rentalAgreementId && commercial?.offer?.status === 'PRESENTED') screen = 'PLAN_ACCEPTANCE';
+    return { screen, allocation, workflow: allocation.mobileDeployment, payment, commercial };
   }
   async riderWallet(clientId: string, userId: string) {
     const rider = await this.prisma.rider.findFirst({ where: { clientId, userId, deletedAt: null }, select: { id: true } });
@@ -231,18 +235,9 @@ export class MobileDeploymentService {
     if (missing.length) throw new BadRequestException(`Fleet evidence is incomplete: ${missing.join(', ')}.`);
     return this.prisma.mobileDeploymentWorkflow.update({ where: { id: workflow.id }, data: { status: MobileDeploymentStatus.FLEET_REQUESTED } });
   }
-  async askPayment(clientId: string, userId: string, allocationId: string, request: { currency: string; items: Array<{ label: string; amount: string }> }) {
+  async askPayment(clientId: string, userId: string, allocationId: string, _request?: unknown) {
     await this.assertFleetManagerHub(clientId, userId, allocationId);
-    const { workflow } = await this.workflow(clientId, allocationId);
-    if (workflow.status !== MobileDeploymentStatus.FLEET_REQUESTED) throw new BadRequestException('Fleet must be requested before asking for payment.');
-    const amount = request.items.reduce((total, item) => total.plus(new Prisma.Decimal(item.amount)), new Prisma.Decimal(0));
-    if (amount.lte(0)) throw new BadRequestException('Payment amount must be greater than zero.');
-    const breakdown = { items: request.items, total: amount.toFixed(2) };
-    return this.prisma.$transaction(async (tx) => {
-      const advanced = await tx.mobileDeploymentWorkflow.updateMany({ where: { id: workflow.id, status: MobileDeploymentStatus.FLEET_REQUESTED }, data: { status: MobileDeploymentStatus.PAYMENT_PENDING, paymentBreakdown: breakdown as never } });
-      if (advanced.count !== 1) throw new BadRequestException('Fleet deployment state changed. Refresh and try again.');
-      return tx.deploymentPayment.create({ data: { clientId, workflowId: workflow.id, currency: request.currency.toUpperCase(), amount, breakdown: breakdown as never } });
-    });
+    return this.commercial.requestPayment(clientId, allocationId);
   }
   async payment(clientId: string, userId: string, allocationId: string) {
     await this.assertRiderAllocation(clientId, userId, allocationId);
@@ -268,15 +263,7 @@ export class MobileDeploymentService {
   }
   async verifyPayment(clientId: string, userId: string, allocationId: string) {
     await this.assertFleetManagerHub(clientId, userId, allocationId);
-    const { workflow } = await this.workflow(clientId, allocationId);
-    if (workflow.status !== MobileDeploymentStatus.PAYMENT_PENDING) throw new BadRequestException('No payment is pending.');
-    const payment = await this.prisma.deploymentPayment.findUnique({ where: { workflowId: workflow.id } });
-    if (!payment || payment.status !== DeploymentPaymentStatus.SUBMITTED) throw new BadRequestException('A Rider payment reference must be submitted before verification.');
-    const paidAt = new Date();
-    return this.prisma.$transaction(async (tx) => {
-      await tx.deploymentPayment.update({ where: { id: payment.id }, data: { status: DeploymentPaymentStatus.PAID, verifiedAt: paidAt, verifiedById: userId, paidAt } });
-      return tx.mobileDeploymentWorkflow.update({ where: { id: workflow.id }, data: { status: MobileDeploymentStatus.PAYMENT_PAID, paymentPaidAt: paidAt } });
-    });
+    return this.commercial.verifyPayment(clientId, userId, allocationId);
   }
   async getAllocationEvidence(clientId: string, userId: string, allocationId: string) {
     await this.assertFleetManagerHub(clientId, userId, allocationId);
@@ -418,6 +405,7 @@ export class MobileDeploymentService {
     workflowId: string,
     workflowData: Prisma.MobileDeploymentWorkflowUpdateInput,
   ) {
+    await tx.$queryRaw`SELECT id FROM "Allocation" WHERE id = ${allocationId} AND "clientId" = ${clientId} FOR UPDATE`;
     const allocation = await tx.allocation.findFirst({
       where: { id: allocationId, clientId, status: { in: [AllocationStatus.OTP_PENDING, AllocationStatus.INSPECTION_PENDING] } },
       select: { fleetId: true, status: true },
@@ -432,6 +420,8 @@ export class MobileDeploymentService {
       if (!inspection) throw new BadRequestException('The allocation is not ready for deployment. Complete PDI first.');
     }
 
+    const handedOverAt = new Date();
+    await this.commercial.activateInTransaction(tx, clientId, allocationId, handedOverAt);
     const fleet = await tx.fleet.updateMany({
       where: { id: allocation.fleetId, clientId, status: FleetStatus.RESERVED, deletedAt: null },
       data: { status: FleetStatus.ALLOCATED },
@@ -440,7 +430,7 @@ export class MobileDeploymentService {
 
     const activated = await tx.allocation.updateMany({
       where: { id: allocationId, clientId, status: allocation.status },
-      data: { status: AllocationStatus.ACTIVE, allocatedAt: new Date() },
+      data: { status: AllocationStatus.ACTIVE, allocatedAt: handedOverAt },
     });
     if (activated.count !== 1) throw new BadRequestException('The allocation status changed. Refresh and try again.');
 

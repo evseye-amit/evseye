@@ -29,8 +29,8 @@ export function billingLocalDate(value: Date, timezone: string): Date {
 export function nextBillingBoundary(start: Date, frequency: string, timezone: string, customDays?: number | null, anchor?: Date): Date {
   const parts = localParts(start, timezone);
   const count = frequency === 'DAILY' ? 1 : frequency === 'WEEKLY' ? 7 : frequency === 'FORTNIGHTLY' ? 14 : frequency === 'CUSTOM' ? customDays : null;
-  if (frequency === 'MONTHLY') {
-    const nextMonth = new Date(Date.UTC(parts.year, parts.month, 1));
+  if (frequency === 'MONTHLY' || frequency === 'QUARTERLY') {
+    const nextMonth = new Date(Date.UTC(parts.year, parts.month + (frequency === 'QUARTERLY' ? 2 : 0), 1));
     const last = new Date(Date.UTC(nextMonth.getUTCFullYear(), nextMonth.getUTCMonth() + 1, 0)).getUTCDate();
     return fromLocal({ ...parts, year: nextMonth.getUTCFullYear(), month: nextMonth.getUTCMonth() + 1, day: Math.min(anchor ? localParts(anchor, timezone).day : parts.day, last) }, timezone);
   }

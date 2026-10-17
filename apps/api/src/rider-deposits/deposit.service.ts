@@ -526,6 +526,49 @@ export class RiderDepositService {
     );
   }
 
+  async collectDeploymentInTransaction(
+    tx: Tx,
+    clientId: string,
+    depositId: string,
+    amount: Prisma.Decimal,
+    actorId: string,
+    paymentId: string,
+    externalReference: string,
+    method: string,
+  ) {
+    const deposit = await this.locked(tx, clientId, depositId);
+    const key = `deployment:${paymentId}:${depositId}`;
+    const prior = await tx.riderDepositTransaction.findUnique({
+      where: { clientId_idempotencyKey: { clientId, idempotencyKey: key } },
+    });
+    if (prior) return prior;
+    if (
+      deposit.status === 'CLOSED' ||
+      !deposit.requiredAmount.minus(deposit.fundedAmount).eq(amount)
+    )
+      throw new ConflictException({
+        code: 'DEPLOYMENT_PAYMENT_STALE',
+        message: 'The deposit balance changed. Refresh the allocation payment.',
+      });
+    return this.post(
+      tx,
+      deposit,
+      actorId,
+      {
+        amount: amount.toFixed(2),
+        reason: 'Verified allocation upfront payment',
+        referenceType: 'DEPLOYMENT_PAYMENT',
+        referenceId: paymentId,
+        externalReference,
+        paymentMethod: method,
+      },
+      key,
+      'COLLECTION',
+      amount,
+      amount,
+    );
+  }
+
   async transfer(
     clientId: string,
     actorId: string,

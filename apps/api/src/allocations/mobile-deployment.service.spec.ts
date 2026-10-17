@@ -30,6 +30,7 @@ describe('MobileDeploymentService.fleetRequests', () => {
       {} as never,
       {} as never,
       {} as never,
+      { activateInTransaction: vi.fn() } as never,
     );
 
     const result = await service.fleetRequests('client-1', 'manager-1');
@@ -87,6 +88,7 @@ describe('MobileDeploymentService.requestFleet', () => {
         {} as never,
         {} as never,
         {} as never,
+        { activateInTransaction: vi.fn() } as never,
       );
       await expect(
         service.requestFleet('client-1', 'manager-1', 'allocation-1'),
@@ -111,7 +113,7 @@ describe('mobile PDI submission', () => {
       photo: { findMany: vi.fn().mockResolvedValue([]) },
       $transaction: vi.fn().mockImplementation(fn => fn(tx)),
     };
-    const service = new MobileDeploymentService(prisma as never, {} as never, {} as never, {} as never);
+    const service = new MobileDeploymentService(prisma as never, {} as never, {} as never, {} as never, { activateInTransaction: vi.fn() } as never);
     await expect(service.submitPdi('client-1', 'manager-1', 'allocation-1', 'Partner', [{ code: 'FRONT', mandatory: true }]))
       .resolves.toMatchObject({ status: 'PDI_PENDING_RIDER' });
     expect(tx.inspection.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'COMPLETED' }) }));
@@ -132,6 +134,7 @@ describe('deployment without IoT pairing', () => {
         status === 'DEVICE_PAIRING_PENDING' ? new Date('2026-10-01') : null,
     };
     const tx = {
+      $queryRaw: vi.fn(),
       allocation: {
         findFirst: vi.fn().mockResolvedValue({ fleetId: 'fleet-1', status: 'OTP_PENDING' }),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -181,6 +184,7 @@ describe('deployment without IoT pairing', () => {
         {} as never,
         {} as never,
         {} as never,
+        { activateInTransaction: vi.fn() } as never,
       ),
     };
   }

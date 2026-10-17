@@ -147,6 +147,7 @@ export async function seedRiderRateCardDemo(prisma) {
       name: 'Onboarding Fee',
       chargeType: 'ONBOARDING_FEE',
       nature: 'ONE_TIME',
+      eligibility: 'ONCE_PER_CLIENT_RIDER_RELATIONSHIP',
       amount: '299',
       createdById: actor?.id,
       updatedById: actor?.id,

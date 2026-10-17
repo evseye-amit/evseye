@@ -7,8 +7,6 @@ import {
   VehicleExchangeController,
 } from '../vehicle-exchanges/vehicle-exchange.controller.js';
 import { AuthModule } from '../auth/auth.module.js';
-import { CommercialLifecycleService } from './commercial-lifecycle.service.js';
-import { RiderDepositService } from '../rider-deposits/deposit.service.js';
 import {
   RiderDepositsController,
   RiderDepositPolicyController,
@@ -23,15 +21,15 @@ import {
   RiderRentalAgreementsController,
   RiderRentalAgreementsAppController,
 } from './commercial-lifecycle.controller.js';
-import { CommercialOfferService } from './commercial-offer.service.js';
 import {
   RiderCommercialOfferController,
   RiderRateCardsController,
 } from './rider-rate-cards.controller.js';
 import { RiderRateCardsService } from './rider-rate-cards.service.js';
+import { CommercialCoreModule } from './commercial-core.module.js';
 
 @Module({
-  imports: [AuthModule, AuditModule, AllocationsModule],
+  imports: [AuthModule, AuditModule, AllocationsModule, CommercialCoreModule],
   controllers: [
     RiderRateCardsController,
     RiderCommercialOfferController,
@@ -50,11 +48,8 @@ import { RiderRateCardsService } from './rider-rate-cards.service.js';
   ],
   providers: [
     RiderRateCardsService,
-    CommercialOfferService,
-    CommercialLifecycleService,
-    RiderDepositService,
     VehicleExchangeService,
   ],
-  exports: [CommercialOfferService, RiderDepositService],
+  exports: [CommercialCoreModule],
 })
 export class RiderRateCardsModule {}

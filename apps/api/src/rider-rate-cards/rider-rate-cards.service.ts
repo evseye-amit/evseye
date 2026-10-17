@@ -79,6 +79,12 @@ const rentalInput = z
   );
 const feeInput = z
   .object({
+    selectionGroup: z.string().min(1).max(80).optional(),
+    city: z.string().min(1).max(100).optional(),
+    hubId: z.string().uuid().optional(),
+    minVehicleAgeMonths: z.number().int().nonnegative().optional(),
+    maxVehicleAgeMonths: z.number().int().nonnegative().optional(),
+    priority: z.number().int().default(0),
     code: z.string().min(1),
     name: z.string().min(1),
     chargeType: z.string().min(1),
@@ -96,14 +102,17 @@ const feeInput = z
         'ONCE_PER_CLIENT_RIDER_RELATIONSHIP',
         'MANUAL',
       ])
-      .default('EVERY_NEW_AGREEMENT'),
+      .optional(),
     amount: money,
     taxable: z.boolean().default(false),
     taxCode: z.string().optional(),
     taxRate: money.optional(),
     priceIncludesTax: z.boolean().default(false),
   })
-  .strict();
+  .strict()
+  .refine(v => v.chargeType !== 'ONBOARDING_FEE' || v.nature === 'ONE_TIME', 'Onboarding fees must be one-time charges')
+  .refine(v => v.minVehicleAgeMonths === undefined || v.maxVehicleAgeMonths === undefined || v.minVehicleAgeMonths <= v.maxVehicleAgeMonths, 'Invalid vehicle age range')
+  .transform(v => ({ ...v, eligibility: v.eligibility ?? (v.chargeType === 'ONBOARDING_FEE' ? 'ONCE_PER_CLIENT_RIDER_RELATIONSHIP' : 'EVERY_NEW_AGREEMENT') }));
 const depositInput = z
   .object({
     code: z.string().min(1),
@@ -455,10 +464,10 @@ export class RiderRateCardsService {
         clientId,
         rateCardId: version.rateCardId,
         status: 'ACTIVE',
-        effectiveFrom: { lte: version.effectiveTo ?? new Date('9999-12-31') },
+        effectiveFrom: { lt: version.effectiveTo ?? new Date('9999-12-31') },
         OR: [
           { effectiveTo: null },
-          { effectiveTo: { gte: version.effectiveFrom } },
+          { effectiveTo: { gt: version.effectiveFrom } },
         ],
       },
     });

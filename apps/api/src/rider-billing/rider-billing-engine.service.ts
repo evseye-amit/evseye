@@ -1,3 +1,4 @@
+import { RiderPaymentsService } from './rider-payments.service.js';
 import { WalletBillingService } from '../wallet/wallet-billing.service.js';
 import {
   BadRequestException,
@@ -23,7 +24,7 @@ const json = (value: unknown) => value as Prisma.InputJsonValue;
 
 @Injectable()
 export class RiderBillingEngineService {
-  constructor(private readonly prisma: PrismaService, @Optional() private readonly walletBilling?: WalletBillingService) {}
+  constructor(private readonly prisma: PrismaService, private readonly payments: RiderPaymentsService, @Optional() private readonly walletBilling?: WalletBillingService) {}
 
   async createSchedule(
     clientId: string,
@@ -48,7 +49,7 @@ export class RiderBillingEngineService {
       throw new BadRequestException('Invalid timezone.');
     }
     if (
-      !['DAILY', 'WEEKLY', 'FORTNIGHTLY', 'MONTHLY', 'CUSTOM'].includes(
+      !['DAILY', 'WEEKLY', 'FORTNIGHTLY', 'MONTHLY', 'QUARTERLY', 'CUSTOM'].includes(
         input.frequency,
       ) ||
       !['PREPAID', 'POSTPAID'].includes(input.billingMode) ||
@@ -71,9 +72,11 @@ export class RiderBillingEngineService {
       async (tx) => {
         const agreement = await tx.riderRentalAgreement.findFirst({
           where: { id: input.agreementId, clientId, riderId },
-          select: { id: true, currency: true, startDate: true },
+          select: { id: true, currency: true, startDate: true, status: true, activatedAt: true },
         });
         if (!agreement) throw new NotFoundException('Agreement not found.');
+        if (agreement.status !== 'ACTIVE' || !agreement.activatedAt)
+          throw new ConflictException({ code: 'ALLOCATION_HANDOVER_REQUIRED', message: 'Billing can only be scheduled after the scooter and rental agreement are activated at handover.' });
         const firstVersion = await tx.riderAgreementCommercialVersion.findFirst(
           { where: { clientId, agreementId: agreement.id, versionNumber: 1 } },
         );
@@ -228,7 +231,7 @@ export class RiderBillingEngineService {
     });
     if (overlap) throw new ConflictException('BILLING_PERIOD_OVERLAP');
     if (
-      !['ACTIVE', 'PENDING_ACTIVATION'].includes(agreement.status) &&
+      agreement.status !== 'ACTIVE' &&
       !(historicalEnd && end <= historicalEnd)
     )
       throw new ConflictException('Agreement is not billable for this period.');
@@ -758,6 +761,16 @@ export class RiderBillingEngineService {
         newData: { invoiceNumber: invoice.invoiceNumber, amount: money(total) },
       },
     });
+    // Apply only this agreement's verified allocation credit, without another ledger credit.
+    if (total.gt(0)) {
+      const credits = await tx.riderLedgerEntry.findMany({ where: { clientId, agreementId: agreement.id, entryType: 'PAYMENT', sourceType: 'RIDER_PAYMENT' }, select: { sourceId: true } });
+      for (const credit of credits) {
+        const prepaid = await tx.riderPayment.findFirst({ where: { id: credit.sourceId, clientId, riderId: schedule.riderId, method: 'DEPLOYMENT', status: 'CONFIRMED', unallocatedAmount: { gt: ZERO } } });
+        const current = await tx.riderInvoice.findUniqueOrThrow({ where: { id: invoice.id } });
+        if (!prepaid || current.outstandingAmount.lte(0)) continue;
+        await this.payments.allocateInTransaction(tx, clientId, schedule.riderId, prepaid.id, actorId ?? 'SYSTEM', { policy: 'SPECIFIC_INVOICE', invoiceId: invoice.id });
+      }
+    }
     return tx.riderInvoice.findUniqueOrThrow({
       where: { id: invoice.id },
       include: { lines: true },
