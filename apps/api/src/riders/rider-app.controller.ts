@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Headers, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Headers, Param, Post, UseGuards } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
-import { ApiHeader } from '@nestjs/swagger';
+import { ApiHeader, ApiOperation } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
@@ -18,6 +18,18 @@ export class RiderAppController {
 
   @Post('enroll')
   async enroll(@Body() dto: RiderAppEnrollDto) { return { data: await this.riderApp.enroll(dto.companyCode, dto.phone) }; }
+
+  @Get('home')
+  @UseGuards(AccessTokenGuard, RolesGuard)
+  @Roles(UserRole.RIDER)
+  @ApiOperation({
+    summary: 'Get the authenticated rider home summary',
+    description: 'Returns client/user-scoped partnerName, placeholder businessCategory, current DAILY dailyRentalAmount, and inclusive Asia/Kolkata rentalDays. It does not include attendance, joining, totals, or unpaid data.',
+  })
+  async home(@CurrentUser() user: AuthUser) {
+    if (!user.clientId) throw new ForbiddenException('Rider is not associated with a client.');
+    return { data: await this.riderApp.home(user.clientId, user.id) };
+  }
 
   @Get('onboarding')
   @UseGuards(AccessTokenGuard, RolesGuard)
