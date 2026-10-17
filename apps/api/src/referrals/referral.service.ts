@@ -128,7 +128,7 @@ export class ReferralService {
       clientId, campaignId: campaign.id, referrerRiderId: rider.id, referralCode: identity.code,
       inviteToken: randomBytes(24).toString('base64url'), attributionSource: ReferralAttributionSource.MOBILE_INVITE,
       ruleSnapshot: this.snapshot(campaign), termsSnapshot: campaign.termsAndConditions, invitedAt, expiresAt,
-      progress: { create: campaign.milestones.map((item) => ({ clientId, milestoneId: item.id, milestoneType: item.milestoneType, operator: item.operator, targetValue: item.targetValue, mandatory: item.mandatory })) },
+      progress: { create: campaign.milestones.map((item) => ({ milestoneId: item.id, milestoneType: item.milestoneType, operator: item.operator, targetValue: item.targetValue, mandatory: item.mandatory })) },
       } });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     const shareLink = await this.links.shareLink(clientId, identity.code, row.inviteToken!);
@@ -179,7 +179,7 @@ export class ReferralService {
           referralCode: code, attributionSource: source, status: ReferralStatus.REGISTERED,
           ruleSnapshot: this.snapshot(campaign), termsSnapshot: campaign.termsAndConditions,
           invitedAt: now, expiresAt: new Date(now.getTime() + campaign.registrationValidityDays * 86400000), registeredAt: now, qualificationDeadlineAt: deadline,
-          progress: { create: campaign.milestones.map((item) => ({ clientId, milestoneId: item.id, milestoneType: item.milestoneType, operator: item.operator, targetValue: item.targetValue, mandatory: item.mandatory })) },
+          progress: { create: campaign.milestones.map((item) => ({ milestoneId: item.id, milestoneType: item.milestoneType, operator: item.operator, targetValue: item.targetValue, mandatory: item.mandatory })) },
         } });
         await tx.referralNotificationOutbox.create({ data: { clientId, referralId: created.id, eventKey: `registered:${created.id}`, eventType: 'REFERRAL_REGISTERED', payload: { referralId: created.id } } });
         return created;
