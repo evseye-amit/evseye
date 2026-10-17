@@ -31,8 +31,3 @@ export function LegalAcceptanceFields({ value, locale, onChange }: {
     {field("continueLabel", "Continue button text")}
   </section>;
 }
-export function LegalAcceptancePreview({ value }: { value?: LegalAcceptanceCopy | null }) {
-  if (!value) return null;
-  return <section className="form-stack"><h3>{value.declarationTitle}</h3><p>{value.declaration}</p>
-    <label><input type="checkbox" disabled /> {value.checkboxLabel}</label><p className="muted">{value.continueLabel} is enabled in the app after acceptance.</p></section>;
-}

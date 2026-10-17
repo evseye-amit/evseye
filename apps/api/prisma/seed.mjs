@@ -20,7 +20,8 @@ import { vehicleCategoryCatalog } from './catalog/vehicle-categories.mjs';
 import { vehicleTypeCatalog } from './catalog/vehicle-types.mjs';
 import { seedRiderRateCardDemo } from './catalog/rider-rate-card-demo.mjs';
 import { seedKyc } from './seed-kyc.mjs';
-import { seedLegal, seedLegalTemplates } from './catalog/legal-documents.mjs';
+import { seedLegalTemplates } from './catalog/legal-templates.mjs';
+import { seedLegal } from './catalog/yogmaya-legal-documents.mjs';
 import { seedInitialRevisions } from './catalog/seed-revisions.mjs';
 
 const prisma = new PrismaClient();

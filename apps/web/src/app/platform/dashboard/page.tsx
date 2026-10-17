@@ -1,6 +1,6 @@
 "use client";
 
-import { LegalAcceptanceFields, LegalAcceptancePreview, type LegalAcceptanceCopy } from "../../components/legal-acceptance-fields";
+import { LegalAcceptanceFields, type LegalAcceptanceCopy } from "../../components/legal-acceptance-fields";
 import { sessionFetch as fetch } from "../../../lib/session-fetch";
 import {
   allowanceResetPeriods,
@@ -4246,7 +4246,7 @@ function LegalDocumentsView({ token }: { token: string }) {
         onSubmit={(event) => event.preventDefault()}
         actions={<button type="button" className="secondary" onClick={() => setPreview(null)}>Close</button>}
       >
-        {preview && <><div className="legal-documents-preview"><iframe key={preview.id} title={`${preview.title} preview`} sandbox="" srcDoc={preview.content} /></div><LegalAcceptancePreview value={preview.acceptance} /></>}
+        {preview && <><div className="legal-documents-preview"><iframe key={preview.id} title={`${preview.title} preview`} sandbox="" srcDoc={preview.content} /></div></>}
       </CatalogFormDialog>
       <DeleteConfirmationDialog confirmation={confirmation} busy={busy} onClose={() => setConfirmation(null)} />
     </section>
