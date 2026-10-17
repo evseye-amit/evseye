@@ -21,7 +21,7 @@ import { vehicleTypeCatalog } from './catalog/vehicle-types.mjs';
 import { seedRiderRateCardDemo } from './catalog/rider-rate-card-demo.mjs';
 import { seedKyc } from './seed-kyc.mjs';
 import { seedLegalTemplates } from './catalog/legal-templates.mjs';
-import { seedLegal } from './catalog/yogmaya-legal-documents.mjs';
+import { seedLegal } from './client/yogmaya/yogmaya-legal-documents.mjs';
 import { seedInitialRevisions } from './catalog/seed-revisions.mjs';
 
 const prisma = new PrismaClient();
