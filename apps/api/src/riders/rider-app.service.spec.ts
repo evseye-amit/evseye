@@ -56,6 +56,174 @@ function createService() {
   return { service, prisma, transaction, resolver };
 }
 
+const homeSnapshot = (period: string, finalAmount = '123.45') => ({
+  currency: 'INR',
+  effectiveDate: '2026-10-15',
+  rateCard: { id: 'card', code: 'STANDARD', versionId: 'version', version: 1 },
+  rider: { id: 'rider-1' },
+  vehicle: { id: 'fleet-1' },
+  rental: { finalAmount, period },
+  totals: { recurringAmount: '999.00', payableToday: '999.00', refundableDepositAmount: '0.00' },
+  deposits: [],
+  adjustments: [],
+});
+
+function createHomeService() {
+  const prisma = {
+    allocation: { findFirst: vi.fn() },
+    riderRentalAgreement: { findFirst: vi.fn() },
+  };
+  const service = new RiderAppService(prisma as never, {} as never, {} as never);
+  return { service, prisma };
+}
+
+describe('RiderAppService.home', () => {
+  it('returns empty home data and scopes the current allocation to the rider user and client', async () => {
+    const { service, prisma } = createHomeService();
+    prisma.allocation.findFirst.mockResolvedValue(null);
+
+    await expect(service.home('client-1', 'user-1')).resolves.toEqual({
+      partnerName: null,
+      businessCategory: null,
+      dailyRentalAmount: null,
+      rentalDays: 0,
+    });
+    expect(prisma.allocation.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        clientId: 'client-1',
+        rider: { clientId: 'client-1', userId: 'user-1', deletedAt: null },
+        status: { in: ['ACTIVE', 'DEALLOCATION_INITIATED'] },
+        allocatedAt: { not: null },
+      },
+    }));
+    expect(prisma.riderRentalAgreement.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('uses the current daily commercial version and counts calendar days at the IST boundary', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-10-16T18:29:59.999Z'));
+      const { service, prisma } = createHomeService();
+      prisma.allocation.findFirst.mockResolvedValue({
+        riderId: 'rider-1',
+        fleetId: 'fleet-1',
+        allocatedAt: new Date('2026-10-16T18:30:00.000Z'),
+        mobileDeployment: { workPartnerName: 'Partner One' },
+      });
+      prisma.riderRentalAgreement.findFirst.mockResolvedValue({
+        currentVehicleId: 'fleet-1',
+        currentCommercialVersionNumber: 1,
+        pricingSnapshotSchemaVersion: 1,
+        statusHistory: [{ changedAt: new Date('2026-10-15T18:30:00.000Z') }],
+        commercialVersions: [{ versionNumber: 1, status: 'ACTIVE', pricingSnapshot: homeSnapshot('DAILY') }],
+      });
+
+      await expect(service.home('client-1', 'user-1')).resolves.toEqual({
+        partnerName: 'Partner One',
+        businessCategory: null,
+        dailyRentalAmount: '123.45',
+        rentalDays: 1,
+      });
+
+      vi.setSystemTime(new Date('2026-10-16T18:30:00.000Z'));
+      await expect(service.home('client-1', 'user-1')).resolves.toMatchObject({ rentalDays: 2 });
+      expect(prisma.riderRentalAgreement.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          clientId: 'client-1',
+          riderId: 'rider-1',
+          currentVehicleId: 'fleet-1',
+          status: { in: ['PENDING_ACTIVATION', 'ACTIVE', 'SUSPENDED', 'TERMINATION_PENDING'] },
+        },
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps rental days across a vehicle exchange and excludes completed allocations', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-10-17T12:00:00.000Z'));
+      const { service, prisma } = createHomeService();
+      prisma.allocation.findFirst.mockResolvedValue({
+        riderId: 'rider-1',
+        fleetId: 'fleet-2',
+        allocatedAt: new Date('2026-10-17T10:00:00.000Z'),
+        mobileDeployment: null,
+      });
+      prisma.riderRentalAgreement.findFirst.mockResolvedValue({
+        currentVehicleId: 'fleet-2',
+        currentCommercialVersionNumber: 2,
+        pricingSnapshotSchemaVersion: 1,
+        statusHistory: [{ changedAt: new Date('2026-10-10T10:00:00.000Z') }],
+        commercialVersions: [
+          { versionNumber: 1, status: 'INACTIVE', pricingSnapshot: homeSnapshot('WEEKLY', '700.00') },
+          { versionNumber: 2, status: 'ACTIVE', pricingSnapshot: homeSnapshot('DAILY', '150.00') },
+        ],
+      });
+
+      await expect(service.home('client-1', 'user-1')).resolves.toEqual({
+        partnerName: null,
+        businessCategory: null,
+        dailyRentalAmount: '150.00',
+        rentalDays: 8,
+      });
+      expect(prisma.allocation.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({ status: { in: ['ACTIVE', 'DEALLOCATION_INITIATED'] } }),
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('falls back to the current allocation for a new rental with no agreement', async () => {
+    vi.useFakeTimers();
+    try {
+      const now = new Date('2026-10-17T12:00:00.000Z');
+      vi.setSystemTime(now);
+      const { service, prisma } = createHomeService();
+      prisma.allocation.findFirst.mockResolvedValue({
+        riderId: 'rider-1',
+        fleetId: 'fleet-3',
+        allocatedAt: now,
+        mobileDeployment: null,
+      });
+      prisma.riderRentalAgreement.findFirst.mockResolvedValue(null);
+
+      await expect(service.home('client-1', 'user-1')).resolves.toEqual({
+        partnerName: null,
+        businessCategory: null,
+        dailyRentalAmount: null,
+        rentalDays: 1,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(['WEEKLY', 'MONTHLY'])('returns no daily amount for a %s current rental', async (period) => {
+    vi.useFakeTimers();
+    try {
+      const now = new Date('2026-10-17T12:00:00.000Z');
+      vi.setSystemTime(now);
+      const { service, prisma } = createHomeService();
+      prisma.allocation.findFirst.mockResolvedValue({
+        riderId: 'rider-1', fleetId: 'fleet-1', allocatedAt: now, mobileDeployment: null,
+      });
+      prisma.riderRentalAgreement.findFirst.mockResolvedValue({
+        currentCommercialVersionNumber: 1,
+        pricingSnapshotSchemaVersion: 1,
+        statusHistory: [{ changedAt: now }],
+        commercialVersions: [{ versionNumber: 1, status: 'ACTIVE', pricingSnapshot: homeSnapshot(period, '700.00') }],
+      });
+
+      await expect(service.home('client-1', 'user-1')).resolves.toMatchObject({ dailyRentalAmount: null });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('RiderAppService.saveStep', () => {
   it('updates the account name before the remaining onboarding steps are complete', async () => {
     const { service, transaction, resolver } = createService();

@@ -8,6 +8,8 @@ import type { CreateUploadIntentDto } from '../media/dto/create-upload-intent.dt
 import type { ApiLocale } from '../common/locale.js';
 import { ReferralService } from '../referrals/referral.service.js';
 import { ReferralQualificationService } from '../referrals/referral-qualification.service.js';
+import { homeDates } from '../fleet-manager-home/home-metrics.js';
+import { parseSnapshot } from '../rider-rate-cards/commercial-snapshot.js';
 
 @Injectable()
 export class RiderAppService {
@@ -73,6 +75,85 @@ export class RiderAppService {
         values: progress.values,
         completed: Boolean(progress.completedAt),
       },
+    };
+  }
+
+  async home(clientId: string, userId: string) {
+    const allocation = await this.prisma.allocation.findFirst({
+      where: {
+        clientId,
+        rider: { clientId, userId, deletedAt: null },
+        status: { in: ['ACTIVE', 'DEALLOCATION_INITIATED'] },
+        allocatedAt: { not: null },
+      },
+      orderBy: { allocatedAt: 'desc' },
+      select: {
+        riderId: true,
+        fleetId: true,
+        allocatedAt: true,
+        mobileDeployment: { select: { workPartnerName: true } },
+      },
+    });
+    if (!allocation) {
+      return {
+        partnerName: null,
+        businessCategory: null,
+        dailyRentalAmount: null,
+        rentalDays: 0,
+      };
+    }
+
+    const agreement = await this.prisma.riderRentalAgreement.findFirst({
+      where: {
+        clientId,
+        riderId: allocation.riderId,
+        currentVehicleId: allocation.fleetId,
+        status: {
+          in: ['PENDING_ACTIVATION', 'ACTIVE', 'SUSPENDED', 'TERMINATION_PENDING'],
+        },
+      },
+      select: {
+        activatedAt: true,
+        currentCommercialVersionNumber: true,
+        pricingSnapshotSchemaVersion: true,
+        statusHistory: {
+          where: { newStatus: 'ACTIVE' },
+          orderBy: { changedAt: 'asc' },
+          take: 1,
+          select: { changedAt: true },
+        },
+        commercialVersions: {
+          where: { status: 'ACTIVE' },
+          select: { versionNumber: true, pricingSnapshot: true },
+        },
+      },
+    });
+    const version = agreement
+      ? agreement.commercialVersions.find(
+          (item) => item.versionNumber === agreement.currentCommercialVersionNumber,
+        )
+      : undefined;
+    const rental = agreement && version
+      ? (parseSnapshot(
+          version.pricingSnapshot,
+          agreement.pricingSnapshotSchemaVersion,
+        ).rental as { period: string; finalAmount: string })
+      : null;
+    const now = new Date();
+    const startAt =
+      agreement?.statusHistory[0]?.changedAt ??
+      agreement?.activatedAt ??
+      allocation.allocatedAt;
+    const dayKey = (value: Date) => Date.parse(`${homeDates(value).today}T00:00:00.000Z`);
+    const rentalDays = startAt
+      ? Math.max(1, Math.floor((dayKey(now) - dayKey(startAt)) / 86_400_000) + 1)
+      : 0;
+
+    return {
+      partnerName: allocation.mobileDeployment?.workPartnerName ?? null,
+      businessCategory: null,
+      dailyRentalAmount: rental?.period === 'DAILY' ? rental.finalAmount : null,
+      rentalDays,
     };
   }
 
