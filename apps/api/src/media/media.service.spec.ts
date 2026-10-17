@@ -321,4 +321,40 @@ describe('MediaService fleet-manager rider scope', () => {
     ).rejects.toThrow('Media entity not found.');
     expect(prisma.$queryRaw).not.toHaveBeenCalled();
   });
+  it('allows inspection image downloads only for allocations in an active assigned hub', async () => {
+    const photo = {
+      id: 'photo-1',
+      entityType: PhotoEntityType.INSPECTION,
+      entityId: 'inspection-1',
+      status: 'COMPLETE',
+      objectKey: 'inspection/photo.jpg',
+    };
+    const { service, createDownloadUrl, prisma } = setup(photo);
+    const findFirst = vi.fn().mockResolvedValue({ id: 'inspection-1' });
+    Object.assign(prisma, { inspection: { findFirst } });
+    await expect(
+      service.downloadUrl('client-a', 'photo-1', manager),
+    ).resolves.toEqual({ url: 'https://storage.example/photo' });
+    expect(findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'inspection-1',
+        clientId: 'client-a',
+        allocation: {
+          clientId: 'client-a',
+          fleet: {
+            clientId: 'client-a',
+            deletedAt: null,
+            currentHubId: { in: ['hub-1'] },
+          },
+        },
+      },
+      select: { id: true },
+    });
+    createDownloadUrl.mockClear();
+    findFirst.mockResolvedValue(null);
+    await expect(
+      service.downloadUrl('client-a', 'photo-1', manager),
+    ).rejects.toThrow('Photo not found.');
+    expect(createDownloadUrl).not.toHaveBeenCalled();
+  });
 });
