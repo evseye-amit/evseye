@@ -95,6 +95,33 @@ describe('MobileDeploymentService.requestFleet', () => {
   );
 });
 
+describe('mobile PDI submission', () => {
+  it('advances the allocation together with the completed inspection and rider workflow', async () => {
+    const tx = {
+      inspection: { update: vi.fn().mockResolvedValue({}) },
+      allocation: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      mobileDeploymentWorkflow: { update: vi.fn().mockResolvedValue({ status: 'PDI_PENDING_RIDER' }) },
+    };
+    const prisma = {
+      userHub: { findMany: vi.fn().mockResolvedValue([{ hubId: 'hub-1' }]) },
+      allocation: { findFirst: vi.fn().mockResolvedValue({ id: 'allocation-1' }) },
+      mobileDeploymentWorkflow: { upsert: vi.fn().mockResolvedValue({ id: 'workflow-1', status: 'PAYMENT_PAID' }) },
+      inspection: { findFirst: vi.fn().mockResolvedValue({ id: 'inspection-1' }) },
+      photoRequirement: { findMany: vi.fn().mockResolvedValue([]) },
+      photo: { findMany: vi.fn().mockResolvedValue([]) },
+      $transaction: vi.fn().mockImplementation(fn => fn(tx)),
+    };
+    const service = new MobileDeploymentService(prisma as never, {} as never, {} as never, {} as never);
+    await expect(service.submitPdi('client-1', 'manager-1', 'allocation-1', 'Partner', [{ code: 'FRONT', mandatory: true }]))
+      .resolves.toMatchObject({ status: 'PDI_PENDING_RIDER' });
+    expect(tx.inspection.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'COMPLETED' }) }));
+    expect(tx.allocation.updateMany).toHaveBeenCalledWith({
+      where: { id: 'allocation-1', clientId: 'client-1', status: 'INSPECTION_PENDING' },
+      data: { status: 'OTP_PENDING' },
+    });
+  });
+});
+
 describe('deployment without IoT pairing', () => {
   function fixture(status = 'TRAINING_PENDING', viewed = ['SAFETY']) {
     const workflow = {
@@ -106,10 +133,11 @@ describe('deployment without IoT pairing', () => {
     };
     const tx = {
       allocation: {
-        findFirst: vi.fn().mockResolvedValue({ fleetId: 'fleet-1' }),
+        findFirst: vi.fn().mockResolvedValue({ fleetId: 'fleet-1', status: 'OTP_PENDING' }),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       fleet: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      inspection: { findFirst: vi.fn().mockResolvedValue({ id: 'inspection-1' }) },
       mobileDeploymentWorkflow: {
         update: vi
           .fn()
@@ -271,6 +299,25 @@ describe('deployment without IoT pairing', () => {
       trainingCompletedAt: null,
     });
     expect(prisma.$transaction).toHaveBeenCalled();
+  });
+  it.each([true, false])('handles legacy inspection-pending PDI acceptance only with completed inspection: %s', async (completed) => {
+    const { service, prisma, tx, workflow } = fixture('PDI_PENDING_RIDER', []);
+    Object.assign(workflow, { pdiChecklist: [{ code: 'FRONT', mandatory: true }] });
+    packageWithoutTraining(prisma);
+    tx.allocation.findFirst.mockResolvedValue({ fleetId: 'fleet-1', status: 'INSPECTION_PENDING' });
+    tx.inspection.findFirst.mockResolvedValue(completed ? { id: 'inspection-1' } : null as never);
+    const result = service.acceptPdi('client-1', 'rider-user', 'allocation-1', [{ code: 'FRONT', accepted: true }]);
+    if (completed) {
+      await expect(result).resolves.toMatchObject({ status: 'DEPLOYED' });
+      expect(tx.allocation.updateMany).toHaveBeenCalledWith({
+        where: { id: 'allocation-1', clientId: 'client-1', status: 'INSPECTION_PENDING' },
+        data: { status: 'ACTIVE', allocatedAt: expect.any(Date) },
+      });
+    } else {
+      await expect(result).rejects.toThrow('Complete PDI first');
+      expect(tx.fleet.updateMany).not.toHaveBeenCalled();
+      expect(tx.allocation.updateMany).not.toHaveBeenCalled();
+    }
   });
   it('keeps training as a package-included step after accepting PDI', async () => {
     const { service, prisma, workflow } = fixture('PDI_PENDING_RIDER', []);
