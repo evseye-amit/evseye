@@ -1,3 +1,6 @@
+import { RiderDocumentReviewService } from '../riders/rider-document-review.service.js';
+import { MediaService } from '../media/media.service.js';
+import { fleetManagerVisibleSubjects } from '../rider-access/rider-hub-policy.js';
 import { MobileDeploymentService } from '../allocations/mobile-deployment.service.js';
 import { afterAll, describe, expect, it } from 'vitest';
 import { PrismaClient } from '@prisma/client';
@@ -160,11 +163,11 @@ describe.skipIf(!url)('Fleet Manager home in PostgreSQL', () => {
     expect(result.yesterday?.status).toBe('UNAVAILABLE');
   });
 
-  it('assigns each pending rider once and matches the pending-riders drill-down', async () => {
+  it('keeps associated riders scoped and shares unassigned riders across hub queues', async () => {
     const f = await fixture();
     const first = await f.rider();
     const second = await f.rider(f.otherHub.id);
-    await f.rider(null);
+    const shared = await f.rider(null);
     await db.userHub.create({
       data: {
         clientId: f.clientId,
@@ -176,11 +179,11 @@ describe.skipIf(!url)('Fleet Manager home in PostgreSQL', () => {
     await foreign.rider();
     expect(
       (await service.get(f.clientId, f.manager.id)).summary?.pendingAllocation,
-    ).toBe(1);
+    ).toBe(2);
     const ids = await db.$queryRaw<{ id: string }[]>(
       pendingRiderIdsQuery(f.clientId, [f.hub.id]),
     );
-    expect(ids.map((r) => r.id)).toEqual([first.id]);
+    expect(ids.map((r) => r.id).sort()).toEqual([first.id, shared.id].sort());
     const deployments = new MobileDeploymentService(
       db as never,
       {} as never,
@@ -191,7 +194,7 @@ describe.skipIf(!url)('Fleet Manager home in PostgreSQL', () => {
       (await deployments.pendingRiders(f.clientId, f.manager.id, f.hub.id)).map(
         (r) => r.id,
       ),
-    ).toEqual([first.id]);
+    ).toEqual(expect.arrayContaining([first.id, shared.id]));
     await expect(
       deployments.pendingRiders(f.clientId, f.manager.id, foreign.hub.id),
     ).rejects.toThrow('assigned hubs');
@@ -201,7 +204,7 @@ describe.skipIf(!url)('Fleet Manager home in PostgreSQL', () => {
           pendingRiderIdsQuery(f.clientId, [f.otherHub.id]),
         )
       ).map((r) => r.id),
-    ).toEqual([second.id]);
+    ).toEqual(expect.arrayContaining([second.id, shared.id]));
   });
 
   it('uses current attendance including overnight periods and counts people rather than periods', async () => {
@@ -258,7 +261,7 @@ describe.skipIf(!url)('Fleet Manager home in PostgreSQL', () => {
       pendingAllocation: 1,
     });
     expect((await service.get(f.clientId, f.manager.id)).summary).toMatchObject(
-      { readyForDeployment: 0, underMaintenance: 1, pendingAllocation: 0 },
+      { readyForDeployment: 0, underMaintenance: 1, pendingAllocation: 1 },
     );
     // Only the isolated database's marker is moved backwards to exercise a covered yesterday.
     const coverage = await db.fleetManagerHomeHistoryCoverage.findUniqueOrThrow(
@@ -377,5 +380,294 @@ describe.skipIf(!url)('Fleet Manager home in PostgreSQL', () => {
       orderBy: { id: 'desc' },
     });
     expect(last.data).toBeNull();
+  });
+  async function documentFixture(
+    clientId: string,
+    userId: string,
+    riderId: string | null = null,
+  ) {
+    const feature = await db.feature.create({
+      data: {
+        code: randomUUID(),
+        name: 'Proof',
+        featureType: 'BOOLEAN',
+        billingUnit: 'UPLOAD',
+      },
+    });
+    const progress = await db.riderOnboardingProgress.upsert({
+      where: { userId },
+      update: {},
+      create: {
+        clientId,
+        userId,
+        packageId: 'integration-test',
+        values: { FULL_NAME: 'New Rider' },
+      },
+    });
+    const photo = await db.photo.create({
+      data: {
+        clientId,
+        entityType: 'RIDER_ONBOARDING',
+        entityId: progress.id,
+        photoType: 'PROOF',
+        objectKey: randomUUID(),
+        mimeType: 'image/jpeg',
+        sizeBytes: 100,
+        status: 'COMPLETE',
+        uploadedById: userId,
+      },
+    });
+    const document = await db.riderOnboardingDocument.create({
+      data: {
+        clientId,
+        userId,
+        riderId,
+        featureId: feature.id,
+        fieldCode: 'PROOF',
+        photoId: photo.id,
+      },
+    });
+    return { document, photo, progress };
+  }
+  const review = new RiderDocumentReviewService(
+    db as never,
+    {
+      getEffectiveConfiguration: async () => ({ onboarding: { steps: [] } }),
+    } as never,
+  );
+  const media = new MediaService(
+    db as never,
+    { createDownloadUrl: async () => 'https://storage.test/proof' } as never,
+  );
+
+  it('shows a newly onboarded unassigned rider and their documents to both managers, then restricts by selected fleet hub', async () => {
+    const f = await fixture();
+    await db.userHub.deleteMany({
+      where: { userId: f.manager.id, hubId: f.otherHub.id },
+    });
+    const secondManager = await db.user.create({
+      data: {
+        clientId: f.clientId,
+        name: 'Second Manager',
+        mobile: '9123456789',
+        role: 'FLEET_MANAGER',
+      },
+    });
+    await db.userHub.create({
+      data: {
+        clientId: f.clientId,
+        userId: secondManager.id,
+        hubId: f.otherHub.id,
+      },
+    });
+    const actor = (id: string) => ({
+      id,
+      clientId: f.clientId,
+      roles: ['FLEET_MANAGER' as const],
+    });
+    const rider = await f.rider(null);
+    expect(await db.userHub.count({ where: { userId: rider.userId! } })).toBe(
+      0,
+    );
+    const { document, photo, progress } = await documentFixture(
+      f.clientId,
+      rider.user.id,
+      rider.id,
+    );
+    const deployments = new MobileDeploymentService(
+      db as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    for (const manager of [f.manager, secondManager]) {
+      expect(
+        (await deployments.pendingRiders(f.clientId, manager.id)).map(
+          (r) => r.id,
+        ),
+      ).toContain(rider.id);
+      expect(
+        (await service.get(f.clientId, manager.id)).summary?.pendingAllocation,
+      ).toBe(1);
+      expect(
+        (await review.list(f.clientId, {}, actor(manager.id))).map((d) => d.id),
+      ).toContain(document.id);
+      expect(
+        (await review.get(f.clientId, document.id, actor(manager.id))).id,
+      ).toBe(document.id);
+      expect(
+        await media.downloadUrl(f.clientId, photo.id, actor(manager.id)),
+      ).toEqual({ url: 'https://storage.test/proof' });
+      expect(
+        (
+          await media.listEntityPhotos(
+            f.clientId,
+            'RIDER_ONBOARDING',
+            progress.id,
+            actor(manager.id),
+          )
+        ).map((p) => p.id),
+      ).toContain(photo.id);
+    }
+    await expect(
+      review.reject(
+        f.clientId,
+        f.manager.id,
+        document.id,
+        ' ',
+        actor(f.manager.id),
+      ),
+    ).rejects.toThrow('reason');
+    expect(
+      (
+        await review.approve(
+          f.clientId,
+          f.manager.id,
+          document.id,
+          actor(f.manager.id),
+        )
+      ).status,
+    ).toBe('APPROVED');
+    const secondDoc = await documentFixture(
+      f.clientId,
+      rider.user.id,
+      rider.id,
+    );
+    expect(
+      (
+        await review.reject(
+          f.clientId,
+          secondManager.id,
+          secondDoc.document.id,
+          'Unreadable',
+          actor(secondManager.id),
+        )
+      ).status,
+    ).toBe('REJECTED');
+    const fleet = await f.fleet('AVAILABLE', f.otherHub.id);
+    await db.allocation.create({
+      data: {
+        clientId: f.clientId,
+        riderId: rider.id,
+        fleetId: fleet.id,
+        initiatedById: secondManager.id,
+        status: 'INITIATED',
+      },
+    });
+    await expect(
+      review.get(f.clientId, document.id, actor(f.manager.id)),
+    ).rejects.toThrow('not found');
+    await expect(
+      media.downloadUrl(f.clientId, photo.id, actor(f.manager.id)),
+    ).rejects.toThrow('not found');
+    expect(
+      (await review.get(f.clientId, document.id, actor(secondManager.id))).id,
+    ).toBe(document.id);
+    for (const manager of [f.manager, secondManager])
+      expect(
+        await deployments.pendingRiders(f.clientId, manager.id),
+      ).toHaveLength(0);
+  });
+
+  it('allows pre-Rider documents by onboarding user and denies foreign clients, inactive users and managers without active hubs', async () => {
+    const f = await fixture();
+    const actor = {
+      id: f.manager.id,
+      clientId: f.clientId,
+      roles: ['FLEET_MANAGER' as const],
+    };
+    const user = await db.user.create({
+      data: {
+        clientId: f.clientId,
+        mobile: '9234567890',
+        name: 'Pending Rider',
+        role: 'RIDER',
+      },
+    });
+    const { document, photo, progress } = await documentFixture(
+      f.clientId,
+      user.id,
+    );
+    expect((await review.get(f.clientId, document.id, actor)).rider).toBeNull();
+    expect(
+      (await review.approve(f.clientId, f.manager.id, document.id, actor))
+        .status,
+    ).toBe('APPROVED');
+    expect(await media.downloadUrl(f.clientId, photo.id, actor)).toEqual({
+      url: 'https://storage.test/proof',
+    });
+    expect(
+      (
+        await media.listEntityPhotos(
+          f.clientId,
+          'RIDER_ONBOARDING',
+          progress.id,
+          actor,
+        )
+      ).map((p) => p.id),
+    ).toContain(photo.id);
+    const foreign = await fixture();
+    const foreignRider = await foreign.rider(null);
+    const foreignDocument = await documentFixture(
+      foreign.clientId,
+      foreignRider.user.id,
+      foreignRider.id,
+    );
+    await expect(
+      review.get(f.clientId, foreignDocument.document.id, actor),
+    ).rejects.toThrow('not found');
+    await expect(
+      media.downloadUrl(f.clientId, foreignDocument.photo.id, actor),
+    ).rejects.toThrow('not found');
+    await db.user.update({ where: { id: user.id }, data: { isActive: false } });
+    await expect(review.get(f.clientId, document.id, actor)).rejects.toThrow(
+      'not found',
+    );
+    await db.user.update({ where: { id: user.id }, data: { isActive: true } });
+    await db.hub.updateMany({
+      where: { clientId: f.clientId },
+      data: { status: 'INACTIVE' },
+    });
+    expect(await review.list(f.clientId, {}, actor)).toHaveLength(0);
+    await expect(
+      media.downloadUrl(f.clientId, photo.id, actor),
+    ).rejects.toThrow('not found');
+    expect(
+      await fleetManagerVisibleSubjects(db as never, f.clientId, f.manager.id),
+    ).toEqual({ riderIds: [], userIds: [] });
+  });
+
+  it('includes shared pending riders in historical counts while retaining historical hub associations', async () => {
+    const f = await fixture();
+    const rider = await f.rider(null);
+    const { cutoff } = homeDates(new Date());
+    await db.fleetManagerHomeHistory.updateMany({
+      where: { clientId: f.clientId },
+      data: { recordedAt: new Date(cutoff.getTime() - 1000) },
+    });
+    const fleet = await f.fleet('AVAILABLE', f.otherHub.id);
+    await db.allocation.create({
+      data: {
+        clientId: f.clientId,
+        riderId: rider.id,
+        fleetId: fleet.id,
+        initiatedById: f.manager.id,
+        status: 'COMPLETED',
+      },
+    });
+    for (const hubId of [f.hub.id, f.otherHub.id]) {
+      const [counts] = await db.$queryRaw<HomeCounts[]>(
+        homeCountsQuery(f.clientId, hubId, new Date(), cutoff),
+      );
+      expect(counts.pendingAllocation).toBe(1);
+    }
+    expect(
+      (await service.get(f.clientId, f.manager.id, f.hub.id)).summary
+        ?.pendingAllocation,
+    ).toBe(0);
+    expect(
+      (await service.get(f.clientId, f.manager.id, f.otherHub.id)).summary
+        ?.pendingAllocation,
+    ).toBe(1);
   });
 });
