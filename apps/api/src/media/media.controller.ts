@@ -69,6 +69,7 @@ export class MediaController {
         this.clients.requireClientId(user),
         entityType,
         entityId,
+        user,
       ),
     };
   }
@@ -148,6 +149,7 @@ export class MediaController {
   @Roles(
     UserRole.CLIENT_ADMIN,
     UserRole.OPERATIONS_MANAGER,
+    UserRole.FLEET_MANAGER,
     UserRole.KYC_OPERATOR,
   )
   async downloadUrl(@CurrentUser() user: AuthUser, @Param('id') id: string) {
@@ -155,6 +157,7 @@ export class MediaController {
       data: await this.mediaService.downloadUrl(
         this.clients.requireClientId(user),
         id,
+        user,
       ),
     };
   }

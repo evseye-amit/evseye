@@ -5,8 +5,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PhotoEntityType, PhotoStatus } from '@prisma/client';
+import { PhotoEntityType, PhotoStatus, UserRole } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
+import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CreateUploadIntentDto } from './dto/create-upload-intent.dto.js';
 import {
@@ -105,10 +106,12 @@ export class MediaService {
     clientId: string,
     entityType: PhotoEntityType,
     entityId: string,
+    actor?: AuthUser,
   ) {
     if (entityType === PhotoEntityType.SUPPORT_TICKET)
       throw new ForbiddenException('Support attachments use the support ticket routes.');
     await this.assertEntityOwnership(clientId, entityType, entityId);
+    await this.assertFleetManagerEntityAccess(clientId, actor, entityType, entityId);
     return this.prisma.photo.findMany({
       where: { clientId, entityType, entityId },
       orderBy: { uploadedAt: 'asc' },
@@ -185,8 +188,9 @@ export class MediaService {
     });
   }
 
-  async downloadUrl(clientId: string, photoId: string) {
+  async downloadUrl(clientId: string, photoId: string, actor?: AuthUser) {
     const photo = await this.getPhoto(clientId, photoId);
+    await this.assertFleetManagerPhotoAccess(clientId, actor, photo);
     if (photo.entityType === PhotoEntityType.SUPPORT_TICKET)
       throw new ForbiddenException('Support attachments use the support ticket routes.');
     return this.downloadPhoto(photo);
@@ -214,6 +218,87 @@ export class MediaService {
       throw new NotFoundException('Photo not found.');
     }
     return photo;
+  }
+
+  private fleetScoped(actor?: AuthUser) {
+    return Boolean(
+      actor?.roles.includes(UserRole.FLEET_MANAGER) &&
+        !actor.roles.some(
+          (role) =>
+            role === UserRole.CLIENT_ADMIN ||
+            role === UserRole.OPERATIONS_MANAGER ||
+            role === UserRole.KYC_OPERATOR,
+        ),
+    );
+  }
+
+  private async fleetManagerRiderIds(clientId: string, actor: AuthUser) {
+    const hubs = await this.prisma.userHub.findMany({
+      where: { clientId, userId: actor.id },
+      select: { hubId: true },
+    });
+    if (!hubs.length) return [];
+    const riders = await this.prisma.rider.findMany({
+      where: {
+        clientId,
+        deletedAt: null,
+        user: {
+          is: {
+            hubAssignments: {
+              some: {
+                clientId,
+                hubId: { in: hubs.map((hub) => hub.hubId) },
+              },
+            },
+          },
+        },
+      },
+      select: { id: true },
+    });
+    return riders.map((rider) => rider.id);
+  }
+
+  private async assertFleetManagerEntityAccess(
+    clientId: string,
+    actor: AuthUser | undefined,
+    entityType: PhotoEntityType,
+    entityId: string,
+  ) {
+    if (!actor || !this.fleetScoped(actor)) return;
+    if (entityType !== PhotoEntityType.RIDER && entityType !== PhotoEntityType.RIDER_ONBOARDING)
+      return;
+    const rider = entityType === PhotoEntityType.RIDER
+      ? await this.prisma.rider.findFirst({ where: { id: entityId, clientId, deletedAt: null }, select: { id: true } })
+      : await this.riderForOnboardingProgress(clientId, entityId);
+    if (!rider || !(await this.fleetManagerRiderIds(clientId, actor)).includes(rider.id))
+      throw new NotFoundException('Media entity not found.');
+  }
+
+  private async riderForOnboardingProgress(clientId: string, progressId: string) {
+    const progress = await this.prisma.riderOnboardingProgress.findFirst({
+      where: { id: progressId, clientId },
+      select: { userId: true },
+    });
+    if (!progress) return null;
+    return this.prisma.rider.findFirst({
+      where: { clientId, userId: progress.userId, deletedAt: null },
+      select: { id: true },
+    });
+  }
+
+  private async assertFleetManagerPhotoAccess(
+    clientId: string,
+    actor: AuthUser | undefined,
+    photo: { entityType: PhotoEntityType; entityId: string; id: string },
+  ) {
+    if (!actor || !this.fleetScoped(actor)) return;
+    if (photo.entityType !== PhotoEntityType.RIDER && photo.entityType !== PhotoEntityType.RIDER_ONBOARDING)
+      throw new NotFoundException('Photo not found.');
+    const riderId = photo.entityType === PhotoEntityType.RIDER
+      ? photo.entityId
+      : (await this.prisma.riderOnboardingDocument.findFirst({ where: { photoId: photo.id, clientId }, select: { riderId: true } }))?.riderId;
+    if (!riderId || !(await this.fleetManagerRiderIds(clientId, actor)).includes(riderId))
+      throw new NotFoundException('Photo not found.');
   }
 
   private async assertEntityOwnership(

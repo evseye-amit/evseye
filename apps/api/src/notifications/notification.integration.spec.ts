@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { NotificationService } from './notification.service.js';
@@ -14,7 +14,7 @@ import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 
 const url = process.env.NOTIFICATION_TEST_DATABASE_URL;
 describe.skipIf(!url)('notification service and worker in PostgreSQL', () => {
-  const db = new PrismaClient({ datasources: { db: { url } } });
+  let db!: PrismaClient;
   const configValues: Record<string, unknown> = {
     PUSH_TTL_SECONDS: 86400,
     PUSH_MAX_ATTEMPTS: 3,
@@ -30,18 +30,16 @@ describe.skipIf(!url)('notification service and worker in PostgreSQL', () => {
     },
     send,
   };
-  const service = new NotificationService(
-    db as PrismaService,
-    config as never,
-    provider,
-  );
-  const worker = new NotificationWorker(
-    db as PrismaService,
-    config as never,
-    service,
-    provider,
-  );
-  afterAll(() => db.$disconnect());
+  let service!: NotificationService;
+  let worker!: NotificationWorker;
+  beforeAll(() => {
+    db = new PrismaClient({ datasources: { db: { url: url! } } });
+    service = new NotificationService(db as PrismaService, config as never, provider);
+    worker = new NotificationWorker(db as PrismaService, config as never, service, provider);
+  });
+  afterAll(async () => {
+    if (db) await db.$disconnect();
+  });
   beforeEach(async () => {
     if (!new URL(url!).pathname.includes('_test_'))
       throw new Error(

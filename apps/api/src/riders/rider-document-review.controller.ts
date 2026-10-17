@@ -12,26 +12,26 @@ import { RiderDocumentReviewService } from './rider-document-review.service.js';
 
 @Controller('rider-documents')
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER, UserRole.KYC_OPERATOR)
+@Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER, UserRole.FLEET_MANAGER, UserRole.KYC_OPERATOR)
 export class RiderDocumentReviewController {
   constructor(private readonly documents: RiderDocumentReviewService, private readonly clients: ClientContextService, private readonly audit: AuditService) {}
   @Get()
   async list(@CurrentUser() user: AuthUser, @Query() query: ListRiderDocumentsDto) {
-    return { data: await this.documents.list(this.clients.requireClientId(user), query) };
+    return { data: await this.documents.list(this.clients.requireClientId(user), query, user) };
   }
   @Get(':id')
   async get(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return { data: await this.documents.get(this.clients.requireClientId(user), id) };
+    return { data: await this.documents.get(this.clients.requireClientId(user), id, user) };
   }
   @Post(':id/approve')
   async approve(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    const clientId = this.clients.requireClientId(user); const document = await this.documents.approve(clientId, user.id, id);
+    const clientId = this.clients.requireClientId(user); const document = await this.documents.approve(clientId, user.id, id, user);
     await this.audit.record({ clientId, actorId: user.id, action: 'RIDER_DOCUMENT_APPROVED', entityType: 'RIDER_ONBOARDING_DOCUMENT', entityId: id, newData: { fieldCode: document.fieldCode } });
     return { data: document };
   }
   @Post(':id/reject')
   async reject(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: RejectRiderDocumentDto) {
-    const clientId = this.clients.requireClientId(user); const document = await this.documents.reject(clientId, user.id, id, body.rejectionReason);
+    const clientId = this.clients.requireClientId(user); const document = await this.documents.reject(clientId, user.id, id, body.rejectionReason, user);
     await this.audit.record({ clientId, actorId: user.id, action: 'RIDER_DOCUMENT_REJECTED', entityType: 'RIDER_ONBOARDING_DOCUMENT', entityId: id, newData: { fieldCode: document.fieldCode, rejectionReason: document.rejectionReason ?? '' } });
     return { data: document };
   }
