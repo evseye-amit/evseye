@@ -311,7 +311,33 @@ export class MediaService {
     photo: { entityType: PhotoEntityType; entityId: string; id: string },
   ) {
     if (!actor || !this.fleetScoped(actor)) return;
-    // Vehicle/inspection access remains outside this MVP rider visibility change.
+    if (photo.entityType === PhotoEntityType.INSPECTION) {
+      const hubs = await this.prisma.userHub.findMany({
+        where: {
+          clientId,
+          userId: actor.id,
+          hub: { clientId, status: 'ACTIVE', deletedAt: null },
+        },
+        select: { hubId: true },
+      });
+      const inspection = await this.prisma.inspection.findFirst({
+        where: {
+          id: photo.entityId,
+          clientId,
+          allocation: {
+            clientId,
+            fleet: {
+              clientId,
+              deletedAt: null,
+              currentHubId: { in: hubs.map((hub) => hub.hubId) },
+            },
+          },
+        },
+        select: { id: true },
+      });
+      if (!inspection) throw new NotFoundException('Photo not found.');
+      return;
+    }
     if (
       photo.entityType !== PhotoEntityType.RIDER &&
       photo.entityType !== PhotoEntityType.RIDER_ONBOARDING
