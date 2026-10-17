@@ -358,7 +358,7 @@ describe('RideReturnsService request reason boundary', () => {
       currentVehicleId: 'fleet-1',
       vehicleId: 'fleet-1',
     }]);
-    context.tx.allocation.findMany.mockResolvedValue([{ id: 'allocation-1', fleetId: 'fleet-1', fleet: { currentHubId: 'hub-1' } }]);
+    context.tx.allocation.findMany.mockResolvedValue([{ id: 'allocation-1', fleetId: 'fleet-1', rentalAgreementId: 'agreement-1', fleet: { currentHubId: 'hub-1' } }]);
     context.tx.rentalTerminationRequest.findUnique
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(created);
@@ -396,6 +396,7 @@ describe('RideReturnsService request rental resolution', () => {
 
   const allocation = (id: string, fleetId: string) => ({
     id,
+    rentalAgreementId: fleetId.replace('fleet-', 'agreement-'),
     clientId: 'client-a',
     riderId: 'rider-1',
     status: 'ACTIVE',
@@ -455,7 +456,7 @@ describe('RideReturnsService request rental resolution', () => {
     const context = setup();
     prepare(context, [], []);
     await expect(context.service.request('client-a', ops, modernInput('rider-1'), 'key-none-1', 'STAFF'))
-      .rejects.toThrow('ACTIVE_ALLOCATION_REQUIRED');
+      .rejects.toMatchObject({ response: expect.objectContaining({ code: 'ACTIVE_ALLOCATION_REQUIRED', message: 'You do not have an active scooter allocation to return.' }) });
     expect(context.tx.rentalTerminationRequest.create).not.toHaveBeenCalled();
   });
 
@@ -622,7 +623,7 @@ describe('RideReturnsService legacy return adapter', () => {
       currentVehicleId: 'fleet-1',
       vehicleId: 'fleet-1',
     }]);
-    context.tx.allocation.findMany.mockResolvedValue([{ id: 'allocation-1', fleetId: 'fleet-1', fleet: { currentHubId: 'hub-1' } }]);
+    context.tx.allocation.findMany.mockResolvedValue([{ id: 'allocation-1', fleetId: 'fleet-1', rentalAgreementId: 'agreement-1', fleet: { currentHubId: 'hub-1' } }]);
     context.tx.rentalTerminationRequest.findUnique.mockResolvedValue(null);
     context.tx.rentalTerminationRequest.create.mockResolvedValue({
       id: 'return-1',

@@ -410,116 +410,135 @@ export class RiderPaymentsService {
       ].includes(input.policy)
     )
       throw new BadRequestException('Invalid allocation policy.');
-    return this.serializable(async (tx) => {
-      const payment = await tx.riderPayment.findFirst({
-        where: { id: paymentId, clientId, riderId },
-      });
-      if (!payment) throw new NotFoundException('PAYMENT_NOT_FOUND');
-      if (payment.status !== 'CONFIRMED')
-        throw new ConflictException('PAYMENT_NOT_CONFIRMED');
-      const pendingRefunds = await tx.settlementRefundRequest.aggregate({
-        where: {
-          clientId,
-          paymentId,
-          status: 'REQUESTED',
-          destinationType: 'MANUAL_BANK_TRANSFER',
-        },
-        _sum: { amount: true },
-      });
-      const providerRefunds = await tx.paymentRefund.aggregate({
-        where: {
-          clientId,
-          paymentId,
-          status: { in: ['CREATING', 'UNKNOWN', 'PENDING', 'PROCESSING'] },
-        },
-        _sum: { amount: true },
-      });
-      const allocatable = payment.unallocatedAmount
-        .minus(pendingRefunds._sum.amount ?? ZERO)
-        .minus(providerRefunds._sum.amount ?? ZERO);
-      let remaining = input.amount
-        ? positiveDecimal(input.amount, 2, 'Allocation amount')
-        : allocatable;
-      if (remaining.gt(allocatable))
-        throw new ConflictException('PAYMENT_ALLOCATION_EXCEEDS_PAYMENT');
-      const specific =
-        input.policy === 'SPECIFIC_INVOICE' || input.policy === 'MANUAL';
-      if (specific && !input.invoiceId)
-        throw new BadRequestException('invoiceId is required.');
-      const invoices = await tx.riderInvoice.findMany({
-        where: {
+    return this.serializable((tx) =>
+      this.allocateInTransaction(
+        tx,
+        clientId,
+        riderId,
+        paymentId,
+        actorId,
+        input,
+      ),
+    );
+  }
+  async allocateInTransaction(
+    tx: Prisma.TransactionClient,
+    clientId: string,
+    riderId: string,
+    paymentId: string,
+    actorId: string,
+    input: { policy: string; invoiceId?: string; amount?: string },
+  ) {
+    await tx.$queryRaw`SELECT id FROM "RiderPayment" WHERE id = ${paymentId} AND "clientId" = ${clientId} FOR UPDATE`;
+    const payment = await tx.riderPayment.findFirst({
+      where: { id: paymentId, clientId, riderId },
+    });
+    if (!payment) throw new NotFoundException('PAYMENT_NOT_FOUND');
+    if (payment.status !== 'CONFIRMED')
+      throw new ConflictException('PAYMENT_NOT_CONFIRMED');
+    const pendingRefunds = await tx.settlementRefundRequest.aggregate({
+      where: {
+        clientId,
+        paymentId,
+        status: 'REQUESTED',
+        destinationType: 'MANUAL_BANK_TRANSFER',
+      },
+      _sum: { amount: true },
+    });
+    const providerRefunds = await tx.paymentRefund.aggregate({
+      where: {
+        clientId,
+        paymentId,
+        status: { in: ['CREATING', 'UNKNOWN', 'PENDING', 'PROCESSING'] },
+      },
+      _sum: { amount: true },
+    });
+    const allocatable = payment.unallocatedAmount
+      .minus(pendingRefunds._sum.amount ?? ZERO)
+      .minus(providerRefunds._sum.amount ?? ZERO);
+    let remaining = input.amount
+      ? positiveDecimal(input.amount, 2, 'Allocation amount')
+      : allocatable;
+    if (remaining.gt(allocatable))
+      throw new ConflictException('PAYMENT_ALLOCATION_EXCEEDS_PAYMENT');
+    const specific =
+      input.policy === 'SPECIFIC_INVOICE' || input.policy === 'MANUAL';
+    if (specific && !input.invoiceId)
+      throw new BadRequestException('invoiceId is required.');
+    const invoices = await tx.riderInvoice.findMany({
+      where: {
+        clientId,
+        riderId,
+        ...(specific ? { id: input.invoiceId } : {}),
+        status: { in: ['FINALIZED', 'PARTIALLY_PAID', 'OVERDUE'] },
+        outstandingAmount: { gt: ZERO },
+      },
+      orderBy:
+        input.policy === 'OLDEST_INVOICE_FIRST'
+          ? [{ createdAt: 'asc' }, { id: 'asc' }]
+          : [{ dueDate: 'asc' }, { id: 'asc' }],
+    });
+    if (specific && invoices.length === 0)
+      throw new NotFoundException('INVOICE_NOT_FOUND');
+    const allocations = [];
+    for (const invoice of invoices) {
+      if (remaining.lte(0)) break;
+      if (invoice.currency !== payment.currency)
+        throw new ConflictException('PAYMENT_CURRENCY_MISMATCH');
+      const amount = Prisma.Decimal.min(remaining, invoice.outstandingAmount);
+      const outstanding = invoice.outstandingAmount.minus(amount);
+      const paid = invoice.paidAmount.plus(amount);
+      const allocation = await tx.riderPaymentAllocation.create({
+        data: {
           clientId,
           riderId,
-          ...(specific ? { id: input.invoiceId } : {}),
-          status: { in: ['FINALIZED', 'PARTIALLY_PAID', 'OVERDUE'] },
-          outstandingAmount: { gt: ZERO },
+          paymentId,
+          invoiceId: invoice.id,
+          amount,
+          createdById: actorId,
         },
-        orderBy:
-          input.policy === 'OLDEST_INVOICE_FIRST'
-            ? [{ createdAt: 'asc' }, { id: 'asc' }]
-            : [{ dueDate: 'asc' }, { id: 'asc' }],
       });
-      if (specific && invoices.length === 0)
-        throw new NotFoundException('INVOICE_NOT_FOUND');
-      const allocations = [];
-      for (const invoice of invoices) {
-        if (remaining.lte(0)) break;
-        if (invoice.currency !== payment.currency)
-          throw new ConflictException('PAYMENT_CURRENCY_MISMATCH');
-        const amount = Prisma.Decimal.min(remaining, invoice.outstandingAmount);
-        const outstanding = invoice.outstandingAmount.minus(amount);
-        const paid = invoice.paidAmount.plus(amount);
-        const allocation = await tx.riderPaymentAllocation.create({
-          data: {
-            clientId,
-            riderId,
-            paymentId,
-            invoiceId: invoice.id,
-            amount,
-            createdById: actorId,
-          },
-        });
-        await tx.riderInvoice.update({
-          where: { id: invoice.id },
-          data: {
-            paidAmount: paid,
-            outstandingAmount: outstanding,
-            status: outstanding.eq(0)
-              ? 'PAID'
-              : invoice.status === 'OVERDUE'
-                ? 'OVERDUE'
-                : 'PARTIALLY_PAID',
-            paidAt: outstanding.eq(0) ? new Date() : null,
-          },
-        });
-        await tx.auditLog.create({
-          data: {
-            clientId,
-            actorId,
-            action: 'RIDER_PAYMENT_ALLOCATED',
-            entityType: 'RiderPaymentAllocation',
-            entityId: allocation.id,
-            newData: { invoiceId: invoice.id, amount: money(amount) },
-          },
-        });
-        allocations.push(allocation);
-        remaining = remaining.minus(amount);
-      }
-      const spent = (
-        input.amount
-          ? positiveDecimal(input.amount, 2, 'Allocation amount')
-          : allocatable
-      ).minus(remaining);
-      await tx.riderPayment.update({
-        where: { id: payment.id },
-        data: { unallocatedAmount: payment.unallocatedAmount.minus(spent) },
+      await tx.riderInvoice.update({
+        where: { id: invoice.id },
+        data: {
+          paidAmount: paid,
+          outstandingAmount: outstanding,
+          status: outstanding.eq(0)
+            ? 'PAID'
+            : invoice.status === 'OVERDUE'
+              ? 'OVERDUE'
+              : 'PARTIALLY_PAID',
+          paidAt: outstanding.eq(0) ? new Date() : null,
+        },
       });
-      return {
-        allocations,
-        unallocatedAmount: money(payment.unallocatedAmount.minus(spent)),
-      };
+      await tx.auditLog.create({
+        data: {
+          clientId,
+          actorId,
+          action: 'RIDER_PAYMENT_ALLOCATED',
+          entityType: 'RiderPaymentAllocation',
+          entityId: allocation.id,
+          newData: { invoiceId: invoice.id, amount: money(amount) },
+        },
+      });
+      allocations.push(allocation);
+      remaining = remaining.minus(amount);
+    }
+    const spent = (
+      input.amount
+        ? positiveDecimal(input.amount, 2, 'Allocation amount')
+        : allocatable
+    ).minus(remaining);
+    await tx.riderPayment.update({
+      where: { id: payment.id },
+      data: { unallocatedAmount: payment.unallocatedAmount.minus(spent) },
     });
+    return {
+      allocations,
+      unallocatedAmount: money(payment.unallocatedAmount.minus(spent)),
+    };
   }
+
   async reverseAllocation(
     clientId: string,
     riderId: string,

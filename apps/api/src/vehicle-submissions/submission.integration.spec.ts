@@ -40,7 +40,7 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
       {} as never,
       {} as never,
     );
-    allocations = new AllocationsService(prisma);
+    allocations = new AllocationsService(prisma, {} as never);
     service = new VehicleSubmissionService(
       prisma,
       allocations,
@@ -212,6 +212,7 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
         createdById: fm.id,
       },
     });
+    await db.allocation.update({ where: { id: allocation.id }, data: { commercialOfferId: offer.id, rentalAgreementId: agreement.id } });
     const returns = new RideReturnsService(
       prisma,
       allocations,

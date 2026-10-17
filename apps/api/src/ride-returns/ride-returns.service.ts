@@ -216,7 +216,7 @@ export class RideReturnsService {
       if (retry?.status !== 'CANCELLED' && retry?.plannedHubId) input = { ...input, plannedHubId: retry.plannedHubId };
       else {
         const allocation = await this.db.allocation.findFirst({ where: { clientId, riderId: rider.id, status: 'ACTIVE' }, orderBy: { allocatedAt: 'desc' }, select: { fleetId: true } });
-        if (!allocation) throw new ConflictException('ACTIVE_ALLOCATION_REQUIRED');
+        if (!allocation) throw new ConflictException({ code: 'ACTIVE_ALLOCATION_REQUIRED', message: 'You do not have an active scooter allocation to return.' });
         input = { ...input, plannedHubId: (await selectSubmissionHub(this.db, clientId, allocation.fleetId, undefined, input)).hub.id };
       }
     }
@@ -260,9 +260,12 @@ export class RideReturnsService {
       });
       if (!agreements.length) {
         if (agreementId) throw new NotFoundException('Agreement not found.');
-        throw new ConflictException('ACTIVE_ALLOCATION_REQUIRED');
+        const active = await tx.allocation.findMany({ where: { clientId, riderId: rider.id, status: 'ACTIVE' } });
+        if (!active.length) throw new ConflictException({ code: 'ACTIVE_ALLOCATION_REQUIRED', message: 'You do not have an active scooter allocation to return.' });
+        if (active.some(a => !a.rentalAgreementId)) throw new ConflictException({ code: 'RENTAL_PLAN_REQUIRED', message: 'The scooter allocation has no attached rental plan. Ask the fleet manager to check the allocation setup.' });
+        throw new ConflictException({ code: 'RENTAL_AGREEMENT_NOT_ACTIVE', message: 'Your scooter allocation has no active rental agreement. Ask the fleet manager to check the allocation setup.' });
       }
-      if (agreementId && !RETURNABLE_AGREEMENTS.has(agreements[0].status)) fail('AGREEMENT_NOT_TERMINABLE');
+      if (agreementId && !RETURNABLE_AGREEMENTS.has(agreements[0].status)) fail('RENTAL_AGREEMENT_NOT_ACTIVE', 'The rental agreement is not active for scooter return. Ask the fleet manager to check the allocation setup.');
 
       const fleetIds = agreements.map((candidate) => candidate.currentVehicleId ?? candidate.vehicleId);
       const allocations = await tx.allocation.findMany({
@@ -277,10 +280,13 @@ export class RideReturnsService {
       const matches = agreements.flatMap((candidate) => {
         const fleetId = candidate.currentVehicleId ?? candidate.vehicleId;
         return allocations
-          .filter((candidateAllocation) => candidateAllocation.fleetId === fleetId)
+          .filter((candidateAllocation) => candidateAllocation.fleetId === fleetId && candidateAllocation.rentalAgreementId === candidate.id)
           .map((candidateAllocation) => ({ agreement: candidate, allocation: candidateAllocation }));
       });
-      if (!matches.length) throw new ConflictException('ACTIVE_ALLOCATION_REQUIRED');
+      if (!matches.length) throw new ConflictException({
+        code: allocations.length ? 'ALLOCATION_AGREEMENT_MISMATCH' : 'ACTIVE_ALLOCATION_REQUIRED',
+        message: allocations.length ? 'The scooter allocation is not linked to this rental agreement. Ask the fleet manager to check the allocation setup.' : 'You do not have an active allocation for this rental scooter.',
+      });
       if (matches.length > 1) fail('MULTIPLE_ACTIVE_RENTALS', 'Multiple active rentals prevent automatic resolution.');
       const [{ agreement, allocation }] = matches;
       if (await tx.vehicleExchangeRequest.findFirst({ where: { clientId, oldAllocationId: allocation.id, status: { in: ['REQUESTED', 'APPROVED', 'REPLACEMENT_SELECTED', 'OFFER_PRESENTED', 'ACCEPTED', 'RETURN_PENDING', 'DEPOSIT_PENDING', 'HANDOVER_PENDING'] } } })) throw new ConflictException('An exchange is already requested for this vehicle.');

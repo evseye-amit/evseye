@@ -31,20 +31,12 @@ export class BypassPairingDto {
   @IsString() @MaxLength(1000) remarks!: string;
 }
 
-export class PaymentLineItemDto {
-  @IsString() @MaxLength(150) label!: string;
-  @IsString() @Matches(/^\d+(\.\d{1,2})?$/) amount!: string;
-}
-
-export class AskPaymentDto {
-  @IsString() @Matches(/^[A-Z]{3}$/) currency!: string;
-  @IsArray() @ArrayMinSize(1) @ValidateNested({ each: true }) @Type(() => PaymentLineItemDto)
-  items!: PaymentLineItemDto[];
-}
+/** Pricing is always generated from the rider's accepted rental agreement. */
+export class AskPaymentDto {}
 
 export class SubmitPaymentReferenceDto {
   @IsString() @MaxLength(80) provider!: string;
-  @IsString() @MaxLength(180) providerReference!: string;
+  @IsString() @MaxLength(160) providerReference!: string;
 }
 
 export class FleetManagerAllocateDto {

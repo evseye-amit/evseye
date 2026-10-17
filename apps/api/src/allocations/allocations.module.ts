@@ -8,10 +8,12 @@ import { AllocationsService } from './allocations.service.js';
 import { MobileDeploymentController } from './mobile-deployment.controller.js';
 import { MobileDeploymentService } from './mobile-deployment.service.js';
 import { ReferralModule } from '../referrals/referral.module.js';
+import { CommercialCoreModule } from '../rider-rate-cards/commercial-core.module.js';
+import { DeploymentCommercialController } from './deployment-commercial.controller.js';
 
 @Module({
-  imports: [AuthModule, AuditModule, MediaModule, RidersModule, ReferralModule],
-  controllers: [AllocationsController, MobileDeploymentController],
+  imports: [AuthModule, AuditModule, MediaModule, RidersModule, ReferralModule, CommercialCoreModule],
+  controllers: [AllocationsController, MobileDeploymentController, DeploymentCommercialController],
   providers: [AllocationsService, MobileDeploymentService],
   exports: [AllocationsService],
 })

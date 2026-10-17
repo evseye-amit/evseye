@@ -340,7 +340,7 @@ export class VehicleExchangeService {
     const preview = await this.pricing.calculate(clientId, {
       ...input,
       riderId: exchange.riderId,
-    });
+    }, false, exchange.agreementId);
     const now = new Date();
     return this.db.$transaction(
       async (tx) => {
@@ -465,7 +465,7 @@ export class VehicleExchangeService {
     const price = await this.pricing.calculate(clientId, {
       ...selected,
       riderId: exchange.riderId,
-    });
+    }, false, exchange.agreementId);
     const policy = await this.policy(clientId);
     if (!policy?.exchangeAllowed) fail('EXCHANGE_DISABLED');
     const now = new Date();

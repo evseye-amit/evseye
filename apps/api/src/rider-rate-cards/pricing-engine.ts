@@ -376,6 +376,65 @@ export function feeLine(fee: RateCardFee) {
   return taxLine(fee.amount, fee.taxable, fee.taxRate, fee.priceIncludesTax);
 }
 
+export function chooseFees(
+  fees: RateCardFee[],
+  facts: VehicleFacts,
+): RateCardFee[] {
+  const groups = new Map<
+    string,
+    Array<{ fee: RateCardFee; specificity: number }>
+  >();
+  for (const fee of fees) {
+    if (
+      !fee.isActive ||
+      (fee.city && fee.city.toLowerCase() !== facts.city?.toLowerCase()) ||
+      (fee.hubId && fee.hubId !== facts.hubId)
+    )
+      continue;
+    if (
+      fee.minVehicleAgeMonths != null &&
+      (facts.ageMonths === null || facts.ageMonths < fee.minVehicleAgeMonths)
+    )
+      continue;
+    if (
+      fee.maxVehicleAgeMonths != null &&
+      (facts.ageMonths === null || facts.ageMonths > fee.maxVehicleAgeMonths)
+    )
+      continue;
+    const key =
+      fee.chargeType === 'ONBOARDING_FEE'
+        ? 'ONBOARDING_FEE'
+        : (fee.selectionGroup ?? fee.code);
+    const specificity =
+      (fee.hubId ? 4 : 0) +
+      (fee.city ? 2 : 0) +
+      (fee.minVehicleAgeMonths != null || fee.maxVehicleAgeMonths != null
+        ? 1
+        : 0);
+    groups.set(key, [...(groups.get(key) ?? []), { fee, specificity }]);
+  }
+  return [...groups.values()]
+    .map((group) => {
+      group.sort(
+        (a, b) =>
+          b.specificity - a.specificity ||
+          (b.fee.priority ?? 0) - (a.fee.priority ?? 0) ||
+          a.fee.code.localeCompare(b.fee.code),
+      );
+      if (
+        group[1] &&
+        group[0].specificity === group[1].specificity &&
+        (group[0].fee.priority ?? 0) === (group[1].fee.priority ?? 0)
+      )
+        throw new ConflictException({
+          code: 'PRICING_RULE_CONFLICT',
+          message: 'Multiple equally ranked fee rules apply.',
+        });
+      return group[0].fee;
+    })
+    .sort((a, b) => a.code.localeCompare(b.code));
+}
+
 export function promotionChange(
   promotion: RiderPromotion,
   current: Prisma.Decimal,

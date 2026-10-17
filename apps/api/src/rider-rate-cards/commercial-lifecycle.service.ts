@@ -30,6 +30,7 @@ const uuid = z.string().uuid();
 const selectionSchema = z
   .object({
     riderId: uuid,
+    rateCardVersionId: uuid.optional(),
     vehicleId: uuid,
     hubId: uuid.optional(),
     rentalPeriodType: z.enum([
@@ -59,7 +60,6 @@ const acceptanceSchema = z
   .object({
     consent: z.literal(true),
     acceptedTermsVersion: z.string().min(1),
-    startDate: z.iso.date().optional(),
   })
   .strict();
 const assistedSchema = acceptanceSchema.extend({
@@ -78,7 +78,7 @@ const fail = (code: string): never => {
 };
 const date = (value: string) => new Date(`${value}T00:00:00.000Z`);
 const json = (value: unknown) => value as Prisma.InputJsonValue;
-function agreementEnd(
+export function agreementEnd(
   start: Date | null,
   period: string,
   count: number | null,
@@ -115,6 +115,32 @@ export class CommercialLifecycleService {
     private readonly pricing: CommercialOfferService,
     private readonly deposits: RiderDepositService,
   ) {}
+  private async serializable<T>(
+    fn: (tx: Prisma.TransactionClient) => Promise<T>,
+    options: {
+      isolationLevel?: Prisma.TransactionIsolationLevel;
+      timeout?: number;
+    } = {},
+  ) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.prisma.$transaction(fn, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          ...options,
+        });
+      } catch (error) {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          (['P2034', 'P2002'].includes(error.code) ||
+            (error.code === 'P2010' &&
+              ['40001', '40P01'].includes(String(error.meta?.code)))) &&
+          attempt < 3
+        )
+          continue;
+        throw error;
+      }
+    }
+  }
   private parse<T>(schema: z.ZodType<T>, raw: unknown): T {
     const result = schema.safeParse(raw);
     if (!result.success) throw new BadRequestException(result.error.flatten());
@@ -245,7 +271,16 @@ export class CommercialLifecycleService {
   ) {
     const input = this.parse(selectionSchema, raw);
     const { supersedesOfferId, ...selection } = input;
-    const rentalRestriction = await this.prisma.commercialRestriction.findFirst({ where: { clientId, riderId: selection.riderId, code: 'BLOCK_NEW_RENTAL', status: 'ACTIVE' } });
+    const rentalRestriction = await this.prisma.commercialRestriction.findFirst(
+      {
+        where: {
+          clientId,
+          riderId: selection.riderId,
+          code: 'BLOCK_NEW_RENTAL',
+          status: 'ACTIVE',
+        },
+      },
+    );
     if (rentalRestriction) fail('COLLECTION_RESTRICTION_ACTIVE');
     if (
       idempotencyKey &&
@@ -296,8 +331,18 @@ export class CommercialLifecycleService {
       termsVersion,
     );
     const now = new Date();
-    const offer = await this.prisma.$transaction(
+    const offer = await this.serializable(
       async (tx) => {
+        if (idempotencyKey) {
+          const prior = await tx.riderCommercialOffer.findUnique({
+            where: { clientId_idempotencyKey: { clientId, idempotencyKey } },
+          });
+          if (prior) {
+            if (prior.selectionHash !== selectionHash)
+              fail('IDEMPOTENCY_KEY_REUSED');
+            return prior;
+          }
+        }
         if (supersedesOfferId) {
           const previous = await tx.riderCommercialOffer.findFirst({
             where: {
@@ -518,8 +563,10 @@ export class CommercialLifecycleService {
   ) {
     const input = this.parse(assisted ? assistedSchema : acceptanceSchema, raw);
     const now = new Date();
-    const agreement = await this.prisma.$transaction(
+    const agreement = await this.serializable(
       async (tx) => {
+        await tx.$queryRaw`SELECT a.id FROM "Allocation" a JOIN "RiderCommercialOffer" o ON o."clientId" = a."clientId" AND o."riderId" = a."riderId" AND o."vehicleId" = a."fleetId"
+          WHERE o.id = ${id} AND a."clientId" = ${clientId} AND a.status IN ('INITIATED', 'INSPECTION_PENDING', 'OTP_PENDING', 'ACTIVE') FOR UPDATE OF a`;
         const locked = await tx.$queryRaw<
           { id: string }[]
         >`SELECT "id" FROM "RiderCommercialOffer" WHERE "id" = ${id} AND "clientId" = ${clientId} FOR UPDATE`;
@@ -583,7 +630,7 @@ export class CommercialLifecycleService {
           `${clientId}:rider:${offer.riderId}`,
           `${clientId}:vehicle:${offer.vehicleId}`,
         ].sort())
-          await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
+          await tx.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
         const [
           rider,
           vehicle,
@@ -661,15 +708,20 @@ export class CommercialLifecycleService {
         if (!rider || rider.status !== 'ACTIVE') fail('RIDER_NOT_ELIGIBLE');
         if (!vehicle || (vehicle.status !== 'AVAILABLE' && !activeAllocation))
           fail('COMMERCIAL_OFFER_VEHICLE_UNAVAILABLE');
-        if (conflictingAllocation)
-          fail('COMMERCIAL_OFFER_VEHICLE_UNAVAILABLE');
+        if (conflictingAllocation) fail('COMMERCIAL_OFFER_VEHICLE_UNAVAILABLE');
         if (offer.hubId && (!hub || hub.status !== 'ACTIVE'))
           fail('HUB_NOT_FOUND');
         if (!version) fail('COMMERCIAL_OFFER_RECALCULATION_REQUIRED');
         if (riderConflict) fail('RIDER_ALREADY_HAS_ACTIVE_RENTAL');
         if (vehicleConflict) fail('VEHICLE_ALREADY_ALLOCATED');
+        if (
+          activeAllocation?.commercialOfferId &&
+          activeAllocation.commercialOfferId !== offer.id
+        )
+          fail('ALLOCATION_OFFER_MISMATCH');
         const acceptedAt = new Date();
-        const startDate = input.startDate ? date(input.startDate) : null;
+        // Billing starts at actual handover, never at offer acceptance.
+        const startDate = null;
         const agreementNumber = await this.nextNumber(tx, 'agreement');
         const created = await tx.riderRentalAgreement.create({
           data: {
@@ -736,11 +788,19 @@ export class CommercialLifecycleService {
             termsTitle: offer.termsTitle,
             recurringAmount: offer.finalRecurringAmount,
             effectiveFrom: startDate ?? acceptedAt,
-            billingStartAt: startDate ?? acceptedAt,
-            status: 'ACTIVE',
+            billingStartAt: null,
+            status: 'PENDING',
           },
         });
         await this.deposits.initializeInTransaction(tx, created, actorId);
+        if (activeAllocation)
+          await tx.allocation.update({
+            where: { id: activeAllocation.id },
+            data: {
+              commercialOfferId: offer.id,
+              rentalAgreementId: created.id,
+            },
+          });
         await tx.riderRentalAgreementStatusHistory.create({
           data: {
             clientId,
@@ -821,7 +881,10 @@ export class CommercialLifecycleService {
   async getAgreement(clientId: string, id: string, riderId?: string) {
     const agreement = await this.prisma.riderRentalAgreement.findFirst({
       where: { clientId, id, ...(riderId ? { riderId } : {}) },
-      include: { statusHistory: { orderBy: { changedAt: 'asc' } }, commercialVersions: true },
+      include: {
+        statusHistory: { orderBy: { changedAt: 'asc' } },
+        commercialVersions: true,
+      },
     });
     if (!agreement)
       throw new NotFoundException({ code: 'AGREEMENT_NOT_FOUND' });
@@ -835,8 +898,15 @@ export class CommercialLifecycleService {
       take: 100,
     });
   }
-  agreementView(agreement: RiderRentalAgreement & { commercialVersions?: RiderAgreementCommercialVersion[] }) {
-    const current = agreement.commercialVersions?.find((version) => version.versionNumber === agreement.currentCommercialVersionNumber);
+  agreementView(
+    agreement: RiderRentalAgreement & {
+      commercialVersions?: RiderAgreementCommercialVersion[];
+    },
+  ) {
+    const current = agreement.commercialVersions?.find(
+      (version) =>
+        version.versionNumber === agreement.currentCommercialVersionNumber,
+    );
     const snapshot = parseSnapshot(
       current?.pricingSnapshot ?? agreement.pricingSnapshot,
       agreement.pricingSnapshotSchemaVersion,
@@ -849,7 +919,9 @@ export class CommercialLifecycleService {
       rentalPeriodType: agreement.rentalPeriodType,
       startDate: agreement.startDate,
       endDate: agreement.endDate,
-      recurringAmount: (current?.recurringAmount ?? agreement.finalRecurringAmount).toFixed(2),
+      recurringAmount: (
+        current?.recurringAmount ?? agreement.finalRecurringAmount
+      ).toFixed(2),
       payableToday: agreement.upfrontAmount.toFixed(2),
       refundableAmount: agreement.refundableAmount.toFixed(2),
       batteryPlan:

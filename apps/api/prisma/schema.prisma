@@ -2826,6 +2826,10 @@ model ImportJob {
 }
 
 model Allocation {
+  commercialOfferId String?
+  commercialOffer RiderCommercialOffer? @relation("AllocationOffer", fields: [clientId, commercialOfferId], references: [clientId, id], onDelete: Restrict)
+  rentalAgreementId String?
+  rentalAgreement RiderRentalAgreement? @relation("AllocationAgreement", fields: [clientId, rentalAgreementId], references: [clientId, id], onDelete: Restrict)
   vehicleSubmission VehicleSubmission?
   id               String                    @id @default(uuid())
   clientId         String
@@ -2847,6 +2851,8 @@ model Allocation {
   @@unique([clientId, idempotencyKey])
   @@index([clientId, fleetId, status])
   @@index([clientId, riderId, status])
+  @@index([clientId, commercialOfferId])
+  @@index([clientId, rentalAgreementId])
 }
 
 model MobileDeploymentWorkflow {
@@ -4222,6 +4228,12 @@ model RateCardRentalRate {
 }
 
 model RateCardFee {
+  selectionGroup    String? @db.VarChar(80)
+  city              String? @db.VarChar(100)
+  hubId             String?
+  minVehicleAgeMonths Int?
+  maxVehicleAgeMonths Int?
+  priority          Int @default(0)
   id                String               @id @default(uuid())
   clientId          String
   rateCardVersionId String
@@ -4501,6 +4513,7 @@ model AppLegalAcceptance {
 }
 
 model RiderCommercialOffer {
+  allocations Allocation[] @relation("AllocationOffer")
   id                           String                     @id @default(uuid())
   clientId                     String
   client                       Client                     @relation(fields: [clientId], references: [id], onDelete: Restrict)
@@ -4559,6 +4572,7 @@ model RiderCommercialOffer {
 }
 
 model RiderRentalAgreement {
+  allocations Allocation[] @relation("AllocationAgreement")
   id                             String                              @id @default(uuid())
   clientId                       String
   client                         Client                              @relation(fields: [clientId], references: [id], onDelete: Restrict)
