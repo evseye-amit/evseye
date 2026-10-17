@@ -291,6 +291,10 @@ export class MobileDeploymentService {
     if (evidence.missingPhotoTypes.length) throw new BadRequestException({ message: 'Allocation evidence is incomplete.', missing: evidence.missingPhotoTypes, inspectionId: evidence.inspection.id });
     return this.prisma.$transaction(async (tx) => {
       await tx.inspection.update({ where: { id: evidence.inspection.id }, data: { status: InspectionStatus.COMPLETED, completedBy: userId, completedAt: new Date(), checklist: checklist as never } });
+      await tx.allocation.updateMany({
+        where: { id: allocationId, clientId, status: AllocationStatus.INSPECTION_PENDING },
+        data: { status: AllocationStatus.OTP_PENDING },
+      });
       return tx.mobileDeploymentWorkflow.update({ where: { id: workflow.id }, data: { status: MobileDeploymentStatus.PDI_PENDING_RIDER, workPartnerName: workPartnerName.trim(), pdiChecklist: checklist as never } });
     });
   }
@@ -415,10 +419,18 @@ export class MobileDeploymentService {
     workflowData: Prisma.MobileDeploymentWorkflowUpdateInput,
   ) {
     const allocation = await tx.allocation.findFirst({
-      where: { id: allocationId, clientId, status: AllocationStatus.OTP_PENDING },
-      select: { fleetId: true },
+      where: { id: allocationId, clientId, status: { in: [AllocationStatus.OTP_PENDING, AllocationStatus.INSPECTION_PENDING] } },
+      select: { fleetId: true, status: true },
     });
     if (!allocation) throw new BadRequestException('The allocation is not ready for deployment. Complete PDI first.');
+    // Older mobile PDI submissions completed the inspection without advancing the allocation.
+    if (allocation.status === AllocationStatus.INSPECTION_PENDING) {
+      const inspection = await tx.inspection.findFirst({
+        where: { clientId, allocationId, type: InspectionType.PRE_ALLOCATION, status: InspectionStatus.COMPLETED },
+        select: { id: true },
+      });
+      if (!inspection) throw new BadRequestException('The allocation is not ready for deployment. Complete PDI first.');
+    }
 
     const fleet = await tx.fleet.updateMany({
       where: { id: allocation.fleetId, clientId, status: FleetStatus.RESERVED, deletedAt: null },
@@ -427,7 +439,7 @@ export class MobileDeploymentService {
     if (fleet.count !== 1) throw new BadRequestException('The selected Fleet is no longer reserved for this deployment.');
 
     const activated = await tx.allocation.updateMany({
-      where: { id: allocationId, clientId, status: AllocationStatus.OTP_PENDING },
+      where: { id: allocationId, clientId, status: allocation.status },
       data: { status: AllocationStatus.ACTIVE, allocatedAt: new Date() },
     });
     if (activated.count !== 1) throw new BadRequestException('The allocation status changed. Refresh and try again.');
