@@ -190,6 +190,7 @@ describe.skipIf(!url)('Fleet Manager home in PostgreSQL', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
     expect(
       (await deployments.pendingRiders(f.clientId, f.manager.id, f.hub.id)).map(
@@ -478,6 +479,7 @@ describe.skipIf(!url)('Fleet Manager home in PostgreSQL', () => {
     );
     const deployments = new MobileDeploymentService(
       db as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

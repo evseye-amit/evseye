@@ -30,7 +30,7 @@ describe('AllocationsService concurrency guard', () => {
         operation(tx),
       ),
     };
-    const service = new AllocationsService(prisma as never);
+    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never);
 
     await expect(
       service.initiate('client-a', 'fleet-busy', 'rider-1', 'operator-1'),
@@ -70,7 +70,7 @@ describe('AllocationsService concurrency guard', () => {
         operation(tx),
       ),
     };
-    const service = new AllocationsService(prisma as never);
+    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never);
 
     await expect(
       service.initiate('client-a', 'fleet-1', 'rider-1', 'operator-1'),
@@ -103,7 +103,7 @@ describe('AllocationsService concurrency guard', () => {
         operation(tx),
       ),
     };
-    const service = new AllocationsService(prisma as never);
+    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never);
 
     await expect(
       service.initiate('client-a', 'fleet-1', 'rider-1', 'operator-1'),
@@ -113,6 +113,7 @@ describe('AllocationsService concurrency guard', () => {
 
   it('only activates an allocation after its completed pre-allocation inspection', async () => {
     const tx = {
+      $queryRaw: vi.fn(),
       allocation: {
         findFirst: vi
           .fn()
@@ -129,7 +130,7 @@ describe('AllocationsService concurrency guard', () => {
         operation(tx),
       ),
     };
-    const service = new AllocationsService(prisma as never);
+    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never);
 
     await expect(service.activate('client-a', 'allocation-1')).resolves.toEqual(
       { activated: true, allocationId: 'allocation-1' },
@@ -170,7 +171,7 @@ describe('collection allocation restriction', () => {
       fleet: { updateMany: vi.fn() },
     };
     const prisma = { $transaction: vi.fn(async (operation: (client: typeof tx) => unknown) => operation(tx)) };
-    const service = new AllocationsService(prisma as never);
+    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never);
     await expect(service.initiate('client-a','fleet-1','rider-1','operator-1')).rejects.toMatchObject({ status: 409 });
     expect(tx.fleet.updateMany).not.toHaveBeenCalled();
   });
@@ -203,7 +204,7 @@ describe('deallocation completion safety gate', () => {
         operation(tx),
       ),
     };
-    const service = new AllocationsService(prisma as never);
+    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never);
 
     await expect(
       service.completeDeallocation('client-a', 'allocation-1'),
@@ -246,7 +247,7 @@ describe('deallocation completion safety gate', () => {
         operation(tx),
       ),
     };
-    const service = new AllocationsService(prisma as never);
+    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never);
 
     await expect(
       service.completeDeallocation('client-a', 'allocation-1'),
@@ -277,7 +278,7 @@ describe('deallocation completion safety gate', () => {
         operation(tx),
       ),
     };
-    const service = new AllocationsService(prisma as never);
+    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never);
 
     await expect(
       service.initiateDeallocation('client-a', 'allocation-1'),

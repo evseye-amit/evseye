@@ -1,3 +1,4 @@
+import { DeploymentCommercialService } from './deployment-commercial.service.js';
 import {
   ConflictException,
   Injectable,
@@ -19,7 +20,7 @@ import { RiderDocumentReviewService } from '../riders/rider-document-review.serv
 
 @Injectable()
 export class AllocationsService {
-  constructor(private readonly prisma: PrismaService, private readonly riderDocuments?: RiderDocumentReviewService) {}
+  constructor(private readonly prisma: PrismaService, private readonly commercial: DeploymentCommercialService, private readonly riderDocuments?: RiderDocumentReviewService) {}
   async list(clientId: string, query: ListAllocationsDto, hubIds?: string[]) {
     const where = {
       clientId,
@@ -149,6 +150,7 @@ export class AllocationsService {
           initiatedById: actorId,
           idempotencyKey,
           status: 'INSPECTION_PENDING',
+          ...(hold ? { rentalAgreementId: hold.agreementId } : {}),
         },
       });
       await tx.inspection.create({
@@ -207,6 +209,7 @@ export class AllocationsService {
   }
   async activate(clientId: string, allocationId: string) {
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Allocation" WHERE id = ${allocationId} AND "clientId" = ${clientId} FOR UPDATE`;
       const allocation = await tx.allocation.findFirst({
         where: {
           id: allocationId,
@@ -230,13 +233,15 @@ export class AllocationsService {
       if (!inspection)
         throw new ConflictException('Pre-allocation inspection is incomplete.');
 
+      const handedOverAt = new Date();
+      await this.commercial.activateInTransaction(tx, clientId, allocationId, handedOverAt);
       const activated = await tx.allocation.updateMany({
         where: {
           id: allocationId,
           clientId,
           status: AllocationStatus.OTP_PENDING,
         },
-        data: { status: AllocationStatus.ACTIVE, allocatedAt: new Date() },
+        data: { status: AllocationStatus.ACTIVE, allocatedAt: handedOverAt },
       });
       if (activated.count !== 1)
         throw new ConflictException(

@@ -225,7 +225,7 @@ describe.skipIf(!enabled)('final settlement in PostgreSQL', () => {
       const service = new FinalSettlementService(
         db as never,
         billing,
-        new RiderBillingEngineService(db as never),
+        new RiderBillingEngineService(db as never, new RiderPaymentsService(db as never)),
         new RiderPaymentsService(db as never),
         deposits,
         {} as never,

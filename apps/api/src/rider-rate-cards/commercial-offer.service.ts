@@ -14,6 +14,7 @@ import {
   batteryLine,
   chooseBaseRate,
   chooseDeposits,
+  chooseFees,
   decimal,
   feeLine,
   money,
@@ -28,6 +29,7 @@ import {
 const previewSchema = z
   .object({
     riderId: z.string().uuid(),
+    rateCardVersionId: z.string().uuid().optional(),
     vehicleId: z.string().uuid(),
     hubId: z.string().uuid().optional(),
     rentalPeriodType: z.enum([
@@ -74,7 +76,7 @@ export class CommercialOfferService {
   private readonly logger = new Logger(CommercialOfferService.name);
   constructor(private readonly prisma: PrismaService) {}
 
-  async calculate(clientId: string, raw: unknown, riderScoped = false) {
+  async calculate(clientId: string, raw: unknown, riderScoped = false, exchangeAgreementId?: string) {
     const parsed = previewSchema.safeParse(raw);
     if (!parsed.success)
       throw new UnprocessableEntityException({
@@ -82,6 +84,8 @@ export class CommercialOfferService {
         details: parsed.error.flatten(),
       });
     const input = parsed.data;
+    if (exchangeAgreementId && !(await this.prisma.riderRentalAgreement.findFirst({ where: { id: exchangeAgreementId, clientId, riderId: input.riderId, status: 'ACTIVE' }, select: { id: true } })))
+      fail('EXCHANGE_AGREEMENT_NOT_ACTIVE');
     const started = Date.now();
     const calculationId = randomUUID();
     const effectiveDate = new Date(
@@ -102,7 +106,7 @@ export class CommercialOfferService {
             allocations: {
               where: {
                 riderId: input.riderId,
-                status: { in: ['ACTIVE', 'INITIATED'] },
+                status: { in: ['ACTIVE', 'INITIATED', 'INSPECTION_PENDING', 'OTP_PENDING'] },
               },
               take: 1,
             },
@@ -142,7 +146,7 @@ export class CommercialOfferService {
         : null);
     const source =
       fleet.registration?.registrationDate ??
-      (fleet.manufacturingYear
+      (fleet.manufacturingYear && fleet.manufacturingMonth
         ? new Date(
             Date.UTC(
               fleet.manufacturingYear,
@@ -182,8 +186,8 @@ export class CommercialOfferService {
       ageSourceDate: source ? dateOnly(source) : null,
       grade: gradeRows[0]?.grade ?? null,
       country: hub?.country ?? null,
-      state: hub?.state ?? rider.state ?? null,
-      city: hub?.city ?? rider.city ?? null,
+      state: hub?.state ?? null,
+      city: hub?.city ?? null,
       zone:
         typeof (hub?.metadata as { zone?: unknown } | null)?.zone === 'string'
           ? (hub!.metadata as { zone: string }).zone
@@ -196,11 +200,12 @@ export class CommercialOfferService {
       effectiveDate,
     };
     const cards = await this.prisma.riderRateCard.findMany({
-      where: { clientId, status: 'ACTIVE' },
+      where: { clientId, status: 'ACTIVE', ...(input.rateCardVersionId ? { versions: { some: { id: input.rateCardVersionId, clientId } } } : {}) },
       include: {
         versions: {
           where: {
             clientId,
+            ...(input.rateCardVersionId ? { id: input.rateCardVersionId } : {}),
             status: 'ACTIVE',
             effectiveFrom: { lte: effectiveDate },
             OR: [{ effectiveTo: null }, { effectiveTo: { gt: effectiveDate } }],
@@ -418,14 +423,22 @@ export class CommercialOfferService {
       });
     if (base.rate.includedKm)
       includedServices.push(`${money(base.rate.includedKm)} KM included`);
-    for (const fee of version.fees
-      .filter((f) => f.isActive)
-      .sort((a, b) => a.code.localeCompare(b.code))) {
+    const feeDecisions: Array<{ ruleId: string; code: string; type: string; eligibility: string; included: boolean }> = [];
+    for (const fee of chooseFees(version.fees, facts)) {
       if (fee.currency !== card.currency)
         fail('COMMERCIAL_CONFIGURATION_INVALID');
+      if (exchangeAgreementId && fee.chargeType === 'ONBOARDING_FEE') {
+        feeDecisions.push({ ruleId: fee.id, code: fee.code, type: fee.chargeType, eligibility: fee.eligibility, included: false });
+        continue;
+      }
       if (fee.eligibility === 'MANUAL') continue;
-      if (fee.eligibility !== 'EVERY_NEW_AGREEMENT')
-        fail('FEE_ELIGIBILITY_HISTORY_UNAVAILABLE');
+      const prior = fee.eligibility === 'EVERY_NEW_AGREEMENT' ? false : Boolean(await this.prisma.riderRentalAgreement.findFirst({
+        where: { clientId, riderId: rider.id, status: { notIn: ['CANCELLED', 'PENDING_ACTIVATION'] },
+          ...(fee.eligibility === 'ONCE_PER_CLIENT_RIDER_RELATIONSHIP' ? { commercialVersions: { some: { pricingSnapshot: { path: ['feeDecisions'], array_contains: [{ type: fee.chargeType, included: true }] } } } } : {}),
+        }, select: { id: true },
+      }));
+      feeDecisions.push({ ruleId: fee.id, code: fee.code, type: fee.chargeType, eligibility: fee.eligibility, included: !prior });
+      if (prior) continue;
       const priced = feeLine(fee);
       const line = {
         type: fee.chargeType,
@@ -599,6 +612,7 @@ export class CommercialOfferService {
       adjustments,
       recurringCharges,
       oneTimeCharges,
+      feeDecisions,
       deposits,
       usageCharges,
       includedServices,
