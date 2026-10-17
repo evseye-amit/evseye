@@ -20,7 +20,7 @@ export class MobileDeploymentService {
     @Optional() private readonly referralQualification?: ReferralQualificationService,
   ) {}
 
-  private async trainingContents(clientId: string) {
+  private async trainingPolicy(clientId: string) {
     const today = new Date();
     const subscription = await this.prisma.clientSubscription.findFirst({
       where: {
@@ -48,7 +48,13 @@ export class MobileDeploymentService {
       },
     });
     if (!subscription) throw new BadRequestException('No active package is available for this Client.');
-    return subscription.package.features.flatMap((packageFeature) => packageFeature.feature.trainingContents);
+    return {
+      included: subscription.package.features.length > 0,
+      contents: subscription.package.features.flatMap((packageFeature) => packageFeature.feature.trainingContents),
+    };
+  }
+  private async trainingContents(clientId: string) {
+    return (await this.trainingPolicy(clientId)).contents;
   }
   private async workflow(clientId: string, allocationId: string) {
     const allocation = await this.prisma.allocation.findFirst({ where: { id: allocationId, clientId }, include: { rider: true, fleet: { include: { iotDevice: { include: { currentState: true } } } } } });
@@ -153,8 +159,13 @@ export class MobileDeploymentService {
   async riderCurrent(clientId: string, userId: string) {
     const rider = await this.prisma.rider.findFirst({ where: { clientId, userId, deletedAt: null }, select: { id: true } });
     if (!rider) return { screen: 'ONBOARDING' };
-    const allocation = await this.prisma.allocation.findFirst({ where: { clientId, riderId: rider.id, mobileDeployment: { isNot: null } }, orderBy: { updatedAt: 'desc' }, include: { fleet: true, mobileDeployment: true } });
+    let allocation = await this.prisma.allocation.findFirst({ where: { clientId, riderId: rider.id, mobileDeployment: { isNot: null } }, orderBy: { updatedAt: 'desc' }, include: { fleet: true, mobileDeployment: true } });
     if (!allocation?.mobileDeployment) return { screen: 'WAITING' };
+    if (allocation.mobileDeployment.status === MobileDeploymentStatus.TRAINING_PENDING && !(await this.trainingPolicy(clientId)).included) {
+      await this.completeTraining(clientId, userId, allocation.id);
+      allocation = await this.prisma.allocation.findFirst({ where: { id: allocation.id, clientId, riderId: rider.id }, include: { fleet: true, mobileDeployment: true } });
+      if (!allocation?.mobileDeployment) throw new NotFoundException('Deployment request not found.');
+    }
     const status = allocation.mobileDeployment.status;
     const screen = ({ PAYMENT_PENDING: 'PAYMENT', PDI_PENDING_RIDER: 'PDI', TRAINING_PENDING: 'TRAINING', DEVICE_PAIRING_PENDING: 'TRAINING', DEPLOYED: 'HOME' } as Record<string, string>)[status] ?? 'WAITING';
     const payment = await this.prisma.deploymentPayment.findUnique({ where: { workflowId: allocation.mobileDeployment.id } });
@@ -324,7 +335,12 @@ export class MobileDeploymentService {
       const voiceNotes = await this.prisma.photo.count({ where: { id: { in: voiceMediaIds }, clientId, entityType: PhotoEntityType.INSPECTION, entityId: evidence.inspection.id, photoType: { startsWith: 'PDI_VOICE_' }, status: PhotoStatus.COMPLETE } });
       if (voiceNotes !== voiceMediaIds.length) throw new BadRequestException('Each PDI voice remark must be a completed voice upload for this allocation.');
     }
-    return this.prisma.mobileDeploymentWorkflow.update({ where: { id: workflow.id }, data: { status: MobileDeploymentStatus.TRAINING_PENDING, riderPdiAcceptedAt: new Date(), riderPdiRemarksText: JSON.stringify(items), riderPdiVoicePhotoId: items.find((item) => item.voiceMediaId)?.voiceMediaId, pdiChecklist: items as never } });
+    const policy = await this.trainingPolicy(clientId);
+    const acceptance = { riderPdiAcceptedAt: new Date(), riderPdiRemarksText: JSON.stringify(items), riderPdiVoicePhotoId: items.find((item) => item.voiceMediaId)?.voiceMediaId, pdiChecklist: items as never };
+    if (policy.included) return this.prisma.mobileDeploymentWorkflow.update({ where: { id: workflow.id }, data: { ...acceptance, status: MobileDeploymentStatus.TRAINING_PENDING } });
+    const deployed = await this.prisma.$transaction(tx => this.completeDeployment(tx, clientId, allocationId, workflow.id, acceptance));
+    await this.referralAllocated(clientId, allocationId);
+    return deployed;
   }
   async training(clientId: string, userId: string, allocationId: string, locale: ApiLocale = 'en') {
     await this.assertRiderAllocation(clientId, userId, allocationId);
@@ -357,17 +373,18 @@ export class MobileDeploymentService {
     const { workflow } = await this.workflow(clientId, allocationId);
     if (workflow.status === MobileDeploymentStatus.DEPLOYED) return workflow;
     if (workflow.status !== MobileDeploymentStatus.TRAINING_PENDING && workflow.status !== MobileDeploymentStatus.DEVICE_PAIRING_PENDING) throw new BadRequestException('Training is not pending.');
+    let trainingCompletedAt = workflow.trainingCompletedAt;
     // Existing pairing-pending workflows have already completed their training.
     if (workflow.status !== MobileDeploymentStatus.DEVICE_PAIRING_PENDING || !workflow.trainingCompletedAt) {
-      const contents = await this.trainingContents(clientId);
-      const mandatory = contents.filter((content) => content.isMandatory).map((content) => content.code);
-      if (!mandatory.length) throw new BadRequestException('Mandatory Rider training has not been configured for the active package.');
+      const policy = await this.trainingPolicy(clientId);
+      const mandatory = policy.contents.filter((content) => content.isMandatory).map((content) => content.code);
       const viewed = Array.isArray(workflow.trainingViewedContentCodes) ? workflow.trainingViewedContentCodes.map(String) : [];
       const missing = mandatory.filter((code) => !viewed.includes(code));
       if (missing.length) throw new BadRequestException(`Complete mandatory training content first: ${missing.join(', ')}.`);
+      if (policy.included) trainingCompletedAt ??= new Date();
     }
     const deployed = await this.prisma.$transaction((tx) => this.completeDeployment(tx, clientId, allocationId, workflow.id, {
-      trainingCompletedAt: workflow.trainingCompletedAt ?? new Date(),
+      trainingCompletedAt,
     }));
     await this.referralAllocated(clientId, allocationId);
     return deployed;
