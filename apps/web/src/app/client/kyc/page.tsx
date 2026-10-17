@@ -22,7 +22,7 @@ type Verification = { id: string; riderId: string; verificationType: string; sta
   auditTimeline?: { id: string; action: string; actorId: string | null; createdAt: string }[] };
 type Provider = { id: string; name: string; code: string; status: string; environment: string; isActive: boolean;
   capabilities: { verificationType: string; isEnabled: boolean; timeoutMs: number; maxRetries: number }[] };
-type Overview = { total: number; byStatus: Record<string, number> };
+type Overview = { total: number; byStatus: Record<string, number>; riderKyc: { total: number; byStatus: Record<string, number> } };
 type Health = { status: string; recentRequests: number; successRate: number | null;
   failureRate: number | null; averageLatencyMs: number | null; lastSuccessAt: string | null; lastFailureAt: string | null };
 type CapabilityHealth = { provider: { id: string; name: string }; verificationType: string; status: string;
@@ -110,11 +110,19 @@ export default function KycAdministration() {
     {authorized && (tab === "workflows" || tab === "reviews" || tab === "definitions") && <WorkflowPanel view={tab} />}
     {authorized && tab === "routing" && <RoutingPanel />}
     {authorized && tab === "commercial" && <CommercialPanel canManage={canManagePolicy} />}
-    {!loading && authorized && tab === "overview" && overview && <section className="client-metrics" aria-label="KYC metrics">
+    {!loading && authorized && tab === "overview" && overview && <>
+    <h2>Rider KYC</h2><p>Each rider is counted once. Verification requires approval of all submitted onboarding documents and all required uploads.</p>
+    <section className="client-metrics" aria-label="Rider KYC metrics">
+      {(["Total", "VERIFIED", "PENDING", "FAILED", "NOT_STARTED"] as const).map(label =>
+        <article className="client-metric-card" key={label}><span>{label.replaceAll("_", " ")}</span>
+          <strong>{label === "Total" ? overview.riderKyc.total : overview.riderKyc.byStatus[label] ?? 0}</strong></article>)}
+    </section>
+    <h2>Provider verification requests</h2>
+    <section className="client-metrics" aria-label="Provider verification metrics">
       {(["Total", "VERIFIED", "FAILED", "PROCESSING", "OTP_REQUIRED", "MANUAL_REVIEW"] as const).map((label) =>
         <article className="client-metric-card" key={label}><span>{label.replaceAll("_", " ")}</span>
           <strong>{label === "Total" ? overview.total : overview.byStatus[label] ?? 0}</strong></article>)}
-    </section>}
+    </section></>}
     {!loading && authorized && tab === "providers" && <section><h2>Providers</h2>
       {providers.length === 0 ? <p>No providers configured.</p> : providers.map((provider) =>
         <article key={provider.id} className="client-metric-card" style={{ marginBottom: "1rem" }}>

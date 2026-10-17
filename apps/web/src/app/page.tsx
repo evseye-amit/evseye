@@ -2972,6 +2972,9 @@ export default function Home() {
               </form>
             )}
             <h3>KYC</h3>
+            <p>Overall KYC: <Status value={String(riderDetail.kycStatus ?? "NOT_STARTED")} /></p>
+            <p className="muted">All required documents must be uploaded and all submitted documents approved.</p>
+            <h4>Provider checks</h4>
             <div className="inspection-summary">
               {((riderDetail.kycs as RecordItem[]) ?? []).map((kyc) => (
                 <span key={String(kyc.id)}>
