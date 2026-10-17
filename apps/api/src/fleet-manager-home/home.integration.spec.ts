@@ -1,3 +1,4 @@
+import { RiderKycStatusService } from '../riders/rider-kyc-status.service.js';
 import { RiderDocumentReviewService } from '../riders/rider-document-review.service.js';
 import { MediaService } from '../media/media.service.js';
 import { fleetManagerVisibleSubjects } from '../rider-access/rider-hub-policy.js';
@@ -434,6 +435,7 @@ describe.skipIf(!url)('Fleet Manager home in PostgreSQL', () => {
     {
       getEffectiveConfiguration: async () => ({ onboarding: { steps: [] } }),
     } as never,
+    new RiderKycStatusService(db as never, { getEffectiveConfiguration: async () => ({ onboarding: { steps: [] } }) } as never),
   );
   const media = new MediaService(
     db as never,

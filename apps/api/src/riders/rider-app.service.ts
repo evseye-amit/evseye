@@ -10,11 +10,12 @@ import { ReferralService } from '../referrals/referral.service.js';
 import { ReferralQualificationService } from '../referrals/referral-qualification.service.js';
 import { homeDates } from '../fleet-manager-home/home-metrics.js';
 import { parseSnapshot } from '../rider-rate-cards/commercial-snapshot.js';
+import { RiderKycStatusService } from './rider-kyc-status.service.js';
 
 @Injectable()
 export class RiderAppService {
   private readonly logger = new Logger(RiderAppService.name);
-  constructor(private readonly prisma: PrismaService, private readonly configuration: RiderOnboardingConfigurationService, private readonly media: MediaService, @Optional() private readonly referrals?: ReferralService, @Optional() private readonly referralQualification?: ReferralQualificationService) {}
+  constructor(private readonly prisma: PrismaService, private readonly configuration: RiderOnboardingConfigurationService, private readonly media: MediaService, private readonly kyc: RiderKycStatusService, @Optional() private readonly referrals?: ReferralService, @Optional() private readonly referralQualification?: ReferralQualificationService) {}
 
   async enroll(companyCode: string, phone: string) {
     const client = await this.prisma.client.findFirst({ where: { companyCode, isActive: true, status: 'ACTIVE' }, select: { id: true } });
@@ -35,7 +36,7 @@ export class RiderAppService {
     const skipped = new Set((progress.skippedStepIds as string[]) ?? []);
     const documents = await this.prisma.riderOnboardingDocument.findMany({
       where: { clientId, userId, supersededAt: null },
-      select: { fieldCode: true, status: true, rejectionReason: true, updatedAt: true },
+      select: { fieldCode: true, status: true, rejectionReason: true, updatedAt: true, reviewedAt: true },
     });
     const publicConfiguration = this.configuration.toPublicConfiguration(configuration, locale);
     const fields = publicConfiguration.onboarding.steps.flatMap((step) =>
@@ -66,6 +67,7 @@ export class RiderAppService {
           : 'ONBOARDING';
     return {
       ...publicConfiguration,
+      ...await this.kyc.forUser(clientId, userId, configuration.onboarding.steps.flatMap(step => step.fields)),
       screen,
       documentReview: { documents, rejected, pendingCount },
       progress: {
@@ -240,6 +242,7 @@ export class RiderAppService {
       ? (await this.configuration.validateAndMapValues(clientId, storedValues, 'CREATE', {}, { requireAll: false })).data
       : {};
     await this.prisma.$transaction(async (tx) => {
+      await this.kyc.lockUser(tx, clientId, userId);
       await tx.riderOnboardingProgress.update({ where: { userId }, data: { values: merged as Prisma.InputJsonValue, completedStepIds: [...completed], skippedStepIds: [...skipped], ...(allFinished ? { completedAt: new Date() } : {}) } });
       // Keep the account name useful while the remaining onboarding steps are pending.
       const nameField = effective.onboarding.steps.flatMap((item) => item.fields).find((field) => field.storageKey === 'name');
@@ -260,6 +263,7 @@ export class RiderAppService {
         await tx.riderOnboardingDocument.updateMany({ where: { clientId, userId, riderId: null }, data: { riderId: rider.id } });
         await tx.user.update({ where: { id: userId }, data: { name: data.name as string } });
       }
+      if (allFinished) await this.kyc.sync(tx, clientId, userId, effective.onboarding.steps.flatMap(step => step.fields));
     });
     if (allFinished && this.referrals && this.referralQualification) {
       const rider = await this.prisma.rider.findUnique({ where: { userId }, select: { id: true } });
@@ -318,10 +322,14 @@ export class RiderAppService {
     const fieldCode = photo.photoType.slice('RIDER_DOCUMENT_'.length);
     const { field } = await this.uploadField(clientId, userId, fieldCode);
     const completed = await this.media.complete(clientId, photoId);
-    const rider = await this.prisma.rider.findUnique({ where: { userId }, select: { id: true } });
+    const fields = await this.kyc.fields(clientId);
     const document = await this.prisma.$transaction(async (tx) => {
+      await this.kyc.lockUser(tx, clientId, userId);
+      const rider = await tx.rider.findFirst({ where: { clientId, userId, deletedAt: null }, select: { id: true } });
       await tx.riderOnboardingDocument.updateMany({ where: { clientId, userId, fieldCode, supersededAt: null }, data: { status: RiderDocumentReviewStatus.SUPERSEDED, supersededAt: new Date() } });
-      return tx.riderOnboardingDocument.create({ data: { clientId, userId, riderId: rider?.id, featureId: field.featureId, fieldCode, photoId: completed.id } });
+      const document = await tx.riderOnboardingDocument.create({ data: { clientId, userId, riderId: rider?.id, featureId: field.featureId, fieldCode, photoId: completed.id } });
+      await this.kyc.sync(tx, clientId, userId, fields);
+      return document;
     });
     return { photo: completed, document };
   }

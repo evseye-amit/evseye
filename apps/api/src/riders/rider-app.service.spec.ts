@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { RiderAppService } from './rider-app.service.js';
 import { RiderOnboardingConfigurationService } from './rider-onboarding-configuration.service.js';
 
+const kyc = { lockUser: vi.fn(), sync: vi.fn().mockResolvedValue({ kycStatus: 'NOT_STARTED', kycVerifiedAt: null }) };
+
 const configuration = {
   package: { id: 'package-1', code: 'BASIC', name: 'Basic' },
   onboarding: {
@@ -51,7 +53,7 @@ function createService() {
   };
   const resolver = new RiderOnboardingConfigurationService(prisma as never, {} as never);
   vi.spyOn(resolver, 'getEffectiveConfiguration').mockResolvedValue(configuration as never);
-  const service = new RiderAppService(prisma as never, resolver, {} as never);
+  const service = new RiderAppService(prisma as never, resolver, {} as never, kyc as never);
   vi.spyOn(service, 'onboarding').mockResolvedValue({ screen: 'WAITING_FOR_FLEET' } as never);
   return { service, prisma, transaction, resolver };
 }
@@ -73,7 +75,7 @@ function createHomeService() {
     allocation: { findFirst: vi.fn() },
     riderRentalAgreement: { findFirst: vi.fn() },
   };
-  const service = new RiderAppService(prisma as never, {} as never, {} as never);
+  const service = new RiderAppService(prisma as never, {} as never, {} as never, kyc as never);
   return { service, prisma };
 }
 
@@ -249,6 +251,8 @@ describe('RiderAppService.saveStep', () => {
     expect(transaction.rider.create).toHaveBeenCalledWith({ data: expect.objectContaining({
       name: 'Aman Singh', mobile: '+916573838383', dateOfBirth: new Date('2002-01-22T00:00:00.000Z'),
     }) });
+    expect(kyc.lockUser).toHaveBeenCalledWith(transaction, 'client-1', 'user-1');
+    expect(kyc.sync).toHaveBeenCalledWith(transaction, 'client-1', 'user-1', configuration.onboarding.steps[0].fields);
   });
 
   it('rejects an invalid birth date before saving onboarding progress', async () => {
@@ -297,7 +301,7 @@ describe('RiderAppService.saveStep', () => {
       }] },
     } as never);
     const resolveInput = vi.fn().mockResolvedValue({ referralCode: 'EVS-ABCDEFGH' });
-    const service = new RiderAppService(prisma as never, resolver, {} as never, { attribute, resolveInput } as never);
+    const service = new RiderAppService(prisma as never, resolver, {} as never, kyc as never, { attribute, resolveInput } as never);
     vi.spyOn(service, 'onboarding').mockResolvedValue({ screen: 'WAITING_FOR_FLEET' } as never);
     await service.saveStep('client-1', 'user-1', 'step-1', {
       FULL_NAME: 'Aman Singh', MOBILE_NUMBER: '6573838383', REFERRAL_CODE: 'evs-abcdefgh',
@@ -318,7 +322,7 @@ describe('RiderAppService.saveStep', () => {
     } as never);
     const attribute = vi.fn().mockResolvedValue({ attributed: true });
     const resolveInput = vi.fn().mockResolvedValue({ referralCode: 'EVS-ABCDEFGH' });
-    const service = new RiderAppService(prisma as never, resolver, {} as never, { attribute, resolveInput } as never);
+    const service = new RiderAppService(prisma as never, resolver, {} as never, kyc as never, { attribute, resolveInput } as never);
     vi.spyOn(service, 'onboarding').mockResolvedValue({ screen: 'WAITING_FOR_FLEET' } as never);
     const link = 'https://example.test/rider/referral?code=EVS-ABCDEFGH&invite=token-123&campaign=RIDER_BONUS';
     await service.saveStep('client-1', 'user-1', 'step-1', {

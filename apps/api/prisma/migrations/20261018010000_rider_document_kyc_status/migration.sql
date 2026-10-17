@@ -1,0 +1,3 @@
+ALTER TABLE "Rider"
+  ADD COLUMN "kycStatus" "KycStatus" NOT NULL DEFAULT 'NOT_STARTED',
+  ADD COLUMN "kycVerifiedAt" TIMESTAMP(3);

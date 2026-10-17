@@ -8,20 +8,23 @@ import { RolesGuard } from '../../auth/guards/roles.guard.js';
 import type { AuthUser } from '../../auth/interfaces/auth-user.interface.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { ProviderRegistryService } from './provider-registry.service.js';
+import { RiderKycStatusService } from '../../riders/rider-kyc-status.service.js';
 
 @Controller('kyc/admin')
 @UseGuards(AccessTokenGuard, RolesGuard)
 @Roles(UserRole.CLIENT_ADMIN, UserRole.KYC_OPERATOR)
 export class VerificationAdminController {
   constructor(private readonly prisma: PrismaService, private readonly clients: ClientContextService,
-    private readonly registry: ProviderRegistryService) {}
+    private readonly registry: ProviderRegistryService, private readonly riderKyc: RiderKycStatusService) {}
 
   @Get('overview')
   async overview(@CurrentUser() user: AuthUser) {
     const clientId = this.clients.requireClientId(user);
     const groups = await this.prisma.kycVerification.groupBy({ by: ['status'], where: { clientId }, _count: { _all: true } });
+    const riderKyc = await this.riderKyc.summary(clientId);
     return { data: { total: groups.reduce((sum, group) => sum + group._count._all, 0),
-      byStatus: Object.fromEntries(groups.map((group) => [group.status, group._count._all])) } };
+      byStatus: Object.fromEntries(groups.map((group) => [group.status, group._count._all])),
+      riderKyc: { total: Object.values(riderKyc).reduce((sum, count) => sum + count, 0), byStatus: riderKyc } } };
   }
 
   @Get('providers')

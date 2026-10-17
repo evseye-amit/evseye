@@ -1953,6 +1953,8 @@ model Rider {
   emergencyContactName    String?                    @db.VarChar(150)
   emergencyContactMobile  String?                    @db.VarChar(20)
   status                  RiderStatus                @default(ONBOARDING)
+  kycStatus               KycStatus                  @default(NOT_STARTED)
+  kycVerifiedAt           DateTime?
   joiningDate             DateTime?                  @db.Date
   exitDate                DateTime?                  @db.Date
   metadata                Json?

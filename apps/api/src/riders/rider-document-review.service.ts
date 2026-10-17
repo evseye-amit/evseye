@@ -9,12 +9,14 @@ import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RiderOnboardingConfigurationService } from './rider-onboarding-configuration.service.js';
 import type { ListRiderDocumentsDto } from './dto/rider-document.dto.js';
+import { RiderKycStatusService } from './rider-kyc-status.service.js';
 
 @Injectable()
 export class RiderDocumentReviewService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configuration: RiderOnboardingConfigurationService,
+    private readonly kyc: RiderKycStatusService,
   ) {}
 
   async list(clientId: string, query: ListRiderDocumentsDto, actor?: AuthUser) {
@@ -117,16 +119,7 @@ export class RiderDocumentReviewService {
     id: string,
     actor?: AuthUser,
   ) {
-    await this.assertPending(clientId, id, actor);
-    return this.prisma.riderOnboardingDocument.update({
-      where: { id },
-      data: {
-        status: RiderDocumentReviewStatus.APPROVED,
-        rejectionReason: null,
-        reviewedById: reviewerId,
-        reviewedAt: new Date(),
-      },
-    });
+    return this.review(clientId, reviewerId, id, RiderDocumentReviewStatus.APPROVED, null, actor);
   }
 
   async reject(
@@ -138,15 +131,22 @@ export class RiderDocumentReviewService {
   ) {
     if (!rejectionReason.trim())
       throw new BadRequestException('A rejection reason is required.');
-    await this.assertPending(clientId, id, actor);
-    return this.prisma.riderOnboardingDocument.update({
-      where: { id },
-      data: {
-        status: RiderDocumentReviewStatus.REJECTED,
-        rejectionReason: rejectionReason.trim(),
-        reviewedById: reviewerId,
-        reviewedAt: new Date(),
-      },
+    return this.review(clientId, reviewerId, id, RiderDocumentReviewStatus.REJECTED, rejectionReason.trim(), actor);
+  }
+
+  private async review(clientId: string, reviewerId: string, id: string, status: RiderDocumentReviewStatus, rejectionReason: string | null, actor?: AuthUser) {
+    const pending = await this.assertPending(clientId, id, actor);
+    const fields = await this.kyc.fields(clientId);
+    return this.prisma.$transaction(async tx => {
+      await this.kyc.lockUser(tx, clientId, pending.userId);
+      const updated = await tx.riderOnboardingDocument.updateMany({
+        where: { id, clientId, userId: pending.userId, supersededAt: null, status: RiderDocumentReviewStatus.PENDING },
+        data: { status, rejectionReason, reviewedById: reviewerId, reviewedAt: new Date() },
+      });
+      if (updated.count !== 1) throw new BadRequestException('Only pending documents can be reviewed.');
+      const document = await tx.riderOnboardingDocument.findUniqueOrThrow({ where: { id } });
+      const kyc = await this.kyc.sync(tx, clientId, pending.userId, fields);
+      return { ...document, ...kyc };
     });
   }
 
@@ -270,10 +270,11 @@ export class RiderDocumentReviewService {
         supersededAt: null,
         ...(userIds ? { userId: { in: userIds } } : {}),
       },
-      select: { status: true },
+      select: { status: true, userId: true },
     });
     if (!document) throw new NotFoundException('Rider document not found.');
     if (document.status !== RiderDocumentReviewStatus.PENDING)
       throw new BadRequestException('Only pending documents can be reviewed.');
+    return document;
   }
 }
