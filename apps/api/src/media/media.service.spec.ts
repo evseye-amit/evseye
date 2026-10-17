@@ -6,8 +6,17 @@ describe('MediaService photo requirements', () => {
   it('keeps support attachments on the dedicated support routes', async () => {
     const service = new MediaService({} as never, {} as never);
 
-    await expect(service.requirements('client-a', PhotoEntityType.SUPPORT_TICKET)).rejects.toThrow('Support attachments use the support ticket routes.');
-    await expect(service.upsertRequirement('client-a', PhotoEntityType.SUPPORT_TICKET, 'CHAT', { isRequired: false })).rejects.toThrow('Support attachments use the support ticket routes.');
+    await expect(
+      service.requirements('client-a', PhotoEntityType.SUPPORT_TICKET),
+    ).rejects.toThrow('Support attachments use the support ticket routes.');
+    await expect(
+      service.upsertRequirement(
+        'client-a',
+        PhotoEntityType.SUPPORT_TICKET,
+        'CHAT',
+        { isRequired: false },
+      ),
+    ).rejects.toThrow('Support attachments use the support ticket routes.');
   });
 
   it('queries configurable requirements within the caller client only', async () => {
@@ -135,41 +144,50 @@ describe('MediaService fleet-manager rider scope', () => {
 
   function setup(photo: Record<string, unknown>) {
     const findFirst = vi.fn().mockResolvedValue({ id: 'rider-1' });
-    const riderFindMany = vi.fn().mockResolvedValue([{ id: 'rider-1' }]);
+    const visibleSubjects = vi
+      .fn()
+      .mockResolvedValue([{ riderId: 'rider-1', userId: 'user-1' }]);
     const findMany = vi.fn().mockResolvedValue([photo]);
     const photoFindFirst = vi.fn().mockResolvedValue(photo);
-    const createDownloadUrl = vi.fn().mockResolvedValue('https://storage.example/photo');
+    const createDownloadUrl = vi
+      .fn()
+      .mockResolvedValue('https://storage.example/photo');
     const prisma = {
+      $queryRaw: visibleSubjects,
       userHub: { findMany: vi.fn().mockResolvedValue([{ hubId: 'hub-1' }]) },
-      rider: { findFirst, findMany: riderFindMany },
+      rider: { findFirst },
       fleet: { findFirst },
       riderOnboardingProgress: { findFirst },
-      riderOnboardingDocument: { findFirst: vi.fn().mockResolvedValue({ riderId: 'rider-1' }) },
+      riderOnboardingDocument: {
+        findFirst: vi.fn().mockResolvedValue({ riderId: 'rider-1' }),
+      },
       photo: { findMany, findFirst: photoFindFirst },
     };
-    const service = new MediaService(prisma as never, { createDownloadUrl } as never);
-    return { prisma, findMany, photoFindFirst, riderFindMany, createDownloadUrl, service };
+    const service = new MediaService(
+      prisma as never,
+      { createDownloadUrl } as never,
+    );
+    return {
+      prisma,
+      findMany,
+      photoFindFirst,
+      visibleSubjects,
+      createDownloadUrl,
+      service,
+    };
   }
 
-  it('lists rider photos only for riders assigned to an assigned hub', async () => {
+  it('lists rider photos for subjects permitted by the shared rider policy', async () => {
     const { service, findMany, prisma } = setup({ id: 'photo-1' });
 
-    await service.listEntityPhotos('client-a', PhotoEntityType.RIDER, 'rider-1', manager);
+    await service.listEntityPhotos(
+      'client-a',
+      PhotoEntityType.RIDER,
+      'rider-1',
+      manager,
+    );
 
-    expect(prisma.rider.findMany).toHaveBeenCalledWith({
-      where: {
-        clientId: 'client-a',
-        deletedAt: null,
-        user: {
-          is: {
-            hubAssignments: {
-              some: { clientId: 'client-a', hubId: { in: ['hub-1'] } },
-            },
-          },
-        },
-      },
-      select: { id: true },
-    });
+    expect(prisma.$queryRaw).toHaveBeenCalled();
     expect(findMany).toHaveBeenCalledWith({
       where: {
         clientId: 'client-a',
@@ -182,13 +200,23 @@ describe('MediaService fleet-manager rider scope', () => {
 
   it('rejects rider photos outside assigned hubs but preserves non-rider metadata listing', async () => {
     const { service, prisma } = setup({ id: 'photo-1' });
-    prisma.rider.findMany = vi.fn().mockResolvedValue([]);
+    prisma.$queryRaw.mockResolvedValue([]);
 
     await expect(
-      service.listEntityPhotos('client-a', PhotoEntityType.RIDER, 'rider-1', manager),
+      service.listEntityPhotos(
+        'client-a',
+        PhotoEntityType.RIDER,
+        'rider-1',
+        manager,
+      ),
     ).rejects.toThrow('Media entity not found.');
     await expect(
-      service.listEntityPhotos('client-a', PhotoEntityType.FLEET, 'fleet-1', manager),
+      service.listEntityPhotos(
+        'client-a',
+        PhotoEntityType.FLEET,
+        'fleet-1',
+        manager,
+      ),
     ).resolves.toEqual([{ id: 'photo-1' }]);
   });
 
@@ -202,7 +230,9 @@ describe('MediaService fleet-manager rider scope', () => {
       objectKey: 'clients/client-a/fleet/fleet-1/photo.jpg',
     });
 
-    await expect(service.downloadUrl('client-a', 'photo-1', manager)).rejects.toThrow('Photo not found.');
+    await expect(
+      service.downloadUrl('client-a', 'photo-1', manager),
+    ).rejects.toThrow('Photo not found.');
     expect(createDownloadUrl).not.toHaveBeenCalled();
   });
 
@@ -218,10 +248,12 @@ describe('MediaService fleet-manager rider scope', () => {
     };
     const { service, createDownloadUrl, prisma } = setup(photo);
 
-    await expect(service.downloadUrl('client-a', 'photo-1', manager)).resolves.toEqual({
+    await expect(
+      service.downloadUrl('client-a', 'photo-1', manager),
+    ).resolves.toEqual({
       url: 'https://storage.example/photo',
     });
-    expect(prisma.rider.findMany).toHaveBeenCalled();
+    expect(prisma.$queryRaw).toHaveBeenCalled();
     expect(createDownloadUrl).toHaveBeenCalledWith(photo.objectKey);
   });
 
@@ -234,13 +266,20 @@ describe('MediaService fleet-manager rider scope', () => {
       status: 'COMPLETE',
       objectKey: 'clients/client-a/fleet/fleet-1/photo.jpg',
     });
-    const dualRoleUser = { ...manager, roles: [UserRole.FLEET_MANAGER, UserRole.CLIENT_ADMIN] };
+    const dualRoleUser = {
+      ...manager,
+      roles: [UserRole.FLEET_MANAGER, UserRole.CLIENT_ADMIN],
+    };
 
-    await expect(service.downloadUrl('client-a', 'photo-1', dualRoleUser)).resolves.toEqual({
+    await expect(
+      service.downloadUrl('client-a', 'photo-1', dualRoleUser),
+    ).resolves.toEqual({
       url: 'https://storage.example/photo',
     });
-    expect(prisma.rider.findMany).not.toHaveBeenCalled();
-    expect(createDownloadUrl).toHaveBeenCalledWith('clients/client-a/fleet/fleet-1/photo.jpg');
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    expect(createDownloadUrl).toHaveBeenCalledWith(
+      'clients/client-a/fleet/fleet-1/photo.jpg',
+    );
   });
 
   it('keeps broad media access for a fleet manager with an existing KYC-operator role', async () => {
@@ -252,13 +291,20 @@ describe('MediaService fleet-manager rider scope', () => {
       status: 'COMPLETE',
       objectKey: 'clients/client-a/fleet/fleet-1/photo.jpg',
     });
-    const dualRoleUser = { ...manager, roles: [UserRole.FLEET_MANAGER, UserRole.KYC_OPERATOR] };
+    const dualRoleUser = {
+      ...manager,
+      roles: [UserRole.FLEET_MANAGER, UserRole.KYC_OPERATOR],
+    };
 
-    await expect(service.downloadUrl('client-a', 'photo-1', dualRoleUser)).resolves.toEqual({
+    await expect(
+      service.downloadUrl('client-a', 'photo-1', dualRoleUser),
+    ).resolves.toEqual({
       url: 'https://storage.example/photo',
     });
-    expect(prisma.rider.findMany).not.toHaveBeenCalled();
-    expect(createDownloadUrl).toHaveBeenCalledWith('clients/client-a/fleet/fleet-1/photo.jpg');
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    expect(createDownloadUrl).toHaveBeenCalledWith(
+      'clients/client-a/fleet/fleet-1/photo.jpg',
+    );
   });
 
   it('rejects rider photos when the fleet manager has no assigned hubs', async () => {
@@ -266,8 +312,13 @@ describe('MediaService fleet-manager rider scope', () => {
     prisma.userHub.findMany = vi.fn().mockResolvedValue([]);
 
     await expect(
-      service.listEntityPhotos('client-a', PhotoEntityType.RIDER, 'rider-1', manager),
+      service.listEntityPhotos(
+        'client-a',
+        PhotoEntityType.RIDER,
+        'rider-1',
+        manager,
+      ),
     ).rejects.toThrow('Media entity not found.');
-    expect(prisma.rider.findMany).not.toHaveBeenCalled();
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
   });
 });
