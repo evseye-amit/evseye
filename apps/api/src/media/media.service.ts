@@ -1,3 +1,4 @@
+import { fleetManagerVisibleSubjects } from '../rider-access/rider-hub-policy.js';
 import {
   BadRequestException,
   ForbiddenException,
@@ -5,8 +6,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PhotoEntityType, PhotoStatus } from '@prisma/client';
+import { PhotoEntityType, PhotoStatus, UserRole } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
+import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CreateUploadIntentDto } from './dto/create-upload-intent.dto.js';
 import {
@@ -27,7 +29,9 @@ export class MediaService {
     dto: CreateUploadIntentDto,
   ) {
     if ((dto.entityType as string) === PhotoEntityType.SUPPORT_TICKET)
-      throw new ForbiddenException('Support attachments use the support ticket routes.');
+      throw new ForbiddenException(
+        'Support attachments use the support ticket routes.',
+      );
     return this.createUploadIntentForEntity(
       clientId,
       uploadedById,
@@ -94,7 +98,9 @@ export class MediaService {
 
   async requirements(clientId: string, entityType: PhotoEntityType) {
     if (entityType === PhotoEntityType.SUPPORT_TICKET)
-      throw new ForbiddenException('Support attachments use the support ticket routes.');
+      throw new ForbiddenException(
+        'Support attachments use the support ticket routes.',
+      );
     return this.prisma.photoRequirement.findMany({
       where: { clientId, entityType },
       orderBy: [{ isRequired: 'desc' }, { photoType: 'asc' }],
@@ -105,10 +111,19 @@ export class MediaService {
     clientId: string,
     entityType: PhotoEntityType,
     entityId: string,
+    actor?: AuthUser,
   ) {
     if (entityType === PhotoEntityType.SUPPORT_TICKET)
-      throw new ForbiddenException('Support attachments use the support ticket routes.');
+      throw new ForbiddenException(
+        'Support attachments use the support ticket routes.',
+      );
     await this.assertEntityOwnership(clientId, entityType, entityId);
+    await this.assertFleetManagerEntityAccess(
+      clientId,
+      actor,
+      entityType,
+      entityId,
+    );
     return this.prisma.photo.findMany({
       where: { clientId, entityType, entityId },
       orderBy: { uploadedAt: 'asc' },
@@ -122,7 +137,9 @@ export class MediaService {
     input: { isRequired: boolean; sortOrder?: number },
   ) {
     if (entityType === PhotoEntityType.SUPPORT_TICKET)
-      throw new ForbiddenException('Support attachments use the support ticket routes.');
+      throw new ForbiddenException(
+        'Support attachments use the support ticket routes.',
+      );
     return this.prisma.photoRequirement.upsert({
       where: {
         clientId_entityType_photoType: { clientId, entityType, photoType },
@@ -146,18 +163,26 @@ export class MediaService {
   async complete(clientId: string, photoId: string) {
     const photo = await this.getPhoto(clientId, photoId);
     if (photo.entityType === PhotoEntityType.SUPPORT_TICKET)
-      throw new ForbiddenException('Support attachments use the support ticket routes.');
+      throw new ForbiddenException(
+        'Support attachments use the support ticket routes.',
+      );
     return this.completePhoto(clientId, photo);
   }
 
   async completeSupport(clientId: string, ticketId: string, photoId: string) {
     const photo = await this.getPhoto(clientId, photoId);
-    if (photo.entityType !== PhotoEntityType.SUPPORT_TICKET || photo.entityId !== ticketId)
+    if (
+      photo.entityType !== PhotoEntityType.SUPPORT_TICKET ||
+      photo.entityId !== ticketId
+    )
       throw new NotFoundException('Support attachment not found.');
     return this.completePhoto(clientId, photo);
   }
 
-  private async completePhoto(clientId: string, photo: Awaited<ReturnType<MediaService['getPhoto']>>) {
+  private async completePhoto(
+    clientId: string,
+    photo: Awaited<ReturnType<MediaService['getPhoto']>>,
+  ) {
     if (photo.status !== PhotoStatus.PENDING_UPLOAD) {
       throw new BadRequestException('Photo is not awaiting upload completion.');
     }
@@ -185,21 +210,33 @@ export class MediaService {
     });
   }
 
-  async downloadUrl(clientId: string, photoId: string) {
+  async downloadUrl(clientId: string, photoId: string, actor?: AuthUser) {
     const photo = await this.getPhoto(clientId, photoId);
+    await this.assertFleetManagerPhotoAccess(clientId, actor, photo);
     if (photo.entityType === PhotoEntityType.SUPPORT_TICKET)
-      throw new ForbiddenException('Support attachments use the support ticket routes.');
+      throw new ForbiddenException(
+        'Support attachments use the support ticket routes.',
+      );
     return this.downloadPhoto(photo);
   }
 
-  async supportDownloadUrl(clientId: string, ticketId: string, photoId: string) {
+  async supportDownloadUrl(
+    clientId: string,
+    ticketId: string,
+    photoId: string,
+  ) {
     const photo = await this.getPhoto(clientId, photoId);
-    if (photo.entityType !== PhotoEntityType.SUPPORT_TICKET || photo.entityId !== ticketId)
+    if (
+      photo.entityType !== PhotoEntityType.SUPPORT_TICKET ||
+      photo.entityId !== ticketId
+    )
       throw new NotFoundException('Support attachment not found.');
     return this.downloadPhoto(photo);
   }
 
-  private async downloadPhoto(photo: Awaited<ReturnType<MediaService['getPhoto']>>) {
+  private async downloadPhoto(
+    photo: Awaited<ReturnType<MediaService['getPhoto']>>,
+  ) {
     if (photo.status !== PhotoStatus.COMPLETE) {
       throw new BadRequestException('Photo is not available.');
     }
@@ -214,6 +251,110 @@ export class MediaService {
       throw new NotFoundException('Photo not found.');
     }
     return photo;
+  }
+
+  private fleetScoped(actor?: AuthUser) {
+    return Boolean(
+      actor?.roles.includes(UserRole.FLEET_MANAGER) &&
+      !actor.roles.some(
+        (role) =>
+          role === UserRole.CLIENT_ADMIN ||
+          role === UserRole.OPERATIONS_MANAGER ||
+          role === UserRole.KYC_OPERATOR,
+      ),
+    );
+  }
+
+  private async assertFleetManagerEntityAccess(
+    clientId: string,
+    actor: AuthUser | undefined,
+    entityType: PhotoEntityType,
+    entityId: string,
+  ) {
+    if (!actor || !this.fleetScoped(actor)) return;
+    if (
+      entityType !== PhotoEntityType.RIDER &&
+      entityType !== PhotoEntityType.RIDER_ONBOARDING
+    )
+      return;
+    const visible = await fleetManagerVisibleSubjects(
+      this.prisma,
+      clientId,
+      actor.id,
+    );
+    const allowed =
+      entityType === PhotoEntityType.RIDER
+        ? visible.riderIds.includes(entityId)
+        : await this.visibleOnboardingProgress(
+            clientId,
+            entityId,
+            visible.userIds,
+          );
+    if (!allowed) throw new NotFoundException('Media entity not found.');
+  }
+
+  private async visibleOnboardingProgress(
+    clientId: string,
+    progressId: string,
+    userIds: string[],
+  ) {
+    if (!userIds.length) return false;
+    return !!(await this.prisma.riderOnboardingProgress.findFirst({
+      where: { id: progressId, clientId, userId: { in: userIds } },
+      select: { id: true },
+    }));
+  }
+
+  private async assertFleetManagerPhotoAccess(
+    clientId: string,
+    actor: AuthUser | undefined,
+    photo: { entityType: PhotoEntityType; entityId: string; id: string },
+  ) {
+    if (!actor || !this.fleetScoped(actor)) return;
+    if (photo.entityType === PhotoEntityType.INSPECTION) {
+      const hubs = await this.prisma.userHub.findMany({
+        where: {
+          clientId,
+          userId: actor.id,
+          hub: { clientId, status: 'ACTIVE', deletedAt: null },
+        },
+        select: { hubId: true },
+      });
+      const inspection = await this.prisma.inspection.findFirst({
+        where: {
+          id: photo.entityId,
+          clientId,
+          allocation: {
+            clientId,
+            fleet: {
+              clientId,
+              deletedAt: null,
+              currentHubId: { in: hubs.map((hub) => hub.hubId) },
+            },
+          },
+        },
+        select: { id: true },
+      });
+      if (!inspection) throw new NotFoundException('Photo not found.');
+      return;
+    }
+    if (
+      photo.entityType !== PhotoEntityType.RIDER &&
+      photo.entityType !== PhotoEntityType.RIDER_ONBOARDING
+    )
+      throw new NotFoundException('Photo not found.');
+    try {
+      await this.assertFleetManagerEntityAccess(
+        clientId,
+        actor,
+        photo.entityType,
+        photo.entityId,
+      );
+    } catch (error) {
+      if (error instanceof NotFoundException)
+        throw new NotFoundException('Photo not found.');
+      throw error;
+    }
   }
 
   private async assertEntityOwnership(
@@ -283,9 +424,16 @@ export class MediaService {
 
   private extensionFor(mimeType: string): string {
     return (
-      { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'application/pdf': 'pdf', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/wav': 'wav', 'audio/ogg': 'ogg' }[
-        mimeType
-      ] ?? 'invalid'
+      {
+        'image/jpeg': 'jpg',
+        'image/png': 'png',
+        'image/webp': 'webp',
+        'application/pdf': 'pdf',
+        'audio/mpeg': 'mp3',
+        'audio/mp4': 'm4a',
+        'audio/wav': 'wav',
+        'audio/ogg': 'ogg',
+      }[mimeType] ?? 'invalid'
     );
   }
 }

@@ -1,3 +1,7 @@
+import {
+  riderHubExpression,
+  visibleRiderHub,
+} from '../rider-access/rider-hub-policy.js';
 import { Prisma } from '@prisma/client';
 
 export const HOME_TIMEZONE = 'Asia/Kolkata';
@@ -45,16 +49,10 @@ function stateTables(clientId: string, cutoff?: Date) {
   );
 }
 
-/** Same attribution is used for current and historical counts. One rider belongs to one home hub. */
+/** Live and historical reads use the same association; missing associations join the MVP queue. */
 export function attributedRidersCte() {
   return Prisma.sql`riders_scoped AS (
-    SELECT r.*, COALESCE(
-      (SELECT uh."hubId" FROM "UserHub" uh WHERE uh."userId" = r."userId"
-       ORDER BY uh."isPrimary" DESC, uh."hubId" ASC LIMIT 1),
-      (SELECT COALESCE(f."homeHubId", f."currentHubId") FROM "Allocation" a
-       JOIN "Fleet" f ON f.id = a."fleetId" WHERE a."riderId" = r.id
-       ORDER BY a."createdAt" DESC, a.id DESC LIMIT 1)
-    ) AS "attributedHubId"
+    SELECT r.*, ${riderHubExpression()} AS "attributedHubId"
     FROM "Rider" r WHERE r."deletedAt" IS NULL AND r.status = 'ACTIVE'
       AND (r."userId" IS NULL OR EXISTS (SELECT 1 FROM "User" u WHERE u.id = r."userId"
         AND u."isActive" AND u."deletedAt" IS NULL))
@@ -63,7 +61,7 @@ export function attributedRidersCte() {
 
 export function pendingRiderIdsQuery(clientId: string, hubIds: string[]) {
   return Prisma.sql`WITH ${stateTables(clientId)}, ${attributedRidersCte()}
-    SELECT r.id FROM riders_scoped r WHERE r."attributedHubId" IN (${Prisma.join(hubIds)})
+    SELECT r.id FROM riders_scoped r WHERE ${visibleRiderHub(hubIds)}
     AND NOT EXISTS (SELECT 1 FROM "Allocation" a WHERE a."riderId" = r.id
       AND a.status IN ('INITIATED','INSPECTION_PENDING','OTP_PENDING','ACTIVE','DEALLOCATION_INITIATED'))`;
 }
@@ -104,7 +102,7 @@ export function homeCountsQuery(
           OR (s.id IS NULL AND r.status NOT IN ('COMPLETED','RETURNED','TERMINATED')))
     )
     SELECT
-      (SELECT COUNT(*)::int FROM riders_scoped r WHERE r."attributedHubId" = ${hubId}
+      (SELECT COUNT(*)::int FROM riders_scoped r WHERE ${visibleRiderHub([hubId])}
         AND NOT EXISTS (SELECT 1 FROM "Allocation" a WHERE a."riderId" = r.id
           AND a.status IN ('INITIATED','INSPECTION_PENDING','OTP_PENDING','ACTIVE','DEALLOCATION_INITIATED'))) AS "pendingAllocation",
       (SELECT COUNT(*)::int FROM pending_submissions) AS "pendingSubmission",

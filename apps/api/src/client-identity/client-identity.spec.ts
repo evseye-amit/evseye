@@ -185,6 +185,7 @@ describe('Client authorization and branding', () => {
       id: 'user-a',
       clientId: 'acme-id',
       roles: ['CLIENT_ADMIN'],
+      sessionId: 'session-a',
     });
   });
   it('blocks ACME token on Blue Mobility domain', async () => {
