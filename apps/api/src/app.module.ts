@@ -1,3 +1,4 @@
+import { FleetManagerMaintenanceModule } from './fleet-manager-maintenance/maintenance.module.js';
 import { FleetManagerHomeModule } from './fleet-manager-home/home.module.js';
 import { NotificationModule } from './notifications/notification.module.js';
 import { VehicleSubmissionModule } from './vehicle-submissions/submission.module.js';
@@ -91,6 +92,7 @@ import { AttendanceModule } from './attendance/attendance.module.js';
     IotModule,
     DashboardModule,
     FleetManagerHomeModule,
+    FleetManagerMaintenanceModule,
     AuditModule,
     HealthModule,
   ],
