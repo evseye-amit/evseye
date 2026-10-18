@@ -107,7 +107,7 @@ export class MobileDeploymentService {
         id: { in: eligible.map((item) => item.id) },
         status: RiderStatus.ACTIVE,
         deletedAt: null,
-        allocations: { none: { status: { in: [AllocationStatus.INITIATED, AllocationStatus.INSPECTION_PENDING, AllocationStatus.OTP_PENDING, AllocationStatus.ACTIVE, AllocationStatus.DEALLOCATION_INITIATED] } } },
+        allocations: { none: { OR: [{ status: { not: AllocationStatus.CANCELLED } }, { allocatedAt: { not: null } }] } },
       },
       select: { id: true, riderCode: true, name: true, mobile: true, joiningDate: true, createdAt: true },
       orderBy: { createdAt: 'asc' },
