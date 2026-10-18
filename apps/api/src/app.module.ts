@@ -40,6 +40,7 @@ import { LegalModule } from './legal/legal.module.js';
 import { RideReturnsModule } from './ride-returns/ride-returns.module.js';
 import { SupportModule } from './support/support.module.js';
 import { AttendanceModule } from './attendance/attendance.module.js';
+import { BanksModule } from './banks/banks.module.js';
 
 @Module({
   imports: [
@@ -77,6 +78,7 @@ import { AttendanceModule } from './attendance/attendance.module.js';
     VehicleSubmissionModule,
     SupportModule,
     AttendanceModule,
+    BanksModule,
     NotificationModule,
     PaymentsModule,
     CollectionsModule,
