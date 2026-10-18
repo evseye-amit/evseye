@@ -14,6 +14,21 @@ import { WorkPartnersService } from './work-partners.service.js';
 export class PlatformWorkPartnersController {
   constructor(private readonly workPartners: WorkPartnersService) {}
 
+  @Post('work-partners/bulk')
+  async bulk(@Body() body: unknown, @CurrentUser() user: AuthUser) {
+    return { data: await this.workPartners.bulkCreate(user, body) };
+  }
+
+  @Get('work-partners/imports')
+  async imports(@CurrentUser() user: AuthUser) {
+    return { data: await this.workPartners.importHistory(user) };
+  }
+
+  @Get('work-partners/imports/:importId/failures')
+  async failures(@Param('importId') id: string, @CurrentUser() user: AuthUser) {
+    return { data: await this.workPartners.importFailures(user, id) };
+  }
+
   @Get('work-partners')
   async listMasters() {
     return { data: await this.workPartners.listMasters() };

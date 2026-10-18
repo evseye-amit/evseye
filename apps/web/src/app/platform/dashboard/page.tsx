@@ -2400,7 +2400,7 @@ export default function SuperAdminDashboard() {
             setApprovalEmailReference={setApprovalEmailReference}
           />
         )}
-        {tab === "workPartners" && <WorkPartnerManager key={workPartnerRefreshKey} mode="platform" request={request} token={token} clients={clients} />}
+        {tab === "workPartners" && <WorkPartnerManager key={workPartnerRefreshKey} mode="platform" request={request} token={token} />}
         {tab === "clientPricingAdjustments" && (
           <ClientCommercialDirectory clients={clients} section="pricing" />
         )}

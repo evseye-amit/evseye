@@ -90,3 +90,8 @@ export function photoEntityTypeLabel(value: string) {
   };
   return labels[value] ?? enumOptionLabel(value);
 }
+
+export const workPartnerCategories = [
+  "FOOD_DELIVERY", "QUICK_COMMERCE", "ECOMMERCE", "PARCEL_LOGISTICS",
+  "ON_DEMAND_LOGISTICS", "PHARMACY_HEALTHCARE", "SPECIALTY_DELIVERY", "OTHER",
+] as const;

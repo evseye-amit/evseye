@@ -39,4 +39,12 @@ describe('work partner DTOs', () => {
       pipe.transform({ name: null }, { type: 'body', metatype: UpdateWorkPartnerDto }),
     ).rejects.toThrow();
   });
+  it('validates enum categories and controlled logo paths, and allows clearing a logo', async () => {
+    await expect(pipe.transform({ category: 'FOOD_DELIVERY', logo: '/logos/work-partners/SWIGGY.svg' }, { type: 'body', metatype: UpdateWorkPartnerDto })).resolves.toBeInstanceOf(UpdateWorkPartnerDto);
+    await expect(pipe.transform({ logo: null }, { type: 'body', metatype: UpdateWorkPartnerDto })).resolves.toBeInstanceOf(UpdateWorkPartnerDto);
+    for (const invalid of [{ category: 'UNKNOWN' }, { category: null }, { logo: 'javascript:alert(1)' }, { logo: '//other-host/logo.svg' }, { logo: '/logos/work-partners/../secret.svg' }]) {
+      await expect(pipe.transform(invalid, { type: 'body', metatype: UpdateWorkPartnerDto })).rejects.toThrow();
+    }
+  });
+
 });
