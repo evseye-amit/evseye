@@ -22,6 +22,8 @@ import { seedRiderRateCardDemo } from './catalog/rider-rate-card-demo.mjs';
 import { seedKyc } from './seed-kyc.mjs';
 import { seedLegal, seedLegalTemplates } from './catalog/legal-documents.mjs';
 import { seedInitialRevisions } from './catalog/seed-revisions.mjs';
+import { seedSpareMasters } from './catalog/spares.mjs';
+import { seedYogmayaSpares } from './client/yogmaya/spares.mjs';
 
 const prisma = new PrismaClient();
 
@@ -724,6 +726,9 @@ async function main() {
       }
     }
   }
+
+  await seedSpareMasters(prisma);
+  await seedYogmayaSpares(prisma);
 
   await seedRiderRateCardDemo(prisma);
 

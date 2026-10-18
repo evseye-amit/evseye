@@ -89,7 +89,7 @@ test("Client Feature Usage maps Quantity to a numeric filter", () => {
 });
 
 test("numeric controls keep full accessible names while desktop label text is hidden", () => {
-  const page = readFileSync(new URL("./page.tsx", import.meta.url), "utf8");
+  const page = readFileSync(new URL("../../components/platform-data-table.tsx", import.meta.url), "utf8");
   const css = readFileSync(
     new URL("../../globals.css", import.meta.url),
     "utf8",

@@ -21,6 +21,15 @@ import { SparesService } from './spares.service.js';
 @Roles('SUPER_ADMIN')
 export class SpareMasterController {
   constructor(private readonly service: SparesService) {}
+  @Post('bulk') async bulk(@CurrentUser() u: AuthUser, @Body() b: unknown) {
+    return { data: await this.service.bulkCreate(u, b) };
+  }
+  @Get('imports') async imports(@CurrentUser() u: AuthUser) {
+    return { data: await this.service.importHistory(u) };
+  }
+  @Get('imports/:importId/failures') async failures(@CurrentUser() u: AuthUser, @Param('importId') id: string) {
+    return { data: await this.service.importFailures(u, id) };
+  }
   @Get() async list(
     @CurrentUser() u: AuthUser,
     @Query() q: Record<string, string>,
@@ -52,6 +61,15 @@ export class ClientSpareController {
     private readonly service: SparesService,
     private readonly clients: ClientContextService,
   ) {}
+  @Post('bulk') async bulk(@CurrentUser() u: AuthUser, @Body() b: unknown) {
+    return { data: await this.service.bulkCreate(u, b, this.clients.requireClientId(u)) };
+  }
+  @Get('imports') async imports(@CurrentUser() u: AuthUser) {
+    return { data: await this.service.importHistory(u, this.clients.requireClientId(u)) };
+  }
+  @Get('imports/:importId/failures') async failures(@CurrentUser() u: AuthUser, @Param('importId') id: string) {
+    return { data: await this.service.importFailures(u, id, this.clients.requireClientId(u)) };
+  }
   @Get() async list(
     @CurrentUser() u: AuthUser,
     @Query() q: Record<string, string>,

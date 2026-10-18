@@ -16,7 +16,8 @@ export type ClientImportHistoryEntry = {
   jobId?: string;
 };
 
-export function ClientBulkImportWorkspace({ title, requiredColumns, template, history, historyLoading, help, busy, onBack, onUpload, onDownloadFailures }: {
+export function ClientBulkImportWorkspace({ title, requiredColumns, template, history, historyLoading, help, busy, onBack, onUpload, onDownloadFailures, eyebrow = "CLIENT OPERATIONS IMPORT" }: {
+  eyebrow?: string;
   title: string;
   requiredColumns: string;
   template: string;
@@ -38,8 +39,8 @@ export function ClientBulkImportWorkspace({ title, requiredColumns, template, hi
   };
   return <section className="sa-bulk-workspace client-bulk-workspace">
     <div className="sa-bulk-workspace-head">
-      <button className="secondary" type="button" onClick={onBack}>← {t("Back to")} {t(title)}</button>
-      <div><p className="sa-eyebrow">{t("CLIENT OPERATIONS IMPORT")}</p><h2>{t("Bulk import")} {t(title)}</h2><p>{t("Use the template to add records safely and consistently.")}</p></div>
+      <button className="secondary" type="button" disabled={busy} onClick={onBack}>← {t("Back to")} {t(title)}</button>
+      <div><p className="sa-eyebrow">{t(eyebrow)}</p><h2>{t("Bulk import")} {t(title)}</h2><p>{t("Use the template to add records safely and consistently.")}</p></div>
       <button className="secondary" type="button" onClick={downloadTemplate}>{t("Download template")}</button>
     </div>
     <div className="sa-bulk-workspace-body has-history">
@@ -53,7 +54,7 @@ export function ClientBulkImportWorkspace({ title, requiredColumns, template, hi
         <ClientDataTable rows={historyLoading ? [] : history} emptyMessage={t("No imports yet.")} getRowId={(entry) => entry.id} columns={[
           { key: "when", label: "Imported on", value: (entry) => new Date(entry.createdAt).toLocaleString(localeTag(locale)) },
           { key: "file", label: "File name", value: (entry) => entry.fileName },
-          { key: "status", label: "Outcome", value: (entry) => entry.status.replaceAll("_", " "), render: (entry) => <span className={`sa-import-status ${entry.status.toLowerCase()}`}>{t(entry.status === "PARTIAL_PASS" ? "Partial pass" : entry.status === "PASS" ? "Passed" : "Failed")}</span> },
+          { key: "status", label: "Outcome", value: (entry) => entry.status.replaceAll("_", " "), render: (entry) => <span className={`sa-import-status ${entry.status.toLowerCase()}`}>{t(entry.status === "PARTIAL_PASS" ? "Partial pass" : entry.status === "PASS" ? "Passed" : entry.status === "FAIL" ? "Failed" : entry.status === "PROCESSING" ? "Processing" : entry.status === "INTERRUPTED" ? "Interrupted" : entry.status)}</span> },
           { key: "records", label: "Records", value: (entry) => `${entry.passedRows} / ${entry.totalRows}` },
         ]} actions={(entry) => entry.failedRows > 0 && entry.jobId ? <button type="button" className="secondary table-action" onClick={() => void onDownloadFailures(entry.jobId!)}>{t("Download failures")}</button> : "—"} />
       </section>
