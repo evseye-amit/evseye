@@ -1,5 +1,6 @@
 "use client";
 
+import { SparesCatalogue } from "../../components/spares-catalogue";
 import { LegalAcceptanceFields, type LegalAcceptanceCopy } from "../../components/legal-acceptance-fields";
 import { sessionFetch as fetch } from "../../../lib/session-fetch";
 import {
@@ -49,6 +50,7 @@ const API_URL =
 const ACCESS_TOKEN_KEY = "evs-eye-session-present";
 const REFRESH_TOKEN_KEY = "evs-eye-session-refreshable";
 type Tab =
+  | "spares"
   | "legalDocuments"
   | "dashboard"
   | "clients"
@@ -2103,51 +2105,53 @@ export default function SuperAdminDashboard() {
     label?: string;
     items: Array<[Tab, string, IconName]>;
   }> = [
-      { items: [["dashboard", "Dashboard", "dashboard"]] },
-      {
-        label: "Vehicle Management",
-        items: [
-          ["vehicleCategories", "Vehicle Category", "category"],
-          ["vehicleTypes", "Vehicle Type", "vehicle"],
-          ["oems", "OEM", "factory"],
-        ],
-      },
-      {
-        label: "Feature Management",
-        items: [
-          ["featureSteps", "Feature Step", "category"],
-          ["features", "Feature", "feature"],
-          ["pricing", "Pricing", "pricing"],
-          ["featureAddOns", "Add-ons", "feature"],
-        ],
-      },
-      {
-        label: "Package Management",
-        items: [
-          ["packages", "Package", "package"],
-          ["packageFeatures", "Package Feature", "packageFeature"],
-          ["packageTierPricing", "Package Tier Pricing", "pricing"],
-        ],
-      },
-      {
-        label: "Client Management",
-        items: [
-          ["clients", "Client", "users"],
-        ],
-      },
-      {
-        label: "Client Commercials",
-        items: [
-          ["clientPricingAdjustments", "Pricing Adjustments", "pricing"],
-          ["clientAddOnPurchases", "Features & Pricing", "feature"],
-          ["clientQuotaPacks", "Quota Add-Ons", "packageFeature"],
-          ["clientCreditLots", "Feature Credit Lots", "packageFeature"],
-          ["clientUsageLedger", "Feature Usage Ledger", "dashboard"],
-        ],
-      },
-      { items: [["legalDocuments", "Legal Documents", "audit"]] },
-    ];
+    { items: [["dashboard", "Dashboard", "dashboard"]] },
+    {
+      label: "Vehicle Management",
+      items: [
+        ["vehicleCategories", "Vehicle Category", "category"],
+        ["vehicleTypes", "Vehicle Type", "vehicle"],
+        ["oems", "OEM", "factory"],
+        ["spares", "Spares", "factory"],
+      ],
+    },
+    {
+      label: "Feature Management",
+      items: [
+        ["featureSteps", "Feature Step", "category"],
+        ["features", "Feature", "feature"],
+        ["pricing", "Pricing", "pricing"],
+        ["featureAddOns", "Add-ons", "feature"],
+      ],
+    },
+    {
+      label: "Package Management",
+      items: [
+        ["packages", "Package", "package"],
+        ["packageFeatures", "Package Feature", "packageFeature"],
+        ["packageTierPricing", "Package Tier Pricing", "pricing"],
+      ],
+    },
+    {
+      label: "Client Management",
+      items: [
+        ["clients", "Client", "users"],
+      ],
+    },
+    {
+      label: "Client Commercials",
+      items: [
+        ["clientPricingAdjustments", "Pricing Adjustments", "pricing"],
+        ["clientAddOnPurchases", "Features & Pricing", "feature"],
+        ["clientQuotaPacks", "Quota Add-Ons", "packageFeature"],
+        ["clientCreditLots", "Feature Credit Lots", "packageFeature"],
+        ["clientUsageLedger", "Feature Usage Ledger", "dashboard"],
+      ],
+    },
+    { items: [["legalDocuments", "Legal Documents", "audit"]] },
+  ];
   const pageSubtitles: Partial<Record<Tab, string>> = {
+    spares: "Manage the spare catalogue copied to clients for their penalty configuration.",
     legalDocuments: "Manage default legal documents copied as drafts when a client is created.",
     oems: "Create and manage manufacturers visible across the platform.",
     vehicleCategories:
@@ -2423,12 +2427,125 @@ export default function SuperAdminDashboard() {
           />
         ) : (
           <>
-            {tab === "dashboard" && (
-              <DashboardView
-                summary={summary}
-                clients={clients}
-                oems={oems}
-                setTab={setTab}
+        {tab === "dashboard" && (
+          <DashboardView
+            summary={summary}
+            clients={clients}
+            oems={oems}
+            setTab={setTab}
+          />
+        )}
+        {tab === "spares" && <SparesCatalogue platform />}
+        {tab === "legalDocuments" && <LegalDocumentsView token={token} />}
+        {tab === "clients" && (
+          <ClientsView
+            clients={clients}
+            packages={packages}
+            vehicleCategories={vehicleCategories}
+            showForm={showClientForm}
+            setShowForm={setShowClientForm}
+            client={client}
+            change={changeClient}
+            step={clientStep}
+            setStep={setClientStep}
+            submit={submitClient}
+            error={error}
+            loading={loading}
+            triggerRef={clientTriggerRef}
+            openDialog={openClientModal}
+            closeDialog={closeClientModal}
+            documentFiles={clientDocumentFiles}
+            setDocumentFiles={setClientDocumentFiles}
+            logoFile={clientLogoFile}
+            setLogoFile={setClientLogoFile}
+            approveClient={approveClient}
+            rejectClient={rejectClient}
+            editClient={editClientDraft}
+            activeClientEdit={activeClientEdit}
+            approvalEmailReference={approvalEmailReference}
+            setApprovalEmailReference={setApprovalEmailReference}
+          />
+        )}
+        {tab === "clientPricingAdjustments" && (
+          <ClientCommercialDirectory clients={clients} section="pricing" />
+        )}
+        {tab === "clientAddOnPurchases" && (
+          <ClientCommercialDirectory clients={clients} section="addOns" />
+        )}
+        {tab === "clientQuotaPacks" && (
+          <ClientCommercialDirectory clients={clients} section="quotaPacks" />
+        )}
+        {tab === "clientCreditLots" && (
+          <ClientCommercialDirectory clients={clients} section="creditLots" />
+        )}
+        {tab === "clientUsageLedger" && (
+          <ClientCommercialDirectory clients={clients} section="ledger" />
+        )}
+        {tab === "oems" && (
+          <>
+            <section className="sa-page-head">
+              <div>
+                <h2>OEM</h2>
+                <p>
+                  Create and manage manufacturers visible across the platform.
+                </p>
+              </div>
+              <div className="sa-actions">
+                <button
+                  className="secondary"
+                  onClick={() => {
+                    setBulkImportEntity("oem");
+                    setShowOemForm(false);
+                  }}
+                >
+                  Bulk upload
+                </button>
+                <button
+                  onClick={(event) => openOemModal(event.currentTarget)}
+                >
+                  + Add OEM
+                </button>
+              </div>
+            </section>
+            <CatalogFormDialog
+              open={showOemForm}
+              title={editingOemId ? "Edit OEM" : "Add OEM"}
+              description="Enter the manufacturer details shown across the platform."
+              error={error}
+              busy={loading}
+              triggerRef={oemTriggerRef}
+              onClose={closeOemModal}
+              onDialogClose={() => setShowOemForm(false)}
+              onSubmit={submitOem}
+              actions={
+                <>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={closeOemModal}
+                    disabled={loading}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" disabled={loading}>
+
+                    {editingOemId ? "Update OEM" : "Save OEM"}
+                  </button>
+                </>
+              }
+            >
+              <TextFields
+                value={oem}
+                change={(key, value) =>
+                  setOem((current) => ({ ...current, [key]: value }))
+                }
+                fields={[
+                  ["code", "OEM code"],
+                  ["name", "Legal name"],
+                  ["displayName", "Display name"],
+                  ["website", "Website"],
+                  ["description", "Description"],
+                ]}
               />
             )}
             {tab === "legalDocuments" && <LegalDocumentsView token={token} />}

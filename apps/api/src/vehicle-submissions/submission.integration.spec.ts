@@ -1,3 +1,5 @@
+import { MediaService } from '../media/media.service.js';
+import { SparesService } from '../spares/spares.service.js';
 import { pendingPenaltySummary, SubmissionPenaltyService } from '../submission-penalties/submission-penalty.service.js';
 import { penaltyDebt, requirePenaltyClearance } from '../submission-penalties/penalty-accounting.js';
 import { SubmissionPenaltyWorker } from '../submission-penalties/submission-penalty.worker.js';
@@ -848,4 +850,48 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
       }),
     ).rejects.toThrow('imposed');
   }, 30000);
+  it('saves versioned client spare penalties, supports draft editing, and invoices at impose exactly once', async()=>{
+    const f=await fixture();const photos=await f.capture();
+    const admin=await db.user.create({data:{clientId:f.client.id,name:'Admin',mobile:'+919000000099',role:'CLIENT_ADMIN'}});
+    const spares=new SparesService(prisma);const adminActor:AuthUser={id:admin.id,clientId:f.client.id,roles:['CLIENT_ADMIN']};
+    const part=await spares.createClientSpare(f.client.id,adminActor,{code:'LOCAL_PANEL',name:'Body panel',baseRate:'120',gstPercent:'18',hsnCode:'12345678',unit:'PIECE',vehicleTypeIds:[],penaltyAmount:'200',evidenceRequired:false,isActive:true});
+    const input={...f.report(photos[0]!.id),items:[{priceId:part.id,configurationVersion:part.version,findingType:'DAMAGE' as const,findingId:randomUUID(),quantity:2,details:'Two damaged panels',evidencePhotoIds:[]}]};
+    const draft=await service.recordReport(f.client.id,f.actor,f.submission.id,input,'spare-draft-key');
+    expect(await db.riderCharge.count({where:{clientId:f.client.id}})).toBe(0);expect(draft.totalAmount.toFixed(2)).toBe('400.00');
+    const changed={...input,items:[{...input.items[0]!,quantity:1}]};
+    const edited=await service.updateReport(f.client.id,f.actor,draft.id,changed,draft.digest);expect(edited.totalAmount.toFixed(2)).toBe('200.00');
+    await expect(service.updateReport(f.client.id,f.actor,draft.id,{...changed,summary:'Concurrent stale edit'},draft.digest)).rejects.toThrow('changed');
+    const imposed=await service.impose(f.client.id,f.actor,draft.id);expect(imposed.paymentRequest).toBeTruthy();
+    expect(await db.riderCharge.count({where:{clientId:f.client.id}})).toBe(1);
+    await expect(service.cancelReport(f.client.id,f.actor,draft.id,'Undo financial charge')).rejects.toThrow('financial');
+    await expect(service.updateReport(f.client.id,f.actor,draft.id,changed,edited.digest)).rejects.toThrow('draft');
+    const replacement=await db.photo.create({data:{clientId:f.client.id,entityType:'INSPECTION',entityId:f.submission.inspectionId,photoType:photos[0]!.photoType,objectKey:`test/${randomUUID()}`,mimeType:'image/jpeg',sizeBytes:10,uploadedById:f.actor.id}});
+    const media=new MediaService(prisma,{assertObjectExists:vi.fn().mockResolvedValue(undefined)} as never);await media.complete(f.client.id,replacement.id);expect((await db.photo.findUniqueOrThrow({where:{id:photos[0]!.id}})).status).toBe('COMPLETE');
+    const repeat=await service.impose(f.client.id,f.actor,draft.id);expect(repeat.paymentRequest?.invoiceId).toBe(imposed.paymentRequest?.invoiceId);
+    await spares.updateClient(f.client.id,adminActor,part.id,{expectedVersion:1,reason:'Future penalty update',penaltyAmount:'999',evidenceRequired:true});
+    const posted=await service.confirm(f.client.id,f.actor,draft.id,{riderBypassReason:'Recovery rider unavailable',teamLeadBypassReason:'Lead unavailable'});
+    expect(posted.totalAmount.toFixed(2)).toBe('200.00');expect(await db.riderCharge.count({where:{clientId:f.client.id}})).toBe(1);
+    const snapshot=(posted.items as unknown as {spare:{baseRate:string;hsnCode:string};evidenceRequired:boolean}[])[0]!;expect(snapshot.spare.baseRate).toBe('120.00');expect(snapshot.spare.hsnCode).toBe('12345678');expect(snapshot.evidenceRequired).toBe(false);
+    const invoice=await db.riderInvoice.findFirstOrThrow({where:{clientId:f.client.id,invoiceType:'SUBMISSION_PENALTY'}});expect(invoice.totalAmount.toFixed(2)).toBe('200.00');expect(invoice.outstandingAmount.toFixed(2)).toBe('200.00');
+  },30000);
+  it('rejects stale catalogue versions and foreign or missing proofs while preserving mandatory report evidence',async()=>{
+    const f=await fixture(),photos=await f.capture();const admin=await db.user.create({data:{clientId:f.client.id,name:'Admin',mobile:'+919000000099',role:'CLIENT_ADMIN'}});const actor:AuthUser={id:admin.id,clientId:f.client.id,roles:['CLIENT_ADMIN']};const spares=new SparesService(prisma);
+    const part=await spares.createClientSpare(f.client.id,actor,{code:'PROOF_SPARE',name:'Required proof part',baseRate:'100',gstPercent:'18',hsnCode:'12345678',penaltyAmount:'150',evidenceRequired:true,isActive:true});
+    const input={...f.report(photos[0]!.id),items:[{priceId:part.id,configurationVersion:part.version,quantity:1,details:'Damaged part',evidencePhotoIds:[] as string[]}]};
+    await expect(service.recordReport(f.client.id,f.actor,f.submission.id,input,'required-spare-proof')).rejects.toThrow('Every penalty');
+    await expect(service.recordReport(f.client.id,f.actor,f.submission.id,{...input,items:[{...input.items[0]!,evidencePhotoIds:[randomUUID()]}]},'foreign-spare-proof')).rejects.toThrow('Every penalty');
+    await spares.updateClient(f.client.id,actor,part.id,{expectedVersion:1,reason:'Optional item proof',evidenceRequired:false});
+    await expect(service.recordReport(f.client.id,f.actor,f.submission.id,input,'stale-spare-version')).rejects.toThrow('Refresh');
+    await expect(service.recordReport(f.client.id,f.actor,f.submission.id,{...input,evidencePhotoIds:[],items:[{...input.items[0]!,configurationVersion:2}]},'required-report-proof')).rejects.toThrow('mechanic report needs proof');
+    const saved=await service.recordReport(f.client.id,f.actor,f.submission.id,{...input,items:[{...input.items[0]!,configurationVersion:2,findingType:'MISSING_ITEM'}]},'optional-missing-proof');expect(saved.totalAmount.toFixed(2)).toBe('150.00');
+  },30000);
+  it('scopes submission catalogue to manager hubs and rejects repeated findings without photos',async()=>{
+    const f=await fixture(),photos=await f.capture();const spares=new SparesService(prisma);const admin=await db.user.create({data:{clientId:f.client.id,name:'Admin',mobile:'+919000000099',role:'CLIENT_ADMIN'}});const part=await spares.createClientSpare(f.client.id,{id:admin.id,clientId:f.client.id,roles:['CLIENT_ADMIN']},{code:'DUPLICATE_PART',name:'Part',baseRate:'10',gstPercent:'0',hsnCode:'1234',penaltyAmount:'20',evidenceRequired:false,isActive:true});
+    const outsider=await db.user.create({data:{clientId:f.client.id,name:'Other FM',mobile:'+919000000098',role:'FLEET_MANAGER'}});
+    await expect(spares.catalogue(f.client.id,{id:outsider.id,clientId:f.client.id,roles:['FLEET_MANAGER']},{submissionId:f.submission.id})).rejects.toThrow('assigned hubs');
+    expect((await spares.catalogue(f.client.id,f.actor,{submissionId:f.submission.id,search:'DUPLICATE_PART'})).data).toHaveLength(1);
+    const item={priceId:part.id,configurationVersion:1,quantity:1,details:'Same damaged panel',evidencePhotoIds:[]};
+    await expect(service.recordReport(f.client.id,f.actor,f.submission.id,{...f.report(photos[0]!.id),items:[{...item,findingId:randomUUID()},{...item,findingId:randomUUID()}]},'duplicate-no-proof')).rejects.toThrow('charged twice');
+  },30000);
+
 });

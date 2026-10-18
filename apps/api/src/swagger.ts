@@ -9,6 +9,7 @@ const METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const;
 export const SWAGGER_TAGS = [
   ['Health', 'Service liveness and readiness checks.'],
   ['Auth', 'OTP authentication, sessions, and the current user.'],
+  ['Banks', 'Authenticated IFSC bank-detail lookups.'],
   ['Platform Catalog · Dashboard', 'Platform catalog overview metrics.'],
   ['Platform Catalog · OEM', 'OEM master data and OEM logo uploads.'],
   ['Platform Catalog · Vehicle Category', 'Vehicle category master data.'],
@@ -46,9 +47,12 @@ export const SWAGGER_TAGS = [
 function tagForPath(path: string): string {
   if (path === '/health' || path === '/health/ready') return 'Health';
   if (path.startsWith('/api/v1/auth/')) return 'Auth';
+  if (path.startsWith('/api/v1/banks')) return 'Banks';
   if (path === '/api/v1/platform/dashboard') return 'Platform Catalog · Dashboard';
   if (path.startsWith('/api/v1/platform/oems')) return 'Platform Catalog · OEM';
   if (path.startsWith('/api/v1/platform/vehicle-categories')) return 'Platform Catalog · Vehicle Category';
+  if (path.startsWith('/api/v1/platform/spares')) return 'Platform Catalog · Spares';
+  if (path.startsWith('/api/v1/client/spares')) return 'Client Operations · Spares & Penalties';
   if (path.startsWith('/api/v1/platform/vehicle-types')) return 'Platform Catalog · Vehicle Type';
   if (path.startsWith('/api/v1/platform/feature-steps')) return 'Platform Catalog · Feature Step';
   if (path.startsWith('/api/v1/platform/feature-pricing') || path.includes('/current-price')) return 'Platform Catalog · Feature Pricing';

@@ -2,6 +2,7 @@
 // dashboard replacement is released. Its routes have been removed; all new
 // commercial writes use CommercialService and the normalized ledger tables.
 // @ts-nocheck
+import { copyActiveSpareMasters } from '../spares/spares-copy.js';
 import { validClientSlug } from '../client-identity/hostname.js';
 import {
   BadRequestException,
@@ -711,6 +712,7 @@ export class PlatformAdminService {
             role: UserRole.CLIENT_ADMIN,
           },
         });
+        await copyActiveSpareMasters(tx, created.id, actorId);
         await copyLegalTemplatesToClient(tx, created, dto.legalEntityName?.trim() || '[CLIENT_REVIEW_REQUIRED: legal company name]');
         return created;
       });
@@ -766,6 +768,7 @@ export class PlatformAdminService {
             estimatedUserCount: dto.estimatedUserCount,
           },
         });
+        await copyActiveSpareMasters(tx, created.id, actorId);
         await copyLegalTemplatesToClient(tx, created, dto.legalEntityName);
         return created;
       });

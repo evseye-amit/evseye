@@ -4703,6 +4703,21 @@ model RentalTerminationRequest {
 }
 
 model ReturnPenaltyPrice {
+  isSpare Boolean @default(false)
+  masterSpareId String?
+  masterSpare SparePartMaster? @relation(fields: [masterSpareId], references: [id], onDelete: Restrict)
+  sourceVersion Int?
+  name String? @db.VarChar(180)
+  baseRate Decimal? @db.Decimal(14,2)
+  gstPercent Decimal? @db.Decimal(5,2)
+  hsnCode String? @db.VarChar(20)
+  unit String @default("PIECE") @db.VarChar(30)
+  vehicleTypeIds String[] @default([])
+  configurationVersion Int @default(1)
+  penaltyConfigured Boolean @default(true)
+  evidenceRequired Boolean @default(true)
+  revisions SpareCatalogueRevision[]
+
   id          String   @id @default(uuid())
   clientId    String
   client      Client   @relation(fields: [clientId], references: [id], onDelete: Restrict)
@@ -4718,6 +4733,7 @@ model ReturnPenaltyPrice {
   updatedAt   DateTime @updatedAt
   items       ReturnPenaltyItem[]
 
+  @@unique([clientId, masterSpareId])
   @@unique([clientId, code])
   @@index([clientId, isActive])
 }
@@ -6217,4 +6233,37 @@ model FleetInstallationStage {
   updatedAt DateTime @updatedAt
   @@unique([preparationId, code])
   @@index([clientId, status])
+}
+
+model SparePartMaster {
+  id String @id @default(uuid())
+  code String @unique @db.VarChar(60)
+  name String @db.VarChar(180)
+  baseRate Decimal @db.Decimal(14,2)
+  gstPercent Decimal @db.Decimal(5,2)
+  hsnCode String @db.VarChar(20)
+  unit String @default("PIECE") @db.VarChar(30)
+  vehicleTypeIds String[] @default([])
+  isActive Boolean @default(true)
+  version Int @default(1)
+  createdById String
+  updatedById String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  clientCopies ReturnPenaltyPrice[]
+  revisions SpareCatalogueRevision[]
+}
+model SpareCatalogueRevision {
+  id String @id @default(uuid())
+  masterSpareId String?
+  masterSpare SparePartMaster? @relation(fields: [masterSpareId], references: [id], onDelete: Restrict)
+  priceId String?
+  price ReturnPenaltyPrice? @relation(fields: [priceId], references: [id], onDelete: Restrict)
+  version Int
+  snapshot Json
+  reason String @db.VarChar(500)
+  actorId String
+  createdAt DateTime @default(now())
+  @@unique([masterSpareId, version])
+  @@unique([priceId, version])
 }

@@ -15,6 +15,7 @@ import { HealthModule } from './health/health.module.js';
 import { MediaModule } from './media/media.module.js';
 import { KycModule } from './kyc/kyc.module.js';
 import { FleetsModule } from './fleets/fleets.module.js';
+import { SparesModule } from './spares/spares.module.js';
 import { FleetReadinessModule } from './fleet-readiness/readiness.module.js';
 import { LocationsModule } from './locations/locations.module.js';
 import { AllocationsModule } from './allocations/allocations.module.js';
@@ -41,6 +42,7 @@ import { LegalModule } from './legal/legal.module.js';
 import { RideReturnsModule } from './ride-returns/ride-returns.module.js';
 import { SupportModule } from './support/support.module.js';
 import { AttendanceModule } from './attendance/attendance.module.js';
+import { BanksModule } from './banks/banks.module.js';
 
 @Module({
   imports: [
@@ -78,6 +80,7 @@ import { AttendanceModule } from './attendance/attendance.module.js';
     VehicleSubmissionModule,
     SupportModule,
     AttendanceModule,
+    BanksModule,
     NotificationModule,
     PaymentsModule,
     CollectionsModule,
@@ -88,6 +91,7 @@ import { AttendanceModule } from './attendance/attendance.module.js';
     KycModule,
     FleetsModule,
     FleetReadinessModule,
+    SparesModule,
     LocationsModule,
     AllocationsModule,
     InspectionsModule,
