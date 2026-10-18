@@ -59,11 +59,16 @@ export function attributedRidersCte() {
   )`;
 }
 
+/** Only allocations cancelled before handover allow a rider back into the first-allocation queue. */
+function awaitingFirstAllocation() {
+  return Prisma.sql`NOT EXISTS (SELECT 1 FROM "Allocation" a WHERE a."riderId" = r.id
+    AND (a.status <> 'CANCELLED' OR a."allocatedAt" IS NOT NULL))`;
+}
+
 export function pendingRiderIdsQuery(clientId: string, hubIds: string[]) {
   return Prisma.sql`WITH ${stateTables(clientId)}, ${attributedRidersCte()}
     SELECT r.id FROM riders_scoped r WHERE ${visibleRiderHub(hubIds)}
-    AND NOT EXISTS (SELECT 1 FROM "Allocation" a WHERE a."riderId" = r.id
-      AND a.status IN ('INITIATED','INSPECTION_PENDING','OTP_PENDING','ACTIVE','DEALLOCATION_INITIATED'))`;
+    AND ${awaitingFirstAllocation()}`;
 }
 
 export interface HomeCounts {
@@ -103,8 +108,7 @@ export function homeCountsQuery(
     )
     SELECT
       (SELECT COUNT(*)::int FROM riders_scoped r WHERE ${visibleRiderHub([hubId])}
-        AND NOT EXISTS (SELECT 1 FROM "Allocation" a WHERE a."riderId" = r.id
-          AND a.status IN ('INITIATED','INSPECTION_PENDING','OTP_PENDING','ACTIVE','DEALLOCATION_INITIATED'))) AS "pendingAllocation",
+        AND ${awaitingFirstAllocation()}) AS "pendingAllocation",
       (SELECT COUNT(*)::int FROM pending_submissions) AS "pendingSubmission",
       COUNT(*) FILTER (WHERE f."currentHubId" = ${hubId} AND f.status = 'AVAILABLE'
         AND f."onboardingStatus" = 'ACTIVE' AND f."allocationEnabled"

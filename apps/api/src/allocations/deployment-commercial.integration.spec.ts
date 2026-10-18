@@ -1,3 +1,4 @@
+import { AllocationTeamLeadService } from './allocation-team-lead.service.js';
 import { afterAll, describe, expect, it } from 'vitest';
 import { PrismaClient, UserRole } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
@@ -103,6 +104,9 @@ describe.skipIf(!url)(
           status: 'ACTIVE',
         },
       });
+      const leadUser = await db.user.create({ data: { clientId: client.id, name: 'Lead', mobile: '9876543212', role: 'TEAM_LEAD' } });
+      const lead = await db.teamLeaderProfile.create({ data: { clientId: client.id, userId: leadUser.id } });
+      await db.teamLeaderRider.create({ data: { clientId: client.id, riderId: rider.id, teamLeaderId: lead.id } });
       const oem = await db.oem.create({
         data: { code: key, name: key, displayName: key },
       });
@@ -355,6 +359,7 @@ describe.skipIf(!url)(
       };
       return {
         client,
+        lead,
         user,
         manager,
         actor,
@@ -370,6 +375,51 @@ describe.skipIf(!url)(
         handover,
       };
     }
+
+    it('requires an active primary Team Lead for both mobile and staff handover', async () => {
+      const f = await fixture(true);
+      await f.select();
+      await f.pay();
+      await db.teamLeaderRider.updateMany({ where: { clientId: f.client.id }, data: { isPrimary: false } });
+      await expect(f.handover()).rejects.toMatchObject({ response: { code: 'ALLOCATION_TEAM_LEAD_REQUIRED' } });
+      await expect(allocations.activate(f.client.id, f.allocation.id)).rejects.toMatchObject({ response: { code: 'ALLOCATION_TEAM_LEAD_REQUIRED' } });
+      expect((await db.allocation.findUniqueOrThrow({ where: { id: f.allocation.id } })).status).toBe('OTP_PENDING');
+      const teams = new AllocationTeamLeadService(db as never);
+      await teams.assign(f.client.id, f.manager.id, f.allocation.id, f.lead.id);
+      await allocations.activate(f.client.id, f.allocation.id);
+      expect((await db.allocation.findUniqueOrThrow({ where: { id: f.allocation.id } })).status).toBe('ACTIVE');
+    });
+
+    it('assigns one primary Team Lead under concurrent requests and preserves OTP eligibility', async () => {
+      const f = await fixture(true);
+      const user = await db.user.create({ data: { clientId: f.client.id, name: 'Second Lead', mobile: '9876543213', role: 'TEAM_LEAD' } });
+      const lead = await db.teamLeaderProfile.create({ data: { clientId: f.client.id, userId: user.id } });
+      const teams = new AllocationTeamLeadService(db as never);
+      const list = await teams.list(f.client.id, 'Second', 1, 25);
+      expect(list.data.map((l) => l.id)).toEqual([lead.id]);
+      await Promise.all([teams.assign(f.client.id, f.manager.id, f.allocation.id, f.lead.id), teams.assign(f.client.id, f.manager.id, f.allocation.id, lead.id)]);
+      const primary = await db.teamLeaderRider.findMany({ where: { clientId: f.client.id, riderId: f.rider.id, isPrimary: true, isActive: true, removedAt: null } });
+      expect(primary).toHaveLength(1);
+      expect((await teams.get(f.client.id, f.manager.id, f.allocation.id)).teamLead?.id).toBe(primary[0]!.teamLeaderId);
+      const before = primary[0]!.assignedAt;
+      await teams.assign(f.client.id, f.manager.id, f.allocation.id, primary[0]!.teamLeaderId);
+      expect((await db.teamLeaderRider.findUniqueOrThrow({ where: { id: primary[0]!.id } })).assignedAt).toEqual(before);
+    });
+
+    it('rejects inaccessible allocations and inactive/foreign Team Leads', async () => {
+      const f = await fixture(true);
+      const other = await fixture(true);
+      const teams = new AllocationTeamLeadService(db as never);
+      await expect(teams.assign(f.client.id, other.manager.id, f.allocation.id, f.lead.id)).rejects.toThrow('assigned Hub');
+      await expect(teams.assign(f.client.id, f.manager.id, f.allocation.id, other.lead.id)).rejects.toThrow('Active Team Lead not found');
+      await db.user.update({ where: { id: f.lead.userId }, data: { isActive: false } });
+      expect((await teams.list(f.client.id, undefined, 1, 25)).data).toHaveLength(0);
+      await expect(teams.assign(f.client.id, f.manager.id, f.allocation.id, f.lead.id)).rejects.toThrow('Active Team Lead not found');
+      await expect(db.$transaction((tx) => commercial.activateInTransaction(tx, f.client.id, f.allocation.id, new Date()))).rejects.toMatchObject({ response: { code: 'ALLOCATION_TEAM_LEAD_REQUIRED' } });
+      await db.user.update({ where: { id: f.lead.userId }, data: { isActive: true } });
+      await db.allocation.update({ where: { id: f.allocation.id }, data: { status: 'COMPLETED' } });
+      await expect(teams.assign(f.client.id, f.manager.id, f.allocation.id, f.lead.id)).rejects.toThrow('in progress');
+    });
 
     it('quotes scoped/versioned prices, credits payment once, activates both records and allows an immediate date-only return', async () => {
       const f = await fixture();

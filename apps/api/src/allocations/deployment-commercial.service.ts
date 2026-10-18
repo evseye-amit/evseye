@@ -1,3 +1,4 @@
+import { requireAllocationTeamLead } from './allocation-team-lead.service.js';
 import {
   BadRequestException,
   ConflictException,
@@ -718,6 +719,7 @@ export class DeploymentCommercialService {
     const a = await tx.allocation.findFirstOrThrow({
       where: { id: allocationId, clientId },
     });
+    await requireAllocationTeamLead(tx, clientId, a.riderId);
     // Exchanges retain their accepted agreement and use their existing amendment/deposit workflow.
     if (a.idempotencyKey?.startsWith('exchange:')) {
       await this.exchange(tx, clientId, a);

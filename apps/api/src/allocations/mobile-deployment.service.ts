@@ -1,3 +1,5 @@
+import { WalletService } from '../wallet/wallet.service.js';
+import { ConfigService } from '@nestjs/config';
 import { DeploymentCommercialService } from './deployment-commercial.service.js';
 import { pendingRiderIdsQuery } from '../fleet-manager-home/home-metrics.js';
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
@@ -13,6 +15,40 @@ import { ReferralQualificationService } from '../referrals/referral-qualificatio
 @Injectable()
 export class MobileDeploymentService {
   private readonly logger = new Logger(MobileDeploymentService.name);
+  @Inject(WalletService) private readonly wallet!: WalletService;
+  @Inject(ConfigService) private readonly config!: ConfigService;
+
+  private async riderHomeFinancials(clientId: string, userId: string) {
+    const wallet = await this.wallet.riderWallet(clientId, userId);
+    const { accounts: _accounts, ...balance } = await this.wallet.balance(clientId, wallet.id);
+    const last = await this.prisma.walletTransaction.findFirst({
+      where: { clientId, walletId: wallet.id, status: 'POSTED', transactionType: { in: ['REWARD', 'REFERRAL_REWARD', 'SELF_SUBMISSION_REWARD'] } },
+      orderBy: [{ postedAt: 'desc' }, { id: 'desc' }],
+      select: { id: true, transactionType: true, amount: true, currency: true, description: true, postedAt: true },
+    });
+    return {
+      wallet: { id: wallet.id, status: wallet.status, ...balance },
+      lastEarnings: last ? { ...last, amount: last.amount.toFixed(2) } : null,
+    };
+  }
+
+  private async frontInspectionPhoto(clientId: string, allocationId: string) {
+    const inspection = await this.prisma.inspection.findFirst({
+      where: { clientId, allocationId, type: InspectionType.PRE_ALLOCATION },
+      select: { id: true },
+    });
+    if (!inspection) return null;
+    const photo = await this.prisma.photo.findFirst({
+      where: { clientId, entityType: PhotoEntityType.INSPECTION, entityId: inspection.id, photoType: 'FRONT', status: PhotoStatus.COMPLETE },
+      orderBy: [{ uploadedAt: 'desc' }, { id: 'desc' }],
+      select: { id: true },
+    });
+    if (!photo) return null;
+    const { url } = await this.media.downloadUrl(clientId, photo.id);
+    const ttl = this.config.get<number>('S3_SIGNED_URL_TTL_SECONDS');
+    return { id: photo.id, url, expiresAt: ttl ? new Date(Date.now() + Number(ttl) * 1000).toISOString() : null };
+  }
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly allocations: AllocationsService,
@@ -107,7 +143,7 @@ export class MobileDeploymentService {
         id: { in: eligible.map((item) => item.id) },
         status: RiderStatus.ACTIVE,
         deletedAt: null,
-        allocations: { none: { status: { in: [AllocationStatus.INITIATED, AllocationStatus.INSPECTION_PENDING, AllocationStatus.OTP_PENDING, AllocationStatus.ACTIVE, AllocationStatus.DEALLOCATION_INITIATED] } } },
+        allocations: { none: { OR: [{ status: { not: AllocationStatus.CANCELLED } }, { allocatedAt: { not: null } }] } },
       },
       select: { id: true, riderCode: true, name: true, mobile: true, joiningDate: true, createdAt: true },
       orderBy: { createdAt: 'asc' },
@@ -117,14 +153,14 @@ export class MobileDeploymentService {
     const hubIds = await this.fleetManagerHubIds(clientId, userId);
     if (!hubIds.length) return [];
     return this.prisma.fleet.findMany({
-      where: { clientId, currentHubId: { in: hubIds }, status: FleetStatus.AVAILABLE, onboardingStatus: 'ACTIVE', allocationEnabled: true, deletedAt: null },
+      where: { clientId, currentHubId: { in: hubIds }, status: FleetStatus.AVAILABLE, onboardingStatus: 'ACTIVE', allocationEnabled: true, deletedAt: null, allocations: { none: { status: { notIn: [AllocationStatus.COMPLETED, AllocationStatus.CANCELLED] } } } },
       select: { id: true, fleetCode: true, vehicleNumber: true, chassisNumber: true, currentHub: { select: { id: true, code: true, name: true } }, iotDevice: { select: { id: true, deviceNumber: true, lastHeartbeatAt: true } } },
       orderBy: { fleetCode: 'asc' },
     });
   }
   async allocateFleet(clientId: string, userId: string, riderId: string, fleetId: string) {
     const hubIds = await this.fleetManagerHubIds(clientId, userId);
-    const fleet = await this.prisma.fleet.findFirst({ where: { id: fleetId, clientId, currentHubId: { in: hubIds }, status: FleetStatus.AVAILABLE, onboardingStatus: 'ACTIVE', allocationEnabled: true, deletedAt: null }, select: { id: true } });
+    const fleet = await this.prisma.fleet.findFirst({ where: { id: fleetId, clientId, currentHubId: { in: hubIds }, status: FleetStatus.AVAILABLE, onboardingStatus: 'ACTIVE', allocationEnabled: true, deletedAt: null, allocations: { none: { status: { notIn: [AllocationStatus.COMPLETED, AllocationStatus.CANCELLED] } } } }, select: { id: true } });
     if (!fleet) throw new NotFoundException('An allocatable Fleet was not found in your assigned Hubs.');
     const rider = await this.prisma.rider.findFirst({ where: { id: riderId, clientId, status: RiderStatus.ACTIVE, deletedAt: null, allocations: { none: { status: { in: [AllocationStatus.INITIATED, AllocationStatus.INSPECTION_PENDING, AllocationStatus.OTP_PENDING, AllocationStatus.ACTIVE, AllocationStatus.DEALLOCATION_INITIATED] } } } }, select: { id: true } });
     if (!rider) throw new BadRequestException('This Rider is not awaiting Fleet allocation.');
@@ -161,11 +197,20 @@ export class MobileDeploymentService {
   async riderCurrent(clientId: string, userId: string) {
     const rider = await this.prisma.rider.findFirst({ where: { clientId, userId, deletedAt: null }, select: { id: true } });
     if (!rider) return { screen: 'ONBOARDING' };
-    let allocation = await this.prisma.allocation.findFirst({ where: { clientId, riderId: rider.id, mobileDeployment: { isNot: null } }, orderBy: { updatedAt: 'desc' }, include: { fleet: true, mobileDeployment: true } });
-    if (!allocation?.mobileDeployment) return { screen: 'WAITING' };
+    let allocation = await this.prisma.allocation.findFirst({ where: { clientId, riderId: rider.id, status: { notIn: [AllocationStatus.COMPLETED, AllocationStatus.CANCELLED] }, mobileDeployment: { isNot: null } }, orderBy: { updatedAt: 'desc' }, include: { fleet: true, mobileDeployment: true } });
+    if (!allocation?.mobileDeployment) {
+      const handedOver = await this.prisma.allocation.findFirst({
+        where: { clientId, riderId: rider.id, OR: [{ status: AllocationStatus.COMPLETED }, { allocatedAt: { not: null } }] },
+        select: { id: true },
+      });
+      return {
+        screen: handedOver ? 'HOME' : 'WAITING', allocation: null, workflow: null, payment: null, commercial: null,
+        ...(handedOver ? await this.riderHomeFinancials(clientId, userId) : { wallet: null, lastEarnings: null }),
+      };
+    }
     if (allocation.mobileDeployment.status === MobileDeploymentStatus.TRAINING_PENDING && !(await this.trainingPolicy(clientId)).included) {
       await this.completeTraining(clientId, userId, allocation.id);
-      allocation = await this.prisma.allocation.findFirst({ where: { id: allocation.id, clientId, riderId: rider.id }, include: { fleet: true, mobileDeployment: true } });
+      allocation = await this.prisma.allocation.findFirst({ where: { id: allocation.id, clientId, riderId: rider.id, status: { notIn: [AllocationStatus.COMPLETED, AllocationStatus.CANCELLED] } }, include: { fleet: true, mobileDeployment: true } });
       if (!allocation?.mobileDeployment) throw new NotFoundException('Deployment request not found.');
     }
     const status = allocation.mobileDeployment.status;
@@ -173,7 +218,12 @@ export class MobileDeploymentService {
     const payment = await this.prisma.deploymentPayment.findUnique({ where: { workflowId: allocation.mobileDeployment.id } });
     const commercial = allocation.commercialOfferId ? await this.commercial.getOffer(clientId, { id: userId, clientId, roles: [] }, allocation.id, true) : null;
     if (!allocation.rentalAgreementId && commercial?.offer?.status === 'PRESENTED') screen = 'PLAN_ACCEPTANCE';
-    return { screen, allocation, workflow: allocation.mobileDeployment, payment, commercial };
+    const frontPhoto = await this.frontInspectionPhoto(clientId, allocation.id);
+    return {
+      screen, allocation: { ...allocation, fleet: { ...allocation.fleet, frontPhoto } },
+      workflow: allocation.mobileDeployment, payment, commercial,
+      ...(screen === 'HOME' ? await this.riderHomeFinancials(clientId, userId) : { wallet: null, lastEarnings: null }),
+    };
   }
   async riderWallet(clientId: string, userId: string) {
     const rider = await this.prisma.rider.findFirst({ where: { clientId, userId, deletedAt: null }, select: { id: true } });

@@ -9,6 +9,7 @@ import {
   ClientStatus,
   ImportEntityType,
   ImportStatus,
+  Prisma,
   UserRole,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -315,6 +316,7 @@ export class ClientUsersService {
           select: { id: true },
         });
         if (!target) throw new NotFoundException('Receiving Team Leader is not active or is outside this client.');
+        if (assignments.length) await tx.$queryRaw(Prisma.sql`SELECT id FROM "Rider" WHERE "clientId" = ${clientId} AND id IN (${Prisma.join(assignments.map((a) => a.riderId).sort())}) ORDER BY id FOR UPDATE`);
         for (const assignment of assignments) {
           const existing = await tx.teamLeaderRider.findUnique({
             where: { teamLeaderId_riderId: { teamLeaderId: target.id, riderId: assignment.riderId } },
@@ -431,6 +433,7 @@ export class ClientUsersService {
         'One or more Riders do not belong to this client.',
       );
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM "Rider" WHERE "clientId" = ${clientId} AND id IN (${Prisma.join([...new Set(dto.riderIds)].sort())}) ORDER BY id FOR UPDATE`);
       const leader = await tx.teamLeaderProfile.findFirst({
         where: { id: teamLeaderId, clientId, deletedAt: null, user: { isActive: true, deletedAt: null } },
       });

@@ -136,6 +136,7 @@ export class AllocationsService {
           clientId,
           status: FleetStatus.AVAILABLE,
           deletedAt: null,
+          allocations: { none: { status: { notIn: [AllocationStatus.COMPLETED, AllocationStatus.CANCELLED] } } },
         },
         data: { status: FleetStatus.RESERVED },
       });

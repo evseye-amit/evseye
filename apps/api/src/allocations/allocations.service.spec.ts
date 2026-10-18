@@ -40,6 +40,7 @@ describe('AllocationsService concurrency guard', () => {
         where: expect.objectContaining({
           clientId: 'client-a',
           status: FleetStatus.AVAILABLE,
+          allocations: { none: { status: { notIn: ['COMPLETED', 'CANCELLED'] } } },
         }),
         data: { status: FleetStatus.RESERVED },
       }),

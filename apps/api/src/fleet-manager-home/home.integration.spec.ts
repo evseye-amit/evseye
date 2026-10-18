@@ -672,6 +672,33 @@ describe.skipIf(!url)('Fleet Manager home in PostgreSQL', () => {
     expect(
       (await service.get(f.clientId, f.manager.id, f.otherHub.id)).summary
         ?.pendingAllocation,
-    ).toBe(1);
+    ).toBe(0);
   });
+  it('uses first-handover eligibility consistently in the list and Home count', async () => {
+    const f = await fixture();
+    const fresh = await f.rider();
+    const cancelled = await f.rider();
+    const blocked: string[] = [];
+    for (const status of ['INITIATED', 'INSPECTION_PENDING', 'OTP_PENDING', 'ACTIVE', 'DEALLOCATION_INITIATED', 'COMPLETED', 'CANCELLED'] as const) {
+      const rider = await f.rider();
+      const fleet = await f.fleet('AVAILABLE');
+      await db.allocation.create({ data: {
+        clientId: f.clientId, riderId: rider.id, fleetId: fleet.id,
+        initiatedById: f.manager.id, status,
+        allocatedAt: status === 'CANCELLED' ? new Date() : null,
+      } });
+      blocked.push(rider.id);
+    }
+    const fleet = await f.fleet('AVAILABLE');
+    await db.allocation.create({ data: {
+      clientId: f.clientId, riderId: cancelled.id, fleetId: fleet.id,
+      initiatedById: f.manager.id, status: 'CANCELLED', allocatedAt: null,
+    } });
+    const deployments = new MobileDeploymentService(db as never, {} as never, {} as never, {} as never, {} as never);
+    const rows = await deployments.pendingRiders(f.clientId, f.manager.id, f.hub.id);
+    expect(rows.map((r) => r.id).sort()).toEqual([fresh.id, cancelled.id].sort());
+    expect(rows.some((r) => blocked.includes(r.id))).toBe(false);
+    expect((await service.get(f.clientId, f.manager.id, f.hub.id)).summary?.pendingAllocation).toBe(2);
+  });
+
 });

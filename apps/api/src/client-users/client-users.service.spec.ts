@@ -74,6 +74,7 @@ describe('ClientUsersService Team Leader reassignment', () => {
   it('transfers riders before deactivating the source account', async () => {
     const calls: string[] = [];
     const prisma = {
+      $queryRaw: vi.fn().mockResolvedValue([]),
       teamLeaderProfile: { findFirst: vi.fn().mockResolvedValueOnce({ userId: 'source-user' }).mockResolvedValueOnce({ id: 'target-profile' }) },
       teamLeaderRider: {
         findMany: vi.fn().mockResolvedValue([{ riderId: 'rider-1', isPrimary: true }]),
@@ -94,6 +95,7 @@ describe('ClientUsersService Team Leader reassignment', () => {
 
   it('refuses to deactivate a Team Leader with riders and no recipient', async () => {
     const prisma = {
+      $queryRaw: vi.fn().mockResolvedValue([]),
       teamLeaderProfile: { findFirst: vi.fn().mockResolvedValue({ userId: 'source-user' }) },
       teamLeaderRider: { findMany: vi.fn().mockResolvedValue([{ riderId: 'rider-1', isPrimary: true }]) },
       user: { updateMany: vi.fn() },
@@ -105,6 +107,7 @@ describe('ClientUsersService Team Leader reassignment', () => {
 
   it('rejects an inactive or out-of-client recipient before changing assignments', async () => {
     const prisma = {
+      $queryRaw: vi.fn().mockResolvedValue([]),
       teamLeaderProfile: { findFirst: vi.fn().mockResolvedValueOnce({ userId: 'source-user' }).mockResolvedValueOnce(null) },
       teamLeaderRider: { findMany: vi.fn().mockResolvedValue([{ riderId: 'rider-1', isPrimary: true }]), updateMany: vi.fn(), upsert: vi.fn() },
       user: { updateMany: vi.fn() },
