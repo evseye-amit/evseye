@@ -10,6 +10,7 @@ function setup() {
     inspection: { findFirst: vi.fn().mockResolvedValue({ id: 'inspection-1' }) },
     photo: { findFirst: vi.fn().mockResolvedValue({ id: 'front-1' }) },
     deploymentPayment: { findUnique: vi.fn().mockResolvedValue(null) },
+    riderInvoice: { groupBy: vi.fn().mockResolvedValue([]), findMany: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0) },
     walletTransaction: { findFirst: vi.fn().mockResolvedValue({ id: 'earning-1', amount: new Prisma.Decimal('50'), currency: 'INR', transactionType: 'REWARD' }) },
   };
   const wallet = {
