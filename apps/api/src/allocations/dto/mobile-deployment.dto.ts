@@ -1,4 +1,4 @@
-import { ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
+import { ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateIf, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class PdiItemDto {
@@ -7,7 +7,8 @@ export class PdiItemDto {
   @IsBoolean() mandatory!: boolean;
 }
 export class SubmitPdiDto {
-  @IsString() @MaxLength(150) workPartnerName!: string;
+  @ValidateIf((_, value) => value !== undefined) @IsUUID() clientWorkPartnerId?: string;
+  @ValidateIf((_, value) => value !== undefined) @IsString() @MaxLength(150) workPartnerName?: string;
   @IsArray() @ArrayMinSize(1) @ValidateNested({ each: true }) @Type(() => PdiItemDto)
   checklist!: PdiItemDto[];
 }

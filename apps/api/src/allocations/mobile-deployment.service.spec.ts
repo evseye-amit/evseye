@@ -1,5 +1,7 @@
+import { ValidationPipe } from '@nestjs/common';
 import { PhotoEntityType, PhotoStatus } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
+import { SubmitPdiDto } from './dto/mobile-deployment.dto.js';
 import { MobileDeploymentService } from './mobile-deployment.service.js';
 
 describe('MobileDeploymentService.fleetRequests', () => {
@@ -106,12 +108,14 @@ describe('mobile PDI submission', () => {
     const tx = {
       inspection: { update: vi.fn().mockResolvedValue({}) },
       allocation: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      clientWorkPartner: { findMany: vi.fn().mockResolvedValue([]) },
       mobileDeploymentWorkflow: { update: vi.fn().mockResolvedValue({ status: 'PDI_PENDING_RIDER' }) },
     };
     const prisma = {
       userHub: { findMany: vi.fn().mockResolvedValue([{ hubId: 'hub-1' }]) },
       allocation: { findFirst: vi.fn().mockResolvedValue({ id: 'allocation-1' }) },
       mobileDeploymentWorkflow: { upsert: vi.fn().mockResolvedValue({ id: 'workflow-1', status: 'PAYMENT_PAID' }) },
+      clientWorkPartner: { findMany: vi.fn().mockResolvedValue([]) },
       inspection: { findFirst: vi.fn().mockResolvedValue({ id: 'inspection-1' }) },
       photoRequirement: { findMany: vi.fn().mockResolvedValue([]) },
       photo: { findMany: vi.fn().mockResolvedValue([]) },
@@ -125,6 +129,105 @@ describe('mobile PDI submission', () => {
       where: { id: 'allocation-1', clientId: 'client-1', status: 'INSPECTION_PENDING' },
       data: { status: 'OTP_PENDING' },
     });
+  });
+
+  function pdiFixture(partners: Array<{ id: string; clientId: string; name: string; status: string }>) {
+    const tx = {
+      inspection: { update: vi.fn().mockResolvedValue({}) },
+      allocation: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      clientWorkPartner: {
+        findUnique: vi.fn(),
+        findMany: vi.fn().mockResolvedValue(partners),
+      },
+      mobileDeploymentWorkflow: { update: vi.fn().mockResolvedValue({ status: 'PDI_PENDING_RIDER' }) },
+    };
+    const prisma = {
+      userHub: { findMany: vi.fn().mockResolvedValue([{ hubId: 'hub-1' }]) },
+      allocation: { findFirst: vi.fn().mockResolvedValue({ id: 'allocation-1' }) },
+      mobileDeploymentWorkflow: { upsert: vi.fn().mockResolvedValue({ id: 'workflow-1', status: 'PAYMENT_PAID' }) },
+      clientWorkPartner: { findMany: vi.fn().mockResolvedValue(partners) },
+      inspection: { findFirst: vi.fn().mockResolvedValue({ id: 'inspection-1' }) },
+      photoRequirement: { findMany: vi.fn().mockResolvedValue([]) },
+      photo: { findMany: vi.fn().mockResolvedValue([]) },
+      $transaction: vi.fn().mockImplementation((fn) => fn(tx)),
+    };
+    return {
+      prisma,
+      tx,
+      service: new MobileDeploymentService(prisma as never, {} as never, {} as never, {} as never, { activateInTransaction: vi.fn() } as never),
+    };
+  }
+
+  it('uses an active own partner id as the authoritative link and snapshots its current name', async () => {
+    const partner = { id: 'partner-1', clientId: 'client-1', name: 'Current Partner', status: 'ACTIVE' };
+    const { service, tx } = pdiFixture([]);
+    tx.clientWorkPartner.findUnique.mockResolvedValue(partner);
+
+    await service.submitPdi('client-1', 'manager-1', 'allocation-1', 'Ignored legacy name', [], 'partner-1');
+
+    expect(tx.mobileDeploymentWorkflow.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ clientWorkPartnerId: 'partner-1', workPartnerName: 'Current Partner' }),
+    }));
+  });
+
+  it('rejects inactive or cross-client partner ids before changing the PDI transaction', async () => {
+    const inactive = pdiFixture([]);
+    inactive.tx.clientWorkPartner.findUnique.mockResolvedValue({ id: 'partner-1', clientId: 'client-1', name: 'Old', status: 'INACTIVE' });
+    await expect(inactive.service.submitPdi('client-1', 'manager-1', 'allocation-1', undefined, [], 'partner-1'))
+      .rejects.toThrow('Select an active work partner.');
+    expect(inactive.tx.inspection.update).not.toHaveBeenCalled();
+
+    const crossClient = pdiFixture([]);
+    crossClient.tx.clientWorkPartner.findUnique.mockResolvedValue({ id: 'partner-2', clientId: 'client-2', name: 'Other', status: 'ACTIVE' });
+    await expect(crossClient.service.submitPdi('client-1', 'manager-1', 'allocation-1', undefined, [], 'partner-2'))
+      .rejects.toThrow('Work partner not found.');
+    expect(crossClient.tx.inspection.update).not.toHaveBeenCalled();
+  });
+
+  it('resolves a configured legacy name case-insensitively and rejects unmatched or ambiguous names', async () => {
+    const partner = { id: 'partner-1', clientId: 'client-1', name: 'Configured Partner', status: 'ACTIVE' };
+    const configured = pdiFixture([partner]);
+    await configured.service.submitPdi('client-1', 'manager-1', 'allocation-1', ' configured partner ', []);
+    expect(configured.tx.mobileDeploymentWorkflow.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ clientWorkPartnerId: 'partner-1', workPartnerName: 'Configured Partner' }),
+    }));
+
+    const unmatched = pdiFixture([partner]);
+    await expect(unmatched.service.submitPdi('client-1', 'manager-1', 'allocation-1', 'Unknown', []))
+      .rejects.toThrow('Work Partner name must match exactly one client work partner.');
+
+    const ambiguous = pdiFixture([partner, { ...partner, id: 'partner-2' }]);
+    await expect(ambiguous.service.submitPdi('client-1', 'manager-1', 'allocation-1', 'Configured Partner', []))
+      .rejects.toThrow('Work Partner name must match exactly one client work partner.');
+  });
+
+  it('rejects one inactive legacy-name match before changing the PDI transaction', async () => {
+    const inactive = pdiFixture([
+      { id: 'partner-inactive', clientId: 'client-1', name: 'Inactive Partner', status: 'INACTIVE' },
+    ]);
+
+    await expect(
+      inactive.service.submitPdi('client-1', 'manager-1', 'allocation-1', ' inactive partner ', []),
+    ).rejects.toThrow('Select an active work partner.');
+    expect(inactive.tx.inspection.update).not.toHaveBeenCalled();
+    expect(inactive.tx.allocation.updateMany).not.toHaveBeenCalled();
+    expect(inactive.tx.mobileDeploymentWorkflow.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('SubmitPdiDto boundary', () => {
+  it('rejects explicit null partner ids instead of treating them as omitted', async () => {
+    const pipe = new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true });
+    await expect(
+      pipe.transform(
+        {
+          clientWorkPartnerId: null,
+          workPartnerName: 'Legacy Partner',
+          checklist: [{ code: 'FRONT', label: 'Front', mandatory: true }],
+        },
+        { type: 'body', metatype: SubmitPdiDto },
+      ),
+    ).rejects.toThrow();
   });
 });
 
