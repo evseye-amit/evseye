@@ -31,4 +31,24 @@ describe('MobileDeploymentController', () => {
 
     await expect(controller.requests({ id: 'manager-1' } as never)).rejects.toBe(error);
   });
+
+  it('passes the authoritative client partner id while retaining the legacy name argument', async () => {
+    const deployments = { submitPdi: vi.fn().mockResolvedValue({ status: 'PDI_PENDING_RIDER' }) };
+    const clients = { requireClientId: vi.fn().mockReturnValue('client-1') };
+    const controller = new MobileDeploymentController(deployments as never, clients as never);
+
+    await expect(controller.pdi(
+      { id: 'manager-1' } as never,
+      'allocation-1',
+      { clientWorkPartnerId: 'partner-1', workPartnerName: 'Legacy', checklist: [] } as never,
+    )).resolves.toEqual({ data: { status: 'PDI_PENDING_RIDER' } });
+    expect(deployments.submitPdi).toHaveBeenCalledWith(
+      'client-1',
+      'manager-1',
+      'allocation-1',
+      'Legacy',
+      [],
+      'partner-1',
+    );
+  });
 });

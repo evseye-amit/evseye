@@ -28,6 +28,7 @@ import { LanguageSwitcher, useLocale } from "./components/locale-provider";
 import { ClientBrandingSettings } from "./components/client-branding-settings";
 import { ClientLegalDocuments } from "./components/client-legal-documents";
 import { ClientReferAndEarn } from "./components/client-refer-and-earn";
+import { WorkPartnerManager } from "./components/work-partner-manager";
 import { ClientBrand } from "./components/client-brand";
 import Link from "next/link";
 
@@ -46,6 +47,7 @@ type Tab =
   | "dashboard"
   | "legal-documents"
   | "refer-and-earn"
+  | "work-partners"
   | "fleets"
   | "riders"
   | "allocations"
@@ -166,6 +168,7 @@ const CLIENT_NAVIGATION: Array<{
   {
     label: "Rider Management",
     items: [
+      { id: "work-partners", label: "Work Partners" },
       { id: "wallet", label: "Wallet" },
       { id: "rider-fleet-mapping", label: "Rider Fleet Mapping" },
       { id: "rider-vendor-mapping", label: "Rider Vendor Mapping" },
@@ -202,6 +205,7 @@ const CLIENT_TAB_TITLES: Record<Tab, string> = {
   dashboard: "Dashboard",
   "legal-documents": "Legal Documents",
   "refer-and-earn": "Refer & Earn",
+  "work-partners": "Work Partners",
   fleets: "Fleet",
   riders: "Rider",
   allocations: "Allocation",
@@ -240,6 +244,7 @@ const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
   dashboard: "dashboard",
   "legal-documents": "audit",
   "refer-and-earn": "earnings",
+  "work-partners": "link",
   fleets: "vehicle",
   riders: "user",
   allocations: "allocation",
@@ -277,6 +282,7 @@ const ACTIVE_CLIENT_TABS = new Set<Tab>([
   "dashboard",
   "legal-documents",
   "refer-and-earn",
+  "work-partners",
   "fleets",
   "riders",
   "allocations",
@@ -721,6 +727,7 @@ export default function Home() {
   const [tab, setTab] = useState<Tab>("dashboard");
   const [legalRefreshKey, setLegalRefreshKey] = useState(0);
   const [referralRefreshKey, setReferralRefreshKey] = useState(0);
+  const [workPartnerRefreshKey, setWorkPartnerRefreshKey] = useState(0);
   const [expandedClientNavGroups, setExpandedClientNavGroups] = useState<Record<string, boolean>>({});
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [items, setItems] = useState<RecordItem[]>([]);
@@ -881,7 +888,7 @@ export default function Home() {
   async function loadView(nextTab: Tab) {
     if (!userRoles.length) { setLoading(false); return; }
     if (["spares-penalties","installation-board","vehicle-preparation","quality-check","readiness-settings","readiness-staff"].includes(nextTab)) { setItems([]); setLoading(false); return; }
-    if (nextTab === "legal-documents" || nextTab === "refer-and-earn" || nextTab === "rider-reference-review" || nextTab === "support-tickets" || nextTab === "notifications") {
+    if (nextTab === "legal-documents" || nextTab === "refer-and-earn" || nextTab === "work-partners" || nextTab === "rider-reference-review" || nextTab === "support-tickets" || nextTab === "notifications") {
       setItems([]);
       setLoading(false);
       return;
@@ -2464,7 +2471,7 @@ export default function Home() {
 
   const canSeeTab = (id: Tab) => {
     if (userRoles.some(role => ["RFD_MANAGER","QC_MANAGER"].includes(role))) return ["installation-board","vehicle-preparation","quality-check"].includes(id);
-    if (["spares-penalties","legal-documents","refer-and-earn","readiness-settings"].includes(id)) return userRoles.includes("CLIENT_ADMIN");
+    if (["spares-penalties","legal-documents","refer-and-earn","readiness-settings","work-partners"].includes(id)) return userRoles.includes("CLIENT_ADMIN");
     if (["notifications","readiness-staff"].includes(id)) return userRoles.some(role => ["CLIENT_ADMIN","OPERATIONS_MANAGER"].includes(role));
     return true;
   };
@@ -2546,7 +2553,7 @@ export default function Home() {
           </div>
           <div className="header-actions">
             <LanguageSwitcher />
-            <button className="secondary" onClick={() => tab === "notifications" ? setNotificationRefreshKey((key) => key + 1) : tab === "support-tickets" ? setSupportRefreshKey((key) => key + 1) : tab === "rider-reference-review" ? setReferenceRefreshKey((key) => key + 1) : tab === "legal-documents" ? setLegalRefreshKey((key) => key + 1) : tab === "refer-and-earn" ? setReferralRefreshKey((key) => key + 1) : void loadView(tab)}>
+            <button className="secondary" onClick={() => tab === "notifications" ? setNotificationRefreshKey((key) => key + 1) : tab === "support-tickets" ? setSupportRefreshKey((key) => key + 1) : tab === "rider-reference-review" ? setReferenceRefreshKey((key) => key + 1) : tab === "legal-documents" ? setLegalRefreshKey((key) => key + 1) : tab === "refer-and-earn" ? setReferralRefreshKey((key) => key + 1) : tab === "work-partners" ? setWorkPartnerRefreshKey((key) => key + 1) : void loadView(tab)}>
               ↻ {t("Refresh")}
             </button>
             <button onClick={signOut}>{t("Sign out")}</button>
@@ -2562,6 +2569,7 @@ export default function Home() {
         {loading && <p className="muted">Loading current data…</p>}
         {tab === "legal-documents" && userRoles.includes("CLIENT_ADMIN") && <ClientLegalDocuments key={legalRefreshKey} />}
         {tab === "refer-and-earn" && userRoles.includes("CLIENT_ADMIN") && <ClientReferAndEarn key={referralRefreshKey} />}
+        {tab === "work-partners" && userRoles.includes("CLIENT_ADMIN") && <WorkPartnerManager key={workPartnerRefreshKey} mode="client" request={request} token={token} />}
         {tab === "rider-reference-review" && <RiderReferenceReview key={referenceRefreshKey} />}
         {tab === "spares-penalties" && <SparesCatalogue />}
         {tab === "installation-board" && <InstallationBoard />}
@@ -3096,6 +3104,7 @@ export default function Home() {
           tab !== "dashboard" &&
           tab !== "legal-documents" &&
           tab !== "refer-and-earn" &&
+          tab !== "work-partners" &&
           tab !== "rider-reference-review" &&
           tab !== "support-tickets" &&
           tab !== "notifications" &&

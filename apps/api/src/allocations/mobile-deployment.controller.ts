@@ -45,7 +45,7 @@ export class MobileDeploymentController {
   @Get(':id/allocation-evidence') @Roles(UserRole.FLEET_MANAGER)
   async allocationEvidence(@CurrentUser() user: AuthUser, @Param('id') id: string) { return { data: await this.deployments.getAllocationEvidence(this.clients.requireClientId(user), user.id, id) }; }
   @Post(':id/pdi') @Roles(UserRole.FLEET_MANAGER)
-  async pdi(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: SubmitPdiDto) { return { data: await this.deployments.submitPdi(this.clients.requireClientId(user), user.id, id, body.workPartnerName, body.checklist) }; }
+  async pdi(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: SubmitPdiDto) { return { data: await this.deployments.submitPdi(this.clients.requireClientId(user), user.id, id, body.workPartnerName, body.checklist, body.clientWorkPartnerId) }; }
   @Post(':id/pdi/voice-upload-intent') @Roles(UserRole.RIDER)
   async pdiVoiceIntent(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: PdiVoiceUploadIntentDto) { return { data: await this.deployments.createPdiVoiceUploadIntent(this.clients.requireClientId(user), user.id, id, body) }; }
   @Post(':id/pdi/voice/:photoId/complete') @Roles(UserRole.RIDER)
