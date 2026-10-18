@@ -162,6 +162,7 @@ export class MediaService {
 
   async complete(clientId: string, photoId: string) {
     const photo = await this.getPhoto(clientId, photoId);
+    if (photo.entityType === PhotoEntityType.PREPARATION) throw new ForbiddenException('Preparation photos use the preparation routes.');
     if (photo.entityType === PhotoEntityType.SUPPORT_TICKET)
       throw new ForbiddenException(
         'Support attachments use the support ticket routes.',
@@ -213,6 +214,7 @@ export class MediaService {
   async downloadUrl(clientId: string, photoId: string, actor?: AuthUser) {
     const photo = await this.getPhoto(clientId, photoId);
     await this.assertFleetManagerPhotoAccess(clientId, actor, photo);
+    if (photo.entityType === PhotoEntityType.PREPARATION) throw new ForbiddenException('Preparation photos use the preparation routes.');
     if (photo.entityType === PhotoEntityType.SUPPORT_TICKET)
       throw new ForbiddenException(
         'Support attachments use the support ticket routes.',

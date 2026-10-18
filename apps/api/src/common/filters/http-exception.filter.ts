@@ -9,6 +9,7 @@ import {
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { requestLocale } from '../locale.js';
 import { localizeApiError } from '../mobile-error-translations.js';
+import { Prisma } from '@prisma/client';
 
 function getExceptionMessage(exceptionResponse: unknown): string {
   if (typeof exceptionResponse === 'string') {
@@ -41,6 +42,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpExceptionFilter.name);
 
   catch(exception: unknown, host: ArgumentsHost): void {
+    if ((exception instanceof Prisma.PrismaClientKnownRequestError || exception instanceof Prisma.PrismaClientUnknownRequestError) && exception.message.includes('PREPARATION_QC_REQUIRED:')) {
+      exception = new HttpException({ code: 'PREPARATION_QC_REQUIRED', message: 'Scooter requires current preparation and QC approval before allocation or handover.' }, HttpStatus.CONFLICT);
+    }
+    if ((exception instanceof Prisma.PrismaClientKnownRequestError || exception instanceof Prisma.PrismaClientUnknownRequestError) && exception.message.includes('FLEET_ALLOCATION_BLOCKED:')) {
+      exception = new HttpException({ code: 'FLEET_ALLOCATION_BLOCKED', message: 'Allocation is administratively disabled for this scooter.' }, HttpStatus.CONFLICT);
+    }
     const context = host.switchToHttp();
     const response = context.getResponse<FastifyReply>();
     const request = context.getRequest<FastifyRequest>();

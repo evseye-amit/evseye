@@ -8,6 +8,8 @@ datasource db {
 }
 
 enum UserRole {
+  RFD_MANAGER
+  QC_MANAGER
   SUPER_ADMIN
   CLIENT_ADMIN
   OPERATIONS_MANAGER
@@ -104,6 +106,7 @@ enum ImportStatus {
 }
 
 enum PhotoEntityType {
+  PREPARATION
   RIDER
   FLEET
   BATTERY
@@ -807,7 +810,16 @@ enum PaymentTransactionStatus {
   UNKNOWN
 }
 
+enum FleetOperatingMode {
+  SIMPLE
+  ONBOARDING_EVIDENCE
+  PREPARATION_QC
+  STAGED_PREPARATION_QC
+}
+
 model Client {
+  readinessPolicies FleetReadinessPolicy[]
+  fleetOperatingMode FleetOperatingMode @default(SIMPLE)
   penaltyHandoverExceptions PenaltyHandoverException[]
   pushDevices PushDevice[]
   notificationMessages NotificationMessage[]
@@ -1539,6 +1551,8 @@ model FeatureUsageLedger {
 }
 
 model Hub {
+  readinessStaff FleetReadinessStaff[]
+  preparations FleetPreparation[]
   id                      String                                @id @default(uuid())
   clientId                String
   client                  Client                                @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -1598,6 +1612,9 @@ model Hub {
 }
 
 model Fleet {
+  preparations FleetPreparation[]
+  allocationBlockedByAdmin Boolean @default(false)
+  readinessApprovedPreparationId String?
   commercialGrades   VehicleCommercialGradeAssignment[]
   id                 String                             @id @default(uuid())
   clientId           String
@@ -1649,6 +1666,7 @@ model Fleet {
   updatedAt          DateTime                           @updatedAt
 
   @@unique([clientId, fleetCode])
+  @@unique([clientId, id])
   @@unique([clientId, vehicleNumber])
   @@unique([clientId, chassisNumber])
   @@unique([clientId, vinNumber])
@@ -1897,6 +1915,7 @@ model FleetTransfer {
 }
 
 model User {
+  readinessStaffAssignments FleetReadinessStaff[]
   approvedPenaltyHandoverExceptions PenaltyHandoverException[]
   pushDevices PushDevice[]
   inboxNotifications UserNotification[]
@@ -6088,4 +6107,111 @@ model PenaltyHandoverException {
 
   @@unique([clientId, allocationId, debtDigest])
   @@index([clientId, riderId, approvedAt])
+}
+
+model FleetReadinessPolicy {
+  id String @id @default(uuid())
+  clientId String
+  client Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  version Int
+  configuration Json
+  reason String @db.VarChar(500)
+  createdById String
+  createdAt DateTime @default(now())
+  @@unique([clientId, version])
+}
+
+model FleetReadinessStaff {
+  id String @id @default(uuid())
+  clientId String
+  userId String
+  user User @relation(fields: [clientId, userId], references: [clientId, id], onDelete: Restrict)
+  hubId String
+  hub Hub @relation(fields: [hubId], references: [id], onDelete: Restrict)
+  canPrepare Boolean @default(false)
+  canReview Boolean @default(false)
+  stageCodes String[] @default([])
+  reviewStageCodes String[] @default([])
+  @@unique([clientId, userId, hubId])
+  @@index([clientId, hubId])
+}
+
+model FleetPreparation {
+  id String @id @default(uuid())
+  clientId String
+  fleetId String
+  fleet Fleet @relation(fields: [clientId, fleetId], references: [clientId, id], onDelete: Restrict)
+  hubId String
+  hub Hub @relation(fields: [hubId], references: [id], onDelete: Restrict)
+  status String @default("PENDING") @db.VarChar(30)
+  assignedToId String?
+  currentRevision Int @default(1)
+  policySnapshot Json
+  invalidationReason String?
+  createdById String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  stages FleetInstallationStage[]
+  revisions FleetPreparationRevision[]
+  events FleetPreparationEvent[]
+  @@unique([clientId, id])
+  @@index([clientId, hubId, status])
+  @@index([clientId, fleetId, createdAt])
+}
+
+model FleetPreparationRevision {
+  id String @id @default(uuid())
+  clientId String
+  preparationId String
+  preparation FleetPreparation @relation(fields: [clientId, preparationId], references: [clientId, id], onDelete: Restrict)
+  revision Int
+  checklist Json @default("{}")
+  componentSnapshot Json?
+  photoIds String[] @default([])
+  submittedById String?
+  submittedAt DateTime?
+  reviewedById String?
+  reviewedAt DateTime?
+  decision String?
+  rejectionReason String?
+  failedItems String[] @default([])
+  createdAt DateTime @default(now())
+  @@unique([preparationId, revision])
+  @@index([clientId, preparationId])
+}
+
+model FleetPreparationEvent {
+  id String @id @default(uuid())
+  clientId String
+  preparationId String
+  preparation FleetPreparation @relation(fields: [clientId, preparationId], references: [clientId, id], onDelete: Restrict)
+  actorId String?
+  action String
+  data Json
+  createdAt DateTime @default(now())
+  @@index([clientId, preparationId, createdAt])
+}
+
+model FleetInstallationStage {
+  id String @id @default(uuid())
+  clientId String
+  preparationId String
+  preparation FleetPreparation @relation(fields: [clientId, preparationId], references: [clientId, id], onDelete: Restrict)
+  code String
+  status String @default("WAITING")
+  assignedToId String?
+  revision Int @default(1)
+  definition Json
+  checklist Json @default("{}")
+  componentSnapshot Json?
+  submittedById String?
+  submittedAt DateTime?
+  reviewedById String?
+  reviewedAt DateTime?
+  reason String?
+  failedItems String[] @default([])
+  history Json @default("[]")
+  updatedAt DateTime @updatedAt
+  @@unique([preparationId, code])
+  @@index([clientId, status])
 }

@@ -8,6 +8,42 @@ import { describe, expect, it, vi } from 'vitest';
 import { FleetsService } from './fleets.service.js';
 
 describe('FleetsService onboarding evidence', () => {
+  it('allows Simple mode activation with missing onboarding photos', async () => {
+    const fleet = { id: 'fleet-1', status: FleetStatus.IN_TRANSIT, onboardingStatus: FleetOnboardingStatus.DRAFT, allocationEnabled: true };
+    const tx = {
+      $queryRaw: vi.fn(),
+      fleet: {
+        findFirstOrThrow: vi.fn().mockResolvedValue(fleet),
+        update: vi.fn().mockResolvedValue({ ...fleet, status: FleetStatus.AVAILABLE, onboardingStatus: FleetOnboardingStatus.ACTIVE }),
+      },
+      allocation: { count: vi.fn().mockResolvedValue(0) },
+      fleetStatusHistory: { create: vi.fn() },
+    };
+    const prisma = {
+      client: { findUniqueOrThrow: vi.fn().mockResolvedValue({ fleetOperatingMode: 'SIMPLE' }) },
+      fleet: { findFirst: vi.fn().mockResolvedValue({ ...fleet, batteryHistory: [], controllerHistory: [], iotDevice: null }) },
+      photoRequirement: { createMany: vi.fn(), findMany: vi.fn().mockResolvedValue([{ entityType: PhotoEntityType.FLEET, photoType: 'FRONT' }]) },
+      photo: { findMany: vi.fn().mockResolvedValue([]) },
+      $transaction: vi.fn(async (fn: (value: typeof tx) => unknown) => fn(tx)),
+    };
+    const service = new FleetsService(prisma as never, {} as never);
+    await expect(service.onboardingStatus('client-a', fleet.id)).resolves.toMatchObject({
+      operatingMode: 'SIMPLE', photosRequired: false, evidenceComplete: false, ready: true,
+      items: [{ missingPhotoTypes: ['FRONT'] }],
+    });
+    await expect(service.activate('client-a', fleet.id, 'admin-1')).resolves.toMatchObject({
+      status: FleetStatus.AVAILABLE, onboardingStatus: FleetOnboardingStatus.ACTIVE, isAllocatable: true,
+    });
+    prisma.client.findUniqueOrThrow.mockResolvedValue({ fleetOperatingMode: 'ONBOARDING_EVIDENCE' });
+    await expect(service.activate('client-a', fleet.id, 'admin-1')).rejects.toThrow('Complete all required operational photos');
+    prisma.client.findUniqueOrThrow.mockResolvedValue({ fleetOperatingMode: 'SIMPLE' });
+    tx.allocation.count.mockResolvedValue(1);
+    await expect(service.activate('client-a', fleet.id, 'admin-1')).rejects.toThrow('Only an unallocated fleet');
+    tx.allocation.count.mockResolvedValue(0);
+    tx.fleet.findFirstOrThrow.mockResolvedValue({ ...fleet, status: FleetStatus.MAINTENANCE });
+    await expect(service.activate('client-a', fleet.id, 'admin-1')).rejects.toThrow('Only an unallocated fleet');
+  });
+
   it('resolves Fleet import master codes on the server and reports invalid rows', async () => {
     const prisma = {
       oem: {
@@ -71,6 +107,7 @@ describe('FleetsService onboarding evidence', () => {
 
   it('reports missing required evidence by fleet component', async () => {
     const prisma = {
+      client: { findUniqueOrThrow: vi.fn().mockResolvedValue({ fleetOperatingMode: 'ONBOARDING_EVIDENCE' }) },
       fleet: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'fleet-1',
@@ -123,6 +160,9 @@ describe('FleetsService onboarding evidence', () => {
     await expect(
       service.onboardingStatus('client-a', 'fleet-1'),
     ).resolves.toEqual({
+      operatingMode: 'ONBOARDING_EVIDENCE',
+      photosRequired: true,
+      evidenceComplete: false,
       ready: false,
       items: [
         {

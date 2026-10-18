@@ -1,4 +1,5 @@
 import {
+  CopyObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
@@ -66,6 +67,13 @@ export class S3StorageProvider implements StorageProvider {
       new GetObjectCommand({ Bucket: this.bucket(), Key: objectKey }),
       { expiresIn: this.config.getOrThrow('S3_SIGNED_URL_TTL_SECONDS') },
     );
+  }
+  async sealObject(sourceKey: string, destinationKey: string): Promise<void> {
+    await this.client.send(new CopyObjectCommand({
+      Bucket: this.bucket(), Key: destinationKey,
+      CopySource: `${this.bucket()}/${sourceKey.split('/').map(encodeURIComponent).join('/')}`,
+      ...(this.serverSideEncryption === 'aws:kms' ? { ServerSideEncryption: this.serverSideEncryption } : {}),
+    }));
   }
 
   createPublicUrl(objectKey: string): string {

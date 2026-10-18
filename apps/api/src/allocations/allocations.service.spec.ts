@@ -49,6 +49,7 @@ describe('AllocationsService concurrency guard', () => {
 
   it('rejects allocation when a required fleet onboarding photo is missing', async () => {
     const tx = {
+      client: { findUniqueOrThrow: vi.fn().mockResolvedValue({ fleetOperatingMode: 'ONBOARDING_EVIDENCE' }) },
       $queryRaw: vi.fn().mockResolvedValue([{ id: 'fleet-1' }]),
       vehicleExchangeRequest: { findFirst: vi.fn().mockResolvedValue(null) },
       commercialRestriction: { findFirst: vi.fn().mockResolvedValue(null) },
@@ -84,6 +85,13 @@ describe('AllocationsService concurrency guard', () => {
       },
       select: { photoType: true },
     });
+    tx.client.findUniqueOrThrow.mockResolvedValue({ fleetOperatingMode: 'SIMPLE' });
+    tx.allocation.create.mockResolvedValue({ id: 'allocation-1' });
+    Object.assign(tx, { mobileDeploymentWorkflow: { create: vi.fn() } });
+    await expect(service.initiate('client-a', 'fleet-1', 'rider-1', 'operator-1')).resolves.toMatchObject({ id: 'allocation-1' });
+    expect(tx.inspection.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ type: InspectionType.PRE_ALLOCATION, status: InspectionStatus.DRAFT }),
+    }));
   });
 
   it('rejects allocation for an inactive rider even when called directly', async () => {

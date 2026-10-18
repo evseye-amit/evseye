@@ -1211,9 +1211,10 @@ export class VehicleSubmissionService {
           throw new ConflictException(
             'Vehicle has another active allocation and cannot be released by this report.',
           );
+        const readinessClient = await tx.client.findUniqueOrThrow({ where: { id: clientId }, select: { fleetOperatingMode: true } });
         await tx.fleet.update({
           where: { id: submission.fleetId },
-          data: { status: 'AVAILABLE', allocationEnabled: true },
+          data: { status: 'AVAILABLE', ...(['PREPARATION_QC','STAGED_PREPARATION_QC'].includes(readinessClient.fleetOperatingMode) ? {} : { allocationEnabled: true }) },
         });
       }
       await tx.otpRequest.updateMany({

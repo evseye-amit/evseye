@@ -66,6 +66,9 @@ type FleetOnboardingWorkbookRows = {
 
 type FleetEvidenceStatus = {
   ready: boolean;
+  operatingMode: "SIMPLE" | "ONBOARDING_EVIDENCE";
+  photosRequired: boolean;
+  evidenceComplete: boolean;
   items: Array<{
     entityType: string;
     entityId: string;
@@ -843,7 +846,7 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
         setEditingComponents(false);
         setCreatedFleet(fleet);
         setMessage(
-          "Fleet created. Complete its required evidence before activation.",
+          "Fleet created. Review its onboarding photos and activate when ready.",
         );
       }
     } catch (cause) {
@@ -1733,8 +1736,8 @@ function FleetComponentsSetup({
         <h2>{isEditing ? "Update Fleet components" : "Install Fleet components"}</h2>
         <p>
           Add or update the battery, controller, and IoT device fitted to{" "}
-          {fleet.vehicleNumber || fleet.chassisNumber}. Component evidence will
-          be required before Fleet activation.
+          {fleet.vehicleNumber || fleet.chassisNumber}. Component onboarding
+          photos are optional in Simple mode.
         </p>
       </div>
       {ingestSecret ? (
@@ -1881,8 +1884,8 @@ function FleetComponentsSetup({
         <form onSubmit={saveIotDevice} className="client-hub-form">
           <h3 className="client-form-section-title">IoT device</h3>
           <p className="client-form-hint client-form-wide">
-            The device installation and serial-label photos are required in the
-            next step when a tracker is assigned.
+            Device installation and serial-label photos can be uploaded in the
+            next step when a tracker is assigned. Simple mode makes these onboarding photos optional.
           </p>
           <label>
             Device number *
@@ -2125,8 +2128,9 @@ function FleetEvidenceSetup({
         <p className="eyebrow">STEP 4 · FLEET EVIDENCE</p>
         <h2>Activate {fleet.vehicleNumber || fleet.chassisNumber}</h2>
         <p>
-          Upload every required photo. Your Fleet becomes available only after
-          its operational evidence has been verified.
+          {evidence?.photosRequired
+            ? "Complete the required onboarding photos before activating this scooter."
+            : "Onboarding photos are optional. Upload now or complete later. Allocation and submission photos are still required."}
         </p>
       </div>
       {!evidence ? (
@@ -2140,7 +2144,7 @@ function FleetEvidenceSetup({
                 <span>
                   {item.ready
                     ? "Evidence complete"
-                    : `${item.missingPhotoTypes.length} photo slot(s) remaining`}
+                    : `${item.missingPhotoTypes.length} ${evidence.photosRequired ? "required" : "optional"} photo slot(s) remaining`}
                 </span>
               </div>
               <div className="fleet-photo-slots">
@@ -2192,7 +2196,7 @@ function FleetEvidenceSetup({
           type="button"
           onClick={() => void activate()}
         >
-          {busy ? "Working…" : "Activate Fleet"}
+          {busy ? "Working…" : evidence && !evidence.photosRequired && !evidence.evidenceComplete ? "Complete later and activate Fleet" : "Activate Fleet"}
         </button>
       </div>
       {message ? <p className="client-action-message">{message}</p> : null}
