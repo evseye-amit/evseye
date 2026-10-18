@@ -1,3 +1,4 @@
+import { FleetManagerActionGuard, FleetActionResource } from '../auth/guards/fleet-manager-action.guard.js';
 import {
   Body,
   Controller,
@@ -30,7 +31,8 @@ import { UpdateFleetDto } from './dto/update-fleet.dto.js';
 import { FleetsService } from './fleets.service.js';
 import { ComponentsService } from './components.service.js';
 @Controller('fleets')
-@UseGuards(AccessTokenGuard, RolesGuard)
+@UseGuards(AccessTokenGuard, RolesGuard, FleetManagerActionGuard)
+@FleetActionResource('fleet')
 @Roles(
   UserRole.CLIENT_ADMIN,
   UserRole.OPERATIONS_MANAGER,

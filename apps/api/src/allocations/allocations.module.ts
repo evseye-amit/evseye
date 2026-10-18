@@ -1,3 +1,5 @@
+import { FleetSearchController } from './fleet-search.controller.js';
+import { FleetSearchService } from './fleet-search.service.js';
 import { AllocationTeamLeadController } from './allocation-team-lead.controller.js';
 import { AllocationTeamLeadService } from './allocation-team-lead.service.js';
 import { WalletModule } from '../wallet/wallet.module.js';
@@ -16,8 +18,8 @@ import { DeploymentCommercialController } from './deployment-commercial.controll
 
 @Module({
   imports: [WalletModule, AuthModule, AuditModule, MediaModule, RidersModule, ReferralModule, CommercialCoreModule],
-  controllers: [AllocationTeamLeadController, AllocationsController, MobileDeploymentController, DeploymentCommercialController],
-  providers: [AllocationTeamLeadService, AllocationsService, MobileDeploymentService],
+  controllers: [FleetSearchController, AllocationTeamLeadController, AllocationsController, MobileDeploymentController, DeploymentCommercialController],
+  providers: [FleetSearchService, AllocationTeamLeadService, AllocationsService, MobileDeploymentService],
   exports: [AllocationsService],
 })
 export class AllocationsModule {}

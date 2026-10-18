@@ -137,7 +137,7 @@ export class RideReturnsService {
   private async hubIds(clientId: string, userId: string) {
     return (
       await this.db.userHub.findMany({
-        where: { clientId, userId },
+        where: { clientId, userId, hub: { clientId, status: 'ACTIVE', deletedAt: null } },
         select: { hubId: true },
       })
     ).map((row) => row.hubId);

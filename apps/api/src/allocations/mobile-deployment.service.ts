@@ -129,7 +129,7 @@ export class MobileDeploymentService {
     return { inspection, requirements, photos, missingPhotoTypes };
   }
   private async fleetManagerHubIds(clientId: string, userId: string) {
-    return (await this.prisma.userHub.findMany({ where: { clientId, userId }, select: { hubId: true } })).map((entry) => entry.hubId);
+    return (await this.prisma.userHub.findMany({ where: { clientId, userId, hub: { clientId, status: 'ACTIVE', deletedAt: null } }, select: { hubId: true } })).map((entry) => entry.hubId);
   }
   async pendingRiders(clientId: string, userId: string, selectedHubId?: string) {
     const assigned = await this.prisma.userHub.findMany({ where: { clientId, userId, hub: { clientId, status: 'ACTIVE', deletedAt: null } }, select: { hubId: true } });

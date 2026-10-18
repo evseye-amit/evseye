@@ -86,7 +86,7 @@ export class AllocationsService {
   }
 
   async fleetManagerHubIds(clientId: string, userId: string) {
-    return (await this.prisma.userHub.findMany({ where: { clientId, userId }, select: { hubId: true } })).map((entry) => entry.hubId);
+    return (await this.prisma.userHub.findMany({ where: { clientId, userId, hub: { clientId, status: 'ACTIVE', deletedAt: null } }, select: { hubId: true } })).map((entry) => entry.hubId);
   }
   async assertFleetManagerFleet(clientId: string, userId: string, fleetId: string) {
     const hubIds = await this.fleetManagerHubIds(clientId, userId);
