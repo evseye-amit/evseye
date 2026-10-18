@@ -91,7 +91,7 @@ The existing `GET /api/v1/mobile-deployments/fleet-manager/pending-riders` now u
 
 ### Pending Allocation
 
-Active riders attributed to this hub without an allocation in `INITIATED`, `INSPECTION_PENDING`, `OTP_PENDING`, `ACTIVE`, or `DEALLOCATION_INITIATED` status. Uses the same eligibility statuses as the existing allocation workflow.
+Active riders in the visible hub/shared queue awaiting their first scooter handover. Any ongoing allocation or completed allocation excludes the rider, including riders who returned their scooter. Only allocations cancelled before handover (`CANCELLED` with no `allocatedAt`) permit eligibility again; cancellation after handover does not. The pending-rider API and Home count use the same rule. Historical counts apply it to allocation history as of the cutoff.
 
 ### Pending Submission
 
