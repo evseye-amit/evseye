@@ -1,3 +1,4 @@
+import { FleetManagerActionGuard, FleetActionResource } from '../auth/guards/fleet-manager-action.guard.js';
 import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
@@ -11,7 +12,8 @@ import { InspectionsService } from './inspections.service.js';
 import { CompleteInspectionDto } from './dto/complete-inspection.dto.js';
 
 @Controller('inspections')
-@UseGuards(AccessTokenGuard, RolesGuard)
+@UseGuards(AccessTokenGuard, RolesGuard, FleetManagerActionGuard)
+@FleetActionResource('inspection')
 @Roles(
   UserRole.CLIENT_ADMIN,
   UserRole.OPERATIONS_MANAGER,

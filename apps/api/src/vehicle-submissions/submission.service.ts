@@ -120,7 +120,7 @@ export class VehicleSubmissionService {
     ) {
       if (
         !(await db.userHub.findFirst({
-          where: { clientId, userId: actor.id, hubId },
+          where: { clientId, userId: actor.id, hubId, hub: { clientId, status: 'ACTIVE', deletedAt: null } },
         }))
       )
         throw new NotFoundException('Submission is not in an assigned hub.');

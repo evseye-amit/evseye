@@ -1,3 +1,4 @@
+import { FleetManagerActionGuard, FleetActionResource } from '../auth/guards/fleet-manager-action.guard.js';
 import {
   Body,
   Controller,
@@ -36,7 +37,8 @@ const clientRoles = [UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER, UserRol
 @Controller('client/ride-returns')
 @ApiTags('Client Operations · Ride Returns')
 @ApiBearerAuth()
-@UseGuards(AccessTokenGuard, RolesGuard)
+@UseGuards(AccessTokenGuard, RolesGuard, FleetManagerActionGuard)
+@FleetActionResource('return')
 @Roles(...clientRoles)
 export class RideReturnsController {
   constructor(private readonly context: ClientContextService, private readonly returns: RideReturnsService) {}
