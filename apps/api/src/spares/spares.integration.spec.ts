@@ -348,4 +348,41 @@ describe.skipIf(!url)('Spares catalogue in PostgreSQL', () => {
       }),
     ).rejects.toThrow('already used');
   });
+  it('bulk imports master spares with row failures, durable history and duplicate protection', async () => {
+    const root = await db.user.create({ data: { role: 'SUPER_ADMIN', name: 'Import admin', mobile: '+919000000099' } });
+    const actor: AuthUser = { id: root.id, clientId: null, roles: ['SUPER_ADMIN'] };
+    const partCode = code();
+    const result = await service.bulkCreate(actor, { filename: 'spares.csv', rows: [
+      { code: partCode, ...metadata },
+      { code: partCode, ...metadata, baseRate: '999' },
+      { code: code(), ...metadata, gstPercent: '101' },
+    ] });
+    expect(result).toMatchObject({ status: 'PARTIAL_PASS', passedRows: 1, failedRows: 2, totalRows: 3 });
+    expect(result.failures.map((row) => row.row)).toEqual([3, 4]);
+    expect((await db.sparePartMaster.findUniqueOrThrow({ where: { code: partCode } })).baseRate.toFixed(2)).toBe('150.00');
+    expect(await service.importHistory(actor)).toEqual(expect.arrayContaining([expect.objectContaining({ id: result.id, fileName: 'spares.csv' })]));
+    expect(await service.importFailures(actor, result.id)).toHaveLength(2);
+    const f = await fixture();
+    await expect(service.importFailures(f.actor, result.id, f.client.id)).rejects.toThrow('not found');
+    await expect(service.bulkCreate(actor, { filename: 'too-many.csv', rows: Array(101).fill(metadata) })).rejects.toThrow();
+  });
+  it('bulk client imports preserve client ownership, evidence rules and tenant boundaries', async () => {
+    const f = await fixture(), other = await fixture();
+    const partCode = code();
+    const row = { code: partCode, ...metadata, penaltyAmount: '197.00', evidenceRequired: false, isActive: true };
+    const result = await service.bulkCreate(f.actor, { filename: 'client.csv', rows: [row, { ...row, code: code(), penaltyAmount: null }] }, f.client.id);
+    expect(result).toMatchObject({ passedRows: 1, failedRows: 1 });
+    const part = await db.returnPenaltyPrice.findUniqueOrThrow({ where: { clientId_code: { clientId: f.client.id, code: partCode } } });
+    expect(part.masterSpareId).toBeNull();
+    expect(part.amount.toFixed(2)).toBe('197.00');
+    expect(part.evidenceRequired).toBe(false);
+    expect(await db.spareCatalogueRevision.count({ where: { priceId: part.id } })).toBe(1);
+    expect(await service.importFailures(f.actor, result.id, f.client.id)).toHaveLength(1);
+    expect(await service.importHistory(other.actor, other.client.id)).toEqual([]);
+    await expect(service.importFailures(other.actor, result.id, other.client.id)).rejects.toThrow('not found');
+    await expect(service.bulkCreate({ ...f.actor, roles: ['FLEET_MANAGER'] }, { filename: 'client.csv', rows: [row] }, f.client.id)).rejects.toThrow('permission');
+    const retry = await service.bulkCreate(f.actor, { filename: 'retry.csv', rows: [row] }, f.client.id);
+    expect(retry).toMatchObject({ passedRows: 0, failedRows: 1 });
+  });
+
 });

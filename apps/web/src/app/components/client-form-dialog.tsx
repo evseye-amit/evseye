@@ -3,13 +3,14 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { useLocale } from "./locale-provider";
 
-export function ClientFormDialog({ title, onClose, error, busy = false, wide = false, children }: {
+export function ClientFormDialog({ title, onClose, error, busy = false, wide = false, children, surfaceClassName = "" }: {
   title: string;
   onClose: () => void;
   error?: string;
   busy?: boolean;
   wide?: boolean;
   children: ReactNode;
+  surfaceClassName?: string;
 }) {
   const { t } = useLocale();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -30,6 +31,6 @@ export function ClientFormDialog({ title, onClose, error, busy = false, wide = f
 
   return <dialog ref={dialogRef} className={`sa-dialog${wide ? " sa-dialog-wide" : ""}`} aria-label={t(title)} aria-modal="true"
     onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
-    <div className="sa-form sa-dialog-surface client-form-dialog">{error && <p className="error" role="alert">{error}</p>}{children}</div>
+    <div className={`sa-form sa-dialog-surface client-form-dialog ${surfaceClassName}`}>{error && <p className="error" role="alert">{error}</p>}{children}</div>
   </dialog>;
 }

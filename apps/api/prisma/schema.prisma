@@ -951,7 +951,22 @@ model Oem {
   @@index([status, displayName])
 }
 
+enum WorkPartnerCategory {
+  FOOD_DELIVERY
+  QUICK_COMMERCE
+  ECOMMERCE
+  PARCEL_LOGISTICS
+  ON_DEMAND_LOGISTICS
+  PHARMACY_HEALTHCARE
+  SPECIALTY_DELIVERY
+  OTHER
+}
+
 model WorkPartnerMaster {
+  logo String?
+  category WorkPartnerCategory @default(OTHER)
+  workType String?
+  website String?
   id           String              @id @default(uuid())
   code         String              @unique
   name         String
@@ -965,6 +980,10 @@ model WorkPartnerMaster {
 }
 
 model ClientWorkPartner {
+  logo String?
+  category WorkPartnerCategory @default(OTHER)
+  workType String?
+  website String?
   id                String                    @id @default(uuid())
   clientId          String
   client            Client                    @relation(fields: [clientId], references: [id], onDelete: Restrict)

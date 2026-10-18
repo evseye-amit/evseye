@@ -4,6 +4,9 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { ClientDataTable, type ClientColumn } from "./client-data-table";
 import { ClientFormDialog } from "./client-form-dialog";
 import { useLocale } from "./locale-provider";
+import { workPartnerCategories } from "../../lib/domain-enums";
+import { ClientBulkImportWorkspace, type ClientImportHistoryEntry } from "./client-bulk-import-workspace";
+import { parseWorkPartnerImport, workPartnerImportColumns, workPartnerRequiredColumns, workPartnerFailuresCsv, type WorkPartnerImportFailure } from "./work-partner-import";
 
 type RawRow = Record<string, unknown>;
 type WorkPartner = {
@@ -11,12 +14,20 @@ type WorkPartner = {
   code: string;
   name: string;
   legalName: string;
+  category: string;
+  logo: string | null;
+  workType: string | null;
+  website: string | null;
   status: string;
 };
 type Draft = {
   name: string;
   code: string;
   legalName: string;
+  category: string;
+  logo: string | null;
+  workType: string | null;
+  website: string | null;
   status: "ACTIVE" | "INACTIVE";
 };
 type Request = (
@@ -30,6 +41,7 @@ const emptyDraft = (): Draft => ({
   name: "",
   code: "",
   legalName: "",
+  category: "OTHER", logo: null, workType: null, website: null,
   status: "ACTIVE",
 });
 
@@ -53,24 +65,14 @@ function statusLabel(value: unknown, translate: (source: string) => string) {
   return text(value);
 }
 
-function clientName(client: RawRow) {
-  return text(client.businessFleetName ?? client.name ?? client.legalEntityName ?? client.id);
-}
-
-function clientLabel(client: RawRow, translate: (source: string) => string) {
-  return `${clientName(client)} · ${text(client.companyCode)} · ${statusLabel(client.status, translate)}`;
-}
-
 export function WorkPartnerManager({
   mode,
   request,
   token,
-  clients = [],
 }: {
   mode: Mode;
   request: Request;
   token: string;
-  clients?: RawRow[];
 }) {
   const { t } = useLocale();
   const [rows, setRows] = useState<WorkPartner[]>([]);
@@ -83,11 +85,15 @@ export function WorkPartnerManager({
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [formError, setFormError] = useState("");
   const [copyError, setCopyError] = useState("");
-  const [copyMaster, setCopyMaster] = useState<WorkPartner | null>(null);
   const [copyTargetId, setCopyTargetId] = useState("");
   const [masterOptions, setMasterOptions] = useState<WorkPartner[]>([]);
   const [copyLoading, setCopyLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [bulk, setBulk] = useState(false);
+  const [bulkError, setBulkError] = useState("");
+  const [imports, setImports] = useState<ClientImportHistoryEntry[]>([]);
+  const [importsLoading, setImportsLoading] = useState(false);
+  const root = mode === "platform" ? "/platform/work-partners" : "/client/work-partners";
 
   const loadRows = useCallback(async (initial = false) => {
     if (initial) setLoading(true);
@@ -140,6 +146,7 @@ export function WorkPartnerManager({
       name: text(row.name, ""),
       code: text(row.code, ""),
       legalName: text(row.legalName, ""),
+      category: row.category ?? "OTHER", logo: row.logo ?? null, workType: row.workType ?? null, website: row.website ?? null,
       status: row.status === "INACTIVE" ? "INACTIVE" : "ACTIVE",
     });
     setFormError("");
@@ -147,17 +154,7 @@ export function WorkPartnerManager({
     setDialog("form");
   }
 
-  function openPlatformCopy(row: WorkPartner) {
-    if (row.status !== "ACTIVE") return;
-    setCopyMaster(row);
-    setCopyTargetId("");
-    setCopyError("");
-    setNotice("");
-    setDialog("copy");
-  }
-
   function openClientCopy() {
-    setCopyMaster(null);
     setCopyTargetId("");
     setCopyError("");
     setMasterOptions([]);
@@ -178,9 +175,10 @@ export function WorkPartnerManager({
     setBusy(true);
     setFormError("");
     try {
+      const details = { category: draft.category, logo: draft.logo?.trim() || null, workType: draft.workType?.trim() || null, website: draft.website?.trim() || null };
       const body = editing
-        ? { name, legalName, status: draft.status }
-        : { name, code, legalName, status: draft.status };
+        ? { name, legalName, status: draft.status, ...details }
+        : { name, code, legalName, status: draft.status, ...details };
       await request(
         `${mode === "platform" ? "/platform/work-partners" : "/client/work-partners"}${editing ? `/${editing.id}` : ""}`,
         { method: editing ? "PATCH" : "POST", body: JSON.stringify(body) },
@@ -198,57 +196,75 @@ export function WorkPartnerManager({
 
   async function submitCopy(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (mode === "platform" && !copyTargetId) {
-      setCopyError(t("Client is required."));
-      return;
-    }
-    if (mode === "client" && !copyTargetId) {
-      setCopyError(t("Shared work partner is required."));
-      return;
-    }
-    if (mode === "platform" && !copyMaster) return;
-    setBusy(true);
-    setCopyError("");
+    if (!copyTargetId) { setCopyError(t("Shared work partner is required.")); return; }
+    setBusy(true); setCopyError("");
     try {
-      const path = mode === "platform"
-        ? `/platform/clients/${copyTargetId}/work-partners/copies`
-        : "/client/work-partners/copies";
-      const masterId = mode === "platform" ? copyMaster?.id : copyTargetId;
-      await request(
-        path,
-        { method: "POST", body: JSON.stringify({ masterId }) },
-        token,
-      );
-      await loadRows();
-      setDialog(null);
-      setNotice(t(mode === "platform" ? "Work partner copied to client." : "Work partner copied."));
+      await request("/client/work-partners/copies", { method: "POST", body: JSON.stringify({ masterId: copyTargetId }) }, token);
+      await loadRows(); setDialog(null); setNotice(t("Work partner copied."));
     } catch (cause) {
       setCopyError(cause instanceof Error ? cause.message : t("Unable to copy work partner."));
-      if (mode === "client") void loadMasterOptions(false);
-    } finally {
-      setBusy(false);
-    }
+      void loadMasterOptions(false);
+    } finally { setBusy(false); }
+  }
+
+  async function loadImports() {
+    setImportsLoading(true);
+    try { setImports(await request(`${root}/imports`, {}, token) as ClientImportHistoryEntry[]); }
+    catch (cause) { setBulkError(cause instanceof Error ? cause.message : "Unable to load import history."); }
+    finally { setImportsLoading(false); }
+  }
+
+  async function upload(file: File) {
+    setBusy(true); setBulkError(""); setNotice("");
+    try {
+      if (!/\.csv$/i.test(file.name)) throw new Error("Choose a CSV file.");
+      if (file.size > 5 * 1024 * 1024) throw new Error("CSV must be 5 MB or smaller.");
+      const rows = parseWorkPartnerImport(await file.text());
+      const result = await request(`${root}/bulk`, { method: "POST", body: JSON.stringify({ filename: file.name, rows }) }, token) as { passedRows: number; failedRows: number };
+      setNotice(`Bulk upload complete: ${result.passedRows} passed, ${result.failedRows} failed.`);
+    } catch (cause) { setBulkError(cause instanceof Error ? cause.message : "Unable to import work partners."); }
+    finally { await Promise.all([loadRows(), loadImports()]); setBusy(false); }
+  }
+
+  async function downloadFailures(id: string) {
+    setBusy(true); setBulkError("");
+    try {
+      const failures = await request(`${root}/imports/${id}/failures`, {}, token) as WorkPartnerImportFailure[];
+      const url = URL.createObjectURL(new Blob([workPartnerFailuresCsv(failures)], { type: "text/csv;charset=utf-8" }));
+      const link = document.createElement("a"); link.href = url; link.download = "work-partner-failed-records.csv"; link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (cause) { setBulkError(cause instanceof Error ? cause.message : "Unable to download failed records."); }
+    finally { setBusy(false); }
   }
 
   const columns: ClientColumn<WorkPartner>[] = [
+    { key: "category", label: "Category", value: (row) => (row.category ?? "OTHER").replaceAll("_", " ") },
     { key: "name", label: "Name", value: (row) => text(row.name) },
     { key: "code", label: "Code", value: (row) => text(row.code) },
     { key: "legalName", label: "Legal company name", value: (row) => text(row.legalName) },
     { key: "status", label: "Status", value: (row) => row.status, render: (row) => statusLabel(row.status, t) },
   ];
 
+  if (bulk) return <section className="client-manager-actions">
+    {bulkError && <p className="error" role="alert">{bulkError}</p>}
+    {notice && <p className="notice" role="status">{notice}</p>}
+    <ClientBulkImportWorkspace title="Work Partners" eyebrow={mode === "platform" ? "SUPER ADMIN IMPORT" : "CLIENT OPERATIONS IMPORT"}
+      requiredColumns={workPartnerRequiredColumns.join(", ")} template={`${workPartnerImportColumns.join(",")}\n`}
+      history={imports} historyLoading={importsLoading} busy={busy} onBack={() => setBulk(false)} onUpload={upload} onDownloadFailures={downloadFailures}
+      help={<><p className="sa-bulk-help">Maximum 100 work partners per upload. Adds new codes only; existing entries are never overwritten. Category defaults to OTHER and status defaults to ACTIVE when blank.</p><p className="sa-bulk-help">Categories: {workPartnerCategories.join(", ")}. Status: ACTIVE or INACTIVE. Logo paths must refer to local work partner assets.</p></>}
+    />
+  </section>;
   return (
     <section className="client-manager-actions">
       <section className="sa-page-head client-page-head">
         <div className="sa-actions">
-          <button type="button" onClick={openCreate} disabled={busy}>
-            + {t("Add work partner")}
-          </button>
+          <button type="button" className="secondary" disabled={busy} onClick={() => { setBulkError(""); setNotice(""); setBulk(true); void loadImports(); }}>{t("Bulk upload")}</button>
           {mode === "client" && (
             <button type="button" className="secondary" onClick={openClientCopy} disabled={busy}>
               {t("Copy from master")}
             </button>
           )}
+          <button type="button" onClick={openCreate} disabled={busy}>+ {t("Add work partner")}</button>
         </div>
       </section>
       {notice && <p className="notice" role="status" aria-live="polite">{notice}</p>}
@@ -268,16 +284,7 @@ export function WorkPartnerManager({
           actions={(row) => (
             <>
               <button type="button" className="secondary table-action" onClick={() => openEdit(row)} disabled={busy}>{t("Edit")}</button>
-              {mode === "platform" && (
-                row.status === "ACTIVE" ? (
-                  <button type="button" className="table-action" onClick={() => openPlatformCopy(row)} disabled={busy}>{t("Copy to client")}</button>
-                ) : (
-                  <>
-                    <button type="button" className="table-action" disabled aria-describedby={`inactive-copy-${row.id}`}>{t("Copy to client")}</button>
-                    <span id={`inactive-copy-${row.id}`} className="muted">{t("Inactive masters cannot be copied.")}</span>
-                  </>
-                )
-              )}
+
             </>
           )}
         />
@@ -295,6 +302,10 @@ export function WorkPartnerManager({
             <label>{t("Code")} *<input required maxLength={50} readOnly={Boolean(editing)} value={draft.code} onChange={(event) => setDraft({ ...draft, code: event.target.value })} aria-describedby={editing ? "work-partner-code-help" : undefined} /></label>
             {editing && <small id="work-partner-code-help">{t("Code cannot be changed after creation.")}</small>}
             <label>{t("Legal company name")} *<input required maxLength={160} value={draft.legalName} onChange={(event) => setDraft({ ...draft, legalName: event.target.value })} /></label>
+            <label>{t("Category")} *<select required value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })}>{workPartnerCategories.map((category) => <option key={category} value={category}>{t(category.replaceAll("_", " "))}</option>)}</select></label>
+            <label>{t("Logo asset path")}<input maxLength={250} placeholder="/logos/work-partners/PARTNER.svg" value={draft.logo ?? ""} onChange={(event) => setDraft({ ...draft, logo: event.target.value })} /><small>{t("Use an installed work partner logo asset.")}</small></label>
+            <label>{t("Work type")}<input maxLength={500} value={draft.workType ?? ""} onChange={(event) => setDraft({ ...draft, workType: event.target.value })} /></label>
+            <label>{t("Website")}<input maxLength={500} value={draft.website ?? ""} onChange={(event) => setDraft({ ...draft, website: event.target.value })} /></label>
             <label>{t("Status")} *<select required value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value === "INACTIVE" ? "INACTIVE" : "ACTIVE" })}><option value="ACTIVE">{t("Active")}</option><option value="INACTIVE">{t("Inactive")}</option></select></label>
             <div className="form-actions"><button type="submit" disabled={busy}>{t(busy ? "Saving…" : "Save")}</button><button type="button" className="secondary" onClick={() => setDialog(null)} disabled={busy}>{t("Cancel")}</button></div>
           </form>
@@ -302,27 +313,21 @@ export function WorkPartnerManager({
       )}
       {dialog === "copy" && (
         <ClientFormDialog
-          title={mode === "platform" ? "Copy work partner to client" : "Copy work partner from master"}
+          title="Copy work partner from master"
           busy={busy || copyLoading}
           error={copyError}
           onClose={() => setDialog(null)}
         >
           <form className="form-stack" onSubmit={(event) => void submitCopy(event)}>
-            <h2>{t(mode === "platform" ? "Copy work partner to client" : "Copy work partner from master")}</h2>
-            {mode === "platform" ? (
-              <>
-                <p className="muted">{copyMaster ? `${copyMaster.name} · ${copyMaster.code}` : ""}</p>
-                <label>{t("Client")} *<select required value={copyTargetId} onChange={(event) => setCopyTargetId(event.target.value)}><option value="">{t("Select a client")}</option>{clients.map((client) => <option key={String(client.id)} value={String(client.id)}>{clientLabel(client, t)}</option>)}</select></label>
-                {!clients.length && <p className="muted">{t("No clients available.")}</p>}
-              </>
-            ) : copyLoading ? (
+            <h2>{t("Copy work partner from master")}</h2>
+            {copyLoading ? (
               <p className="muted" role="status">{t("Loading shared work partners…")}</p>
             ) : masterOptions.length ? (
               <label>{t("Shared work partner")} *<select required value={copyTargetId} onChange={(event) => setCopyTargetId(event.target.value)}><option value="">{t("Select a shared work partner")}</option>{masterOptions.map((master) => <option key={master.id} value={master.id}>{master.name} · {master.code}</option>)}</select></label>
             ) : (
               <p className="muted">{t("No active shared work partners are available.")}</p>
             )}
-            <div className="form-actions"><button type="submit" disabled={busy || copyLoading || (mode === "platform" ? !copyMaster || !clients.length : !masterOptions.length)}>{t(copyLoading ? "Loading…" : "Copy")}</button><button type="button" className="secondary" onClick={() => setDialog(null)} disabled={busy || copyLoading}>{t("Cancel")}</button></div>
+            <div className="form-actions"><button type="submit" disabled={busy || copyLoading || !masterOptions.length}>{t(copyLoading ? "Loading…" : "Copy")}</button><button type="button" className="secondary" onClick={() => setDialog(null)} disabled={busy || copyLoading}>{t("Cancel")}</button></div>
           </form>
         </ClientFormDialog>
       )}
