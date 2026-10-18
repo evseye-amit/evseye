@@ -149,6 +149,8 @@ describe('deployment without IoT pairing', () => {
     };
     const prisma = {
       rider: { findFirst: vi.fn().mockResolvedValue({ id: 'rider-1' }) },
+      inspection: { findFirst: vi.fn().mockResolvedValue(null) },
+      walletTransaction: { findFirst: vi.fn().mockResolvedValue(null) },
       userHub: { findMany: vi.fn().mockResolvedValue([{ hubId: 'hub-1' }]) },
       allocation: {
         findFirst: vi.fn().mockResolvedValue({
@@ -175,18 +177,15 @@ describe('deployment without IoT pairing', () => {
       },
       $transaction: vi.fn().mockImplementation((fn) => fn(tx)),
     };
-    return {
-      prisma,
-      tx,
-      workflow,
-      service: new MobileDeploymentService(
-        prisma as never,
-        {} as never,
-        {} as never,
-        {} as never,
-        { activateInTransaction: vi.fn() } as never,
-      ),
-    };
+    const service = new MobileDeploymentService(
+      prisma as never, {} as never, {} as never, {} as never,
+      { activateInTransaction: vi.fn() } as never,
+    );
+    Object.assign(service, { wallet: {
+      riderWallet: vi.fn().mockResolvedValue({ id: 'wallet-1', status: 'ACTIVE' }),
+      balance: vi.fn().mockResolvedValue({ currency: 'INR', availableBalance: '100.00', accounts: [] }),
+    } });
+    return { prisma, tx, workflow, service };
   }
   it('activates allocation and fleet immediately after mandatory training', async () => {
     const { service, tx } = fixture();

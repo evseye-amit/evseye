@@ -1,3 +1,6 @@
+import { AllocationTeamLeadController } from './allocation-team-lead.controller.js';
+import { AllocationTeamLeadService } from './allocation-team-lead.service.js';
+import { WalletModule } from '../wallet/wallet.module.js';
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module.js';
 import { AuthModule } from '../auth/auth.module.js';
@@ -12,9 +15,9 @@ import { CommercialCoreModule } from '../rider-rate-cards/commercial-core.module
 import { DeploymentCommercialController } from './deployment-commercial.controller.js';
 
 @Module({
-  imports: [AuthModule, AuditModule, MediaModule, RidersModule, ReferralModule, CommercialCoreModule],
-  controllers: [AllocationsController, MobileDeploymentController, DeploymentCommercialController],
-  providers: [AllocationsService, MobileDeploymentService],
+  imports: [WalletModule, AuthModule, AuditModule, MediaModule, RidersModule, ReferralModule, CommercialCoreModule],
+  controllers: [AllocationTeamLeadController, AllocationsController, MobileDeploymentController, DeploymentCommercialController],
+  providers: [AllocationTeamLeadService, AllocationsService, MobileDeploymentService],
   exports: [AllocationsService],
 })
 export class AllocationsModule {}
