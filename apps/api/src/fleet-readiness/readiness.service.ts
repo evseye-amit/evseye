@@ -18,6 +18,8 @@ import {
 } from '../media/storage/storage-provider.interface.js';
 import {
   defaultPolicy,
+  defaultStages,
+  validateStages,
   modeSchema,
   parse,
   policySchema,
@@ -64,7 +66,7 @@ export class FleetReadinessService {
     private readonly db: PrismaService,
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
   ) {}
-  private all(actor: AuthUser) {
+  all(actor: AuthUser) {
     return actor.roles.some((role) =>
       ['CLIENT_ADMIN', 'OPERATIONS_MANAGER'].includes(role),
     );
@@ -73,7 +75,7 @@ export class FleetReadinessService {
     if (!actor.roles.includes('CLIENT_ADMIN'))
       throw new ForbiddenException('Client Admin permission is required.');
   }
-  private async hubs(
+  async hubs(
     tx: Tx,
     clientId: string,
     actor: AuthUser,
@@ -97,7 +99,7 @@ export class FleetReadinessService {
     });
     return hubs.map((row) => row.id);
   }
-  private async access(
+  async access(
     tx: Tx,
     clientId: string,
     actor: AuthUser,
@@ -122,7 +124,7 @@ export class FleetReadinessService {
         'This action requires readiness permission in the scooter’s current hub.',
       );
   }
-  private async event(
+  async event(
     tx: Tx,
     p: FleetPreparation,
     actor: AuthUser,
@@ -139,7 +141,7 @@ export class FleetReadinessService {
       },
     });
   }
-  private async fleet(tx: Tx, clientId: string, id: string) {
+  async fleet(tx: Tx, clientId: string, id: string) {
     const row = await tx.fleet.findFirst({
       where: { id, clientId, deletedAt: null },
       include: {
@@ -160,7 +162,7 @@ export class FleetReadinessService {
     if (!row) throw new NotFoundException('Scooter not found.');
     return row;
   }
-  private snapshot(f: Awaited<ReturnType<FleetReadinessService['fleet']>>) {
+  snapshot(f: Awaited<ReturnType<FleetReadinessService['fleet']>>) {
     return {
       hubId: f.currentHubId,
       batteries: f.batteryHistory.map((row) => ({
@@ -208,6 +210,7 @@ export class FleetReadinessService {
       orderBy: { version: 'desc' },
     });
     return {
+      installationStageTemplates: defaultStages,
       operatingMode: client.fleetOperatingMode,
       version: policy?.version ?? 0,
       configuration: policy
@@ -222,10 +225,16 @@ export class FleetReadinessService {
     tx: Tx = this.db,
   ) {
     this.admin(actor);
-    const { operatingMode } = parse(
-      z.object({ operatingMode: modeSchema }).strict(),
+    const { operatingMode, configuration } = parse(
+      z
+        .object({
+          operatingMode: modeSchema,
+          configuration: policySchema.optional(),
+        })
+        .strict(),
       input,
     );
+    if (configuration) validateStages(configuration.stages);
     const current = await this.policy(clientId, tx);
     const inProgressAllocations = await tx.allocation.count({
       where: {
@@ -259,6 +268,16 @@ export class FleetReadinessService {
     return {
       currentMode: current.operatingMode,
       proposedMode: operatingMode,
+      proposedStages: (configuration ?? current.configuration).stages.map(
+        (s) => ({
+          code: s.code,
+          name: s.name,
+          dependencies: s.dependencies,
+          verificationRequired: s.verificationRequired,
+        }),
+      ),
+      policyEffect:
+        'New stage definitions apply to new cycles. Existing cycles keep their frozen workflow version.',
       inProgressAllocations,
       openPreparations,
       unallocatedScooters: unallocated,
@@ -281,8 +300,41 @@ export class FleetReadinessService {
         .strict(),
       input,
     );
+    validateStages(body.configuration.stages);
+    if (
+      body.operatingMode === 'STAGED_PREPARATION_QC' &&
+      !body.configuration.stages.length
+    )
+      throw new BadRequestException(
+        'Configure at least one installation stage.',
+      );
     return this.db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${clientId} FOR UPDATE`;
+      for (const stage of body.configuration.stages) {
+        if (
+          stage.hubIds.length !==
+          (await tx.hub.count({
+            where: {
+              id: { in: stage.hubIds },
+              clientId,
+              deletedAt: null,
+              status: 'ACTIVE',
+            },
+          }))
+        )
+          throw new BadRequestException(
+            'Stage includes an unknown or inactive hub.',
+          );
+        if (
+          stage.vehicleTypeIds.length !==
+          (await tx.vehicleType.count({
+            where: { id: { in: stage.vehicleTypeIds } },
+          }))
+        )
+          throw new BadRequestException(
+            'Stage includes an unknown vehicle type.',
+          );
+      }
       const current = await this.policy(clientId, tx);
       if (current.version !== body.expectedVersion)
         throw new ConflictException('Policy changed. Reload before saving.');
@@ -303,7 +355,9 @@ export class FleetReadinessService {
         },
       });
       if (
-        body.operatingMode === 'PREPARATION_QC' &&
+        ['PREPARATION_QC', 'STAGED_PREPARATION_QC'].includes(
+          body.operatingMode,
+        ) &&
         current.operatingMode !== body.operatingMode
       ) {
         await tx.fleet.updateMany({
@@ -335,7 +389,11 @@ export class FleetReadinessService {
           where: { clientId, deletedAt: null },
           data: { readinessApprovedPreparationId: null },
         });
-        if (body.operatingMode === 'PREPARATION_QC')
+        if (
+          ['PREPARATION_QC', 'STAGED_PREPARATION_QC'].includes(
+            body.operatingMode,
+          )
+        )
           await tx.fleet.updateMany({
             where: { clientId, status: 'AVAILABLE', deletedAt: null },
             data: { status: 'INSPECTION_PENDING' },
@@ -356,6 +414,7 @@ export class FleetReadinessService {
         },
       });
       return {
+        installationStageTemplates: defaultStages,
         operatingMode: body.operatingMode,
         version: policy.version,
         configuration: body.configuration,
@@ -439,6 +498,14 @@ export class FleetReadinessService {
                   hubId: z.string().uuid(),
                   canPrepare: z.boolean(),
                   canReview: z.boolean(),
+                  stageCodes: z
+                    .array(z.string().regex(/^[A-Z][A-Z0-9_]{0,39}$/))
+                    .max(20)
+                    .default([]),
+                  reviewStageCodes: z
+                    .array(z.string().regex(/^[A-Z][A-Z0-9_]{0,39}$/))
+                    .max(20)
+                    .default([]),
                 })
                 .strict(),
             )
@@ -475,7 +542,13 @@ export class FleetReadinessService {
       await tx.fleetReadinessStaff.deleteMany({ where: { clientId, userId } });
       await tx.fleetReadinessStaff.createMany({
         data: body.assignments
-          .filter((a) => a.canPrepare || a.canReview)
+          .filter(
+            (a) =>
+              a.canPrepare ||
+              a.canReview ||
+              a.stageCodes.length ||
+              a.reviewStageCodes.length,
+          )
           .map((a) => ({ ...a, clientId, userId })),
       });
       await tx.auditLog.create({
@@ -590,14 +663,13 @@ export class FleetReadinessService {
       this.hubs(this.db, clientId, actor, 'canPrepare'),
       this.hubs(this.db, clientId, actor, 'canReview'),
     ]);
+    const readable = await this.hubs(this.db, clientId, actor);
     const hubs = await this.db.hub.findMany({
       where: {
         clientId,
         deletedAt: null,
         status: 'ACTIVE',
-        ...(!this.all(actor)
-          ? { id: { in: [...new Set([...prepare, ...review])] } }
-          : {}),
+        ...(!this.all(actor) ? { id: { in: readable } } : {}),
       },
       select: { id: true, name: true },
     });
@@ -619,6 +691,10 @@ export class FleetReadinessService {
       : [];
     return {
       hubs,
+      vehicleTypes: await this.db.vehicleType.findMany({
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      }),
       prepareHubIds: prepare,
       reviewHubIds: review,
       preparers: preparers.map((user) => ({
@@ -729,7 +805,11 @@ export class FleetReadinessService {
   async start(clientId: string, actor: AuthUser, fleetId: string) {
     return this.db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${clientId} FOR SHARE`;
-      if ((await this.policy(clientId, tx)).operatingMode !== 'PREPARATION_QC')
+      if (
+        !['PREPARATION_QC', 'STAGED_PREPARATION_QC'].includes(
+          (await this.policy(clientId, tx)).operatingMode,
+        )
+      )
         throw new ConflictException(
           'Enable Preparation + QC mode before starting preparation.',
         );
@@ -737,7 +817,24 @@ export class FleetReadinessService {
       const f = await this.fleet(tx, clientId, fleetId);
       if (!f.currentHubId)
         throw new BadRequestException('Assign a current hub first.');
-      await this.access(tx, clientId, actor, f.currentHubId, 'canPrepare');
+      const startPolicy = await this.policy(clientId, tx);
+      if (startPolicy.operatingMode === 'STAGED_PREPARATION_QC') {
+        await this.access(tx, clientId, actor, f.currentHubId);
+        const grant = await tx.fleetReadinessStaff.findUnique({
+          where: {
+            clientId_userId_hubId: {
+              clientId,
+              userId: actor.id,
+              hubId: f.currentHubId,
+            },
+          },
+        });
+        if (!grant || (!grant.canPrepare && !grant.stageCodes.length))
+          throw new ForbiddenException(
+            'Preparation or installation permission is required.',
+          );
+      } else
+        await this.access(tx, clientId, actor, f.currentHubId, 'canPrepare');
       if (!['IN_TRANSIT', 'AVAILABLE', 'INSPECTION_PENDING'].includes(f.status))
         throw new ConflictException(
           'Finish maintenance, submission, or allocation before preparation.',
@@ -776,6 +873,37 @@ export class FleetReadinessService {
           status: 'INSPECTION_PENDING',
         },
       });
+      if (policy.operatingMode === 'STAGED_PREPARATION_QC') {
+        const stages = policy.configuration.stages.filter(
+          (stage) =>
+            (!stage.hubIds.length || stage.hubIds.includes(f.currentHubId!)) &&
+            (!stage.vehicleTypeIds.length ||
+              stage.vehicleTypeIds.includes(f.vehicleTypeId)),
+        );
+        for (const stage of stages) {
+          if (
+            stage.dependencies.some(
+              (code) => !stages.some((s) => s.code === code),
+            )
+          )
+            throw new BadRequestException(
+              'Applicable stage has an excluded prerequisite.',
+            );
+          await tx.fleetInstallationStage.create({
+            data: {
+              clientId,
+              preparationId: p.id,
+              code: stage.code,
+              definition: json(stage),
+              status: stage.dependencies.length ? 'WAITING' : 'READY',
+            },
+          });
+        }
+        if (!stages.length)
+          throw new BadRequestException(
+            'No installation stages apply to this scooter.',
+          );
+      }
       await this.event(tx, p, actor, 'PREPARATION_STARTED');
       return { id: p.id, existing: false };
     });
@@ -783,7 +911,7 @@ export class FleetReadinessService {
   async detail(clientId: string, actor: AuthUser, id: string) {
     const p = await this.db.fleetPreparation.findFirst({
       where: { clientId, id },
-      include: { revisions: { orderBy: { revision: 'desc' } } },
+      include: { stages: true, revisions: { orderBy: { revision: 'desc' } } },
     });
     if (!p) throw new NotFoundException('Preparation not found.');
     const fleet = await this.fleet(this.db, clientId, p.fleetId);
@@ -824,9 +952,16 @@ export class FleetReadinessService {
       events.some(
         (e) =>
           e.actorId === actor.id &&
-          ['DRAFT_SAVED', 'PHOTO_COMPLETED', 'REWORK_STARTED'].includes(
-            e.action,
-          ),
+          [
+            'DRAFT_SAVED',
+            'PHOTO_COMPLETED',
+            'REWORK_STARTED',
+            'INSTALLATION_SAVE',
+            'INSTALLATION_COMPONENTS',
+            'INSTALLATION_PHOTO',
+            'INSTALLATION_UPLOAD',
+            'INSTALLATION_SUBMIT',
+          ].includes(e.action),
       );
     return {
       ...p,
@@ -1131,6 +1266,7 @@ export class FleetReadinessService {
         policySchema,
         (p.policySnapshot as { configuration: unknown }).configuration,
       );
+      await this.requireStages(tx, p.id);
       const snapshot = this.snapshot(fleet);
       if (
         snapshot.batteries.length < policy.minBatteryCount ||
@@ -1283,7 +1419,16 @@ export class FleetReadinessService {
               preparationId: id,
               actorId: actor.id,
               action: {
-                in: ['DRAFT_SAVED', 'PHOTO_COMPLETED', 'REWORK_STARTED'],
+                in: [
+                  'DRAFT_SAVED',
+                  'PHOTO_COMPLETED',
+                  'REWORK_STARTED',
+                  'INSTALLATION_SAVE',
+                  'INSTALLATION_COMPONENTS',
+                  'INSTALLATION_PHOTO',
+                  'INSTALLATION_UPLOAD',
+                  'INSTALLATION_SUBMIT',
+                ],
               },
             },
           })) > 0);
@@ -1303,6 +1448,7 @@ export class FleetReadinessService {
           'Hub or components changed. Start a fresh preparation.',
         );
       if (approve) {
+        await this.requireStages(tx, p.id);
         if (
           !['IN_TRANSIT', 'INSPECTION_PENDING', 'AVAILABLE'].includes(
             fleet.status,
@@ -1448,6 +1594,16 @@ export class FleetReadinessService {
       return { id };
     });
   }
+  async requireStages(tx: Tx, preparationId: string) {
+    if (
+      await tx.fleetInstallationStage.count({
+        where: { preparationId, status: { not: 'COMPLETED' } },
+      })
+    )
+      throw new ConflictException(
+        'Complete all required installation stages before RFD submission or QC approval.',
+      );
+  }
   async readiness(clientId: string, actor: AuthUser, fleetId: string) {
     const fleet = await this.fleet(this.db, clientId, fleetId);
     if (!fleet.currentHubId)
@@ -1466,7 +1622,9 @@ export class FleetReadinessService {
     if (fleet.onboardingStatus !== 'ACTIVE')
       blockers.push('Fleet activation is incomplete.');
     if (
-      policy.operatingMode === 'PREPARATION_QC' &&
+      ['PREPARATION_QC', 'STAGED_PREPARATION_QC'].includes(
+        policy.operatingMode,
+      ) &&
       !fleet.readinessApprovedPreparationId
     )
       blockers.push('Preparation and QC approval are required.');

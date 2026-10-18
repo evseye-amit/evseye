@@ -814,6 +814,7 @@ enum FleetOperatingMode {
   SIMPLE
   ONBOARDING_EVIDENCE
   PREPARATION_QC
+  STAGED_PREPARATION_QC
 }
 
 model Client {
@@ -6129,6 +6130,8 @@ model FleetReadinessStaff {
   hub Hub @relation(fields: [hubId], references: [id], onDelete: Restrict)
   canPrepare Boolean @default(false)
   canReview Boolean @default(false)
+  stageCodes String[] @default([])
+  reviewStageCodes String[] @default([])
   @@unique([clientId, userId, hubId])
   @@index([clientId, hubId])
 }
@@ -6148,6 +6151,7 @@ model FleetPreparation {
   createdById String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  stages FleetInstallationStage[]
   revisions FleetPreparationRevision[]
   events FleetPreparationEvent[]
   @@unique([clientId, id])
@@ -6186,4 +6190,28 @@ model FleetPreparationEvent {
   data Json
   createdAt DateTime @default(now())
   @@index([clientId, preparationId, createdAt])
+}
+
+model FleetInstallationStage {
+  id String @id @default(uuid())
+  clientId String
+  preparationId String
+  preparation FleetPreparation @relation(fields: [clientId, preparationId], references: [clientId, id], onDelete: Restrict)
+  code String
+  status String @default("WAITING")
+  assignedToId String?
+  revision Int @default(1)
+  definition Json
+  checklist Json @default("{}")
+  componentSnapshot Json?
+  submittedById String?
+  submittedAt DateTime?
+  reviewedById String?
+  reviewedAt DateTime?
+  reason String?
+  failedItems String[] @default([])
+  history Json @default("[]")
+  updatedAt DateTime @updatedAt
+  @@unique([preparationId, code])
+  @@index([clientId, status])
 }

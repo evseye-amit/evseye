@@ -13,6 +13,7 @@ import { Dispatch, FormEvent, SetStateAction, useEffect, useState } from "react"
 import { OtpCodeInput } from "./components/otp-code-input";
 import { UiIcon, type IconName } from "./components/ui-icon";
 import { ClientNotifications } from "./components/client-notifications";
+import {InstallationBoard} from "./components/installation-board";
 import { FleetReadiness, FleetReadinessStatus } from "./components/fleet-readiness";
 import { SupportTickets } from "./components/support-tickets";
 import { RiderReferenceReview } from "./components/rider-reference-review";
@@ -39,7 +40,7 @@ const indianMobileInput = (value: string) =>
 type LoginFlow = { appCode: string; version: string; methods: string[]; steps: Array<{ code: string; fields: Array<{ featureCode: string; label: string; placeholder: string }> }> };
 const loginField = (flow: LoginFlow | null, featureCode: string) => flow?.steps.flatMap((step) => step.fields).find((field) => field.featureCode === featureCode);
 type Tab =
-  | "vehicle-preparation" | "quality-check" | "readiness-settings" | "readiness-staff"
+  | "installation-board" | "vehicle-preparation" | "quality-check" | "readiness-settings" | "readiness-staff"
   | "dashboard"
   | "legal-documents"
   | "refer-and-earn"
@@ -130,7 +131,7 @@ const CLIENT_NAVIGATION: Array<{
   {
     label: "Team Management",
     items: [
-      { id: "readiness-staff", label: "Preparation & QC Staff" },
+      { id: "readiness-staff", label: "Installation, Preparation & QC Staff" },
       { id: "fleet-managers", label: "Fleet Manager" },
       { id: "team-leads", label: "Team Lead" },
       { id: "cluster-managers", label: "Cluster Manager" },
@@ -140,6 +141,7 @@ const CLIENT_NAVIGATION: Array<{
     label: "Vehicle Management",
     items: [
       { id: "fleets", label: "Fleet" },
+      { id: "installation-board", label: "Installation Board" },
       { id: "vehicle-preparation", label: "Vehicle Preparation" },
       { id: "quality-check", label: "Quality Check" },
       { id: "readiness-settings", label: "Fleet Readiness Settings" },
@@ -191,7 +193,8 @@ const CLIENT_NAVIGATION: Array<{
 ];
 
 const CLIENT_TAB_TITLES: Record<Tab, string> = {
-  "vehicle-preparation": "Vehicle Preparation", "quality-check": "Quality Check", "readiness-settings": "Fleet Readiness Settings", "readiness-staff": "Preparation & QC Staff",
+  "installation-board": "Installation Board",
+  "vehicle-preparation": "Vehicle Preparation", "quality-check": "Quality Check", "readiness-settings": "Fleet Readiness Settings", "readiness-staff": "Installation, Preparation & QC Staff",
   dashboard: "Dashboard",
   "legal-documents": "Legal Documents",
   "refer-and-earn": "Refer & Earn",
@@ -227,6 +230,7 @@ const CLIENT_TAB_TITLES: Record<Tab, string> = {
 };
 
 const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
+  "installation-board": "vehicle",
   "vehicle-preparation": "vehicle", "quality-check": "shield", "readiness-settings": "factory", "readiness-staff": "user",
   dashboard: "dashboard",
   "legal-documents": "audit",
@@ -263,7 +267,7 @@ const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
 };
 
 const ACTIVE_CLIENT_TABS = new Set<Tab>([
-  "vehicle-preparation", "quality-check", "readiness-settings", "readiness-staff",
+  "installation-board", "vehicle-preparation", "quality-check", "readiness-settings", "readiness-staff",
   "dashboard",
   "legal-documents",
   "refer-and-earn",
@@ -870,7 +874,7 @@ export default function Home() {
 
   async function loadView(nextTab: Tab) {
     if (!userRoles.length) { setLoading(false); return; }
-    if (["vehicle-preparation","quality-check","readiness-settings","readiness-staff"].includes(nextTab)) { setItems([]); setLoading(false); return; }
+    if (["installation-board","vehicle-preparation","quality-check","readiness-settings","readiness-staff"].includes(nextTab)) { setItems([]); setLoading(false); return; }
     if (nextTab === "legal-documents" || nextTab === "refer-and-earn" || nextTab === "rider-reference-review" || nextTab === "support-tickets" || nextTab === "notifications") {
       setItems([]);
       setLoading(false);
@@ -2453,7 +2457,7 @@ export default function Home() {
     );
 
   const canSeeTab = (id: Tab) => {
-    if (userRoles.some(role => ["RFD_MANAGER","QC_MANAGER"].includes(role))) return ["vehicle-preparation","quality-check"].includes(id);
+    if (userRoles.some(role => ["RFD_MANAGER","QC_MANAGER"].includes(role))) return ["installation-board","vehicle-preparation","quality-check"].includes(id);
     if (["legal-documents","refer-and-earn","readiness-settings"].includes(id)) return userRoles.includes("CLIENT_ADMIN");
     if (["notifications","readiness-staff"].includes(id)) return userRoles.some(role => ["CLIENT_ADMIN","OPERATIONS_MANAGER"].includes(role));
     return true;
@@ -2553,6 +2557,7 @@ export default function Home() {
         {tab === "legal-documents" && userRoles.includes("CLIENT_ADMIN") && <ClientLegalDocuments key={legalRefreshKey} />}
         {tab === "refer-and-earn" && userRoles.includes("CLIENT_ADMIN") && <ClientReferAndEarn key={referralRefreshKey} />}
         {tab === "rider-reference-review" && <RiderReferenceReview key={referenceRefreshKey} />}
+        {tab === "installation-board" && <InstallationBoard />}
         {["vehicle-preparation","quality-check","readiness-settings","readiness-staff"].includes(tab) && <FleetReadiness key={tab} view={tab === "quality-check" ? "qc" : tab === "readiness-settings" ? "settings" : tab === "readiness-staff" ? "staff" : "preparation"} />}
         {tab === "support-tickets" && <SupportTickets key={supportRefreshKey} />}
         {tab === "notifications" && userRoles.some((role) => ["CLIENT_ADMIN", "OPERATIONS_MANAGER"].includes(role)) && <ClientNotifications key={notificationRefreshKey} />}
@@ -3087,7 +3092,7 @@ export default function Home() {
           tab !== "rider-reference-review" &&
           tab !== "support-tickets" &&
           tab !== "notifications" &&
-          !["vehicle-preparation","quality-check","readiness-settings","readiness-staff"].includes(tab) &&
+          !["installation-board","vehicle-preparation","quality-check","readiness-settings","readiness-staff"].includes(tab) &&
           tab !== "locations" &&
           tab !== "evidence" && (
             <>

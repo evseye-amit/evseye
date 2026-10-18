@@ -674,7 +674,7 @@ export class FleetsService {
       operatingMode: client.fleetOperatingMode,
       photosRequired,
       evidenceComplete: items.every((item) => item.ready),
-      ready: client.fleetOperatingMode === 'PREPARATION_QC' ? Boolean(fleet.readinessApprovedPreparationId) : !photosRequired || items.every((item) => item.ready),
+      ready: ['PREPARATION_QC','STAGED_PREPARATION_QC'].includes(client.fleetOperatingMode) ? Boolean(fleet.readinessApprovedPreparationId) : !photosRequired || items.every((item) => item.ready),
       items,
     };
   }
@@ -895,7 +895,7 @@ export class FleetsService {
       throw new ConflictException('Only an unallocated fleet awaiting activation can be activated.');
     }
     const evidence = await this.onboardingStatus(clientId, id);
-    if (evidence.operatingMode === 'PREPARATION_QC') throw new ConflictException('Use Vehicle Preparation and Quality Check to activate this scooter.');
+    if (['PREPARATION_QC','STAGED_PREPARATION_QC'].includes(evidence.operatingMode)) throw new ConflictException('Use Vehicle Preparation and Quality Check to activate this scooter.');
     if (!evidence.ready) {
       throw new BadRequestException(
         'Complete all required operational photos before activation.',

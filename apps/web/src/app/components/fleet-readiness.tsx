@@ -3,9 +3,15 @@ import { useEffect, useState, type FormEvent } from "react";
 import { sessionFetch } from "../../lib/session-fetch";
 import { ClientFormDialog } from "./client-form-dialog";
 
-type Mode = "SIMPLE" | "ONBOARDING_EVIDENCE" | "PREPARATION_QC";
+import {
+  InstallationStageSettings,
+  type InstallationDefinition,
+} from "./installation-board";
+type Mode =
+  "SIMPLE" | "ONBOARDING_EVIDENCE" | "PREPARATION_QC" | "STAGED_PREPARATION_QC";
 type Check = { result: "PASS" | "FAIL" | "NA"; notes: string };
 type Configuration = {
+  stages: InstallationDefinition[];
   independentReview: boolean;
   minBatteryCount: number;
   requireController: boolean;
@@ -19,6 +25,7 @@ type Configuration = {
   photoTypes: string[];
 };
 type Policy = {
+  installationStageTemplates?: InstallationDefinition[];
   operatingMode: Mode;
   version: number;
   configuration: Configuration;
@@ -36,9 +43,12 @@ type Assignment = {
   userId: string;
   canPrepare: boolean;
   canReview: boolean;
+  stageCodes?: string[];
+  reviewStageCodes?: string[];
 };
 type Context = {
   hubs: Hub[];
+  vehicleTypes: Hub[];
   prepareHubIds: string[];
   reviewHubIds: string[];
   preparers: Array<{ id: string; name: string; hubIds: string[] }>;
@@ -79,6 +89,12 @@ type Revision = {
 };
 type Photo = { id: string; entityId: string; photoType: string };
 type Detail = Row & {
+  stages: Array<{
+    id: string;
+    code: string;
+    status: string;
+    definition: InstallationDefinition;
+  }>;
   current: Revision;
   revisions: Revision[];
   configuration: Configuration;
@@ -287,14 +303,33 @@ export function FleetReadiness({
     setFailed([]);
     setAssignee(d.assignedToId ?? "");
     setRows((current) =>
-      current.map((row) => (row.id === id ? { ...row, ...d, assignee: d.assignedToId ? context?.preparers.find(p=>p.id===d.assignedToId) ?? row.assignee : undefined } : row)),
+      current.map((row) =>
+        row.id === id
+          ? {
+              ...row,
+              ...d,
+              assignee: d.assignedToId
+                ? (context?.preparers.find((p) => p.id === d.assignedToId) ??
+                  row.assignee)
+                : undefined,
+            }
+          : row,
+      ),
     );
-    if(detail?.id===id&&detail.status!==d.status){
-      setSummary(current=>{
-        const counts=new Map(current.map(row=>[row.status,row._count._all]));
-        counts.set(detail.status,Math.max(0,(counts.get(detail.status)??0)-1));
-        counts.set(d.status,(counts.get(d.status)??0)+1);
-        return [...counts].map(([status,count])=>({status,_count:{_all:count}}));
+    if (detail?.id === id && detail.status !== d.status) {
+      setSummary((current) => {
+        const counts = new Map(
+          current.map((row) => [row.status, row._count._all]),
+        );
+        counts.set(
+          detail.status,
+          Math.max(0, (counts.get(detail.status) ?? 0) - 1),
+        );
+        counts.set(d.status, (counts.get(d.status) ?? 0) + 1);
+        return [...counts].map(([status, count]) => ({
+          status,
+          _count: { _all: count },
+        }));
       });
     }
     return d;
@@ -389,12 +424,15 @@ export function FleetReadiness({
           Allocation and submission photos remain mandatory.
         </p>
       )}
-      {policy?.operatingMode !== "PREPARATION_QC" && view === "preparation" && (
-        <p>
-          Preparation is optional for this operating mode. Client Admin can
-          enable Preparation + QC in Fleet Readiness Settings.
-        </p>
-      )}
+      {!["PREPARATION_QC", "STAGED_PREPARATION_QC"].includes(
+        policy?.operatingMode ?? "",
+      ) &&
+        view === "preparation" && (
+          <p>
+            Preparation is optional for this operating mode. Client Admin can
+            enable Preparation + QC in Fleet Readiness Settings.
+          </p>
+        )}
       {["preparation", "qc"].includes(view) && (
         <>
           <div className="metrics">
@@ -579,7 +617,10 @@ export function FleetReadiness({
                           <button
                             disabled={
                               busy ||
-                              policy?.operatingMode !== "PREPARATION_QC" ||
+                              ![
+                                "PREPARATION_QC",
+                                "STAGED_PREPARATION_QC",
+                              ].includes(policy?.operatingMode ?? "") ||
                               !context?.prepareHubIds.includes(f.currentHubId)
                             }
                             onClick={() =>
@@ -655,9 +696,22 @@ export function FleetReadiness({
             >
               <option value="SIMPLE">Simple</option>
               <option value="PREPARATION_QC">Preparation + QC</option>
+              <option value="STAGED_PREPARATION_QC">
+                Staged Preparation + QC
+              </option>
               <option value="ONBOARDING_EVIDENCE">Onboarding evidence</option>
             </select>
           </label>
+          <InstallationStageSettings
+            templates={policy.installationStageTemplates ?? []}
+            value={config.stages ?? []}
+            onChange={(stages) => {
+              setConfig({ stages });
+              setImpact(null);
+            }}
+            hubs={context?.hubs ?? []}
+            vehicleTypes={context?.vehicleTypes ?? []}
+          />
           <label>
             <input
               type="checkbox"
@@ -813,7 +867,10 @@ export function FleetReadiness({
                     await api<Record<string, unknown>>(
                       "fleet-readiness/policy/preview",
                       "POST",
-                      { operatingMode: policy.operatingMode },
+                      {
+                        operatingMode: policy.operatingMode,
+                        configuration: policy.configuration,
+                      },
                     ),
                   ),
                 )
@@ -835,6 +892,7 @@ export function FleetReadiness({
                 {String(impact.inProgressAllocations)} · Open preparations:{" "}
                 {String(impact.openPreparations)}
               </p>
+              <p>{String(impact.policyEffect ?? "")}</p>
               {Boolean(impact.blocked) && (
                 <p className="error">
                   Finish the in-progress work before changing operating mode.
@@ -846,7 +904,7 @@ export function FleetReadiness({
       )}
       {view === "staff" && staff && context?.canManage && (
         <>
-          <h3>Preparation & QC staff</h3>
+          <h3>Installation, preparation & QC staff</h3>
           <p>
             Permissions apply only to the selected hubs. Staff may have both
             responsibilities; independent QC still prevents reviewing their own
@@ -889,6 +947,41 @@ export function FleetReadiness({
                 <strong>
                   {staff.hubs.find((h) => h.id === g.hubId)?.name}
                 </strong>
+                {policy?.configuration.stages?.map((stage) => (
+                  <div key={stage.code}>
+                    <strong>{stage.name}</strong>
+                    {(["stageCodes", "reviewStageCodes"] as const).map(
+                      (key) => (
+                        <label key={key}>
+                          <input
+                            type="checkbox"
+                            disabled={!context.isAdmin}
+                            checked={g[key]?.includes(stage.code) ?? false}
+                            onChange={(e) =>
+                              setGrants((current) =>
+                                current.map((a) =>
+                                  a.hubId === g.hubId
+                                    ? {
+                                        ...a,
+                                        [key]: e.target.checked
+                                          ? [...(a[key] ?? []), stage.code]
+                                          : (a[key] ?? []).filter(
+                                              (code) => code !== stage.code,
+                                            ),
+                                      }
+                                    : a,
+                                ),
+                              )
+                            }
+                          />
+                          {key === "stageCodes"
+                            ? "Perform stage"
+                            : "Verify stage"}
+                        </label>
+                      ),
+                    )}
+                  </div>
+                ))}
                 {(["canPrepare", "canReview"] as const).map((key) => (
                   <label key={key}>
                     <input
@@ -919,7 +1012,15 @@ export function FleetReadiness({
                 void run(async () => {
                   await api(`fleet-readiness/staff/${selectedUser}`, "PUT", {
                     assignments: grants.map(
-                      ({ hubId, canPrepare, canReview }) => ({
+                      ({
+                        hubId,
+                        canPrepare,
+                        canReview,
+                        stageCodes,
+                        reviewStageCodes,
+                      }) => ({
+                        stageCodes: stageCodes ?? [],
+                        reviewStageCodes: reviewStageCodes ?? [],
                         hubId,
                         canPrepare,
                         canReview,
@@ -978,7 +1079,7 @@ export function FleetReadiness({
                     setNewStaff({ ...newStaff, role: e.target.value })
                   }
                 >
-                  <option value="RFD_MANAGER">RFD Manager</option>
+                  <option value="RFD_MANAGER">Installation / RFD staff</option>
                   <option value="QC_MANAGER">QC Manager</option>
                 </select>
               </label>
@@ -1024,6 +1125,22 @@ export function FleetReadiness({
               QC feedback: {detail.current.rejectionReason} ·{" "}
               {detail.current.failedItems.join(", ")}
             </p>
+          )}
+          {Boolean(detail.stages?.length) && (
+            <>
+              <h3>Installation handoffs</h3>
+              {detail.stages.map((s) => (
+                <p key={s.id}>
+                  {s.definition.name}: {label(s.status)}
+                </p>
+              ))}
+              {detail.stages.some((s) => s.status !== "COMPLETED") && (
+                <p className="error">
+                  Complete required installation stages before submitting RFD
+                  preparation to QC.
+                </p>
+              )}
+            </>
           )}
           <h3>Installed components</h3>
           <ul>

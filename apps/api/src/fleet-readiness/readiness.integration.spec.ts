@@ -2,7 +2,8 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import { PrismaClient, UserRole } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { FleetReadinessService } from './readiness.service.js';
-import { defaultPolicy } from './readiness-policy.js';
+import { FleetInstallationService } from './installation.service.js';
+import { defaultPolicy, defaultStages } from './readiness-policy.js';
 import { FleetsService } from '../fleets/fleets.service.js';
 import { FleetStatusPolicy } from '../fleets/fleet-status.policy.js';
 import { AllocationsService } from '../allocations/allocations.service.js';
@@ -25,6 +26,11 @@ const storage = {
   sealObject: vi.fn().mockResolvedValue(undefined),
 };
 const service = new FleetReadinessService(db as never, storage);
+const installations = new FleetInstallationService(
+  db as never,
+  service,
+  storage,
+);
 const fleets = new FleetsService(db as never, new FleetStatusPolicy());
 const allocations = new AllocationsService(db as never, {} as never);
 const mobile = new MobileDeploymentService(
@@ -254,7 +260,9 @@ describe.skipIf(!url)('Preparation + QC lifecycle in PostgreSQL', () => {
     const f = await fixture();
     const p = await f.start();
     const first = await f.submit(p.id);
-    expect(first.photos.every(photo=>photo.objectKey.includes('/sealed/'))).toBe(true);
+    expect(
+      first.photos.every((photo) => photo.objectKey.includes('/sealed/')),
+    ).toBe(true);
     await service.submit(f.client.id, f.actor(f.rfd), p.id, { revision: 1 });
     expect(
       await db.fleetPreparationEvent.count({
@@ -522,5 +530,585 @@ describe.skipIf(!url)('Preparation + QC lifecycle in PostgreSQL', () => {
       (await db.fleet.findUniqueOrThrow({ where: { id: f.fleet.id } })).status,
     ).toBe('MAINTENANCE');
     await expect(f.start()).rejects.toThrow('Finish maintenance');
+  });
+  async function staged(verify = false, iot = false) {
+    const definitions = iot
+      ? [
+          ...defaultStages,
+          {
+            ...defaultStages[2],
+            code: 'IOT',
+            name: 'IoT installation',
+            component: 'IOT' as const,
+          },
+        ]
+      : defaultStages;
+    const f = await fixture(false);
+    await service.savePolicy(f.client.id, f.actor(f.admin), {
+      operatingMode: 'STAGED_PREPARATION_QC',
+      expectedVersion: 0,
+      reason: 'Enable team stages in isolated client',
+      configuration: {
+        ...defaultPolicy,
+        iotRequired: iot,
+        stages: definitions.map((s) => ({
+          ...s,
+          verificationRequired: verify,
+        })),
+      },
+    });
+    for (const [user, canPrepare, canReview] of [
+      [f.rfd, true, false],
+      [f.qc, false, true],
+    ] as const)
+      await service.saveStaff(f.client.id, f.actor(f.admin), user.id, {
+        assignments: [
+          {
+            hubId: f.hub.id,
+            canPrepare,
+            canReview,
+            stageCodes:
+              user.id === f.rfd.id ? definitions.map((s) => s.code) : [],
+            reviewStageCodes:
+              user.id === f.qc.id ? definitions.map((s) => s.code) : [],
+          },
+        ],
+      });
+    const p = await f.start();
+    const stages = await db.fleetInstallationStage.findMany({
+      where: { preparationId: p.id },
+    });
+    const complete = async (code: string, review = verify) => {
+      const row = await db.fleetInstallationStage.findUniqueOrThrow({
+        where: { preparationId_code: { preparationId: p.id, code } },
+      });
+      await installations.action(f.client.id, f.actor(f.rfd), row.id, 'claim', {
+        revision: row.revision,
+      });
+      let d = await installations.detail(f.client.id, f.actor(f.rfd), row.id);
+      if (d.status === 'REWORK_REQUIRED') {
+        await installations.action(
+          f.client.id,
+          f.actor(f.rfd),
+          row.id,
+          'rework',
+          { revision: d.revision },
+        );
+        d = await installations.detail(f.client.id, f.actor(f.rfd), row.id);
+      }
+      await installations.action(f.client.id, f.actor(f.rfd), row.id, 'save', {
+        revision: d.revision,
+        checklist: Object.fromEntries(
+          d.definition.items.map((i) => [
+            i.code,
+            { result: 'PASS', notes: '' },
+          ]),
+        ),
+      });
+      for (const photoType of d.requiredPhotoTypes) {
+        const upload = await installations.upload(
+          f.client.id,
+          f.actor(f.rfd),
+          row.id,
+          {
+            revision: d.revision,
+            photoType,
+            mimeType: 'image/jpeg',
+            sizeBytes: 100,
+          },
+        );
+        await installations.complete(
+          f.client.id,
+          f.actor(f.rfd),
+          row.id,
+          upload.photo.id,
+          { revision: d.revision },
+        );
+      }
+      await installations.action(
+        f.client.id,
+        f.actor(f.rfd),
+        row.id,
+        'submit',
+        { revision: d.revision },
+      );
+      if (review)
+        await installations.action(
+          f.client.id,
+          f.actor(f.qc),
+          row.id,
+          'approve',
+          { revision: d.revision },
+        );
+      return installations.detail(f.client.id, f.actor(f.rfd), row.id);
+    };
+    return { ...f, p, stages, complete };
+  }
+  it('runs dependency stages before RFD/QC and preserves the final allocation gate', async () => {
+    const f = await staged();
+    const battery = f.stages.find((s) => s.code === 'BATTERY')!;
+    await expect(
+      installations.action(f.client.id, f.actor(f.rfd), battery.id, 'claim', {
+        revision: 1,
+      }),
+    ).rejects.toThrow('prerequisite');
+    await expect(f.submit(f.p.id)).rejects.toThrow('installation stages');
+    await f.complete('INTAKE');
+    await Promise.all([f.complete('BATTERY'), f.complete('CONTROLLER')]);
+    const detail = await f.submit(f.p.id);
+    await service.review(
+      f.client.id,
+      f.actor(f.qc),
+      f.p.id,
+      { revision: detail.currentRevision },
+      true,
+    );
+    expect(
+      (await db.fleet.findUniqueOrThrow({ where: { id: f.fleet.id } })).status,
+    ).toBe('AVAILABLE');
+    expect(
+      await db.fleetInstallationStage.count({
+        where: { preparationId: f.p.id, status: 'COMPLETED' },
+      }),
+    ).toBe(3);
+  }, 30000);
+  it('requires proofs, independent stage review and reasoned rejection; freezes old photos during rework', async () => {
+    const f = await staged(true);
+    const intake = f.stages.find((s) => s.code === 'INTAKE')!;
+    await installations.action(
+      f.client.id,
+      f.actor(f.rfd),
+      intake.id,
+      'claim',
+      { revision: 1 },
+    );
+    await expect(
+      installations.action(f.client.id, f.actor(f.rfd), intake.id, 'submit', {
+        revision: 1,
+      }),
+    ).rejects.toThrow('checklist');
+    const submitted = await f.complete('INTAKE', false);
+    await service.saveStaff(f.client.id, f.actor(f.admin), f.rfd.id, {
+      assignments: [
+        {
+          hubId: f.hub.id,
+          canPrepare: true,
+          canReview: true,
+          stageCodes: defaultStages.map((s) => s.code),
+          reviewStageCodes: ['INTAKE'],
+        },
+      ],
+    });
+    await expect(
+      installations.action(f.client.id, f.actor(f.rfd), intake.id, 'approve', {
+        revision: 1,
+      }),
+    ).rejects.toThrow('own installation');
+    await expect(
+      installations.action(f.client.id, f.actor(f.qc), intake.id, 'reject', {
+        revision: 1,
+      }),
+    ).rejects.toThrow('reason');
+    await installations.action(
+      f.client.id,
+      f.actor(f.qc),
+      intake.id,
+      'reject',
+      {
+        revision: 1,
+        reason: 'Chassis label unreadable',
+        failedItems: ['IDENTITY'],
+      },
+    );
+    await expect(
+      db.photo.update({
+        where: { id: submitted.photos[0].id },
+        data: { status: 'DELETED' },
+      }),
+    ).rejects.toThrow('immutable');
+    await installations.action(
+      f.client.id,
+      f.actor(f.rfd),
+      intake.id,
+      'rework',
+      { revision: 1 },
+    );
+    const rework = await installations.detail(
+      f.client.id,
+      f.actor(f.rfd),
+      intake.id,
+    );
+    expect(rework.revision).toBe(2);
+    expect(rework.photos).toHaveLength(0);
+    expect(rework.history).toHaveLength(2);
+    await expect(
+      installations.action(f.client.id, f.actor(f.rfd), intake.id, 'save', {
+        revision: 1,
+        checklist: {},
+      }),
+    ).rejects.toThrow('Revision');
+    expect(
+      (
+        await installations.download(
+          f.client.id,
+          f.actor(f.rfd),
+          intake.id,
+          submitted.photos[0].id,
+        )
+      ).url,
+    ).toBeTruthy();
+  });
+  it('invalidates battery work after replacement while retaining unrelated controller work', async () => {
+    const f = await staged();
+    await f.complete('INTAKE');
+    await f.complete('BATTERY');
+    await f.complete('CONTROLLER');
+    const row = f.stages.find((s) => s.code === 'BATTERY')!;
+    await db.battery.update({
+      where: { id: f.battery.id },
+      data: { serialNumber: 'REVISED-SERIAL' },
+    });
+    const battery = await db.fleetInstallationStage.findUniqueOrThrow({
+      where: { id: row.id },
+    });
+    expect(battery.status).toBe('WAITING');
+    expect(battery.revision).toBe(2);
+    expect(
+      (
+        await db.fleetInstallationStage.findUniqueOrThrow({
+          where: { id: f.stages.find((s) => s.code === 'CONTROLLER')!.id },
+        })
+      ).status,
+    ).toBe('COMPLETED');
+    expect(
+      (await db.fleetPreparation.findUniqueOrThrow({ where: { id: f.p.id } }))
+        .status,
+    ).toBe('IN_PROGRESS');
+    await expect(f.submit(f.p.id)).rejects.toThrow('installation stages');
+  });
+  it('enforces tenant, hub and explicit stage permissions and cannot steal installed hardware', async () => {
+    const f = await staged(),
+      other = await staged();
+    const intake = f.stages.find((s) => s.code === 'INTAKE')!;
+    await expect(
+      installations.detail(
+        f.client.id,
+        other.actor(other.admin),
+        other.stages[0].id,
+      ),
+    ).rejects.toThrow('not found');
+    await expect(
+      installations.action(
+        f.client.id,
+        f.actor(f.manager),
+        intake.id,
+        'claim',
+        { revision: 1 },
+      ),
+    ).rejects.toThrow();
+    await f.complete('INTAKE');
+    const battery = f.stages.find((s) => s.code === 'BATTERY')!;
+    await installations.action(
+      f.client.id,
+      f.actor(f.rfd),
+      battery.id,
+      'claim',
+      { revision: 1 },
+    );
+    await expect(
+      installations.action(
+        f.client.id,
+        f.actor(f.rfd),
+        battery.id,
+        'components',
+        { revision: 1, batteryIds: [other.battery.id] },
+      ),
+    ).rejects.toThrow('unavailable');
+    const foreign = await db.fleet.create({
+      data: {
+        clientId: f.client.id,
+        fleetCode: 'OTHER',
+        chassisNumber: randomUUID(),
+        oemId: f.fleet.oemId,
+        vehicleCategoryId: f.fleet.vehicleCategoryId,
+        vehicleTypeId: f.fleet.vehicleTypeId,
+        speedType: 'SLOW_SPEED',
+        ownershipType: 'CLIENT_OWNED',
+        currentHubId: f.hub.id,
+      },
+    });
+    const owned = await db.battery.create({
+      data: {
+        clientId: f.client.id,
+        serialNumber: 'OWNED',
+        batteryType: 'FIXED_SINGLE',
+        status: 'INSTALLED',
+      },
+    });
+    await db.fleetBatteryHistory.create({
+      data: {
+        fleetId: foreign.id,
+        batteryId: owned.id,
+        installedAt: new Date(),
+      },
+    });
+    await expect(
+      installations.action(
+        f.client.id,
+        f.actor(f.rfd),
+        battery.id,
+        'components',
+        { revision: 1, batteryIds: [owned.id] },
+      ),
+    ).rejects.toThrow('another scooter');
+    const inventory = await installations.inventory(
+      f.client.id,
+      f.actor(f.rfd),
+      battery.id,
+      { search: 'OWNED', page: 1, limit: 1 },
+    );
+    expect(inventory.items).toHaveLength(0);
+    const available = await installations.inventory(
+      f.client.id,
+      f.actor(f.rfd),
+      battery.id,
+      { search: 'BATTERY', page: 1, limit: 1 },
+    );
+    expect(available.total).toBe(1);
+    expect(available.items[0].label).toBe('BATTERY');
+  });
+  it('supports installation-only staff and snapshots stages across policy updates', async () => {
+    const f = await staged();
+    await service.saveStaff(f.client.id, f.actor(f.admin), f.rfd.id, {
+      assignments: [
+        {
+          hubId: f.hub.id,
+          canPrepare: false,
+          canReview: false,
+          stageCodes: ['INTAKE'],
+          reviewStageCodes: [],
+        },
+      ],
+    });
+    const context = await service.context(f.client.id, f.actor(f.rfd));
+    expect(context.hubs.map((h) => h.id)).toContain(f.hub.id);
+    expect(context.prepareHubIds).toHaveLength(0);
+    const list = await installations.list(f.client.id, f.actor(f.rfd), {
+      page: 1,
+      limit: 1,
+    });
+    expect(list.total).toBe(3);
+    expect(list.items).toHaveLength(1);
+    await service.savePolicy(f.client.id, f.actor(f.admin), {
+      operatingMode: 'STAGED_PREPARATION_QC',
+      expectedVersion: 1,
+      reason: 'New stage policy for future cycles',
+      configuration: { ...defaultPolicy, stages: [defaultStages[0]] },
+    });
+    expect(
+      (await service.detail(f.client.id, f.actor(f.rfd), f.p.id)).stages,
+    ).toHaveLength(3);
+    const otherHub = await db.fleet.update({
+      where: { id: f.fleet.id },
+      data: { currentHubId: f.otherHub.id },
+    });
+    expect(otherHub.readinessApprovedPreparationId).toBeNull();
+    await expect(
+      installations.action(
+        f.client.id,
+        f.actor(f.rfd),
+        f.stages[0].id,
+        'claim',
+        { revision: 1 },
+      ),
+    ).rejects.toThrow('moved hubs');
+  });
+  it('rejects cyclic stage policies and makes simultaneous claims exclusive', async () => {
+    const f = await staged();
+    await expect(
+      service.savePolicy(f.client.id, f.actor(f.admin), {
+        operatingMode: 'STAGED_PREPARATION_QC',
+        expectedVersion: 1,
+        reason: 'Invalid cycle',
+        configuration: {
+          ...defaultPolicy,
+          stages: [
+            { ...defaultStages[0], dependencies: ['BATTERY'] },
+            defaultStages[1],
+          ],
+        },
+      }),
+    ).rejects.toThrow('cycle');
+    await service.saveStaff(f.client.id, f.actor(f.admin), f.secondQc.id, {
+      assignments: [
+        {
+          hubId: f.hub.id,
+          canPrepare: false,
+          canReview: false,
+          stageCodes: ['INTAKE'],
+        },
+      ],
+    });
+    const id = f.stages.find((s) => s.code === 'INTAKE')!.id;
+    const results = await Promise.allSettled([
+      installations.action(f.client.id, f.actor(f.rfd), id, 'claim', {
+        revision: 1,
+      }),
+      installations.action(f.client.id, f.actor(f.secondQc), id, 'claim', {
+        revision: 1,
+      }),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+  });
+  it('atomically installs new hardware, resets only dependent evidence, and requires proofs for both batteries', async () => {
+    const f = await staged();
+    await f.complete('INTAKE');
+    await f.complete('CONTROLLER');
+    await f.fill(f.p.id);
+    const stage = f.stages.find((s) => s.code === 'BATTERY')!;
+    await installations.action(f.client.id, f.actor(f.rfd), stage.id, 'claim', {
+      revision: 1,
+    });
+    const added = await db.battery.create({
+      data: {
+        clientId: f.client.id,
+        serialNumber: 'NEW-BATTERY',
+        batteryType: 'FIXED_SINGLE',
+      },
+    });
+    const result = await installations.action(
+      f.client.id,
+      f.actor(f.rfd),
+      stage.id,
+      'components',
+      { revision: 1, batteryIds: [added.id, f.battery.id] },
+    );
+    expect(result.revision).toBeGreaterThan(1);
+    let detail = await installations.detail(
+      f.client.id,
+      f.actor(f.rfd),
+      stage.id,
+    );
+    expect(detail.requiredPhotoTypes).toHaveLength(4);
+    expect(
+      (
+        await db.fleetBatteryHistory.findMany({
+          where: { fleetId: f.fleet.id, removedAt: null },
+        })
+      )
+        .map((b) => b.batterySlot)
+        .sort(),
+    ).toEqual(['PRIMARY', 'SECONDARY']);
+    expect(
+      (await db.fleetPreparation.findUniqueOrThrow({ where: { id: f.p.id } }))
+        .currentRevision,
+    ).toBe(2);
+    await installations.action(f.client.id, f.actor(f.rfd), stage.id, 'claim', {
+      revision: detail.revision,
+    });
+    await installations.action(f.client.id, f.actor(f.rfd), stage.id, 'save', {
+      revision: detail.revision,
+      checklist: { INSTALLATION: { result: 'PASS', notes: '' } },
+    });
+    await expect(
+      installations.action(f.client.id, f.actor(f.rfd), stage.id, 'submit', {
+        revision: detail.revision,
+      }),
+    ).rejects.toThrow('all stage photos');
+    detail = await f.complete('BATTERY');
+    expect(detail.status).toBe('COMPLETED');
+    expect(
+      (
+        await db.fleetInstallationStage.findUniqueOrThrow({
+          where: { id: f.stages.find((s) => s.code === 'CONTROLLER')!.id },
+        })
+      ).status,
+    ).toBe('COMPLETED');
+    const submitted = await f.submit(f.p.id);
+    await service.review(
+      f.client.id,
+      f.actor(f.qc),
+      f.p.id,
+      { revision: submitted.currentRevision },
+      true,
+    );
+    await db.battery.update({
+      where: { id: added.id },
+      data: { serialNumber: 'EDIT-AFTER-QC' },
+    });
+    expect(
+      (await db.fleetPreparation.findUniqueOrThrow({ where: { id: f.p.id } }))
+        .status,
+    ).toBe('INVALIDATED');
+    expect(
+      (await db.fleet.findUniqueOrThrow({ where: { id: f.fleet.id } }))
+        .readinessApprovedPreparationId,
+    ).toBeNull();
+  }, 30000);
+  it('cancels the complete readiness cycle with a reason and blocks further installation writes', async () => {
+    const f = await staged();
+    const stage = f.stages.find((s) => s.code === 'INTAKE')!;
+    await expect(
+      service.cancel(f.client.id, f.actor(f.admin), f.p.id, {
+        revision: 1,
+        reason: '',
+      }),
+    ).rejects.toThrow();
+    await service.cancel(f.client.id, f.actor(f.admin), f.p.id, {
+      revision: 1,
+      reason: 'Vehicle withdrawn from preparation',
+    });
+    await expect(
+      installations.action(f.client.id, f.actor(f.rfd), stage.id, 'claim', {
+        revision: 1,
+      }),
+    ).rejects.toThrow('no longer editable');
+    const list = await installations.list(f.client.id, f.actor(f.admin), {});
+    expect(list.items).toHaveLength(0);
+  });
+  it('supports optional IoT installation without enabling it for Simple clients', async () => {
+    const f = await staged(false, true);
+    await f.complete('INTAKE');
+    const stage = f.stages.find((s) => s.code === 'IOT')!;
+    await installations.action(f.client.id, f.actor(f.rfd), stage.id, 'claim', {
+      revision: 1,
+    });
+    const device = await db.ioTDevice.create({
+      data: {
+        clientId: f.client.id,
+        deviceNumber: 'TEST-IOT',
+        ingestSecretHash: 'test-only-hash',
+        status: 'DAMAGED',
+      },
+    });
+    await expect(
+      installations.action(
+        f.client.id,
+        f.actor(f.rfd),
+        stage.id,
+        'components',
+        { revision: 1, iotDeviceId: device.id },
+      ),
+    ).rejects.toThrow('unavailable');
+    await db.ioTDevice.update({
+      where: { id: device.id },
+      data: { status: 'UNASSIGNED' },
+    });
+    const response = await installations.action(
+      f.client.id,
+      f.actor(f.rfd),
+      stage.id,
+      'components',
+      { revision: 1, iotDeviceId: device.id },
+    );
+    expect(response.revision).toBe(2);
+    expect(
+      (await db.ioTDevice.findUniqueOrThrow({ where: { id: device.id } }))
+        .status,
+    ).toBe('ACTIVE');
+    expect((await f.complete('IOT')).status).toBe('COMPLETED');
+    expect((await service.policy(f.client.id)).configuration.iotRequired).toBe(
+      true,
+    );
   });
 });

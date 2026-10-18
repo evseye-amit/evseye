@@ -178,7 +178,7 @@ export class AllocationsService {
       where: { id: clientId },
       select: { fleetOperatingMode: true },
     });
-    if (client.fleetOperatingMode === 'PREPARATION_QC') {
+    if (['PREPARATION_QC','STAGED_PREPARATION_QC'].includes(client.fleetOperatingMode)) {
       const fleet = await tx.fleet.findFirst({ where: { id: fleetId, clientId }, select: { readinessApprovedPreparationId: true, allocationBlockedByAdmin: true, allocationEnabled: true } });
       if (!fleet?.readinessApprovedPreparationId) throw new ConflictException('Preparation and QC approval are required before allocation.');
       if (fleet.allocationBlockedByAdmin || !fleet.allocationEnabled) throw new ConflictException('Allocation is administratively disabled for this scooter.');
