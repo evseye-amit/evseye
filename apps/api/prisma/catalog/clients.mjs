@@ -7,6 +7,7 @@ export const clientCatalog = [
       "name": "Yogmaya",
       "slug": "yogmaya",
       "companyCode": "yogmaya",
+      "requestedLocales": ["en", "as", "bn", "gu", "hi", "kn", "ml", "mr", "or", "pa", "ta", "te", "ur"],
       "status": "ACTIVE",
       "isActive": true
     },
