@@ -5,7 +5,7 @@ import { WorkflowResolverService } from '../workflow/workflow-resolver.service.j
 
 export const LOGIN_APP_ROLES = {
   RIDER_APP: [UserRole.RIDER],
-  CLIENT_PANEL: [UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER, UserRole.FLEET_MANAGER, UserRole.TEAM_LEAD, UserRole.KYC_OPERATOR],
+  CLIENT_PANEL: [UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER, UserRole.FLEET_MANAGER, UserRole.TEAM_LEAD, UserRole.KYC_OPERATOR, UserRole.RFD_MANAGER, UserRole.QC_MANAGER],
   FLEET_MANAGER_APP: [UserRole.FLEET_MANAGER],
   TEAM_LEADER_APP: [UserRole.TEAM_LEAD],
 } as const;

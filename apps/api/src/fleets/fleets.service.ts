@@ -592,7 +592,7 @@ export class FleetsService {
       where: { id: clientId },
       select: { fleetOperatingMode: true },
     });
-    const photosRequired = client.fleetOperatingMode !== 'SIMPLE';
+    const photosRequired = client.fleetOperatingMode === 'ONBOARDING_EVIDENCE';
     await this.prisma.photoRequirement.createMany({
       data: this.defaultOnboardingPhotoRequirements.map((requirement) => ({
         ...requirement,
@@ -674,7 +674,7 @@ export class FleetsService {
       operatingMode: client.fleetOperatingMode,
       photosRequired,
       evidenceComplete: items.every((item) => item.ready),
-      ready: !photosRequired || items.every((item) => item.ready),
+      ready: client.fleetOperatingMode === 'PREPARATION_QC' ? Boolean(fleet.readinessApprovedPreparationId) : !photosRequired || items.every((item) => item.ready),
       items,
     };
   }
@@ -785,6 +785,7 @@ export class FleetsService {
             currentHubId: dto.currentHubId,
             odometerKm: dto.odometerKm,
             allocationEnabled: dto.allocationEnabled,
+            allocationBlockedByAdmin: dto.allocationEnabled === undefined ? undefined : !dto.allocationEnabled,
           },
         });
         if (
@@ -894,6 +895,7 @@ export class FleetsService {
       throw new ConflictException('Only an unallocated fleet awaiting activation can be activated.');
     }
     const evidence = await this.onboardingStatus(clientId, id);
+    if (evidence.operatingMode === 'PREPARATION_QC') throw new ConflictException('Use Vehicle Preparation and Quality Check to activate this scooter.');
     if (!evidence.ready) {
       throw new BadRequestException(
         'Complete all required operational photos before activation.',

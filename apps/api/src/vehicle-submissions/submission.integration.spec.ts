@@ -706,6 +706,20 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
     ).toBe('APPROVED');
     expect(await db.riderCharge.count({ where: { clientId: cid } })).toBe(0);
   }, 30000);
+  it('routes a safe completed return back to preparation in QC mode and preserves an allocation block', async () => {
+    const f=await fixture();
+    await db.client.update({where:{id:f.client.id},data:{fleetOperatingMode:'PREPARATION_QC'}});
+    await db.fleet.update({where:{id:f.fleet.id},data:{allocationEnabled:false,allocationBlockedByAdmin:true}});
+    const proof=await f.photo('PENALTY_DAMAGE');
+    await expect(service.recordReport(f.client.id,f.actor,f.submission.id,{...f.report(proof.id),items:[],checksComplete:true},'qc-return')).rejects.toThrow('Capture all');
+    const photos=await f.capture();
+    const report=await service.recordReport(f.client.id,f.actor,f.submission.id,{...f.report(photos[0]!.id),items:[],checksComplete:true},'qc-return');
+    await service.impose(f.client.id,f.actor,report.id);
+    await service.confirm(f.client.id,f.actor,report.id,{riderBypassReason:'Development test return',teamLeadBypassReason:'Development test return'});
+    expect(await db.fleet.findUniqueOrThrow({where:{id:f.fleet.id}})).toMatchObject({status:'INSPECTION_PENDING',allocationEnabled:false,readinessApprovedPreparationId:null});
+    expect(await db.allocation.findUniqueOrThrow({where:{id:f.allocation.id}})).toMatchObject({status:'COMPLETED'});
+  });
+
   it('persists OTP expiry and exhaustion, reports SMS failure, and scopes queue and proof access', async () => {
     const f = await fixture();
     const cid = f.client.id;

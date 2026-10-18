@@ -282,7 +282,7 @@ export class MobileDeploymentService {
     const { workflow, allocation } = await this.workflow(clientId, allocationId);
     if (workflow.status !== MobileDeploymentStatus.RIDER_WAITING) throw new BadRequestException('Fleet request is not available in the current state.');
     const client = await this.prisma.client.findUniqueOrThrow({ where: { id: clientId }, select: { fleetOperatingMode: true } });
-    if (client.fleetOperatingMode !== 'SIMPLE') {
+    if (client.fleetOperatingMode === 'ONBOARDING_EVIDENCE') {
       const required = await this.prisma.photoRequirement.findMany({ where: { clientId, entityType: 'FLEET', isRequired: true }, select: { photoType: true } });
       const complete = await this.prisma.photo.findMany({ where: { clientId, entityType: 'FLEET', entityId: allocation.fleetId, status: 'COMPLETE' }, select: { photoType: true } });
       const missing = required.map((item) => item.photoType).filter((type) => !complete.some((photo) => photo.photoType === type));
