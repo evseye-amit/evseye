@@ -1,3 +1,5 @@
+import { SubmissionPenaltyService } from '../submission-penalties/submission-penalty.service.js';
+import { RiderBillingService } from '../rider-billing/rider-billing.service.js';
 import { AllocationTeamLeadService } from './allocation-team-lead.service.js';
 import { afterAll, describe, expect, it } from 'vitest';
 import { PrismaClient, UserRole } from '@prisma/client';
@@ -375,6 +377,31 @@ describe.skipIf(!url)(
         handover,
       };
     }
+
+    it('blocks new handover for unpaid penalties and consumes a reasoned admin exception only for its approved debt', async () => {
+      const f = await fixture(true);
+      await f.select();
+      await f.pay();
+      const billing = new RiderBillingService(db as never);
+      const charge = (key: string) => db.$transaction((tx) => billing.issueChargeInTransaction(tx, f.client.id, f.rider.id, f.manager.id, `return-penalty:${key}`, { chargeType: 'RETURN_PENALTY', description: 'Previous return penalty', quantity: '1', unitAmount: '100.00', currency: 'INR' }));
+      await charge('old-penalty');
+      await expect(f.handover()).rejects.toMatchObject({ response: { code: 'UNPAID_SUBMISSION_PENALTIES' } });
+      const admin = await db.user.create({ data: { clientId: f.client.id, name: 'Admin', mobile: '9876543214', role: 'CLIENT_ADMIN' } });
+      const actor = { id: admin.id, clientId: f.client.id, roles: [UserRole.CLIENT_ADMIN] };
+      const penalties = new SubmissionPenaltyService(db as never);
+      await expect(penalties.approve(f.client.id, f.actor, f.allocation.id, 'Allow return to work')).rejects.toThrow('Only a Client Admin');
+      await expect(penalties.approve(f.client.id, actor, f.allocation.id, '   ')).rejects.toThrow('nonblank');
+      const approval = await penalties.approve(f.client.id, actor, f.allocation.id, 'Payment arrangement approved');
+      expect((await penalties.clearance(f.client.id, f.actor, f.allocation.id)).handoverBlocked).toBe(false);
+      await charge('new-penalty');
+      await expect(allocations.activate(f.client.id, f.allocation.id)).rejects.toMatchObject({ response: { code: 'UNPAID_SUBMISSION_PENALTIES' } });
+      expect((await db.penaltyHandoverException.findUniqueOrThrow({ where: { id: approval.id } })).usedAt).toBeNull();
+      const updated = await penalties.approve(f.client.id, actor, f.allocation.id, 'Updated payment arrangement approved');
+      await allocations.activate(f.client.id, f.allocation.id);
+      expect((await db.penaltyHandoverException.findUniqueOrThrow({ where: { id: updated.id } })).usedAt).not.toBeNull();
+      expect((await db.allocation.findUniqueOrThrow({ where: { id: f.allocation.id } })).status).toBe('ACTIVE');
+      expect((await penalties.clearance(f.client.id, f.actor, f.allocation.id)).hasUnpaidPenalties).toBe(true);
+    });
 
     it('requires an active primary Team Lead for both mobile and staff handover', async () => {
       const f = await fixture(true);

@@ -1,3 +1,4 @@
+import { SubmissionPenaltyModule } from '../submission-penalties/submission-penalty.module.js';
 import { FleetSearchController } from './fleet-search.controller.js';
 import { FleetSearchService } from './fleet-search.service.js';
 import { AllocationTeamLeadController } from './allocation-team-lead.controller.js';
@@ -17,7 +18,7 @@ import { CommercialCoreModule } from '../rider-rate-cards/commercial-core.module
 import { DeploymentCommercialController } from './deployment-commercial.controller.js';
 
 @Module({
-  imports: [WalletModule, AuthModule, AuditModule, MediaModule, RidersModule, ReferralModule, CommercialCoreModule],
+  imports: [SubmissionPenaltyModule, WalletModule, AuthModule, AuditModule, MediaModule, RidersModule, ReferralModule, CommercialCoreModule],
   controllers: [FleetSearchController, AllocationTeamLeadController, AllocationsController, MobileDeploymentController, DeploymentCommercialController],
   providers: [FleetSearchService, AllocationTeamLeadService, AllocationsService, MobileDeploymentService],
   exports: [AllocationsService],

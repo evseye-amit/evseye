@@ -1,3 +1,4 @@
+import { PENALTY_INVOICE } from '../submission-penalties/penalty-accounting.js';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
@@ -183,6 +184,7 @@ export class AutoCollectionService {
     while (scheduled < limit && scanned < 5000) {
       const invoices = await this.prisma.riderInvoice.findMany({
         where: {
+          invoiceType: { not: PENALTY_INVOICE },
           status: { in: ['FINALIZED', 'PARTIALLY_PAID', 'OVERDUE'] },
           outstandingAmount: { gt: 0 },
           issuedAt: { not: null },
@@ -197,6 +199,7 @@ export class AutoCollectionService {
       scanned += invoices.length;
       for (const invoice of invoices) {
         if (scheduled >= limit) break;
+        if (invoice.invoiceType === PENALTY_INVOICE) continue;
         const [policy, profile, transactions] = await Promise.all([
           this.prisma.paymentCollectionPolicy.findUnique({
             where: { clientId: invoice.clientId },

@@ -1,3 +1,4 @@
+import { requirePenaltyClearance } from '../submission-penalties/penalty-accounting.js';
 import { requireAllocationTeamLead } from './allocation-team-lead.service.js';
 import {
   BadRequestException,
@@ -720,6 +721,7 @@ export class DeploymentCommercialService {
       where: { id: allocationId, clientId },
     });
     await requireAllocationTeamLead(tx, clientId, a.riderId);
+    await requirePenaltyClearance(tx, clientId, a.riderId, a.id);
     // Exchanges retain their accepted agreement and use their existing amendment/deposit workflow.
     if (a.idempotencyKey?.startsWith('exchange:')) {
       await this.exchange(tx, clientId, a);

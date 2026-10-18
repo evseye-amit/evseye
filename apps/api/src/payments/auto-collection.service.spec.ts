@@ -59,6 +59,14 @@ function fixture(
   return { service, orchestrator, wallet, prisma };
 }
 describe('automatic collection retry policy', () => {
+  it('keeps submission penalties rider-initiated even when automatic collection is enabled', async () => {
+    const { service, prisma, orchestrator, wallet } = fixture([], true);
+    prisma.riderInvoice.findMany.mockReset().mockResolvedValueOnce([{ ...invoice, invoiceType: 'SUBMISSION_PENALTY' }]).mockResolvedValue([]);
+    await service.processDue(10);
+    expect(orchestrator.collect).not.toHaveBeenCalled();
+    expect(wallet.settle).not.toHaveBeenCalled();
+    expect(prisma.riderInvoice.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ invoiceType: { not: 'SUBMISSION_PENALTY' } }) }));
+  });
   it('maps a custom India time to the configured due date', () => {
     const date = collectionDate(
       {

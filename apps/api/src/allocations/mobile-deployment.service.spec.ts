@@ -150,6 +150,7 @@ describe('deployment without IoT pairing', () => {
     const prisma = {
       rider: { findFirst: vi.fn().mockResolvedValue({ id: 'rider-1' }) },
       inspection: { findFirst: vi.fn().mockResolvedValue(null) },
+      riderInvoice: { groupBy: vi.fn().mockResolvedValue([]), findMany: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0) },
       walletTransaction: { findFirst: vi.fn().mockResolvedValue(null) },
       userHub: { findMany: vi.fn().mockResolvedValue([{ hubId: 'hub-1' }]) },
       allocation: {

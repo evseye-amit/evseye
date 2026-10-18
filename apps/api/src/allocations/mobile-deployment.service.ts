@@ -1,3 +1,4 @@
+import { pendingPenaltySummary } from '../submission-penalties/submission-penalty.service.js';
 import { WalletService } from '../wallet/wallet.service.js';
 import { ConfigService } from '@nestjs/config';
 import { DeploymentCommercialService } from './deployment-commercial.service.js';
@@ -197,6 +198,7 @@ export class MobileDeploymentService {
   async riderCurrent(clientId: string, userId: string) {
     const rider = await this.prisma.rider.findFirst({ where: { clientId, userId, deletedAt: null }, select: { id: true } });
     if (!rider) return { screen: 'ONBOARDING' };
+    const submissionPenalties = await pendingPenaltySummary(this.prisma, clientId, rider.id);
     let allocation = await this.prisma.allocation.findFirst({ where: { clientId, riderId: rider.id, status: { notIn: [AllocationStatus.COMPLETED, AllocationStatus.CANCELLED] }, mobileDeployment: { isNot: null } }, orderBy: { updatedAt: 'desc' }, include: { fleet: true, mobileDeployment: true } });
     if (!allocation?.mobileDeployment) {
       const handedOver = await this.prisma.allocation.findFirst({
@@ -204,7 +206,7 @@ export class MobileDeploymentService {
         select: { id: true },
       });
       return {
-        screen: handedOver ? 'HOME' : 'WAITING', allocation: null, workflow: null, payment: null, commercial: null,
+        screen: handedOver ? 'HOME' : 'WAITING', submissionPenalties, allocation: null, workflow: null, payment: null, commercial: null,
         ...(handedOver ? await this.riderHomeFinancials(clientId, userId) : { wallet: null, lastEarnings: null }),
       };
     }
@@ -220,7 +222,7 @@ export class MobileDeploymentService {
     if (!allocation.rentalAgreementId && commercial?.offer?.status === 'PRESENTED') screen = 'PLAN_ACCEPTANCE';
     const frontPhoto = await this.frontInspectionPhoto(clientId, allocation.id);
     return {
-      screen, allocation: { ...allocation, fleet: { ...allocation.fleet, frontPhoto } },
+      screen, submissionPenalties, allocation: { ...allocation, fleet: { ...allocation.fleet, frontPhoto } },
       workflow: allocation.mobileDeployment, payment, commercial,
       ...(screen === 'HOME' ? await this.riderHomeFinancials(clientId, userId) : { wallet: null, lastEarnings: null }),
     };

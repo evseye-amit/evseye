@@ -108,7 +108,7 @@ export class WalletBillingService {
       const account = (type: WalletAccountType) => { const result = accounts.find(a => a.accountType === type && a.status === 'ACTIVE'); if (!result) throw new ConflictException('ACCOUNT_NOT_FOUND'); return result; };
       const balance = await this.wallet.balanceTx(tx, clientId, wallet.id);
       const policy = await tx.walletPolicy.findFirst({ where: { clientId, effectiveUntil: null }, orderBy: { version: 'desc' } }) ?? defaultPolicy;
-      const category: ChargeCategory = invoice.invoiceType === 'ONBOARDING' ? 'ONBOARDING_FEE' : invoice.invoiceType === 'RENTAL' ? 'RENTAL' : invoice.invoiceType === 'SECURITY_DEPOSIT' ? 'SECURITY_DEPOSIT' : 'OTHER';
+      const category: ChargeCategory = invoice.invoiceType === 'ONBOARDING' ? 'ONBOARDING_FEE' : invoice.invoiceType === 'RENTAL' ? 'RENTAL' : invoice.invoiceType === 'SECURITY_DEPOSIT' ? 'SECURITY_DEPOSIT' : invoice.invoiceType === 'SUBMISSION_PENALTY' ? 'PENALTY' : 'OTHER';
       const historicalReward = await tx.walletInvoiceAllocation.findMany({ where: { clientId, invoiceId, sourceType: 'REWARD' } });
       const rewardUsed = historicalReward.reduce((sum, a) => sum.plus(a.kind === 'APPLY' ? a.amount : a.amount.neg()), zero);
       const lifetimeRewardCap = D.max(invoice.totalAmount.mul(policy.maxRewardUsagePercent).div(100).toDecimalPlaces(2, D.ROUND_DOWN).minus(rewardUsed), 0);
@@ -135,8 +135,13 @@ export class WalletBillingService {
         const amount = chosen.reduce((sum, f) => sum.plus(f.amount), zero).toFixed(2);
         const entries: { accountId: string; entryType: 'DEBIT' | 'CREDIT'; amount: string }[] = chosen.map(f => ({ accountId: account(f.source as WalletAccountType).id, entryType: 'DEBIT', amount: f.amount }));
         entries.push({ accountId: account('CLEARING').id, entryType: 'CREDIT', amount });
-        const transaction = await this.wallet.postInTransaction(tx, { clientId, walletId: wallet.id, actorId, type: invoice.invoiceType === 'RENTAL' ? 'RENTAL' : invoice.invoiceType === 'ONBOARDING' ? 'ONBOARDING_FEE' : 'PAYMENT', amount, currency: wallet.currency, description: `Wallet settlement for invoice ${invoice.invoiceNumber}`, idempotencyKey: key, referenceType: 'RIDER_INVOICE', referenceId: invoice.id, entries });
+        const transaction = await this.wallet.postInTransaction(tx, { clientId, walletId: wallet.id, actorId, type: invoice.invoiceType === 'RENTAL' ? 'RENTAL' : invoice.invoiceType === 'ONBOARDING' ? 'ONBOARDING_FEE' : invoice.invoiceType === 'SUBMISSION_PENALTY' ? 'PENALTY' : 'PAYMENT', amount, currency: wallet.currency, description: `Wallet settlement for invoice ${invoice.invoiceNumber}`, idempotencyKey: key, referenceType: 'RIDER_INVOICE', referenceId: invoice.id, entries });
         for (const source of chosen) await tx.walletInvoiceAllocation.create({ data: { clientId, invoiceId, transactionId: transaction.id, sourceType: source.source as WalletAccountType, amount: new D(source.amount), currency: wallet.currency, createdById: actorId } });
+        if (invoice.invoiceType === 'SUBMISSION_PENALTY') await tx.riderLedgerEntry.create({ data: {
+          clientId, riderId: invoice.riderId, agreementId: invoice.agreementId, entryType: 'PAYMENT',
+          sourceType: 'WALLET_PENALTY_PAYMENT', sourceId: transaction.id, description: `Wallet payment for ${invoice.invoiceNumber}`,
+          creditAmount: new D(amount), currency: invoice.currency,
+        } });
         used = new D(amount);
       }
       if (used.lte(0)) return invoice;
@@ -199,6 +204,11 @@ export class WalletBillingService {
         const funded = new D(summary.fundedAmount);
         await tx.walletSecurityDeposit.update({ where: { id: deposit.id }, data: { status: funded.eq(0) ? 'PENDING' : funded.gte(deposit.requiredAmount) ? 'PAID' : 'PARTIALLY_PAID', updatedById: actorId } });
       }
+      if (invoice.invoiceType === 'SUBMISSION_PENALTY') await tx.riderLedgerEntry.create({ data: {
+        clientId, riderId: invoice.riderId, agreementId: invoice.agreementId, entryType: 'REVERSAL',
+        sourceType: 'WALLET_PENALTY_REVERSAL', sourceId: transaction.id, description: `Reverse wallet payment for ${invoice.invoiceNumber}`,
+        debitAmount: amount, currency: invoice.currency,
+      } });
       const outstanding = invoice.outstandingAmount.plus(amount);
       const profile = await tx.riderPaymentProfile.findUnique({ where: { clientId_riderId: { clientId, riderId: invoice.riderId } } });
       const overdueAt = plusDays(invoice.dueDate, (profile?.gracePeriodDays ?? 0) + 1);
