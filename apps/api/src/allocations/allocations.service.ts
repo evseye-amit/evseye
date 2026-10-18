@@ -174,6 +174,11 @@ export class AllocationsService {
     clientId: string,
     fleetId: string,
   ) {
+    const client = await tx.client.findUniqueOrThrow({
+      where: { id: clientId },
+      select: { fleetOperatingMode: true },
+    });
+    if (client.fleetOperatingMode === 'SIMPLE') return;
     const requirements = await tx.photoRequirement.findMany({
       where: {
         clientId,

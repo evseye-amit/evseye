@@ -281,10 +281,13 @@ export class MobileDeploymentService {
     await this.assertFleetManagerHub(clientId, userId, allocationId);
     const { workflow, allocation } = await this.workflow(clientId, allocationId);
     if (workflow.status !== MobileDeploymentStatus.RIDER_WAITING) throw new BadRequestException('Fleet request is not available in the current state.');
-    const required = await this.prisma.photoRequirement.findMany({ where: { clientId, entityType: 'FLEET', isRequired: true }, select: { photoType: true } });
-    const complete = await this.prisma.photo.findMany({ where: { clientId, entityType: 'FLEET', entityId: allocation.fleetId, status: 'COMPLETE' }, select: { photoType: true } });
-    const missing = required.map((item) => item.photoType).filter((type) => !complete.some((photo) => photo.photoType === type));
-    if (missing.length) throw new BadRequestException(`Fleet evidence is incomplete: ${missing.join(', ')}.`);
+    const client = await this.prisma.client.findUniqueOrThrow({ where: { id: clientId }, select: { fleetOperatingMode: true } });
+    if (client.fleetOperatingMode !== 'SIMPLE') {
+      const required = await this.prisma.photoRequirement.findMany({ where: { clientId, entityType: 'FLEET', isRequired: true }, select: { photoType: true } });
+      const complete = await this.prisma.photo.findMany({ where: { clientId, entityType: 'FLEET', entityId: allocation.fleetId, status: 'COMPLETE' }, select: { photoType: true } });
+      const missing = required.map((item) => item.photoType).filter((type) => !complete.some((photo) => photo.photoType === type));
+      if (missing.length) throw new BadRequestException(`Fleet evidence is incomplete: ${missing.join(', ')}.`);
+    }
     return this.prisma.mobileDeploymentWorkflow.update({ where: { id: workflow.id }, data: { status: MobileDeploymentStatus.FLEET_REQUESTED } });
   }
   async askPayment(clientId: string, userId: string, allocationId: string, _request?: unknown) {

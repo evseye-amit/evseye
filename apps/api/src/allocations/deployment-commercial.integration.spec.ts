@@ -19,6 +19,8 @@ import { RiderBillingEngineService } from '../rider-billing/rider-billing-engine
 import { RiderPaymentsService } from '../rider-billing/rider-payments.service.js';
 import { RiderRateCardsService } from '../rider-rate-cards/rider-rate-cards.service.js';
 import { AuditService } from '../audit/audit.service.js';
+import { FleetsService } from '../fleets/fleets.service.js';
+import { FleetStatusPolicy } from '../fleets/fleet-status.policy.js';
 
 const url = process.env.DEPLOYMENT_PLAN_TEST_DATABASE_URL;
 if (url && !new URL(url).pathname.includes('_test_'))
@@ -377,6 +379,30 @@ describe.skipIf(!url)(
         handover,
       };
     }
+
+    it('activates a scooter without onboarding photos, lists it for allocation, and still requires fresh allocation inspection photos', async () => {
+      const f = await fixture(true);
+      expect(f.client.fleetOperatingMode).toBe('SIMPLE');
+      const fleets = new FleetsService(db as never, new FleetStatusPolicy());
+      const scooter = await fleets.create(f.client.id, {
+        chassisNumber: randomUUID(), fleetCode: 'OPTIONAL-PHOTOS', oemId: f.fleet.oemId,
+        vehicleCategoryId: f.fleet.vehicleCategoryId, vehicleTypeId: f.fleet.vehicleTypeId,
+        speedType: 'SLOW_SPEED', ownershipType: 'CLIENT_OWNED', currentHubId: f.hub.id,
+      });
+      expect((await mobile.eligibleFleets(f.client.id, f.manager.id)).map(row => row.id)).not.toContain(scooter.id);
+      expect(await fleets.onboardingStatus(f.client.id, scooter.id)).toMatchObject({ ready: true, evidenceComplete: false, photosRequired: false });
+      await fleets.activate(f.client.id, scooter.id, f.manager.id);
+      expect((await mobile.eligibleFleets(f.client.id, f.manager.id)).map(row => row.id)).toContain(scooter.id);
+      expect(await db.photo.count({ where: { clientId: f.client.id, entityType: 'FLEET' } })).toBe(0);
+      await f.select();
+      await f.pay(); // requestFleet must accept absent onboarding photos too.
+      await db.photoRequirement.create({ data: { clientId: f.client.id, entityType: 'INSPECTION', photoType: 'FRONT', isRequired: true } });
+      await expect(f.handover()).rejects.toThrow('Allocation evidence is incomplete.');
+      const inspection = await db.inspection.findUniqueOrThrow({ where: { allocationId_type: { allocationId: f.allocation.id, type: 'PRE_ALLOCATION' } } });
+      await db.photo.create({ data: { clientId: f.client.id, entityType: 'INSPECTION', entityId: inspection.id, photoType: 'FRONT', objectKey: randomUUID(), mimeType: 'image/jpeg', sizeBytes: 100, status: 'COMPLETE', uploadedById: f.manager.id } });
+      await f.handover();
+      expect((await db.allocation.findUniqueOrThrow({ where: { id: f.allocation.id } })).status).toBe('ACTIVE');
+    });
 
     it('blocks new handover for unpaid penalties and consumes a reasoned admin exception only for its approved debt', async () => {
       const f = await fixture(true);

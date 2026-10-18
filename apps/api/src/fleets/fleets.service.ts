@@ -588,6 +588,11 @@ export class FleetsService {
   }
   async onboardingStatus(clientId: string, id: string) {
     const fleet = await this.get(clientId, id);
+    const client = await this.prisma.client.findUniqueOrThrow({
+      where: { id: clientId },
+      select: { fleetOperatingMode: true },
+    });
+    const photosRequired = client.fleetOperatingMode !== 'SIMPLE';
     await this.prisma.photoRequirement.createMany({
       data: this.defaultOnboardingPhotoRequirements.map((requirement) => ({
         ...requirement,
@@ -665,7 +670,13 @@ export class FleetsService {
         ready: missingPhotoTypes.length === 0,
       };
     });
-    return { ready: items.every((item) => item.ready), items };
+    return {
+      operatingMode: client.fleetOperatingMode,
+      photosRequired,
+      evidenceComplete: items.every((item) => item.ready),
+      ready: !photosRequired || items.every((item) => item.ready),
+      items,
+    };
   }
   async currentState(clientId: string, id: string) {
     await this.get(clientId, id);
@@ -879,6 +890,9 @@ export class FleetsService {
   async activate(clientId: string, id: string, actorId: string) {
     const fleet = await this.get(clientId, id);
     if (fleet.onboardingStatus === 'ACTIVE') return fleet;
+    if (!['IN_TRANSIT', 'AVAILABLE'].includes(fleet.status)) {
+      throw new ConflictException('Only an unallocated fleet awaiting activation can be activated.');
+    }
     const evidence = await this.onboardingStatus(clientId, id);
     if (!evidence.ready) {
       throw new BadRequestException(
@@ -886,6 +900,15 @@ export class FleetsService {
       );
     }
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "Fleet" WHERE "id" = ${id} AND "clientId" = ${clientId} FOR UPDATE`;
+      const current = await tx.fleet.findFirstOrThrow({ where: { id, clientId, deletedAt: null } });
+      if (current.onboardingStatus === 'ACTIVE') return current;
+      const allocated = await tx.allocation.count({
+        where: { clientId, fleetId: id, status: { notIn: ['COMPLETED', 'CANCELLED'] } },
+      });
+      if (allocated || !['IN_TRANSIT', 'AVAILABLE'].includes(current.status)) {
+        throw new ConflictException('Only an unallocated fleet awaiting activation can be activated.');
+      }
       const updated = await tx.fleet.update({
         where: { id },
         data: {
@@ -898,10 +921,10 @@ export class FleetsService {
       await tx.fleetStatusHistory.create({
         data: {
           fleetId: id,
-          fromStatus: fleet.status,
+          fromStatus: current.status,
           toStatus: FleetStatus.AVAILABLE,
           changedByUserId: actorId,
-          reason: 'Fleet onboarding activated.',
+          reason: `Fleet onboarding activated (${evidence.operatingMode}).`,
         },
       });
       return this.present({ ...updated, _count: { allocations: 0 } });

@@ -807,7 +807,13 @@ enum PaymentTransactionStatus {
   UNKNOWN
 }
 
+enum FleetOperatingMode {
+  SIMPLE
+  ONBOARDING_EVIDENCE
+}
+
 model Client {
+  fleetOperatingMode FleetOperatingMode @default(SIMPLE)
   penaltyHandoverExceptions PenaltyHandoverException[]
   pushDevices PushDevice[]
   notificationMessages NotificationMessage[]
