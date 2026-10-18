@@ -1,4 +1,7 @@
-import { invoiceSubmissionPenalty, paymentView } from '../submission-penalties/penalty-accounting.js';
+import {
+  invoiceSubmissionPenalty,
+  paymentView,
+} from '../submission-penalties/penalty-accounting.js';
 import {
   BadRequestException,
   ConflictException,
@@ -22,6 +25,22 @@ import type {
 type Tx = Prisma.TransactionClient;
 type Source = 'RETURN' | 'EXCHANGE';
 type ItemSnapshot = {
+  configurationVersion?: number;
+  isSpare?: boolean;
+  spare?: {
+    name: string;
+    code: string;
+    origin: string;
+    masterSpareId: string | null;
+    sourceVersion: number | null;
+    baseRate: string | null;
+    gstPercent: string | null;
+    hsnCode: string | null;
+    unit: string;
+  };
+  evidenceRequired?: boolean;
+  findingId?: string;
+
   priceId: string;
   code: string;
   category: string;
@@ -67,7 +86,9 @@ export class VehicleSubmissionService {
       } catch (error) {
         if (
           error instanceof Prisma.PrismaClientKnownRequestError &&
-          (['P2034', 'P2002'].includes(error.code) || (error.code === 'P2010' && ['40001', '40P01'].includes(String(error.meta?.code)))) &&
+          (['P2034', 'P2002'].includes(error.code) ||
+            (error.code === 'P2010' &&
+              ['40001', '40P01'].includes(String(error.meta?.code)))) &&
           attempt < 3
         )
           continue;
@@ -121,7 +142,12 @@ export class VehicleSubmissionService {
     ) {
       if (
         !(await db.userHub.findFirst({
-          where: { clientId, userId: actor.id, hubId, hub: { clientId, status: 'ACTIVE', deletedAt: null } },
+          where: {
+            clientId,
+            userId: actor.id,
+            hubId,
+            hub: { clientId, status: 'ACTIVE', deletedAt: null },
+          },
         }))
       )
         throw new NotFoundException('Submission is not in an assigned hub.');
@@ -226,7 +252,10 @@ export class VehicleSubmissionService {
         ? await Promise.all([
             this.db.rentalTerminationRequest.findMany({
               ...args,
-              include: { ...args.include, allocation: { select: { fleetId: true } } },
+              include: {
+                ...args.include,
+                allocation: { select: { fleetId: true } },
+              },
             }),
             this.db.rentalTerminationRequest.count({ where }),
           ])
@@ -241,13 +270,21 @@ export class VehicleSubmissionService {
     const fleetIdFor = (row: (typeof rows)[number]) =>
       row.vehicleSubmission?.fleetId ??
       ('oldVehicleId' in row ? row.oldVehicleId : row.allocation?.fleetId);
-    const fleetIds = [...new Set(rows.map(fleetIdFor).filter((id): id is string => !!id))];
+    const fleetIds = [
+      ...new Set(rows.map(fleetIdFor).filter((id): id is string => !!id)),
+    ];
     const fleets = fleetIds.length
       ? await this.db.fleet.findMany({
           where: { clientId, id: { in: fleetIds } },
           select: {
-            id: true, fleetCode: true, vehicleNumber: true, chassisNumber: true,
-            modelName: true, variantName: true, colour: true, status: true,
+            id: true,
+            fleetCode: true,
+            vehicleNumber: true,
+            chassisNumber: true,
+            modelName: true,
+            variantName: true,
+            colour: true,
+            status: true,
             oem: { select: { id: true, name: true } },
             vehicleType: { select: { id: true, name: true } },
             currentHub: { select: { id: true, code: true, name: true } },
@@ -258,7 +295,8 @@ export class VehicleSubmissionService {
     return {
       data: rows.map((row) => {
         // The allocation is only loaded to resolve the returned scooter.
-        const { allocation: _allocation, ...request } = 'allocation' in row ? row : { ...row, allocation: undefined };
+        const { allocation: _allocation, ...request } =
+          'allocation' in row ? row : { ...row, allocation: undefined };
         return {
           ...request,
           source,
@@ -565,6 +603,7 @@ export class VehicleSubmissionService {
     id: string,
     input: MechanicReportDto,
     requestKey: string,
+    edit?: { reportId: string; expectedDigest: string },
   ) {
     if (!/^[A-Za-z0-9:_-]{8,120}$/.test(requestKey ?? ''))
       throw new BadRequestException('A stable Idempotency-Key is required.');
@@ -584,6 +623,8 @@ export class VehicleSubmissionService {
           },
         },
       });
+      if (edit && (!old || old.id !== edit.reportId || old.status !== 'DRAFT'))
+        throw new ConflictException('Only a draft report can be edited.');
       if (old) {
         const snapshot = old.items as unknown as ItemSnapshot[];
         const same =
@@ -600,6 +641,15 @@ export class VehicleSubmissionService {
           snapshot.every(
             (item, index) =>
               item.priceId === input.items[index]!.priceId &&
+              ((!item.isSpare &&
+                input.items[index]!.configurationVersion === undefined) ||
+                item.configurationVersion ===
+                  input.items[index]!.configurationVersion) &&
+              item.category ===
+                (input.items[index]!.findingType ??
+                  (item.isSpare ? 'DAMAGE' : item.category)) &&
+              (item.findingId ?? null) ===
+                (input.items[index]!.findingId ?? null) &&
               item.quantity === (input.items[index]!.quantity ?? 1) &&
               item.details === input.items[index]!.details.trim() &&
               JSON.stringify(item.evidencePhotoIds) ===
@@ -607,11 +657,17 @@ export class VehicleSubmissionService {
                   [...new Set(input.items[index]!.evidencePhotoIds)].sort(),
                 ),
           );
-        if (!same)
+        if (same) return old;
+        if (!edit)
           throw new ConflictException(
             'Idempotency-Key was used for a different report.',
           );
-        return old;
+        if (old.digest !== edit.expectedDigest)
+          throw new ConflictException(
+            'Draft report changed. Reload before editing.',
+          );
+        if (old.stage !== input.stage)
+          throw new BadRequestException('Report stage cannot be changed.');
       }
       if (submission.mechanicChecksComplete)
         throw new ConflictException('Mechanic checks are already complete.');
@@ -624,7 +680,12 @@ export class VehicleSubmissionService {
           'Report stage does not match the submission.',
         );
       const reports = await tx.vehicleSubmissionReport.findMany({
-        where: { clientId, submissionId: id, status: { not: 'CANCELLED' } },
+        where: {
+          clientId,
+          submissionId: id,
+          status: { not: 'CANCELLED' },
+          ...(edit ? { id: { not: edit.reportId } } : {}),
+        },
       });
       if (
         reports.some((report) => ['DRAFT', 'SUBMITTED'].includes(report.status))
@@ -665,20 +726,30 @@ export class VehicleSubmissionService {
         throw new BadRequestException(
           'A mechanic report needs proof from this submission inspection.',
         );
+      const vehicle = await tx.fleet.findFirstOrThrow({
+        where: { id: submission.fleetId, clientId },
+        select: { vehicleTypeId: true },
+      });
       const prices = input.items.length
         ? await tx.returnPenaltyPrice.findMany({
             where: {
               clientId,
-              isActive: true,
               id: { in: input.items.map((item) => item.priceId) },
             },
           })
         : [];
       const used = new Set(
         reports.flatMap((report) =>
-          (report.items as unknown as ItemSnapshot[]).map(
-            (item) => item.findingKey,
-          ),
+          (report.items as unknown as ItemSnapshot[]).flatMap((item) => [
+            item.findingKey,
+            item.evidencePhotoIds.length
+              ? hash([item.priceId, [...item.evidencePhotoIds].sort()])
+              : hash([
+                  item.priceId,
+                  item.category,
+                  item.details.trim().replace(/\s+/g, ' ').toLowerCase(),
+                ]),
+          ]),
         ),
       );
       const items: ItemSnapshot[] = input.items.map((item) => {
@@ -687,17 +758,49 @@ export class VehicleSubmissionService {
           throw new BadRequestException(
             'Select an active penalty price for this client.',
           );
+        if (
+          (price.isSpare && item.configurationVersion === undefined) ||
+          (item.configurationVersion !== undefined &&
+            item.configurationVersion !== price.configurationVersion)
+        )
+          throw new ConflictException({
+            code: 'PENALTY_CATALOGUE_CHANGED',
+            message:
+              'Penalty pricing or evidence settings changed. Refresh the penalty list and review the amount again.',
+            priceId: price.id,
+            currentVersion: price.configurationVersion,
+          });
+        if (
+          price.vehicleTypeIds.length &&
+          !price.vehicleTypeIds.includes(vehicle.vehicleTypeId)
+        )
+          throw new BadRequestException(
+            'Penalty is not applicable to this vehicle type.',
+          );
+        const category = item.findingType ?? price.category;
+        if (!price.isSpare && category !== price.category)
+          throw new BadRequestException(
+            'Finding type does not match this penalty.',
+          );
+        if (!price.isActive || !price.penaltyConfigured)
+          throw new ConflictException({
+            code: 'PENALTY_CATALOGUE_CHANGED',
+            message:
+              'This penalty is no longer enabled. Refresh the penalty list.',
+          });
+        const evidenceRequired = price.evidenceRequired !== false;
         const evidencePhotoIds = [...new Set(item.evidencePhotoIds)].sort();
         if (
           !item.details.trim() ||
-          !evidencePhotoIds.length ||
+          (evidenceRequired && !evidencePhotoIds.length) ||
           evidencePhotoIds.some((photo) => !photoIds.has(photo))
         )
           throw new BadRequestException(
-            'Every penalty needs details and proof belonging to this vehicle submission.',
+            'Every penalty needs details and any required proof; supplied evidence must belong to this vehicle submission.',
           );
         if (
-          price.category === 'MISSING_ITEM' &&
+          evidenceRequired &&
+          category === 'MISSING_ITEM' &&
           !evidencePhotoIds.some(
             (photo) =>
               photos.find((entry) => entry.id === photo)?.photoType ===
@@ -707,12 +810,28 @@ export class VehicleSubmissionService {
           throw new BadRequestException(
             'Missing items need a return checklist photo as proof.',
           );
-        const findingKey = hash([price.id, evidencePhotoIds]);
-        if (used.has(findingKey))
+        const findingKey = item.findingId
+          ? hash(['FINDING', id, item.findingId])
+          : evidencePhotoIds.length
+            ? hash([price.id, evidencePhotoIds])
+            : hash([
+                price.id,
+                category,
+                item.details.trim().replace(/\s+/g, ' ').toLowerCase(),
+              ]);
+        const fingerprint = evidencePhotoIds.length
+          ? hash([price.id, evidencePhotoIds])
+          : hash([
+              price.id,
+              category,
+              item.details.trim().replace(/\s+/g, ' ').toLowerCase(),
+            ]);
+        if (used.has(findingKey) || used.has(fingerprint))
           throw new ConflictException(
             'This finding already appears in a report. It cannot be charged twice.',
           );
         used.add(findingKey);
+        used.add(fingerprint);
         const quantity = item.quantity ?? 1;
         if (
           !Number.isInteger(quantity) ||
@@ -724,7 +843,26 @@ export class VehicleSubmissionService {
         return {
           priceId: price.id,
           code: price.code,
-          category: price.category,
+          category,
+          configurationVersion: price.configurationVersion,
+          isSpare: price.isSpare,
+          evidenceRequired,
+          ...(item.findingId ? { findingId: item.findingId } : {}),
+          ...(price.isSpare
+            ? {
+                spare: {
+                  name: price.name ?? price.description,
+                  code: price.code,
+                  origin: price.masterSpareId ? 'MASTER' : 'CLIENT',
+                  masterSpareId: price.masterSpareId,
+                  sourceVersion: price.sourceVersion,
+                  baseRate: price.baseRate?.toFixed(2) ?? null,
+                  gstPercent: price.gstPercent?.toFixed(2) ?? null,
+                  hsnCode: price.hsnCode,
+                  unit: price.unit,
+                },
+              }
+            : {}),
           description: price.description,
           quantity,
           unitAmount: price.amount.toFixed(2),
@@ -766,17 +904,25 @@ export class VehicleSubmissionService {
         totalAmount: total.toFixed(2),
         currency: agreement.currency,
       };
-      const row = await tx.vehicleSubmissionReport.create({
-        data: {
-          clientId,
-          submissionId: id,
-          requestKey,
-          ...snapshot,
-          items: items as unknown as Prisma.InputJsonValue,
-          digest: hash(snapshot),
-          recordedById: actor.id,
-        },
-      });
+      const content = {
+        ...snapshot,
+        items: items as unknown as Prisma.InputJsonValue,
+        digest: hash(snapshot),
+      };
+      const row = edit
+        ? await tx.vehicleSubmissionReport.update({
+            where: { id: edit.reportId },
+            data: content,
+          })
+        : await tx.vehicleSubmissionReport.create({
+            data: {
+              clientId,
+              submissionId: id,
+              requestKey,
+              ...content,
+              recordedById: actor.id,
+            },
+          });
       if (input.stage === 'BASIC')
         await tx.inspection.update({
           where: { id: submission.inspectionId },
@@ -792,7 +938,9 @@ export class VehicleSubmissionService {
         tx,
         clientId,
         actor.id,
-        'VEHICLE_MECHANIC_REPORT_RECORDED',
+        edit
+          ? 'VEHICLE_MECHANIC_REPORT_EDITED'
+          : 'VEHICLE_MECHANIC_REPORT_RECORDED',
         id,
         {
           reportId: row.id,
@@ -805,6 +953,31 @@ export class VehicleSubmissionService {
     });
   }
 
+  async updateReport(
+    clientId: string,
+    actor: AuthUser,
+    reportId: string,
+    input: MechanicReportDto,
+    expectedDigest: string,
+  ) {
+    if (!/^[a-f0-9]{64}$/.test(expectedDigest ?? ''))
+      throw new BadRequestException(
+        'Supply the current report digest in If-Match.',
+      );
+    const { report, submission } = await this.reportAccess(
+      clientId,
+      actor,
+      reportId,
+    );
+    return this.recordReport(
+      clientId,
+      actor,
+      submission.id,
+      input,
+      report.requestKey,
+      { reportId, expectedDigest },
+    );
+  }
   private async reportAccess(
     clientId: string,
     actor: AuthUser,
@@ -823,45 +996,147 @@ export class VehicleSubmissionService {
     await this.staffHub(this.db, clientId, actor, submission.hubId);
     return { report, submission };
   }
-  async impose(clientId: string, actor: AuthUser, reportId: string) {
-    const { report, submission } = await this.reportAccess(
-      clientId,
-      actor,
-      reportId,
-    );
-    if (report.status === 'SUBMITTED' || report.status === 'POSTED')
-      return report;
-    return this.transaction(async (tx) => {
-      const changed = await tx.vehicleSubmissionReport.updateMany({
-        where: {
-          id: reportId,
-          clientId,
-          status: 'DRAFT',
-          digest: report.digest,
-        },
-        data: {
-          status: 'SUBMITTED',
-          imposedById: actor.id,
-          imposedAt: new Date(),
-        },
-      });
-      if (!changed.count)
-        throw new ConflictException('Report is no longer a draft.');
-      await this.audit(
+  private async assertReportEvidence(
+    tx: Tx,
+    clientId: string,
+    submission: VehicleSubmission,
+    row: Prisma.VehicleSubmissionReportGetPayload<Record<string, never>>,
+  ) {
+    await tx.$queryRaw`SELECT id FROM "Inspection" WHERE id=${submission.inspectionId} AND "clientId"=${clientId} FOR UPDATE`;
+    const frozenDigest = hash({
+      stage: row.stage,
+      mechanicName: row.mechanicName,
+      summary: row.summary,
+      safeForReuse: row.safeForReuse,
+      unsafeReason: row.unsafeReason,
+      checksComplete: row.checksComplete,
+      evidencePhotoIds: row.evidencePhotoIds,
+      items: row.items,
+      totalAmount: row.totalAmount.toFixed(2),
+      currency: row.currency,
+    });
+    if (frozenDigest !== row.digest)
+      throw new ConflictException('Mechanic report changed after submission.');
+    const evidenceIds = [
+      ...new Set([
+        ...row.evidencePhotoIds,
+        ...(row.items as unknown as ItemSnapshot[]).flatMap(
+          (item) => item.evidencePhotoIds,
+        ),
+      ]),
+    ];
+    const evidence = await tx.photo.count({
+      where: {
+        clientId,
+        entityType: 'INSPECTION',
+        entityId: submission.inspectionId,
+        status: 'COMPLETE',
+        id: { in: evidenceIds },
+      },
+    });
+    if (evidence !== evidenceIds.length)
+      throw new ConflictException(
+        'Report evidence is no longer available for this submission.',
+      );
+  }
+  private async ensurePenaltyPayment(
+    tx: Tx,
+    clientId: string,
+    actor: AuthUser,
+    submission: VehicleSubmission,
+    row: Prisma.VehicleSubmissionReportGetPayload<Record<string, never>>,
+  ) {
+    let chargeId: string | null = null;
+    let paymentRequest: ReturnType<typeof paymentView> | null = null;
+    if (row.totalAmount.gt(0)) {
+      await tx.$queryRaw`SELECT id FROM "Rider" WHERE id = ${submission.riderId} AND "clientId" = ${clientId} FOR UPDATE`;
+      const charge = await this.billing.issueChargeInTransaction(
         tx,
         clientId,
+        submission.riderId,
         actor.id,
-        'VEHICLE_PENALTIES_IMPOSED',
-        submission.id,
+        `return-penalty:submission-report:${row.id}`,
         {
-          reportId,
-          digest: report.digest,
-          amount: report.totalAmount.toFixed(2),
+          chargeType: 'RETURN_PENALTY',
+          description: `${row.stage === 'BASIC' ? 'Initial' : 'Additional'} vehicle submission penalties`,
+          quantity: '1',
+          unitAmount: row.totalAmount.toFixed(2),
+          currency: row.currency,
+          referenceType: 'VEHICLE_SUBMISSION_REPORT',
+          referenceId: row.id,
+        },
+        undefined,
+        {
+          agreementId: submission.agreementId,
+          vehicleId: submission.fleetId,
         },
       );
-      return tx.vehicleSubmissionReport.findUniqueOrThrow({
-        where: { id: reportId },
+      chargeId = charge.id;
+      paymentRequest = paymentView(
+        await invoiceSubmissionPenalty(tx, clientId, row, charge.id, actor.id),
+      );
+    }
+    return { chargeId, paymentRequest };
+  }
+  async impose(clientId: string, actor: AuthUser, reportId: string) {
+    const { submission } = await this.reportAccess(clientId, actor, reportId);
+    return this.transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "VehicleSubmissionReport" WHERE id=${reportId} AND "clientId"=${clientId} FOR UPDATE`;
+      const row = await tx.vehicleSubmissionReport.findFirstOrThrow({
+        where: { id: reportId, clientId },
       });
+      if (!['DRAFT', 'SUBMITTED', 'POSTED'].includes(row.status))
+        throw new ConflictException(
+          'Report is no longer available for imposition.',
+        );
+      if (row.status === 'POSTED') {
+        const invoice = await tx.riderInvoice.findUnique({
+          where: {
+            clientId_sourceKey: {
+              clientId,
+              sourceKey: `submission-penalty:${row.id}`,
+            },
+          },
+        });
+        return {
+          ...row,
+          paymentRequest: invoice ? paymentView(invoice) : null,
+          paymentRequiredToCompleteSubmission: false,
+        };
+      }
+      if (row.status === 'DRAFT')
+        await this.assertReportEvidence(tx, clientId, submission, row);
+      const { chargeId, paymentRequest } = await this.ensurePenaltyPayment(
+        tx,
+        clientId,
+        actor,
+        submission,
+        row,
+      );
+      const updated = await tx.vehicleSubmissionReport.update({
+        where: { id: reportId },
+        data: {
+          status: 'SUBMITTED',
+          postedChargeId: chargeId,
+          ...(row.status === 'DRAFT'
+            ? { imposedById: actor.id, imposedAt: new Date() }
+            : {}),
+        },
+      });
+      if (row.status === 'DRAFT')
+        await this.audit(
+          tx,
+          clientId,
+          actor.id,
+          'VEHICLE_PENALTIES_IMPOSED',
+          submission.id,
+          { reportId, digest: row.digest, amount: row.totalAmount.toFixed(2) },
+        );
+      return {
+        ...updated,
+        paymentRequest,
+        paymentRequiredToCompleteSubmission: false,
+      };
     });
   }
   private async recipients(db: Tx, submission: VehicleSubmission) {
@@ -1025,55 +1300,31 @@ export class VehicleSubmissionService {
       )
         throw new BadRequestException('A nonblank bypass reason is required.');
     return this.transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "VehicleSubmissionReport" WHERE id=${reportId} AND "clientId"=${clientId} FOR UPDATE`;
       const row = await tx.vehicleSubmissionReport.findFirst({
         where: { id: reportId, clientId, submissionId: submission.id },
       });
       if (!row) throw new NotFoundException('Report not found.');
       if (row.status === 'POSTED') {
-        const invoice = await tx.riderInvoice.findUnique({ where: { clientId_sourceKey: { clientId, sourceKey: `submission-penalty:${row.id}` } } });
-        return { ...row, paymentRequest: invoice ? paymentView(invoice) : null, paymentRequiredToCompleteSubmission: false };
+        const invoice = await tx.riderInvoice.findUnique({
+          where: {
+            clientId_sourceKey: {
+              clientId,
+              sourceKey: `submission-penalty:${row.id}`,
+            },
+          },
+        });
+        return {
+          ...row,
+          paymentRequest: invoice ? paymentView(invoice) : null,
+          paymentRequiredToCompleteSubmission: false,
+        };
       }
       if (row.status !== 'SUBMITTED')
         throw new ConflictException(
           'Report must be imposed before confirmation.',
         );
-      const frozenDigest = hash({
-        stage: row.stage,
-        mechanicName: row.mechanicName,
-        summary: row.summary,
-        safeForReuse: row.safeForReuse,
-        unsafeReason: row.unsafeReason,
-        checksComplete: row.checksComplete,
-        evidencePhotoIds: row.evidencePhotoIds,
-        items: row.items,
-        totalAmount: row.totalAmount.toFixed(2),
-        currency: row.currency,
-      });
-      if (frozenDigest !== row.digest)
-        throw new ConflictException(
-          'Mechanic report changed after submission.',
-        );
-      const evidenceIds = [
-        ...new Set([
-          ...row.evidencePhotoIds,
-          ...(row.items as unknown as ItemSnapshot[]).flatMap(
-            (item) => item.evidencePhotoIds,
-          ),
-        ]),
-      ];
-      const evidence = await tx.photo.count({
-        where: {
-          clientId,
-          entityType: 'INSPECTION',
-          entityId: submission.inspectionId,
-          status: 'COMPLETE',
-          id: { in: evidenceIds },
-        },
-      });
-      if (evidence !== evidenceIds.length)
-        throw new ConflictException(
-          'Report evidence is no longer available for this submission.',
-        );
+      await this.assertReportEvidence(tx, clientId, submission, row);
       const recipients = await this.recipients(tx, submission);
       const riderConfirmed =
         row.riderOtpRequestId &&
@@ -1125,34 +1376,13 @@ export class VehicleSubmissionService {
             'OTP confirmation is stale. Request a new OTP.',
           );
       }
-      let chargeId: string | null = null;
-      let paymentRequest: ReturnType<typeof paymentView> | null = null;
-      if (row.totalAmount.gt(0)) {
-        await tx.$queryRaw`SELECT id FROM "Rider" WHERE id = ${submission.riderId} AND "clientId" = ${clientId} FOR UPDATE`;
-        const charge = await this.billing.issueChargeInTransaction(
-          tx,
-          clientId,
-          submission.riderId,
-          actor.id,
-          `return-penalty:submission-report:${row.id}`,
-          {
-            chargeType: 'RETURN_PENALTY',
-            description: `${row.stage === 'BASIC' ? 'Initial' : 'Additional'} vehicle submission penalties`,
-            quantity: '1',
-            unitAmount: row.totalAmount.toFixed(2),
-            currency: row.currency,
-            referenceType: 'VEHICLE_SUBMISSION_REPORT',
-            referenceId: row.id,
-          },
-          undefined,
-          {
-            agreementId: submission.agreementId,
-            vehicleId: submission.fleetId,
-          },
-        );
-        chargeId = charge.id;
-        paymentRequest = paymentView(await invoiceSubmissionPenalty(tx, clientId, row, charge.id, actor.id));
-      }
+      const { chargeId, paymentRequest } = await this.ensurePenaltyPayment(
+        tx,
+        clientId,
+        actor,
+        submission,
+        row,
+      );
       const now = new Date();
       const result = await tx.vehicleSubmissionReport.update({
         where: { id: row.id },
@@ -1211,10 +1441,20 @@ export class VehicleSubmissionService {
           throw new ConflictException(
             'Vehicle has another active allocation and cannot be released by this report.',
           );
-        const readinessClient = await tx.client.findUniqueOrThrow({ where: { id: clientId }, select: { fleetOperatingMode: true } });
+        const readinessClient = await tx.client.findUniqueOrThrow({
+          where: { id: clientId },
+          select: { fleetOperatingMode: true },
+        });
         await tx.fleet.update({
           where: { id: submission.fleetId },
-          data: { status: 'AVAILABLE', ...(['PREPARATION_QC','STAGED_PREPARATION_QC'].includes(readinessClient.fleetOperatingMode) ? {} : { allocationEnabled: true }) },
+          data: {
+            status: 'AVAILABLE',
+            ...(['PREPARATION_QC', 'STAGED_PREPARATION_QC'].includes(
+              readinessClient.fleetOperatingMode,
+            )
+              ? {}
+              : { allocationEnabled: true }),
+          },
         });
       }
       await tx.otpRequest.updateMany({
@@ -1245,7 +1485,11 @@ export class VehicleSubmissionService {
           checksComplete: row.checksComplete,
         },
       );
-      return { ...result, paymentRequest, paymentRequiredToCompleteSubmission: false };
+      return {
+        ...result,
+        paymentRequest,
+        paymentRequiredToCompleteSubmission: false,
+      };
     });
   }
 
@@ -1374,6 +1618,7 @@ export class VehicleSubmissionService {
           id: reportId,
           clientId,
           status: { in: ['DRAFT', 'SUBMITTED'] },
+          postedChargeId: null,
         },
         data: {
           status: 'CANCELLED',
@@ -1383,7 +1628,7 @@ export class VehicleSubmissionService {
       });
       if (!changed.count)
         throw new ConflictException(
-          'A posted report cannot be changed or cancelled.',
+          'An imposed financial charge or posted report cannot be cancelled. Use the financial adjustment process.',
         );
       if (report.stage === 'BASIC')
         await tx.inspection.update({

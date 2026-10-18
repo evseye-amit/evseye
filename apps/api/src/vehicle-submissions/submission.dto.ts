@@ -21,6 +21,10 @@ export class StartSubmissionDto {
 }
 export class SubmissionPenaltyDto {
   @IsUUID() priceId!: string;
+  @IsOptional() @IsInt() @Min(1) configurationVersion?: number;
+  @IsOptional() @IsIn(['DAMAGE', 'MISSING_ITEM']) findingType?:
+    'DAMAGE' | 'MISSING_ITEM';
+  @IsOptional() @IsUUID() findingId?: string;
   @IsOptional() @IsInt() @Min(1) @Max(20) quantity = 1;
   @IsString() @Matches(/\S/) @MaxLength(1000) details!: string;
   @IsArray()

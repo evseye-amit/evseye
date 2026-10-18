@@ -1,3 +1,4 @@
+import { SparesService } from '../spares/spares.service.js';
 import { FleetManagerActionGuard, FleetActionResource } from '../auth/guards/fleet-manager-action.guard.js';
 import {
   Body,
@@ -92,11 +93,11 @@ export class RideReturnsController {
 @UseGuards(AccessTokenGuard, RolesGuard)
 @Roles(...clientRoles)
 export class ReturnPenaltyPriceController {
-  constructor(private readonly context: ClientContextService, private readonly returns: RideReturnsService) {}
+  constructor(private readonly context: ClientContextService, private readonly returns: RideReturnsService, private readonly spares: SparesService) {}
 
   @Get()
-  async list(@CurrentUser() user: AuthUser) {
-    return { data: await this.returns.prices(this.context.requireClientId(user)) };
+  async list(@CurrentUser() user: AuthUser, @Query() query: Record<string,string>) {
+    return this.spares.catalogue(this.context.requireClientId(user),user,query);
   }
 
   @Post()
