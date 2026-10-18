@@ -223,7 +223,10 @@ export class VehicleSubmissionService {
     const [rows, total] =
       source === 'RETURN'
         ? await Promise.all([
-            this.db.rentalTerminationRequest.findMany(args),
+            this.db.rentalTerminationRequest.findMany({
+              ...args,
+              include: { ...args.include, allocation: { select: { fleetId: true } } },
+            }),
             this.db.rentalTerminationRequest.count({ where }),
           ])
         : await Promise.all([
@@ -234,12 +237,34 @@ export class VehicleSubmissionService {
       where: { clientId, id: { in: rows.map((row) => row.riderId) } },
       select: { id: true, name: true, mobile: true },
     });
+    const fleetIdFor = (row: (typeof rows)[number]) =>
+      row.vehicleSubmission?.fleetId ??
+      ('oldVehicleId' in row ? row.oldVehicleId : row.allocation?.fleetId);
+    const fleetIds = [...new Set(rows.map(fleetIdFor).filter((id): id is string => !!id))];
+    const fleets = fleetIds.length
+      ? await this.db.fleet.findMany({
+          where: { clientId, id: { in: fleetIds } },
+          select: {
+            id: true, fleetCode: true, vehicleNumber: true, chassisNumber: true,
+            modelName: true, variantName: true, colour: true, status: true,
+            oem: { select: { id: true, name: true } },
+            vehicleType: { select: { id: true, name: true } },
+            currentHub: { select: { id: true, code: true, name: true } },
+          },
+        })
+      : [];
+    const fleetsById = new Map(fleets.map((fleet) => [fleet.id, fleet]));
     return {
-      data: rows.map((row) => ({
-        ...row,
-        source,
-        rider: riders.find((rider) => rider.id === row.riderId) ?? null,
-      })),
+      data: rows.map((row) => {
+        // The allocation is only loaded to resolve the returned scooter.
+        const { allocation: _allocation, ...request } = 'allocation' in row ? row : { ...row, allocation: undefined };
+        return {
+          ...request,
+          source,
+          rider: riders.find((rider) => rider.id === row.riderId) ?? null,
+          fleet: fleetsById.get(fleetIdFor(row) ?? '') ?? null,
+        };
+      }),
       meta: { page, limit, total },
     };
   }

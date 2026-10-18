@@ -38,7 +38,14 @@ linked `vehicleSubmission` once intake begins.
 ## Fleet Manager: receive and photograph the vehicle
 
 `GET /client/vehicle-submissions/requests?source=RETURN&phase=SCHEDULED&page=1&limit=20`
-returns scheduled requests with rider names and pagination metadata. Use
+returns scheduled requests with rider names, fleet details and pagination metadata.
+Each item includes `fleet` with `id`, `fleetCode`, `vehicleNumber`,
+`chassisNumber`, `modelName`, `variantName`, `colour`, `status`, `oem`
+(`id`, `name`), `vehicleType` (`id`, `name`), and `currentHub` (`id`, `code`,
+`name`). Return requests resolve the scooter from the original allocation or
+existing submission; exchanges show the outgoing scooter. A historical request
+without a resolvable scooter returns `fleet: null`. Fleet status and hub reflect
+the current fleet record. Use
 `source=EXCHANGE` for exchanges. `phase=CHECKS` lists intake/deep checks still in
 progress; `phase=ALL` includes completed submissions. Fleet Managers see only
 their assigned hubs; client admins and operations managers see their client.
