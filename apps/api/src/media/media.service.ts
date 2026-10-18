@@ -162,7 +162,10 @@ export class MediaService {
 
   async complete(clientId: string, photoId: string) {
     const photo = await this.getPhoto(clientId, photoId);
-    if (photo.entityType === PhotoEntityType.PREPARATION) throw new ForbiddenException('Preparation photos use the preparation routes.');
+    if (photo.entityType === PhotoEntityType.PREPARATION)
+      throw new ForbiddenException(
+        'Preparation photos use the preparation routes.',
+      );
     if (photo.entityType === PhotoEntityType.SUPPORT_TICKET)
       throw new ForbiddenException(
         'Support attachments use the support ticket routes.',
@@ -193,6 +196,33 @@ export class MediaService {
     // objects as DELETED retains an audit trail without letting stale evidence
     // satisfy the onboarding requirement.
     return this.prisma.$transaction(async (tx) => {
+      // Retain evidence referenced by imposed reports when a newer photo replaces a slot.
+      // The inspection lock also serializes replacement against penalty imposition.
+      if (photo.entityType === PhotoEntityType.INSPECTION)
+        await tx.$queryRaw`SELECT id FROM "Inspection" WHERE id=${photo.entityId} AND "clientId"=${clientId} FOR UPDATE`;
+      const reports =
+        photo.entityType === PhotoEntityType.INSPECTION
+          ? await tx.vehicleSubmissionReport.findMany({
+              where: {
+                clientId,
+                status: { in: ['SUBMITTED', 'POSTED'] },
+                submission: { inspectionId: photo.entityId },
+              },
+              select: { evidencePhotoIds: true, items: true },
+            })
+          : [];
+      const protectedIds = [
+        ...new Set(
+          reports.flatMap((report) => [
+            ...report.evidencePhotoIds,
+            ...(Array.isArray(report.items)
+              ? (report.items as { evidencePhotoIds?: string[] }[]).flatMap(
+                  (item) => item.evidencePhotoIds ?? [],
+                )
+              : []),
+          ]),
+        ),
+      ];
       await tx.photo.updateMany({
         where: {
           clientId,
@@ -200,7 +230,10 @@ export class MediaService {
           entityId: photo.entityId,
           photoType: photo.photoType,
           status: PhotoStatus.COMPLETE,
-          id: { not: photo.id },
+          id: {
+            not: photo.id,
+            ...(protectedIds.length ? { notIn: protectedIds } : {}),
+          },
         },
         data: { status: PhotoStatus.DELETED },
       });
@@ -214,7 +247,10 @@ export class MediaService {
   async downloadUrl(clientId: string, photoId: string, actor?: AuthUser) {
     const photo = await this.getPhoto(clientId, photoId);
     await this.assertFleetManagerPhotoAccess(clientId, actor, photo);
-    if (photo.entityType === PhotoEntityType.PREPARATION) throw new ForbiddenException('Preparation photos use the preparation routes.');
+    if (photo.entityType === PhotoEntityType.PREPARATION)
+      throw new ForbiddenException(
+        'Preparation photos use the preparation routes.',
+      );
     if (photo.entityType === PhotoEntityType.SUPPORT_TICKET)
       throw new ForbiddenException(
         'Support attachments use the support ticket routes.',

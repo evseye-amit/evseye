@@ -1,3 +1,4 @@
+import { recordSpareRevision } from '../spares/spares-copy.js';
 import { plannedDate, selectSubmissionHub } from '../vehicle-submissions/submission-hub.js';
 import {
   BadRequestException,
@@ -783,15 +784,16 @@ export class RideReturnsService {
   async createPrice(clientId: string, actorId: string, input: ReturnPenaltyPriceDto) {
     const value = new Prisma.Decimal(input.amount);
     if (!value.isFinite() || value.lte(0) || value.decimalPlaces() > 2) throw new BadRequestException('Invalid positive amount.');
-    return this.db.returnPenaltyPrice.create({ data: { clientId, code: input.code, category: input.category, description: input.description.trim(), amount: value, currency: input.currency, createdById: actorId } });
+    return this.db.$transaction(async tx=>{await tx.$queryRaw`SELECT id FROM "Client" WHERE id=${clientId} FOR UPDATE`;if(await tx.returnPenaltyPrice.findUnique({where:{clientId_code:{clientId,code:input.code}}}))throw new ConflictException('Penalty code is already used by this client.');const row=await tx.returnPenaltyPrice.create({data:{clientId,code:input.code,category:input.category,description:input.description.trim(),amount:value,currency:input.currency,createdById:actorId}});await recordSpareRevision(tx,row,actorId,'Operational penalty created.');return row;});
   }
-
   async updatePrice(clientId: string, actorId: string, priceId: string, input: UpdateReturnPenaltyPriceDto) {
-    const existing = await this.db.returnPenaltyPrice.findFirst({ where: { id: priceId, clientId } });
-    if (!existing) throw new NotFoundException('Penalty price not found.');
-    const amount = input.amount === undefined ? undefined : new Prisma.Decimal(input.amount);
-    if (amount && (!amount.isFinite() || amount.lte(0) || amount.decimalPlaces() > 2)) throw new BadRequestException('Invalid positive amount.');
-    return this.db.returnPenaltyPrice.update({ where: { id: existing.id }, data: { ...(input.description === undefined ? {} : { description: input.description.trim() }), ...(amount ? { amount } : {}), ...(input.currency ? { currency: input.currency } : {}), ...(input.isActive === undefined ? {} : { isActive: input.isActive }), updatedById: actorId } });
+    return this.db.$transaction(async tx=>{
+      await tx.$queryRaw`SELECT id FROM "Client" WHERE id=${clientId} FOR UPDATE`;
+      const existing=await tx.returnPenaltyPrice.findFirst({where:{id:priceId,clientId}});if(!existing)throw new NotFoundException('Penalty price not found.');
+      if(existing.isSpare)throw new BadRequestException('Manage spare penalties through Client Spares & Penalties.');
+      const amount=input.amount===undefined?undefined:new Prisma.Decimal(input.amount);if(amount&&(!amount.isFinite()||amount.lte(0)||amount.decimalPlaces()>2))throw new BadRequestException('Invalid positive amount.');
+      const row=await tx.returnPenaltyPrice.update({where:{id:priceId},data:{...(input.description===undefined?{}:{description:input.description.trim()}),...(amount?{amount}:{}),...(input.currency?{currency:input.currency}:{}),...(input.isActive===undefined?{}:{isActive:input.isActive}),configurationVersion:{increment:1},updatedById:actorId}});await recordSpareRevision(tx,row,actorId,'Operational penalty updated.');return row;
+    });
   }
 
   private async caseFor(clientId: string, requestId: string) {
@@ -812,6 +814,7 @@ export class RideReturnsService {
     return items.map((item, position) => {
       const price = byId.get(item.priceId);
       if (!price) throw new BadRequestException('Penalty price is not available for this client.');
+      if (price.isSpare) throw new BadRequestException('Use the vehicle submission report flow for spare penalties.');
       if (!PENALTY_CATEGORIES.has(price.category)) throw new BadRequestException('Invalid penalty category.');
       const details = item.details.trim();
       if (!details) throw new BadRequestException('Penalty details are required.');
@@ -865,6 +868,7 @@ export class RideReturnsService {
     const snapshots = draftItems.map((item) => {
       const price = byId.get(item.priceListItemId);
       if (!price) throw new BadRequestException('Penalty price must be active when submitted.');
+      if (price.isSpare) throw new BadRequestException('Use the vehicle submission report flow for spare penalties.');
       if (!PENALTY_CATEGORIES.has(price.category)) throw new BadRequestException('Invalid penalty category.');
       const details = item.details.trim();
       if (!details) throw new BadRequestException('Penalty details are required.');

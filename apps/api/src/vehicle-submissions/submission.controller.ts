@@ -1,4 +1,7 @@
-import { FleetManagerActionGuard, FleetActionResource } from '../auth/guards/fleet-manager-action.guard.js';
+import {
+  FleetManagerActionGuard,
+  FleetActionResource,
+} from '../auth/guards/fleet-manager-action.guard.js';
 import { MediaService } from '../media/media.service.js';
 import {
   Body,
@@ -6,6 +9,7 @@ import {
   Get,
   Headers,
   Param,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -218,6 +222,23 @@ export class VehicleSubmissionController {
         id,
         body,
         key,
+      ),
+    };
+  }
+  @Patch('client/vehicle-submission-reports/:id')
+  async updateReport(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Body() body: MechanicReportDto,
+    @Headers('if-match') digest: string,
+  ) {
+    return {
+      data: await this.service.updateReport(
+        this.clients.requireClientId(actor),
+        actor,
+        id,
+        body,
+        digest,
       ),
     };
   }

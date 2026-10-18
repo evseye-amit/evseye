@@ -51,6 +51,8 @@ function tagForPath(path: string): string {
   if (path === '/api/v1/platform/dashboard') return 'Platform Catalog · Dashboard';
   if (path.startsWith('/api/v1/platform/oems')) return 'Platform Catalog · OEM';
   if (path.startsWith('/api/v1/platform/vehicle-categories')) return 'Platform Catalog · Vehicle Category';
+  if (path.startsWith('/api/v1/platform/spares')) return 'Platform Catalog · Spares';
+  if (path.startsWith('/api/v1/client/spares')) return 'Client Operations · Spares & Penalties';
   if (path.startsWith('/api/v1/platform/vehicle-types')) return 'Platform Catalog · Vehicle Type';
   if (path.startsWith('/api/v1/platform/feature-steps')) return 'Platform Catalog · Feature Step';
   if (path.startsWith('/api/v1/platform/feature-pricing') || path.includes('/current-price')) return 'Platform Catalog · Feature Pricing';

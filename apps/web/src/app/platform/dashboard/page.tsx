@@ -1,4 +1,5 @@
 "use client";
+import { SparesCatalogue } from "../../components/spares-catalogue";
 import { sessionFetch as fetch } from "../../../lib/session-fetch";
 import {
   allowanceResetPeriods,
@@ -46,6 +47,7 @@ const API_URL =
 const ACCESS_TOKEN_KEY = "evs-eye-session-present";
 const REFRESH_TOKEN_KEY = "evs-eye-session-refreshable";
 type Tab =
+  | "spares"
   | "legalDocuments"
   | "dashboard"
   | "clients"
@@ -2047,6 +2049,7 @@ export default function SuperAdminDashboard() {
         ["vehicleCategories", "Vehicle Category", "category"],
         ["vehicleTypes", "Vehicle Type", "vehicle"],
         ["oems", "OEM", "factory"],
+        ["spares", "Spares", "factory"],
       ],
     },
     {
@@ -2085,6 +2088,7 @@ export default function SuperAdminDashboard() {
     { items: [["legalDocuments", "Legal Documents", "audit"]] },
   ];
   const pageSubtitles: Partial<Record<Tab, string>> = {
+    spares: "Manage the spare catalogue copied to clients for their penalty configuration.",
     legalDocuments: "Manage default legal documents copied as drafts when a client is created.",
     oems: "Create and manage manufacturers visible across the platform.",
     vehicleCategories:
@@ -2368,6 +2372,7 @@ export default function SuperAdminDashboard() {
             setTab={setTab}
           />
         )}
+        {tab === "spares" && <SparesCatalogue platform />}
         {tab === "legalDocuments" && <LegalDocumentsView token={token} />}
         {tab === "clients" && (
           <ClientsView

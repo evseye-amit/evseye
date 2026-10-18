@@ -1,3 +1,4 @@
+import { SparesModule } from '../spares/spares.module.js';
 import { Module } from '@nestjs/common';
 import { AllocationsModule } from '../allocations/allocations.module.js';
 import { AuthModule } from '../auth/auth.module.js';
@@ -6,7 +7,7 @@ import { RideReturnsController, ReturnPenaltyPriceController, RiderRideReturnsCo
 import { RideReturnsService } from './ride-returns.service.js';
 
 @Module({
-  imports: [AuthModule, AllocationsModule, RiderBillingModule],
+  imports: [SparesModule, AuthModule, AllocationsModule, RiderBillingModule],
   controllers: [RideReturnsController, ReturnPenaltyPriceController, RiderRideReturnsController],
   providers: [RideReturnsService],
   exports: [RideReturnsService],

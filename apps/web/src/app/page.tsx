@@ -1,4 +1,5 @@
 "use client";
+import { SparesCatalogue } from "./components/spares-catalogue";
 import { sessionFetch as fetch } from "../lib/session-fetch";
 import {
   enumOptionLabel,
@@ -40,6 +41,7 @@ const indianMobileInput = (value: string) =>
 type LoginFlow = { appCode: string; version: string; methods: string[]; steps: Array<{ code: string; fields: Array<{ featureCode: string; label: string; placeholder: string }> }> };
 const loginField = (flow: LoginFlow | null, featureCode: string) => flow?.steps.flatMap((step) => step.fields).find((field) => field.featureCode === featureCode);
 type Tab =
+  | "spares-penalties"
   | "installation-board" | "vehicle-preparation" | "quality-check" | "readiness-settings" | "readiness-staff"
   | "dashboard"
   | "legal-documents"
@@ -141,6 +143,7 @@ const CLIENT_NAVIGATION: Array<{
     label: "Vehicle Management",
     items: [
       { id: "fleets", label: "Fleet" },
+      { id: "spares-penalties", label: "Spares & Penalties" },
       { id: "installation-board", label: "Installation Board" },
       { id: "vehicle-preparation", label: "Vehicle Preparation" },
       { id: "quality-check", label: "Quality Check" },
@@ -193,6 +196,7 @@ const CLIENT_NAVIGATION: Array<{
 ];
 
 const CLIENT_TAB_TITLES: Record<Tab, string> = {
+  "spares-penalties": "Spares & Penalties",
   "installation-board": "Installation Board",
   "vehicle-preparation": "Vehicle Preparation", "quality-check": "Quality Check", "readiness-settings": "Fleet Readiness Settings", "readiness-staff": "Installation, Preparation & QC Staff",
   dashboard: "Dashboard",
@@ -230,6 +234,7 @@ const CLIENT_TAB_TITLES: Record<Tab, string> = {
 };
 
 const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
+  "spares-penalties": "factory",
   "installation-board": "vehicle",
   "vehicle-preparation": "vehicle", "quality-check": "shield", "readiness-settings": "factory", "readiness-staff": "user",
   dashboard: "dashboard",
@@ -267,6 +272,7 @@ const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
 };
 
 const ACTIVE_CLIENT_TABS = new Set<Tab>([
+  "spares-penalties",
   "installation-board", "vehicle-preparation", "quality-check", "readiness-settings", "readiness-staff",
   "dashboard",
   "legal-documents",
@@ -874,7 +880,7 @@ export default function Home() {
 
   async function loadView(nextTab: Tab) {
     if (!userRoles.length) { setLoading(false); return; }
-    if (["installation-board","vehicle-preparation","quality-check","readiness-settings","readiness-staff"].includes(nextTab)) { setItems([]); setLoading(false); return; }
+    if (["spares-penalties","installation-board","vehicle-preparation","quality-check","readiness-settings","readiness-staff"].includes(nextTab)) { setItems([]); setLoading(false); return; }
     if (nextTab === "legal-documents" || nextTab === "refer-and-earn" || nextTab === "rider-reference-review" || nextTab === "support-tickets" || nextTab === "notifications") {
       setItems([]);
       setLoading(false);
@@ -2458,7 +2464,7 @@ export default function Home() {
 
   const canSeeTab = (id: Tab) => {
     if (userRoles.some(role => ["RFD_MANAGER","QC_MANAGER"].includes(role))) return ["installation-board","vehicle-preparation","quality-check"].includes(id);
-    if (["legal-documents","refer-and-earn","readiness-settings"].includes(id)) return userRoles.includes("CLIENT_ADMIN");
+    if (["spares-penalties","legal-documents","refer-and-earn","readiness-settings"].includes(id)) return userRoles.includes("CLIENT_ADMIN");
     if (["notifications","readiness-staff"].includes(id)) return userRoles.some(role => ["CLIENT_ADMIN","OPERATIONS_MANAGER"].includes(role));
     return true;
   };
@@ -2557,6 +2563,7 @@ export default function Home() {
         {tab === "legal-documents" && userRoles.includes("CLIENT_ADMIN") && <ClientLegalDocuments key={legalRefreshKey} />}
         {tab === "refer-and-earn" && userRoles.includes("CLIENT_ADMIN") && <ClientReferAndEarn key={referralRefreshKey} />}
         {tab === "rider-reference-review" && <RiderReferenceReview key={referenceRefreshKey} />}
+        {tab === "spares-penalties" && <SparesCatalogue />}
         {tab === "installation-board" && <InstallationBoard />}
         {["vehicle-preparation","quality-check","readiness-settings","readiness-staff"].includes(tab) && <FleetReadiness key={tab} view={tab === "quality-check" ? "qc" : tab === "readiness-settings" ? "settings" : tab === "readiness-staff" ? "staff" : "preparation"} />}
         {tab === "support-tickets" && <SupportTickets key={supportRefreshKey} />}
@@ -3092,7 +3099,7 @@ export default function Home() {
           tab !== "rider-reference-review" &&
           tab !== "support-tickets" &&
           tab !== "notifications" &&
-          !["installation-board","vehicle-preparation","quality-check","readiness-settings","readiness-staff"].includes(tab) &&
+          !["spares-penalties","installation-board","vehicle-preparation","quality-check","readiness-settings","readiness-staff"].includes(tab) &&
           tab !== "locations" &&
           tab !== "evidence" && (
             <>
