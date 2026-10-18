@@ -64,6 +64,7 @@ describe('MobileDeploymentService.requestFleet', () => {
     'allows deployment with missing or stale IoT: %j',
     async (iotDevice) => {
       const prisma = {
+        client: { findUniqueOrThrow: vi.fn().mockResolvedValue({ fleetOperatingMode: 'SIMPLE' }) },
         userHub: { findMany: vi.fn().mockResolvedValue([{ hubId: 'hub-1' }]) },
         allocation: {
           findFirst: vi.fn().mockResolvedValue({
@@ -80,7 +81,7 @@ describe('MobileDeploymentService.requestFleet', () => {
             .fn()
             .mockResolvedValue({ id: 'workflow-1', status: 'FLEET_REQUESTED' }),
         },
-        photoRequirement: { findMany: vi.fn().mockResolvedValue([]) },
+        photoRequirement: { findMany: vi.fn().mockResolvedValue([{ photoType: 'FRONT' }]) },
         photo: { findMany: vi.fn().mockResolvedValue([]) },
       };
       const service = new MobileDeploymentService(
@@ -93,6 +94,9 @@ describe('MobileDeploymentService.requestFleet', () => {
       await expect(
         service.requestFleet('client-1', 'manager-1', 'allocation-1'),
       ).resolves.toMatchObject({ status: 'FLEET_REQUESTED' });
+      expect(prisma.photoRequirement.findMany).not.toHaveBeenCalled();
+      prisma.client.findUniqueOrThrow.mockResolvedValue({ fleetOperatingMode: 'ONBOARDING_EVIDENCE' });
+      await expect(service.requestFleet('client-1', 'manager-1', 'allocation-1')).rejects.toThrow('Fleet evidence is incomplete: FRONT.');
     },
   );
 });

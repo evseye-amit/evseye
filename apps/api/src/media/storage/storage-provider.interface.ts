@@ -10,6 +10,8 @@ export interface StorageProvider {
   /** Returns a stable delivery URL for non-sensitive public assets. */
   createPublicUrl(objectKey: string): string;
   assertObjectExists(objectKey: string, image?: { maxBytes: number }): Promise<void>;
+  /** Copy evidence to a server-only key that has never had a signed upload URL. */
+  sealObject(sourceKey: string, destinationKey: string): Promise<void>;
 }
 
 export const STORAGE_PROVIDER = Symbol('STORAGE_PROVIDER');

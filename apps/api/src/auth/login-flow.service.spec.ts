@@ -19,6 +19,13 @@ function fixture() {
 }
 
 describe('LoginFlowService', () => {
+  it.each([UserRole.RFD_MANAGER,UserRole.QC_MANAGER])('allows %s in the client panel only',role=>{
+    const {service}=fixture();
+    expect(service.roleAllowed('CLIENT_PANEL',role)).toBe(true);
+    expect(service.roleAllowed('FLEET_MANAGER_APP',role)).toBe(false);
+    expect(service.roleAllowed('RIDER_APP',role)).toBe(false);
+    expect(service.roleAllowed('TEAM_LEADER_APP',role)).toBe(false);
+  });
   it('uses the same published package resolver as pre-login', async () => {
     const { service, workflows } = fixture();
     const result = await service.resolve('yogmaya', 'RIDER_APP');

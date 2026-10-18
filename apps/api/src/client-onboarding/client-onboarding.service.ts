@@ -38,6 +38,7 @@ export class ClientOnboardingService {
           companyCode: true,
           status: true,
           isActive: true,
+          fleetOperatingMode: true,
           agreement: {
             select: {
               rejectionReason: true,

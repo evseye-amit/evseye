@@ -174,6 +174,17 @@ export class AllocationsService {
     clientId: string,
     fleetId: string,
   ) {
+    const client = await tx.client.findUniqueOrThrow({
+      where: { id: clientId },
+      select: { fleetOperatingMode: true },
+    });
+    if (['PREPARATION_QC','STAGED_PREPARATION_QC'].includes(client.fleetOperatingMode)) {
+      const fleet = await tx.fleet.findFirst({ where: { id: fleetId, clientId }, select: { readinessApprovedPreparationId: true, allocationBlockedByAdmin: true, allocationEnabled: true } });
+      if (!fleet?.readinessApprovedPreparationId) throw new ConflictException('Preparation and QC approval are required before allocation.');
+      if (fleet.allocationBlockedByAdmin || !fleet.allocationEnabled) throw new ConflictException('Allocation is administratively disabled for this scooter.');
+      return;
+    }
+    if (client.fleetOperatingMode === 'SIMPLE') return;
     const requirements = await tx.photoRequirement.findMany({
       where: {
         clientId,
