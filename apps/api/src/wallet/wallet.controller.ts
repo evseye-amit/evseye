@@ -1,3 +1,4 @@
+import { pendingPenaltySummary } from '../submission-penalties/submission-penalty.service.js';
 import {
   BadRequestException,
   Body,
@@ -76,6 +77,7 @@ export class RiderWalletController {
         id: wallet.id,
         status: wallet.status,
         ...balance,
+        submissionPenalties: await pendingPenaltySummary(this.prisma, wallet.clientId, wallet.riderId),
         rewardsEarned: earned.toFixed(2),
         rewardsUsedOrExpired: Prisma.Decimal.max(
           earned.minus(balance.rewards.availableBalance),
@@ -101,7 +103,7 @@ export class RiderWalletController {
       wallet.clientId,
       wallet.id,
     );
-    return { data: balance };
+    return { data: { ...balance, submissionPenalties: await pendingPenaltySummary(this.prisma, wallet.clientId, wallet.riderId) } };
   }
   @Get('withdrawal-eligibility') async withdrawalEligibility(
     @CurrentUser() user: AuthUser,

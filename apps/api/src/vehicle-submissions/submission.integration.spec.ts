@@ -1,3 +1,16 @@
+import { pendingPenaltySummary, SubmissionPenaltyService } from '../submission-penalties/submission-penalty.service.js';
+import { penaltyDebt, requirePenaltyClearance } from '../submission-penalties/penalty-accounting.js';
+import { SubmissionPenaltyWorker } from '../submission-penalties/submission-penalty.worker.js';
+import { NotificationService } from '../notifications/notification.service.js';
+import { NotificationWorker } from '../notifications/notification.worker.js';
+import { WalletService } from '../wallet/wallet.service.js';
+import { WalletPolicyService } from '../wallet/wallet-policy.service.js';
+import { WalletBillingService } from '../wallet/wallet-billing.service.js';
+import { SecurityDepositService } from '../wallet/security-deposit.service.js';
+import { CheckoutCollectionService } from '../payments/checkout-collection.service.js';
+import { MockPaymentProvider } from '../payments/mock-payment.provider.js';
+import { RiderPaymentsService } from '../rider-billing/rider-payments.service.js';
+import { RiderDepositService } from '../rider-deposits/deposit.service.js';
 import { RideReturnsService } from '../ride-returns/ride-returns.service.js';
 import { VehicleExchangeService } from '../vehicle-exchanges/vehicle-exchange.service.js';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -338,6 +351,96 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
     };
   }
 
+
+  async function finalizedPenalty() {
+    const f = await fixture();
+    await f.capture();
+    const proof = await f.photo('PENALTY_DAMAGE');
+    const report = await service.recordReport(f.client.id, f.actor, f.submission.id, f.report(proof.id, 'BASIC', true), 'penalty-payment-report');
+    await service.impose(f.client.id, f.actor, report.id);
+    const posted = await service.confirm(f.client.id, f.actor, report.id, { riderBypassReason: 'Recovery; rider unavailable', teamLeadBypassReason: 'Team lead notified of recovery' });
+    const invoice = await db.riderInvoice.findFirstOrThrow({ where: { clientId: f.client.id, sourceKey: `submission-penalty:${report.id}` } });
+    const wallet = new WalletService(prisma);
+    const deposits = new SecurityDepositService(prisma, wallet, new WalletPolicyService(prisma));
+    const walletBilling = new WalletBillingService(prisma, wallet, deposits);
+    return { ...f, report, posted, invoice, wallet, walletBilling, deposits };
+  }
+
+  it('finishes recovery submission unpaid, persists the dialog and retries notifications without a device', async () => {
+    const f = await finalizedPenalty();
+    const cid = f.client.id;
+    expect(f.posted.paymentRequest).toMatchObject({ invoiceId: f.invoice.id, outstandingAmount: '100.00', paymentStatus: 'PENDING' });
+    expect((await db.allocation.findUniqueOrThrow({ where: { id: f.allocation.id } })).status).toBe('COMPLETED');
+    expect((await db.riderRentalAgreement.findUniqueOrThrow({ where: { id: f.agreement.id } })).status).toBe('TERMINATED');
+    const penalties = new SubmissionPenaltyService(prisma);
+    const listing = await penalties.list(cid, f.rider.id, 1, 25);
+    expect(listing.data).toHaveLength(1);
+    expect(listing.data[0]!.breakdown).toMatchObject({ penalties: [expect.objectContaining({ amount: '100.00' })] });
+    expect((await pendingPenaltySummary(prisma, cid, f.rider.id)).pendingCount).toBe(1);
+    const again = await service.confirm(cid, f.actor, f.report.id, {});
+    expect(again.paymentRequest?.invoiceId).toBe(f.invoice.id);
+    expect(await db.riderInvoice.count({ where: { clientId: cid } })).toBe(1);
+    expect(await db.riderLedgerEntry.count({ where: { clientId: cid, entryType: 'CHARGE' } })).toBe(1);
+    await expect(db.$transaction((tx) => requirePenaltyClearance(tx, cid, f.rider.id, f.allocation.id))).rejects.toMatchObject({ response: { code: 'UNPAID_SUBMISSION_PENALTIES' } });
+    await db.client.update({ where: { id: cid }, data: { status: 'ACTIVE' } });
+    const failing = new SubmissionPenaltyWorker(prisma, { enqueueForUsers: vi.fn().mockRejectedValue(new Error('notification outage')) } as never);
+    await failing.enqueuePending();
+    expect((await db.riderInvoice.findUniqueOrThrow({ where: { id: f.invoice.id } })).penaltyNotificationQueuedAt).toBeNull();
+    expect((await db.vehicleSubmission.findUniqueOrThrow({ where: { id: f.submission.id } })).status).toBe('CONFIRMED');
+    const notifications = new NotificationService(prisma, { getOrThrow: () => 3600 } as never, { configured: false } as never);
+    const worker = new SubmissionPenaltyWorker(prisma, notifications);
+    await worker.enqueuePending();
+    await worker.enqueuePending();
+    expect(await db.userNotification.count({ where: { clientId: cid, userId: f.riderUser.id } })).toBe(1);
+    const push = new NotificationWorker(prisma, {} as never, notifications, { configured: false } as never);
+    await push.expandRecipients();
+    expect(await db.pushDelivery.count({ where: { message: { clientId: cid } } })).toBe(0);
+    expect((await db.userNotification.findFirstOrThrow({ where: { clientId: cid } })).noActiveDevice).toBe(true);
+  });
+
+  it('settles penalties through verified checkout exactly once and records wallet and billing history', async () => {
+    const f = await finalizedPenalty();
+    const cid = f.client.id;
+    const provider = new MockPaymentProvider();
+    vi.spyOn(provider, 'fetchCheckoutPayments').mockImplementation(async (orderId) => [{ orderId, providerPaymentId: `paid-${orderId}`, status: 'SUCCESS', rawStatus: 'SUCCESS', amount: '100.00', currency: 'INR' }]);
+    const checkout = new CheckoutCollectionService(prisma, { getOrThrow: () => 'mock', get: () => undefined } as never, provider, new RiderPaymentsService(prisma), new RiderDepositService(prisma), f.walletBilling, f.wallet, f.deposits);
+    const order = await checkout.payInvoice(cid, f.rider.id, f.invoice.id, 'penalty-checkout-key', false, f.riderUser.id);
+    expect(order.paymentSessionId).toBeTruthy();
+    await checkout.verify(cid, f.rider.id, order.collectionId!);
+    await checkout.verify(cid, f.rider.id, order.collectionId!);
+    const invoice = await db.riderInvoice.findUniqueOrThrow({ where: { id: f.invoice.id } });
+    expect(invoice.outstandingAmount.toFixed(2)).toBe('0.00');
+    expect(invoice.status).toBe('PAID');
+    expect(await db.riderPayment.count({ where: { clientId: cid } })).toBe(1);
+    expect(await db.walletTransaction.count({ where: { clientId: cid, transactionType: 'PAYMENT' } })).toBe(1);
+    expect(await db.riderLedgerEntry.count({ where: { clientId: cid, entryType: 'PAYMENT' } })).toBe(1);
+    expect((await penaltyDebt(prisma, cid, f.rider.id)).hasDebt).toBe(false);
+    await db.$transaction((tx) => requirePenaltyClearance(tx, cid, f.rider.id, f.allocation.id));
+    expect((await new SubmissionPenaltyService(prisma).list(cid, f.rider.id, 1, 25)).data).toHaveLength(0);
+    expect((await new SubmissionPenaltyService(prisma).list(cid, f.rider.id, 1, 25, true)).data[0]!.paymentStatus).toBe('PAID');
+    const foreign = await fixture();
+    await expect(new SubmissionPenaltyService(prisma).get(foreign.client.id, foreign.rider.id, f.invoice.id)).rejects.toThrow('not found');
+  });
+
+  it('supports partial wallet payments and reopens both ledgers when reversed', async () => {
+    const f = await finalizedPenalty();
+    const cid = f.client.id;
+    const wallet = await f.wallet.ensure(cid, f.rider.id, f.riderUser.id);
+    const accounts = await db.walletAccount.findMany({ where: { walletId: wallet.id } });
+    const cash = accounts.find((a) => a.accountType === 'CASH')!;
+    const clearing = accounts.find((a) => a.accountType === 'CLEARING')!;
+    await f.wallet.post({ clientId: cid, walletId: wallet.id, actorId: f.riderUser.id, type: 'TOP_UP', amount: '40.00', currency: 'INR', description: 'Fund wallet', idempotencyKey: 'penalty-wallet-funding', entries: [{ accountId: cash.id, entryType: 'CREDIT', amount: '40.00' }, { accountId: clearing.id, entryType: 'DEBIT', amount: '40.00' }] });
+    const result = await f.walletBilling.settle(cid, f.invoice.id, f.riderUser.id, 'wallet-penalty-payment');
+    expect(result.outstandingAmount.toFixed(2)).toBe('60.00');
+    await f.walletBilling.settle(cid, f.invoice.id, f.riderUser.id, 'wallet-penalty-payment');
+    const transaction = await db.walletTransaction.findFirstOrThrow({ where: { clientId: cid, transactionType: 'PENALTY' } });
+    expect(await db.riderLedgerEntry.count({ where: { clientId: cid, sourceType: 'WALLET_PENALTY_PAYMENT' } })).toBe(1);
+    await f.walletBilling.reverse(cid, transaction.id, f.riderUser.id, 'reverse-penalty-payment');
+    expect((await db.riderInvoice.findUniqueOrThrow({ where: { id: f.invoice.id } })).outstandingAmount.toFixed(2)).toBe('100.00');
+    expect(await db.riderLedgerEntry.count({ where: { clientId: cid, sourceType: 'WALLET_PENALTY_REVERSAL' } })).toBe(1);
+    expect((await penaltyDebt(prisma, cid, f.rider.id)).hasDebt).toBe(true);
+  });
+
   it('requires proof, binds both OTPs, posts initial and later charges once, and holds the vehicle until checks finish', async () => {
     const f = await fixture();
     const cid = f.client.id;
@@ -538,6 +641,7 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
         },
       }),
     ).toBe(2);
+    expect(await db.riderInvoice.count({ where: { clientId: cid, invoiceType: 'SUBMISSION_PENALTY' } })).toBe(2);
     const released = await db.fleet.findUniqueOrThrow({
       where: { id: f.fleet.id },
     });

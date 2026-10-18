@@ -1,3 +1,4 @@
+import { invoiceSubmissionPenalty, paymentView } from '../submission-penalties/penalty-accounting.js';
 import {
   BadRequestException,
   ConflictException,
@@ -66,7 +67,7 @@ export class VehicleSubmissionService {
       } catch (error) {
         if (
           error instanceof Prisma.PrismaClientKnownRequestError &&
-          ['P2034', 'P2002'].includes(error.code) &&
+          (['P2034', 'P2002'].includes(error.code) || (error.code === 'P2010' && ['40001', '40P01'].includes(String(error.meta?.code)))) &&
           attempt < 3
         )
           continue;
@@ -120,7 +121,7 @@ export class VehicleSubmissionService {
     ) {
       if (
         !(await db.userHub.findFirst({
-          where: { clientId, userId: actor.id, hubId },
+          where: { clientId, userId: actor.id, hubId, hub: { clientId, status: 'ACTIVE', deletedAt: null } },
         }))
       )
         throw new NotFoundException('Submission is not in an assigned hub.');
@@ -1028,7 +1029,10 @@ export class VehicleSubmissionService {
         where: { id: reportId, clientId, submissionId: submission.id },
       });
       if (!row) throw new NotFoundException('Report not found.');
-      if (row.status === 'POSTED') return row;
+      if (row.status === 'POSTED') {
+        const invoice = await tx.riderInvoice.findUnique({ where: { clientId_sourceKey: { clientId, sourceKey: `submission-penalty:${row.id}` } } });
+        return { ...row, paymentRequest: invoice ? paymentView(invoice) : null, paymentRequiredToCompleteSubmission: false };
+      }
       if (row.status !== 'SUBMITTED')
         throw new ConflictException(
           'Report must be imposed before confirmation.',
@@ -1122,7 +1126,9 @@ export class VehicleSubmissionService {
           );
       }
       let chargeId: string | null = null;
+      let paymentRequest: ReturnType<typeof paymentView> | null = null;
       if (row.totalAmount.gt(0)) {
+        await tx.$queryRaw`SELECT id FROM "Rider" WHERE id = ${submission.riderId} AND "clientId" = ${clientId} FOR UPDATE`;
         const charge = await this.billing.issueChargeInTransaction(
           tx,
           clientId,
@@ -1145,6 +1151,7 @@ export class VehicleSubmissionService {
           },
         );
         chargeId = charge.id;
+        paymentRequest = paymentView(await invoiceSubmissionPenalty(tx, clientId, row, charge.id, actor.id));
       }
       const now = new Date();
       const result = await tx.vehicleSubmissionReport.update({
@@ -1237,7 +1244,7 @@ export class VehicleSubmissionService {
           checksComplete: row.checksComplete,
         },
       );
-      return result;
+      return { ...result, paymentRequest, paymentRequiredToCompleteSubmission: false };
     });
   }
 

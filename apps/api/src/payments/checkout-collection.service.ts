@@ -157,7 +157,6 @@ export class CheckoutCollectionService {
             clientId,
             riderId,
             invoiceId,
-            paymentNumber: paymentNumber(),
             status: { in: ['CREATING', 'PENDING', 'UNKNOWN'] },
           },
         });
@@ -174,6 +173,7 @@ export class CheckoutCollectionService {
             riderId,
             invoiceId,
             collectionType: 'INVOICE_PAYMENT',
+            paymentNumber: paymentNumber(),
             method: 'UPI',
             provider: providerName.toUpperCase(),
             amount: invoice.outstandingAmount,

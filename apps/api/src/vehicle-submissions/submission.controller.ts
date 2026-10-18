@@ -1,3 +1,4 @@
+import { FleetManagerActionGuard, FleetActionResource } from '../auth/guards/fleet-manager-action.guard.js';
 import { MediaService } from '../media/media.service.js';
 import {
   Body,
@@ -61,7 +62,8 @@ class SubmissionQueueDto {
 @Controller()
 @ApiTags('Vehicle submission · Return and Exchange')
 @ApiBearerAuth()
-@UseGuards(AccessTokenGuard, RolesGuard)
+@UseGuards(AccessTokenGuard, RolesGuard, FleetManagerActionGuard)
+@FleetActionResource('report')
 @Roles(...staff)
 export class VehicleSubmissionController {
   constructor(
@@ -113,6 +115,7 @@ export class VehicleSubmissionController {
     };
   }
   @Post('client/ride-returns/:id/submission/start')
+  @FleetActionResource('return')
   async startReturn(
     @CurrentUser() actor: AuthUser,
     @Param('id') id: string,
@@ -129,6 +132,7 @@ export class VehicleSubmissionController {
     };
   }
   @Post('vehicle-exchanges/:id/submission/start')
+  @FleetActionResource('exchange')
   async startExchange(
     @CurrentUser() actor: AuthUser,
     @Param('id') id: string,
@@ -199,6 +203,7 @@ export class VehicleSubmissionController {
     return this.photo(actor, id, photoId);
   }
   @Post('client/vehicle-submissions/:id/reports')
+  @FleetActionResource('submission')
   @ApiHeader({ name: 'Idempotency-Key', required: true })
   async report(
     @CurrentUser() actor: AuthUser,

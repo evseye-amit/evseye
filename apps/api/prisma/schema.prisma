@@ -808,6 +808,7 @@ enum PaymentTransactionStatus {
 }
 
 model Client {
+  penaltyHandoverExceptions PenaltyHandoverException[]
   pushDevices PushDevice[]
   notificationMessages NotificationMessage[]
   userNotifications UserNotification[]
@@ -1897,6 +1898,7 @@ model FleetTransfer {
 }
 
 model User {
+  approvedPenaltyHandoverExceptions PenaltyHandoverException[]
   pushDevices PushDevice[]
   inboxNotifications UserNotification[]
   sentNotifications NotificationMessage[] @relation("NotificationSender")
@@ -1929,6 +1931,7 @@ model User {
 }
 
 model Rider {
+  penaltyHandoverExceptions PenaltyHandoverException[]
   kycWorkflowExecutions   KycWorkflowExecution[]
   kycVerifications        KycVerification[]
   kycConsents             KycConsent[]
@@ -2416,6 +2419,7 @@ model RiderDepositRefundRequest {
 }
 
 model RiderInvoice {
+  penaltyNotificationQueuedAt DateTime?
   id                            String                             @id @default(uuid())
   clientId                      String
   client                        Client                             @relation(fields: [clientId], references: [id], onDelete: Restrict)
@@ -2461,6 +2465,7 @@ model RiderInvoice {
   @@index([clientId, riderId, invoiceType, billingPeriodStart, billingPeriodEnd])
   @@index([clientId, riderId, createdAt])
   @@index([clientId, status, dueDate])
+  @@index([invoiceType, penaltyNotificationQueuedAt, createdAt], map: "rider_invoice_penalty_notification_idx")
 }
 
 model RiderSettlementCreditApplication {
@@ -2826,6 +2831,7 @@ model ImportJob {
 }
 
 model Allocation {
+  penaltyHandoverExceptions PenaltyHandoverException[]
   commercialOfferId String?
   commercialOffer RiderCommercialOffer? @relation("AllocationOffer", fields: [clientId, commercialOfferId], references: [clientId, id], onDelete: Restrict)
   rentalAgreementId String?
@@ -2849,6 +2855,7 @@ model Allocation {
   updatedAt        DateTime                  @updatedAt
 
   @@unique([clientId, idempotencyKey])
+  @@unique([clientId, id])
   @@index([clientId, fleetId, status])
   @@index([clientId, riderId, status])
   @@index([clientId, commercialOfferId])
@@ -6063,4 +6070,25 @@ model FleetManagerHomeHistory {
 model FleetManagerHomeHistoryCoverage {
   id String @id @default("initial")
   availableFrom DateTime @db.Timestamptz(6)
+}
+
+
+model PenaltyHandoverException {
+  id String @id @default(uuid())
+  clientId String
+  client Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId String
+  rider Rider @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  allocationId String
+  allocation Allocation @relation(fields: [clientId, allocationId], references: [clientId, id], onDelete: Restrict)
+  approvedById String
+  approver User @relation(fields: [clientId, approvedById], references: [clientId, id], onDelete: Restrict)
+  reason String @db.VarChar(500)
+  debtDigest String @db.Char(64)
+  debtSnapshot Json
+  approvedAt DateTime @default(now())
+  usedAt DateTime?
+
+  @@unique([clientId, allocationId, debtDigest])
+  @@index([clientId, riderId, approvedAt])
 }

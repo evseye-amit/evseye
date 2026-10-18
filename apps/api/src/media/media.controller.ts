@@ -1,3 +1,4 @@
+import { FleetManagerActionGuard, FleetActionResource } from '../auth/guards/fleet-manager-action.guard.js';
 import {
   BadRequestException,
   Body,
@@ -24,7 +25,8 @@ import { UpsertPhotoRequirementDto } from './dto/upsert-photo-requirement.dto.js
 import { MediaService } from './media.service.js';
 
 @Controller('media')
-@UseGuards(AccessTokenGuard, RolesGuard)
+@UseGuards(AccessTokenGuard, RolesGuard, FleetManagerActionGuard)
+@FleetActionResource('media')
 export class MediaController {
   constructor(
     private readonly mediaService: MediaService,

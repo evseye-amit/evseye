@@ -1,3 +1,4 @@
+import { FleetManagerActionGuard } from './guards/fleet-manager-action.guard.js';
 import { ClientResolutionModule } from '../client-identity/client-resolution.module.js';
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -19,6 +20,7 @@ import type { Environment } from '../config/environment.js';
   imports: [JwtModule.register({}), ClientResolutionModule, WorkflowModule],
   controllers: [AuthController],
   providers: [
+    FleetManagerActionGuard,
     AuthService,
     SmsQuotaService,
     LoginFlowService,
@@ -43,6 +45,7 @@ import type { Environment } from '../config/environment.js';
     },
   ],
   exports: [
+    FleetManagerActionGuard,
     JwtModule,
     ClientResolutionModule,
     AuthService,
