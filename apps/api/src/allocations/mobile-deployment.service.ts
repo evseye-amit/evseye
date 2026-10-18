@@ -117,14 +117,14 @@ export class MobileDeploymentService {
     const hubIds = await this.fleetManagerHubIds(clientId, userId);
     if (!hubIds.length) return [];
     return this.prisma.fleet.findMany({
-      where: { clientId, currentHubId: { in: hubIds }, status: FleetStatus.AVAILABLE, onboardingStatus: 'ACTIVE', allocationEnabled: true, deletedAt: null },
+      where: { clientId, currentHubId: { in: hubIds }, status: FleetStatus.AVAILABLE, onboardingStatus: 'ACTIVE', allocationEnabled: true, deletedAt: null, allocations: { none: { status: { notIn: [AllocationStatus.COMPLETED, AllocationStatus.CANCELLED] } } } },
       select: { id: true, fleetCode: true, vehicleNumber: true, chassisNumber: true, currentHub: { select: { id: true, code: true, name: true } }, iotDevice: { select: { id: true, deviceNumber: true, lastHeartbeatAt: true } } },
       orderBy: { fleetCode: 'asc' },
     });
   }
   async allocateFleet(clientId: string, userId: string, riderId: string, fleetId: string) {
     const hubIds = await this.fleetManagerHubIds(clientId, userId);
-    const fleet = await this.prisma.fleet.findFirst({ where: { id: fleetId, clientId, currentHubId: { in: hubIds }, status: FleetStatus.AVAILABLE, onboardingStatus: 'ACTIVE', allocationEnabled: true, deletedAt: null }, select: { id: true } });
+    const fleet = await this.prisma.fleet.findFirst({ where: { id: fleetId, clientId, currentHubId: { in: hubIds }, status: FleetStatus.AVAILABLE, onboardingStatus: 'ACTIVE', allocationEnabled: true, deletedAt: null, allocations: { none: { status: { notIn: [AllocationStatus.COMPLETED, AllocationStatus.CANCELLED] } } } }, select: { id: true } });
     if (!fleet) throw new NotFoundException('An allocatable Fleet was not found in your assigned Hubs.');
     const rider = await this.prisma.rider.findFirst({ where: { id: riderId, clientId, status: RiderStatus.ACTIVE, deletedAt: null, allocations: { none: { status: { in: [AllocationStatus.INITIATED, AllocationStatus.INSPECTION_PENDING, AllocationStatus.OTP_PENDING, AllocationStatus.ACTIVE, AllocationStatus.DEALLOCATION_INITIATED] } } } }, select: { id: true } });
     if (!rider) throw new BadRequestException('This Rider is not awaiting Fleet allocation.');

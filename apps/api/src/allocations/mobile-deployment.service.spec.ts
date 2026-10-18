@@ -396,3 +396,38 @@ describe('deployment without IoT pairing', () => {
     });
   });
 });
+
+
+describe('MobileDeploymentService available fleet safety', () => {
+  function setup() {
+    const prisma = {
+      userHub: { findMany: vi.fn().mockResolvedValue([{ hubId: 'hub-1' }]) },
+      fleet: { findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn().mockResolvedValue(null) },
+    };
+    const allocations = { initiate: vi.fn() };
+    const service = new MobileDeploymentService(prisma as never, allocations as never, {} as never, {} as never, {} as never);
+    return { prisma, allocations, service };
+  }
+  it('excludes unfinished allocations even when fleet status is AVAILABLE', async () => {
+    const { prisma, service } = setup();
+    await service.eligibleFleets('client-1', 'manager-1');
+    expect(prisma.fleet.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
+      clientId: 'client-1', currentHubId: { in: ['hub-1'] }, status: 'AVAILABLE',
+      allocations: { none: { status: { notIn: ['COMPLETED', 'CANCELLED'] } } },
+    }) }));
+  });
+  it('returns an empty list without assigned hubs', async () => {
+    const { prisma, service } = setup();
+    prisma.userHub.findMany.mockResolvedValue([]);
+    await expect(service.eligibleFleets('client-1', 'manager-1')).resolves.toEqual([]);
+    expect(prisma.fleet.findMany).not.toHaveBeenCalled();
+  });
+  it('rejects direct allocation requests for unavailable scooters', async () => {
+    const { prisma, allocations, service } = setup();
+    await expect(service.allocateFleet('client-1', 'manager-1', 'rider-1', 'fleet-1')).rejects.toThrow('An allocatable Fleet was not found');
+    expect(prisma.fleet.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
+      allocations: { none: { status: { notIn: ['COMPLETED', 'CANCELLED'] } } },
+    }) }));
+    expect(allocations.initiate).not.toHaveBeenCalled();
+  });
+});
