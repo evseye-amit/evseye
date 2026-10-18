@@ -43,6 +43,7 @@ import { RideReturnsModule } from './ride-returns/ride-returns.module.js';
 import { SupportModule } from './support/support.module.js';
 import { AttendanceModule } from './attendance/attendance.module.js';
 import { BanksModule } from './banks/banks.module.js';
+import { WorkPartnersModule } from './work-partners/work-partners.module.js';
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { BanksModule } from './banks/banks.module.js';
     RidersModule,
     PlatformAdminModule,
     PlatformCatalogModule,
+    WorkPartnersModule,
     ClientOnboardingModule,
     ClientUsersModule,
     CommercialModule,

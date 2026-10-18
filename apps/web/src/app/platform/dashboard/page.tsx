@@ -33,6 +33,7 @@ import { ClientCommercialSettings, type ClientCommercialSection } from "../../co
 import { ClientWorkflowSettings } from "../../components/client-workflow-settings";
 import { ClientDomainSettings } from "../../components/client-domain-settings";
 import { ClientLogoUpload } from "../../components/client-logo-upload";
+import { WorkPartnerManager } from "../../components/work-partner-manager";
 import { LanguageSwitcher, useLocale } from "../../components/locale-provider";
 import { UiIcon, type IconName } from "../../components/ui-icon";
 import {
@@ -54,6 +55,7 @@ type Tab =
   | "legalDocuments"
   | "dashboard"
   | "clients"
+  | "workPartners"
   | "oems"
   | "vehicleCategories"
   | "vehicleTypes"
@@ -485,6 +487,7 @@ export default function SuperAdminDashboard() {
       : (sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? ""),
   );
   const [tab, setTab] = useState<Tab>("dashboard");
+  const [workPartnerRefreshKey, setWorkPartnerRefreshKey] = useState(0);
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get("tab") === "legalDocuments") {
       // Keep the previous Legal Templates URL usable inside the portal shell.
@@ -2136,6 +2139,7 @@ export default function SuperAdminDashboard() {
       label: "Client Management",
       items: [
         ["clients", "Client", "users"],
+        ["workPartners", "Work Partners", "link"],
       ],
     },
     {
@@ -2165,6 +2169,7 @@ export default function SuperAdminDashboard() {
     packageFeatures: "Choose the features included with each platform package.",
     packageTierPricing: "Set the per-vehicle recurring price for each fleet-size range.",
     clients: "Manage onboarding drafts, approvals, subscriptions, and documents.",
+    workPartners: "Manage shared work partners and copy them to clients.",
     clientPricingAdjustments: "Apply negotiated commercial terms without changing master pricing.",
     clientAddOnPurchases: "Assign eligible catalog Features and client-specific pricing without changing package masters.",
     clientCreditLots: "Review active and expired client feature credits by source and expiry.",
@@ -2392,7 +2397,7 @@ export default function SuperAdminDashboard() {
           </div>
           <div className="header-actions">
             <LanguageSwitcher />
-            <button className="secondary" onClick={() => void load()}>
+            <button className="secondary" onClick={() => tab === "workPartners" ? setWorkPartnerRefreshKey((key) => key + 1) : void load()}>
               ↻ {t("Refresh")}
             </button>
             <button
@@ -2467,6 +2472,7 @@ export default function SuperAdminDashboard() {
                 setApprovalEmailReference={setApprovalEmailReference}
               />
             )}
+            {tab === "workPartners" && <WorkPartnerManager key={workPartnerRefreshKey} mode="platform" request={request} token={token} clients={clients} />}
             {tab === "clientPricingAdjustments" && (
               <ClientCommercialDirectory clients={clients} section="pricing" />
             )}

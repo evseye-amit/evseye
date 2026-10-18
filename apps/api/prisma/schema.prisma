@@ -907,6 +907,7 @@ model Client {
   referralActivityEvents      ReferralActivityEvent[]
   referralNotifications       ReferralNotificationOutbox[]
   referralMilestoneProgress   ReferralMilestoneProgress[]
+  workPartners                ClientWorkPartner[]
   riderPaymentProfiles        RiderPaymentProfile[]
   riderCharges                RiderCharge[]
   riderCredits                RiderCredit[]
@@ -949,6 +950,38 @@ model Oem {
   fleets        Fleet[]
 
   @@index([status, displayName])
+}
+
+model WorkPartnerMaster {
+  id           String              @id @default(uuid())
+  code         String              @unique
+  name         String
+  legalName    String
+  status       MasterRecordStatus  @default(ACTIVE)
+  clientCopies ClientWorkPartner[]
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@index([status, name])
+}
+
+model ClientWorkPartner {
+  id                String                    @id @default(uuid())
+  clientId          String
+  client            Client                    @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  sourceMasterId    String?
+  sourceMaster      WorkPartnerMaster?        @relation(fields: [sourceMasterId], references: [id], onDelete: Restrict)
+  code              String
+  name              String
+  legalName         String
+  status            MasterRecordStatus        @default(ACTIVE)
+  mobileDeployments MobileDeploymentWorkflow[]
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  @@unique([clientId, id])
+  @@unique([clientId, code])
+  @@index([clientId, status, name])
 }
 
 model VehicleCategory {
@@ -2886,6 +2919,8 @@ model MobileDeploymentWorkflow {
   clientId                   String
   allocationId               String                 @unique
   allocation                 Allocation             @relation(fields: [allocationId], references: [id], onDelete: Cascade)
+  clientWorkPartnerId        String?
+  clientWorkPartner          ClientWorkPartner?    @relation(fields: [clientId, clientWorkPartnerId], references: [clientId, id], onDelete: Restrict)
   status                     MobileDeploymentStatus @default(RIDER_WAITING)
   paymentBreakdown           Json?
   paymentPaidAt              DateTime?

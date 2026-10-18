@@ -3,7 +3,7 @@ import { WalletService } from '../wallet/wallet.service.js';
 import { ConfigService } from '@nestjs/config';
 import { DeploymentCommercialService } from './deployment-commercial.service.js';
 import { pendingRiderIdsQuery } from '../fleet-manager-home/home-metrics.js';
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { AllocationStatus, ClientSubscriptionStatus, DeploymentPaymentStatus, FleetStatus, InspectionStatus, InspectionType, MobileDeploymentStatus, PhotoEntityType, PhotoStatus, Prisma, RiderStatus } from '@prisma/client';
 import { STORAGE_PROVIDER, type StorageProvider } from '../media/storage/storage-provider.interface.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -324,21 +324,48 @@ export class MobileDeploymentService {
     await this.assertFleetManagerHub(clientId, userId, allocationId);
     return this.allocationEvidence(clientId, allocationId);
   }
-  async submitPdi(clientId: string, userId: string, allocationId: string, workPartnerName: string, checklist: unknown) {
+  async submitPdi(clientId: string, userId: string, allocationId: string, workPartnerName: string | undefined, checklist: unknown, clientWorkPartnerId?: string) {
     await this.assertFleetManagerHub(clientId, userId, allocationId);
     const { workflow } = await this.workflow(clientId, allocationId);
     if (workflow.status !== MobileDeploymentStatus.PAYMENT_PAID) throw new BadRequestException('Payment is required before PDI.');
-    if (!workPartnerName.trim()) throw new BadRequestException('Work Partner name is required for PDI handover.');
     const evidence = await this.allocationEvidence(clientId, allocationId);
     if (evidence.missingPhotoTypes.length) throw new BadRequestException({ message: 'Allocation evidence is incomplete.', missing: evidence.missingPhotoTypes, inspectionId: evidence.inspection.id });
     return this.prisma.$transaction(async (tx) => {
+      const workPartner = await this.resolvePdiWorkPartner(tx, clientId, workPartnerName, clientWorkPartnerId);
       await tx.inspection.update({ where: { id: evidence.inspection.id }, data: { status: InspectionStatus.COMPLETED, completedBy: userId, completedAt: new Date(), checklist: checklist as never } });
       await tx.allocation.updateMany({
         where: { id: allocationId, clientId, status: AllocationStatus.INSPECTION_PENDING },
         data: { status: AllocationStatus.OTP_PENDING },
       });
-      return tx.mobileDeploymentWorkflow.update({ where: { id: workflow.id }, data: { status: MobileDeploymentStatus.PDI_PENDING_RIDER, workPartnerName: workPartnerName.trim(), pdiChecklist: checklist as never } });
+      return tx.mobileDeploymentWorkflow.update({ where: { id: workflow.id }, data: { status: MobileDeploymentStatus.PDI_PENDING_RIDER, clientWorkPartnerId: workPartner.id ?? null, workPartnerName: workPartner.name, pdiChecklist: checklist as never } });
     });
+  }
+
+  private async resolvePdiWorkPartner(
+    tx: Prisma.TransactionClient,
+    clientId: string,
+    workPartnerName: string | undefined,
+    clientWorkPartnerId: string | undefined,
+  ) {
+    if (clientWorkPartnerId) {
+      const partner = await tx.clientWorkPartner.findUnique({
+        where: { clientId_id: { clientId, id: clientWorkPartnerId } },
+      });
+      if (!partner || partner.clientId !== clientId) throw new NotFoundException('Work partner not found.');
+      if (partner.status !== 'ACTIVE') throw new ConflictException('Select an active work partner.');
+      return { id: partner.id, name: partner.name.trim() };
+    }
+
+    const name = workPartnerName?.trim() ?? '';
+    if (!name) throw new BadRequestException('Work Partner name is required for PDI handover.');
+
+    const partners = await tx.clientWorkPartner.findMany({ where: { clientId } });
+    if (!partners.length) return { id: undefined, name };
+
+    const matches = partners.filter((partner) => partner.name.trim().toLowerCase() === name.toLowerCase());
+    if (matches.length !== 1) throw new ConflictException('Work Partner name must match exactly one client work partner.');
+    if (matches[0].status !== 'ACTIVE') throw new ConflictException('Select an active work partner.');
+    return { id: matches[0].id, name: matches[0].name.trim() };
   }
   async createPdiVoiceUploadIntent(clientId: string, userId: string, allocationId: string, input: { itemCode: string; mimeType: 'audio/mpeg' | 'audio/mp4' | 'audio/wav' | 'audio/ogg'; fileName: string; sizeBytes: number }) {
     await this.assertRiderAllocation(clientId, userId, allocationId);
