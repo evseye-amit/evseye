@@ -11,6 +11,7 @@ import {
   PreLoginQuery,
 } from './pre-login.dto.js';
 import { PreLoginService } from './pre-login.service.js';
+import { languageCatalog } from '../common/language-catalog.js';
 
 @Controller('public/app')
 export class PublicPreLoginController {
@@ -18,6 +19,11 @@ export class PublicPreLoginController {
     private readonly service: PreLoginService,
     private readonly resolver: ClientResolverService,
   ) {}
+
+  @Get('languages')
+  languages() {
+    return { data: languageCatalog };
+  }
 
   @Get('bootstrap')
   @Header('Cache-Control', 'no-store')

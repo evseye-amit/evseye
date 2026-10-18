@@ -52,5 +52,6 @@ const labels: Record<string, [string, string, string]> = {
 export function riderCatalogLabel(featureCode: string, locale: ApiLocale): string | undefined {
   if (locale === 'en') return undefined;
   const row = labels[featureCode];
-  return row?.[{ hi: 0, te: 1, kn: 2 }[locale]];
+  const index = { hi: 0, te: 1, kn: 2 }[locale as 'hi' | 'te' | 'kn'];
+  return index === undefined ? undefined : row?.[index];
 }

@@ -19,45 +19,37 @@ describe('CatalogRevisionService', () => {
     expect(prisma.clientSubscription.update).not.toHaveBeenCalled();
   });
 
-  it('does not permit disabling mandatory consent in a client draft', async () => {
-    const prisma = {
-      clientSubscription: { findUnique: vi.fn().mockResolvedValue({
-        packageRevisionId: 'pkg-r1', packageRevision: { publishedAt: new Date(),
-          snapshot: { features: [{ featureId: 'terms', feature: { code: 'ACCEPT_APP_TERMS' } }] } },
-      }) },
-    };
-    await expect(new CatalogRevisionService(prisma as never).draftClientWorkflow('sub', {
-      overrides: [{ featureId: 'terms', enabled: false, configuration: {} }],
-    })).rejects.toThrow('cannot be disabled');
+  it('publishes a package without unconditional pre-login Features', async () => {
+    const revision = { id: 'pkg-r1', packageId: 'pkg', version: 1, snapshot: { features: [] } };
+    const prisma = { packageRevision: { findUnique: vi.fn().mockResolvedValue(revision),
+      findFirst: vi.fn().mockResolvedValue(null), update: vi.fn().mockResolvedValue(revision) } };
+    await expect(new CatalogRevisionService(prisma as never).publishPackage('pkg-r1')).resolves.toMatchObject({ id: 'pkg-r1' });
   });
-
-  it('publishes a package with consent and no language feature', async () => {
-    const revision = { id: 'pkg-r1', packageId: 'pkg', version: 1, publishedAt: null,
-      snapshot: { features: [{ feature: { code: 'ACCEPT_APP_TERMS',
-        configuration: { appCodes: ['RIDER', 'FLEET_MANAGER'] } } }] } };
-    const prisma = { packageRevision: {
-      findUnique: vi.fn().mockResolvedValue(revision),
-      findFirst: vi.fn().mockResolvedValue(null),
-      update: vi.fn().mockResolvedValue({ ...revision, publishedAt: new Date() }),
-    } };
-    await expect(new CatalogRevisionService(prisma as never).publishPackage('pkg-r1'))
-      .resolves.toMatchObject({ id: 'pkg-r1' });
-  });
-
-  it('keeps included language selection controlled by the package', async () => {
+  it('allows disabling an optional pre-login Feature in a client draft', async () => {
     const prisma = {
-      clientSubscription: { findUnique: vi.fn().mockResolvedValue({
-        packageRevisionId: 'pkg-r1', packageRevision: { publishedAt: new Date(),
-          snapshot: { features: [
-            { featureId: 'terms', feature: { code: 'ACCEPT_APP_TERMS' } },
-            { featureId: 'language', feature: { code: 'SELECT_APP_LANGUAGE' } },
-          ] } },
-      }) },
+      clientSubscription: { findUnique: vi.fn().mockResolvedValue({ packageRevisionId: 'pkg-r1',
+        packageRevision: { publishedAt: new Date(), snapshot: { features: [
+          { featureId: 'intro', feature: { code: 'SHOW_APP_INTRO' } } ] } } }) },
       clientWorkflowRevision: { findFirst: vi.fn().mockResolvedValue(null),
-        create: vi.fn().mockResolvedValue({ id: 'workflow-r1' }) },
+        create: vi.fn().mockResolvedValue({ id: 'draft' }) },
     };
     await expect(new CatalogRevisionService(prisma as never).draftClientWorkflow('sub', {
-      overrides: [{ featureId: 'language', enabled: false, configuration: {} }],
-    })).rejects.toThrow('controlled by the Package');
+      overrides: [{ featureId: 'intro', enabled: false, configuration: {} }],
+    })).resolves.toMatchObject({ id: 'draft' });
+  });
+  it('requires published privacy consent before publishing a workflow that enables it', async () => {
+    const prisma = {
+      clientWorkflowRevision: { findUnique: vi.fn().mockResolvedValue({ id: 'r', subscriptionId: 'sub', version: 1,
+        snapshot: { packageRevisionId: 'pkg-r1', overrides: [] } }), findFirst: vi.fn().mockResolvedValue(null), update: vi.fn() },
+      clientSubscription: { findUnique: vi.fn().mockResolvedValue({ clientId: 'client', packageRevisionId: 'pkg-r1' }) },
+      client: { findUniqueOrThrow: vi.fn().mockResolvedValue({ requestedLocales: ['en', 'hi'] }) },
+      packageRevision: { findUnique: vi.fn().mockResolvedValue({ snapshot: { features: [
+        { featureId: 'consent', feature: { code: 'ACCEPT_RIDER_PRIVACY_CONSENT', configuration: {
+          appCodes: ['RIDER'], kind: 'PRIVACY_CONSENT' } } },
+      ] } }) },
+      appLegalDocument: { findMany: vi.fn().mockResolvedValue([{ kind: 'PRIVACY_CONSENT', locale: 'en' }]) },
+    };
+    await expect(new CatalogRevisionService(prisma as never).publishClientWorkflow('r')).rejects.toThrow('hi PRIVACY_CONSENT');
+    expect(prisma.clientWorkflowRevision.update).not.toHaveBeenCalled();
   });
 });

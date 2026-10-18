@@ -21,6 +21,7 @@ import { VerifyOtpDto } from './dto/verify-otp.dto.js';
 import { AccessTokenGuard } from './guards/access-token.guard.js';
 import type { AuthUser } from './interfaces/auth-user.interface.js';
 import { LoginFlowService } from './login-flow.service.js';
+import { requestLocale } from '../common/locale.js';
 
 @Controller('auth')
 @ApiHeader({ name: 'Accept-Language', required: false, description: 'Response language: en-IN, hi-IN, te-IN, or kn-IN. Defaults to English.' })
@@ -39,7 +40,8 @@ export class AuthController {
     @Req() request: FastifyRequest,
   ) {
     const client = await this.clientsResolver.fromRequest(request);
-    return { data: await this.loginFlow.resolve(client?.companyCode ?? companyCode ?? '', appCode) };
+    return { data: await this.loginFlow.resolve(client?.companyCode ?? companyCode ?? '', appCode,
+      requestLocale(request.headers['accept-language'])) };
   }
 
   @Header('Cache-Control', 'no-store')

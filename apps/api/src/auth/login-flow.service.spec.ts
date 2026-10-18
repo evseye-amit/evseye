@@ -8,7 +8,7 @@ const component = (featureCode: string, stepCode: string, order: number, configu
 });
 
 function fixture() {
-  const prisma = { client: { findFirst: vi.fn().mockResolvedValue({ id: 'client-1' }) } };
+  const prisma = { client: { findFirst: vi.fn().mockResolvedValue({ id: 'client-1', requestedLocales: ['en', 'hi', 'mr'] }) } };
   const workflows = { resolve: vi.fn().mockResolvedValue({ version: 'a'.repeat(16), packageVersion: 2,
     components: [
       component('CAPTURE_MOBILE_NUMBER', 'LOGIN_IDENTIFIER', 10, { label: 'Rider mobile', placeholder: 'Enter mobile' }),
@@ -42,6 +42,20 @@ describe('LoginFlowService', () => {
       component('CAPTURE_LOGIN_OTP', 'LOGIN_VERIFICATION', 2),
     ] });
     await expect(service.resolve('yogmaya', 'RIDER_APP')).rejects.toThrow('No supported login method');
+  });
+
+  it('uses active localized login labels and falls back for drafts', async () => {
+    const { service, workflows } = fixture();
+    const resolved = await workflows.resolve();
+    resolved.components[0].configuration.translations = {
+      hi: { label: 'मोबाइल नंबर', placeholder: 'नंबर दर्ज करें', translationStatus: 'ACTIVE' },
+      mr: { label: 'मोबाइल क्रमांक', translationStatus: 'DRAFT' },
+    };
+    workflows.resolve.mockResolvedValue(resolved);
+    const hindi = await service.resolve('yogmaya', 'RIDER_APP', 'hi');
+    expect(hindi.steps[0].fields[0]).toMatchObject({ label: 'मोबाइल नंबर', placeholder: 'नंबर दर्ज करें' });
+    const marathi = await service.resolve('yogmaya', 'RIDER_APP', 'mr');
+    expect(marathi.steps[0].fields[0].label).toBe('Rider mobile');
   });
 
   it('keeps application roles separate', () => {

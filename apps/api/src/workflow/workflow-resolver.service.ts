@@ -64,8 +64,7 @@ export class WorkflowResolverService {
       const assignment = object(raw);
       const feature = object(assignment.feature);
       if (feature.category !== category || feature.isActive === false) continue;
-      const clientOverride = feature.code === 'SELECT_APP_LANGUAGE' ? undefined :
-        clientOverrides.get(String(assignment.featureId));
+      const clientOverride = clientOverrides.get(String(assignment.featureId));
       if (clientOverride?.enabled === false) continue;
       const step = object(feature.step);
       if (typeof step.code !== 'string') continue;
@@ -95,6 +94,51 @@ export class WorkflowResolverService {
           parentId: typeof step.parentId === 'string' ? step.parentId : null,
           parentCode: typeof step.parentCode === 'string' ? step.parentCode : null },
       });
+    }
+    // Workflow structure stays pinned; catalog copy can be reviewed and activated independently.
+    const featureIds = [...new Set(components.map((component) => component.featureId))];
+    if (featureIds.length) {
+      const localizedFeatures = await this.prisma.feature.findMany({
+        where: { id: { in: featureIds } },
+        select: { id: true, name: true, description: true, translations: true },
+      });
+      const currentCopy = new Map(localizedFeatures.map((feature) => [feature.id, feature]));
+      for (const component of components) {
+        const current = currentCopy.get(component.featureId);
+        if (!current) continue;
+        component.featureName = current.name;
+        component.description = current.description;
+        if (component.componentType === 'INTRO_CAROUSEL') continue;
+        const catalogTranslations = object(current.translations);
+        const configuredTranslations = object(component.configuration.translations);
+        component.configuration.translations = Object.fromEntries(
+          [...new Set([...Object.keys(catalogTranslations), ...Object.keys(configuredTranslations)])]
+            .map((locale) => {
+              const configured = object(configuredTranslations[locale]);
+              return [locale, {
+                ...object(catalogTranslations[locale]), ...configured,
+                ...(Object.keys(configured).length && !('translationStatus' in configured)
+                  ? { translationStatus: 'ACTIVE' } : {}),
+              }];
+            }),
+        );
+      }
+    }
+    // Platform step copy follows the current catalog as well.
+    const stepCodes = [...new Set(components.map((component) => component.step.code))];
+    if (stepCodes.length) {
+      const localizedSteps = await this.prisma.featureStep.findMany({
+        where: { code: { in: stepCodes } },
+        select: { code: true, displayName: true, description: true, translations: true },
+      });
+      const currentCopy = new Map(localizedSteps.map((step) => [step.code, step]));
+      for (const component of components) {
+        const current = currentCopy.get(component.step.code);
+        if (!current) continue;
+        component.step.name = current.displayName;
+        component.step.description = current.description;
+        component.step.translations = current.translations;
+      }
     }
     components.sort((a, b) => a.step.order - b.step.order || a.order - b.order);
     const version = createHash('sha256').update(JSON.stringify({ packageRevisionId: revision.id,

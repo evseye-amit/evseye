@@ -20,7 +20,8 @@ import { vehicleCategoryCatalog } from './catalog/vehicle-categories.mjs';
 import { vehicleTypeCatalog } from './catalog/vehicle-types.mjs';
 import { seedRiderRateCardDemo } from './catalog/rider-rate-card-demo.mjs';
 import { seedKyc } from './seed-kyc.mjs';
-import { seedLegal, seedLegalTemplates } from './catalog/legal-documents.mjs';
+import { seedLegalTemplates } from './catalog/legal-templates.mjs';
+import { seedLegal } from './client/yogmaya/yogmaya-legal-documents.mjs';
 import { seedInitialRevisions } from './catalog/seed-revisions.mjs';
 
 const prisma = new PrismaClient();
@@ -88,27 +89,12 @@ async function main() {
     });
   }
 
-  await prisma.oem.upsert({
-    where: { code: 'EVSEYE' },
-    create: {
-      code: 'EVSEYE',
-      name: 'EVs Eye Mobility Systems',
-      displayName: 'EVs Eye',
-      status: 'ACTIVE',
-      description: 'Platform sample OEM record.',
-    },
-    update: {
-      name: 'EVs Eye Mobility Systems',
-      displayName: 'EVs Eye',
-      status: 'ACTIVE',
-    },
-  });
-
   await Promise.all(
-    oemCatalog.map(async ({ logoSourceUrl: _logoSourceUrl, ...oem }) => {
-      const existing = await prisma.oem.findUnique({
+    oemCatalog.map(async (oem) => {
+      const saved = await prisma.oem.upsert({
         where: { code: oem.code },
-        select: { id: true, logoObjectKey: true },
+        create: oem,
+        update: oem,
       });
       const id = existing?.id ?? crypto.randomUUID();
       const logoObjectKey = await seedOemLogo(id, oem.code);
@@ -151,38 +137,35 @@ async function main() {
   );
 
   const featureSteps = new Map();
-  for (const step of featureStepSpecs.filter((item) => !item.parentCode)) {
-    const { parentCode: _parentCode, ...stepData } = step;
+  for (const step of [
+    ...featureStepSpecs.filter((item) => !item.parentCode),
+    ...featureStepSpecs.filter((item) => item.parentCode),
+  ]) {
+    const { code, parentCode, ...data } = step;
+    const parentId = parentCode ? featureSteps.get(parentCode)?.id : null;
+    if (parentCode && !parentId) {
+      throw new Error(`Missing parent Feature Step ${parentCode}`);
+    }
     const saved = await prisma.featureStep.upsert({
-      where: { code: step.code },
-      create: stepData,
-      update: { displayName: step.displayName, description: step.description,
-        translations: step.translations, displayOrder: step.displayOrder, isActive: true },
+      where: { code },
+      create: { code, ...data, parentId },
+      update: { ...data, parentId },
     });
-    featureSteps.set(step.code, saved);
-  }
-  for (const step of featureStepSpecs.filter((item) => item.parentCode)) {
-    const { parentCode, ...stepData } = step;
-    const saved = await prisma.featureStep.upsert({
-      where: { code: step.code },
-      create: { ...stepData, parentId: featureSteps.get(parentCode).id },
-      update: { displayName: step.displayName, parentId: featureSteps.get(parentCode).id,
-        translations: step.translations, displayOrder: step.displayOrder, isActive: true },
-    });
-    featureSteps.set(step.code, saved);
+    featureSteps.set(code, saved);
   }
   await Promise.all(
-    featureCatalog.map(({ featureStepCode, ...feature }) => {
+    featureCatalog.map(async ({ featureStepCode, ...feature }) => {
       const featureStep = featureSteps.get(featureStepCode);
       if (featureStepCode && !featureStep) {
         throw new Error(
           `Feature seed references missing Feature Step code: ${featureStepCode}`,
         );
       }
+      const existing = await prisma.feature.findUnique({ where: { code: feature.code }, select: { translations: true } });
       return prisma.feature.upsert({
         where: { code: feature.code },
         create: { ...feature, featureStepId: featureStep?.id ?? null },
-        update: { ...feature, featureStepId: featureStep?.id ?? null },
+        update: { ...feature, ...(existing?.translations ? { translations: existing.translations } : {}), featureStepId: featureStep?.id ?? null },
       });
     }),
   );

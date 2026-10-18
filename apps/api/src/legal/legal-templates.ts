@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma, type Client } from '@prisma/client';
-import { createHash } from 'node:crypto';
+import { consentAcceptance, legalHash } from './legal-acceptance.js';
 
 const placeholders = new Set(['CLIENT_LEGAL_NAME', 'CLIENT_NAME', 'CLIENT_CODE']);
 
@@ -24,6 +24,14 @@ export function renderLegalTemplate(value: string, client: Pick<Client, 'name' |
   return value.replace(/\{\{(CLIENT_LEGAL_NAME|CLIENT_NAME|CLIENT_CODE)\}\}/g, (_, key: string) => values[key]);
 }
 
+export function renderLegalAcceptance(value: unknown, kind: string, locale: string,
+  client: Pick<Client, 'name' | 'companyCode' | 'slug'>, legalName: string) {
+  const acceptance = consentAcceptance(kind, locale, value);
+  if (!acceptance) return undefined;
+  return Object.fromEntries(Object.entries(acceptance).map(([key, text]) =>
+    [key, renderLegalTemplate(text, client, legalName)]));
+}
+
 export async function copyLegalTemplatesToClient(
   tx: Prisma.TransactionClient,
   client: Pick<Client, 'id' | 'name' | 'companyCode' | 'slug'>,
@@ -36,11 +44,12 @@ export async function copyLegalTemplatesToClient(
     if (copied.has(key)) continue;
     copied.add(key);
     const content = renderLegalTemplate(template.content, client, legalName, true);
+    const acceptance = renderLegalAcceptance(template.acceptance, template.kind, template.locale, client, legalName);
     await tx.appLegalDocument.create({ data: {
       clientId: client.id, appCode: template.appCode, role: template.role,
       kind: template.kind, locale: template.locale, version: template.version,
       title: renderLegalTemplate(template.title, client, legalName), content,
-      contentHash: createHash('sha256').update(content, 'utf8').digest('hex'), effectiveAt: new Date(),
+      acceptance: acceptance ?? Prisma.DbNull, contentHash: legalHash(content, acceptance), effectiveAt: new Date(),
     } });
   }
 }

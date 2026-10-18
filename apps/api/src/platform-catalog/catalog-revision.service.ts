@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { isSupportedLanguage } from '../common/language-catalog.js';
 
 const json = (value: unknown): Prisma.InputJsonValue => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -100,19 +101,11 @@ export class CatalogRevisionService {
     if (revision.publishedAt) return revision;
     const snapshot = revision.snapshot as { features?: Array<{ feature?: { code?: string; configuration?: Record<string, unknown> }; configuration?: Record<string, unknown> }> };
     const features = snapshot.features ?? [];
-    const codes = new Set(features.map((item) => item.feature?.code));
-    if (!codes.has('ACCEPT_APP_TERMS'))
-      throw new BadRequestException('A Package must include the legal consent Feature.');
-    const mandatory = features.filter((item) => item.feature?.code === 'ACCEPT_APP_TERMS');
-    for (const item of mandatory) {
-      const configuration = { ...item.feature?.configuration, ...item.configuration };
-      if (configuration.enabled === false || !['RIDER', 'FLEET_MANAGER'].every((app) =>
-        Array.isArray(configuration.appCodes) && configuration.appCodes.includes(app)))
-        throw new BadRequestException('Legal consent must be available to both mobile apps.');
-    }
     const language = features.find((item) => item.feature?.code === 'SELECT_APP_LANGUAGE');
-    if (language && { ...language.feature?.configuration, ...language.configuration }.enabled === false)
-      throw new BadRequestException('Included language selection cannot be disabled.');
+    const locales = { ...language?.feature?.configuration, ...language?.configuration }.supportedLocales;
+    if (locales !== undefined && (!Array.isArray(locales) || locales.length === 0 ||
+        !locales.every(isSupportedLanguage) || new Set(locales).size !== locales.length))
+      throw new BadRequestException('Select distinct languages from the platform language catalog.');
     const newerPublished = await this.prisma.packageRevision.findFirst({
       where: { packageId: revision.packageId, version: { gt: revision.version }, publishedAt: { not: null } },
     });
@@ -173,12 +166,6 @@ export class CatalogRevisionService {
       if (typeof featureId !== 'string' || !included.has(featureId) || seen.has(featureId))
         throw new BadRequestException('Override must reference one included Feature exactly once.');
       seen.add(featureId);
-      const mandatory = included.get(featureId) === 'ACCEPT_APP_TERMS';
-      const packageControlled = included.get(featureId) === 'SELECT_APP_LANGUAGE';
-      if (item.enabled === false && mandatory)
-        throw new BadRequestException('Legal consent cannot be disabled.');
-      if (item.enabled === false && packageControlled)
-        throw new BadRequestException('Language selection is controlled by the Package.');
       const configuration = item.configuration ?? {};
       if (!configuration || typeof configuration !== 'object' || Array.isArray(configuration))
         throw new BadRequestException('Feature override configuration must be an object.');
@@ -186,12 +173,10 @@ export class CatalogRevisionService {
         throw new BadRequestException('Feature override configuration is too large.');
       if (Object.hasOwn(configuration, 'componentType'))
         throw new BadRequestException('Component type is set by the published Feature version.');
-      if (mandatory && ((configuration as Record<string, unknown>).enabled === false ||
-          Object.hasOwn(configuration, 'appCodes') || Object.hasOwn(configuration, 'loginAppCodes')))
-        throw new BadRequestException('Mandatory pre-login Features cannot be hidden from an app.');
-      if (packageControlled && ((configuration as Record<string, unknown>).enabled === false ||
-          Object.hasOwn(configuration, 'appCodes') || Object.hasOwn(configuration, 'loginAppCodes')))
-        throw new BadRequestException('Language selection is controlled by the Package.');
+      const locales = (configuration as Record<string, unknown>).supportedLocales;
+      if (locales !== undefined && (!Array.isArray(locales) || locales.length === 0 ||
+          !locales.every(isSupportedLanguage) || new Set(locales).size !== locales.length))
+        throw new BadRequestException('Select distinct languages from the platform language catalog.');
       return { featureId, enabled: item.enabled !== false, configuration };
     });
     const snapshot = { subscriptionId, packageRevisionId: subscription.packageRevisionId, overrides };
@@ -217,6 +202,47 @@ export class CatalogRevisionService {
       where: { subscriptionId: revision.subscriptionId, version: { gt: revision.version }, publishedAt: { not: null } },
     });
     if (newerPublished) throw new BadRequestException('A newer client workflow revision is already published.');
+    const packageRevision = await this.prisma.packageRevision.findUnique({ where: { id: subscription.packageRevisionId! } });
+    const packageFeatures = ((packageRevision?.snapshot as { features?: Array<{
+      featureId: string; feature: { code: string; configuration?: Record<string, unknown> };
+      configuration?: Record<string, unknown>;
+    }> })?.features ?? []);
+    const overrides = new Map((((revision.snapshot as { overrides?: Array<{
+      featureId: string; enabled?: boolean; configuration?: Record<string, unknown>;
+    }> }).overrides) ?? []).map((item) => [item.featureId, item]));
+    const featureConfig = (code: string, appCode: string) => {
+      const item = packageFeatures.find((part) => part.feature.code === code);
+      if (!item || overrides.get(item.featureId)?.enabled === false) return null;
+      const configuration = { ...item.feature.configuration, ...item.configuration,
+        ...overrides.get(item.featureId)?.configuration };
+      const apps = configuration.appCodes;
+      return configuration.enabled === false || (Array.isArray(apps) && !apps.includes(appCode))
+        ? null : configuration;
+    };
+    const client = await this.prisma.client.findUniqueOrThrow({ where: { id: subscription.clientId },
+      select: { requestedLocales: true } });
+    for (const [appCode, role] of [['RIDER', 'RIDER'], ['FLEET_MANAGER', 'FLEET_MANAGER']] as const) {
+      const language = featureConfig('SELECT_APP_LANGUAGE', appCode);
+      const consent = packageFeatures.some((part) =>
+        featureConfig(part.feature.code, appCode)?.kind === 'PRIVACY_CONSENT');
+      if (!consent) continue;
+      const locales = client.requestedLocales?.length ? client.requestedLocales : language?.supportedLocales ?? ['en'];
+      if (!Array.isArray(locales) || locales.length === 0 || !locales.every(isSupportedLanguage))
+        throw new BadRequestException(`${appCode}: select languages from the platform catalog.`);
+      const kinds = ['PRIVACY_CONSENT'];
+      const now = new Date();
+      const documents = await this.prisma.appLegalDocument.findMany({ where: {
+        appCode, role, kind: { in: kinds }, locale: { in: locales },
+        publishedAt: { not: null }, deletedAt: null, effectiveAt: { lte: now },
+        AND: [{ OR: [{ clientId: subscription.clientId }, { clientId: null }] },
+          { OR: [{ retiredAt: null }, { retiredAt: { gt: now } }] }],
+      }, select: { kind: true, locale: true } });
+      const available = new Set(documents.map((document) => `${document.kind}:${document.locale}`));
+      const missing = locales.flatMap((locale) => kinds.filter((kind) => !available.has(`${kind}:${locale}`))
+        .map((kind) => `${locale} ${kind}`));
+      if (missing.length)
+        throw new BadRequestException(`${appCode}: publish legal documents before enabling these languages: ${missing.join(', ')}.`);
+    }
     return this.prisma.clientWorkflowRevision.update({
       where: { id: revisionId }, data: { publishedAt: new Date() },
     });

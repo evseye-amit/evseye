@@ -93,7 +93,8 @@ const templates: Array<[RegExp, Languages]> = [
 
 export function localizeApiError(message: string, locale: ApiLocale): string {
   if (locale === 'en') return message;
-  const language = { hi: 0, te: 1, kn: 2 }[locale];
+  const language = { hi: 0, te: 1, kn: 2 }[locale as 'hi' | 'te' | 'kn'];
+  if (language === undefined) return message;
   return message.split('; ').map((part) => {
     const exact = messages[part];
     if (exact) return exact[language];

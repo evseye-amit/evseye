@@ -449,8 +449,8 @@ async function request(
 
     throw new Error(
       body.error?.message ??
-        body.message ??
-        "Request failed. Please try again.",
+      body.message ??
+      "Request failed. Please try again.",
     );
   }
   return body.data;
@@ -2393,7 +2393,7 @@ export default function Home() {
               <form onSubmit={sendOtp} className="auth-form">
                 {!hostClient && <label>
                   {t("Company code")} *
-                 <span className="auth-input">
+                  <span className="auth-input">
                     <UiIcon name="building" />
                     <input
                       value={companyCode}
@@ -2406,7 +2406,7 @@ export default function Home() {
                 </label>}
                 <label>
                   {t(loginField(loginFlow, "CAPTURE_MOBILE_NUMBER")?.label ?? "Mobile number")} *
-                 <span className="auth-input">
+                  <span className="auth-input">
                     <UiIcon name="phone" />
                     <input
                       value={phone}
@@ -2522,16 +2522,10 @@ export default function Home() {
         </nav>
         {userRoles.some((role) => role === "CLIENT_ADMIN" || role === "KYC_OPERATOR") &&
           <Link className="client-nav-utility" href="/client/kyc"><UiIcon name="shield" /> KYC &amp; Verification</Link>}
-        {userRoles.includes("CLIENT_ADMIN") && (
-          <button
-            type="button"
-            className={`client-nav-utility${tab === "legal-documents" ? " active" : ""}`}
-            onClick={() => navigateTo("legal-documents")}
-          >
-            <UiIcon name={CLIENT_TAB_ICONS["legal-documents"]} />
-            {t("Legal Documents")}
-          </button>
-        )}
+        {userRoles.includes("CLIENT_ADMIN") &&
+          <button type="button" className={`client-nav-utility${tab === "legal-documents" ? " active" : ""}`} onClick={() => navigateTo("legal-documents")}>
+            <UiIcon name={CLIENT_TAB_ICONS["legal-documents"]} /> {t("Legal Documents")}
+          </button>}
         <ClientBrandingSettings token={token} />
         <div className="sa-user client-sidebar-footer">
           <span aria-hidden="true">C</span>
@@ -3125,94 +3119,94 @@ export default function Home() {
           )}
         </>}
         {tab === "locations" && showHubForm && <ClientFormDialog title={editingHubId ? "Edit hub" : "Add hub"} busy={loading} error={error} wide onClose={() => setShowHubForm(false)}>
-                <p className="eyebrow">LOCATION SETUP</p>
-                <h2>{editingHubId ? "Edit hub" : "Create hub"}</h2>
-                <form className="form-stack" onSubmit={createHub}>
-                  <section className="form-section">
-                    <h3>Hub identity</h3>
-                    <div className="form-grid">
-                      <label>Hub name{" *"}<input required value={newHub.name} onChange={(event) => setNewHub((current) => ({ ...current, name: event.target.value }))} /></label>
-                      <label>Hub code{" *"}<input required pattern="[A-Z0-9_-]+" value={newHub.code} onChange={(event) => setNewHub((current) => ({ ...current, code: event.target.value.toUpperCase() }))} /></label>
-                      <label>Hub type<select value={newHub.type} onChange={(event) => setNewHub((current) => ({ ...current, type: event.target.value }))}><option value="OPERATIONS">Operations</option><option value="PARKING">Parking</option><option value="CHARGING">Charging</option><option value="BATTERY_SWAP">Battery swap</option><option value="MAINTENANCE">Maintenance</option><option value="WAREHOUSE">Warehouse</option><option value="DELIVERY">Delivery</option><option value="MIXED">Mixed</option></select></label>
-                      <label>Status<select value={newHub.status} onChange={(event) => setNewHub((current) => ({ ...current, status: event.target.value }))}><option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option><option value="TEMPORARILY_CLOSED">Temporarily closed</option><option value="UNDER_MAINTENANCE">Under maintenance</option><option value="FULL">Full</option></select></label>
-                      <label>Parent hub<select value={newHub.parentHubId} onChange={(event) => setNewHub((current) => ({ ...current, parentHubId: event.target.value }))}><option value="">No parent hub</option>{hubs.filter((hub) => String(hub.id) !== editingHubId).map((hub) => <option key={String(hub.id)} value={String(hub.id)}>{String(hub.code)} · {String(hub.name)}</option>)}</select></label>
-                    </div>
-                  </section>
-                  <section className="form-section">
-                    <h3>Location and address</h3>
-                    <div className="form-grid">
-                      <label className="form-grid-full">Address line 1<input value={newHub.addressLine1} onChange={(event) => setNewHub((current) => ({ ...current, addressLine1: event.target.value }))} /></label>
-                      <label>Address line 2<input value={newHub.addressLine2} onChange={(event) => setNewHub((current) => ({ ...current, addressLine2: event.target.value }))} /></label>
-                      <label>Landmark<input value={newHub.landmark} onChange={(event) => setNewHub((current) => ({ ...current, landmark: event.target.value }))} /></label>
-                      <label>City{" *"}<input required value={newHub.city} onChange={(event) => setNewHub((current) => ({ ...current, city: event.target.value }))} /></label>
-                      <label>District<input value={newHub.district} onChange={(event) => setNewHub((current) => ({ ...current, district: event.target.value }))} /></label>
-                      <label>State{" *"}<input required value={newHub.state} onChange={(event) => setNewHub((current) => ({ ...current, state: event.target.value }))} /></label>
-                      <label>Country<input value={newHub.country} onChange={(event) => setNewHub((current) => ({ ...current, country: event.target.value }))} /></label>
-                      <label>PIN / postal code<input value={newHub.postalCode} maxLength={10} onChange={(event) => setNewHub((current) => ({ ...current, postalCode: event.target.value }))} /></label>
-                      <label>Latitude<input type="number" step="any" value={newHub.latitude} onChange={(event) => setNewHub((current) => ({ ...current, latitude: event.target.value }))} /></label>
-                      <label>Longitude<input type="number" step="any" value={newHub.longitude} onChange={(event) => setNewHub((current) => ({ ...current, longitude: event.target.value }))} /></label>
-                    </div>
-                  </section>
-                  <section className="form-section">
-                    <h3>Capacity and facilities</h3>
-                    <div className="form-grid">
-                      <label>Vehicle capacity<input type="number" min="0" step="1" value={newHub.vehicleCapacity} onChange={(event) => setNewHub((current) => ({ ...current, vehicleCapacity: event.target.value }))} /></label>
-                      <label>Rider capacity<input type="number" min="0" step="1" value={newHub.riderCapacity} onChange={(event) => setNewHub((current) => ({ ...current, riderCapacity: event.target.value }))} /></label>
-                      <label>Battery capacity<input type="number" min="0" step="1" value={newHub.batteryCapacity} onChange={(event) => setNewHub((current) => ({ ...current, batteryCapacity: event.target.value }))} /></label>
-                      <label>Parking slots<input type="number" min="0" step="1" value={newHub.parkingSlots} onChange={(event) => setNewHub((current) => ({ ...current, parkingSlots: event.target.value }))} /></label>
-                      <label>Charging points<input type="number" min="0" step="1" value={newHub.chargingPoints} onChange={(event) => setNewHub((current) => ({ ...current, chargingPoints: event.target.value }))} /></label>
-                      <label>Battery swapping points<input type="number" min="0" step="1" value={newHub.swappingPoints} onChange={(event) => setNewHub((current) => ({ ...current, swappingPoints: event.target.value }))} /></label>
-                    </div>
-                  </section>
-                  <section className="form-section">
-                    <h3>Contact, hours, and services</h3>
-                    <div className="form-grid">
-                      <label>Contact name<input value={newHub.contactName} onChange={(event) => setNewHub((current) => ({ ...current, contactName: event.target.value }))} /></label>
-                      <label>Contact phone<input type="tel" value={newHub.contactPhone} onChange={(event) => setNewHub((current) => ({ ...current, contactPhone: event.target.value }))} placeholder="+919876543210" /></label>
-                      <label>Contact email<input type="email" value={newHub.contactEmail} onChange={(event) => setNewHub((current) => ({ ...current, contactEmail: event.target.value }))} /></label>
-                      <label>Opening time<input type="time" value={newHub.openingTime} onChange={(event) => setNewHub((current) => ({ ...current, openingTime: event.target.value }))} /></label>
-                      <label>Closing time<input type="time" value={newHub.closingTime} onChange={(event) => setNewHub((current) => ({ ...current, closingTime: event.target.value }))} /></label>
-                    </div>
-                    <div className="checkbox-grid">
-                      <label><input type="checkbox" checked={newHub.is24x7} onChange={(event) => setNewHub((current) => ({ ...current, is24x7: event.target.checked }))} /> Open 24×7</label>
-                      <label><input type="checkbox" checked={newHub.supportsCharging} onChange={(event) => setNewHub((current) => ({ ...current, supportsCharging: event.target.checked }))} /> Supports charging</label>
-                      <label><input type="checkbox" checked={newHub.supportsBatterySwapping} onChange={(event) => setNewHub((current) => ({ ...current, supportsBatterySwapping: event.target.checked }))} /> Supports battery swapping</label>
-                      <label><input type="checkbox" checked={newHub.supportsMaintenance} onChange={(event) => setNewHub((current) => ({ ...current, supportsMaintenance: event.target.checked }))} /> Supports maintenance</label>
-                      <label><input type="checkbox" checked={newHub.supportsAllocation} onChange={(event) => setNewHub((current) => ({ ...current, supportsAllocation: event.target.checked }))} /> Supports allocation</label>
-                      <label><input type="checkbox" checked={newHub.supportsDeallocation} onChange={(event) => setNewHub((current) => ({ ...current, supportsDeallocation: event.target.checked }))} /> Supports de-allocation</label>
-                      <label><input type="checkbox" checked={newHub.supportsPdi} onChange={(event) => setNewHub((current) => ({ ...current, supportsPdi: event.target.checked }))} /> Supports PDI</label>
-                    </div>
-                  </section>
-                  <div className="form-actions"><button>{editingHubId ? "Save hub" : "Create hub"}</button><button type="button" className="secondary" onClick={() => { setEditingHubId(""); setNewHub(emptyHubForm()); setShowHubForm(false); }}>Cancel</button></div>
-                </form>
+          <p className="eyebrow">LOCATION SETUP</p>
+          <h2>{editingHubId ? "Edit hub" : "Create hub"}</h2>
+          <form className="form-stack" onSubmit={createHub}>
+            <section className="form-section">
+              <h3>Hub identity</h3>
+              <div className="form-grid">
+                <label>Hub name{" *"}<input required value={newHub.name} onChange={(event) => setNewHub((current) => ({ ...current, name: event.target.value }))} /></label>
+                <label>Hub code{" *"}<input required pattern="[A-Z0-9_-]+" value={newHub.code} onChange={(event) => setNewHub((current) => ({ ...current, code: event.target.value.toUpperCase() }))} /></label>
+                <label>Hub type<select value={newHub.type} onChange={(event) => setNewHub((current) => ({ ...current, type: event.target.value }))}><option value="OPERATIONS">Operations</option><option value="PARKING">Parking</option><option value="CHARGING">Charging</option><option value="BATTERY_SWAP">Battery swap</option><option value="MAINTENANCE">Maintenance</option><option value="WAREHOUSE">Warehouse</option><option value="DELIVERY">Delivery</option><option value="MIXED">Mixed</option></select></label>
+                <label>Status<select value={newHub.status} onChange={(event) => setNewHub((current) => ({ ...current, status: event.target.value }))}><option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option><option value="TEMPORARILY_CLOSED">Temporarily closed</option><option value="UNDER_MAINTENANCE">Under maintenance</option><option value="FULL">Full</option></select></label>
+                <label>Parent hub<select value={newHub.parentHubId} onChange={(event) => setNewHub((current) => ({ ...current, parentHubId: event.target.value }))}><option value="">No parent hub</option>{hubs.filter((hub) => String(hub.id) !== editingHubId).map((hub) => <option key={String(hub.id)} value={String(hub.id)}>{String(hub.code)} · {String(hub.name)}</option>)}</select></label>
+              </div>
+            </section>
+            <section className="form-section">
+              <h3>Location and address</h3>
+              <div className="form-grid">
+                <label className="form-grid-full">Address line 1<input value={newHub.addressLine1} onChange={(event) => setNewHub((current) => ({ ...current, addressLine1: event.target.value }))} /></label>
+                <label>Address line 2<input value={newHub.addressLine2} onChange={(event) => setNewHub((current) => ({ ...current, addressLine2: event.target.value }))} /></label>
+                <label>Landmark<input value={newHub.landmark} onChange={(event) => setNewHub((current) => ({ ...current, landmark: event.target.value }))} /></label>
+                <label>City{" *"}<input required value={newHub.city} onChange={(event) => setNewHub((current) => ({ ...current, city: event.target.value }))} /></label>
+                <label>District<input value={newHub.district} onChange={(event) => setNewHub((current) => ({ ...current, district: event.target.value }))} /></label>
+                <label>State{" *"}<input required value={newHub.state} onChange={(event) => setNewHub((current) => ({ ...current, state: event.target.value }))} /></label>
+                <label>Country<input value={newHub.country} onChange={(event) => setNewHub((current) => ({ ...current, country: event.target.value }))} /></label>
+                <label>PIN / postal code<input value={newHub.postalCode} maxLength={10} onChange={(event) => setNewHub((current) => ({ ...current, postalCode: event.target.value }))} /></label>
+                <label>Latitude<input type="number" step="any" value={newHub.latitude} onChange={(event) => setNewHub((current) => ({ ...current, latitude: event.target.value }))} /></label>
+                <label>Longitude<input type="number" step="any" value={newHub.longitude} onChange={(event) => setNewHub((current) => ({ ...current, longitude: event.target.value }))} /></label>
+              </div>
+            </section>
+            <section className="form-section">
+              <h3>Capacity and facilities</h3>
+              <div className="form-grid">
+                <label>Vehicle capacity<input type="number" min="0" step="1" value={newHub.vehicleCapacity} onChange={(event) => setNewHub((current) => ({ ...current, vehicleCapacity: event.target.value }))} /></label>
+                <label>Rider capacity<input type="number" min="0" step="1" value={newHub.riderCapacity} onChange={(event) => setNewHub((current) => ({ ...current, riderCapacity: event.target.value }))} /></label>
+                <label>Battery capacity<input type="number" min="0" step="1" value={newHub.batteryCapacity} onChange={(event) => setNewHub((current) => ({ ...current, batteryCapacity: event.target.value }))} /></label>
+                <label>Parking slots<input type="number" min="0" step="1" value={newHub.parkingSlots} onChange={(event) => setNewHub((current) => ({ ...current, parkingSlots: event.target.value }))} /></label>
+                <label>Charging points<input type="number" min="0" step="1" value={newHub.chargingPoints} onChange={(event) => setNewHub((current) => ({ ...current, chargingPoints: event.target.value }))} /></label>
+                <label>Battery swapping points<input type="number" min="0" step="1" value={newHub.swappingPoints} onChange={(event) => setNewHub((current) => ({ ...current, swappingPoints: event.target.value }))} /></label>
+              </div>
+            </section>
+            <section className="form-section">
+              <h3>Contact, hours, and services</h3>
+              <div className="form-grid">
+                <label>Contact name<input value={newHub.contactName} onChange={(event) => setNewHub((current) => ({ ...current, contactName: event.target.value }))} /></label>
+                <label>Contact phone<input type="tel" value={newHub.contactPhone} onChange={(event) => setNewHub((current) => ({ ...current, contactPhone: event.target.value }))} placeholder="+919876543210" /></label>
+                <label>Contact email<input type="email" value={newHub.contactEmail} onChange={(event) => setNewHub((current) => ({ ...current, contactEmail: event.target.value }))} /></label>
+                <label>Opening time<input type="time" value={newHub.openingTime} onChange={(event) => setNewHub((current) => ({ ...current, openingTime: event.target.value }))} /></label>
+                <label>Closing time<input type="time" value={newHub.closingTime} onChange={(event) => setNewHub((current) => ({ ...current, closingTime: event.target.value }))} /></label>
+              </div>
+              <div className="checkbox-grid">
+                <label><input type="checkbox" checked={newHub.is24x7} onChange={(event) => setNewHub((current) => ({ ...current, is24x7: event.target.checked }))} /> Open 24×7</label>
+                <label><input type="checkbox" checked={newHub.supportsCharging} onChange={(event) => setNewHub((current) => ({ ...current, supportsCharging: event.target.checked }))} /> Supports charging</label>
+                <label><input type="checkbox" checked={newHub.supportsBatterySwapping} onChange={(event) => setNewHub((current) => ({ ...current, supportsBatterySwapping: event.target.checked }))} /> Supports battery swapping</label>
+                <label><input type="checkbox" checked={newHub.supportsMaintenance} onChange={(event) => setNewHub((current) => ({ ...current, supportsMaintenance: event.target.checked }))} /> Supports maintenance</label>
+                <label><input type="checkbox" checked={newHub.supportsAllocation} onChange={(event) => setNewHub((current) => ({ ...current, supportsAllocation: event.target.checked }))} /> Supports allocation</label>
+                <label><input type="checkbox" checked={newHub.supportsDeallocation} onChange={(event) => setNewHub((current) => ({ ...current, supportsDeallocation: event.target.checked }))} /> Supports de-allocation</label>
+                <label><input type="checkbox" checked={newHub.supportsPdi} onChange={(event) => setNewHub((current) => ({ ...current, supportsPdi: event.target.checked }))} /> Supports PDI</label>
+              </div>
+            </section>
+            <div className="form-actions"><button>{editingHubId ? "Save hub" : "Create hub"}</button><button type="button" className="secondary" onClick={() => { setEditingHubId(""); setNewHub(emptyHubForm()); setShowHubForm(false); }}>Cancel</button></div>
+          </form>
         </ClientFormDialog>}
         {tab === "evidence" && showPhotoTypeForm && <ClientFormDialog title="Add photo type" busy={loading} error={error} onClose={() => setShowPhotoTypeForm(false)}><h2>Add photo type</h2>
-              <form className="form-stack" onSubmit={addPhotoRequirement}>
-                <label>
-                  New photo type *
-                  <input
-                    value={newRequirementType}
-                    onChange={(event) =>
-                      setNewRequirementType(event.target.value.toUpperCase())
-                    }
-                    placeholder="e.g. DAMAGE_CLOSEUP"
-                    pattern="[A-Z0-9_-]{1,80}"
-                    maxLength={80}
-                    required
-                  />
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={newRequirementRequired}
-                    onChange={(event) =>
-                      setNewRequirementRequired(event.target.checked)
-                    }
-                  />{" "}
-                  Required for completion
-                </label>
-                <div className="form-actions"><button disabled={loading}>Add photo type</button><button type="button" className="secondary" onClick={() => setShowPhotoTypeForm(false)}>Cancel</button></div>
-              </form></ClientFormDialog>}
+          <form className="form-stack" onSubmit={addPhotoRequirement}>
+            <label>
+              New photo type *
+              <input
+                value={newRequirementType}
+                onChange={(event) =>
+                  setNewRequirementType(event.target.value.toUpperCase())
+                }
+                placeholder="e.g. DAMAGE_CLOSEUP"
+                pattern="[A-Z0-9_-]{1,80}"
+                maxLength={80}
+                required
+              />
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={newRequirementRequired}
+                onChange={(event) =>
+                  setNewRequirementRequired(event.target.checked)
+                }
+              />{" "}
+              Required for completion
+            </label>
+            <div className="form-actions"><button disabled={loading}>Add photo type</button><button type="button" className="secondary" onClick={() => setShowPhotoTypeForm(false)}>Cancel</button></div>
+          </form></ClientFormDialog>}
         {fleetDetail && showDetailIotForm && <ClientFormDialog title="Register IoT device" busy={loading} error={error} onClose={() => setShowDetailIotForm(false)}><h2>Register IoT device</h2><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void registerIotDevice(String(fleetDetail.id)); }}><label>Device number *<input required value={iotDeviceNumber} onChange={(event) => setIotDeviceNumber(event.target.value)} /></label><div className="form-actions"><button disabled={loading}>Register device</button><button type="button" className="secondary" onClick={() => setShowDetailIotForm(false)}>Cancel</button></div></form></ClientFormDialog>}
         {componentForm && <ClientFormDialog title={`${editingComponentId ? "Edit" : "Add"} ${componentForm === "batteries" ? "battery" : "controller"}`} busy={loading} error={error} onClose={() => setComponentForm(null)}><h2>{editingComponentId ? "Edit" : "Add"} {componentForm === "batteries" ? "battery" : "controller"}</h2><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void saveComponent(componentFleetId, componentForm); }}><label>Fleet (optional)<select disabled={Boolean(editingComponentId)} value={componentFleetId} onChange={(event) => setComponentFleetId(event.target.value)}><option value="">Leave unassigned</option>{iotFleetOptions.map((fleet) => <option key={String(fleet.id)} value={String(fleet.id)}>{String(fleet.fleetCode ?? fleet.vehicleNumber ?? fleet.chassisNumber)}</option>)}</select></label><label>{componentForm === "batteries" ? "Battery serial number" : "Controller number"} *<input required value={componentSerial} onChange={(event) => setComponentSerial(event.target.value)} /></label><div className="form-grid"><label>Manufacturer<input value={componentDetails.manufacturer} onChange={(event) => setComponentDetails((current) => ({ ...current, manufacturer: event.target.value }))} /></label><label>Model<input value={componentDetails.model} onChange={(event) => setComponentDetails((current) => ({ ...current, model: event.target.value }))} /></label>{componentForm === "batteries" ? <><label>Battery code<input value={componentDetails.batteryCode} onChange={(event) => setComponentDetails((current) => ({ ...current, batteryCode: event.target.value }))} /></label><label>Battery type<select value={componentDetails.batteryType} onChange={(event) => setComponentDetails((current) => ({ ...current, batteryType: event.target.value }))}><option value="FIXED_SINGLE">Fixed single</option><option value="FIXED_DOUBLE">Fixed double</option><option value="SWAP_IF">Swap IF</option><option value="SWAP_BS">Swap BS</option><option value="SWAP_MOVING">Swap moving</option><option value="SWAP_OTHER">Swap other</option></select></label><label>Battery slot<select value={componentDetails.batterySlot} onChange={(event) => setComponentDetails((current) => ({ ...current, batterySlot: event.target.value }))}><option value="PRIMARY">Primary</option><option value="SECONDARY">Secondary</option></select></label><label>Chemistry<input value={componentDetails.chemistry} onChange={(event) => setComponentDetails((current) => ({ ...current, chemistry: event.target.value }))} placeholder="LFP, NMC, LTO…" /></label><label>Capacity (kWh)<input type="number" min="0" step="0.001" value={componentDetails.capacityKwh} onChange={(event) => setComponentDetails((current) => ({ ...current, capacityKwh: event.target.value }))} /></label><label>Voltage<input type="number" min="0" step="0.01" value={componentDetails.voltage} onChange={(event) => setComponentDetails((current) => ({ ...current, voltage: event.target.value }))} /></label><label>Amp hour<input type="number" min="0" step="0.01" value={componentDetails.ampHour} onChange={(event) => setComponentDetails((current) => ({ ...current, ampHour: event.target.value }))} /></label><label>Installed odometer (km)<input type="number" min="0" step="0.01" value={componentDetails.installedOdometerKm} onChange={(event) => setComponentDetails((current) => ({ ...current, installedOdometerKm: event.target.value }))} /></label><label>Manufacturing date<input type="date" value={componentDetails.manufacturingDate} onChange={(event) => setComponentDetails((current) => ({ ...current, manufacturingDate: event.target.value }))} /></label><label>Warranty start date<input type="date" value={componentDetails.warrantyStartDate} onChange={(event) => setComponentDetails((current) => ({ ...current, warrantyStartDate: event.target.value }))} /></label><label>Warranty end date<input type="date" value={componentDetails.warrantyEndDate} onChange={(event) => setComponentDetails((current) => ({ ...current, warrantyEndDate: event.target.value }))} /></label></> : <><label>Rated voltage<input type="number" min="0" step="0.01" value={componentDetails.ratedVoltage} onChange={(event) => setComponentDetails((current) => ({ ...current, ratedVoltage: event.target.value }))} /></label><label>Rated current<input type="number" min="0" step="0.01" value={componentDetails.ratedCurrent} onChange={(event) => setComponentDetails((current) => ({ ...current, ratedCurrent: event.target.value }))} /></label></>}</div><div className="form-actions"><button disabled={loading || !componentSerial.trim()}>{editingComponentId ? "Save" : "Add"} {componentForm === "batteries" ? "battery" : "controller"}</button><button type="button" className="secondary" onClick={() => setComponentForm(null)}>Cancel</button></div></form></ClientFormDialog>}
         {rejectingDocument && <ClientFormDialog title="Reject rider document" busy={Boolean(reviewBusyId)} error={error} onClose={() => setRejectingDocument(null)}><form className="form-stack" onSubmit={rejectRiderDocument}><p className="muted">Provide a clear reason so the Rider knows what to correct before uploading a replacement.</p><label>Rejection reason *<textarea required minLength={3} maxLength={1000} value={documentRejectionReason} onChange={(event) => setDocumentRejectionReason(event.target.value)} placeholder="For example, document is blurred or does not match the submitted details." /></label><div className="form-actions"><button className="danger" disabled={Boolean(reviewBusyId) || !documentRejectionReason.trim()}>{reviewBusyId ? "Rejecting…" : "Reject document"}</button><button type="button" className="secondary" disabled={Boolean(reviewBusyId)} onClick={() => setRejectingDocument(null)}>Cancel</button></div></form></ClientFormDialog>}
