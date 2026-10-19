@@ -87,6 +87,51 @@ describe('Yogmaya legal seed', () => {
     expect([...rows.values()].every(row => row.retiredAt === null && row.deletedAt === null)).toBe(true);
   });
 
+  it('creates Rider English terms v1.0.1 without overwriting the published v1.0.0 row', async () => {
+    const { legalDocumentCatalog, seedLegal } = await import('../../prisma/client/yogmaya/yogmaya-legal-documents.mjs') as unknown as {
+      legalDocumentCatalog: LegalSeedDocument[];
+      seedLegal: (prisma: unknown) => Promise<void>;
+    };
+    const seedDocument = legalDocumentCatalog.find(document => document.appCode === 'RIDER' &&
+      document.role === 'RIDER' && document.kind === 'TERMS_AND_CONDITIONS' && document.locale === 'en')!;
+    expect(seedDocument.version).toBe('1.0.1');
+    const legacy = {
+      id: 'published-v1', clientId: 'client-yogmaya', appCode: 'RIDER', role: 'RIDER',
+      kind: 'TERMS_AND_CONDITIONS', locale: 'en', version: '1.0.0',
+      content: '<p>Stage v1.0.0</p>', contentHash: 'legacy-hash', acceptance: null,
+      publishedAt: new Date('2026-10-17T00:00:01.000Z'),
+    };
+    const legacySnapshot = { ...legacy };
+    const creates: Array<Record<string, unknown>> = [];
+    const findFirst = vi.fn().mockImplementation(async ({ where }: { where: { appCode: string; role: string; kind: string; locale: string; version: string } }) =>
+      where.appCode === 'RIDER' && where.role === 'RIDER' && where.kind === 'TERMS_AND_CONDITIONS' &&
+      where.locale === 'en' && where.version === '1.0.0' ? legacy : null);
+    const prisma = {
+      client: { findFirst: vi.fn().mockResolvedValue({ id: 'client-yogmaya' }) },
+      appLegalDocument: {
+        findFirst,
+        create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+          creates.push(data);
+          return data;
+        }),
+        update: vi.fn(),
+      },
+    };
+
+    await seedLegal(prisma);
+
+    expect(legacy).toEqual(legacySnapshot);
+    expect(findFirst.mock.calls.some(([{ where }]) => where.appCode === 'RIDER' && where.role === 'RIDER' &&
+      where.kind === 'TERMS_AND_CONDITIONS' && where.locale === 'en' && where.version === '1.0.0')).toBe(false);
+    expect(creates).toHaveLength(65);
+    const created = creates.find(document => document.appCode === 'RIDER' && document.role === 'RIDER' &&
+      document.kind === 'TERMS_AND_CONDITIONS' && document.locale === 'en')!;
+    expect(created).toMatchObject({
+      version: '1.0.1', content: seedDocument.content, contentHash: seedDocument.contentHash,
+      publishedAt: expect.any(Date), retiredAt: null, deletedAt: null,
+    });
+  });
+
   it('rejects a published row whose content differs even when its hash matches', async () => {
     const { legalDocumentCatalog, seedLegal } = await import('../../prisma/client/yogmaya/yogmaya-legal-documents.mjs') as unknown as {
       legalDocumentCatalog: LegalSeedDocument[];
