@@ -4762,3 +4762,12 @@ body:has(.sa-dialog[open]) {
 .operations-records > .client-data-table .status { white-space: nowrap; overflow-wrap: normal; }
 .operations-record-filters :is(input, select) { min-height: 40px; padding: 8px 10px; border: 1px solid #d7e1d9; border-radius: 7px; background: #fff; color: #263a2e; font: inherit; }
 .operations-record-filters :is(input, select):focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+
+.readiness-workspace .staff-operator-selector { display: grid; gap: 6px; max-width: 520px; margin: 16px 0; color: var(--muted); font-size: 13px; font-weight: 600; }
+.readiness-workspace .staff-operator-selector select { min-height: 40px; padding: 8px 10px; border: 1px solid #d7e1d9; border-radius: 7px; background: #fff; color: #263a2e; font: inherit; }
+.readiness-staff-directory .sa-table-wrap table { min-width: 800px; }
+.readiness-staff-directory .sa-table-wrap :is(th, td):not(.sa-table-action-cell) { min-width: 120px; overflow-wrap: normal; word-break: normal; }
+.readiness-staff-hub { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 16px; padding: 18px; margin: 12px 0; border: 1px solid var(--line); border-radius: 10px; background: #fff; min-width: 0; }
+.readiness-staff-hub > strong { grid-column: 1 / -1; }
+.readiness-staff-stage { display: grid; align-content: start; gap: 10px; min-width: 0; }
+.readiness-staff-hub label { min-width: 0; overflow-wrap: anywhere; }

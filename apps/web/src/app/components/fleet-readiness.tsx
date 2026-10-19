@@ -162,8 +162,13 @@ export function FleetReadiness({
   view, refreshKey = 0,
 }: {
   refreshKey?: number;
-  view: "preparation" | "qc" | "settings" | "staff";
+  view: "preparation" | "qc" | "settings" | "advisors" | "qc-managers";
 }) {
+  const staffView = view === "advisors" || view === "qc-managers";
+  const staffRole = view === "qc-managers" ? "QC_MANAGER" : "ADVISOR";
+  const staffTitle = view === "qc-managers" ? "QC Manager" : "Advisors";
+  const staffLabel = (role: string) => ["ADVISOR", "RFD_MANAGER"].includes(role) ? "Advisor" : role === "QC_MANAGER" ? "QC Manager" : label(role);
+  const [showCreateStaff, setShowCreateStaff] = useState(false);
   const [context, setContext] = useState<Context | null>(null),
     [policy, setPolicy] = useState<Policy | null>(null);
   const [rows, setRows] = useState<Row[]>([]),
@@ -202,7 +207,6 @@ export function FleetReadiness({
   const [newStaff, setNewStaff] = useState({
       name: "",
       mobile: "",
-      role: "RFD_MANAGER",
     }),
     [policyReason, setPolicyReason] = useState(""),
     [impact, setImpact] = useState<Record<string, unknown> | null>(null),
@@ -232,7 +236,7 @@ export function FleetReadiness({
     };
   }, [view, refreshKey]);
   useEffect(() => {
-    if (view !== "staff") return;
+    if (!staffView || !policy || policy.operatingMode === "SIMPLE") return;
     let active = true;
     void Promise.resolve().then(() => { if (active) { setStaffLoading(true); setError(""); } return api<NonNullable<typeof staff>>("fleet-readiness/staff"); })
       .then((s) => {
@@ -244,7 +248,7 @@ export function FleetReadiness({
     return () => {
       active = false;
     };
-  }, [view, epoch, refreshKey]);
+  }, [staffView, policy, epoch, refreshKey]);
   useEffect(() => {
     if (!["preparation", "qc"].includes(view)) return;
     let active = true;
@@ -420,6 +424,19 @@ export function FleetReadiness({
       setImpact(null);
     }
   };
+  const staffUsers = staff?.users.filter((user) => view === "advisors" ? ["ADVISOR", "RFD_MANAGER"].includes(user.role) : user.role === "QC_MANAGER") ?? [];
+  const selectStaff = (id: string) => requestNavigation(() => {
+    setSelectedUser(id);
+    setGrants(staff?.hubs.map((h) => staff.assignments.find((a) => a.userId === id && a.hubId === h.id) ?? {
+      hubId: h.id, userId: id, canPrepare: false, canReview: false, stageCodes: [], reviewStageCodes: [],
+    }) ?? []);
+  });
+  if (staffView && policy?.operatingMode === "SIMPLE") return <section className="package-not-included-card">
+    <p className="eyebrow">TEAM MANAGEMENT</p>
+    <h2>Dedicated {staffTitle === "Advisors" ? "Advisors" : "QC Managers"} are not available in your package</h2>
+    <p>In Simple mode, Client Admins and Fleet Managers perform these responsibilities.</p>
+    <p className="muted">Allocation and submission photos remain mandatory.</p>
+  </section>;
   return (
     <UnsavedChangesScope formsOnly resetKey={policy?.version}><section className="action-card readiness-workspace">
       {error && (
@@ -796,40 +813,34 @@ export function FleetReadiness({
           )}
         </form>
       )}
-      {view === "staff" && staff && context?.canManage && (
+      {staffView && staff && context?.canManage && (
         <>
-          <h3>Installation, preparation & QC staff</h3>
+          <div className="client-page-head">{context.isAdmin && <div className="sa-actions"><button type="button" onClick={() => requestNavigation(() => { setSelectedUser(""); setGrants([]); setShowCreateStaff(true); })}>+ Add {staffRole === "ADVISOR" ? "Advisor" : "QC Manager"}</button></div>}</div>
+          <div className="readiness-staff-directory"><ClientDataTable stateKey={`readiness-staff:${context.userId}:${view}`} loading={staffLoading} rows={staffUsers} getRowId={(user) => user.id}
+            columns={[
+              { key: "name", label: "Name", value: (user) => user.name },
+              { key: "mobile", label: "Mobile", value: (user) => user.mobile },
+              { key: "role", label: "Role", value: (user) => staffLabel(user.role) },
+              { key: "status", label: "Status", value: (user) => user.isActive ? "Active" : "Inactive" },
+              { key: "hubs", label: "Assigned hubs", value: (user) => staff.assignments.filter((a) => a.userId === user.id).map((a) => staff.hubs.find((h) => h.id === a.hubId)?.name ?? a.hubId).join(", ") || "Unassigned" },
+            ]} actions={(user) => <button type="button" className="secondary table-action" disabled={!user.isActive || busy} onClick={() => selectStaff(user.id)}>{context.isAdmin ? "Manage permissions" : "View permissions"}</button>}
+            emptyMessage={`No ${staffTitle === "Advisors" ? "advisors" : "QC managers"} have been created.`} /></div>
+          <h3>Hub and stage permissions</h3>
           <p>
             Permissions apply only to the selected hubs. Staff may have both
             responsibilities; independent QC still prevents reviewing their own
             work.
           </p>
-          <label>
-            Staff member
+          <label className="staff-operator-selector">
+            Staff member or existing operator
             <select
               value={selectedUser}
-              onChange={(e) => {
-                const id = e.target.value;
-                requestNavigation(() => { setSelectedUser(id);
-                setGrants(
-                  staff.hubs.map(
-                    (h) =>
-                      staff.assignments.find(
-                        (a) => a.userId === id && a.hubId === h.id,
-                      ) ?? {
-                        hubId: h.id,
-                        userId: id,
-                        canPrepare: false,
-                        canReview: false,
-                      },
-                  ),
-                ); });
-              }}
+              onChange={(e) => selectStaff(e.target.value)}
             >
               <option value="">Select staff</option>
               {staff.users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name} · {label(u.role)}
+                <option key={u.id} value={u.id} disabled={!u.isActive}>
+                  {u.name} · {staffLabel(u.role)}
                   {!u.isActive ? " (inactive)" : ""}
                 </option>
               ))}
@@ -837,12 +848,12 @@ export function FleetReadiness({
           </label>
           {selectedUser &&
             grants.map((g) => (
-              <div data-unsaved-fields key={g.hubId} className="form-actions">
+              <div data-unsaved-fields key={g.hubId} className="readiness-staff-hub">
                 <strong>
                   {staff.hubs.find((h) => h.id === g.hubId)?.name}
                 </strong>
                 {policy?.configuration.stages?.map((stage) => (
-                  <div key={stage.code}>
+                  <div key={stage.code} className="readiness-staff-stage">
                     <strong>{stage.name}</strong>
                     {(["stageCodes", "reviewStageCodes"] as const).map(
                       (key) => (
@@ -929,13 +940,15 @@ export function FleetReadiness({
               Save permissions
             </button>
           )}
-          {context.isAdmin && (
-            <form
+          {context.isAdmin && showCreateStaff && (
+            <ClientFormDialog title={`Add ${staffRole === "ADVISOR" ? "Advisor" : "QC Manager"}`} busy={busy} error={error} onClose={() => { setShowCreateStaff(false); setNewStaff({ name: "", mobile: "" }); setError(""); }}>
+            <form className="form-stack"
               onSubmit={(e) => {
                 e.preventDefault();
                 void run(async () => {
-                  await api("fleet-readiness/staff", "POST", newStaff);
-                  setNewStaff({ name: "", mobile: "", role: "RFD_MANAGER" });
+                  await api("fleet-readiness/staff", "POST", { ...newStaff, role: staffRole });
+                  setNewStaff({ name: "", mobile: "" });
+                  setShowCreateStaff(false);
                   markFormsSaved();
                   setEpoch((n) => n + 1);
                   setNotice(
@@ -944,7 +957,7 @@ export function FleetReadiness({
                 });
               }}
             >
-              <h3>Create staff account</h3>
+              <p>Role: <strong>{staffRole === "ADVISOR" ? "Advisor" : "QC Manager"}</strong></p>
               <label>
                 Name
                 <input
@@ -966,20 +979,9 @@ export function FleetReadiness({
                   }
                 />
               </label>
-              <label>
-                Role
-                <select
-                  value={newStaff.role}
-                  onChange={(e) =>
-                    setNewStaff({ ...newStaff, role: e.target.value })
-                  }
-                >
-                  <option value="RFD_MANAGER">Installation / RFD staff</option>
-                  <option value="QC_MANAGER">QC Manager</option>
-                </select>
-              </label>
-              <button disabled={busy}>Create staff</button>
+              <div className="form-actions"><button disabled={busy}>Create {staffRole === "ADVISOR" ? "Advisor" : "QC Manager"}</button><button type="button" className="secondary" disabled={busy} onClick={() => { setShowCreateStaff(false); setNewStaff({ name: "", mobile: "" }); }}>Cancel</button></div>
             </form>
+            </ClientFormDialog>
           )}
         </>
       )}
@@ -1194,7 +1196,7 @@ export function FleetReadiness({
             editableStatuses.includes(detail.status) && (
               <div className="form-actions">
                 <label>
-                  RFD staff
+                  Advisor
                   <select
                     value={assignee}
                     onChange={(e) => setAssignee(e.target.value)}
@@ -1219,7 +1221,7 @@ export function FleetReadiness({
                     })
                   }
                 >
-                  Assign RFD staff
+                  Assign Advisor
                 </button>
               </div>
             )}

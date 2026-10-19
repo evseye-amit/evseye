@@ -48,7 +48,7 @@ const loginField = (flow: LoginFlow | null, featureCode: string) => flow?.steps.
 type Tab =
   | "payment-transactions"
   | "spares-penalties"
-  | "installation-board" | "vehicle-preparation" | "quality-check" | "readiness-settings" | "readiness-staff"
+  | "installation-board" | "vehicle-preparation" | "quality-check" | "readiness-settings" | "advisors" | "qc-managers"
   | "dashboard"
   | "legal-documents"
   | "refer-and-earn"
@@ -140,10 +140,11 @@ const CLIENT_NAVIGATION: Array<{
   {
     label: "Team Management",
     items: [
-      { id: "readiness-staff", label: "Installation, Preparation & QC Staff" },
       { id: "fleet-managers", label: "Fleet Manager" },
       { id: "team-leads", label: "Team Lead" },
       { id: "cluster-managers", label: "Cluster Manager" },
+      { id: "advisors", label: "Advisors" },
+      { id: "qc-managers", label: "QC Manager" },
     ],
   },
   {
@@ -209,7 +210,7 @@ const CLIENT_TAB_TITLES: Record<Tab, string> = {
   "payment-transactions": "Payment Transactions",
   "spares-penalties": "Spares & Penalties",
   "installation-board": "Installation Board",
-  "vehicle-preparation": "Vehicle Preparation", "quality-check": "Quality Check", "readiness-settings": "Fleet Readiness Settings", "readiness-staff": "Installation, Preparation & QC Staff",
+  "vehicle-preparation": "Vehicle Preparation", "quality-check": "Quality Check", "readiness-settings": "Fleet Readiness Settings", "advisors": "Advisors", "qc-managers": "QC Manager",
   dashboard: "Dashboard",
   "legal-documents": "Legal Documents",
   "refer-and-earn": "Refer & Earn",
@@ -249,7 +250,7 @@ const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
   "payment-transactions": "pricing",
   "spares-penalties": "factory",
   "installation-board": "vehicle",
-  "vehicle-preparation": "vehicle", "quality-check": "shield", "readiness-settings": "factory", "readiness-staff": "user",
+  "vehicle-preparation": "vehicle", "quality-check": "shield", "readiness-settings": "factory", "advisors": "user", "qc-managers": "shield",
   dashboard: "dashboard",
   "legal-documents": "audit",
   "refer-and-earn": "earnings",
@@ -288,7 +289,7 @@ const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
 const ACTIVE_CLIENT_TABS = new Set<Tab>([
   "payment-transactions",
   "spares-penalties",
-  "installation-board", "vehicle-preparation", "quality-check", "readiness-settings", "readiness-staff",
+  "installation-board", "vehicle-preparation", "quality-check", "readiness-settings", "advisors","qc-managers",
   "dashboard",
   "legal-documents",
   "refer-and-earn",
@@ -730,9 +731,9 @@ function clientColumns(tab: Tab): ClientColumn<RecordItem>[] {
 }
 
 function canAccessTab(id: Tab, userRoles: string[]) {
-    if (userRoles.some(role => ["RFD_MANAGER","QC_MANAGER"].includes(role))) return ["installation-board","vehicle-preparation","quality-check"].includes(id);
+    if (userRoles.some(role => ["ADVISOR","RFD_MANAGER","QC_MANAGER"].includes(role))) return ["installation-board","vehicle-preparation","quality-check"].includes(id);
     if (["audit","payment-transactions","spares-penalties","legal-documents","refer-and-earn","readiness-settings","work-partners"].includes(id)) return userRoles.includes("CLIENT_ADMIN");
-    if (["notifications","readiness-staff"].includes(id)) return userRoles.some(role => ["CLIENT_ADMIN","OPERATIONS_MANAGER"].includes(role));
+    if (["notifications","advisors","qc-managers"].includes(id)) return userRoles.some(role => ["CLIENT_ADMIN","OPERATIONS_MANAGER"].includes(role));
     return true;
 }
 
@@ -871,7 +872,7 @@ export default function Home() {
     if (["fleets", "riders", "audit"].includes(nextTab)) {
       setRecordRefreshKey((key) => key + 1); setLoading(false); return;
     }
-    if (["spares-penalties","installation-board","vehicle-preparation","quality-check","readiness-settings","readiness-staff"].includes(nextTab)) { setItems([]); setLoading(false); return; }
+    if (["spares-penalties","installation-board","vehicle-preparation","quality-check","readiness-settings","advisors","qc-managers"].includes(nextTab)) { setItems([]); setLoading(false); return; }
     if (nextTab === "payment-transactions" || nextTab === "legal-documents" || nextTab === "refer-and-earn" || nextTab === "work-partners" || nextTab === "rider-reference-review" || nextTab === "support-tickets" || nextTab === "notifications") {
       setItems([]);
       setLoading(false);
@@ -1023,8 +1024,9 @@ export default function Home() {
   useEffect(() => {
     if (!userRoles.length) return;
     const readDestination = () => {
-      const requested = new URLSearchParams(window.location.search).get("tab") ?? "dashboard";
-      const fallback: Tab = userRoles.includes("RFD_MANAGER") ? "vehicle-preparation" : userRoles.includes("QC_MANAGER") ? "quality-check" : "dashboard";
+      const original = new URLSearchParams(window.location.search).get("tab") ?? "dashboard";
+      const requested = original === "readiness-staff" ? "advisors" : original;
+      const fallback: Tab = userRoles.some((role) => ["ADVISOR", "RFD_MANAGER"].includes(role)) ? "vehicle-preparation" : userRoles.includes("QC_MANAGER") ? "quality-check" : "dashboard";
       if (!Object.hasOwn(CLIENT_TAB_TITLES, requested)) return { tab: fallback, error: "This page does not exist. Choose a section from the menu." };
       if (!canAccessTab(requested as Tab, userRoles)) return { tab: fallback, error: "You do not have access to the requested section." };
       return { tab: requested as Tab, error: "" };
@@ -2632,7 +2634,7 @@ export default function Home() {
         {tab === "payment-transactions" && userRoles.includes("CLIENT_ADMIN") && <PaymentTransactions refreshKey={panelRefreshKey} />}
         {tab === "spares-penalties" && <SparesCatalogue refreshKey={panelRefreshKey} />}
         {tab === "installation-board" && <InstallationBoard refreshKey={panelRefreshKey} />}
-        {["vehicle-preparation","quality-check","readiness-settings","readiness-staff"].includes(tab) && <FleetReadiness refreshKey={panelRefreshKey} key={tab} view={tab === "quality-check" ? "qc" : tab === "readiness-settings" ? "settings" : tab === "readiness-staff" ? "staff" : "preparation"} />}
+        {["vehicle-preparation","quality-check","readiness-settings","advisors","qc-managers"].includes(tab) && <FleetReadiness refreshKey={panelRefreshKey} key={tab} view={tab === "quality-check" ? "qc" : tab === "readiness-settings" ? "settings" : tab === "advisors" ? "advisors" : tab === "qc-managers" ? "qc-managers" : "preparation"} />}
         {tab === "support-tickets" && <SupportTickets refreshKey={panelRefreshKey} />}
         {tab === "notifications" && userRoles.some((role) => ["CLIENT_ADMIN", "OPERATIONS_MANAGER"].includes(role)) && <ClientNotifications refreshKey={panelRefreshKey} />}
         {tab === "rider-document-review" && <section className="client-page-intro client-review-intro"><p className="muted">Open each uploaded document, then approve it or record a rejection reason.</p><div className="client-review-counts"><span><strong>{items.filter((item) => item.status === "PENDING").length}</strong> Pending</span><span><strong>{items.filter((item) => item.status === "APPROVED").length}</strong> Approved</span><span><strong>{items.filter((item) => item.status === "REJECTED").length}</strong> Rejected</span></div></section>}
@@ -3117,7 +3119,7 @@ export default function Home() {
           tab !== "support-tickets" &&
           tab !== "notifications" &&
           tab !== "payment-transactions" &&
-          !["spares-penalties","installation-board","vehicle-preparation","quality-check","readiness-settings","readiness-staff"].includes(tab) &&
+          !["spares-penalties","installation-board","vehicle-preparation","quality-check","readiness-settings","advisors","qc-managers"].includes(tab) &&
           tab !== "locations" &&
           !PHOTO_EVIDENCE_TABS.has(tab) && userRoles.length > 0 && canSeeTab(tab) && (
             <>
