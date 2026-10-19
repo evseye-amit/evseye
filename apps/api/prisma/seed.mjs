@@ -565,10 +565,11 @@ async function main() {
       deactivatedAt: deactivatedAt ? new Date(deactivatedAt) : null,
       deletedAt: deletedAt ? new Date(deletedAt) : null,
     };
+    const { status: _status, ...fleetUpdate } = fleetRecord;
     const fleet = await prisma.fleet.upsert({
       where: { clientId_fleetCode: { clientId: client.id, fleetCode: fleetData.fleetCode } },
       create: fleetRecord,
-      update: fleetRecord,
+      update: fleetUpdate,
     });
 
     if (registration) {
