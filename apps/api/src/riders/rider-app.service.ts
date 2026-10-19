@@ -1,3 +1,4 @@
+import { normalizeRiderBankValues, riderBankFields } from './rider-bank-fields.js';
 import { BadRequestException, ConflictException, Injectable, Logger, Optional } from '@nestjs/common';
 import { PhotoEntityType, PhotoStatus, Prisma, ReferralAttributionSource, RiderDocumentReviewStatus, UserRole } from '@prisma/client';
 import { normalizeIndianMobile } from '../common/phone.js';
@@ -165,6 +166,9 @@ export class RiderAppService {
     if (!step) throw new BadRequestException('This onboarding step is not available in the active package.');
     const allowed = new Set(step.fields.filter((field) => field.fieldCode).map((field) => field.fieldCode));
     for (const code of Object.keys(values)) if (!allowed.has(code)) throw new BadRequestException(`${code} is not available in this onboarding step.`);
+    if (skip && step.fields.some(field => field.featureCode === 'CAPTURE_BANK_ACCOUNT' && field.required && !field.disabled))
+      throw new BadRequestException('Bank account and IFSC details are required before continuing.');
+    if (!skip) values = normalizeRiderBankValues(values, allowed);
     if (allowed.has('PAN_NUMBER') && typeof values.PAN_NUMBER === 'string') {
       values = { ...values, PAN_NUMBER: values.PAN_NUMBER.trim().toUpperCase() };
     }
@@ -250,7 +254,8 @@ export class RiderAppService {
       if (!allFinished && typeof enteredName === 'string' && enteredName.trim()) {
         await tx.user.update({ where: { id: userId }, data: { name: enteredName.trim() } });
       }
-      if (allFinished && !(await tx.rider.findUnique({ where: { userId } }))) {
+      const existingRider = allFinished ? await tx.rider.findUnique({ where: { userId } }) : null;
+      if (allFinished && !existingRider) {
         const data: Record<string, unknown> = {
           ...riderValues,
           clientId,
@@ -262,6 +267,15 @@ export class RiderAppService {
         const rider = await tx.rider.create({ data: data as never });
         await tx.riderOnboardingDocument.updateMany({ where: { clientId, userId, riderId: null }, data: { riderId: rider.id } });
         await tx.user.update({ where: { id: userId }, data: { name: data.name as string } });
+      } else if (existingRider && existingRider.clientId === clientId) {
+        const metadata = riderValues.metadata as Record<string, unknown> | undefined;
+        const bankMetadata = Object.fromEntries(riderBankFields
+          .filter(field => storedValues[field.fieldCode] !== undefined && metadata?.[field.storageKey.slice('metadata.'.length)] !== undefined)
+          .map(field => [field.storageKey.slice('metadata.'.length), metadata![field.storageKey.slice('metadata.'.length)]]));
+        if (Object.keys(bankMetadata).length) {
+          const previous = existingRider.metadata && typeof existingRider.metadata === 'object' && !Array.isArray(existingRider.metadata) ? existingRider.metadata : {};
+          await tx.rider.update({ where: { id: existingRider.id }, data: { metadata: { ...previous, ...bankMetadata } as Prisma.InputJsonValue } });
+        }
       }
       if (allFinished) await this.kyc.sync(tx, clientId, userId, effective.onboarding.steps.flatMap(step => step.fields));
     });

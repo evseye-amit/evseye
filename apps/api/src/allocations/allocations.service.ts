@@ -142,6 +142,7 @@ export class AllocationsService {
           id: fleetId,
           clientId,
           status: FleetStatus.AVAILABLE,
+          maintenanceIssues: { none: { status: { not: 'RESOLVED' } } },
           deletedAt: null,
           allocations: { none: { status: { notIn: [AllocationStatus.COMPLETED, AllocationStatus.CANCELLED] } } },
         },
@@ -410,7 +411,8 @@ export class AllocationsService {
         throw new ConflictException('Both deallocation OTPs must be verified.');
     }
 
-    const safeForReuse = (inspection.safeForReuse ?? true) && (!submission || submission.mechanicChecksComplete);
+    const openMaintenanceIssues = await tx.vehicleMaintenanceIssue.count({ where: { clientId, fleetId: allocation.fleetId, status: { not: 'RESOLVED' } } });
+    const safeForReuse = !openMaintenanceIssues && (inspection.safeForReuse ?? true) && (!submission || submission.mechanicChecksComplete);
     await tx.allocation.update({
       where: { id: allocationId },
       data: {

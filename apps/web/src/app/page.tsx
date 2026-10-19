@@ -484,7 +484,7 @@ function FleetHealthCard({ dashboard }: { dashboard: Dashboard }) {
     ["Available", dashboard.fleet.AVAILABLE ?? 0, "#21865d"],
     ["Allocated", dashboard.fleet.ALLOCATED ?? 0, "#2f80ed"],
     ["In use", dashboard.fleet.IN_USE ?? 0, "#7456d8"],
-    ["Maintenance", dashboard.fleet.MAINTENANCE ?? 0, "#dd9b2a"],
+    ["Maintenance", (dashboard.fleet.MAINTENANCE ?? 0) + (dashboard.fleet.BROKEN ?? 0) + (dashboard.fleet.AWAITING_PARTS ?? 0), "#dd9b2a"],
     ["Offline", dashboard.fleet.OFFLINE ?? 0, "#bd5560"],
     ["Out of service", dashboard.fleet.OUT_OF_SERVICE ?? 0, "#6b7280"],
   ] as const;
