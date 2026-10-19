@@ -1,3 +1,4 @@
+import { expandRiderBankComponent, normalizeRiderBankValues } from './rider-bank-fields.js';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { FeatureCategory } from '@prisma/client';
 import { normalizeIndianMobile } from '../common/phone.js';
@@ -82,13 +83,13 @@ export class RiderOnboardingConfigurationService {
               featureId: field.featureId,
               featureCode: field.featureCode,
               ...(field.fieldCode ? { fieldCode: field.fieldCode } : {}),
-              name: translatedProperty(undefined, field.configuration.translations, locale, 'name') ?? riderCatalogLabel(field.featureCode, locale) ?? field.fieldName,
+              name: translatedProperty(undefined, field.configuration.translations, locale, 'name') ?? riderCatalogLabel(field.fieldCode, locale) ?? riderCatalogLabel(field.featureCode, locale) ?? field.fieldName,
               description: translatedProperty(field.description ?? null, field.configuration.translations, locale, 'description'),
               billingUnit: field.billingUnit,
               sequence: field.sequence,
               configuration: {
                 ...storedConfiguration,
-                label: translatedProperty(undefined, field.configuration.translations, locale, 'label') ?? riderCatalogLabel(field.featureCode, locale) ?? field.label,
+                label: translatedProperty(undefined, field.configuration.translations, locale, 'label') ?? riderCatalogLabel(field.fieldCode, locale) ?? riderCatalogLabel(field.featureCode, locale) ?? field.label,
                 ...(field.placeholder ? { placeholder: translatedProperty(field.placeholder, field.configuration.translations, locale, 'placeholder') } : {}),
                 fieldType: field.isUpload ? 'UPLOAD' : field.fieldType,
                 ...(field.storageKey ? { storageKey: field.storageKey } : {}),
@@ -113,7 +114,7 @@ export class RiderOnboardingConfigurationService {
       string,
       RiderOnboardingConfiguration['onboarding']['steps'][number]
     >();
-    for (const component of resolved.components) {
+    for (const component of resolved.components.flatMap(expandRiderBankComponent)) {
       const feature = { id: component.featureId, code: component.featureCode,
         name: component.featureName, description: component.description,
         billingUnit: component.billingUnit, displayOrder: component.order };
@@ -216,6 +217,7 @@ export class RiderOnboardingConfigurationService {
         throw new BadRequestException(`${code} is not available in the client's active package.`);
       }
     }
+    values = normalizeRiderBankValues(values, new Set(allowed.keys()));
     const mapped: Record<string, unknown> = {};
     const metadata = { ...asRecord(existingMetadata) };
     for (const field of inputFields) {

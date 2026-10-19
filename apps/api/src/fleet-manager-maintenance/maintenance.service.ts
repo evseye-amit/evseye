@@ -21,8 +21,9 @@ const fleetSelect = {
   currentHub: { select: { id: true, code: true, name: true } },
   homeHub: { select: { id: true, code: true, name: true } },
   updatedAt: true,
+  maintenanceIssues: { orderBy: { updatedAt: 'desc' } },
   statusHistory: {
-    where: { toStatus: 'MAINTENANCE' },
+    where: { toStatus: { in: ['MAINTENANCE', 'BROKEN', 'AWAITING_PARTS'] } },
     select: { id: true, reason: true, createdAt: true },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     take: 1,
@@ -45,6 +46,8 @@ const reportSelect = {
   stage: true,
   mechanicName: true,
   summary: true,
+  fleetStatus: true,
+  issues: true,
   safeForReuse: true,
   unsafeReason: true,
   checksComplete: true,
@@ -86,7 +89,7 @@ export class FleetManagerMaintenanceService {
   private scope(clientId: string, hubIds: string[]): Prisma.FleetWhereInput {
     return {
       clientId,
-      status: 'MAINTENANCE',
+      status: { in: ['MAINTENANCE', 'BROKEN', 'AWAITING_PARTS'] },
       deletedAt: null,
       OR: [
         {
@@ -117,6 +120,18 @@ export class FleetManagerMaintenanceService {
         const where: Prisma.FleetWhereInput = {
           AND: [
             base,
+            query.fleetStatus ? { status: query.fleetStatus } : {},
+            query.issueCategory
+              ? {
+                  maintenanceIssues: {
+                    some: {
+                      clientId,
+                      category: query.issueCategory,
+                      status: { not: 'RESOLVED' },
+                    },
+                  },
+                }
+              : {},
             query.search
               ? {
                   OR: [
@@ -227,7 +242,12 @@ export class FleetManagerMaintenanceService {
         const visibleReports = reports.slice(0, 50);
         const photoIds = [
           ...new Set(
-            visibleReports.flatMap((report) => report.evidencePhotoIds),
+            visibleReports.flatMap((report) => [
+              ...report.evidencePhotoIds,
+              ...(report.issues as { evidencePhotoIds: string[] }[]).flatMap(
+                (issue) => issue.evidencePhotoIds,
+              ),
+            ]),
           ),
         ];
         const evidencePhotos = photoIds.length

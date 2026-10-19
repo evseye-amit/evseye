@@ -31,7 +31,7 @@ export class FleetManagerHomeService {
         >`SELECT transaction_timestamp() AS now`;
         const now = clock.now;
         const { today, yesterday, cutoff } = homeDates(now);
-        const [manager, assignments, attendance] = await Promise.all([
+        const [manager, assignments, attendance, client] = await Promise.all([
           tx.user.findFirst({
             where: {
               id: userId,
@@ -61,6 +61,13 @@ export class FleetManagerHomeService {
             select: { id: true, checkInAt: true },
             orderBy: { checkInAt: 'desc' },
           }),
+          tx.client.findUnique({
+            where: { id: clientId },
+            select: {
+              businessProfile: { select: { gstin: true } },
+              branding: { select: { supportPhone: true } },
+            },
+          }),
         ]);
         if (!manager)
           throw new NotFoundException('Active Fleet Manager not found.');
@@ -75,6 +82,10 @@ export class FleetManagerHomeService {
           generatedAt: now.toISOString(),
           timezone: HOME_TIMEZONE,
           date: today,
+          company: {
+            gstin: client?.businessProfile?.gstin ?? null,
+            supportNumber: client?.branding?.supportPhone ?? null,
+          },
           manager: {
             ...manager,
             attendance: {

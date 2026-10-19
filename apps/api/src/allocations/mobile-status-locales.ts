@@ -39,6 +39,8 @@ const fleetStatuses: Record<string, Labels> = {
   IN_USE: ['In use', 'उपयोग में', 'వినియోగంలో ఉంది', 'ಬಳಕೆಯಲ್ಲಿದೆ'],
   DEALLOCATION_IN_PROGRESS: ['De-allocation in progress', 'आवंटन हटाना जारी', 'కేటాయింపు తొలగింపు కొనసాగుతోంది', 'ಹಂಚಿಕೆ ರದ್ದು ನಡೆಯುತ್ತಿದೆ'],
   INSPECTION_PENDING: ['Inspection pending', 'जाँच लंबित', 'తనిఖీ పెండింగ్‌లో ఉంది', 'ಪರಿಶೀಲನೆ ಬಾಕಿಯಿದೆ'],
+  BROKEN: ['Broken', 'खराब', 'చెడిపోయింది', 'ಕೆಟ್ಟಿದೆ'],
+  AWAITING_PARTS: ['Awaiting parts', 'पुर्जों की प्रतीक्षा', 'విడిభాగాల కోసం వేచి ఉంది', 'ಬಿಡಿಭಾಗಗಳಿಗಾಗಿ ಕಾಯುತ್ತಿದೆ'],
   MAINTENANCE: ['Maintenance', 'रखरखाव', 'నిర్వహణ', 'ನಿರ್ವಹಣೆ'],
   OUT_OF_SERVICE: ['Out of service', 'सेवा से बाहर', 'సేవలో లేదు', 'ಸೇವೆಯಿಂದ ಹೊರಗೆ'],
 };

@@ -1,6 +1,6 @@
 # Fleet Manager maintenance fleets — phase 1
 
-Both routes require a Fleet Manager bearer token. Client identity comes from authentication. Data is restricted to active, nondeleted assigned hubs and nondeleted fleet with `status=MAINTENANCE`.
+Both routes require a Fleet Manager bearer token. Client identity comes from authentication. Data is restricted to active, nondeleted assigned hubs and nondeleted fleet with status `MAINTENANCE`, `BROKEN` or `AWAITING_PARTS`.
 
 Hub attribution matches the Home API maintenance count: current hub first, home hub only when current hub is missing. A vehicle at an unassigned current hub is not visible merely because its home hub is assigned.
 
@@ -34,7 +34,9 @@ Each item includes fleet ID/code, vehicle number, chassis number, model/variant/
 
 `latestMechanicReport` is the most recently created `POSTED` report for that fleet, or null. It includes report ID, BASIC/DEEP stage, mechanic name, summary, safe-for-reuse/check-completion flags, unsafe reason, evidence photo IDs, created/confirmed timestamps, status and submission/inspection IDs. Draft, submitted and cancelled reports are not returned as finalized results. Names and summaries describe recorded reports, not invented service jobs.
 
-`meta.total` reflects search and hub filters. `summary.underMaintenance` reflects the selected hub scope before search. Ordering is `updatedAt DESC, id DESC`. Each vehicle appears once, regardless of the number of mechanic reports. Out-of-range pages return an empty item list with the real total. A manager with no active assigned hub gets an empty result.
+`fleetStatus` optionally filters one of the three maintenance statuses. `issueCategory` optionally filters unresolved issues by category. List and detail fleet objects include `maintenanceIssues`; report objects include `fleetStatus` and `issues`. See [submission maintenance conditions](submission-maintenance-conditions.md) for category values and write payloads.
+
+`meta.total` reflects search, condition, category and hub filters. `summary.underMaintenance` reflects the selected hub scope before search. Ordering is `updatedAt DESC, id DESC`. Each vehicle appears once, regardless of the number of mechanic reports. Out-of-range pages return an empty item list with the real total. A manager with no active assigned hub gets an empty result.
 
 ## Details
 

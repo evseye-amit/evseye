@@ -105,8 +105,8 @@ export function ClientWorkflowSettings({ clientId, clientName }: { clientId: str
 
   return <>
     <button type="button" className="secondary" onClick={() => setOpen(true)}>Workflow versions</button>
-    {open && <ClientFormDialog title={`Workflow versions — ${clientName}`} wide busy={busy} error={error} onClose={() => setOpen(false)}>
-      <header className="sa-commercial-head"><div><h2>Workflow versions — {clientName}</h2><p>Override included Features for this client. Published versions remain available for review.</p></div><button type="button" className="secondary" onClick={() => setOpen(false)}>Close</button></header>
+    {open && <ClientFormDialog title={`Workflow versions — ${clientName}`} wide busy={busy} error={error} onClose={() => setOpen(false)} heading={<>Workflow versions — {clientName}</>}>
+      <header className="sa-commercial-head"><div><p>Override included Features for this client. Published versions remain available for review.</p></div><button type="button" className="secondary" onClick={() => setOpen(false)}>Close</button></header>
       {notice && <p className="notice" role="status">{notice}</p>}
       {!subscription || !packageRevision ? <p className="muted">An active subscription with a published Package version is required.</p> : <>
         <section className="sa-commercial-section">

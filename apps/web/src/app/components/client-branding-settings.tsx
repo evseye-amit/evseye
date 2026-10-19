@@ -124,9 +124,9 @@ export function ClientBrandingSettings({ token }: { token: string }) {
           busy={busy}
           error={error}
           onClose={() => setOpen(false)}
-        >
+          heading={<>Client branding</>}>
           <form className="form-stack client-branding-settings" onSubmit={save}>
-            <h2>Client branding</h2>
+
             <p>
               Customize your client login and operations panel. Powered by EV
               Spares India Pvt Ltd remains visible.

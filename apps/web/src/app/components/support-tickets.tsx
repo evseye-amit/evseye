@@ -143,7 +143,7 @@ export function SupportTickets() {
   }
 
   return <>
-    <section className="action-card client-review-intro"><p className="eyebrow">CLIENT SUPPORT</p><h2>Support tickets</h2>
+    <section className="client-page-intro client-review-intro">
       <p className="muted">View rider requests, follow the conversation, and track their resolution.</p>
       <div className="client-review-counts">{statuses.map((value) => <span key={value}><strong>{rows.filter((row) => row.status === value).length}</strong> {statusLabel(value)}</span>)}</div>
     </section>
@@ -151,8 +151,8 @@ export function SupportTickets() {
     {notice && <p className="notice" role="status">{notice}</p>}
     {loading ? <p className="muted">Loading support tickets…</p> : <ClientDataTable rows={rows} columns={columns} getRowId={(row) => row.id} emptyMessage="No support tickets have been raised."
       actions={(row) => <button type="button" className="secondary table-action" disabled={Boolean(openingId)} onClick={() => void open(row)}>{openingId === row.id ? "Opening…" : "Open ticket"}</button>} />}
-    {ticket && <ClientFormDialog title="Support ticket" wide busy={busy || Boolean(attachmentBusy)} error={dialogError} onClose={close}>
-      <div className="support-ticket-heading"><div><p className="eyebrow">SUPPORT TICKET</p><h2>{ticket.subject}</h2></div>{ticketStatus(ticket.status)}</div>
+    {ticket && <ClientFormDialog title="Support ticket" wide busy={busy || Boolean(attachmentBusy)} error={dialogError} onClose={close} heading={<>{ticket.subject}</>}>
+      <div className="support-ticket-heading"><div><p className="eyebrow">SUPPORT TICKET</p></div>{ticketStatus(ticket.status)}</div>
       <p className="muted">{ticket.rider?.name ?? "Rider"} · {ticket.rider?.mobile ?? ""} · {ticket.hub?.name ?? "Unassigned hub"}</p>
       <p className="muted support-ticket-id">Ticket ID: {ticket.id} · Raised {dateLabel(ticket.createdAt)}{ticket.resolvedAt ? ` · Resolved ${dateLabel(ticket.resolvedAt)}` : ""}</p>
       <section className="support-ticket-conversation" aria-label="Ticket conversation"><h3>Conversation</h3>

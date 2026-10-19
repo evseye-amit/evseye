@@ -23,6 +23,10 @@ import { seedKyc } from './seed-kyc.mjs';
 import { seedLegalTemplates } from './catalog/legal-templates.mjs';
 import { seedLegal } from './client/yogmaya/yogmaya-legal-documents.mjs';
 import { seedInitialRevisions } from './catalog/seed-revisions.mjs';
+import { seedSpareMasters } from './catalog/spares.mjs';
+import { seedYogmayaSpares } from './client/yogmaya/spares.mjs';
+import { seedWorkPartnerMasters } from './catalog/work-partners.mjs';
+import { seedYogmayaWorkPartners } from './client/yogmaya/work-partners.mjs';
 
 const prisma = new PrismaClient();
 
@@ -707,6 +711,11 @@ async function main() {
       }
     }
   }
+
+  await seedSpareMasters(prisma);
+  await seedYogmayaSpares(prisma);
+  await seedWorkPartnerMasters(prisma);
+  await seedYogmayaWorkPartners(prisma);
 
   await seedRiderRateCardDemo(prisma);
 

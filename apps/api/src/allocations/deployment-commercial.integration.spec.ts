@@ -1,3 +1,5 @@
+import { PaymentTransactionsService } from '../payment-transactions/payment-transactions.service.js';
+import { MediaService } from '../media/media.service.js';
 import { SubmissionPenaltyService } from '../submission-penalties/submission-penalty.service.js';
 import { RiderBillingService } from '../rider-billing/rider-billing.service.js';
 import { AllocationTeamLeadService } from './allocation-team-lead.service.js';
@@ -379,6 +381,126 @@ describe.skipIf(!url)(
         handover,
       };
     }
+
+    it('uploads immutable receipt evidence, rejects with history, resubmits and credits once across admin and fleet-manager approval', async () => {
+      const f = await fixture();
+      await f.select();
+      await mobile.requestFleet(f.client.id, f.manager.id, f.allocation.id);
+      const payment = await mobile.askPayment(f.client.id, f.manager.id, f.allocation.id);
+      const adminUser = await db.user.create({ data: { clientId: f.client.id, name: 'Admin', mobile: '9876543299', role: 'CLIENT_ADMIN' } });
+      const admin = { id: adminUser.id, clientId: f.client.id, roles: [UserRole.CLIENT_ADMIN] };
+      const sealed: string[] = [];
+      const media = new MediaService(db as never, { createUploadUrl: async () => 'https://upload.invalid', createDownloadUrl: async (key: string) => `https://view.invalid/${key}`,
+        assertObjectExists: async () => {}, sealObject: async (_source: string, destination: string) => { sealed.push(destination); } } as never);
+      const transactions = new PaymentTransactionsService(db as never, media, commercial);
+      await mobile.submitPaymentReference(f.client.id, f.user.id, f.allocation.id, 'UPI', 'FIRST-' + payment.id);
+      const first = await transactions.detail(f.client.id, admin, 'DEPLOYMENT', payment.id);
+      expect(first).toMatchObject({ status: 'SUBMITTED', submissionVersion: 1, canReview: true });
+      const upload = await transactions.upload(f.client.id, f.riderActor, 'DEPLOYMENT', payment.id, { fileName: 'receipt.jpg', mimeType: 'image/jpeg', sizeBytes: 100 });
+      const uploaded = await transactions.complete(f.client.id, f.riderActor, 'DEPLOYMENT', payment.id, upload.photo.id);
+      await transactions.complete(f.client.id, f.riderActor, 'DEPLOYMENT', payment.id, upload.photo.id);
+      expect(uploaded.status).toBe('COMPLETE'); expect(sealed).toHaveLength(1);
+      expect(await db.auditLog.count({ where: { clientId: f.client.id, entityType: 'Photo', entityId: upload.photo.id, action: 'PAYMENT_RECEIPT_UPLOADED' } })).toBe(1);
+      expect(await db.riderPayment.count({ where: { clientId: f.client.id } })).toBe(0);
+      await expect(transactions.reject(f.client.id, admin, 'DEPLOYMENT', payment.id, 1, '   ')).rejects.toThrow('rejection reason');
+      await expect(transactions.approve(f.client.id, admin, 'DEPLOYMENT', payment.id, 1)).rejects.toThrow('submission changed');
+      const afterUpload = await transactions.detail(f.client.id, admin, 'DEPLOYMENT', payment.id);
+      expect(afterUpload.submissionVersion).toBe(2);
+      const rejected = await transactions.reject(f.client.id, admin, 'DEPLOYMENT', payment.id, 2, 'Reference does not match received funds');
+      expect(rejected).toMatchObject({ status: 'REJECTED', rejectionReason: 'Reference does not match received funds' });
+      expect(rejected.history.some(x => x.action === 'PAYMENT_REJECTED' && (x.newData as { providerReference?: string }).providerReference === 'FIRST-' + payment.id)).toBe(true);
+      expect((await db.mobileDeploymentWorkflow.findUniqueOrThrow({ where: { allocationId: f.allocation.id } })).status).toBe('PAYMENT_PENDING');
+      expect(await db.riderPayment.count({ where: { clientId: f.client.id } })).toBe(0);
+      await mobile.submitPaymentReference(f.client.id, f.user.id, f.allocation.id, 'UPI', 'CORRECTED-' + payment.id);
+      await expect(transactions.approve(f.client.id, admin, 'DEPLOYMENT', payment.id, 1)).rejects.toThrow('submission changed');
+      await expect(transactions.reject(f.client.id, admin, 'DEPLOYMENT', payment.id, 1, 'Stale review')).rejects.toThrow('submission changed');
+      await Promise.all([transactions.approve(f.client.id, admin, 'DEPLOYMENT', payment.id, 3), mobile.verifyPayment(f.client.id, f.manager.id, f.allocation.id)]);
+      expect(await db.riderPayment.count({ where: { clientId: f.client.id } })).toBe(1);
+      const approved = await transactions.detail(f.client.id, admin, 'DEPLOYMENT', payment.id);
+      expect(approved.status).toBe('PAID'); expect(approved.receipts.map(x => x.id)).toContain(upload.photo.id);
+      expect(approved.history.filter(x => x.action === 'PAYMENT_APPROVED')).toHaveLength(1);
+      await expect(transactions.reject(f.client.id, admin, 'DEPLOYMENT', payment.id, 3, 'Cannot reject paid')).rejects.toThrow('Only a submitted payment');
+      const q = { page: 1, limit: 10, sortBy: 'amount', sortDirection: 'desc' };
+      expect((await transactions.list(f.client.id, admin, q)).items).toHaveLength(1);
+      expect((await transactions.list(f.client.id, admin, { ...q, search: 'CORRECTED-' })).items[0].receiptCount).toBe(1);
+      const outsider = await db.user.create({ data: { clientId: f.client.id, name: 'Other rider', mobile: '9876543288', role: 'RIDER' } });
+      await db.rider.create({ data: { clientId: f.client.id, userId: outsider.id, name: 'Other rider', mobile: outsider.mobile } });
+      await expect(transactions.detail(f.client.id, { id: outsider.id, clientId: f.client.id, roles: [UserRole.RIDER] }, 'DEPLOYMENT', payment.id)).rejects.toThrow('not found');
+      await expect(transactions.detail('foreign-client', admin, 'DEPLOYMENT', payment.id)).rejects.toThrow('not found');
+      await expect(transactions.approve(f.client.id, f.riderActor, 'DEPLOYMENT', payment.id, 2)).rejects.toThrow();
+      await expect(media.complete(f.client.id, upload.photo.id)).rejects.toThrow('payment transaction routes');
+      await expect(media.downloadUrl(f.client.id, upload.photo.id)).rejects.toThrow('payment transaction routes');
+      await expect(media.listEntityPhotos(f.client.id, 'PAYMENT_DEPLOYMENT', payment.id)).rejects.toThrow('payment transaction routes');
+      expect((await transactions.download(f.client.id, f.actor, 'DEPLOYMENT', payment.id, upload.photo.id)).url).toContain('payment-receipts');
+      const otherManager = await db.user.create({ data: { clientId: f.client.id, name: 'Other manager', mobile: '9876543277', role: 'FLEET_MANAGER' } });
+      await expect(transactions.detail(f.client.id, { id: otherManager.id, clientId: f.client.id, roles: [UserRole.FLEET_MANAGER] }, 'DEPLOYMENT', payment.id)).rejects.toThrow('assigned hub');
+    });
+
+    it('resumes UPI submission, checks receipt ownership and handles lost responses after approval', async () => {
+      const f = await fixture(); await f.select();
+      await mobile.requestFleet(f.client.id, f.manager.id, f.allocation.id);
+      const p = await mobile.askPayment(f.client.id, f.manager.id, f.allocation.id);
+      expect(await mobile.payment(f.client.id, f.user.id, f.allocation.id)).toMatchObject({ source: 'DEPLOYMENT', canSubmit: true, receiptOptional: true, nextAction: 'SUBMIT_PAYMENT_DETAILS' });
+      await expect(mobile.submitPaymentReference(f.client.id, f.user.id, f.allocation.id, 'UPI', 'INVALID-' + p.id, [randomUUID()])).rejects.toThrow('completed upload');
+      expect((await db.deploymentPayment.findUniqueOrThrow({ where: { id: p.id } })).status).toBe('PENDING');
+      const media = new MediaService(db as never, { createUploadUrl: async () => 'https://upload.invalid', createDownloadUrl: async () => 'https://view.invalid', assertObjectExists: async () => {}, sealObject: async () => {} } as never);
+      const transactions = new PaymentTransactionsService(db as never, media, commercial);
+      const upload = await transactions.upload(f.client.id, f.riderActor, 'DEPLOYMENT', p.id, { fileName: 'upi.jpg', mimeType: 'image/jpeg', sizeBytes: 100 });
+      await expect(mobile.submitPaymentReference(f.client.id, f.user.id, f.allocation.id, 'UPI', 'UPI-' + p.id, [upload.photo.id])).rejects.toThrow('completed upload');
+      await transactions.complete(f.client.id, f.riderActor, 'DEPLOYMENT', p.id, upload.photo.id);
+      const submitted = await mobile.submitPaymentReference(f.client.id, f.user.id, f.allocation.id, ' UPI ', ' UPI-' + p.id + ' ', [upload.photo.id]);
+      expect(submitted).toMatchObject({ status: 'SUBMITTED', submissionVersion: 1, nextAction: 'AWAITING_VERIFICATION', canSubmit: false });
+      expect(submitted.receipts.map(photo => photo.id)).toContain(upload.photo.id);
+      expect((await mobile.submitPaymentReference(f.client.id, f.user.id, f.allocation.id, 'UPI', 'UPI-' + p.id, [upload.photo.id])).submissionVersion).toBe(1);
+      expect(await db.riderPayment.count({ where: { clientId: f.client.id } })).toBe(0);
+      await mobile.verifyPayment(f.client.id, f.manager.id, f.allocation.id);
+      const retry = await mobile.submitPaymentReference(f.client.id, f.user.id, f.allocation.id, 'UPI', 'UPI-' + p.id, [upload.photo.id]);
+      expect(retry).toMatchObject({ status: 'PAID', nextAction: 'PAYMENT_COMPLETE', canSubmit: false });
+      expect(await db.riderPayment.count({ where: { clientId: f.client.id } })).toBe(1);
+      const other = await fixture(); await other.select();
+      await mobile.requestFleet(other.client.id, other.manager.id, other.allocation.id);
+      await mobile.askPayment(other.client.id, other.manager.id, other.allocation.id);
+      await expect(mobile.submitPaymentReference(other.client.id, other.user.id, other.allocation.id, 'UPI', 'UPI-' + p.id, [upload.photo.id])).rejects.toThrow();
+    });
+
+    it('serializes simultaneous admin approval and Fleet Manager rejection without a contradictory financial result', async () => {
+      const f = await fixture(); await f.select();
+      await mobile.requestFleet(f.client.id, f.manager.id, f.allocation.id);
+      const p = await mobile.askPayment(f.client.id, f.manager.id, f.allocation.id);
+      await mobile.submitPaymentReference(f.client.id, f.user.id, f.allocation.id, 'UPI', 'RACE-' + p.id);
+      const admin = await db.user.create({ data: { clientId: f.client.id, name: 'Admin', mobile: '9876543266', role: 'CLIENT_ADMIN' } });
+      const results = await Promise.allSettled([
+        commercial.verifyPayment(f.client.id, admin.id, f.allocation.id, 1),
+        mobile.rejectPayment(f.client.id, f.manager.id, f.allocation.id, 'Funds not received', 1),
+      ]);
+      expect(results.filter(x => x.status === 'fulfilled')).toHaveLength(1);
+      const final = await db.deploymentPayment.findUniqueOrThrow({ where: { id: p.id } });
+      expect(['PAID', 'REJECTED']).toContain(final.status);
+      expect(await db.riderPayment.count({ where: { clientId: f.client.id } })).toBe(final.status === 'PAID' ? 1 : 0);
+      expect((await db.mobileDeploymentWorkflow.findUniqueOrThrow({ where: { allocationId: f.allocation.id } })).status)
+        .toBe(final.status === 'PAID' ? 'PAYMENT_PAID' : 'PAYMENT_PENDING');
+    });
+
+    it('shows provider and standalone payments once and scopes listing, filters, and receipt access to the owning rider', async () => {
+      const f = await fixture();
+      const received = await db.riderPayment.create({ data: { clientId: f.client.id, riderId: f.rider.id, amount: '100', unallocatedAmount: '100', currency: 'INR', method: 'UPI', idempotencyKey: 'collection-receipt', receivedAt: new Date(), createdById: f.manager.id } });
+      const collection = await db.paymentCollectionRequest.create({ data: { clientId: f.client.id, riderId: f.rider.id, amount: '100', currency: 'INR', collectionType: 'INVOICE', method: 'UPI', provider: 'CASHFREE', status: 'PAID', idempotencyKey: 'collection', riderPaymentId: received.id } });
+      const standalone = await db.riderPayment.create({ data: { clientId: f.client.id, riderId: f.rider.id, amount: '25', unallocatedAmount: '25', currency: 'INR', method: 'CASH', idempotencyKey: 'cash', receivedAt: new Date(), createdById: f.manager.id } });
+      const media = new MediaService(db as never, {} as never);
+      const service = new PaymentTransactionsService(db as never, media, commercial);
+      const q = { page: 1, limit: 1, sortBy: 'amount', sortDirection: 'desc' };
+      const page1 = await service.list(f.client.id, f.riderActor, q);
+      expect(page1.total).toBe(2); expect(page1.items[0]).toMatchObject({ source: 'COLLECTION', id: collection.id, canReview: false });
+      expect((await service.list(f.client.id, f.riderActor, { ...q, page: 2 })).items[0].id).toBe(standalone.id);
+      expect((await service.list(f.client.id, f.riderActor, { ...q, source: 'RECEIVED' })).total).toBe(1);
+      expect((await service.list(f.client.id, f.riderActor, { ...q, status: 'REJECTED' })).total).toBe(0);
+      const admin = { ...f.actor, roles: [UserRole.CLIENT_ADMIN] };
+      await expect(service.approve(f.client.id, admin, 'COLLECTION', collection.id, 0)).rejects.toThrow('automatic verification');
+      await expect(service.reject(f.client.id, admin, 'COLLECTION', collection.id, 0, 'Not applicable')).rejects.toThrow('manually submitted allocation');
+      await expect(service.approve(f.client.id, admin, 'RECEIVED', standalone.id, 0)).rejects.toThrow('automatic verification');
+      await expect(service.download(f.client.id, f.riderActor, 'COLLECTION', collection.id, randomUUID())).rejects.toThrow('Photo not found');
+      await expect(service.detail(f.client.id, f.riderActor, '__proto__', collection.id)).rejects.toThrow('Invalid payment source');
+    });
 
     it('activates a scooter without onboarding photos, lists it for allocation, and still requires fresh allocation inspection photos', async () => {
       const f = await fixture(true);

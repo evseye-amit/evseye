@@ -3590,6 +3590,8 @@ function ClientDashboardView({
     ["Allocated", "ALLOCATED"],
     ["In use", "IN_USE"],
     ["Maintenance", "MAINTENANCE"],
+    ["Broken", "BROKEN"],
+    ["Awaiting parts", "AWAITING_PARTS"],
     ["Offline", "OFFLINE"],
     ["Out of service", "OUT_OF_SERVICE"],
   ] as const;

@@ -17,6 +17,24 @@ export class ClientWorkPartnersController {
     private readonly clients: ClientContextService,
   ) {}
 
+  @Post('bulk')
+  @Roles(UserRole.CLIENT_ADMIN)
+  async bulk(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    return { data: await this.workPartners.bulkCreate(user, body, this.clients.requireClientId(user)) };
+  }
+
+  @Get('imports')
+  @Roles(UserRole.CLIENT_ADMIN)
+  async imports(@CurrentUser() user: AuthUser) {
+    return { data: await this.workPartners.importHistory(user, this.clients.requireClientId(user)) };
+  }
+
+  @Get('imports/:importId/failures')
+  @Roles(UserRole.CLIENT_ADMIN)
+  async failures(@CurrentUser() user: AuthUser, @Param('importId') id: string) {
+    return { data: await this.workPartners.importFailures(user, id, this.clients.requireClientId(user)) };
+  }
+
   @Get('masters')
   @Roles(UserRole.CLIENT_ADMIN)
   async listMasters() {

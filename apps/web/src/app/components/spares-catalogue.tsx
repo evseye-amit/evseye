@@ -2,6 +2,10 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { sessionFetch } from "../../lib/session-fetch";
 import { ClientFormDialog } from "./client-form-dialog";
+import { ClientDataTable, type ClientColumn } from "./client-data-table";
+import { PlatformDataTable } from "./platform-data-table";
+import { ClientBulkImportWorkspace, type ClientImportHistoryEntry } from "./client-bulk-import-workspace";
+import { parseSpareImport, spareColumns, spareRequiredColumns, spareFailuresCsv, type SpareImportFailure } from "./spares-import";
 type Spare = {
   id: string;
   code: string;
@@ -94,16 +98,14 @@ async function api<T>(
 export function SparesCatalogue({ platform = false }: { platform?: boolean }) {
   const root = platform ? "platform/spares" : "client/spares";
   const [items, setItems] = useState<Spare[]>([]),
-    [total, setTotal] = useState(0),
-    [page, setPage] = useState(1),
-    [search, setSearch] = useState(""),
-    [status, setStatus] = useState("ALL"),
-    [origin, setOrigin] = useState("ALL"),
     [epoch, setEpoch] = useState(0),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false),
     [loading, setLoading] = useState(false);
+  const [bulk, setBulk] = useState(false);
+  const [imports, setImports] = useState<ClientImportHistoryEntry[]>([]);
+  const [importsLoading, setImportsLoading] = useState(false);
   const [editing, setEditing] = useState<Spare | null>(null),
     [showForm, setShowForm] = useState(false),
     [form, setForm] = useState<Form>(empty),
@@ -137,23 +139,19 @@ export function SparesCatalogue({ platform = false }: { platform?: boolean }) {
   }, [platform]);
   useEffect(() => {
     let active = true;
-    const params = new URLSearchParams({
-      page: String(page),
-      limit: "25",
-      status,
-      ...(!platform ? { origin } : {}),
-      ...(search ? { search } : {}),
-    });
     void Promise.resolve()
-      .then(() => {
+      .then(async () => {
         if (active) setLoading(true);
-        return api<{ items: Spare[]; total: number }>(`${root}?${params}`);
-      })
-      .then((data) => {
-        if (active) {
-          setItems(data.items);
-          setTotal(data.total);
+        // Load every API page before using the shared table's local filters/pagination.
+        const rows: Spare[] = [];
+        let page = 1;
+        while (active) {
+          const data = await api<{ items: Spare[]; total: number }>(`${root}?page=${page}&limit=100`);
+          rows.push(...data.items);
+          if (!data.items.length || rows.length >= data.total) break;
+          page++;
         }
+        if (active) setItems(rows);
       })
       .catch((e) => {
         if (active) setError(e.message);
@@ -164,7 +162,19 @@ export function SparesCatalogue({ platform = false }: { platform?: boolean }) {
     return () => {
       active = false;
     };
-  }, [root, page, search, status, origin, epoch, platform]);
+  }, [root, epoch]);
+  useEffect(() => {
+    if (!bulk) return;
+    let active = true;
+    void Promise.resolve().then(async () => {
+      if (active) setImportsLoading(true);
+      const data = await api<ClientImportHistoryEntry[]>(`${root}/imports`);
+      if (active) setImports(data);
+    }).catch((cause) => {
+      if (active) setError(cause instanceof Error ? cause.message : "Unable to load import history.");
+    }).finally(() => { if (active) setImportsLoading(false); });
+    return () => { active = false; };
+  }, [bulk, root, epoch]);
   async function run(task: () => Promise<void>) {
     setBusy(true);
     setError("");
@@ -247,13 +257,52 @@ export function SparesCatalogue({ platform = false }: { platform?: boolean }) {
   }
   const change = (key: keyof Form, value: Form[keyof Form]) =>
     setForm((f) => ({ ...f, [key]: value }));
+  const columns: ClientColumn<Spare>[] = [
+    { key: "code", label: "Part code", value: (row) => row.code },
+    { key: "name", label: "Name", value: (row) => row.name, render: (row) => <>{row.name}{row.masterUpdateAvailable && <small> · Master update available</small>}{row.masterInactive && <small> · Master inactive</small>}</> },
+    { key: "baseRate", label: "Rate", value: (row) => row.baseRate === null ? "—" : Number(row.baseRate) },
+    { key: "gstPercent", label: "GST %", value: (row) => row.gstPercent === null ? "—" : Number(row.gstPercent) },
+    { key: "hsnCode", label: "HSN", value: (row) => row.hsnCode ?? "—" },
+    { key: "unit", label: "Unit", value: (row) => row.unit },
+    ...(!platform ? [
+      { key: "penaltyAmount", label: "Unit penalty", value: (row: Spare) => row.penaltyAmount == null ? "Not configured" : Number(row.penaltyAmount) },
+      { key: "evidenceRequired", label: "Evidence", value: (row: Spare) => row.evidenceRequired ? "Required" : "Optional" },
+      { key: "origin", label: "Origin", value: (row: Spare) => row.origin === "MASTER" ? "Master copy" : row.origin === "CLIENT" ? "Client-created" : "Other penalty" },
+    ] : []),
+    { key: "isActive", label: "Status", value: (row) => !platform && !row.penaltyConfigured ? "Not configured" : row.isActive ? platform ? "Active" : "Enabled" : platform ? "Inactive" : "Disabled" },
+  ];
+  if (bulk) return <section className="client-manager-actions">
+    {error && <p className="error" role="alert">{error}</p>}
+    {notice && <p role="status">{notice}</p>}
+    <ClientBulkImportWorkspace
+      title={platform ? "Spares Master" : "Spares & Penalties"}
+      eyebrow={platform ? "SUPER ADMIN IMPORT" : "CLIENT OPERATIONS IMPORT"}
+      requiredColumns={spareRequiredColumns.join(", ")}
+      template={`${spareColumns(platform).join(",")}\n`}
+      history={imports} historyLoading={importsLoading} busy={busy}
+      onBack={() => { if (!busy) setBulk(false); }}
+      onUpload={(file) => run(async () => {
+        if (!/\.csv$/i.test(file.name)) throw new Error("Choose a CSV file.");
+        if (file.size > 5 * 1024 * 1024) throw new Error("CSV must be 5 MB or smaller.");
+        const rows = parseSpareImport(await file.text(), platform);
+        const result = await api<{ passedRows: number; failedRows: number }>(`${root}/bulk`, "POST", { filename: file.name, rows });
+        setNotice(`Bulk upload complete: ${result.passedRows} passed, ${result.failedRows} failed.`);
+      })}
+      onDownloadFailures={(id) => run(async () => {
+        const failures = await api<SpareImportFailure[]>(`${root}/imports/${id}/failures`);
+        const url = URL.createObjectURL(new Blob([spareFailuresCsv(failures, platform)], { type: "text/csv;charset=utf-8" }));
+        const link = document.createElement("a");
+        link.href = url; link.download = "spares-failed-records.csv"; link.click();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      })}
+      help={<p className="sa-bulk-help">Maximum 100 spares per upload. Adds new codes only; duplicates are reported without overwriting settings. Use true/false for flags and semicolon-separated vehicle type IDs. {!platform && "Uploads create client-owned spares; use Import missing master spares to copy the master catalogue."}</p>}
+    />
+  </section>;
   return (
-    <section className="table-card">
-      <div className="form-actions">
-        <h2>{platform ? "Spares Master" : "Spares & Penalties"}</h2>
-        <button disabled={busy} onClick={() => open()}>
-          Add spare
-        </button>
+    <section className={platform ? "sa-catalogue" : "client-manager-actions"}>
+      <section className={platform ? "sa-page-head" : "sa-page-head client-page-head"}>
+        <div className="sa-actions">
+        <button className="secondary" disabled={busy || loading} onClick={() => { setError(""); setNotice(""); setBulk(true); }}>Bulk upload</button>
         {!platform && (
           <>
             <button
@@ -288,193 +337,51 @@ export function SparesCatalogue({ platform = false }: { platform?: boolean }) {
             </button>
           </>
         )}
-      </div>
-      <p>
-        {platform
-          ? "Reference catalogue copied to new clients. Each client configures its own penalties."
-          : "Fleet Managers can select only enabled, configured penalties. Spare rate and GST are reference information; the configured penalty is the final unit charge."}
-      </p>
+        <button disabled={busy} onClick={() => open()}>
+          + Add spare
+        </button>
+        </div>
+      </section>
       {error && (
         <p className="error" role="alert">
           {error}
         </p>
       )}
       {notice && <p role="status">{notice}</p>}
-      <div className="form-grid">
-        <label>
-          Search name, code or HSN
-          <input
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-          />
-        </label>
-        <label>
-          Status
-          <select
-            value={status}
-            onChange={(e) => {
-              setStatus(e.target.value);
-              setPage(1);
-            }}
-          >
-            <option value="ALL">All</option>
-            <option value="ACTIVE">{platform ? "Active" : "Enabled"}</option>
-            <option value="INACTIVE">
-              {platform ? "Inactive" : "Disabled"}
-            </option>
-            {!platform && <option value="UNCONFIGURED">Not configured</option>}
-          </select>
-        </label>
-        {!platform && (
-          <label>
-            Origin
-            <select
-              value={origin}
-              onChange={(e) => {
-                setOrigin(e.target.value);
-                setPage(1);
-              }}
-            >
-              <option value="ALL">All</option>
-              <option value="MASTER">Master copy</option>
-              <option value="CLIENT">Client-created</option>
-              <option value="NON_SPARE">Other penalties</option>
-            </select>
-          </label>
-        )}
-      </div>
-      {loading && <p>Loading spares…</p>}
-      <div className="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>Part code</th>
-              <th>Name</th>
-              <th>Rate</th>
-              <th>GST %</th>
-              <th>HSN</th>
-              {!platform && (
-                <>
-                  <th>Unit penalty</th>
-                  <th>Evidence</th>
-                  <th>Origin</th>
-                </>
-              )}
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((row) => (
-              <tr key={row.id}>
-                <td>{row.code}</td>
-                <td>
-                  {row.name}
-                  {row.masterUpdateAvailable && (
-                    <small> · Master update available</small>
-                  )}
-                  {row.masterInactive && <small> · Master inactive</small>}
-                </td>
-                <td>{row.baseRate ?? "—"}</td>
-                <td>{row.gstPercent ?? "—"}</td>
-                <td>{row.hsnCode ?? "—"}</td>
-                {!platform && (
-                  <>
-                    <td>{row.penaltyAmount ?? "Not configured"}</td>
-                    <td>{row.evidenceRequired ? "Required" : "Optional"}</td>
-                    <td>
-                      {row.origin === "MASTER"
-                        ? "Master copy"
-                        : row.origin === "CLIENT"
-                          ? "Client-created"
-                          : "Other penalty"}
-                    </td>
-                  </>
-                )}
-                <td>
-                  {row.isActive
-                    ? platform
-                      ? "Active"
-                      : "Enabled"
-                    : platform
-                      ? "Inactive"
-                      : "Disabled"}
-                </td>
-                <td>
-                  <button
-                    className="secondary table-action"
-                    disabled={busy}
-                    onClick={() => open(row)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    className="secondary table-action"
-                    disabled={busy}
-                    onClick={() =>
-                      void run(async () =>
-                        setHistory({
-                          name: row.name,
-                          items: await api<Revision[]>(
-                            `${root}/${row.id}/history`,
-                          ),
-                        }),
-                      )
-                    }
-                  >
-                    History
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {!loading && !items.length && (
-        <p>No spares found. Add a spare or import available master items.</p>
-      )}
-      <div className="form-actions">
-        <button
-          className="secondary"
-          disabled={page === 1 || busy}
-          onClick={() => setPage((p) => p - 1)}
-        >
-          Previous
-        </button>
-        <span>
-          Page {page} · {total} items
-        </span>
-        <button
-          className="secondary"
-          disabled={page * 25 >= total || busy}
-          onClick={() => setPage((p) => p + 1)}
-        >
-          Next
-        </button>
-      </div>
+      {loading && <p role="status">Loading spares…</p>}
+      {platform ? <section className="sa-management oem-table-only">
+        <PlatformDataTable
+          headings={["Part code", "Name", "Rate", "GST %", "HSN", "Unit", "Status", "", ""]}
+          columnFilters={[
+            { type: "text" }, { type: "text" }, { type: "number" }, { type: "number" },
+            { type: "text" }, { type: "select" }, { type: "select", options: ["ACTIVE", "INACTIVE"] }, null, null,
+          ]}
+          rows={items.map((row) => [
+            row.code, row.name, row.baseRate === null ? "—" : Number(row.baseRate),
+            row.gstPercent === null ? "—" : Number(row.gstPercent), row.hsnCode ?? "—", row.unit,
+            row.isActive ? "ACTIVE" : "INACTIVE",
+            <button key="edit" className="secondary" disabled={busy} onClick={() => open(row)}>Edit</button>,
+            <button key="history" className="secondary" disabled={busy} onClick={() => void run(async () => setHistory({ name: row.name, items: await api<Revision[]>(`${root}/${row.id}/history`) }))}>History</button>,
+          ])}
+        />
+      </section> : <ClientDataTable rows={items} columns={columns} getRowId={(row) => row.id}
+        emptyMessage="No spares found. Add a spare or import available master items."
+        actions={(row) => <>
+          <button className="secondary table-action" disabled={busy} onClick={() => open(row)}>Edit</button>
+          <button className="secondary table-action" disabled={busy} onClick={() => void run(async () => setHistory({ name: row.name, items: await api<Revision[]>(`${root}/${row.id}/history`) }))}>History</button>
+        </>}
+      />}
       {showForm && (
         <ClientFormDialog
+          surfaceClassName="spares-dialog-surface"
           title={editing ? "Edit spare" : "Add spare"}
           error={error}
           busy={busy}
           wide
           onClose={() => setShowForm(false)}
-        >
+          heading={<>{editing ? "Edit spare / penalty" : "Add spare"}</>}>
           <form onSubmit={save}>
-            <div className="form-actions">
-              <h2>{editing ? "Edit spare / penalty" : "Add spare"}</h2>
-              <button
-                type="button"
-                className="secondary"
-                disabled={busy}
-                onClick={() => setShowForm(false)}
-              >
-                Close
-              </button>
-            </div>
+
             <div className="form-grid">
               <label>
                 Part code
@@ -613,67 +520,64 @@ export function SparesCatalogue({ platform = false }: { platform?: boolean }) {
                 </label>
               )}
             </div>
-            <button disabled={busy}>Save</button>
+            <div className="sa-dialog-actions">
+              <button type="button" className="secondary" disabled={busy} onClick={() => setShowForm(false)}>Cancel</button>
+              <button type="submit" disabled={busy}>{busy ? "Saving…" : "Save"}</button>
+            </div>
           </form>
         </ClientFormDialog>
       )}
       {history && (
         <ClientFormDialog
+          surfaceClassName="spares-dialog-surface"
           title="Spare history"
+          wide
           onClose={() => setHistory(null)}
-        >
-          <div className="form-actions">
-            <h2>{history.name} · History</h2>
-            <button className="secondary" onClick={() => setHistory(null)}>
-              Close
-            </button>
-          </div>
-          {!history.items.length && <p>No recorded revisions yet.</p>}
+          heading={<>Spare history</>}>
+          <header className="spares-dialog-header">
+            <div>
+
+              <p>{history.name}</p>
+            </div>
+            <button type="button" className="secondary" onClick={() => setHistory(null)}>Close</button>
+          </header>
+          {!history.items.length && <p className="muted">No recorded revisions yet.</p>}
+          <div className="spares-revision-list">
           {history.items.map((r) => (
-            <article key={r.id}>
-              <h3>
-                Version {r.version} · {new Date(r.createdAt).toLocaleString()}
-              </h3>
-              <p>{r.reason}</p>
-              <p>
-                {r.snapshot.name ?? r.snapshot.description} · Rate:{" "}
-                {r.snapshot.baseRate ?? "—"} · GST:{" "}
-                {r.snapshot.gstPercent ?? "—"}% · HSN:{" "}
-                {r.snapshot.hsnCode ?? "—"}
-              </p>
-              {!platform && (
-                <p>
-                  Penalty:{" "}
-                  {r.snapshot.penaltyConfigured
-                    ? r.snapshot.amount
-                    : "Not configured"}{" "}
-                  · Evidence:{" "}
-                  {r.snapshot.evidenceRequired ? "Required" : "Optional"} ·{" "}
-                  {r.snapshot.isActive ? "Enabled" : "Disabled"}
-                </p>
-              )}
+            <article className="spares-revision-card" key={r.id}>
+              <div className="spares-revision-heading">
+                <h3>Version {r.version}</h3>
+                <time dateTime={r.createdAt}>{new Date(r.createdAt).toLocaleString()}</time>
+              </div>
+              <p className="spares-revision-reason">{r.reason}</p>
+              <dl className="spares-revision-details">
+                <div className="spares-revision-name"><dt>Part name</dt><dd>{r.snapshot.name ?? r.snapshot.description ?? "—"}</dd></div>
+                <div><dt>Part code</dt><dd>{r.snapshot.code ?? "—"}</dd></div>
+                <div><dt>Base rate</dt><dd>{r.snapshot.baseRate == null ? "—" : new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(Number(r.snapshot.baseRate))}</dd></div>
+                <div><dt>GST</dt><dd>{r.snapshot.gstPercent == null ? "—" : `${r.snapshot.gstPercent}%`}</dd></div>
+                <div><dt>HSN code</dt><dd>{r.snapshot.hsnCode ?? "—"}</dd></div>
+                <div><dt>Unit</dt><dd>{r.snapshot.unit ?? "—"}</dd></div>
+                <div><dt>Status</dt><dd>{r.snapshot.isActive ? "Active" : "Inactive"}</dd></div>
+                {!platform && <>
+                  <div><dt>Penalty per unit</dt><dd>{r.snapshot.penaltyConfigured && r.snapshot.amount != null ? new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(Number(r.snapshot.amount)) : "Not configured"}</dd></div>
+                  <div><dt>Evidence</dt><dd>{r.snapshot.evidenceRequired ? "Required" : "Optional"}</dd></div>
+                </>}
+              </dl>
             </article>
           ))}
+          </div>
         </ClientFormDialog>
       )}
       {updates && (
         <ClientFormDialog
+          surfaceClassName="spares-dialog-surface"
           title="Review master updates"
           error={error}
           busy={busy}
           wide
           onClose={() => setUpdates(null)}
-        >
-          <div className="form-actions">
-            <h2>Review master updates</h2>
-            <button
-              className="secondary"
-              disabled={busy}
-              onClick={() => setUpdates(null)}
-            >
-              Close
-            </button>
-          </div>
+          heading={<>Review master updates</>}>
+
           <p>
             Applying updates preserves your penalty amount, evidence requirement
             and enabled status. Client-created spares are unaffected.

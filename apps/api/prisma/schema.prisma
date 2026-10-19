@@ -115,6 +115,10 @@ enum PhotoEntityType {
   INSPECTION
   RIDER_ONBOARDING
   SUPPORT_TICKET
+  PAYMENT_DEPLOYMENT
+  PAYMENT_COLLECTION
+  PAYMENT_AUTOPAY
+  PAYMENT_RECEIVED
 }
 
 enum RiderDocumentReviewStatus {
@@ -155,6 +159,8 @@ enum FleetStatus {
   DEALLOCATION_IN_PROGRESS
   INSPECTION_PENDING
   MAINTENANCE
+  BROKEN
+  AWAITING_PARTS
   OUT_OF_SERVICE
 }
 
@@ -288,6 +294,7 @@ enum MobileDeploymentStatus {
 
 enum DeploymentPaymentStatus {
   PENDING
+  REJECTED
   SUBMITTED
   PAID
   FAILED
@@ -952,7 +959,22 @@ model Oem {
   @@index([status, displayName])
 }
 
+enum WorkPartnerCategory {
+  FOOD_DELIVERY
+  QUICK_COMMERCE
+  ECOMMERCE
+  PARCEL_LOGISTICS
+  ON_DEMAND_LOGISTICS
+  PHARMACY_HEALTHCARE
+  SPECIALTY_DELIVERY
+  OTHER
+}
+
 model WorkPartnerMaster {
+  logo String?
+  category WorkPartnerCategory @default(OTHER)
+  workType String?
+  website String?
   id           String              @id @default(uuid())
   code         String              @unique
   name         String
@@ -966,6 +988,10 @@ model WorkPartnerMaster {
 }
 
 model ClientWorkPartner {
+  logo String?
+  category WorkPartnerCategory @default(OTHER)
+  workType String?
+  website String?
   id                String                    @id @default(uuid())
   clientId          String
   client            Client                    @relation(fields: [clientId], references: [id], onDelete: Restrict)
@@ -1690,6 +1716,7 @@ model Fleet {
   fitness            FleetFitness?
   documents          FleetDocument[]
   allocations        Allocation[]
+  maintenanceIssues VehicleMaintenanceIssue[]
   batteryHistory     FleetBatteryHistory[]
   controllerHistory  FleetControllerHistory[]
   statusHistory      FleetStatusHistory[]
@@ -2956,6 +2983,10 @@ model DeploymentPayment {
   breakdown         Json
   provider          String?
   providerReference String?                  @unique
+  submissionVersion Int                     @default(0)
+  rejectionReason   String?                  @db.VarChar(1000)
+  rejectedAt        DateTime?
+  rejectedById      String?
   submittedAt       DateTime?
   verifiedAt        DateTime?
   verifiedById      String?
@@ -5950,6 +5981,46 @@ model RiderReferenceReview {
 }
 
 
+enum MaintenanceIssueCategory {
+  POWERTRAIN
+  BATTERY
+  ELECTRICAL
+  BRAKES
+  TYRES_WHEELS
+  SUSPENSION_STEERING
+  BODY_CHASSIS
+  ACCESSORIES
+  OTHER
+}
+
+enum MaintenanceIssueStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+}
+
+model VehicleMaintenanceIssue {
+  id String @id @db.Uuid
+  clientId String
+  fleetId String
+  fleet Fleet @relation(fields: [fleetId], references: [id], onDelete: Restrict)
+  submissionId String
+  submission VehicleSubmission @relation(fields: [submissionId], references: [id], onDelete: Restrict)
+  category MaintenanceIssueCategory
+  description String @db.VarChar(2000)
+  status MaintenanceIssueStatus @default(OPEN)
+  evidencePhotoIds String[]
+  requiredParts String? @db.VarChar(1000)
+  penaltyFindingId String? @db.Uuid
+  lastReportId String
+  lastReport VehicleSubmissionReport @relation(fields: [lastReportId], references: [id], onDelete: Restrict)
+  updatedById String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([clientId, fleetId, status])
+  @@index([clientId, category])
+}
+
 model VehicleSubmission {
   id                     String @id @default(uuid())
   clientId               String
@@ -5975,6 +6046,7 @@ model VehicleSubmission {
   createdById            String
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
+  maintenanceIssues      VehicleMaintenanceIssue[]
   reports                VehicleSubmissionReport[]
   @@index([clientId, riderId, createdAt])
   @@index([clientId, hubId, status])
@@ -5990,6 +6062,9 @@ model VehicleSubmissionReport {
   stage                 String @db.VarChar(10)
   mechanicName          String @db.VarChar(150)
   summary               String @db.VarChar(4000)
+  fleetStatus           FleetStatus?
+  issues                Json @default("[]")
+  maintenanceIssueRecords VehicleMaintenanceIssue[]
   safeForReuse          Boolean
   unsafeReason          String? @db.VarChar(500)
   checksComplete        Boolean @default(false)

@@ -1,7 +1,10 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
+import { MaintenanceIssueCategory } from '@prisma/client';
 import {
   IsInt,
+  IsIn,
+  IsEnum,
   IsOptional,
   IsString,
   IsUUID,
@@ -11,6 +14,10 @@ import {
 } from 'class-validator';
 
 export class MaintenanceFleetsQueryDto {
+  @IsOptional() @IsIn(['MAINTENANCE', 'BROKEN', 'AWAITING_PARTS'])
+  fleetStatus?: 'MAINTENANCE' | 'BROKEN' | 'AWAITING_PARTS';
+  @IsOptional() @IsEnum(MaintenanceIssueCategory)
+  issueCategory?: MaintenanceIssueCategory;
   @ApiPropertyOptional({
     format: 'uuid',
     description:

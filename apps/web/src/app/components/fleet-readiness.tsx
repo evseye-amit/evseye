@@ -1099,20 +1099,11 @@ export function FleetReadiness({
             setPreview(null);
             setError("");
           }}
-        >
-          <div className="form-actions">
-            <h2>
+          heading={<>
               {detail.fleet.vehicleNumber || detail.fleet.fleetCode} ·{" "}
               {label(detail.status)}
-            </h2>
-            <button
-              className="secondary"
-              disabled={busy}
-              onClick={() => setDetail(null)}
-            >
-              Close
-            </button>
-          </div>
+            </>}>
+
           <p>
             Revision {detail.currentRevision} ·{" "}
             {detail.hub?.name ?? detail.hubId}
@@ -1523,8 +1514,8 @@ export function FleetReadinessStatus({ fleetId }: { fleetId: string }) {
         <ClientFormDialog
           title="Scooter readiness"
           onClose={() => setData(null)}
-        >
-          <h2>Scooter readiness</h2>
+          heading={<>Scooter readiness</>}>
+
           <p>Mode: {label(data.operatingMode)}</p>
           <p>
             {data.canAllocate ? "Ready for allocation" : "Allocation blocked"}
@@ -1540,9 +1531,7 @@ export function FleetReadinessStatus({ fleetId }: { fleetId: string }) {
               ? label(data.preparation.status)
               : "No preparation cycle"}
           </p>
-          <button className="secondary" onClick={() => setData(null)}>
-            Close
-          </button>
+
         </ClientFormDialog>
       )}
     </>

@@ -4488,3 +4488,144 @@ body:has(.sa-dialog[open]) {
 .notification-metrics span { background: var(--surface-soft, #f3f6fb); border-radius: 10px; padding: 12px; font-size: 13px; }
 .notification-metrics strong { display: block; font-size: 24px; margin-bottom: 4px; }
 .notification-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Spares dialogs use a normal header independently of reversed form action rows. */
+.sa-dialog .spares-dialog-surface {
+  gap: 20px;
+}
+.spares-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #e4e9e6;
+}
+.spares-dialog-header > div { min-width: 0; }
+.spares-dialog-header h2 { margin: 0; font-size: 21px; line-height: 1.35; overflow-wrap: anywhere; }
+.spares-dialog-header p { margin: 6px 0 0; color: #657068; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.spares-dialog-header > button { flex-shrink: 0; margin: 0; }
+.spares-revision-list { display: grid; gap: 16px; }
+.spares-revision-card { padding: 20px; border: 1px solid #e0e7e2; border-radius: 10px; background: #fff; min-width: 0; }
+.spares-revision-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; }
+.spares-revision-heading h3 { margin: 0; font-size: 15px; font-weight: 600; color: #196c50; }
+.spares-revision-heading time { color: #657068; font-size: 13px; }
+.spares-revision-reason { margin: 12px 0 18px; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.spares-revision-details { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px 24px; margin: 0; padding-top: 16px; border-top: 1px solid #edf0ee; }
+.spares-revision-details > div { min-width: 0; }
+.spares-revision-details .spares-revision-name { grid-column: 1 / -1; }
+.spares-revision-details dt { color: #657068; font-size: 12px; margin-bottom: 5px; }
+.spares-revision-details dd { margin: 0; font-size: 14px; font-weight: 500; line-height: 1.5; overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .spares-dialog-header { gap: 12px; }
+  .spares-revision-card { padding: 14px; }
+  .spares-revision-details { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+}
+@media (max-width: 360px) {
+  .spares-revision-details { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Shared Client Operations layout: one page title and consistent action rows. */
+.client-operations-main { min-width: 0; gap: 0; }
+.client-operations-main > .sa-topbar { gap: 20px; }
+.client-operations-main > .sa-topbar > div:first-child { min-width: 0; }
+.client-operations-main > .sa-topbar h1 { overflow-wrap: anywhere; }
+.client-operations-main .client-page-intro {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 0 0 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.client-page-intro > div:first-child { min-width: 0; flex: 1 1 320px; }
+.client-page-intro p { margin: 0; line-height: 1.5; }
+.client-page-intro .client-review-counts { flex-basis: 100%; }
+.client-page-intro .form-actions { margin: 0 0 0 auto; flex-wrap: wrap; justify-content: flex-end; }
+.client-operations-main .client-page-intro button { min-height: 40px; padding: 10px 14px; font-size: 14px; }
+.client-operations-main .client-page-head { margin: 0 0 20px; padding: 0; }
+.client-operations-main .client-page-head .sa-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.client-operations-shell .sa-sidebar .client-nav-utility { margin: 4px 0; width: 100%; font-weight: 700; }
+.client-operations-shell .sa-sidebar :is(.client-nav-utility, nav button) { line-height: 1.4; overflow-wrap: normal; }
+/* Group titles are text, not the fixed-width icon spans used by menu items. */
+.client-operations-shell .sa-sidebar nav button.sa-nav-group-toggle > span:first-child {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.client-operations-shell .sa-sidebar .ui-icon { flex-shrink: 0; }
+
+/* All ClientFormDialog consumers share the same visible title and close control. */
+.client-form-dialog .client-dialog-header {
+  margin: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e4e9e6;
+}
+.client-form-dialog > .client-dialog-header h2 { margin: 0; font-size: 21px; line-height: 1.35; overflow-wrap: anywhere; }
+.client-dialog-close { flex: 0 0 36px; width: 36px; height: 36px; min-height: 36px; padding: 0; font-size: 24px; line-height: 1; }
+.client-dialog-content { display: grid; min-width: 0; gap: 16px; }
+.client-dialog-content > form { display: grid; min-width: 0; gap: 16px; margin: 0; }
+.client-dialog-content > :is(p, .error, .notice) { margin: 0; }
+.client-dialog-content .form-grid { gap: 16px; }
+.client-dialog-content .form-actions {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e4e9e6;
+}
+.client-dialog-content .form-actions > button { order: 2; }
+.client-dialog-content .form-actions > button.secondary { order: 1; }
+.client-dialog-content .spares-dialog-header { padding-bottom: 0; border: 0; }
+.client-dialog-content .spares-dialog-header p { margin-top: 0; }
+@media (max-width: 700px) {
+  .client-operations-main > .sa-topbar .header-actions { width: 100%; justify-content: flex-start; }
+  .client-operations-main .client-page-intro > div:first-child { flex-basis: 100%; }
+  .client-page-intro .form-actions { margin-left: 0; }
+  .client-form-dialog .client-dialog-header { gap: 12px; }
+  .client-dialog-content .form-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Use one interaction treatment for direct links, group headings and child items. */
+.client-operations-shell .sa-sidebar :is(nav button, .client-nav-utility) {
+  min-height: 44px;
+  padding-top: 11px;
+  padding-bottom: 11px;
+  border-radius: 7px;
+  color: #69716b;
+}
+.client-theme-root .client-operations-shell .sa-sidebar :is(nav button, .client-nav-utility):is(:hover, .active, [data-active="true"], :focus-visible),
+.client-operations-shell .sa-sidebar :is(nav button, .client-nav-utility):is(:hover, .active, [data-active="true"], :focus-visible) {
+  color: #247a58;
+  background: #e9f7ef;
+}
+.client-operations-shell .sa-sidebar :is(nav button, .client-nav-utility):focus:not(:focus-visible) { outline: none; }
+.client-operations-shell .sa-sidebar :is(nav button, .client-nav-utility):focus-visible {
+  outline: 2px solid #247a58;
+  outline-offset: -2px;
+}
+
+.payment-transaction-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin-bottom: 20px; }
+.payment-transaction-filters label { display: grid; gap: 6px; color: #53675b; font-size: 13px; font-weight: 700; }
+.payment-transaction-filters :is(input, select) { min-height: 40px; padding: 8px 10px; border: 1px solid #d7e1d9; border-radius: 7px; background: #fff; color: #263a2e; }
+.payment-transaction-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; }
+.payment-transaction-summary > div { flex: 1; min-width: 180px; }
+.payment-transaction-summary p { margin: 6px 0 0; }
+.payment-receipt-actions { flex-wrap: wrap; }
+.status-rejected { color: #9f2620; background: #fde6e4; }

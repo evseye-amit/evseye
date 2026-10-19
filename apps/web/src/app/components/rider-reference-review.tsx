@@ -68,8 +68,8 @@ export function RiderReferenceReview() {
   }
 
   return <>
-    <section className="action-card client-review-intro">
-      <p className="eyebrow">RIDER ONBOARDING</p><h2>Review rider references</h2>
+    <section className="client-page-intro client-review-intro">
+
       <p className="muted">Contact each reference to verify their details, then approve it or record a rejection reason.</p>
       <div className="client-review-counts">{(["PENDING", "APPROVED", "REJECTED"] as const).map((status) =>
         <span key={status}><strong>{rows.filter((row) => row.status === status).length}</strong> {status[0] + status.slice(1).toLowerCase()}</span>)}</div>
@@ -82,9 +82,9 @@ export function RiderReferenceReview() {
           <button type="button" className="table-action" disabled={Boolean(busyId)} onClick={() => void review(row, "approve")}>{busyId === row.id ? "Saving…" : "Approve"}</button>
           <button type="button" className="danger table-action" disabled={Boolean(busyId)} onClick={() => { setError(""); setReason(""); setRejecting(row); }}>Reject</button>
         </> : <span className="muted">{row.reviewedAt ? new Date(row.reviewedAt).toLocaleString() : "Reviewed"}</span>} />}
-    {rejecting && <ClientFormDialog title="Reject rider reference" busy={Boolean(busyId)} error={error} onClose={() => setRejecting(null)}>
+    {rejecting && <ClientFormDialog title="Reject rider reference" busy={Boolean(busyId)} error={error} onClose={() => setRejecting(null)} heading={<>Reject rider reference</>}>
       <form className="form-stack" onSubmit={reject}>
-        <h2>Reject rider reference</h2><p className="muted">{rejecting.name} · {rejecting.relation} · {rejecting.mobile}</p>
+        <p className="muted">{rejecting.name} · {rejecting.relation} · {rejecting.mobile}</p>
         <label>Rejection reason *<textarea required maxLength={1000} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Explain why this reference could not be verified." /></label>
         <div className="form-actions"><button className="danger" disabled={Boolean(busyId) || !reason.trim()}>{busyId ? "Rejecting…" : "Reject reference"}</button>
           <button type="button" className="secondary" disabled={Boolean(busyId)} onClick={() => setRejecting(null)}>Cancel</button></div>

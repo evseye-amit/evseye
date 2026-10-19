@@ -136,3 +136,36 @@ Super Admin → Vehicle Management → **Spares**. Client Operations → Vehicle
 Apply `20261018090000_spares_penalty_catalogue`, regenerate Prisma Client and deploy API/panel together. It adds metadata/history and permits unconfigured disabled spare copies without altering existing non-spare prices. No invented production spare catalogue or rates are seeded. The operator enters actual master/client parts through the panel. Client fleet operating mode remains unchanged.
 
 Flutter source is not in this repository. The backend contracts are ready for the Fleet Manager App's catalogue picker, draft save/edit, imposition and rider payment UI integration.
+
+## Panel table and CSV bulk upload
+
+Super Admin spares uses `PlatformDataTable`, the same component as OEM and other
+platform catalogues. Client spares uses the shared `ClientDataTable`. Both provide
+table-wide search, searchable column filters, sorting and 10/25/50/100 rows per page. The panel loads every API
+page before applying table filters, so searches cover the whole catalogue.
+Adding/editing a spare and reviewing reference updates/history remain available.
+
+Use **Bulk upload** to download the CSV template, add records, inspect saved import
+history and download row failures. Required columns: `code,name,baseRate,gstPercent,hsnCode`.
+Optional master columns: `unit,vehicleTypeIds,isActive`. Client uploads also accept
+`penaltyAmount,evidenceRequired`. Boolean cells use `true`/`false`; vehicle type UUIDs
+are separated by semicolons. GST is percentage points (for example `18`). Uploads
+accept CSV files up to 5 MB with 1–100 records. Client-created uploads follow the
+same validation as the add form; an enabled spare needs a positive penalty amount.
+
+- `POST /api/v1/platform/spares/bulk` (Super Admin)
+- `POST /api/v1/client/spares/bulk` (Client Admin)
+
+Body: `{ "filename": "spares.csv", "rows": [ /* normal create bodies */ ] }`.
+Response `data` contains `id`, `createdAt`, `status`, `totalRows`, `passedRows`,
+`failedRows`, and `failures` (`row`, `code`, `message`, original `record`). Row numbers
+include the CSV header. Each valid row commits with its initial catalogue revision;
+invalid/duplicate rows are reported individually. Existing codes are never overwritten.
+Client CSV uploads create client-owned parts. To copy master entries, use the existing
+**Import missing master spares** action instead.
+
+`GET /api/v1/{platform|client}/spares/imports` returns the latest 100 import summaries.
+`GET /api/v1/{platform|client}/spares/imports/:id/failures` returns failure details.
+Import history is persisted in audit records, scoped to the platform or the current
+client. No database migration is required. Interrupted imports retain their progress;
+review the catalogue before retrying, since already saved codes will be duplicates.

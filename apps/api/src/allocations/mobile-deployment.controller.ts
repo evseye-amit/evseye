@@ -1,3 +1,4 @@
+import { RejectPaymentDto, VerifyPaymentDto } from '../payment-transactions/payment-transactions.dto.js';
 import { FleetManagerHomeQueryDto } from '../fleet-manager-home/home.dto.js';
 import { Body, Controller, Get, Headers, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
@@ -39,9 +40,11 @@ export class MobileDeploymentController {
   @Get(':id/payment') @Roles(UserRole.RIDER)
   async payment(@CurrentUser() user: AuthUser, @Param('id') id: string) { return { data: await this.deployments.payment(this.clients.requireClientId(user), user.id, id) }; }
   @Post(':id/payment/submit') @Roles(UserRole.RIDER)
-  async submitPayment(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: SubmitPaymentReferenceDto) { return { data: await this.deployments.submitPaymentReference(this.clients.requireClientId(user), user.id, id, body.provider, body.providerReference) }; }
+  async submitPayment(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: SubmitPaymentReferenceDto) { return { data: await this.deployments.submitPaymentReference(this.clients.requireClientId(user), user.id, id, body.provider, body.providerReference, body.receiptPhotoIds) }; }
   @Post(':id/payment/verify') @Roles(UserRole.FLEET_MANAGER)
-  async verifyPayment(@CurrentUser() user: AuthUser, @Param('id') id: string) { return { data: await this.deployments.verifyPayment(this.clients.requireClientId(user), user.id, id) }; }
+  async verifyPayment(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: VerifyPaymentDto = {}) { return { data: await this.deployments.verifyPayment(this.clients.requireClientId(user), user.id, id, body?.expectedVersion) }; }
+  @Post(':id/payment/reject') @Roles(UserRole.FLEET_MANAGER)
+  async rejectPayment(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: RejectPaymentDto) { return { data: await this.deployments.rejectPayment(this.clients.requireClientId(user), user.id, id, body.reason, body.expectedVersion) }; }
   @Get(':id/allocation-evidence') @Roles(UserRole.FLEET_MANAGER)
   async allocationEvidence(@CurrentUser() user: AuthUser, @Param('id') id: string) { return { data: await this.deployments.getAllocationEvidence(this.clients.requireClientId(user), user.id, id) }; }
   @Post(':id/pdi') @Roles(UserRole.FLEET_MANAGER)

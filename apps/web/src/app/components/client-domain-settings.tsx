@@ -73,8 +73,8 @@ export function ClientDomainSettings({
           busy={busy}
           error={error}
           onClose={() => setOpen(false)}
-        >
-          <h2>Domains — {clientName}</h2>
+          heading={<>Domains — {clientName}</>}>
+
           <p>
             Manage client login addresses. Custom domains require DNS
             verification and HTTPS routing before use.

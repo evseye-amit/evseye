@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -46,6 +47,68 @@ const clientPatch = z
 @Injectable()
 export class SparesService {
   constructor(private readonly db: PrismaService) {}
+  async bulkCreate(actor: AuthUser, input: unknown, clientId?: string) {
+    this.admin(actor, !clientId);
+    const body = parse(z.object({
+      filename: z.string().trim().min(1).max(200),
+      rows: z.array(z.record(z.string(), z.union([
+        z.string().max(500), z.boolean(), z.array(z.string().max(100)).max(100), z.null(),
+      ]))).min(1).max(100),
+    }).strict(), input);
+    const failures: { row: number; code: string; message: string; record: typeof body.rows[number] }[] = [];
+    const job = await this.db.auditLog.create({ data: {
+      clientId: clientId ?? null, actorId: actor.id,
+      action: 'SPARES_BULK_IMPORT', entityType: 'SPARE_IMPORT',
+      newData: { filename: body.filename, status: 'PROCESSING', totalRows: body.rows.length },
+    } });
+    let passedRows = 0;
+    for (const [index, row] of body.rows.entries()) {
+      try {
+        if (clientId) await this.createClientSpare(clientId, actor, row);
+        else await this.createMaster(actor, row);
+        passedRows++;
+      } catch (error) {
+        if (!(error instanceof HttpException) || error.getStatus() >= 500) {
+          await this.db.auditLog.update({ where: { id: job.id }, data: { newData: {
+            filename: body.filename, status: 'INTERRUPTED', totalRows: body.rows.length,
+            passedRows, failedRows: failures.length, failures,
+          } } });
+          throw error;
+        }
+        failures.push({ row: index + 2, code: String(row.code ?? ''), message: error.message, record: row });
+      }
+    }
+    const result = {
+      filename: body.filename, totalRows: body.rows.length, passedRows,
+      failedRows: failures.length, failures,
+      status: failures.length ? passedRows ? 'PARTIAL_PASS' : 'FAIL' : 'PASS',
+    };
+    await this.db.auditLog.update({ where: { id: job.id }, data: { newData: result } });
+    return { ...result, id: job.id.toString(), createdAt: job.createdAt };
+  }
+  async importHistory(actor: AuthUser, clientId?: string) {
+    this.admin(actor, !clientId);
+    const jobs = await this.db.auditLog.findMany({
+      where: { clientId: clientId ?? null, action: 'SPARES_BULK_IMPORT', entityType: 'SPARE_IMPORT' },
+      orderBy: { createdAt: 'desc' }, take: 100,
+    });
+    return jobs.map((job) => {
+      const data = job.newData as Record<string, Prisma.JsonValue>;
+      return { id: job.id.toString(), createdAt: job.createdAt, fileName: data.filename,
+        status: data.status, totalRows: data.totalRows, passedRows: data.passedRows ?? 0,
+        failedRows: data.failedRows ?? 0, jobId: job.id.toString() };
+    });
+  }
+  async importFailures(actor: AuthUser, id: string, clientId?: string) {
+    this.admin(actor, !clientId);
+    if (!/^\d{1,19}$/.test(id) || BigInt(id) > 9223372036854775807n)
+      throw new BadRequestException('Invalid import identifier.');
+    const job = await this.db.auditLog.findFirst({ where: {
+      id: BigInt(id), clientId: clientId ?? null, action: 'SPARES_BULK_IMPORT', entityType: 'SPARE_IMPORT',
+    } });
+    if (!job) throw new NotFoundException('Spare import not found.');
+    return (job.newData as Record<string, Prisma.JsonValue>).failures ?? [];
+  }
   private admin(actor: AuthUser, platform = false) {
     if (!actor.roles.includes(platform ? 'SUPER_ADMIN' : 'CLIENT_ADMIN'))
       throw new ForbiddenException('Administrator permission is required.');

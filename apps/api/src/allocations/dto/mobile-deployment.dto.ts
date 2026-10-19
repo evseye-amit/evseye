@@ -1,4 +1,4 @@
-import { ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateIf, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayUnique, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateIf, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class PdiItemDto {
@@ -36,8 +36,10 @@ export class BypassPairingDto {
 export class AskPaymentDto {}
 
 export class SubmitPaymentReferenceDto {
-  @IsString() @MaxLength(80) provider!: string;
-  @IsString() @MaxLength(160) providerReference!: string;
+  @IsString() @Matches(/\S/) @MaxLength(80) provider!: string;
+  @IsString() @Matches(/\S/) @MaxLength(160) providerReference!: string;
+  @ValidateIf((_, value) => value !== undefined) @IsArray() @ArrayMaxSize(20) @ArrayUnique() @IsUUID(undefined, { each: true })
+  receiptPhotoIds?: string[];
 }
 
 export class FleetManagerAllocateDto {

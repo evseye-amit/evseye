@@ -1,3 +1,4 @@
+import { isPaymentPhoto } from './payment-photo.js';
 import { fleetManagerVisibleSubjects } from '../rider-access/rider-hub-policy.js';
 import {
   BadRequestException,
@@ -6,7 +7,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PhotoEntityType, PhotoStatus, UserRole } from '@prisma/client';
+import { PhotoEntityType, PhotoStatus, Prisma, UserRole } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -28,6 +29,7 @@ export class MediaService {
     uploadedById: string,
     dto: CreateUploadIntentDto,
   ) {
+    if (isPaymentPhoto(dto.entityType)) throw new ForbiddenException('Payment receipts use the payment transaction routes.');
     if ((dto.entityType as string) === PhotoEntityType.SUPPORT_TICKET)
       throw new ForbiddenException(
         'Support attachments use the support ticket routes.',
@@ -61,6 +63,35 @@ export class MediaService {
       dto.photoType,
       dto,
     );
+  }
+
+  async createPaymentUploadIntent(clientId: string, actorId: string, entityType: PhotoEntityType, entityId: string,
+    dto: Omit<CreateUploadIntentDto, 'entityType' | 'entityId' | 'photoType'>) {
+    if (!isPaymentPhoto(entityType)) throw new BadRequestException('Invalid payment media entity.');
+    return this.createUploadIntentForEntity(clientId, actorId, entityType, entityId, `RECEIPT_${randomUUID()}`, { ...dto, photoType: 'RECEIPT' });
+  }
+
+  async completePayment(clientId: string, entityType: PhotoEntityType, entityId: string, photoId: string, uploaderId: string, db: Prisma.TransactionClient = this.prisma) {
+    const photo = await db.photo.findFirst({ where: { id: photoId, clientId } });
+    if (!photo) throw new NotFoundException('Payment receipt not found.');
+    if (!isPaymentPhoto(entityType) || photo.entityType !== entityType || photo.entityId !== entityId || photo.uploadedById !== uploaderId)
+      throw new NotFoundException('Payment receipt not found.');
+    if (photo.status === PhotoStatus.COMPLETE) return photo;
+    if (photo.status !== PhotoStatus.PENDING_UPLOAD) throw new BadRequestException('Receipt is not awaiting upload.');
+    const sealed = `clients/${clientId}/payment-receipts/${entityId}/${randomUUID()}.${this.extensionFor(photo.mimeType)}`;
+    await this.storage.assertObjectExists(photo.objectKey, { maxBytes: photo.sizeBytes });
+    await this.storage.sealObject(photo.objectKey, sealed);
+    await this.storage.assertObjectExists(sealed, { maxBytes: photo.sizeBytes });
+    await db.photo.updateMany({ where: { id: photo.id, clientId, status: PhotoStatus.PENDING_UPLOAD },
+      data: { objectKey: sealed, status: PhotoStatus.COMPLETE, uploadedAt: new Date() } });
+    return db.photo.findFirstOrThrow({ where: { id: photo.id, clientId } });
+  }
+
+  async paymentDownloadUrl(clientId: string, entityType: PhotoEntityType, entityId: string, photoId: string) {
+    const photo = await this.getPhoto(clientId, photoId);
+    if (!isPaymentPhoto(entityType) || photo.entityType !== entityType || photo.entityId !== entityId)
+      throw new NotFoundException('Payment receipt not found.');
+    return this.downloadPhoto(photo);
   }
 
   private async createUploadIntentForEntity(
@@ -113,6 +144,7 @@ export class MediaService {
     entityId: string,
     actor?: AuthUser,
   ) {
+    if (isPaymentPhoto(entityType)) throw new ForbiddenException('Payment receipts use the payment transaction routes.');
     if (entityType === PhotoEntityType.SUPPORT_TICKET)
       throw new ForbiddenException(
         'Support attachments use the support ticket routes.',
@@ -162,6 +194,7 @@ export class MediaService {
 
   async complete(clientId: string, photoId: string) {
     const photo = await this.getPhoto(clientId, photoId);
+    if (isPaymentPhoto(photo.entityType)) throw new ForbiddenException('Payment receipts use the payment transaction routes.');
     if (photo.entityType === PhotoEntityType.PREPARATION)
       throw new ForbiddenException(
         'Preparation photos use the preparation routes.',
@@ -208,13 +241,18 @@ export class MediaService {
                 status: { in: ['SUBMITTED', 'POSTED'] },
                 submission: { inspectionId: photo.entityId },
               },
-              select: { evidencePhotoIds: true, items: true },
+              select: { evidencePhotoIds: true, items: true, issues: true },
             })
           : [];
       const protectedIds = [
         ...new Set(
           reports.flatMap((report) => [
             ...report.evidencePhotoIds,
+            ...(Array.isArray(report.issues)
+              ? (report.issues as { evidencePhotoIds?: string[] }[]).flatMap(
+                  (issue) => issue.evidencePhotoIds ?? [],
+                )
+              : []),
             ...(Array.isArray(report.items)
               ? (report.items as { evidencePhotoIds?: string[] }[]).flatMap(
                   (item) => item.evidencePhotoIds ?? [],
@@ -246,6 +284,7 @@ export class MediaService {
 
   async downloadUrl(clientId: string, photoId: string, actor?: AuthUser) {
     const photo = await this.getPhoto(clientId, photoId);
+    if (isPaymentPhoto(photo.entityType)) throw new ForbiddenException('Payment receipts use the payment transaction routes.');
     await this.assertFleetManagerPhotoAccess(clientId, actor, photo);
     if (photo.entityType === PhotoEntityType.PREPARATION)
       throw new ForbiddenException(
@@ -400,6 +439,14 @@ export class MediaService {
     entityType: PhotoEntityType,
     entityId: string,
   ) {
+    if (isPaymentPhoto(entityType)) {
+      const where = { id: entityId, clientId };
+      const row = entityType === PhotoEntityType.PAYMENT_DEPLOYMENT ? await this.prisma.deploymentPayment.findFirst({ where })
+        : entityType === PhotoEntityType.PAYMENT_COLLECTION ? await this.prisma.paymentCollectionRequest.findFirst({ where })
+        : entityType === PhotoEntityType.PAYMENT_AUTOPAY ? await this.prisma.paymentTransaction.findFirst({ where })
+        : await this.prisma.riderPayment.findFirst({ where });
+      if (row) return;
+    }
     if (entityType === PhotoEntityType.RIDER) {
       const rider = await this.prisma.rider.findFirst({
         where: { id: entityId, clientId, deletedAt: null },
@@ -453,7 +500,7 @@ export class MediaService {
 
   private assertExtensionMatchesMime(fileName: string, mimeType: string) {
     const extension = fileName.split('.').pop()?.toLowerCase();
-    if (!extension || extension !== this.extensionFor(mimeType)) {
+    if (!extension || (extension !== this.extensionFor(mimeType) && !(mimeType === 'image/jpeg' && extension === 'jpeg'))) {
       throw new BadRequestException(
         'File extension does not match its MIME type.',
       );

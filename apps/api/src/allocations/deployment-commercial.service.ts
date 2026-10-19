@@ -621,7 +621,7 @@ export class DeploymentCommercialService {
     });
   }
 
-  async verifyPayment(clientId: string, actorId: string, allocationId: string) {
+  async verifyPayment(clientId: string, actorId: string, allocationId: string, expectedVersion?: number) {
     return this.db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Allocation" WHERE id = ${allocationId} AND "clientId" = ${clientId} FOR UPDATE`;
       const a = await tx.allocation.findFirstOrThrow({
@@ -635,6 +635,8 @@ export class DeploymentCommercialService {
           'PAYMENT_REQUEST_REQUIRED',
           'Generate the allocation payment first.',
         );
+      if (expectedVersion !== undefined && p.submissionVersion !== expectedVersion)
+        throw new ConflictException('The payment submission changed. Refresh and review it again.');
       if (p.status === 'PAID') return w;
       if (p.status !== 'SUBMITTED' || w.status !== 'PAYMENT_PENDING')
         fail(
@@ -704,10 +706,33 @@ export class DeploymentCommercialService {
           verifiedById: actorId,
         },
       });
+      await tx.auditLog.create({ data: { clientId, actorId, action: 'PAYMENT_APPROVED', entityType: 'DeploymentPayment', entityId: p.id,
+        newData: { submissionVersion: p.submissionVersion, provider: p.provider, providerReference: p.providerReference, amount: p.amount.toFixed(2) } } });
       return tx.mobileDeploymentWorkflow.update({
         where: { id: w.id },
         data: { status: 'PAYMENT_PAID', paymentPaidAt: now },
       });
+    });
+  }
+
+  async rejectPayment(clientId: string, actorId: string, allocationId: string, reason: string, expectedVersion: number) {
+    reason = reason.trim();
+    if (reason.length < 3 || reason.length > 1000)
+      throw new BadRequestException('A rejection reason of 3–1000 characters is required.');
+    return this.db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Allocation" WHERE id = ${allocationId} AND "clientId" = ${clientId} FOR UPDATE`;
+      const a = await tx.allocation.findFirst({ where: { id: allocationId, clientId }, include: { mobileDeployment: { include: { payment: true } } } });
+      const w = a?.mobileDeployment, p = w?.payment;
+      if (!w || !p) throw new NotFoundException('Payment not found.');
+      if (p.submissionVersion !== expectedVersion) throw new ConflictException('The payment submission changed. Refresh and review it again.');
+      if (p.status === 'REJECTED' && p.rejectionReason === reason) return p;
+      if (p.status !== 'SUBMITTED' || w.status !== 'PAYMENT_PENDING')
+        throw new ConflictException('Only a submitted payment awaiting verification can be rejected.');
+      const photos = await tx.photo.findMany({ where: { clientId, entityType: 'PAYMENT_DEPLOYMENT', entityId: p.id, status: 'COMPLETE' }, select: { id: true } });
+      const rejected = await tx.deploymentPayment.update({ where: { id: p.id }, data: { status: 'REJECTED', rejectionReason: reason, rejectedById: actorId, rejectedAt: new Date() } });
+      await tx.auditLog.create({ data: { clientId, actorId, action: 'PAYMENT_REJECTED', entityType: 'DeploymentPayment', entityId: p.id,
+        newData: { reason, submissionVersion: p.submissionVersion, provider: p.provider, providerReference: p.providerReference, receiptPhotoIds: photos.map(x => x.id) } } });
+      return rejected;
     });
   }
 

@@ -1,3 +1,5 @@
+import { FleetManagerMaintenanceService } from '../fleet-manager-maintenance/maintenance.service.js';
+import { MaintenanceFleetsQueryDto } from '../fleet-manager-maintenance/maintenance.dto.js';
 import { MediaService } from '../media/media.service.js';
 import { SparesService } from '../spares/spares.service.js';
 import { pendingPenaltySummary, SubmissionPenaltyService } from '../submission-penalties/submission-penalty.service.js';
@@ -23,6 +25,7 @@ import { AllocationsService } from '../allocations/allocations.service.js';
 import { AuthService } from '../auth/auth.service.js';
 import { RiderBillingService } from '../rider-billing/rider-billing.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
+import type { MechanicReportDto } from './submission.dto.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 
 const url = process.env.SUBMISSION_TEST_DATABASE_URL;
@@ -316,9 +319,11 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
       proof: string,
       stage: 'BASIC' | 'DEEP' = 'BASIC',
       checksComplete = false,
-    ) {
+    ): MechanicReportDto {
       return {
         stage,
+        fleetStatus: checksComplete ? 'AVAILABLE' : 'MAINTENANCE',
+        issues: checksComplete ? [] : [{ category: 'BODY_CHASSIS', description: 'Repaired body panel; final checks pending', status: 'RESOLVED', evidencePhotoIds: [proof] }],
         mechanicName: 'Mechanic',
         summary: 'Checked the vehicle and recorded repair findings',
         safeForReuse: true,
@@ -353,6 +358,63 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
     };
   }
 
+
+  it.each(['BROKEN', 'AWAITING_PARTS'] as const)('confirms %s, blocks release and resolves the issue through a deeper report', async (fleetStatus) => {
+    const f = await fixture();
+    const photos = await f.capture();
+    const proof = photos[0]!.id;
+    const issueProof = await f.photo('POWERTRAIN_DETAIL');
+    const findingId = randomUUID();
+    const input: MechanicReportDto = {
+      ...f.report(proof, 'BASIC', true), fleetStatus, safeForReuse: false,
+      unsafeReason: 'Motor requires replacement', items: fleetStatus === 'BROKEN' ? [{ ...f.report(proof).items[0]!, findingId }] : [],
+      issues: [{ category: 'POWERTRAIN', description: 'Motor failure', status: 'OPEN',
+        requiredParts: 'Motor assembly', penaltyFindingId: fleetStatus === 'BROKEN' ? findingId : undefined, evidencePhotoIds: [issueProof.id] }],
+    };
+    const report = await service.recordReport(f.client.id, f.actor, f.submission.id, input, 'condition-basic-key');
+    expect((await service.recordReport(f.client.id, f.actor, f.submission.id, input, 'condition-basic-key')).id).toBe(report.id);
+    await service.impose(f.client.id, f.actor, report.id);
+    const replacement = await db.photo.create({ data: {
+      clientId: f.client.id, entityType: 'INSPECTION', entityId: f.submission.inspectionId,
+      photoType: issueProof.photoType, objectKey: randomUUID(), mimeType: 'image/jpeg',
+      sizeBytes: 100, uploadedById: f.actor.id,
+    } });
+    await new MediaService(prisma, { assertObjectExists: vi.fn().mockResolvedValue(undefined) } as never).complete(f.client.id, replacement.id);
+    expect((await db.photo.findUniqueOrThrow({ where: { id: issueProof.id } })).status).toBe('COMPLETE');
+
+    expect(await db.vehicleMaintenanceIssue.count({ where: { fleetId: f.fleet.id } })).toBe(0);
+    await service.confirm(f.client.id, f.actor, report.id, { riderBypassReason: 'Phone unavailable', teamLeadBypassReason: 'Phone unavailable' });
+    const fleet = await db.fleet.findUniqueOrThrow({ where: { id: f.fleet.id } });
+    expect(fleet.status).toBe(fleetStatus);
+    expect(fleet.allocationEnabled).toBe(false);
+    const issue = await db.vehicleMaintenanceIssue.findFirstOrThrow({ where: { fleetId: f.fleet.id } });
+    expect(issue.category).toBe('POWERTRAIN');
+    const maintenance = new FleetManagerMaintenanceService(prisma);
+    const filtered = await maintenance.list(f.client.id, f.actor.id, Object.assign(new MaintenanceFleetsQueryDto(), { issueCategory: 'POWERTRAIN', fleetStatus }));
+    expect(filtered.items.some(item => item.id === fleet.id)).toBe(true);
+    const otherCategory = await maintenance.list(f.client.id, f.actor.id, Object.assign(new MaintenanceFleetsQueryDto(), { issueCategory: 'BRAKES' }));
+    expect(otherCategory.items).toHaveLength(0);
+
+    await expect(db.fleet.update({ where: { id: f.fleet.id }, data: { status: 'AVAILABLE', allocationEnabled: true } })).rejects.toThrow();
+    const missingResolution = await service.recordReport(f.client.id, f.actor, f.submission.id,
+      { ...f.report(proof, 'DEEP', true), items: [] }, 'missing-resolution-key');
+    await service.impose(f.client.id, f.actor, missingResolution.id);
+    await expect(service.confirm(f.client.id, f.actor, missingResolution.id, { riderBypassReason: 'Unavailable', teamLeadBypassReason: 'Unavailable' })).rejects.toThrow('Resolve all outstanding');
+    await service.cancelReport(f.client.id, f.actor, missingResolution.id, 'Include outstanding issue resolution');
+    const repaired = await service.recordReport(f.client.id, f.actor, f.submission.id, {
+      ...f.report(proof, 'DEEP', true), items: [],
+      issues: [{ issueId: issue.id, category: 'POWERTRAIN', description: 'Motor replaced and tested', status: 'RESOLVED', penaltyFindingId: issue.penaltyFindingId ?? undefined, evidencePhotoIds: [proof] }],
+    }, 'condition-repaired-key');
+    await service.impose(f.client.id, f.actor, repaired.id);
+    await service.confirm(f.client.id, f.actor, repaired.id, { riderBypassReason: 'Unavailable', teamLeadBypassReason: 'Unavailable' });
+    const resolvedIssue = await db.vehicleMaintenanceIssue.findUniqueOrThrow({ where: { id: issue.id } });
+    expect(resolvedIssue.status).toBe('RESOLVED');
+    expect(resolvedIssue.penaltyFindingId).toBe(fleetStatus === 'BROKEN' ? findingId : null);
+    expect(await db.riderCharge.count({ where: { clientId: f.client.id } })).toBe(fleetStatus === 'BROKEN' ? 1 : 0);
+    expect((await db.fleet.findUniqueOrThrow({ where: { id: fleet.id } })).status).toBe('AVAILABLE');
+    expect((await db.vehicleSubmissionReport.findUniqueOrThrow({ where: { id: report.id } })).fleetStatus).toBe(fleetStatus);
+    expect(await db.fleetStatusHistory.count({ where: { fleetId: fleet.id, toStatus: fleetStatus } })).toBe(1);
+  });
 
   async function finalizedPenalty() {
     const f = await fixture();
@@ -675,7 +737,7 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
       cid,
       f.actor,
       f.submission.id,
-      { ...f.report(photos[0]!.id), items: [], checksComplete: true },
+      { ...f.report(photos[0]!.id), items: [], checksComplete: true, fleetStatus: 'AVAILABLE' as const, issues: [] },
       'exchange-basic',
     );
     await service.impose(cid, f.actor, basic.id);
@@ -713,9 +775,9 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
     await db.client.update({where:{id:f.client.id},data:{fleetOperatingMode:'PREPARATION_QC'}});
     await db.fleet.update({where:{id:f.fleet.id},data:{allocationEnabled:false,allocationBlockedByAdmin:true}});
     const proof=await f.photo('PENALTY_DAMAGE');
-    await expect(service.recordReport(f.client.id,f.actor,f.submission.id,{...f.report(proof.id),items:[],checksComplete:true},'qc-return')).rejects.toThrow('Capture all');
+    await expect(service.recordReport(f.client.id,f.actor,f.submission.id,{...f.report(proof.id),items:[],checksComplete:true,fleetStatus:'AVAILABLE' as const,issues:[]},'qc-return')).rejects.toThrow('Capture all');
     const photos=await f.capture();
-    const report=await service.recordReport(f.client.id,f.actor,f.submission.id,{...f.report(photos[0]!.id),items:[],checksComplete:true},'qc-return');
+    const report=await service.recordReport(f.client.id,f.actor,f.submission.id,{...f.report(photos[0]!.id),items:[],checksComplete:true,fleetStatus:'AVAILABLE' as const,issues:[]},'qc-return');
     await service.impose(f.client.id,f.actor,report.id);
     await service.confirm(f.client.id,f.actor,report.id,{riderBypassReason:'Development test return',teamLeadBypassReason:'Development test return'});
     expect(await db.fleet.findUniqueOrThrow({where:{id:f.fleet.id}})).toMatchObject({status:'INSPECTION_PENDING',allocationEnabled:false,readinessApprovedPreparationId:null});

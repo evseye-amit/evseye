@@ -5,17 +5,23 @@ const transitions: Readonly<Record<FleetStatus, readonly FleetStatus[]>> = {
   IN_TRANSIT: [
     FleetStatus.AVAILABLE,
     FleetStatus.MAINTENANCE,
+    FleetStatus.BROKEN,
+    FleetStatus.AWAITING_PARTS,
     FleetStatus.OUT_OF_SERVICE,
   ],
   AVAILABLE: [
     FleetStatus.RESERVED,
     FleetStatus.MAINTENANCE,
+    FleetStatus.BROKEN,
+    FleetStatus.AWAITING_PARTS,
     FleetStatus.OUT_OF_SERVICE,
   ],
   RESERVED: [
     FleetStatus.AVAILABLE,
     FleetStatus.ALLOCATION_IN_PROGRESS,
     FleetStatus.MAINTENANCE,
+    FleetStatus.BROKEN,
+    FleetStatus.AWAITING_PARTS,
   ],
   ALLOCATION_IN_PROGRESS: [FleetStatus.ALLOCATED, FleetStatus.AVAILABLE],
   ALLOCATED: [FleetStatus.IN_USE, FleetStatus.DEALLOCATION_IN_PROGRESS],
@@ -24,8 +30,29 @@ const transitions: Readonly<Record<FleetStatus, readonly FleetStatus[]>> = {
     FleetStatus.INSPECTION_PENDING,
     FleetStatus.IN_USE,
   ],
-  INSPECTION_PENDING: [FleetStatus.AVAILABLE, FleetStatus.MAINTENANCE],
-  MAINTENANCE: [FleetStatus.AVAILABLE, FleetStatus.OUT_OF_SERVICE],
+  INSPECTION_PENDING: [
+    FleetStatus.AVAILABLE,
+    FleetStatus.MAINTENANCE,
+    FleetStatus.BROKEN,
+    FleetStatus.AWAITING_PARTS,
+  ],
+  MAINTENANCE: [
+    FleetStatus.AVAILABLE,
+    FleetStatus.BROKEN,
+    FleetStatus.AWAITING_PARTS,
+    FleetStatus.OUT_OF_SERVICE,
+  ],
+  BROKEN: [
+    FleetStatus.MAINTENANCE,
+    FleetStatus.AWAITING_PARTS,
+    FleetStatus.OUT_OF_SERVICE,
+  ],
+  AWAITING_PARTS: [
+    FleetStatus.MAINTENANCE,
+    FleetStatus.BROKEN,
+    FleetStatus.AVAILABLE,
+    FleetStatus.OUT_OF_SERVICE,
+  ],
   OUT_OF_SERVICE: [FleetStatus.MAINTENANCE, FleetStatus.AVAILABLE],
 };
 
