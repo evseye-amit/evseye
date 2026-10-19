@@ -1,7 +1,11 @@
 "use client";
+import { formatDateTime } from "../../lib/presentation";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { ClientDataTable, type ClientColumn } from "./client-data-table";
+import { ClientFormDialog } from "./client-form-dialog";
+import { guardLinkNavigation, requestNavigation, markFormsSaved } from "./unsaved-changes";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { sessionFetch } from "../../lib/session-fetch";
 
 type Tab = "command" | "verifications" | "workflows" | "reviews" | "providers" | "alerts" | "audit";
@@ -61,11 +65,15 @@ async function send<T>(base: string, path: string, method: "POST" | "PATCH", pay
   return body.data;
 }
 
-const time = (value?: string | null) => value ? new Date(value).toLocaleString() : "—";
+const time = formatDateTime;
 const label = (value: string) => value.replaceAll("_", " ");
 
 export default function KycOperationsConsole({ platform = false }: { platform?: boolean }) {
   const base = platform ? "platform/kyc/operations" : "kyc/operations";
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionForm, setActionForm] = useState({ reason: "", assignedTo: "", priority: "NORMAL" });
+  const [actionDialog, setActionDialog] = useState<{ title: string; description: string; kind: "reason" | "assignment" | "priority" | "retry"; submit: (values: typeof actionForm) => Promise<boolean> } | null>(null);
+  const loadGeneration = useRef(0);
   const [authorized, setAuthorized] = useState(false);
   const [canAssignOthers, setCanAssignOthers] = useState(false);
   const [tab, setTab] = useState<Tab>("command");
@@ -94,7 +102,9 @@ export default function KycOperationsConsole({ platform = false }: { platform?: 
 
   const load = useCallback(async () => {
     if (!authorized || document.hidden) return;
+    const generation = ++loadGeneration.current;
     setBusy(true); setError("");
+    const currentGet = async <T,>(path: string) => { const value = await get<T>(base, path); if (generation !== loadGeneration.current) throw new Error("View changed."); return value; };
     try {
       const params = new URLSearchParams({ hours: String(hours), skip: String(skip) });
       if (platform && clientId) params.set("clientId", clientId);
@@ -106,12 +116,16 @@ export default function KycOperationsConsole({ platform = false }: { platform?: 
         if (strategy) params.set("strategy", strategy);
         if (failureCategory) params.set("failureCategory", failureCategory);
       }
-      if (tab === "command") setSummary(await get<Summary>(base, `summary?${params}`));
-      else if (tab === "providers") setProviders(await get<Provider[]>(base, "providers"));
-      else setRows(await get<Page<Verification | Workflow | Alert | Audit>>(base,
-        `${tab === "reviews" ? "manual-reviews" : tab}?${params}`));
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load KYC operations."); }
-    finally { setBusy(false); }
+      if (tab === "command") setSummary(await currentGet<Summary>(`summary?${params}`));
+      else if (tab === "providers") setProviders(await currentGet<Provider[]>("providers"));
+      else {
+        const page = await currentGet<Page<Verification | Workflow | Alert | Audit>>(`${tab === "reviews" ? "manual-reviews" : tab}?${params}`);
+        const lastSkip = Math.floor(Math.max(0, page.total - 1) / 50) * 50;
+        if (skip > lastSkip) { setSkip(lastSkip); return; }
+        setRows(page);
+      }
+    } catch (cause) { if (generation === loadGeneration.current) setError(cause instanceof Error ? cause.message : "Unable to load KYC operations."); }
+    finally { if (generation === loadGeneration.current) setBusy(false); }
   }, [authorized, base, clientId, failureCategory, filter, hours, platform, search, skip, strategy, tab, typeFilter]);
 
   useEffect(() => {
@@ -128,9 +142,9 @@ export default function KycOperationsConsole({ platform = false }: { platform?: 
   }, [platform]);
   useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
   useEffect(() => {
-    const timer = window.setInterval(() => { if (!document.hidden && !detail && !workflowDetail) void load(); }, 60_000);
+    const timer = window.setInterval(() => { if (!document.hidden && !detail && !workflowDetail && !actionDialog) void load(); }, 60_000);
     return () => window.clearInterval(timer);
-  }, [detail, workflowDetail, load]);
+  }, [detail, workflowDetail, actionDialog, load]);
 
   async function openVerification(id: string) {
     setError("");
@@ -142,8 +156,8 @@ export default function KycOperationsConsole({ platform = false }: { platform?: 
     catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load verification."); }
   }
   async function retryVerification() {
-    if (!detail || !retryPreview?.allowed || !retryKey) return;
-    if (!window.confirm("This retry may generate an additional provider request and vendor cost. It will not create another client usage entry. Continue?")) return;
+    if (!detail || !retryPreview?.allowed || !retryKey || actionBusy) return false;
+    setActionBusy(true);
     setError(""); setMessage("");
     try {
       const input = { riderId: detail.riderId, type: detail.verificationType,
@@ -156,8 +170,9 @@ export default function KycOperationsConsole({ platform = false }: { platform?: 
       setMessage("Technical retry recorded."); setRetryForm({});
       setDetail(await get<Detail>(base, `verifications/${detail.id}`));
       setRetryPreview(await get(base, `verifications/${detail.id}/recovery-options`));
-      setRetryKey(crypto.randomUUID()); await load();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Technical retry failed."); }
+      setRetryKey(crypto.randomUUID()); markFormsSaved(); await load(); return true;
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Technical retry failed."); return false; }
+    finally { setActionBusy(false); }
   }
   async function openWorkflow(id: string) {
     setError("");
@@ -165,61 +180,58 @@ export default function KycOperationsConsole({ platform = false }: { platform?: 
     catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load workflow."); }
   }
   async function act(path: string, method: "POST" | "PATCH", payload?: object) {
-    setError(""); setMessage("");
-    try { await send(base, path, method, payload); setMessage("Action recorded."); await load(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Action failed."); }
+    if (actionBusy) return false;
+    setActionBusy(true); setError(""); setMessage("");
+    try { await send(base, path, method, payload); setMessage("Action recorded."); await load(); return true; }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Action failed."); return false; }
+    finally { setActionBusy(false); }
   }
-  async function assign(row: Workflow, self: boolean) {
-    const reason = window.prompt(self ? "Reason for assigning this review to yourself" : "Reason for unassigning this review");
-    if (!reason) return;
-    await act(`manual-reviews/${row.id}/assignment`, "PATCH", { assignedTo: self ? undefined : null,
-      expectedVersion: row.reviewVersion, reason });
+  function queueAction(title: string, description: string, submit: (values: typeof actionForm) => Promise<boolean>, kind: "reason" | "assignment" | "priority" | "retry" = "reason", priority = "NORMAL") {
+    setError(""); setActionForm({ reason: "", assignedTo: "", priority }); setActionDialog({ title, description, submit, kind });
   }
-  async function assignToUser(row: Workflow) {
-    const assignedTo = window.prompt("Reviewer user ID (same client)");
-    if (!assignedTo) return;
-    const reason = window.prompt(`Reason to assign review ${row.id} to ${assignedTo}`);
-    if (!reason) return;
-    await act(`manual-reviews/${row.id}/assignment`, "PATCH", { assignedTo,
-      expectedVersion: row.reviewVersion, reason });
+  function assign(row: Workflow, self: boolean) {
+    queueAction(self ? "Assign review to me" : "Unassign review", `Review ${row.id}. Provide the reason for this assignment change.`, (values) => act(`manual-reviews/${row.id}/assignment`, "PATCH", { assignedTo: self ? undefined : null, expectedVersion: row.reviewVersion, reason: values.reason.trim() }));
   }
-  async function resolve(row: Workflow, action: "APPROVE" | "REJECT") {
-    const reason = window.prompt(`${action} review ${row.id}? Enter a reason (at least 5 characters).`);
-    if (!reason || !window.confirm(`Confirm ${action.toLowerCase()} for review ${row.id}?`)) return;
-    await act(`manual-reviews/${row.id}/resolve`, "POST", { action, expectedVersion: row.reviewVersion, reason });
+  function assignToUser(row: Workflow) {
+    queueAction("Assign review to user", `Review ${row.id}. The reviewer must belong to the same client.`, (values) => act(`manual-reviews/${row.id}/assignment`, "PATCH", { assignedTo: values.assignedTo.trim(), expectedVersion: row.reviewVersion, reason: values.reason.trim() }), "assignment");
   }
-  async function setPriority(row: Workflow) {
-    const priority = window.prompt("Priority: LOW, NORMAL, HIGH or CRITICAL", row.reviewPriority ?? "NORMAL")?.toUpperCase();
-    if (!priority || !["LOW", "NORMAL", "HIGH", "CRITICAL"].includes(priority)) return;
-    const reason = window.prompt(`Reason to set ${priority} priority`);
-    if (!reason) return;
-    await act(`manual-reviews/${row.id}/priority`, "PATCH", { priority, expectedVersion: row.reviewVersion, reason });
+  function resolve(row: Workflow, action: "APPROVE" | "REJECT") {
+    queueAction(action === "APPROVE" ? "Approve workflow review" : "Reject workflow review", `Review ${row.id}. This records a workflow decision; rider document approval remains separate.`, (values) => act(`manual-reviews/${row.id}/resolve`, "POST", { action, expectedVersion: row.reviewVersion, reason: values.reason.trim() }));
+  }
+  function setPriority(row: Workflow) {
+    queueAction("Change review priority", `Review ${row.id}. Choose the priority and record the reason.`, (values) => act(`manual-reviews/${row.id}/priority`, "PATCH", { priority: values.priority, expectedVersion: row.reviewVersion, reason: values.reason.trim() }), "priority", row.reviewPriority ?? "NORMAL");
   }
   async function resume(row: Workflow) {
+    setError("");
     try {
-      const preview = await get<{ allowed: boolean; reason: string; expectedVersion: number;
-        newProviderCallPossible: boolean; newClientUsagePossible: boolean }>(base, `workflows/${row.id}/recovery-options`);
+      const preview = await get<{ allowed: boolean; reason: string; expectedVersion: number; newProviderCallPossible: boolean; newClientUsagePossible: boolean }>(base, `workflows/${row.id}/recovery-options`);
       if (!preview.allowed) { setMessage(preview.reason); return; }
-      const reason = window.prompt(`Resume workflow ${row.id}? ${preview.reason} No new provider call or client usage. Enter reason:`);
-      if (!reason || !window.confirm(`Confirm resume for workflow ${row.id}?`)) return;
-      await act(`workflows/${row.id}/resume`, "POST", { expectedVersion: preview.expectedVersion, reason });
+      queueAction("Resume workflow", `${preview.reason} No new provider call or client usage.`, (values) => act(`workflows/${row.id}/resume`, "POST", { expectedVersion: preview.expectedVersion, reason: values.reason.trim() }));
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Recovery preview failed."); }
   }
+  const rowColumns: ClientColumn<Verification | Workflow | Alert | Audit>[] = [
+    { key: "record", label: "Record / Event", value: (entry) => "type" in entry ? label(entry.type) : "action" in entry ? label(entry.action) : entry.id },
+    ...(platform ? [{ key: "client", label: "Client", value: (entry: Verification | Workflow | Alert | Audit) => entry.clientId ?? "Global" }] : []),
+    { key: "status", label: "Status", value: (entry) => "status" in entry ? label(entry.status) : entry.entityType, render: (entry) => "status" in entry ? <span className={`status status-${entry.status.toLowerCase()}`}>{label(entry.status)}</span> : entry.entityType },
+    { key: "context", label: "Context", value: (entry) => "verificationType" in entry ? `${label(entry.verificationType)} · Rider ${entry.riderId} · ${entry.finalProvider?.name ?? "No provider"} · ${entry.attemptCount} attempts` : "workflowDefinition" in entry ? `${entry.workflowDefinition.name} · Rider ${entry.riderId} · ${entry.reviewPriority ?? "NORMAL"} priority · ${entry.reviewAssignedTo ?? "Unassigned"}` : "occurrenceCount" in entry ? `${entry.capability ?? entry.entityId ?? "—"} · ${entry.severity} · ${entry.occurrenceCount} observations` : `${entry.entityId ?? "—"} · Actor ${entry.actorId ?? "System"}`, render: (entry) => "action" in entry ? <><p>{entry.entityId ?? "—"} · Actor {entry.actorId ?? "System"}</p><details><summary>View field changes</summary><dl className="record-field-changes">{[...new Set([...Object.keys(entry.previous ?? {}), ...Object.keys(entry.current ?? {})])].map((key) => <div key={key}><dt>{label(key)}</dt><dd>{String(entry.previous?.[key] ?? "—")} → {String(entry.current?.[key] ?? "—")}</dd></div>)}</dl></details></> : "flags" in entry ? <span>{"verificationType" in entry ? `${label(entry.verificationType)} · ${entry.finalProvider?.name ?? "No provider"} · ${entry.attemptCount} attempts` : `${entry.workflowDefinition.name} · ${entry.reviewPriority ?? "NORMAL"} priority · ${entry.reviewAssignedTo ?? "Unassigned"}`}<small className="record-secondary">Rider {entry.riderId}{entry.flags.length ? ` · ${entry.flags.map(label).join(", ")}` : ""}</small></span> : `${entry.capability ?? entry.entityId ?? "—"} · ${entry.severity} · ${entry.occurrenceCount} observations` },
+    { key: "time", label: "Updated / Due", value: (entry) => "reviewDueAt" in entry && entry.reviewDueAt ? entry.reviewDueAt : "updatedAt" in entry ? entry.updatedAt : "lastSeenAt" in entry ? entry.lastSeenAt : "createdAt" in entry ? entry.createdAt : "", render: (entry) => time("updatedAt" in entry ? ("reviewDueAt" in entry ? entry.reviewDueAt ?? entry.updatedAt : entry.updatedAt) : "lastSeenAt" in entry ? entry.lastSeenAt : "createdAt" in entry ? entry.createdAt : null) },
+  ];
 
-  return <main className="client-dashboard" style={{ padding: "2rem", maxWidth: 1360, margin: "0 auto" }}>
+  return <main className={`client-dashboard kyc-workspace ${platform ? "" : "client-operations-main"}`} onClickCapture={guardLinkNavigation}>
     <header className="client-dashboard-header"><div><p className="eyebrow">{platform ? "EVsEYE OPERATIONS" : "CLIENT WORKSPACE"}</p>
-      <h1>KYC Command Center</h1><p>Verification, workflow, provider and incident operations</p></div>
+      <h1>{platform ? "KYC Command Center" : "KYC Operations"}</h1><p>Verification, workflow, provider and incident operations</p></div>
       <div><Link href={platform ? "/platform/kyc/analytics" : "/client/kyc/analytics"}>Analytics</Link>{" · "}
       {platform && <><Link href="/platform/kyc/intelligent-routing">Intelligent Routing</Link>{" · "}</>}
       <Link href={platform ? "/platform/dashboard" : "/client/kyc"}>Back</Link></div></header>
-    {error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
+    {error && !actionDialog && !detail && !workflowDetail && <p className="error" role="alert">{error}</p>}{message && <p className="notice" role="status">{message}</p>}
+    {!platform && <p className="muted">Rider KYC verification follows onboarding document approval. Provider checks and workflow decisions below are tracked separately.</p>}
     {authorized && <><nav aria-label="KYC operations sections" style={{ display: "flex", gap: ".5rem", flexWrap: "wrap", margin: "1.5rem 0" }}>
       {(["command", "verifications", "workflows", "reviews", "providers", "alerts", "audit"] as Tab[]).map((item) =>
         <button key={item} type="button" aria-current={tab === item ? "page" : undefined}
-          onClick={() => { setTab(item); setSkip(0); setFilter(""); setSearch(""); setSearchDraft("");
-            setDetail(null); setWorkflowDetail(null); setRetryForm({}); }}>{item === "command" ? "Command Center" :
+          onClick={() => requestNavigation(() => { setTab(item); setRows(null); loadGeneration.current += 1; setSkip(0); setFilter(""); setSearch(""); setSearchDraft("");
+            setDetail(null); setWorkflowDetail(null); setRetryForm({}); })}>{item === "command" ? "Command Center" :
             item === "reviews" ? "Manual Review" : label(item[0].toUpperCase() + item.slice(1))}</button>)}</nav>
-      <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", marginBottom: "1rem" }}>
+      <div className="client-filter-bar">
         <label>Time window <select value={hours} onChange={(event) => { setHours(Number(event.target.value)); setSkip(0); }}>
           <option value={1}>Last hour</option><option value={24}>Last 24 hours</option><option value={168}>Last 7 days</option></select></label>
         {platform && <label>Client ID <input value={clientIdDraft} placeholder="All clients" onChange={(event) => setClientIdDraft(event.target.value)} /></label>}
@@ -258,52 +270,16 @@ export default function KycOperationsConsole({ platform = false }: { platform?: 
             {capability.isEnabled ? " enabled" : " disabled"} · {capability.health?.status ?? "UNKNOWN"} · {capability.health?.recentRequests ?? 0} requests
             {capability.health?.technicalFailureRate == null ? "" : ` · ${Math.round(capability.health.technicalFailureRate * 100)}% technical failures`}
             {capability.health?.p95LatencyMs == null ? "" : ` · P95 ${capability.health.p95LatencyMs} ms`}
-            {platform && <button type="button" onClick={() => { const reason = window.prompt(`Reason to ${capability.isEnabled ? "disable" : "enable"} ${capability.verificationType}`);
-              if (reason && window.confirm(`Confirm ${capability.isEnabled ? "disable" : "enable"} ${capability.verificationType}?`))
-                void act(`providers/${provider.id}/state`, "PATCH", { enabled: !capability.isEnabled,
-                  capability: capability.verificationType, reason }); }}>{capability.isEnabled ? "Disable capability" : "Enable capability"}</button>}</li>)}</ul>
-          {platform && <button type="button" onClick={() => { const reason = window.prompt(`Reason to ${provider.isActive ? "disable" : "enable"} ${provider.name}`);
-            if (reason && window.confirm(`Confirm ${provider.isActive ? "disable" : "enable"} ${provider.name}?`))
-              void act(`providers/${provider.id}/state`, "PATCH", { enabled: !provider.isActive, reason }); }}>
-            {provider.isActive ? "Disable" : "Enable"}</button>}</article>)}</section>}
-      {tab !== "command" && tab !== "providers" && rows && <section><h2>{tab === "reviews" ? "Manual Review" : label(tab[0].toUpperCase() + tab.slice(1))} ({rows.total})</h2>
-        {rows.items.length === 0 ? <p>No records found.</p> : <div style={{ overflowX: "auto" }}><table><thead><tr>
-          <th>ID / Event</th><th>Client</th><th>State</th><th>Context</th><th>Time</th><th>Actions</th></tr></thead><tbody>
-          {rows.items.map((entry) => {
-            if (tab === "verifications") { const row = entry as Verification; return <tr key={row.id}>
-              <td><button type="button" onClick={() => void openVerification(row.id)}>{row.id}</button></td><td>{row.clientId}</td>
-              <td>{label(row.status)}{row.flags.length ? ` · ${row.flags.map(label).join(", ")}` : ""}</td>
-              <td>{label(row.verificationType)} · Rider {row.riderId} · {row.finalProvider?.name ?? "No provider"} · {row.attemptCount} attempts</td>
-              <td>{time(row.updatedAt)}</td><td><button type="button" onClick={() => void openVerification(row.id)}>Details</button></td></tr>; }
-            if (tab === "workflows" || tab === "reviews") { const row = entry as Workflow; return <tr key={row.id}>
-              <td><button type="button" onClick={() => void openWorkflow(row.id)}>{row.id}</button></td><td>{row.clientId}</td><td>{label(row.status)}{row.flags.length ? ` · ${row.flags.map(label).join(", ")}` : ""}</td>
-              <td>{row.workflowDefinition.name} · Rider {row.riderId}{row.reviewPriority ? ` · ${row.reviewPriority} priority` : ""}
-                {row.reviewAssignedTo ? ` · Assigned ${row.reviewAssignedTo}` : ""}</td><td>{time(row.reviewDueAt ?? row.updatedAt)}</td>
-              <td>{tab === "reviews" && row.status === "MANUAL_REVIEW" && !platform ? <>
-                <button type="button" onClick={() => void assign(row, true)}>Assign to me</button>{" "}
-                {canAssignOthers && <><button type="button" onClick={() => void assignToUser(row)}>Assign to user</button>{" "}
-                  <button type="button" onClick={() => void assign(row, false)}>Unassign</button>{" "}</>}
-                {canAssignOthers && <><button type="button" onClick={() => void setPriority(row)}>Priority</button>{" "}</>}
-                <button type="button" onClick={() => void resolve(row, "APPROVE")}>Approve</button>{" "}
-                <button type="button" onClick={() => void resolve(row, "REJECT")}>Reject</button></> :
-                tab === "workflows" && !platform && canAssignOthers ? <button type="button" onClick={() => void resume(row)}>Recovery preview</button> : "—"}</td></tr>; }
-            if (tab === "alerts") { const row = entry as Alert; return <tr key={row.id}>
-              <td>{label(row.type)}</td><td>{row.clientId ?? "Global"}</td><td>{row.severity} · {row.status}</td>
-              <td>{row.capability ? label(row.capability) : row.entityId ?? "—"} · {row.occurrenceCount} observations</td>
-              <td>{time(row.lastSeenAt)}</td><td>{platform && row.status !== "RESOLVED" && <>
-                {row.status === "OPEN" && <button type="button" onClick={() => void act(`alerts/${row.id}/acknowledge`, "POST")}>Acknowledge</button>}{" "}
-                <button type="button" onClick={() => void act(`alerts/${row.id}/resolve`, "POST")}>Resolve</button></>}</td></tr>; }
-            const row = entry as Audit; return <tr key={row.id}><td>{label(row.action)}</td><td>{row.clientId ?? "Global"}</td>
-              <td>{row.entityType}</td><td>{row.entityId ?? "—"} · Actor {row.actorId ?? "System"}
-                {row.previous && Object.keys(row.previous).length > 0 ? ` · Previous: ${JSON.stringify(row.previous)}` : ""}
-                {row.current && Object.keys(row.current).length > 0 ? ` · Current: ${JSON.stringify(row.current)}` : ""}</td>
-              <td>{time(row.createdAt)}</td><td>—</td></tr>;
-          })}</tbody></table></div>}
-        <div style={{ display: "flex", gap: "1rem", margin: "1rem 0" }}><button type="button" disabled={skip === 0}
-          onClick={() => setSkip(Math.max(0, skip - 50))}>Previous</button><span>{skip + 1}–{Math.min(skip + 50, rows.total)} of {rows.total}</span>
-          <button type="button" disabled={skip + 50 >= rows.total} onClick={() => setSkip(skip + 50)}>Next</button></div></section>}
-      {detail && <section className="client-metric-card" aria-label="Verification details"><button type="button" onClick={() => { setDetail(null); setRetryForm({}); }}>Close details</button>
-        <h2>Verification {detail.id}</h2><p>Client {detail.clientId} · Rider {detail.riderId} · {label(detail.verificationType)} · {label(detail.status)}</p>
+            {platform && <button type="button" onClick={() => queueAction(capability.isEnabled ? "Disable capability" : "Enable capability", label(capability.verificationType), (values) => act(`providers/${provider.id}/state`, "PATCH", { enabled: !capability.isEnabled, capability: capability.verificationType, reason: values.reason.trim() }))}>{capability.isEnabled ? "Disable capability" : "Enable capability"}</button>}</li>)}</ul>
+          {platform && <button type="button" onClick={() => queueAction(provider.isActive ? "Disable provider" : "Enable provider", provider.name, (values) => act(`providers/${provider.id}/state`, "PATCH", { enabled: !provider.isActive, reason: values.reason.trim() }))}>{provider.isActive ? "Disable" : "Enable"}</button>}</article>)}</section>}
+      {tab !== "command" && tab !== "providers" && rows && <section><h2>{tab === "reviews" ? "Manual Review" : label(tab[0].toUpperCase() + tab.slice(1))}</h2>
+        <ClientDataTable key={tab} rows={rows.items} columns={rowColumns} getRowId={(row) => row.id} loading={busy} searchable={false} server={{ page: Math.floor(skip / 50) + 1, limit: 50, total: rows.total, search, onSearch: setSearch, onPage: (page) => setSkip((page - 1) * 50) }} actions={(entry) => "verificationType" in entry ? <button type="button" className="secondary table-action" disabled={actionBusy} onClick={() => void openVerification(entry.id)}>Details</button> : "workflowDefinition" in entry ? <>
+          <button type="button" className="secondary table-action" disabled={actionBusy} onClick={() => void openWorkflow(entry.id)}>Details</button>
+          {tab === "reviews" && entry.status === "MANUAL_REVIEW" && !platform && <><button type="button" className="secondary table-action" disabled={actionBusy} onClick={() => assign(entry, true)}>Assign to me</button>{canAssignOthers && <><button type="button" className="secondary table-action" onClick={() => assignToUser(entry)}>Assign to user</button><button type="button" className="secondary table-action" onClick={() => assign(entry, false)}>Unassign</button><button type="button" className="secondary table-action" onClick={() => setPriority(entry)}>Priority</button></>}<button type="button" disabled={actionBusy} onClick={() => resolve(entry, "APPROVE")}>Approve</button><button type="button" className="danger table-action" disabled={actionBusy} onClick={() => resolve(entry, "REJECT")}>Reject</button></>}
+          {tab === "workflows" && !platform && canAssignOthers && <button type="button" className="secondary table-action" disabled={actionBusy} onClick={() => void resume(entry)}>Recovery preview</button>}
+        </> : "occurrenceCount" in entry && platform && entry.status !== "RESOLVED" ? <>{entry.status === "OPEN" && <button type="button" className="secondary table-action" disabled={actionBusy} onClick={() => void act(`alerts/${entry.id}/acknowledge`, "POST")}>Acknowledge</button>}<button type="button" className="secondary table-action" disabled={actionBusy} onClick={() => void act(`alerts/${entry.id}/resolve`, "POST")}>Resolve</button></> : <span className="muted">—</span>} />
+      </section>}
+      {detail && <ClientFormDialog title="Provider verification details" wide busy={actionBusy} error={error} onClose={() => { setDetail(null); setRetryForm({}); }}><details><summary>Record identifiers</summary><p>Verification {detail.id} · Client {detail.clientId} · Rider {detail.riderId}</p></details><p>Client {detail.clientId} · Rider {detail.riderId} · {label(detail.verificationType)} · {label(detail.status)}</p>
         <p>Flags: {detail.flags.map(label).join(", ") || "None"} · Result: {detail.resultCode ?? "Pending"}</p>
         <h3>Workflow and routing</h3><p>{detail.routingDecision ? `${detail.routingDecision.routingPolicy?.name ?? "Policy"} v${detail.routingDecision.routingPolicyVersion} · ${label(detail.routingDecision.strategy)} · ${detail.routingDecision.decisionReason}` : "No routing decision recorded."}</p>
         <h3>Client usage</h3><p>{detail.featureConsumption ? `${detail.featureConsumption.quantity} verification · ${label(detail.featureConsumption.source)}${detail.featureConsumption.reversedAt ? " · Reversed" : ""}` : "No consumption recorded."}</p>
@@ -314,7 +290,7 @@ export default function KycOperationsConsole({ platform = false }: { platform?: 
         <h3>Unified timeline</h3><ol>{detail.timeline.map((event) => <li key={event.id}>{time(event.timestamp)} · {event.category} · {label(event.title)}</li>)}</ol>
         {!platform && canAssignOthers && retryPreview && <section aria-label="Technical recovery"><h3>Technical recovery</h3>
           <p>{retryPreview.reason} · Remaining attempts: {retryPreview.attemptsRemaining}</p>
-          {retryPreview.allowed && <form autoComplete="off" onSubmit={(event) => { event.preventDefault(); void retryVerification(); }}>
+          {retryPreview.allowed && <form autoComplete="off" className="form-stack" onSubmit={(event) => { event.preventDefault(); queueAction("Retry technical verification?", "This retry may generate an additional provider request and vendor cost. It will not create another client usage entry.", () => retryVerification(), "retry"); }}>
             <p>Re-enter the original identity input. The server checks its fingerprint before making a provider request.</p>
             {detail.verificationType === "PAN_VERIFICATION" && <><label>PAN <input required value={retryForm.pan ?? ""} maxLength={10}
               onChange={(event) => setRetryForm((prior) => ({ ...prior, pan: event.target.value }))} /></label>{" "}
@@ -328,10 +304,8 @@ export default function KycOperationsConsole({ platform = false }: { platform?: 
             <label>Reason <input required minLength={5} maxLength={500} value={retryForm.reason ?? ""}
               onChange={(event) => setRetryForm((prior) => ({ ...prior, reason: event.target.value }))} /></label>
             <button type="submit">Retry technical failure</button>
-          </form>}</section>}</section>}
-      {workflowDetail && <section className="client-metric-card" aria-label="Workflow details">
-        <button type="button" onClick={() => setWorkflowDetail(null)}>Close workflow</button>
-        <h2>{workflowDetail.workflowDefinition.name} · v{workflowDetail.workflowVersion}</h2>
+          </form>}</section>}</ClientFormDialog>}
+      {workflowDetail && <ClientFormDialog title={`${workflowDetail.workflowDefinition.name} · v${workflowDetail.workflowVersion}`} wide busy={actionBusy} error={error} onClose={() => setWorkflowDetail(null)}>
         <p>Execution {workflowDetail.id} · Client {workflowDetail.clientId} · Rider {workflowDetail.riderId} · {label(workflowDetail.status)}</p>
         <p>Flags: {workflowDetail.flags.map(label).join(", ") || "None"} · Priority {workflowDetail.reviewPriority} · Due {time(workflowDetail.reviewDueAt)}</p>
         <h3>Steps</h3><ol>{workflowDetail.steps.map((step) => <li key={step.id}>{step.name} · {step.execution ? label(step.execution.status) : "Not started"}
@@ -339,7 +313,13 @@ export default function KycOperationsConsole({ platform = false }: { platform?: 
         <h3>Decisions</h3><ul>{workflowDetail.decisions.map((decision) => <li key={decision.id}>{time(decision.decidedAt)} · {label(decision.decision)} · {label(decision.reasonCode)}</li>)}</ul>
         <h3>Reconciliation</h3><ul>{workflowDetail.reconciliations.map((item) => <li key={item.type}>{label(item.type)} · {label(item.status)}{item.score == null ? "" : ` · ${item.score}`}</li>)}</ul>
         <h3>Timeline</h3><ol>{workflowDetail.timeline.map((event) => <li key={event.id}>{time(event.timestamp)} · {event.category} · {label(event.title)}</li>)}</ol>
-      </section>}
+      </ClientFormDialog>}
     </>}
+    {actionDialog && <ClientFormDialog title={actionDialog.title} busy={actionBusy} error={error} onClose={() => setActionDialog(null)}><form className="form-stack" onSubmit={async (event) => { event.preventDefault(); if (await actionDialog.submit(actionForm)) setActionDialog(null); }}><p>{actionDialog.description}</p>
+      {actionDialog.kind === "assignment" && <label>Reviewer user ID *<input aria-label="Reviewer user ID" required value={actionForm.assignedTo} onChange={(event) => setActionForm({ ...actionForm, assignedTo: event.target.value })} /></label>}
+      {actionDialog.kind === "priority" && <label>Priority *<select aria-label="Priority" value={actionForm.priority} onChange={(event) => setActionForm({ ...actionForm, priority: event.target.value })}>{["LOW", "NORMAL", "HIGH", "CRITICAL"].map((priority) => <option key={priority}>{priority}</option>)}</select></label>}
+      {actionDialog.kind !== "retry" && <label>Reason *<textarea aria-label="Reason" required minLength={5} maxLength={500} value={actionForm.reason} onChange={(event) => setActionForm({ ...actionForm, reason: event.target.value })} /></label>}
+      <div className="form-actions"><button type="button" className="secondary" disabled={actionBusy} onClick={() => setActionDialog(null)}>Cancel</button><button disabled={actionBusy || (actionDialog.kind !== "retry" && actionForm.reason.trim().length < 5)}>{actionBusy ? "Saving…" : "Confirm"}</button></div>
+    </form></ClientFormDialog>}
   </main>;
 }

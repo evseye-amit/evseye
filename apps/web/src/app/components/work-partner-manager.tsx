@@ -1,4 +1,5 @@
 "use client";
+import { usePanelLoading } from "./panel-loading";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { ClientDataTable, type ClientColumn } from "./client-data-table";
@@ -97,6 +98,7 @@ export function WorkPartnerManager({
   const [importsLoading, setImportsLoading] = useState(false);
   const root = mode === "platform" ? "/platform/work-partners" : "/client/work-partners";
 
+  usePanelLoading(loading || refreshing || busy);
   const loadRows = useCallback(async (initial = false) => {
     if (initial) setLoading(true);
     else setRefreshing(true);

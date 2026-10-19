@@ -1,6 +1,8 @@
 "use client";
+import { usePanelLoading } from "./panel-loading";
 import { useEffect, useState } from "react";
 import { sessionFetch } from "../../lib/session-fetch";
+import { ClientDataTable } from "./client-data-table";
 import { ClientFormDialog } from "./client-form-dialog";
 export type InstallationDefinition = {
   code: string;
@@ -83,7 +85,7 @@ type Detail = Row & {
   };
 };
 const label = (v: string) => v.replaceAll("_", " ");
-export function InstallationBoard() {
+export function InstallationBoard({ refreshKey = 0 }: { refreshKey?: number }) {
   const [rows, setRows] = useState<Row[]>([]),
     [total, setTotal] = useState(0),
     [page, setPage] = useState(1),
@@ -126,6 +128,8 @@ export function InstallationBoard() {
   const [hardwareLabels, setHardwareLabels] = useState<Record<string, string>>(
     {},
   );
+  const [contextLoading, setContextLoading] = useState(false);
+  usePanelLoading(loading || busy || contextLoading);
   const detailId = detail?.id;
   useEffect(() => {
     if (!detailId) return;
@@ -151,10 +155,10 @@ export function InstallationBoard() {
   }, [detailId, inventorySearch, inventoryPage, epoch]);
   useEffect(() => {
     let active = true;
-    void Promise.all([
+    void Promise.resolve().then(() => { if (active) { setContextLoading(true); setError(""); } return Promise.all([
       api<NonNullable<typeof context>>("fleet-readiness/context"),
       api<NonNullable<typeof policy>>("fleet-readiness/policy"),
-    ])
+    ]); })
       .then(([c, p]) => {
         if (active) {
           setContext(c);
@@ -163,11 +167,11 @@ export function InstallationBoard() {
       })
       .catch((e) => {
         if (active) setError(e.message);
-      });
+      }).finally(() => { if (active) setContextLoading(false); });
     return () => {
       active = false;
     };
-  }, []);
+  }, [refreshKey]);
   useEffect(() => {
     let active = true;
     const q = new URLSearchParams({
@@ -180,13 +184,15 @@ export function InstallationBoard() {
     });
     void Promise.resolve()
       .then(() => {
-        if (active) setLoading(true);
+        if (active) { setLoading(true); setError(""); }
         return api<{ items: Row[]; total: number; summary: typeof summary }>(
           `fleet-installations?${q}`,
         );
       })
       .then((r) => {
         if (active) {
+          const lastPage = Math.max(1, Math.ceil(r.total / 20));
+          if (page > lastPage) { setPage(lastPage); return; }
           setRows(r.items);
           setTotal(r.total);
           setSummary(r.summary);
@@ -201,7 +207,7 @@ export function InstallationBoard() {
     return () => {
       active = false;
     };
-  }, [page, search, stage, status, hub, epoch]);
+  }, [page, search, stage, status, hub, epoch, refreshKey]);
   useEffect(() => {
     let active = true;
     const q = new URLSearchParams({
@@ -215,6 +221,8 @@ export function InstallationBoard() {
     )
       .then((r) => {
         if (active) {
+          const lastPage = Math.max(1, Math.ceil(r.total / 20));
+          if (candidatePage > lastPage) { setCandidatePage(lastPage); return; }
           setCandidates(r.items);
           setCandidateTotal(r.total);
         }
@@ -225,7 +233,7 @@ export function InstallationBoard() {
     return () => {
       active = false;
     };
-  }, [candidatePage, search, hub, epoch]);
+  }, [candidatePage, search, hub, epoch, refreshKey]);
   async function open(id: string) {
     const d = await api<Detail>(`fleet-installations/${id}`);
     setDetail(d);
@@ -354,7 +362,7 @@ export function InstallationBoard() {
     detail.assignedToId === detail.permissions.userId &&
     detail.status === "IN_PROGRESS";
   return (
-    <section className="table-card">
+    <section className="table-card client-operational-list">
 
       {error && (
         <p className="error" role="alert">
@@ -368,8 +376,8 @@ export function InstallationBoard() {
           mode.
         </p>
       )}
-      <p>{summary.map((s) => `${label(s.status)}: ${s._count}`).join(" · ")}</p>
-      <div className="form-grid">
+      <div className="client-review-counts">{summary.map((entry) => <span key={entry.status}><strong>{entry._count}</strong> {label(entry.status)}</span>)}</div>
+      <div className="client-filter-bar">
         <label>
           Search scooter
           <input
@@ -434,107 +442,25 @@ export function InstallationBoard() {
               "COMPLETED",
               "REWORK_REQUIRED",
             ].map((s) => (
-              <option key={s}>{s}</option>
+              <option key={s} value={s}>{label(s)}</option>
             ))}
           </select>
         </label>
       </div>
-      {loading && <p>Loading installations…</p>}
-      <table>
-        <thead>
-          <tr>
-            <th>Scooter</th>
-            <th>Hub</th>
-            <th>Stage</th>
-            <th>Status</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.id}>
-              <td>
-                {r.preparation.fleet.vehicleNumber ??
-                  r.preparation.fleet.fleetCode}
-              </td>
-              <td>{r.preparation.hub.name}</td>
-              <td>{r.definition.name}</td>
-              <td>{label(r.status)}</td>
-              <td>
-                <button
-                  className="secondary"
-                  onClick={() => void run(() => open(r.id))}
-                >
-                  Open
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {!loading && !rows.length && <p>No installation work found.</p>}
-      <div className="form-actions">
-        <button
-          disabled={page === 1 || busy}
-          onClick={() => setPage((p) => p - 1)}
-        >
-          Previous
-        </button>
-        <span>
-          Page {page} · {total} stages
-        </span>
-        <button
-          disabled={page * 20 >= total || busy}
-          onClick={() => setPage((p) => p + 1)}
-        >
-          Next
-        </button>
-      </div>
+      <ClientDataTable rows={rows} loading={loading} searchable={false} getRowId={(row) => row.id} emptyMessage="No installation work found."
+        server={{ page, limit: 20, total, search, onSearch: setSearch, onPage: setPage }}
+        columns={[
+          { key: "scooter", label: "Scooter", value: (row) => row.preparation.fleet.vehicleNumber ?? row.preparation.fleet.fleetCode },
+          { key: "hub", label: "Hub", value: (row) => row.preparation.hub.name },
+          { key: "stage", label: "Stage", value: (row) => row.definition.name },
+          { key: "status", label: "Status", value: (row) => label(row.status), render: (row) => <span className={`status status-${row.status.toLowerCase()}`}>{label(row.status)}</span> },
+        ]} actions={(row) => <button type="button" className="secondary table-action" disabled={busy || loading} onClick={() => void run(() => open(row.id))}>Open</button>} />
       {policy?.operatingMode === "STAGED_PREPARATION_QC" && (
         <>
           <h3>Scooters awaiting preparation</h3>
-          {candidates.map((c) => (
-            <div className="form-actions" key={c.id}>
-              <span>{c.fleetCode}</span>
-              <button
-                disabled={busy}
-                onClick={() =>
-                  void run(async () => {
-                    const r = await api<{ id: string }>(
-                      `fleets/${c.id}/preparations`,
-                      "POST",
-                    );
-                    const q = await api<{ items: Row[] }>(
-                      `fleet-installations?limit=100&search=${encodeURIComponent(c.fleetCode)}`,
-                    );
-                    const first = q.items.find(
-                      (s) => s.preparation.id === r.id,
-                    );
-                    if (first) await open(first.id);
-                  })
-                }
-              >
-                Start preparation cycle
-              </button>
-            </div>
-          ))}
-          <div className="form-actions">
-            <button
-              disabled={candidatePage === 1}
-              onClick={() => setCandidatePage((p) => p - 1)}
-            >
-              Previous scooters
-            </button>
-            <span>
-              {candidateTotal} scooters · page {candidatePage}
-            </span>
-            <button
-              disabled={candidatePage * 20 >= candidateTotal}
-              onClick={() => setCandidatePage((p) => p + 1)}
-            >
-              Next scooters
-            </button>
-          </div>
+          <ClientDataTable rows={candidates} searchable={false} loading={loading} getRowId={(fleet) => fleet.id} emptyMessage="No scooters awaiting preparation." server={{ page: candidatePage, limit: 20, total: candidateTotal, search, onSearch: setSearch, onPage: setCandidatePage }} columns={[
+            { key: "fleetCode", label: "Scooter", value: (fleet) => fleet.fleetCode },
+          ]} actions={(fleet) => <button type="button" className="secondary table-action" disabled={busy || loading} onClick={() => void run(async () => { const preparation = await api<{ id: string }>(`fleets/${fleet.id}/preparations`, "POST"); const stages = await api<{ items: Row[] }>(`fleet-installations?limit=100&search=${encodeURIComponent(fleet.fleetCode)}`); const first = stages.items.find((stage) => stage.preparation.id === preparation.id); if (first) await open(first.id); setEpoch((value) => value + 1); })}>Start preparation cycle</button>} />
         </>
       )}
       {detail && (
@@ -885,11 +811,9 @@ export function InstallationBoard() {
       {preview && (
         <ClientFormDialog
           title="Installation photo"
+          wide
           onClose={() => setPreview(null)}
         >
-          <button className="secondary" onClick={() => setPreview(null)}>
-            Close photo
-          </button>
           {/* eslint-disable-next-line @next/next/no-img-element -- Private evidence uses short-lived signed URLs. */}
           <img
             src={preview}
@@ -900,9 +824,7 @@ export function InstallationBoard() {
               objectFit: "contain",
             }}
           />
-          <a href={preview} target="_blank" rel="noreferrer" download>
-            Download photo
-          </a>
+          <div className="form-actions"><a className="button secondary" href={preview} target="_blank" rel="noreferrer" download>Download photo</a><button type="button" className="secondary" onClick={() => setPreview(null)}>Close preview</button></div>
         </ClientFormDialog>
       )}
     </section>

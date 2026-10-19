@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { ClientDataTable } from "../../components/client-data-table";
+import { ClientFormDialog } from "../../components/client-form-dialog";
+import { ClientConfirmationDialog } from "../../components/client-confirmation-dialog";
+import { markFormsSaved } from "../../components/unsaved-changes";
 import { sessionFetch } from "../../../lib/session-fetch";
 
 type WorkflowRow = { id: string; riderId: string; rider?: { name: string }; clientId: string;
@@ -25,6 +29,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export default function WorkflowPanel({ view }: { view: "workflows" | "reviews" | "definitions" }) {
+  const [confirmation, setConfirmation] = useState<boolean | null>(null);
   const [rows, setRows] = useState<WorkflowRow[]>([]);
   const [definitions, setDefinitions] = useState<Definition[]>([]);
   const [detail, setDetail] = useState<Detail | null>(null);
@@ -43,6 +48,7 @@ export default function WorkflowPanel({ view }: { view: "workflows" | "reviews" 
         const query = new URLSearchParams({ skip: String(page * 50) });
         if (view === "workflows" && status) query.set("status", status);
         const items = await api<WorkflowRow[]>(`${view === "reviews" ? "manual-reviews" : "workflows"}?${query}`);
+        if (!items.length && page > 0) { setPage(page - 1); return; }
         const loadedAt = Date.now();
         setRows(items.map((item) => ({ ...item, ageHours: item.decisions[0]?.decidedAt ?
           Math.max(0, Math.floor((loadedAt - new Date(item.decisions[0].decidedAt).getTime()) / 3600000)) : undefined })));
@@ -55,27 +61,27 @@ export default function WorkflowPanel({ view }: { view: "workflows" | "reviews" 
 
   async function open(id: string) {
     setError("");
-    try { setDetail(await api<Detail>(`${view === "reviews" ? "manual-reviews" : "workflows"}/${id}`)); }
+    try { setReason(""); setDetail(await api<Detail>(`${view === "reviews" ? "manual-reviews" : "workflows"}/${id}`)); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load workflow."); }
   }
 
   async function review(approve: boolean) {
-    if (!detail || reason.trim().length < 5 || !window.confirm(`${approve ? "Approve" : "Reject"} this KYC review?`)) return;
+    if (!detail || busy || reason.trim().length < 5) return;
     setBusy(true); setError("");
     try {
       const updated = await api<Detail>(`manual-reviews/${detail.id}/${approve ? "approve" : "reject"}`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason: reason.trim() }),
       });
-      setDetail(updated); setReason(""); await load();
+      setDetail(updated); setReason(""); setConfirmation(null); markFormsSaved(); await load();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to submit review."); }
     finally { setBusy(false); }
   }
 
   return <section>
     <h2>{view === "reviews" ? "Manual review" : view === "definitions" ? "Workflow definitions" : "Workflows"}</h2>
-    {view === "workflows" && <label>Status <select value={status} onChange={(event) => { setStatus(event.target.value); setPage(0); }}>
+    {view === "workflows" && <div className="client-filter-bar"><label>Status <select value={status} onChange={(event) => { setStatus(event.target.value); setPage(0); }}>
       <option value="">All</option>{["ACTION_REQUIRED", "IN_PROGRESS", "VERIFIED", "MANUAL_REVIEW", "REJECTED", "EXPIRED"].map((value) => <option key={value}>{value}</option>)}
-    </select></label>}
+    </select></label></div>}
     {loading && <p role="status">Loading workflows…</p>}
     {error && <p role="alert">{error}</p>}
     {!loading && view === "definitions" && (definitions.length ? definitions.map((definition) => <article className="client-metric-card" key={definition.id} style={{ marginTop: "1rem" }}>
@@ -83,21 +89,26 @@ export default function WorkflowPanel({ view }: { view: "workflows" | "reviews" 
       <h4>Steps</h4><ol>{definition.steps.map((step) => <li key={step.id}>{step.name} · {step.isRequired ? "Required" : "Optional"} · {step.actionMode} · {step.failureBehavior}</li>)}</ol>
       <h4>Decision rules</h4><ol>{definition.rules.map((rule) => <li key={rule.id}>Priority {rule.priority}: {rule.condition.kind}{rule.condition.statuses?.length ? ` (${rule.condition.statuses.join(", ")})` : ""} → {rule.action} · {rule.reasonCode}</li>)}</ol>
     </article>) : <p>No workflow definitions configured.</p>)}
-    {!loading && view !== "definitions" && <>
-      {rows.length ? <table><thead><tr><th>Workflow</th><th>Rider</th><th>Client</th><th>Version</th><th>Current step</th><th>Status</th><th>Decision</th>{view === "reviews" && <><th>Reason</th><th>Questionable check</th><th>Age</th></>}<th>Started</th><th>Completed</th></tr></thead>
-        <tbody>{rows.map((row) => <tr key={row.id}><td><button type="button" onClick={() => void open(row.id)}>{row.id.slice(0, 8)}</button> · {row.workflowDefinition.code}</td>
-          <td>{row.rider?.name ?? row.riderId.slice(0, 8)}</td><td>{row.clientId.slice(0, 8)}</td><td>{row.workflowVersion}</td>
-          <td>{row.stepExecutions.find((step) => ["IN_PROGRESS", "ACTION_REQUIRED"].includes(step.status))?.workflowStep.name ?? "—"}</td><td>{row.status}</td>
-          <td>{row.decisions[0]?.decision ?? "—"}</td>{view === "reviews" && <><td>{row.decisions[0]?.reasonCode ?? "—"}</td>
-            <td>{row.stepExecutions.find((step) => step.status === "FAILED")?.workflowStep.name ?? "—"}</td>
-            <td>{row.ageHours == null ? "—" : `${row.ageHours} h`}</td></>}
-          <td>{new Date(row.startedAt).toLocaleString()}</td><td>{row.completedAt ? new Date(row.completedAt).toLocaleString() : "—"}</td></tr>)}</tbody></table>
-        : <p>{view === "reviews" ? "No reviews pending." : "No workflows found."}</p>}
-      <div style={{ display: "flex", gap: "1rem", marginTop: "1rem" }}><button type="button" disabled={page === 0} onClick={() => setPage(page - 1)}>Previous</button>
-        <span>Page {page + 1}</span><button type="button" disabled={rows.length < 50} onClick={() => setPage(page + 1)}>Next</button></div>
+    {view !== "definitions" && <>
+      <ClientDataTable rows={rows} loading={loading} pagination={false} searchable={false} sortable={false} filterable={false} getRowId={(row) => row.id} emptyMessage={view === "reviews" ? "No reviews pending." : "No workflows match these filters."} columns={[
+        { key: "workflow", label: "Workflow", value: (row) => row.workflowDefinition.code, render: (row) => <span>{row.workflowDefinition.name}<details><summary>Identifiers</summary>{row.id} · Client {row.clientId}</details></span> },
+        { key: "rider", label: "Rider", value: (row) => row.rider?.name ?? row.riderId },
+        { key: "version", label: "Version", value: (row) => row.workflowVersion },
+        { key: "step", label: "Current step", value: (row) => row.stepExecutions.find((step) => ["IN_PROGRESS", "ACTION_REQUIRED"].includes(step.status))?.workflowStep.name ?? "—" },
+        { key: "status", label: "Status", value: (row) => row.status, render: (row) => <span className={`status status-${row.status.toLowerCase()}`}>{row.status.replaceAll("_", " ")}</span> },
+        { key: "decision", label: "Decision", value: (row) => row.decisions[0]?.decision ?? "—" },
+        ...(view === "reviews" ? [
+          { key: "reason", label: "Reason", value: (row: WorkflowRow) => row.decisions[0]?.reasonCode ?? "—" },
+          { key: "check", label: "Questionable check", value: (row: WorkflowRow) => row.stepExecutions.find((step) => step.status === "FAILED")?.workflowStep.name ?? "—" },
+          { key: "age", label: "Age", value: (row: WorkflowRow) => row.ageHours == null ? "—" : `${row.ageHours} h` },
+        ] : []),
+        { key: "started", label: "Started", value: (row) => row.startedAt, render: (row) => new Date(row.startedAt).toLocaleString("en-IN") },
+        { key: "completed", label: "Completed", value: (row) => row.completedAt ?? "—", render: (row) => row.completedAt ? new Date(row.completedAt).toLocaleString("en-IN") : "—" },
+      ]} actions={(row) => <button type="button" className="secondary table-action" disabled={busy} onClick={() => void open(row.id)}>Details</button>} />
+      <div className="sa-pagination" aria-label="Workflow pagination"><button type="button" disabled={loading || page === 0} onClick={() => setPage(page - 1)}>Previous</button>
+        <span>Page {page + 1}</span><button type="button" disabled={loading || rows.length < 50} onClick={() => setPage(page + 1)}>Next</button></div>
     </>}
-    {detail && view !== "definitions" && <article className="client-metric-card" style={{ marginTop: "2rem" }}>
-      <h3>{detail.rider.name} · {detail.status}</h3><p>Workflow {detail.id} · Version {detail.workflowVersion}</p>
+    {detail && view !== "definitions" && <ClientFormDialog title={`${detail.rider.name} · ${detail.status.replaceAll("_", " ")}`} wide busy={busy} error={error} onClose={() => setDetail(null)}><p>Workflow {detail.id} · Version {detail.workflowVersion}</p>
       <h4>Progress</h4><ol>{detail.workflowDefinition.steps.map((step) => {
         const execution = detail.stepExecutions.find((item) => item.workflowStepId === step.id);
         return <li key={step.id}>{step.name} — {execution?.status ?? "PENDING"}{execution?.verification ? ` · ${execution.verification.status}` : ""}
@@ -110,8 +121,9 @@ export default function WorkflowPanel({ view }: { view: "workflows" | "reviews" 
       <h4>Audit timeline</h4>{detail.auditTimeline.length ? <ul>{detail.auditTimeline.map((event) => <li key={event.id}>{new Date(event.createdAt).toLocaleString()} · {event.action}</li>)}</ul> : <p>No events yet.</p>}
       {view === "reviews" && detail.status === "MANUAL_REVIEW" && <div><label>Review reason <input value={reason} minLength={5} maxLength={500}
         onChange={(event) => setReason(event.target.value)} /></label><div style={{ display: "flex", gap: "1rem" }}>
-        <button type="button" disabled={busy || reason.trim().length < 5} onClick={() => void review(true)}>Approve</button>
-        <button type="button" disabled={busy || reason.trim().length < 5} onClick={() => void review(false)}>Reject</button></div></div>}
-    </article>}
+        <button type="button" disabled={busy || reason.trim().length < 5} onClick={() => setConfirmation(true)}>Approve</button>
+        <button type="button" disabled={busy || reason.trim().length < 5} onClick={() => setConfirmation(false)}>Reject</button></div></div>}
+    </ClientFormDialog>}
+    {confirmation !== null && <ClientConfirmationDialog title={confirmation ? "Approve workflow review?" : "Reject workflow review?"} description="This records a workflow decision. Rider onboarding document approval remains separate." confirmLabel={confirmation ? "Approve" : "Reject"} busy={busy} error={error} danger={!confirmation} onClose={() => setConfirmation(null)} onConfirm={() => review(confirmation)} />}
   </section>;
 }
