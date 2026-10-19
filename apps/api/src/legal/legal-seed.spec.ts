@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { Prisma } from '@prisma/client';
 import {
   legalDocumentCatalog,
@@ -48,6 +49,65 @@ const targetTerms = () => legalDocumentCatalog.find((document) =>
   document.kind === 'TERMS_AND_CONDITIONS' &&
   document.locale === 'en',
 )!;
+
+const targetConsent = () => legalDocumentCatalog.find((document) =>
+  document.appCode === 'RIDER' &&
+  document.role === 'RIDER' &&
+  document.kind === 'PRIVACY_CONSENT' &&
+  document.locale === 'en',
+)!;
+
+const identityKey = (value: LegalWhere) => [
+  value.appCode,
+  value.role,
+  value.kind,
+  value.locale,
+  value.version,
+].join('|');
+
+test('canonical full seed uses the Yogmaya helper and keeps the published consent metadata', async () => {
+  const source = await readFile(new URL('../../prisma/seed.mjs', import.meta.url), 'utf8');
+  const consent = targetConsent();
+
+  expect(source).toContain("import { seedLegalTemplates } from './catalog/legal-documents.mjs';");
+  expect(source).toContain("import { seedLegal } from './client/yogmaya/yogmaya-legal-documents.mjs';");
+  expect(source).not.toContain("import { seedLegal, seedLegalTemplates } from './catalog/legal-documents.mjs';");
+  expect(consent).toMatchObject({
+    version: '1.0.1',
+    effectiveAt: '2026-10-11T18:30:00.000Z',
+    publishedAt: '2026-10-19T16:58:22.241Z',
+    contentHash: 'bfa82e2286994b0fbcec42d0249d3ff2b44a7644a0beb03e9f8e30bdd449413b',
+  });
+  expect(consent.acceptance).toEqual({
+    declaration: 'I declare that I have understood the points of this consent form and agree in my capacity as the data principal.',
+    checkboxLabel: 'I have read and understood this consent form and give my consent.',
+    continueLabel: 'Continue',
+    declarationTitle: 'Declaration',
+  });
+});
+
+test('repeats safely with all published documents while leaving consent v1.0.0 untouched', async () => {
+  const consent = targetConsent();
+  const published = new Map(legalDocumentCatalog.map((document) => [
+    identityKey(document),
+    { id: `published-${identityKey(document)}`, contentHash: document.contentHash, publishedAt: new Date() },
+  ]));
+  const legacyKey = identityKey({ ...consent, version: '1.0.0' });
+  const fake = fakePrisma((where) => published.get(identityKey(where)) ??
+    (identityKey(where) === legacyKey
+      ? { id: 'legacy-consent-v1', contentHash: consent.contentHash, publishedAt: new Date('2026-10-19T16:24:27.039Z') }
+      : null));
+
+  await seedLegal(fake.prisma);
+  await seedLegal(fake.prisma);
+
+  expect(fake.creates).toHaveLength(0);
+  expect(fake.updates).toHaveLength(0);
+  expect(fake.finds).toHaveLength(130);
+  expect(fake.finds.filter((where) => identityKey(where) === identityKey(consent))).toHaveLength(2);
+  expect(fake.finds.some((where) => identityKey(where) === legacyKey)).toBe(false);
+  expect(fake.updates.some(({ where }) => where.id === 'legacy-consent-v1')).toBe(false);
+});
 
 test('keeps source acceptance metadata while creating all documents for the current Prisma model', async () => {
   const appLegalDocument = (Prisma as unknown as {
