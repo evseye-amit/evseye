@@ -4,13 +4,13 @@
 
 `MAINTENANCE`, `BROKEN` (major repair) and `AWAITING_PARTS` all count as under maintenance and cannot be allocated. `AVAILABLE` requests release through the existing readiness rules. No `MECHANICALLY_OK` status is added.
 
-Issue categories: `POWERTRAIN` (motor, controller, drivetrain), `BATTERY` (pack, BMS, battery connectors), `ELECTRICAL` (wiring, lights, charger, charging port), `BRAKES`, `TYRES_WHEELS`, `SUSPENSION_STEERING`, `BODY_CHASSIS`, `ACCESSORIES`, `OTHER`. Every issue needs an explanation and inspection evidence, including `OTHER`.
+Issue category is optional. New callers omit it; uncategorised issues are stored as null. Older callers may still provide a valid category. Existing categories are preserved, including when a later repair report omits category. Every issue still needs a description, status and inspection evidence.
 
 Issue progress is `OPEN`, `IN_PROGRESS`, or `RESOLVED`. This is independent of report stage, fleet status and any maintenance job status. An issue never automatically creates a charge.
 
 ## Dropdowns
 
-`GET /api/v1/client/vehicle-submissions/metadata` returns `fleetStatuses`, `issueCategories` and `issueStatuses` in the standard `data` envelope. Existing staff authorization applies.
+`GET /api/v1/client/vehicle-submissions/metadata` returns `fleetStatuses` and `issueStatuses` in the standard `data` envelope. Existing staff authorization applies.
 
 ## Record or edit a report
 
@@ -31,7 +31,6 @@ Both now require `fleetStatus` and `issues` in addition to the existing fields. 
   "fleetStatus": "BROKEN",
   "evidencePhotoIds": ["<completed inspection photo UUID>"],
   "issues": [{
-    "category": "POWERTRAIN",
     "description": "Motor failure",
     "status": "OPEN",
     "requiredParts": "Replacement motor assembly",
@@ -75,3 +74,5 @@ Fleet Manager actions remain restricted to assigned hubs within the client. Exis
 Apply `20261019030000_submission_maintenance_conditions` before running the new API. No seed changes or history backfill are needed. Existing maintenance records stay valid without invented categories. Existing reports retain their original digest and nullable condition.
 
 The Flutter app is outside this repository. Its mechanic-report form must add the condition selector, issue editor and the two required payload fields; it must display the new maintenance response fields and filters. Existing callers that omit the new report fields receive validation errors.
+
+Apply `20261020010000_optional_submission_issue_category` for nullable issue categories. This migration preserves existing values; no seed or backfill is needed. Flutter can remove its category selector later. Maintenance category filters remain available for historical/categorised issues; unfiltered lists include uncategorised issues.

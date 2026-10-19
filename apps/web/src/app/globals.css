@@ -4771,3 +4771,18 @@ body:has(.sa-dialog[open]) {
 .readiness-staff-hub > strong { grid-column: 1 / -1; }
 .readiness-staff-stage { display: grid; align-content: start; gap: 10px; min-width: 0; }
 .readiness-staff-hub label { min-width: 0; overflow-wrap: anywhere; }
+
+/* Non-interactive workflow headings within the Vehicle Management menu. */
+.client-operations-shell .client-nav-items > .client-nav-subheading {
+  margin: 14px 11px 4px;
+  color: #69776f;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.client-operations-shell .client-nav-items > .client-nav-subheading:first-child {
+  margin-top: 8px;
+}

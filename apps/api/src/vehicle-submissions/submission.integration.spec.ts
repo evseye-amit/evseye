@@ -359,7 +359,7 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
   }
 
 
-  it.each(['BROKEN', 'AWAITING_PARTS'] as const)('confirms %s, blocks release and resolves the issue through a deeper report', async (fleetStatus) => {
+  it.each([{ fleetStatus: 'BROKEN', category: 'POWERTRAIN' }, { fleetStatus: 'AWAITING_PARTS', category: undefined }] as const)('confirms $fleetStatus with optional category, blocks release and resolves the issue through a deeper report', async ({ fleetStatus, category }) => {
     const f = await fixture();
     const photos = await f.capture();
     const proof = photos[0]!.id;
@@ -368,7 +368,7 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
     const input: MechanicReportDto = {
       ...f.report(proof, 'BASIC', true), fleetStatus, safeForReuse: false,
       unsafeReason: 'Motor requires replacement', items: fleetStatus === 'BROKEN' ? [{ ...f.report(proof).items[0]!, findingId }] : [],
-      issues: [{ category: 'POWERTRAIN', description: 'Motor failure', status: 'OPEN',
+      issues: [{ category, description: 'Motor failure', status: 'OPEN',
         requiredParts: 'Motor assembly', penaltyFindingId: fleetStatus === 'BROKEN' ? findingId : undefined, evidencePhotoIds: [issueProof.id] }],
     };
     const report = await service.recordReport(f.client.id, f.actor, f.submission.id, input, 'condition-basic-key');
@@ -388,10 +388,12 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
     expect(fleet.status).toBe(fleetStatus);
     expect(fleet.allocationEnabled).toBe(false);
     const issue = await db.vehicleMaintenanceIssue.findFirstOrThrow({ where: { fleetId: f.fleet.id } });
-    expect(issue.category).toBe('POWERTRAIN');
+    expect(issue.category).toBe(category ?? null);
     const maintenance = new FleetManagerMaintenanceService(prisma);
     const filtered = await maintenance.list(f.client.id, f.actor.id, Object.assign(new MaintenanceFleetsQueryDto(), { issueCategory: 'POWERTRAIN', fleetStatus }));
-    expect(filtered.items.some(item => item.id === fleet.id)).toBe(true);
+    expect(filtered.items.some(item => item.id === fleet.id)).toBe(category === 'POWERTRAIN');
+    const unfiltered = await maintenance.list(f.client.id, f.actor.id, new MaintenanceFleetsQueryDto());
+    expect(unfiltered.items.some(item => item.id === fleet.id)).toBe(true);
     const otherCategory = await maintenance.list(f.client.id, f.actor.id, Object.assign(new MaintenanceFleetsQueryDto(), { issueCategory: 'BRAKES' }));
     expect(otherCategory.items).toHaveLength(0);
 
@@ -403,12 +405,13 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
     await service.cancelReport(f.client.id, f.actor, missingResolution.id, 'Include outstanding issue resolution');
     const repaired = await service.recordReport(f.client.id, f.actor, f.submission.id, {
       ...f.report(proof, 'DEEP', true), items: [],
-      issues: [{ issueId: issue.id, category: 'POWERTRAIN', description: 'Motor replaced and tested', status: 'RESOLVED', penaltyFindingId: issue.penaltyFindingId ?? undefined, evidencePhotoIds: [proof] }],
+      issues: [{ issueId: issue.id, description: 'Motor replaced and tested', status: 'RESOLVED', penaltyFindingId: issue.penaltyFindingId ?? undefined, evidencePhotoIds: [proof] }],
     }, 'condition-repaired-key');
     await service.impose(f.client.id, f.actor, repaired.id);
     await service.confirm(f.client.id, f.actor, repaired.id, { riderBypassReason: 'Unavailable', teamLeadBypassReason: 'Unavailable' });
     const resolvedIssue = await db.vehicleMaintenanceIssue.findUniqueOrThrow({ where: { id: issue.id } });
     expect(resolvedIssue.status).toBe('RESOLVED');
+    expect(resolvedIssue.category).toBe(category ?? null);
     expect(resolvedIssue.penaltyFindingId).toBe(fleetStatus === 'BROKEN' ? findingId : null);
     expect(await db.riderCharge.count({ where: { clientId: f.client.id } })).toBe(fleetStatus === 'BROKEN' ? 1 : 0);
     expect((await db.fleet.findUniqueOrThrow({ where: { id: fleet.id } })).status).toBe('AVAILABLE');

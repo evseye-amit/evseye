@@ -6004,7 +6004,7 @@ model VehicleMaintenanceIssue {
   fleet Fleet @relation(fields: [fleetId], references: [id], onDelete: Restrict)
   submissionId String
   submission VehicleSubmission @relation(fields: [submissionId], references: [id], onDelete: Restrict)
-  category MaintenanceIssueCategory
+  category MaintenanceIssueCategory?
   description String @db.VarChar(2000)
   status MaintenanceIssueStatus @default(OPEN)
   evidencePhotoIds String[]
