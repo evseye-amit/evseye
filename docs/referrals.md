@@ -59,7 +59,7 @@ Every response uses the existing `{ "data": ... }` envelope. Use an authenticate
 | Actor | Method and path | Purpose |
 | --- | --- | --- |
 | Rider | `GET /api/v1/rider-app/referrals/home` | Campaign, terms, reward values, referral code, share URL, QR payload and earnings summary |
-| Rider | `POST /api/v1/rider-app/referrals/invites` | Create a single-use invitation token and link |
+| Rider | `POST /api/v1/rider-app/referrals/invites` | Return reusable campaign link/code; no referral is created and no limit is consumed |
 | Rider | `POST /api/v1/rider-app/referrals/attribute` | Submit `{ "referralCode": "EVS-ABCDEFGH", "inviteToken": "optional" }` |
 | Rider | `GET /api/v1/rider-app/referrals` | Paginated own referrals; optional status |
 | Rider | `GET /api/v1/rider-app/referrals/notifications` | Paginated in-app referral activity feed |
@@ -113,3 +113,5 @@ The Rider app should render `home` and `mine`, generate a QR image from the retu
 Client Operations can use the APIs above for campaign forms, referral search/details, reward review, payouts, fraud review, and analytics. A browser UI is not part of this backend change. No ride/delivery store or notification provider exists in this repository: activity can enter through the restricted upstream endpoint, and referral events are persisted to `ReferralNotificationOutbox` for the Rider in-app feed and later provider delivery. The mobile app can poll the activity feed; push/SMS/WhatsApp delivery needs a worker and provider. Do not display outbox events as externally delivered until that integration is connected. Manual payout is the only supported settlement mode.
 
 Tests cover feature access, attribution isolation and duplicate handling, campaign validation, qualification and budget, idempotent progress, and reward transitions. Verify locally with `pnpm --filter @evs-eye/api typecheck`, `pnpm --filter @evs-eye/api lint`, `pnpm --filter @evs-eye/api test`, and `pnpm --filter @evs-eye/api build`.
+
+Sharing returns `inviteToken: null`, `campaignCode`, `referralCode`, `shareLink`, `qrPayload` and campaign `expiresAt`. Pass code and campaignCode to attribution (the link contains `code` and `campaign`). Only applying a code creates a registered referral and consumes a slot. Unclaimed historical invitations are excluded from lists, counts and limits; valid old single-use links can still be claimed, subject to current limits. Monthly limits use registration time.

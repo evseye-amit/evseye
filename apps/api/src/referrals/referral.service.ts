@@ -78,7 +78,7 @@ export class ReferralService {
   private async assertLimits(tx: Prisma.TransactionClient, clientId: string, campaign: NonNullable<Awaited<ReturnType<ReferralService['activeCampaign']>>>, referrerRiderId: string) {
     const now = new Date();
     const periodStart = campaign.referralLimitPeriod === 'MONTHLY' ? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)) : null;
-    const count = await tx.referral.count({ where: { clientId, campaignId: campaign.id, referrerRiderId, status: { notIn: [ReferralStatus.REJECTED, ReferralStatus.CANCELLED, ReferralStatus.EXPIRED] }, ...(periodStart ? { createdAt: { gte: periodStart } } : {}) } });
+    const count = await tx.referral.count({ where: { clientId, campaignId: campaign.id, referrerRiderId, refereeUserId: { not: null }, status: { notIn: [ReferralStatus.REJECTED, ReferralStatus.CANCELLED, ReferralStatus.EXPIRED] }, ...(periodStart ? { registeredAt: { gte: periodStart } } : {}) } });
     if (campaign.maxReferralsPerRider !== null && count >= campaign.maxReferralsPerRider) throw error('REFERRAL_LIMIT_EXCEEDED', 'The Rider has reached the campaign referral limit.');
   }
 
@@ -100,9 +100,9 @@ export class ReferralService {
 
   private async summary(clientId: string, riderId: string) {
     const [totalInvited, registered, qualified, rewards] = await Promise.all([
-      this.prisma.referral.count({ where: { clientId, referrerRiderId: riderId } }),
-      this.prisma.referral.count({ where: { clientId, referrerRiderId: riderId, registeredAt: { not: null } } }),
-      this.prisma.referral.count({ where: { clientId, referrerRiderId: riderId, qualifiedAt: { not: null } } }),
+      this.prisma.referral.count({ where: { clientId, referrerRiderId: riderId, refereeUserId: { not: null } } }),
+      this.prisma.referral.count({ where: { clientId, referrerRiderId: riderId, refereeUserId: { not: null }, registeredAt: { not: null } } }),
+      this.prisma.referral.count({ where: { clientId, referrerRiderId: riderId, refereeUserId: { not: null }, qualifiedAt: { not: null } } }),
       this.prisma.referralReward.groupBy({ by: ['status'], where: { clientId, beneficiaryRiderId: riderId }, _sum: { amount: true } }),
     ]);
     const sum = (statuses: string[]) => rewards.reduce((total, item) => statuses.includes(item.status) ? total.plus(item._sum.amount ?? 0) : total, new Prisma.Decimal(0)).toFixed(2);
@@ -116,23 +116,12 @@ export class ReferralService {
     const campaign = await this.activeCampaign(clientId);
     if (!campaign) throw error('REFERRAL_CAMPAIGN_INACTIVE', 'Refer and earn is currently unavailable because there is no active campaign.');
     const identity = await this.identity(clientId, rider.id);
-    await this.links.shareLink(clientId, identity.code);
-    const invitedAt = new Date();
-    const expiresAt = new Date(Math.min(campaign.endAt.getTime(), invitedAt.getTime() + campaign.registrationValidityDays * 86400000));
-    const row = await this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM "ReferralCampaign" WHERE id = ${campaign.id} AND "clientId" = ${clientId} FOR UPDATE`;
-      const stillActive = await tx.referralCampaign.count({ where: { id: campaign.id, clientId, status: 'ACTIVE', startAt: { lte: invitedAt }, endAt: { gt: invitedAt } } });
-      if (!stillActive) throw error('REFERRAL_CAMPAIGN_INACTIVE', 'Refer and earn is currently unavailable because there is no active campaign.');
-      await this.assertLimits(tx, clientId, campaign, rider.id);
-      return tx.referral.create({ data: {
-      clientId, campaignId: campaign.id, referrerRiderId: rider.id, referralCode: identity.code,
-      inviteToken: randomBytes(24).toString('base64url'), attributionSource: ReferralAttributionSource.MOBILE_INVITE,
-      ruleSnapshot: this.snapshot(campaign), termsSnapshot: campaign.termsAndConditions, invitedAt, expiresAt,
-      progress: { create: campaign.milestones.map((item) => ({ milestoneId: item.id, milestoneType: item.milestoneType, operator: item.operator, targetValue: item.targetValue, mandatory: item.mandatory })) },
-      } });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-    const shareLink = await this.links.shareLink(clientId, identity.code, row.inviteToken!);
-    return { inviteToken: row.inviteToken, referralCode: identity.code, shareLink, qrPayload: shareLink, expiresAt };
+    const shareLink = await this.links.shareLink(clientId, identity.code, undefined, campaign.code);
+    const now = new Date();
+    const stillActive = await this.prisma.referralCampaign.count({ where: { id: campaign.id, clientId, status: 'ACTIVE', startAt: { lte: now }, endAt: { gt: now } } });
+    if (!stillActive) throw error('REFERRAL_CAMPAIGN_INACTIVE', 'Refer and earn is currently unavailable because there is no active campaign.');
+    // Sharing is not attribution: the same campaign link can be used by many friends.
+    return { inviteToken: null, referralCode: identity.code, campaignCode: campaign.code, shareLink, qrPayload: shareLink, expiresAt: campaign.endAt };
   }
 
   async attribute(clientId: string, userId: string, dto: AttributionDto) {
@@ -164,7 +153,14 @@ export class ReferralService {
         await tx.$queryRaw`SELECT id FROM "ReferralCampaign" WHERE id = ${campaign.id} AND "clientId" = ${clientId} FOR UPDATE`;
         const stillActive = await tx.referralCampaign.count({ where: { id: campaign.id, clientId, status: 'ACTIVE', startAt: { lte: now }, endAt: { gt: now } } });
         if (!stillActive) throw error('REFERRAL_CAMPAIGN_INACTIVE', 'Refer and earn is currently unavailable because there is no active campaign.');
-        if (!invite) await this.assertLimits(tx, clientId, campaign, identity.riderId);
+        // READ COMMITTED sees the previous lock holder's commit before checking limits.
+        // Recheck attribution too: concurrent retries must not consume another slot.
+        const existing = await tx.referral.findFirst({ where: { clientId, refereeUserId: userId } });
+        if (existing) {
+          if (existing.referrerRiderId !== identity.riderId) throw new ConflictException({ code: 'REFERRAL_ALREADY_ATTRIBUTED', message: 'This Rider already has a valid referrer.' });
+          return { ...existing, alreadyAttributed: true };
+        }
+        await this.assertLimits(tx, clientId, campaign, identity.riderId);
         const rider = await tx.rider.findUnique({ where: { userId }, select: { id: true } });
         const deadline = new Date(now.getTime() + campaign.qualificationValidityDays * 86400000);
         if (invite) {
@@ -172,7 +168,7 @@ export class ReferralService {
           if (changed.count !== 1) throw new ConflictException({ code: 'REFERRAL_ALREADY_ATTRIBUTED', message: 'Invitation was already used.' });
           const savedInvite = await tx.referral.findUniqueOrThrow({ where: { id: invite.id } });
           await tx.referralNotificationOutbox.create({ data: { clientId, referralId: savedInvite.id, eventKey: `registered:${savedInvite.id}`, eventType: 'REFERRAL_REGISTERED', payload: { referralId: savedInvite.id } } });
-          return savedInvite;
+          return { ...savedInvite, alreadyAttributed: false };
         }
         const created = await tx.referral.create({ data: {
           clientId, campaignId: campaign.id, referrerRiderId: identity.riderId, refereeUserId: userId, refereeRiderId: rider?.id,
@@ -182,11 +178,15 @@ export class ReferralService {
           progress: { create: campaign.milestones.map((item) => ({ milestoneId: item.id, milestoneType: item.milestoneType, operator: item.operator, targetValue: item.targetValue, mandatory: item.mandatory })) },
         } });
         await tx.referralNotificationOutbox.create({ data: { clientId, referralId: created.id, eventKey: `registered:${created.id}`, eventType: 'REFERRAL_REGISTERED', payload: { referralId: created.id } } });
-        return created;
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-      return { referralId: saved.id, attributed: true, alreadyAttributed: false };
+        return { ...created, alreadyAttributed: false };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+      return { referralId: saved.id, attributed: true, alreadyAttributed: saved.alreadyAttributed };
     } catch (cause) {
-      if (cause instanceof Prisma.PrismaClientKnownRequestError && ['P2002', 'P2034'].includes(cause.code)) throw new ConflictException({ code: 'REFERRAL_ALREADY_ATTRIBUTED', message: 'This Rider already has a valid referrer. Retry if attribution was concurrent.' });
+      if (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === 'P2002') {
+        const winner = await this.prisma.referral.findFirst({ where: { clientId, refereeUserId: userId } });
+        if (winner?.referrerRiderId === identity.riderId) return { referralId: winner.id, attributed: true, alreadyAttributed: true };
+        if (winner) throw new ConflictException({ code: 'REFERRAL_ALREADY_ATTRIBUTED', message: 'This Rider already has a valid referrer.' });
+      }
       throw cause;
     }
   }
@@ -207,7 +207,7 @@ export class ReferralService {
   async mine(clientId: string, userId: string, query: ListReferralsDto) {
     await this.access.requireFeature(clientId);
     const rider = await this.access.requireRider(clientId, userId);
-    const where: Prisma.ReferralWhereInput = { clientId, referrerRiderId: rider.id, ...(query.status ? { status: query.status } : {}) };
+    const where: Prisma.ReferralWhereInput = { clientId, referrerRiderId: rider.id, refereeUserId: { not: null }, ...(query.status ? { status: query.status } : {}) };
     return this.listSafe(where, query);
   }
 
@@ -228,7 +228,7 @@ export class ReferralService {
   async listForOperations(clientId: string, query: ListReferralsDto) {
     await this.access.requireFeature(clientId);
     const where: Prisma.ReferralWhereInput = {
-      clientId,
+      clientId, refereeUserId: { not: null },
       ...(query.status ? { status: query.status } : {}),
       ...(query.campaignId ? { campaignId: query.campaignId } : {}),
       ...(query.from || query.to ? { createdAt: { ...(query.from ? { gte: new Date(query.from) } : {}), ...(query.to ? { lte: new Date(query.to) } : {}) } } : {}),

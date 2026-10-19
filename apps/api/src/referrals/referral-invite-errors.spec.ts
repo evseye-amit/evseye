@@ -11,7 +11,10 @@ function fixture() {
     referralCampaign: { count: vi.fn().mockResolvedValue(0) },
   };
   const prisma = {
-    referralCampaign: { findFirst: vi.fn().mockResolvedValue(null) },
+    referralCampaign: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      count: vi.fn().mockResolvedValue(0),
+    },
     referralIdentity: {
       findUnique: vi.fn().mockResolvedValue({ code: 'EVS-ABCDEFGH' }),
     },
@@ -84,7 +87,7 @@ describe('referral invite error responses', () => {
       }),
     );
   });
-  it('returns the same handled response if the campaign closes before the invite transaction', async () => {
+  it('returns the same handled response if the campaign closes before returning share details', async () => {
     const { service, prisma } = fixture();
     prisma.referralCampaign.findFirst.mockResolvedValue({
       id: 'campaign-a',
