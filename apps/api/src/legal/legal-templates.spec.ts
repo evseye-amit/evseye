@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { UserRole } from '@prisma/client';
+import { defaultConsentAcceptance, legalHash } from './legal-acceptance.js';
 import { copyLegalTemplatesToClient, renderLegalTemplate, validateLegalTemplate } from './legal-templates.js';
 import { LegalService } from './legal.service.js';
 
@@ -68,7 +69,8 @@ describe('legal templates', () => {
     expect(createDocument).toHaveBeenCalledWith({ data: expect.objectContaining({
       clientId: client.id, kind: 'PRIVACY_CONSENT',
       content: '<p>Example Fleet Private Limited</p>',
-      contentHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      acceptance: defaultConsentAcceptance,
+      contentHash: legalHash('<p>Example Fleet Private Limited</p>', defaultConsentAcceptance),
     }) });
     expect(createDocument.mock.calls[0][0].data.publishedAt).toBeUndefined();
   });

@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Header, Param, Patch, Post, Query, Req, UseGuards, ForbiddenException } from '@nestjs/common';
-import { IsBoolean, IsEnum, IsIn, IsOptional, IsString, IsUUID, IsISO8601, Length, Matches } from 'class-validator';
+import { IsBoolean, IsObject, IsEnum, IsIn, IsOptional, IsString, IsUUID, IsISO8601, Length, Matches } from 'class-validator';
 import type { FastifyRequest } from 'fastify';
 import { UserRole } from '@prisma/client';
 import { ClientResolverService } from '../client-identity/client-resolver.service.js';
@@ -33,6 +33,7 @@ class PublishLegalBody {
   @Matches(/^[a-z]{2}$/) locale!: string;
   @IsString() @Length(1, 80) version!: string;
   @IsString() @Length(1, 200) title!: string;
+  @IsOptional() @IsObject() acceptance?: Record<string, string>;
   @IsString() @Length(1, 100000) content!: string;
   @IsISO8601() effectiveAt!: string;
 }
@@ -44,6 +45,7 @@ class LegalTemplateBody {
   @Matches(/^[a-z]{2}$/) locale!: string;
   @IsString() @Length(1, 80) version!: string;
   @IsString() @Length(1, 200) title!: string;
+  @IsOptional() @IsObject() acceptance?: Record<string, string>;
   @IsString() @Length(1, 100000) content!: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
 }

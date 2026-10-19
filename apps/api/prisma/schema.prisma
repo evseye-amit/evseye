@@ -4553,6 +4553,7 @@ model AppLegalDocument {
   version     String   @db.VarChar(80)
   title       String   @db.VarChar(200)
   content     String
+  acceptance  Json?
   contentHash String   @db.Char(64)
   effectiveAt DateTime
   publishedAt DateTime?
@@ -4575,6 +4576,7 @@ model AppLegalTemplate {
   version     String   @db.VarChar(80)
   title       String   @db.VarChar(200)
   content     String
+  acceptance  Json?
   isActive    Boolean  @default(true)
   deletedAt   DateTime?
   createdAt   DateTime @default(now())

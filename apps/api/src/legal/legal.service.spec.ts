@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { UserRole } from '@prisma/client';
+import { defaultConsentAcceptance, legalHash } from './legal-acceptance.js';
 import { LegalService } from './legal.service.js';
 
 const document = {
@@ -85,5 +86,39 @@ describe('LegalService', () => {
     await expect(service.current('client-1', 'RIDER', UserRole.RIDER, 'TERMS_AND_CONDITIONS', 'en'))
       .rejects.toThrow('Legal document unavailable');
     expect(findMany.mock.calls[0][0].where).toMatchObject({ publishedAt: { not: null }, deletedAt: null });
+  });
+
+  it('stores consent wording and hashes it when creating a draft', async () => {
+    const create = vi.fn().mockResolvedValue({});
+    const service = new LegalService({ appLegalDocument: {
+      findFirst: vi.fn().mockResolvedValue(null), create,
+    } } as never);
+    const acceptance = { ...defaultConsentAcceptance, checkboxLabel: 'I agree to this notice.' };
+    const content = '<p>Notice</p>';
+    await service.createDraft('client-1', {
+      appCode: 'RIDER', role: UserRole.RIDER, kind: 'PRIVACY_CONSENT', locale: 'en',
+      version: '1.0.0', title: 'Consent', content, acceptance,
+      effectiveAt: new Date().toISOString(),
+    });
+    expect(create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      acceptance, contentHash: legalHash(content, acceptance),
+    }) });
+  });
+
+  it('re-hashes and preserves consent wording when publishing a draft', async () => {
+    const acceptance = { ...defaultConsentAcceptance, checkboxLabel: 'I agree to this notice.' };
+    const draft = { ...document, kind: 'PRIVACY_CONSENT', locale: 'en', title: 'Consent',
+      content: '<p>Notice</p>', acceptance, publishedAt: null };
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const service = new LegalService({ appLegalDocument: {
+      findUnique: vi.fn().mockResolvedValue(draft), updateMany,
+      findUniqueOrThrow: vi.fn().mockResolvedValue({ ...draft, publishedAt: new Date() }),
+    } } as never);
+    await service.publishDraft(draft.id, draft.clientId, false);
+    expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        acceptance, contentHash: legalHash(draft.content, acceptance),
+      }),
+    }));
   });
 });
