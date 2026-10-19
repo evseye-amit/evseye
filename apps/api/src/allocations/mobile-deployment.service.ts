@@ -1,3 +1,4 @@
+import { allocationPaymentView } from './allocation-payment-view.js';
 import { pendingPenaltySummary } from '../submission-penalties/submission-penalty.service.js';
 import { WalletService } from '../wallet/wallet.service.js';
 import { ConfigService } from '@nestjs/config';
@@ -316,9 +317,9 @@ export class MobileDeploymentService {
     if (!payment) throw new NotFoundException('Payment request not found.');
     const receipts = await this.prisma.photo.findMany({ where: { clientId, entityType: 'PAYMENT_DEPLOYMENT', entityId: payment.id, status: 'COMPLETE' },
       select: { id: true, mimeType: true, sizeBytes: true, uploadedAt: true }, orderBy: { createdAt: 'asc' } });
-    return { ...payment, source: 'DEPLOYMENT', receipts };
+    return { ...allocationPaymentView(payment, workflow.status), receipts };
   }
-  async submitPaymentReference(clientId: string, userId: string, allocationId: string, provider: string, providerReference: string) {
+  async submitPaymentReference(clientId: string, userId: string, allocationId: string, provider: string, providerReference: string, receiptPhotoIds: string[] = []) {
     await this.assertRiderAllocation(clientId, userId, allocationId);
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -326,18 +327,25 @@ export class MobileDeploymentService {
         const allocation = await tx.allocation.findFirst({ where: { id: allocationId, clientId }, include: { mobileDeployment: { include: { payment: true } } } });
         const workflow = allocation?.mobileDeployment, payment = workflow?.payment;
         if (!workflow || !payment) throw new NotFoundException('Payment request not found.');
-        if (workflow.status !== MobileDeploymentStatus.PAYMENT_PENDING) throw new BadRequestException('No payment is pending.');
         provider = provider.trim(); providerReference = providerReference.trim();
         if (!provider || !providerReference) throw new BadRequestException('Payment provider and reference are required.');
-        if (payment.status === 'SUBMITTED' && payment.provider === provider && payment.providerReference === providerReference) return payment;
+        if (receiptPhotoIds.length > 20 || new Set(receiptPhotoIds).size !== receiptPhotoIds.length)
+          throw new BadRequestException('Provide up to 20 unique receipt photo IDs.');
+        const receipts = await tx.photo.findMany({ where: { clientId, entityType: 'PAYMENT_DEPLOYMENT', entityId: payment.id, status: 'COMPLETE', uploadedById: userId },
+          select: { id: true, mimeType: true, sizeBytes: true, uploadedAt: true }, orderBy: { createdAt: 'asc' } });
+        if (receiptPhotoIds.some(id => !receipts.some(photo => photo.id === id)))
+          throw new BadRequestException('Each receipt must be a completed upload for this payment.');
+        if (['SUBMITTED', 'PAID'].includes(payment.status) && payment.provider === provider && payment.providerReference === providerReference)
+          return { ...allocationPaymentView(payment, workflow.status), receipts };
+        if (workflow.status !== MobileDeploymentStatus.PAYMENT_PENDING) throw new BadRequestException('No payment is pending.');
         if (payment.status !== 'PENDING' && payment.status !== 'REJECTED') throw new BadRequestException('This payment cannot be submitted in its current state.');
         const submitted = await tx.deploymentPayment.update({ where: { id: payment.id }, data: {
           status: 'SUBMITTED', provider, providerReference, submittedAt: new Date(), submissionVersion: { increment: 1 },
           rejectionReason: null, rejectedAt: null, rejectedById: null,
         } });
         await tx.auditLog.create({ data: { clientId, actorId: userId, action: 'PAYMENT_SUBMITTED', entityType: 'DeploymentPayment', entityId: payment.id,
-          newData: { provider, providerReference, submissionVersion: submitted.submissionVersion } } });
-        return submitted;
+          newData: { provider, providerReference, submissionVersion: submitted.submissionVersion, receiptPhotoIds: receipts.map(photo => photo.id) } } });
+        return { ...allocationPaymentView(submitted, workflow.status), receipts };
       });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new BadRequestException('This payment reference has already been used.');

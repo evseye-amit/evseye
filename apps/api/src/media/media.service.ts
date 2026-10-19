@@ -7,7 +7,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PhotoEntityType, PhotoStatus, UserRole } from '@prisma/client';
+import { PhotoEntityType, PhotoStatus, Prisma, UserRole } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -71,8 +71,9 @@ export class MediaService {
     return this.createUploadIntentForEntity(clientId, actorId, entityType, entityId, `RECEIPT_${randomUUID()}`, { ...dto, photoType: 'RECEIPT' });
   }
 
-  async completePayment(clientId: string, entityType: PhotoEntityType, entityId: string, photoId: string, uploaderId: string) {
-    const photo = await this.getPhoto(clientId, photoId);
+  async completePayment(clientId: string, entityType: PhotoEntityType, entityId: string, photoId: string, uploaderId: string, db: Prisma.TransactionClient = this.prisma) {
+    const photo = await db.photo.findFirst({ where: { id: photoId, clientId } });
+    if (!photo) throw new NotFoundException('Payment receipt not found.');
     if (!isPaymentPhoto(entityType) || photo.entityType !== entityType || photo.entityId !== entityId || photo.uploadedById !== uploaderId)
       throw new NotFoundException('Payment receipt not found.');
     if (photo.status === PhotoStatus.COMPLETE) return photo;
@@ -81,9 +82,9 @@ export class MediaService {
     await this.storage.assertObjectExists(photo.objectKey, { maxBytes: photo.sizeBytes });
     await this.storage.sealObject(photo.objectKey, sealed);
     await this.storage.assertObjectExists(sealed, { maxBytes: photo.sizeBytes });
-    await this.prisma.photo.updateMany({ where: { id: photo.id, clientId, status: PhotoStatus.PENDING_UPLOAD },
+    await db.photo.updateMany({ where: { id: photo.id, clientId, status: PhotoStatus.PENDING_UPLOAD },
       data: { objectKey: sealed, status: PhotoStatus.COMPLETE, uploadedAt: new Date() } });
-    return this.getPhoto(clientId, photo.id);
+    return db.photo.findFirstOrThrow({ where: { id: photo.id, clientId } });
   }
 
   async paymentDownloadUrl(clientId: string, entityType: PhotoEntityType, entityId: string, photoId: string) {
