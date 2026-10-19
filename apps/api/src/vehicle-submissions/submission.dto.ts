@@ -37,7 +37,7 @@ export class SubmissionPenaltyDto {
 }
 export class MaintenanceIssueDto {
   @IsOptional() @IsUUID() issueId?: string;
-  @IsEnum(MaintenanceIssueCategory) category!: MaintenanceIssueCategory;
+  @IsOptional() @IsEnum(MaintenanceIssueCategory) category?: MaintenanceIssueCategory | null;
   @IsString() @Matches(/\S/) @MaxLength(2000) description!: string;
   @IsEnum(MaintenanceIssueStatus) status!: MaintenanceIssueStatus;
   @IsArray() @ArrayMaxSize(20) @ArrayUnique() @IsUUID(undefined, { each: true }) evidencePhotoIds!: string[];

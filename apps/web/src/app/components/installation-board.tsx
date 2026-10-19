@@ -371,9 +371,7 @@ export function InstallationBoard({ refreshKey = 0 }: { refreshKey?: number }) {
       )}
       {policy?.operatingMode !== "STAGED_PREPARATION_QC" && (
         <p>
-          Installation stages are enabled only in Staged Preparation + QC mode.
-          This client remains in {label(policy?.operatingMode ?? "loading")}{" "}
-          mode.
+          Dedicated Installation Board not available in your package.
         </p>
       )}
       <div className="client-review-counts">{summary.map((entry) => <span key={entry.status}><strong>{entry._count}</strong> {label(entry.status)}</span>)}</div>

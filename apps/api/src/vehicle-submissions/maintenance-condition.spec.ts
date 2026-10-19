@@ -36,6 +36,20 @@ describe('submission maintenance conditions', () => {
     });
     expect(first.issues[0].issueId).toMatch(/^[0-9a-f-]{36}$/);
   });
+  it.each([undefined, null])('accepts omitted or null category (%s) at the API boundary', async (category) => {
+    const dto = input();
+    dto.issues[0].category = category;
+    expect(await validate(plainToInstance(MechanicReportDto, dto))).toHaveLength(0);
+    expect(maintenanceCondition(dto, 'scope').issues[0].category).toBeNull();
+    dto.issues[0].evidencePhotoIds = [];
+    expect(() => maintenanceCondition(dto, 'scope')).toThrow('evidence');
+  });
+  it('still rejects an invalid optional category', async () => {
+    const dto = input();
+    dto.issues[0].category = 'UNKNOWN' as never;
+    expect((await validate(plainToInstance(MechanicReportDto, dto))).length).toBeGreaterThan(0);
+    expect(() => maintenanceCondition(dto, 'scope')).toThrow();
+  });
   it('requires parts information for awaiting parts', () => {
     const dto = input();
     dto.fleetStatus = 'AWAITING_PARTS';

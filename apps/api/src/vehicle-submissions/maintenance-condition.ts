@@ -21,21 +21,21 @@ export function maintenanceCondition(input: MechanicReportDto, scope: string) {
     );
   const issues = input.issues.map((issue, index) => {
     if (
-      !Object.values(MaintenanceIssueCategory).includes(issue.category) ||
+      (issue.category != null && !Object.values(MaintenanceIssueCategory).includes(issue.category)) ||
       !Object.values(MaintenanceIssueStatus).includes(issue.status) ||
       !issue.description?.trim() ||
       !Array.isArray(issue.evidencePhotoIds) ||
       !issue.evidencePhotoIds.length
     )
       throw new BadRequestException(
-        'Every maintenance issue needs a category, status, description and evidence.',
+        'Every maintenance issue needs a status, description and evidence.',
       );
     const key = createHash('sha256').update(`${scope}:${index}`).digest('hex');
     return {
       issueId:
         issue.issueId ??
         `${key.slice(0, 8)}-${key.slice(8, 12)}-4${key.slice(13, 16)}-a${key.slice(17, 20)}-${key.slice(20, 32)}`,
-      category: issue.category,
+      category: issue.category ?? null,
       description: issue.description.trim(),
       status: issue.status,
       evidencePhotoIds: [...new Set(issue.evidencePhotoIds)].sort(),

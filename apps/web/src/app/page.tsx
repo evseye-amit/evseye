@@ -13,7 +13,7 @@ import {
   vehicleSpeedTypes,
 } from "../lib/domain-enums";
 
-import { Dispatch, FormEvent, SetStateAction, useEffect, useRef, useState } from "react";
+import { Dispatch, Fragment, FormEvent, SetStateAction, useEffect, useRef, useState } from "react";
 import { OtpCodeInput } from "./components/otp-code-input";
 import { UiIcon, type IconName } from "./components/ui-icon";
 import { ClientNotifications } from "./components/client-notifications";
@@ -134,7 +134,7 @@ const CLIENT_BULK_CONFIG: Record<ClientBulkTab, { title: string; requiredColumns
 
 const CLIENT_NAVIGATION: Array<{
   label: string;
-  items: Array<{ id: Tab; label: string }>;
+  items: Array<{ id: Tab; label: string; group?: string }>;
 }> = [
   { label: "", items: [{ id: "dashboard", label: "Dashboard" }, { id: "refer-and-earn", label: "Refer & Earn" }] },
   {
@@ -150,16 +150,16 @@ const CLIENT_NAVIGATION: Array<{
   {
     label: "Vehicle Management",
     items: [
-      { id: "fleets", label: "Fleet" },
-      { id: "spares-penalties", label: "Spares & Penalties" },
-      { id: "installation-board", label: "Installation Board" },
-      { id: "vehicle-preparation", label: "Vehicle Preparation" },
-      { id: "quality-check", label: "Quality Check" },
-      { id: "readiness-settings", label: "Fleet Readiness Settings" },
-      { id: "iot-devices", label: "IoT" },
-      { id: "batteries", label: "Battery" },
-      { id: "controllers", label: "Controller" },
-      { id: "fleet-component-mapping", label: "Fleet Component Mapping" },
+      { id: "fleets", label: "Fleet", group: "Fleet & Components" },
+      { id: "batteries", label: "Battery", group: "Fleet & Components" },
+      { id: "controllers", label: "Controller", group: "Fleet & Components" },
+      { id: "iot-devices", label: "IoT", group: "Fleet & Components" },
+      { id: "fleet-component-mapping", label: "Fleet Component Mapping", group: "Fleet & Components" },
+      { id: "installation-board", label: "Installation Board", group: "Preparation & Quality" },
+      { id: "vehicle-preparation", label: "Vehicle Preparation", group: "Preparation & Quality" },
+      { id: "quality-check", label: "Quality Check", group: "Preparation & Quality" },
+      { id: "spares-penalties", label: "Spares & Penalties", group: "Spares & Penalties" },
+      { id: "readiness-settings", label: "Fleet Readiness Settings", group: "Settings" },
     ],
   },
   {
@@ -2568,19 +2568,23 @@ export default function Home() {
                 className="client-nav-items"
                 hidden={Boolean(section.label) && !(expandedClientNavGroups[section.label] ?? false)}
               >
-                {section.items.filter((item) => canSeeTab(item.id)).map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={`${tab === item.id ? "active" : ""} ${section.label ? "sa-nav-child" : ""}`}
-                    aria-current={tab === item.id ? "page" : undefined}
-                    onClick={() => navigateTo(item.id)}
-                  >
-                    {item.id === "cluster-managers" || item.id === "team-leads" || item.id === "fleet-managers"
-                      ? <span aria-hidden="true" className={`client-role-art client-role-art-${item.id}`} />
-                      : <UiIcon name={CLIENT_TAB_ICONS[item.id]} />}
-                    {t(item.label)}
-                  </button>
+                {section.items.filter((item) => canSeeTab(item.id)).map((item, itemIndex, visibleItems) => (
+                  <Fragment key={item.id}>
+                    {item.group && item.group !== visibleItems[itemIndex - 1]?.group && (
+                      <p className="client-nav-subheading">{t(item.group)}</p>
+                    )}
+                    <button
+                      type="button"
+                      className={`${tab === item.id ? "active" : ""} ${section.label ? "sa-nav-child" : ""}`}
+                      aria-current={tab === item.id ? "page" : undefined}
+                      onClick={() => navigateTo(item.id)}
+                    >
+                      {item.id === "cluster-managers" || item.id === "team-leads" || item.id === "fleet-managers"
+                        ? <span aria-hidden="true" className={`client-role-art client-role-art-${item.id}`} />
+                        : <UiIcon name={CLIENT_TAB_ICONS[item.id]} />}
+                      {t(item.label)}
+                    </button>
+                  </Fragment>
                 ))}
               </div>
             </div>
@@ -3080,10 +3084,11 @@ export default function Home() {
         {isNotIncluded && (
           <section className="package-not-included-card">
             <p className="eyebrow">CLIENT OPERATIONS</p>
-            <h2>{title} is not available yet</h2>
+            <h2>{tab === "cluster-managers" ? "Dedicated Cluster Manager is not available in your package" : `${title} is not available yet`}</h2>
             <p>
-              This section is not available in this panel yet. Please contact your
-              administrator for more information.
+              {tab === "cluster-managers"
+                ? "Please contact your administrator for information about packages that include a dedicated Cluster Manager."
+                : "This section is not available in this panel yet. Please contact your administrator for more information."}
             </p>
           </section>
         )}
