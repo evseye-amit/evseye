@@ -1,4 +1,5 @@
 "use client";
+import { formatDateTime, formatMoney } from "../../lib/presentation";
 import { usePanelLoading } from "./panel-loading";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sessionFetch } from "../../lib/session-fetch";
@@ -11,8 +12,8 @@ type Payment = { id: string; source: string; riderName: string; mobile: string; 
 type Detail = Payment & { receipts: { id: string; mimeType: string; sizeBytes: number; uploadedAt: string }[];
   history: { id: string; action: string; actorId: string; actorName: string; createdAt: string; newData: { reason?: string; providerReference?: string; submissionVersion?: number } | null }[] };
 const label = (value: string) => value.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
-const date = (value: string | null) => value ? new Date(value).toLocaleString() : "—";
-const money = (row: Payment) => new Intl.NumberFormat("en-IN", { style: "currency", currency: row.currency }).format(Number(row.amount));
+const date = formatDateTime;
+const money = (row: Payment) => formatMoney(row.amount, row.currency);
 async function api<T>(path: string, init?: RequestInit) {
   const response = await sessionFetch(`/api/v1/client/payment-transactions${path}`, init);
   const body = await response.json();

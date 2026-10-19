@@ -1,6 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { ClientDataTable } from "../../components/client-data-table";
+import { ClientFormDialog } from "../../components/client-form-dialog";
+import { guardLinkNavigation, requestNavigation } from "../../components/unsaved-changes";
 import { useCallback, useEffect, useState } from "react";
 import { sessionFetch } from "../../../lib/session-fetch";
 import WorkflowPanel from "./workflow-panel";
@@ -97,20 +100,20 @@ export default function KycAdministration() {
     catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load verification."); }
   }
 
-  return <main className="client-dashboard" style={{ padding: "2rem", maxWidth: 1200, margin: "0 auto" }}>
+  return <main className="client-dashboard client-operations-main kyc-workspace" onClickCapture={guardLinkNavigation}>
     <header className="client-dashboard-header"><div><p className="eyebrow">CLIENT WORKSPACE</p><h1>KYC &amp; Verification</h1>
-      <p>Client scoped verification operations</p></div><div><Link href="/client/kyc/operations">Command Center</Link>{" · "}<Link href="/client">Back to dashboard</Link></div></header>
+      <p>Client scoped verification operations</p></div><div><Link href="/client/kyc/operations">Command Center</Link>{" · "}<Link className="button secondary" href="/?tab=dashboard">Back to dashboard</Link></div></header>
     {authorized && <nav aria-label="KYC sections" style={{ display: "flex", gap: "1rem", margin: "1.5rem 0" }}>
       {(["overview", "workflows", "verifications", "reviews", "definitions", "providers", "routing", "health", "commercial"] as const).map((item) =>
         <button key={item} type="button" aria-current={tab === item ? "page" : undefined}
-          onClick={() => { setTab(item); setSelected(null); }}>{item === "reviews" ? "Manual Review" : item === "routing" ? "Routing Policies" : item === "definitions" ? "Definitions" : item === "commercial" ? "Policy & Usage" : item[0].toUpperCase() + item.slice(1)}</button>)}
+          onClick={() => requestNavigation(() => { setTab(item); setSelected(null); })}>{item === "reviews" ? "Manual Review" : item === "routing" ? "Routing Policies" : item === "definitions" ? "Definitions" : item === "commercial" ? "Policy & Usage" : item[0].toUpperCase() + item.slice(1)}</button>)}
     </nav>}
     {loading && <p role="status">Loading KYC data…</p>}
-    {error && <p role="alert">{error}</p>}
+    {error && <p className="error" role="alert">{error}</p>}
     {authorized && (tab === "workflows" || tab === "reviews" || tab === "definitions") && <WorkflowPanel view={tab} />}
     {authorized && tab === "routing" && <RoutingPanel />}
     {authorized && tab === "commercial" && <CommercialPanel canManage={canManagePolicy} />}
-    {!loading && authorized && tab === "overview" && overview && <>
+    {authorized && tab === "overview" && overview && <>
     <h2>Rider KYC</h2><p>Each rider is counted once. Verification requires approval of all submitted onboarding documents and all required uploads.</p>
     <section className="client-metrics" aria-label="Rider KYC metrics">
       {(["Total", "VERIFIED", "PENDING", "FAILED", "NOT_STARTED"] as const).map(label =>
@@ -123,7 +126,7 @@ export default function KycAdministration() {
         <article className="client-metric-card" key={label}><span>{label.replaceAll("_", " ")}</span>
           <strong>{label === "Total" ? overview.total : overview.byStatus[label] ?? 0}</strong></article>)}
     </section></>}
-    {!loading && authorized && tab === "providers" && <section><h2>Providers</h2>
+    {authorized && tab === "providers" && <section><h2>Providers</h2>
       {providers.length === 0 ? <p>No providers configured.</p> : providers.map((provider) =>
         <article key={provider.id} className="client-metric-card" style={{ marginBottom: "1rem" }}>
           <h3>{provider.name}</h3><p>{provider.code} · {provider.environment} · {provider.status} · {provider.isActive ? "Enabled" : "Disabled"}</p>
@@ -132,12 +135,16 @@ export default function KycAdministration() {
             {" · "}{capability.timeoutMs} ms timeout · {capability.maxRetries} retries</li>)}</ul>
         </article>)}
     </section>}
-    {!loading && authorized && tab === "health" && <section><h2>Provider health</h2>
-      {capabilityHealth.length > 0 && <table><thead><tr><th>Provider</th><th>Capability</th><th>Status</th><th>Requests</th><th>Technical failures</th><th>Business failures</th><th>P50 / P95 / P99</th></tr></thead>
-        <tbody>{capabilityHealth.map((item) => <tr key={`${item.provider.id}-${item.verificationType}`}><td>{item.provider.name}</td><td>{item.verificationType}</td>
-          <td>{item.status}</td><td>{item.recentRequests}</td><td>{item.technicalFailureRate == null ? "—" : `${Math.round(item.technicalFailureRate * 100)}%`}</td>
-          <td>{item.businessFailureRate == null ? "—" : `${Math.round(item.businessFailureRate * 100)}%`}</td>
-          <td>{[item.p50LatencyMs, item.p95LatencyMs, item.p99LatencyMs].map((value) => value == null ? "—" : `${value} ms`).join(" / ")}</td></tr>)}</tbody></table>}
+    {authorized && tab === "health" && <section><h2>Provider health</h2>
+      <ClientDataTable rows={capabilityHealth} getRowId={(row) => `${row.provider.id}-${row.verificationType}`} emptyMessage="No provider capability health recorded." columns={[
+        { key: "provider", label: "Provider", value: (row) => row.provider.name },
+        { key: "capability", label: "Capability", value: (row) => row.verificationType.replaceAll("_", " ") },
+        { key: "status", label: "Status", value: (row) => row.status, render: (row) => <span className={`status status-${row.status.toLowerCase()}`}>{row.status.replaceAll("_", " ")}</span> },
+        { key: "requests", label: "Requests", value: (row) => row.recentRequests },
+        { key: "technical", label: "Technical failures", value: (row) => row.technicalFailureRate == null ? "—" : `${Math.round(row.technicalFailureRate * 100)}%` },
+        { key: "business", label: "Business failures", value: (row) => row.businessFailureRate == null ? "—" : `${Math.round(row.businessFailureRate * 100)}%` },
+        { key: "latency", label: "P50 / P95 / P99", value: (row) => [row.p50LatencyMs, row.p95LatencyMs, row.p99LatencyMs].map((value) => value == null ? "—" : `${value} ms`).join(" / ") },
+      ]} />
       {providers.length === 0 ? <p>No providers configured.</p> : providers.map((provider) =>
         <article key={provider.id} className="client-metric-card"><h3>{provider.name}</h3>
           <p>{health[provider.id]?.status ?? "UNKNOWN"}</p>
@@ -148,8 +155,8 @@ export default function KycAdministration() {
             {" · "}Last failure: {health[provider.id]?.lastFailureAt ? new Date(health[provider.id]?.lastFailureAt ?? "").toLocaleString() : "—"}</p>}
         </article>)}
     </section>}
-    {!loading && authorized && tab === "verifications" && <section><h2>Verifications</h2>
-      <div style={{ display: "flex", gap: "1rem", marginBottom: "1rem" }}>
+    {authorized && tab === "verifications" && <section><h2>Verifications</h2>
+      <div className="client-filter-bar">
         <label>Status <select value={status} onChange={(event) => { setStatus(event.target.value); setPage(0); }}>
           <option value="">All</option>{["CREATED", "PROCESSING", "OTP_REQUIRED", "VERIFIED", "FAILED", "MANUAL_REVIEW"].map((value) => <option key={value}>{value}</option>)}
         </select></label>
@@ -157,15 +164,19 @@ export default function KycAdministration() {
           <option value="">All</option>{["PAN_VERIFICATION", "AADHAAR_OTP", "BANK_ACCOUNT_VERIFICATION", "IFSC_VERIFICATION"].map((value) => <option key={value}>{value}</option>)}
         </select></label>
       </div>
-      {rows.length === 0 ? <p>No verifications found.</p> : <table><thead><tr><th>ID</th><th>Rider</th><th>Type</th><th>Status</th><th>Provider</th><th>Requested</th></tr></thead>
-        <tbody>{rows.map((row) => <tr key={row.id}><td><button type="button" onClick={() => void openDetail(row.id)}>{row.id.slice(0, 8)}</button></td>
-          <td>{row.riderId.slice(0, 8)}</td><td>{row.verificationType}</td><td>{row.status}</td><td>{row.finalProvider?.name ?? "—"}</td>
-          <td>{new Date(row.requestedAt).toLocaleString()}</td></tr>)}</tbody></table>}
-      <div style={{ display: "flex", gap: "1rem", marginTop: "1rem" }}>
-        <button type="button" disabled={page === 0} onClick={() => setPage(page - 1)}>Previous</button>
-        <span>Page {page + 1}</span><button type="button" disabled={rows.length < 50} onClick={() => setPage(page + 1)}>Next</button>
+      <ClientDataTable rows={rows} loading={loading} pagination={false} searchable={false} sortable={false} filterable={false} getRowId={(row) => row.id} emptyMessage="No verifications match these filters." columns={[
+        { key: "id", label: "Verification", value: (row) => row.id, render: (row) => <details><summary>{row.id.slice(0, 8)}</summary>{row.id}</details> },
+        { key: "rider", label: "Rider", value: (row) => row.riderId },
+        { key: "type", label: "Type", value: (row) => row.verificationType.replaceAll("_", " ") },
+        { key: "status", label: "Status", value: (row) => row.status, render: (row) => <span className={`status status-${row.status.toLowerCase()}`}>{row.status.replaceAll("_", " ")}</span> },
+        { key: "provider", label: "Provider", value: (row) => row.finalProvider?.name ?? "—" },
+        { key: "requested", label: "Requested", value: (row) => row.requestedAt, render: (row) => new Date(row.requestedAt).toLocaleString("en-IN") },
+      ]} actions={(row) => <button type="button" className="secondary table-action" onClick={() => void openDetail(row.id)}>Details</button>} />
+      <div className="sa-pagination" aria-label="Verification pagination">
+        <button type="button" disabled={loading || page === 0} onClick={() => setPage(page - 1)}>Previous</button>
+        <span>Page {page + 1}</span><button type="button" disabled={loading || rows.length < 50} onClick={() => setPage(page + 1)}>Next</button>
       </div>
-      {selected && <article className="client-metric-card" style={{ marginTop: "2rem" }}><h3>Verification {selected.id}</h3>
+      {selected && <ClientFormDialog title="Provider verification details" wide error={error} onClose={() => setSelected(null)}><details><summary>Record identifier</summary>{selected.id}</details>
         <p>Rider: {selected.riderId} · {selected.verificationType} · {selected.status}</p>
         <p>Provider: {selected.finalProvider?.name ?? "—"} · Requested: {new Date(selected.requestedAt).toLocaleString()}</p>
         {selected.resultCode && <p>Result: {selected.resultCode}</p>}
@@ -177,7 +188,7 @@ export default function KycAdministration() {
         {selected.routingTimeline?.length ? <ol>{selected.routingTimeline.map((event) => <li key={event.id}>
           {new Date(event.createdAt).toLocaleString()} · {event.action} {event.newData ? `· ${Object.entries(event.newData).map(([key, value]) => `${key}: ${value}`).join(", ")}` : ""}</li>)}</ol> : null}
         <h4>Normalized results</h4>{selected.results?.length ? selected.results.map((result, index) =>
-          <pre key={index}>{JSON.stringify(result.normalizedData, null, 2)}</pre>) : <p>No result yet.</p>}
+          <dl className="record-field-changes" key={index}>{Object.entries(result.normalizedData).map(([field, value]) => <div key={field}><dt>{field.replaceAll("_", " ")}</dt><dd>{value == null ? "—" : typeof value === "boolean" ? value ? "Yes" : "No" : value}</dd></div>)}</dl>) : <p>No result yet.</p>}
         <h4>Attempts</h4>{selected.attempts?.map((attempt) => <p key={attempt.id}>#{attempt.attemptNumber} · {attempt.provider?.name ?? "Provider"} · {attempt.reason ?? "PRIMARY"} · {attempt.status}
           {attempt.isLateCompletion ? " · Late completion" : ""}
           {attempt.latencyMs != null ? ` · ${attempt.latencyMs} ms` : ""}
@@ -185,7 +196,7 @@ export default function KycAdministration() {
           </p>)}
         <h4>Audit timeline</h4>{selected.auditTimeline?.length ? selected.auditTimeline.map((event) =>
           <p key={event.id}>{new Date(event.createdAt).toLocaleString()} · {event.action}</p>) : <p>No audit events yet.</p>}
-      </article>}
+      </ClientFormDialog>}
     </section>}
   </main>;
 }

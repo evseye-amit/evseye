@@ -1,4 +1,5 @@
 "use client";
+import { UnsavedChangesScope, markFormsSaved, requestNavigation } from "./unsaved-changes";
 import { usePanelLoading } from "./panel-loading";
 import { useEffect, useState, type FormEvent } from "react";
 import { sessionFetch } from "../../lib/session-fetch";
@@ -420,7 +421,7 @@ export function FleetReadiness({
     }
   };
   return (
-    <section className="action-card readiness-workspace">
+    <UnsavedChangesScope formsOnly resetKey={policy?.version}><section className="action-card readiness-workspace">
       {error && (
         <p className="error" role="alert">
           {error}
@@ -809,7 +810,7 @@ export function FleetReadiness({
               value={selectedUser}
               onChange={(e) => {
                 const id = e.target.value;
-                setSelectedUser(id);
+                requestNavigation(() => { setSelectedUser(id);
                 setGrants(
                   staff.hubs.map(
                     (h) =>
@@ -822,7 +823,7 @@ export function FleetReadiness({
                         canReview: false,
                       },
                   ),
-                );
+                ); });
               }}
             >
               <option value="">Select staff</option>
@@ -836,7 +837,7 @@ export function FleetReadiness({
           </label>
           {selectedUser &&
             grants.map((g) => (
-              <div key={g.hubId} className="form-actions">
+              <div data-unsaved-fields key={g.hubId} className="form-actions">
                 <strong>
                   {staff.hubs.find((h) => h.id === g.hubId)?.name}
                 </strong>
@@ -921,7 +922,7 @@ export function FleetReadiness({
                     ),
                   });
                   setEpoch((n) => n + 1);
-                  setNotice("Staff permissions saved.");
+                  markFormsSaved(); setNotice("Staff permissions saved.");
                 })
               }
             >
@@ -935,6 +936,7 @@ export function FleetReadiness({
                 void run(async () => {
                   await api("fleet-readiness/staff", "POST", newStaff);
                   setNewStaff({ name: "", mobile: "", role: "RFD_MANAGER" });
+                  markFormsSaved();
                   setEpoch((n) => n + 1);
                   setNotice(
                     "Staff created. Assign their hub permissions above.",
@@ -1373,7 +1375,7 @@ export function FleetReadiness({
             </ClientFormDialog>
           )}
 
-    </section>
+    </section></UnsavedChangesScope>
   );
 }
 

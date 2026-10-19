@@ -1,4 +1,5 @@
 "use client";
+import { formatDateTime } from "../../lib/presentation";
 import { usePanelLoading } from "./panel-loading";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -18,7 +19,7 @@ type Ticket = {
 };
 const statuses: TicketStatus[] = ["OPEN", "IN_PROGRESS", "RESOLVED"];
 const statusLabel = (status: TicketStatus) => ({ OPEN: "Open", IN_PROGRESS: "In progress", RESOLVED: "Resolved" })[status];
-const dateLabel = (date: string) => new Date(date).toLocaleString();
+const dateLabel = formatDateTime;
 const ticketStatus = (status: TicketStatus) => <span className={`status support-ticket-status-${status.toLowerCase()}`}>{statusLabel(status)}</span>;
 const columns: ClientColumn<Ticket>[] = [
   { key: "subject", label: "Subject", value: (row) => row.subject },

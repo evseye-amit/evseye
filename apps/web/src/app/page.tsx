@@ -1,4 +1,5 @@
 "use client";
+import { guardLinkNavigation, requestNavigation } from "./components/unsaved-changes";
 import { PanelLoadingContext } from "./components/panel-loading";
 import { PaymentTransactions } from "./components/payment-transactions";
 import { SparesCatalogue } from "./components/spares-catalogue";
@@ -346,6 +347,7 @@ function oemLabel(value: unknown, fallback = "—") {
 }
 
 interface Dashboard {
+  available: { fleet: boolean; riders: boolean; kyc: boolean; operations: boolean; iot: boolean };
   fleet: Record<string, number>;
   riders: Record<string, number>;
   kyc: Record<string, number>;
@@ -375,6 +377,7 @@ let refreshInFlight: Promise<string | null> | null = null;
 function normalizeDashboard(value: unknown): Dashboard {
   const data = value as Partial<Dashboard> | null;
   return {
+    available: { fleet: !!data?.fleet, riders: !!data?.riders, kyc: !!data?.kyc, operations: !!data?.operations && [data.operations.activeAllocations, data.operations.allocationsToday, data.operations.deallocationsToday].every((value) => typeof value === "number"), iot: !!data?.iot && typeof data.iot.online === "number" && typeof data.iot.offline === "number" },
     fleet: data?.fleet ?? {},
     riders: data?.riders ?? {},
     kyc: data?.kyc ?? {},
@@ -469,17 +472,19 @@ async function request(
   return body.data;
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
+function Metric({ label, value, onClick }: { label: string; value: number | null; onClick?: () => void }) {
   const { t } = useLocale();
   return (
     <article className="metric">
       <span>{t(label)}</span>
-      <strong>{value}</strong>
+      <strong>{value === null ? "—" : new Intl.NumberFormat("en-IN").format(value)}</strong>
+      {value === null && <small>{t("Data unavailable")}</small>}
+      {onClick && value !== null && <button type="button" className="secondary table-action" onClick={onClick}>{t("View records")}</button>}
     </article>
   );
 }
 
-function FleetHealthCard({ dashboard }: { dashboard: Dashboard }) {
+function FleetHealthCard({ dashboard, onView }: { dashboard: Dashboard; onView?: () => void }) {
   const { t } = useLocale();
   const fleetRows = [
     ["Available", dashboard.fleet.AVAILABLE ?? 0, "#21865d"],
@@ -498,7 +503,7 @@ function FleetHealthCard({ dashboard }: { dashboard: Dashboard }) {
           <p className="eyebrow">{t("FLEET HEALTH")}</p>
           <h2>{t("Fleet status distribution")}</h2>
         </div>
-        <span>{Object.values(dashboard.fleet).reduce((sum, value) => sum + value, 0)} {t("total")}</span>
+        <div className="row-actions"><span>{Object.values(dashboard.fleet).reduce((sum, value) => sum + value, 0)} {t("total")}</span>{onView && <button type="button" className="secondary table-action" onClick={onView}>{t("View fleets")}</button>}</div>
       </header>
       <div className="bar-chart-list">
         {fleetRows.map(([label, value, color]) => (
@@ -515,7 +520,7 @@ function FleetHealthCard({ dashboard }: { dashboard: Dashboard }) {
   );
 }
 
-function OperationsDashboardVisuals({ dashboard }: { dashboard: Dashboard }) {
+function OperationsDashboardVisuals({ dashboard, showIot }: { dashboard: Dashboard; showIot: boolean }) {
   const { t } = useLocale();
   const riderTotal = Object.values(dashboard.riders).reduce(
     (sum, value) => sum + value,
@@ -541,7 +546,7 @@ function OperationsDashboardVisuals({ dashboard }: { dashboard: Dashboard }) {
       className="operations-visual-grid"
       aria-label="Operations visual summary"
     >
-      <article className="operations-chart-card operations-readiness-chart">
+      {dashboard.available.riders && dashboard.available.kyc && <article className="operations-chart-card operations-readiness-chart">
         <header>
           <div>
             <p className="eyebrow">{t("WORKFORCE")}</p>
@@ -571,8 +576,8 @@ function OperationsDashboardVisuals({ dashboard }: { dashboard: Dashboard }) {
             </p>
           </div>
         </div>
-      </article>
-      <article className="operations-chart-card operations-activity-chart">
+      </article>}
+      {dashboard.available.operations && <article className="operations-chart-card operations-activity-chart">
         <header>
           <div>
             <p className="eyebrow">{t("TODAY")}</p>
@@ -593,8 +598,8 @@ function OperationsDashboardVisuals({ dashboard }: { dashboard: Dashboard }) {
             </div>
           ))}
         </div>
-      </article>
-      <article className="operations-chart-card operations-iot-chart">
+      </article>}
+      {showIot && dashboard.available.iot && <article className="operations-chart-card operations-iot-chart">
         <header>
           <div>
             <p className="eyebrow">{t("TELEMATICS")}</p>
@@ -613,7 +618,7 @@ function OperationsDashboardVisuals({ dashboard }: { dashboard: Dashboard }) {
             <b>{dashboard.iot.offline}</b> {t("offline")}
           </p>
         </div>
-      </article>
+      </article>}
     </section>
   );
 }
@@ -722,8 +727,20 @@ function clientColumns(tab: Tab): ClientColumn<RecordItem>[] {
   }
 }
 
+function canAccessTab(id: Tab, userRoles: string[]) {
+    if (userRoles.some(role => ["RFD_MANAGER","QC_MANAGER"].includes(role))) return ["installation-board","vehicle-preparation","quality-check"].includes(id);
+    if (["payment-transactions","spares-penalties","legal-documents","refer-and-earn","readiness-settings","work-partners"].includes(id)) return userRoles.includes("CLIENT_ADMIN");
+    if (["notifications","readiness-staff"].includes(id)) return userRoles.some(role => ["CLIENT_ADMIN","OPERATIONS_MANAGER"].includes(role));
+    return true;
+}
+
+
 export default function Home() {
   const viewGeneration = useRef(0);
+  const historyIndex = useRef(0);
+  const restoringHistory = useRef(false);
+  const [navigationError, setNavigationError] = useState("");
+  const canSeeTab = (id: Tab) => canAccessTab(id, userRoles);
   const [panelRefreshKey, setPanelRefreshKey] = useState(0);
   const [panelLoading, setPanelLoading] = useState(false);
   const { appearance, hostClient } = useClientAppearance();
@@ -736,6 +753,8 @@ export default function Home() {
   const [token, setToken] = useState("");
   const [tab, setTab] = useState<Tab>("dashboard");
   const [expandedClientNavGroups, setExpandedClientNavGroups] = useState<Record<string, boolean>>({});
+  const [dashboardLoadedAt, setDashboardLoadedAt] = useState<string | null>(null);
+  const [iotEnabled, setIotEnabled] = useState<boolean | null>(null);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [items, setItems] = useState<RecordItem[]>([]);
   const [availableFleets, setAvailableFleets] = useState<RecordItem[]>([]);
@@ -837,58 +856,6 @@ export default function Home() {
   const [error, setError] = useState("");
   const [userRoles, setUserRoles] = useState<string[]>([]);
 
-  useEffect(() => {
-    const syncToken = () => {
-      const saved = sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? "";
-      setToken(saved);
-    };
-    const timer = window.setTimeout(syncToken, 0);
-    window.addEventListener(AUTH_CHANGED_EVENT, syncToken);
-    return () => {
-      window.clearTimeout(timer);
-      window.removeEventListener(AUTH_CHANGED_EVENT, syncToken);
-    };
-  }, []);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const requestedTab = new URLSearchParams(window.location.search).get("tab");
-      if (requestedTab === "legal-documents" || requestedTab === "refer-and-earn") setTab(requestedTab);
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
-    if (!token) return;
-    void request("/auth/me", {}, token)
-      .then(async (identity) => {
-        const roles = (identity as { roles?: string[] }).roles ?? [];
-        setUserRoles(roles);
-        if (roles.some(role => ["RFD_MANAGER","QC_MANAGER"].includes(role))) setTab(roles.includes("RFD_MANAGER") ? "vehicle-preparation" : "quality-check");
-        // Incomplete Client onboarding stays guided; active Clients use this
-        // single full operations console as their dashboard.
-        const openOperations =
-          new URLSearchParams(window.location.search).get("workspace") ===
-          "operations";
-        if (roles.includes("CLIENT_ADMIN") && !openOperations) {
-          const bootstrap = (await request("/client/bootstrap", {}, token)) as {
-            route?: string;
-          };
-          if (bootstrap.route !== "DASHBOARD") {
-            window.location.replace("/client");
-          }
-        }
-      })
-      .catch(() => undefined);
-  }, [token]);
-
-  useEffect(() => {
-    if (!token) return;
-    void loadView(tab);
-    // Loading belongs to the selected view and intentionally runs after sign-in/tab change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, tab, userRoles]);
-
   async function loadView(nextTab: Tab) {
     const generation = ++viewGeneration.current;
     const viewRequest = async (...args: Parameters<typeof request>) => {
@@ -896,7 +863,7 @@ export default function Home() {
       if (generation !== viewGeneration.current) throw new Error("View changed.");
       return result;
     };
-    if (!userRoles.length) { setLoading(false); return; }
+    if (!userRoles.length || !canAccessTab(nextTab, userRoles)) { setLoading(false); return; }
     if (["spares-penalties","installation-board","vehicle-preparation","quality-check","readiness-settings","readiness-staff"].includes(nextTab)) { setItems([]); setLoading(false); return; }
     if (nextTab === "payment-transactions" || nextTab === "legal-documents" || nextTab === "refer-and-earn" || nextTab === "work-partners" || nextTab === "rider-reference-review" || nextTab === "support-tickets" || nextTab === "notifications") {
       setItems([]);
@@ -911,10 +878,18 @@ export default function Home() {
     setLoading(true);
     setError("");
     try {
-      if (nextTab === "dashboard")
-        setDashboard(
-          normalizeDashboard(await viewRequest("/dashboard", {}, token)),
-        );
+      if (nextTab === "dashboard") {
+        const [summary, policy] = await Promise.allSettled([
+          viewRequest("/dashboard", {}, token),
+          viewRequest("/client/fleet-readiness/policy", {}, token),
+        ]);
+        if (generation !== viewGeneration.current) return;
+        if (summary.status === "rejected") throw summary.reason;
+        setDashboard(normalizeDashboard(summary.value));
+        setDashboardLoadedAt(new Date().toISOString());
+        const configuration = policy.status === "fulfilled" ? (policy.value as { configuration?: { iotRequired?: boolean; stages?: { component?: string }[] } }).configuration : null;
+        setIotEnabled(configuration ? configuration.iotRequired === true || configuration.stages?.some((stage) => stage.component === "IOT") === true : null);
+      }
       else if (nextTab === "fleet-managers") {
         const [fleetManagers, hubList] = await Promise.all([
           viewRequest("/client/users/fleet-managers", {}, token),
@@ -984,6 +959,15 @@ export default function Home() {
   }
 
   function navigateTo(nextTab: Tab) {
+    if (nextTab === tab) return;
+    requestNavigation(() => commitNavigation(nextTab));
+  }
+
+  function commitNavigation(nextTab: Tab, historyMode: "push" | "none" = "push") {
+    if (!canAccessTab(nextTab, userRoles)) { setNavigationError("You do not have access to this section."); return; }
+    setNavigationError("");
+    const group = CLIENT_NAVIGATION.find((section) => section.label && section.items.some((item) => item.id === nextTab));
+    if (group) setExpandedClientNavGroups((current) => ({ ...current, [group.label]: true }));
     if (nextTab !== tab) { viewGeneration.current += 1; setItems([]); setConfiguredRequirements([]); setAllocationDetail(null); }
     if (nextTab === "dashboard") setExpandedClientNavGroups({});
     setShowAllocationForm(false);
@@ -1009,10 +993,90 @@ export default function Home() {
     }
     setTab(nextTab);
     const url = new URL(window.location.href);
-    if (nextTab === "legal-documents" || nextTab === "refer-and-earn") url.searchParams.set("tab", nextTab);
-    else url.searchParams.delete("tab");
-    window.history.replaceState({}, "", url);
+    url.searchParams.set("tab", nextTab);
+    if (historyMode === "push") {
+      historyIndex.current += 1;
+      window.history.pushState({ evseyeIndex: historyIndex.current }, "", url);
+    }
   }
+
+  useEffect(() => {
+    const syncToken = () => {
+      const saved = sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? "";
+      setToken(saved);
+    };
+    const timer = window.setTimeout(syncToken, 0);
+    window.addEventListener(AUTH_CHANGED_EVENT, syncToken);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener(AUTH_CHANGED_EVENT, syncToken);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!userRoles.length) return;
+    const readDestination = () => {
+      const requested = new URLSearchParams(window.location.search).get("tab") ?? "dashboard";
+      const fallback: Tab = userRoles.includes("RFD_MANAGER") ? "vehicle-preparation" : userRoles.includes("QC_MANAGER") ? "quality-check" : "dashboard";
+      if (!Object.hasOwn(CLIENT_TAB_TITLES, requested)) return { tab: fallback, error: "This page does not exist. Choose a section from the menu." };
+      if (!canAccessTab(requested as Tab, userRoles)) return { tab: fallback, error: "You do not have access to the requested section." };
+      return { tab: requested as Tab, error: "" };
+    };
+    historyIndex.current = window.history.state?.evseyeIndex ?? 0;
+    window.history.replaceState({ ...window.history.state, evseyeIndex: historyIndex.current }, "");
+    const timer = window.setTimeout(() => {
+      const destination = readDestination();
+      commitNavigation(destination.tab, "none"); setNavigationError(destination.error);
+    }, 0);
+    const pop = (event: PopStateEvent) => {
+      if (restoringHistory.current) { restoringHistory.current = false; return; }
+      const destination = readDestination();
+      const targetIndex = event.state?.evseyeIndex ?? 0;
+      const delta = targetIndex - historyIndex.current;
+      let restored = false;
+      const accepted = requestNavigation(() => {
+        if (restored && delta) { window.history.go(delta); return; }
+        historyIndex.current = targetIndex;
+        commitNavigation(destination.tab, "none"); setNavigationError(destination.error);
+      });
+      if (!accepted && delta) { restored = true; restoringHistory.current = true; window.history.go(-delta); }
+    };
+    window.addEventListener("popstate", pop);
+    return () => { window.clearTimeout(timer); window.removeEventListener("popstate", pop); };
+    // Navigation deliberately uses the identity that was authorized for this session.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userRoles]);
+
+  useEffect(() => {
+    if (!token) return;
+    void request("/auth/me", {}, token)
+      .then(async (identity) => {
+        const roles = (identity as { roles?: string[] }).roles ?? [];
+        setUserRoles(roles);
+        // Incomplete Client onboarding stays guided; active Clients use this
+        // single full operations console as their dashboard.
+        const openOperations =
+          new URLSearchParams(window.location.search).get("workspace") ===
+          "operations";
+        if (roles.includes("CLIENT_ADMIN") && !openOperations) {
+          const bootstrap = (await request("/client/bootstrap", {}, token)) as {
+            route?: string;
+          };
+          if (bootstrap.route !== "DASHBOARD") {
+            window.location.replace("/client");
+          }
+        }
+      })
+      .catch(() => undefined);
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    const timer = window.setTimeout(() => void loadView(tab), 0);
+    return () => { window.clearTimeout(timer); viewGeneration.current += 1; };
+    // Loading belongs to the selected view and intentionally runs after sign-in/tab change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, tab, userRoles]);
 
   useEffect(() => {
     if (!hostClient && !companyCode.trim()) return;
@@ -2458,16 +2522,10 @@ export default function Home() {
       </main>
     );
 
-  const canSeeTab = (id: Tab) => {
-    if (userRoles.some(role => ["RFD_MANAGER","QC_MANAGER"].includes(role))) return ["installation-board","vehicle-preparation","quality-check"].includes(id);
-    if (["payment-transactions","spares-penalties","legal-documents","refer-and-earn","readiness-settings","work-partners"].includes(id)) return userRoles.includes("CLIENT_ADMIN");
-    if (["notifications","readiness-staff"].includes(id)) return userRoles.some(role => ["CLIENT_ADMIN","OPERATIONS_MANAGER"].includes(role));
-    return true;
-  };
   const title = CLIENT_TAB_TITLES[tab];
   const isNotIncluded = !ACTIVE_CLIENT_TABS.has(tab);
   return (
-    <main className="sa-shell client-operations-shell">
+    <main className="sa-shell client-operations-shell" onClickCapture={guardLinkNavigation}>
       <aside className="sa-sidebar">
         <ClientBrand token={token} />
         <nav className="client-navigation" aria-label="Client operations">
@@ -2547,9 +2605,10 @@ export default function Home() {
             <button className="secondary" disabled={loading || panelLoading} aria-busy={loading || panelLoading} onClick={() => { setPanelRefreshKey((key) => key + 1); void loadView(tab); }}>
               ↻ {t("Refresh")}
             </button>
-            <button onClick={signOut}>{t("Sign out")}</button>
+            <button onClick={() => requestNavigation(() => void signOut())}>{t("Sign out")}</button>
           </div>
         </header>
+        {navigationError && <p className="error" role="alert">{navigationError}</p>}
         {bulkImportTab === tab && bulkImportTab ? <>
           {notice && <p className="notice" role="status">{notice}</p>}
           {error && <p className="error" role="alert">{error}</p>}
@@ -3006,52 +3065,36 @@ export default function Home() {
         {isNotIncluded && (
           <section className="package-not-included-card">
             <p className="eyebrow">CLIENT OPERATIONS</p>
-            <h2>{title} is not included in your package</h2>
+            <h2>{title} is not available yet</h2>
             <p>
-              This feature is not included in your package. Please contact your
+              This section is not available in this panel yet. Please contact your
               administrator for more information.
             </p>
           </section>
         )}
-        {tab === "dashboard" && dashboard && (
-          <>
-            <FleetHealthCard dashboard={dashboard} />
-            <div className="dashboard-grid">
-              <Metric
-                label="Total riders"
-                value={Object.values(dashboard.riders).reduce(
-                  (sum, value) => sum + value,
-                  0,
-                )}
-              />
-              <Metric
-                label="Active riders"
-                value={dashboard.riders.ACTIVE ?? 0}
-              />
-              <Metric label="KYC pending" value={dashboard.kyc.PENDING ?? 0} />
-              <Metric
-                label="KYC verified"
-                value={dashboard.kyc.VERIFIED ?? 0}
-              />
-              <Metric label="KYC failed" value={dashboard.kyc.FAILED ?? 0} />
-              <Metric
-                label="Active allocations"
-                value={dashboard.operations.activeAllocations}
-              />
-              <Metric
-                label="Allocations today"
-                value={dashboard.operations.allocationsToday}
-              />
-              <Metric
-                label="Deallocations today"
-                value={dashboard.operations.deallocationsToday}
-              />
-              <Metric label="IoT online" value={dashboard.iot.online} />
-              <Metric label="IoT offline" value={dashboard.iot.offline} />
-            </div>
-            <OperationsDashboardVisuals dashboard={dashboard} />
-          </>
-        )}
+        {tab === "dashboard" && dashboard && <div className="client-dashboard-sections">
+          {dashboardLoadedAt && <p className="muted" role="status">Last refreshed <time dateTime={dashboardLoadedAt}>{new Date(dashboardLoadedAt).toLocaleString("en-IN")}</time></p>}
+          <section aria-labelledby="fleet-summary-title"><h2 id="fleet-summary-title">Fleet</h2>
+            {dashboard.available.fleet ? <FleetHealthCard dashboard={dashboard} onView={() => navigateTo("fleets")} /> : <p className="muted">Fleet data unavailable.</p>}
+          </section>
+          <section aria-labelledby="rider-summary-title"><h2 id="rider-summary-title">Riders</h2><div className="dashboard-grid">
+            <Metric label="Total riders" value={dashboard.available.riders ? Object.values(dashboard.riders).reduce((sum, value) => sum + value, 0) : null} onClick={() => navigateTo("riders")} />
+            <Metric label="Active riders" value={dashboard.available.riders ? dashboard.riders.ACTIVE ?? 0 : null} />
+          </div></section>
+          <section aria-labelledby="verification-summary-title"><h2 id="verification-summary-title">Document verification</h2><div className="dashboard-grid">
+            <Metric label="KYC pending" value={dashboard.available.kyc ? dashboard.kyc.PENDING ?? 0 : null} />
+            <Metric label="KYC verified" value={dashboard.available.kyc ? dashboard.kyc.VERIFIED ?? 0 : null} />
+            <Metric label="KYC failed" value={dashboard.available.kyc ? dashboard.kyc.FAILED ?? 0 : null} />
+          </div></section>
+          <section aria-labelledby="daily-summary-title"><h2 id="daily-summary-title">Daily operations</h2><div className="dashboard-grid">
+            <Metric label="Active allocations" value={dashboard.available.operations ? dashboard.operations.activeAllocations : null} />
+            <Metric label="Allocations today" value={dashboard.available.operations ? dashboard.operations.allocationsToday : null} />
+            <Metric label="Deallocations today" value={dashboard.available.operations ? dashboard.operations.deallocationsToday : null} />
+          </div></section>
+          {iotEnabled === true && <section aria-label="IoT connectivity"><h2>IoT connectivity</h2><div className="dashboard-grid"><Metric label="IoT online" value={dashboard.available.iot ? dashboard.iot.online : null} /><Metric label="IoT offline" value={dashboard.available.iot ? dashboard.iot.offline : null} /></div></section>}
+          {iotEnabled === null && <p className="muted">IoT configuration could not be loaded. Connectivity metrics are unavailable.</p>}
+          <OperationsDashboardVisuals dashboard={dashboard} showIot={iotEnabled === true} />
+        </div>}
         {!isNotIncluded &&
           tab !== "dashboard" &&
           tab !== "legal-documents" &&
