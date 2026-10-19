@@ -1419,7 +1419,7 @@ export class VehicleSubmissionService {
         await tx.vehicleMaintenanceIssue.upsert({ where: { id: issueId },
           create: { id: issueId, clientId, fleetId: submission.fleetId, submissionId: submission.id,
             ...data, lastReportId: row.id, updatedById: actor.id },
-          update: { ...data, category: data.category ?? existing?.category ?? null, penaltyFindingId: data.penaltyFindingId ?? existing?.penaltyFindingId ?? null, lastReportId: row.id, updatedById: actor.id },
+          update: { ...data, penaltyFindingId: data.penaltyFindingId ?? existing?.penaltyFindingId ?? null, lastReportId: row.id, updatedById: actor.id },
         });
       }
       const openIssues = await tx.vehicleMaintenanceIssue.count({ where: {

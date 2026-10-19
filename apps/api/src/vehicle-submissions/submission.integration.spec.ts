@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { FleetManagerMaintenanceService } from '../fleet-manager-maintenance/maintenance.service.js';
 import { MaintenanceFleetsQueryDto } from '../fleet-manager-maintenance/maintenance.dto.js';
 import { MediaService } from '../media/media.service.js';
@@ -29,6 +30,7 @@ import type { MechanicReportDto } from './submission.dto.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 
 const url = process.env.SUBMISSION_TEST_DATABASE_URL;
+if (url && !new URL(url).pathname.includes('_test_')) throw new Error('Use a disposable _test_ database.');
 describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
   let db!: PrismaClient;
   let prisma!: PrismaService;
@@ -323,7 +325,7 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
       return {
         stage,
         fleetStatus: checksComplete ? 'AVAILABLE' : 'MAINTENANCE',
-        issues: checksComplete ? [] : [{ category: 'BODY_CHASSIS', description: 'Repaired body panel; final checks pending', status: 'RESOLVED', evidencePhotoIds: [proof] }],
+        issues: checksComplete ? [] : [{ description: 'Repaired body panel; final checks pending', status: 'RESOLVED', evidencePhotoIds: [proof] }],
         mechanicName: 'Mechanic',
         summary: 'Checked the vehicle and recorded repair findings',
         safeForReuse: true,
@@ -359,7 +361,7 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
   }
 
 
-  it.each([{ fleetStatus: 'BROKEN', category: 'POWERTRAIN' }, { fleetStatus: 'AWAITING_PARTS', category: undefined }] as const)('confirms $fleetStatus with optional category, blocks release and resolves the issue through a deeper report', async ({ fleetStatus, category }) => {
+  it.each(['BROKEN', 'AWAITING_PARTS'] as const)('confirms %s without category, blocks release and resolves the issue through a deeper report', async (fleetStatus) => {
     const f = await fixture();
     const photos = await f.capture();
     const proof = photos[0]!.id;
@@ -368,7 +370,7 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
     const input: MechanicReportDto = {
       ...f.report(proof, 'BASIC', true), fleetStatus, safeForReuse: false,
       unsafeReason: 'Motor requires replacement', items: fleetStatus === 'BROKEN' ? [{ ...f.report(proof).items[0]!, findingId }] : [],
-      issues: [{ category, description: 'Motor failure', status: 'OPEN',
+      issues: [{ description: 'Motor failure', status: 'OPEN',
         requiredParts: 'Motor assembly', penaltyFindingId: fleetStatus === 'BROKEN' ? findingId : undefined, evidencePhotoIds: [issueProof.id] }],
     };
     const report = await service.recordReport(f.client.id, f.actor, f.submission.id, input, 'condition-basic-key');
@@ -388,14 +390,10 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
     expect(fleet.status).toBe(fleetStatus);
     expect(fleet.allocationEnabled).toBe(false);
     const issue = await db.vehicleMaintenanceIssue.findFirstOrThrow({ where: { fleetId: f.fleet.id } });
-    expect(issue.category).toBe(category ?? null);
+    expect(issue).not.toHaveProperty('category');
     const maintenance = new FleetManagerMaintenanceService(prisma);
-    const filtered = await maintenance.list(f.client.id, f.actor.id, Object.assign(new MaintenanceFleetsQueryDto(), { issueCategory: 'POWERTRAIN', fleetStatus }));
-    expect(filtered.items.some(item => item.id === fleet.id)).toBe(category === 'POWERTRAIN');
     const unfiltered = await maintenance.list(f.client.id, f.actor.id, new MaintenanceFleetsQueryDto());
     expect(unfiltered.items.some(item => item.id === fleet.id)).toBe(true);
-    const otherCategory = await maintenance.list(f.client.id, f.actor.id, Object.assign(new MaintenanceFleetsQueryDto(), { issueCategory: 'BRAKES' }));
-    expect(otherCategory.items).toHaveLength(0);
 
     await expect(db.fleet.update({ where: { id: f.fleet.id }, data: { status: 'AVAILABLE', allocationEnabled: true } })).rejects.toThrow();
     const missingResolution = await service.recordReport(f.client.id, f.actor, f.submission.id,
@@ -411,13 +409,41 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
     await service.confirm(f.client.id, f.actor, repaired.id, { riderBypassReason: 'Unavailable', teamLeadBypassReason: 'Unavailable' });
     const resolvedIssue = await db.vehicleMaintenanceIssue.findUniqueOrThrow({ where: { id: issue.id } });
     expect(resolvedIssue.status).toBe('RESOLVED');
-    expect(resolvedIssue.category).toBe(category ?? null);
+    expect(resolvedIssue).not.toHaveProperty('category');
     expect(resolvedIssue.penaltyFindingId).toBe(fleetStatus === 'BROKEN' ? findingId : null);
     expect(await db.riderCharge.count({ where: { clientId: f.client.id } })).toBe(fleetStatus === 'BROKEN' ? 1 : 0);
     expect((await db.fleet.findUniqueOrThrow({ where: { id: fleet.id } })).status).toBe('AVAILABLE');
     expect((await db.vehicleSubmissionReport.findUniqueOrThrow({ where: { id: report.id } })).fleetStatus).toBe(fleetStatus);
     expect(await db.fleetStatusHistory.count({ where: { fleetId: fleet.id, toStatus: fleetStatus } })).toBe(1);
   });
+
+  it('hard-removal migration scrubs historical issue snapshots, keeps penalties and refreshes report digests', async () => {
+    const f = await fixture();
+    const proof = (await f.capture())[0]!.id;
+    const report = await service.recordReport(f.client.id, f.actor, f.submission.id, f.report(proof), 'migration-history-key');
+    const original = await db.vehicleSubmissionReport.findUniqueOrThrow({ where: { id: report.id } });
+    const oldIssues = (original.issues as Array<Record<string, unknown>>).map(issue => ({ ...issue, category: 'POWERTRAIN' }));
+    await db.vehicleSubmissionReport.update({ where: { id: report.id }, data: { issues: oldIssues as never, digest: '0'.repeat(64), riderVerifiedUserId: f.actor.id } });
+    const audit = await db.auditLog.create({ data: { clientId: f.client.id, actorId: f.actor.id, entityType: 'VehicleSubmission', entityId: f.submission.id, action: 'MIGRATION_FIXTURE',
+      previousData: { previousIssues: oldIssues }, newData: { issues: oldIssues, items: [{ category: 'DAMAGE', amount: '12.00' }] } } });
+    const otp = await db.otpRequest.create({ data: { clientId: f.client.id, purpose: 'VEHICLE_SUBMISSION_RIDER', phone: '9999999999', otpHash: 'unused', expiresAt: new Date(Date.now() + 60000), context: { reportId: report.id } } });
+    // Recreate the pre-removal column so the same migration can run against this fixture.
+    await db.$executeRawUnsafe(`CREATE TYPE "MaintenanceIssueCategory" AS ENUM ('POWERTRAIN')`);
+    await db.$executeRawUnsafe(`ALTER TABLE "VehicleMaintenanceIssue" ADD COLUMN category "MaintenanceIssueCategory"`);
+    execFileSync('pnpm', ['exec', 'prisma', 'db', 'execute', '--file', 'prisma/migrations/20261020020000_remove_maintenance_issue_category/migration.sql', '--schema', 'prisma/schema.prisma'], { env: { ...process.env, DATABASE_URL: url! }, stdio: 'pipe', timeout: 120000 });
+    const cleaned = await db.vehicleSubmissionReport.findUniqueOrThrow({ where: { id: report.id } });
+    expect(cleaned.issues).toEqual(original.issues);
+    expect(cleaned.digest).toBe(original.digest);
+    expect(cleaned.items).toEqual(original.items);
+    expect(cleaned.riderVerifiedUserId).toBeNull();
+    const cleanedAudit = await db.auditLog.findUniqueOrThrow({ where: { id: audit.id } });
+    expect(cleanedAudit.previousData).toEqual({ previousIssues: original.issues });
+    expect(cleanedAudit.newData).toEqual({ issues: original.issues, items: [{ category: 'DAMAGE', amount: '12.00' }] });
+    expect((await db.otpRequest.findUniqueOrThrow({ where: { id: otp.id } })).status).toBe('CANCELLED');
+    const columns = await db.$queryRawUnsafe<Array<{ column_name: string }>>(`SELECT column_name FROM information_schema.columns WHERE table_name='VehicleMaintenanceIssue' AND column_name='category'`);
+    expect(columns).toHaveLength(0);
+    await service.impose(f.client.id, f.actor, report.id);
+  }, 180000);
 
   async function finalizedPenalty() {
     const f = await fixture();

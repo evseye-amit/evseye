@@ -4,7 +4,7 @@
 
 `MAINTENANCE`, `BROKEN` (major repair) and `AWAITING_PARTS` all count as under maintenance and cannot be allocated. `AVAILABLE` requests release through the existing readiness rules. No `MECHANICALLY_OK` status is added.
 
-Issue category is optional. New callers omit it; uncategorised issues are stored as null. Older callers may still provide a valid category. Existing categories are preserved, including when a later repair report omits category. Every issue still needs a description, status and inspection evidence.
+Maintenance issues have no category field. Every issue still needs a description, status and inspection evidence. Penalty/spare categories are separate and remain unchanged.
 
 Issue progress is `OPEN`, `IN_PROGRESS`, or `RESOLVED`. This is independent of report stage, fleet status and any maintenance job status. An issue never automatically creates a charge.
 
@@ -62,7 +62,7 @@ Simple mode remains configured as before. Preparation/QC modes require renewed p
 
 ## Maintenance and fleet reads
 
-- `GET /api/v1/fleet-manager/maintenance/fleets` includes all three maintenance statuses. Optional `fleetStatus` and `issueCategory` filters supplement hub/search/pagination. Category filtering matches unresolved issues. `summary.underMaintenance` remains the unfiltered count in assigned hub scope.
+- `GET /api/v1/fleet-manager/maintenance/fleets` includes all three maintenance statuses. Optional `fleetStatus` supplements hub/search/pagination. `summary.underMaintenance` remains the unfiltered count in assigned hub scope.
 - `GET /api/v1/fleet-manager/maintenance/fleets/:fleetId` includes live `maintenanceIssues`, finalized reports with `fleetStatus`/`issues`, status history and evidence metadata.
 - Existing fleet detail includes `maintenanceIssues`.
 - Home live and historical maintenance/parking counts include the two new statuses. Ready-for-deployment and eligible-fleet rules exclude them.
@@ -71,8 +71,8 @@ Fleet Manager actions remain restricted to assigned hubs within the client. Exis
 
 ## Migration and app integration
 
-Apply `20261019030000_submission_maintenance_conditions` before running the new API. No seed changes or history backfill are needed. Existing maintenance records stay valid without invented categories. Existing reports retain their original digest and nullable condition.
+Apply `20261019030000_submission_maintenance_conditions` before running the new API. No seed changes or history backfill are needed. Existing maintenance records stay valid without invented categories. The category-removal migration recalculates digests only for affected historical reports.
 
 The Flutter app is outside this repository. Its mechanic-report form must add the condition selector, issue editor and the two required payload fields; it must display the new maintenance response fields and filters. Existing callers that omit the new report fields receive validation errors.
 
-Apply `20261020010000_optional_submission_issue_category` for nullable issue categories. This migration preserves existing values; no seed or backfill is needed. Flutter can remove its category selector later. Maintenance category filters remain available for historical/categorised issues; unfiltered lists include uncategorised issues.
+Apply `20261020020000_remove_maintenance_issue_category` to remove the database column and enum, categories from historical report issues and structured audit issue snapshots, and recalculate affected report digests. Pending OTP approvals for affected reports are cleared and must be requested again. Other history, penalty categories, financial records and validations are retained. No seeds are required. Flutter must omit category in submission requests and stop sending the removed issueCategory filter; those fields are no longer part of the API contract.
