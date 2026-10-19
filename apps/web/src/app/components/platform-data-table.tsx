@@ -85,7 +85,7 @@ export function PlatformDataTable({
       )
     : rows;
   const effectiveColumnFilters =
-    rows.length > columnFiltersMinimumRows
+    (rows.length > columnFiltersMinimumRows || Object.values(columnFilterStates).some((state) => Object.values(state ?? {}).some((value) => Array.isArray(value) ? value.length > 0 : value !== undefined && value !== "")))
       ? columnFilters.map((filter, columnIndex) =>
           headings[columnIndex]?.trim().toLowerCase() === "description"
             ? null
@@ -335,7 +335,7 @@ export function PlatformDataTable({
   };
 
   return (
-    <div>
+    <div className="platform-data-table">
       <div className="sa-table-toolbar">
         <div className="sa-table-search">
           <label htmlFor={searchId}>{t("Search this table")}</label>
@@ -539,7 +539,7 @@ export function PlatformDataTable({
           </tbody>
         </table>
       </div>
-      {filteredColumnRows.length > pageSize && (
+      {filteredColumnRows.length > 0 && (
         <div className="sa-pagination" aria-label="Table pagination">
           <span>
             {t("Showing")} {(currentPage - 1) * pageSize + 1}–

@@ -93,7 +93,7 @@ describe('ReferralService.listForOperations', () => {
     const service = new ReferralService(prisma as never, { requireFeature: vi.fn().mockResolvedValue({}) } as never, {} as never, {} as never);
     await service.listForOperations('client-a', { page: 1, pageSize: 20, fraudResult: 'REVIEW', rewardStatus: 'APPROVED' });
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: {
-      clientId: 'client-a', fraudChecks: { some: { result: 'REVIEW' } }, rewards: { some: { status: 'APPROVED' } },
+      clientId: 'client-a', refereeUserId: { not: null }, fraudChecks: { some: { result: 'REVIEW' } }, rewards: { some: { status: 'APPROVED' } },
     } }));
   });
 });

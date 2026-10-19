@@ -1,6 +1,9 @@
 "use client";
+import { UnsavedChangesScope, markFormsSaved, requestNavigation } from "./unsaved-changes";
+import { usePanelLoading } from "./panel-loading";
 import { useEffect, useState, type FormEvent } from "react";
 import { sessionFetch } from "../../lib/session-fetch";
+import { ClientDataTable } from "./client-data-table";
 import { ClientFormDialog } from "./client-form-dialog";
 
 import {
@@ -156,10 +159,16 @@ async function api<T>(
 }
 
 export function FleetReadiness({
-  view,
+  view, refreshKey = 0,
 }: {
-  view: "preparation" | "qc" | "settings" | "staff";
+  refreshKey?: number;
+  view: "preparation" | "qc" | "settings" | "advisors" | "qc-managers";
 }) {
+  const staffView = view === "advisors" || view === "qc-managers";
+  const staffRole = view === "qc-managers" ? "QC_MANAGER" : "ADVISOR";
+  const staffTitle = view === "qc-managers" ? "QC Manager" : "Advisors";
+  const staffLabel = (role: string) => ["ADVISOR", "RFD_MANAGER"].includes(role) ? "Advisor" : role === "QC_MANAGER" ? "QC Manager" : label(role);
+  const [showCreateStaff, setShowCreateStaff] = useState(false);
   const [context, setContext] = useState<Context | null>(null),
     [policy, setPolicy] = useState<Policy | null>(null);
   const [rows, setRows] = useState<Row[]>([]),
@@ -198,46 +207,48 @@ export function FleetReadiness({
   const [newStaff, setNewStaff] = useState({
       name: "",
       mobile: "",
-      role: "RFD_MANAGER",
     }),
     [policyReason, setPolicyReason] = useState(""),
     [impact, setImpact] = useState<Record<string, unknown> | null>(null),
     [extraCode, setExtraCode] = useState(""),
     [extraLabel, setExtraLabel] = useState("");
+  const [contextLoading, setContextLoading] = useState(false);
+  const [staffLoading, setStaffLoading] = useState(false);
+  usePanelLoading(loading || busy || contextLoading || staffLoading);
   const [epoch, setEpoch] = useState(0);
   useEffect(() => {
     let active = true;
-    void Promise.all([
+    void Promise.resolve().then(() => { if (active) { setContextLoading(true); setError(""); } return Promise.all([
       api<Context>("fleet-readiness/context"),
       api<Policy>("fleet-readiness/policy"),
-    ])
+    ]); })
       .then(([c, p]) => {
         if (active) {
           setContext(c);
-          setPolicy(p);
+          setPolicy((current) => view === "settings" && current ? current : p);
         }
       })
       .catch((e) => {
         if (active) setError(e.message);
-      });
+      }).finally(() => { if (active) setContextLoading(false); });
     return () => {
       active = false;
     };
-  }, [view]);
+  }, [view, refreshKey]);
   useEffect(() => {
-    if (view !== "staff") return;
+    if (!staffView || !policy || policy.operatingMode === "SIMPLE") return;
     let active = true;
-    void api<NonNullable<typeof staff>>("fleet-readiness/staff")
+    void Promise.resolve().then(() => { if (active) { setStaffLoading(true); setError(""); } return api<NonNullable<typeof staff>>("fleet-readiness/staff"); })
       .then((s) => {
         if (active) setStaff(s);
       })
       .catch((e) => {
         if (active) setError(e.message);
-      });
+      }).finally(() => { if (active) setStaffLoading(false); });
     return () => {
       active = false;
     };
-  }, [view, epoch]);
+  }, [staffView, policy, epoch, refreshKey]);
   useEffect(() => {
     if (!["preparation", "qc"].includes(view)) return;
     let active = true;
@@ -269,6 +280,13 @@ export function FleetReadiness({
       })
       .then(([r, s, c]) => {
         if (active) {
+          const lastPage = Math.max(1, Math.ceil(r.total / 20));
+          const lastCandidatePage = Math.max(1, Math.ceil(c.total / 20));
+          if (page > lastPage || candidatePage > lastCandidatePage) {
+            setPage(Math.min(page, lastPage));
+            setCandidatePage(Math.min(candidatePage, lastCandidatePage));
+            return;
+          }
           setRows(r.items);
           setTotal(r.total);
           setSummary(s);
@@ -285,7 +303,7 @@ export function FleetReadiness({
     return () => {
       active = false;
     };
-  }, [view, page, candidatePage, search, hub, status, owner, epoch]);
+  }, [view, page, candidatePage, search, hub, status, owner, epoch, refreshKey]);
   const loadDetail = async (id: string) => {
     const d = await api<Detail>(`fleet-preparations/${id}`);
     setDetail(d);
@@ -406,8 +424,21 @@ export function FleetReadiness({
       setImpact(null);
     }
   };
+  const staffUsers = staff?.users.filter((user) => view === "advisors" ? ["ADVISOR", "RFD_MANAGER"].includes(user.role) : user.role === "QC_MANAGER") ?? [];
+  const selectStaff = (id: string) => requestNavigation(() => {
+    setSelectedUser(id);
+    setGrants(staff?.hubs.map((h) => staff.assignments.find((a) => a.userId === id && a.hubId === h.id) ?? {
+      hubId: h.id, userId: id, canPrepare: false, canReview: false, stageCodes: [], reviewStageCodes: [],
+    }) ?? []);
+  });
+  if (staffView && policy?.operatingMode === "SIMPLE") return <section className="package-not-included-card">
+    <p className="eyebrow">TEAM MANAGEMENT</p>
+    <h2>Dedicated {staffTitle === "Advisors" ? "Advisors" : "QC Managers"} are not available in your package</h2>
+    <p>In Simple mode, Client Admins and Fleet Managers perform these responsibilities.</p>
+    <p className="muted">Allocation and submission photos remain mandatory.</p>
+  </section>;
   return (
-    <section className="action-card readiness-workspace">
+    <UnsavedChangesScope formsOnly resetKey={policy?.version}><section className="action-card readiness-workspace">
       {error && (
         <p className="error" role="alert">
           {error}
@@ -443,7 +474,7 @@ export function FleetReadiness({
               </div>
             ))}
           </div>
-          <div className="form-actions">
+          <div className="client-filter-bar">
             <label>
               Search scooter
               <input
@@ -495,7 +526,7 @@ export function FleetReadiness({
                   "INVALIDATED",
                   "CANCELLED",
                 ].map((s) => (
-                  <option key={s}>{s}</option>
+                  <option key={s} value={s}>{label(s)}</option>
                 ))}
               </select>
             </label>
@@ -513,153 +544,33 @@ export function FleetReadiness({
             <button
               type="button"
               className="secondary"
+              disabled={loading || busy}
               onClick={() => setEpoch((n) => n + 1)}
             >
               Refresh
             </button>
           </div>
-          {loading ? (
-            <p>Loading…</p>
-          ) : (
-            <div className="sa-table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Scooter</th>
-                    <th>Hub</th>
-                    <th>Assigned to</th>
-                    <th>Status</th>
-                    <th>Revision</th>
-                    <th>Updated</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.id}>
-                      <td>
-                        {row.fleet?.vehicleNumber || row.fleet?.fleetCode}
-                        <br />
-                        <small>{row.fleet?.chassisNumber}</small>
-                      </td>
-                      <td>{row.hub?.name}</td>
-                      <td>{row.assignee?.name ?? "Unassigned"}</td>
-                      <td>{label(row.status)}</td>
-                      <td>{row.currentRevision}</td>
-                      <td>{new Date(row.updatedAt).toLocaleString()}</td>
-                      <td>
-                        <button
-                          disabled={busy}
-                          className="secondary table-action"
-                          onClick={() =>
-                            void run(async () => {
-                              await loadDetail(row.id);
-                            })
-                          }
-                        >
-                          Open
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {!rows.length && (
-                    <tr>
-                      <td colSpan={7}>No preparations in this view.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-          <div className="sa-pagination">
-            <span>{total} preparations</span>
-            <button
-              className="secondary"
-              disabled={page === 1 || loading}
-              onClick={() => setPage((n) => n - 1)}
-            >
-              Previous
-            </button>
-            <span>Page {page}</span>
-            <button
-              className="secondary"
-              disabled={page * 20 >= total || loading}
-              onClick={() => setPage((n) => n + 1)}
-            >
-              Next
-            </button>
-          </div>
+          <ClientDataTable rows={rows} loading={loading} searchable={false} getRowId={(row) => row.id} emptyMessage="No preparations in this view."
+            server={{ page, limit: 20, total, search, onSearch: setSearch, onPage: setPage }}
+            columns={[
+              { key: "scooter", label: "Scooter", value: (row) => row.fleet?.vehicleNumber || row.fleet?.fleetCode, render: (row) => <span className="client-record-title"><strong>{row.fleet?.vehicleNumber || row.fleet?.fleetCode}</strong><small>{row.fleet?.chassisNumber}</small></span> },
+              { key: "hub", label: "Hub", value: (row) => row.hub?.name ?? "—" },
+              { key: "assignee", label: "Assigned to", value: (row) => row.assignee?.name ?? "Unassigned" },
+              { key: "status", label: "Status", value: (row) => label(row.status), render: (row) => <span className={`status status-${row.status.toLowerCase()}`}>{label(row.status)}</span> },
+              { key: "revision", label: "Revision", value: (row) => row.currentRevision },
+              { key: "updated", label: "Updated", value: (row) => row.updatedAt, render: (row) => new Date(row.updatedAt).toLocaleString() },
+            ]} actions={(row) => <button type="button" disabled={busy || loading} className="secondary table-action" onClick={() => void run(async () => { await loadDetail(row.id); })}>Open</button>} />
           {view === "preparation" && (
             <>
               <h3>Scooters awaiting preparation</h3>
               <p>Use search and hub filters to browse scooters.</p>
-              <div className="sa-table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Scooter</th>
-                      <th>Hub</th>
-                      <th>Status</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {candidates.map((f) => (
-                      <tr key={f.id}>
-                        <td>
-                          {f.vehicleNumber || f.fleetCode}
-                          <br />
-                          <small>{f.chassisNumber}</small>
-                        </td>
-                        <td>{f.currentHub?.name}</td>
-                        <td>{label(f.status)}</td>
-                        <td>
-                          <button
-                            disabled={
-                              busy ||
-                              ![
-                                "PREPARATION_QC",
-                                "STAGED_PREPARATION_QC",
-                              ].includes(policy?.operatingMode ?? "") ||
-                              !context?.prepareHubIds.includes(f.currentHubId)
-                            }
-                            onClick={() =>
-                              void run(async () => {
-                                const p = await api<{ id: string }>(
-                                  `fleets/${f.id}/preparations`,
-                                  "POST",
-                                );
-                                await loadDetail(p.id);
-                                setEpoch((n) => n + 1);
-                              })
-                            }
-                          >
-                            Start preparation
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="sa-pagination">
-                <span>{candidateTotal} scooters</span>
-                <button
-                  className="secondary"
-                  disabled={candidatePage === 1 || loading}
-                  onClick={() => setCandidatePage((n) => n - 1)}
-                >
-                  Previous scooters
-                </button>
-                <span>Page {candidatePage}</span>
-                <button
-                  className="secondary"
-                  disabled={candidatePage * 20 >= candidateTotal || loading}
-                  onClick={() => setCandidatePage((n) => n + 1)}
-                >
-                  Next scooters
-                </button>
-              </div>
+              <ClientDataTable rows={candidates} loading={loading} searchable={false} getRowId={(fleet) => fleet.id} emptyMessage="No scooters awaiting preparation."
+                server={{ page: candidatePage, limit: 20, total: candidateTotal, search, onSearch: setSearch, onPage: setCandidatePage }}
+                columns={[
+                  { key: "scooter", label: "Scooter", value: (fleet) => fleet.vehicleNumber || fleet.fleetCode, render: (fleet) => <span className="client-record-title"><strong>{fleet.vehicleNumber || fleet.fleetCode}</strong><small>{fleet.chassisNumber}</small></span> },
+                  { key: "hub", label: "Hub", value: (fleet) => fleet.currentHub?.name ?? "—" },
+                  { key: "status", label: "Status", value: (fleet) => label(fleet.status), render: (fleet) => <span className={`status status-${fleet.status.toLowerCase()}`}>{label(fleet.status)}</span> },
+                ]} actions={(fleet) => <button type="button" className="secondary table-action" disabled={busy || loading || !["PREPARATION_QC", "STAGED_PREPARATION_QC"].includes(policy?.operatingMode ?? "") || !context?.prepareHubIds.includes(fleet.currentHubId)} onClick={() => void run(async () => { const preparation = await api<{ id: string }>(`fleets/${fleet.id}/preparations`, "POST"); await loadDetail(preparation.id); setEpoch((n) => n + 1); })}>Start preparation</button>} />
             </>
           )}
         </>
@@ -902,40 +813,34 @@ export function FleetReadiness({
           )}
         </form>
       )}
-      {view === "staff" && staff && context?.canManage && (
+      {staffView && staff && context?.canManage && (
         <>
-          <h3>Installation, preparation & QC staff</h3>
+          <div className="client-page-head">{context.isAdmin && <div className="sa-actions"><button type="button" onClick={() => requestNavigation(() => { setSelectedUser(""); setGrants([]); setShowCreateStaff(true); })}>+ Add {staffRole === "ADVISOR" ? "Advisor" : "QC Manager"}</button></div>}</div>
+          <div className="readiness-staff-directory"><ClientDataTable stateKey={`readiness-staff:${context.userId}:${view}`} loading={staffLoading} rows={staffUsers} getRowId={(user) => user.id}
+            columns={[
+              { key: "name", label: "Name", value: (user) => user.name },
+              { key: "mobile", label: "Mobile", value: (user) => user.mobile },
+              { key: "role", label: "Role", value: (user) => staffLabel(user.role) },
+              { key: "status", label: "Status", value: (user) => user.isActive ? "Active" : "Inactive" },
+              { key: "hubs", label: "Assigned hubs", value: (user) => staff.assignments.filter((a) => a.userId === user.id).map((a) => staff.hubs.find((h) => h.id === a.hubId)?.name ?? a.hubId).join(", ") || "Unassigned" },
+            ]} actions={(user) => <button type="button" className="secondary table-action" disabled={!user.isActive || busy} onClick={() => selectStaff(user.id)}>{context.isAdmin ? "Manage permissions" : "View permissions"}</button>}
+            emptyMessage={`No ${staffTitle === "Advisors" ? "advisors" : "QC managers"} have been created.`} /></div>
+          <h3>Hub and stage permissions</h3>
           <p>
             Permissions apply only to the selected hubs. Staff may have both
             responsibilities; independent QC still prevents reviewing their own
             work.
           </p>
-          <label>
-            Staff member
+          <label className="staff-operator-selector">
+            Staff member or existing operator
             <select
               value={selectedUser}
-              onChange={(e) => {
-                const id = e.target.value;
-                setSelectedUser(id);
-                setGrants(
-                  staff.hubs.map(
-                    (h) =>
-                      staff.assignments.find(
-                        (a) => a.userId === id && a.hubId === h.id,
-                      ) ?? {
-                        hubId: h.id,
-                        userId: id,
-                        canPrepare: false,
-                        canReview: false,
-                      },
-                  ),
-                );
-              }}
+              onChange={(e) => selectStaff(e.target.value)}
             >
               <option value="">Select staff</option>
               {staff.users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name} · {label(u.role)}
+                <option key={u.id} value={u.id} disabled={!u.isActive}>
+                  {u.name} · {staffLabel(u.role)}
                   {!u.isActive ? " (inactive)" : ""}
                 </option>
               ))}
@@ -943,12 +848,12 @@ export function FleetReadiness({
           </label>
           {selectedUser &&
             grants.map((g) => (
-              <div key={g.hubId} className="form-actions">
+              <div data-unsaved-fields key={g.hubId} className="readiness-staff-hub">
                 <strong>
                   {staff.hubs.find((h) => h.id === g.hubId)?.name}
                 </strong>
                 {policy?.configuration.stages?.map((stage) => (
-                  <div key={stage.code}>
+                  <div key={stage.code} className="readiness-staff-stage">
                     <strong>{stage.name}</strong>
                     {(["stageCodes", "reviewStageCodes"] as const).map(
                       (key) => (
@@ -1028,20 +933,23 @@ export function FleetReadiness({
                     ),
                   });
                   setEpoch((n) => n + 1);
-                  setNotice("Staff permissions saved.");
+                  markFormsSaved(); setNotice("Staff permissions saved.");
                 })
               }
             >
               Save permissions
             </button>
           )}
-          {context.isAdmin && (
-            <form
+          {context.isAdmin && showCreateStaff && (
+            <ClientFormDialog title={`Add ${staffRole === "ADVISOR" ? "Advisor" : "QC Manager"}`} busy={busy} error={error} onClose={() => { setShowCreateStaff(false); setNewStaff({ name: "", mobile: "" }); setError(""); }}>
+            <form className="form-stack"
               onSubmit={(e) => {
                 e.preventDefault();
                 void run(async () => {
-                  await api("fleet-readiness/staff", "POST", newStaff);
-                  setNewStaff({ name: "", mobile: "", role: "RFD_MANAGER" });
+                  await api("fleet-readiness/staff", "POST", { ...newStaff, role: staffRole });
+                  setNewStaff({ name: "", mobile: "" });
+                  setShowCreateStaff(false);
+                  markFormsSaved();
                   setEpoch((n) => n + 1);
                   setNotice(
                     "Staff created. Assign their hub permissions above.",
@@ -1049,7 +957,7 @@ export function FleetReadiness({
                 });
               }}
             >
-              <h3>Create staff account</h3>
+              <p>Role: <strong>{staffRole === "ADVISOR" ? "Advisor" : "QC Manager"}</strong></p>
               <label>
                 Name
                 <input
@@ -1071,20 +979,9 @@ export function FleetReadiness({
                   }
                 />
               </label>
-              <label>
-                Role
-                <select
-                  value={newStaff.role}
-                  onChange={(e) =>
-                    setNewStaff({ ...newStaff, role: e.target.value })
-                  }
-                >
-                  <option value="RFD_MANAGER">Installation / RFD staff</option>
-                  <option value="QC_MANAGER">QC Manager</option>
-                </select>
-              </label>
-              <button disabled={busy}>Create staff</button>
+              <div className="form-actions"><button disabled={busy}>Create {staffRole === "ADVISOR" ? "Advisor" : "QC Manager"}</button><button type="button" className="secondary" disabled={busy} onClick={() => { setShowCreateStaff(false); setNewStaff({ name: "", mobile: "" }); }}>Cancel</button></div>
             </form>
+            </ClientFormDialog>
           )}
         </>
       )}
@@ -1295,38 +1192,11 @@ export function FleetReadiness({
               );
             })}
           </div>
-          {preview && (
-            <section>
-              <h3>{label(preview.name)}</h3>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={preview.url}
-                alt={preview.name}
-                style={{
-                  maxWidth: "100%",
-                  maxHeight: "65vh",
-                  objectFit: "contain",
-                }}
-              />
-              <div className="form-actions">
-                <a href={preview.url} download target="_blank" rel="noreferrer">
-                  Download photo
-                </a>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => setPreview(null)}
-                >
-                  Close preview
-                </button>
-              </div>
-            </section>
-          )}
           {detail.permissions.canAssign &&
             editableStatuses.includes(detail.status) && (
               <div className="form-actions">
                 <label>
-                  RFD staff
+                  Advisor
                   <select
                     value={assignee}
                     onChange={(e) => setAssignee(e.target.value)}
@@ -1351,7 +1221,7 @@ export function FleetReadiness({
                     })
                   }
                 >
-                  Assign RFD staff
+                  Assign Advisor
                 </button>
               </div>
             )}
@@ -1480,7 +1350,34 @@ export function FleetReadiness({
           </ul>
         </ClientFormDialog>
       )}
-    </section>
+          {preview && (
+            <ClientFormDialog title={label(preview.name)} wide onClose={() => setPreview(null)}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={preview.url}
+                alt={preview.name}
+                style={{
+                  maxWidth: "100%",
+                  maxHeight: "65vh",
+                  objectFit: "contain",
+                }}
+              />
+              <div className="form-actions">
+                <a className="button secondary" href={preview.url} download target="_blank" rel="noreferrer">
+                  Download photo
+                </a>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setPreview(null)}
+                >
+                  Close preview
+                </button>
+              </div>
+            </ClientFormDialog>
+          )}
+
+    </section></UnsavedChangesScope>
   );
 }
 

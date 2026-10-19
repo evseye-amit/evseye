@@ -24,6 +24,7 @@ import { FleetReadinessService } from './readiness.service.js';
   'CLIENT_ADMIN',
   'OPERATIONS_MANAGER',
   'FLEET_MANAGER',
+  'ADVISOR',
   'RFD_MANAGER',
   'QC_MANAGER',
 )

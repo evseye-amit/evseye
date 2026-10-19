@@ -145,6 +145,15 @@ export class RidersService {
       ...(query.search
         ? {
             OR: [
+              { riderCode: { contains: query.search, mode: 'insensitive' as const } },
+              { allocations: { some: {
+                status: { in: ['ACTIVE' as const, 'INSPECTION_PENDING' as const, 'OTP_PENDING' as const, 'DEALLOCATION_INITIATED' as const] },
+                fleet: { is: { OR: [
+                  { vehicleNumber: { contains: query.search, mode: 'insensitive' as const } },
+                  { currentHub: { is: { name: { contains: query.search, mode: 'insensitive' as const } } } },
+                  { homeHub: { is: { name: { contains: query.search, mode: 'insensitive' as const } } } },
+                ] } },
+              } } },
               {
                 name: { contains: query.search, mode: 'insensitive' as const },
               },
@@ -156,7 +165,16 @@ export class RidersService {
     const [items, total] = await this.prisma.$transaction([
       this.prisma.rider.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        include: { allocations: {
+          where: { status: { in: ['INSPECTION_PENDING', 'OTP_PENDING', 'ACTIVE', 'DEALLOCATION_INITIATED'] } },
+          orderBy: { createdAt: 'desc' }, take: 1,
+          select: { id: true, status: true, fleet: { select: {
+            vehicleNumber: true, currentHub: { select: { name: true } }, homeHub: { select: { name: true } },
+          } } },
+        } },
+        orderBy: query.sortBy
+          ? [{ [query.sortBy]: query.sortDirection ?? 'asc' }, { id: 'asc' }]
+          : [{ createdAt: 'desc' }, { id: 'asc' }],
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
       }),

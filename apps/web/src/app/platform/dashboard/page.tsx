@@ -1,5 +1,5 @@
 "use client";
-
+import { FormDialogHeader } from "../../components/form-dialog-header";
 import { SparesCatalogue } from "../../components/spares-catalogue";
 import { LegalAcceptanceFields, type LegalAcceptanceCopy } from "../../components/legal-acceptance-fields";
 import { sessionFetch as fetch } from "../../../lib/session-fetch";
@@ -416,7 +416,7 @@ function CatalogFormDialog({
       frame = window.requestAnimationFrame(() => {
         dialog
           .querySelector<HTMLElement>(
-            '[data-dialog-initial-focus], input:not([type="file"]):not([type="hidden"]), select, textarea',
+            '[data-dialog-initial-focus]:not(:disabled), input:not([type="file"]):not([type="hidden"]):not(:disabled), select:not(:disabled), textarea:not(:disabled)',
           )
           ?.focus();
       });
@@ -453,18 +453,15 @@ function CatalogFormDialog({
         onSubmit={onSubmit}
         aria-busy={busy}
       >
-        <header className="sa-dialog-head">
-          <div>
-            <h2 id={titleId}>{t(title)}</h2>
-            <p id={descriptionId}>{t(description)}</p>
-          </div>
-        </header>
+        <FormDialogHeader titleId={titleId} title={t(title)} descriptionId={descriptionId} description={t(description)} busy={busy} onClose={onClose} />
+        <div className="sa-dialog-content">
         {error && (
           <p id={errorId} className="error sa-dialog-error" role="alert">
             {error}
           </p>
         )}
         {children}
+        </div>
         <footer className="sa-dialog-actions">{actions}</footer>
       </form>
     </dialog>
@@ -479,7 +476,8 @@ export default function SuperAdminDashboard() {
       : (sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? ""),
   );
   const [tab, setTab] = useState<Tab>("dashboard");
-  const [workPartnerRefreshKey, setWorkPartnerRefreshKey] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get("tab") === "legalDocuments") {
       // Keep the previous Legal Templates URL usable inside the portal shell.
@@ -614,6 +612,7 @@ export default function SuperAdminDashboard() {
       setPricing(priceList);
       setFeatureAddOns(addOnList);
       setLanguages(languageList);
+      setLastLoadedAt(new Date());
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -2161,7 +2160,7 @@ export default function SuperAdminDashboard() {
     packageFeatures: "Choose the features included with each platform package.",
     packageTierPricing: "Set the per-vehicle recurring price for each fleet-size range.",
     clients: "Manage onboarding drafts, approvals, subscriptions, and documents.",
-    workPartners: "Manage shared work partners and copy them to clients.",
+    workPartners: "Manage the shared work partner catalog.",
     clientPricingAdjustments: "Apply negotiated commercial terms without changing master pricing.",
     clientAddOnPurchases: "Assign eligible catalog Features and client-specific pricing without changing package masters.",
     clientCreditLots: "Review active and expired client feature credits by source and expiry.",
@@ -2287,7 +2286,7 @@ export default function SuperAdminDashboard() {
   }
 
   return (
-    <main className="sa-shell">
+    <main className="sa-shell platform-admin-shell">
       <CatalogFormDialog
         open={revisionTarget !== null}
         title={`${revisionTarget?.kind === "feature" ? "Feature" : "Package"} versions`}
@@ -2328,6 +2327,7 @@ export default function SuperAdminDashboard() {
                   type="button"
                   className="sa-nav-group-toggle"
                   aria-expanded={expandedNavGroups[group.label] ?? false}
+                  data-active={group.items.some(([key]) => key === tab)}
                   onClick={() =>
                     setExpandedNavGroups((current) => ({
                       ...current,
@@ -2344,22 +2344,24 @@ export default function SuperAdminDashboard() {
               ) : null}
               {(!group.label || (expandedNavGroups[group.label] ?? false)) &&
                 group.items.map(([key, label, icon]) => (
-                  <button
-                    key={key}
-                    className={`${tab === key ? "active" : ""} ${group.label ? "sa-nav-child" : ""}`}
-                    onClick={() => {
-                      setTab(key);
-                      window.history.replaceState(null, "", key === "legalDocuments" ? "/platform/dashboard?tab=legalDocuments" : "/platform/dashboard");
-                      if (key === "dashboard") setExpandedNavGroups({});
-                      setBulkImportEntity(null);
-                      setShowClientForm(false);
-                      setNotice("");
-                    }}
-                  >
-                    <UiIcon name={icon} />
-                    {t(label)}
-                  </button>
-                ))}
+                <button
+                  key={key}
+                  aria-current={tab === key ? "page" : undefined}
+                  className={`${tab === key ? "active" : ""} ${group.label ? "sa-nav-child" : ""}`}
+                  onClick={() => {
+                    setTab(key);
+                    window.history.replaceState(null, "", key === "legalDocuments" ? "/platform/dashboard?tab=legalDocuments" : "/platform/dashboard");
+                    if (key === "dashboard") setExpandedNavGroups({});
+                    setBulkImportEntity(null);
+                    setShowClientForm(false);
+                    setNotice("");
+                    setError("");
+                  }}
+                >
+                  <UiIcon name={icon} />
+                  {t(label)}
+                </button>
+              ))}
             </div>
           ))}
         </nav>
@@ -2381,14 +2383,14 @@ export default function SuperAdminDashboard() {
             </h1>
             <p>
               {tab === "dashboard"
-                ? t("Complete platform overview · Updated just now")
+                ? (lastLoadedAt ? <>{t("Complete platform overview")} · {t("Updated")} <time dateTime={lastLoadedAt.toISOString()}>{lastLoadedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time></> : t("Complete platform overview"))
                 : t(pageSubtitles[tab] ??
                   "Platform-owned catalog and commercial controls")}
             </p>
           </div>
           <div className="header-actions">
             <LanguageSwitcher />
-            <button className="secondary" onClick={() => tab === "workPartners" ? setWorkPartnerRefreshKey((key) => key + 1) : void load()}>
+            <button className="secondary" disabled={loading} aria-busy={loading} onClick={() => { setRefreshKey((key) => key + 1); void load(); }}>
               ↻ {t("Refresh")}
             </button>
             <button
@@ -2403,8 +2405,8 @@ export default function SuperAdminDashboard() {
             </button>
           </div>
         </header>
-        {notice && <p className="notice">{notice}</p>}
-        {error && !catalogDialogOpen && <p className="error">{error}</p>}
+        {notice && <p className="notice" role="status">{notice}</p>}
+        {error && !catalogDialogOpen && <p className="error" role="alert">{error}</p>}
         {bulkImportEntity && bulkImportConfig ? (
           <BulkImportWorkspace
             entity={bulkImportEntity}
@@ -2431,8 +2433,8 @@ export default function SuperAdminDashboard() {
             setTab={setTab}
           />
         )}
-        {tab === "spares" && <SparesCatalogue platform />}
-            {tab === "legalDocuments" && <LegalDocumentsView token={token} />}
+        {tab === "spares" && <SparesCatalogue platform refreshKey={refreshKey} />}
+            {tab === "legalDocuments" && <LegalDocumentsView token={token} refreshKey={refreshKey} />}
             {tab === "clients" && (
               <ClientsView
                 clients={clients}
@@ -2463,7 +2465,7 @@ export default function SuperAdminDashboard() {
                 setApprovalEmailReference={setApprovalEmailReference}
               />
             )}
-            {tab === "workPartners" && <WorkPartnerManager key={workPartnerRefreshKey} mode="platform" request={request} token={token} />}
+            {tab === "workPartners" && <WorkPartnerManager refreshKey={refreshKey} mode="platform" request={request} token={token} />}
             {tab === "clientPricingAdjustments" && (
               <ClientCommercialDirectory clients={clients} section="pricing" />
             )}
@@ -3566,7 +3568,7 @@ export default function SuperAdminDashboard() {
               />
             )}
             {tab === "packageTierPricing" && (
-              <PackageTierPricingView packages={packages} token={token} />
+              <PackageTierPricingView packages={packages} token={token} refreshKey={refreshKey} />
             )}
             {tab === "pricing" && (
               <>
@@ -4059,7 +4061,7 @@ function emptyLegalTemplate(): LegalTemplateForm {
   };
 }
 
-function LegalDocumentsView({ token }: { token: string }) {
+function LegalDocumentsView({ token, refreshKey = 0 }: { token: string; refreshKey?: number }) {
   const [templates, setTemplates] = useState<LegalTemplate[]>([]);
   const [languages, setLanguages] = useState<Array<{ code: string; name: string; nativeName: string }>>([]);
   const [loadingTemplates, setLoadingTemplates] = useState(true);
@@ -4094,7 +4096,7 @@ function LegalDocumentsView({ token }: { token: string }) {
   useEffect(() => {
     const timer = window.setTimeout(() => void loadTemplates(), 0);
     return () => window.clearTimeout(timer);
-  }, [loadTemplates]);
+  }, [loadTemplates, refreshKey]);
 
   function openForm(trigger: HTMLButtonElement, template?: LegalTemplate) {
     formTriggerRef.current = trigger;
@@ -4170,6 +4172,7 @@ function LegalDocumentsView({ token }: { token: string }) {
       </section>
       {notice && <p className="notice" role="status">{notice}</p>}
       {error && !formOpen && <p className="error" role="alert">{error}</p>}
+      {loadingTemplates && templates.length > 0 && <p className="muted" role="status">Refreshing legal documents…</p>}
       {loadingTemplates && templates.length === 0 ? <p className="muted">Loading legal documents…</p> : templates.length ? (
         <DataTable
           headings={["Document", "Type", "App", "Role", "Language", "Version", "Status", "Actions"]}
@@ -4265,15 +4268,19 @@ function DeleteConfirmationDialog({
   onClose: () => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const confirmRef = useRef<HTMLButtonElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const previousFocus = useRef<HTMLElement | null>(null);
+  const titleId = useId();
+  const descriptionId = useId();
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
     if (confirmation && !dialog.open) {
+      previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       dialog.showModal();
-      window.requestAnimationFrame(() => confirmRef.current?.focus());
+      window.requestAnimationFrame(() => cancelRef.current?.focus());
     }
-    if (!confirmation && dialog.open) dialog.close();
+    if (!confirmation && dialog.open) { dialog.close(); previousFocus.current?.focus(); }
   }, [confirmation]);
   const confirm = async () => {
     if (!confirmation) return;
@@ -4284,6 +4291,10 @@ function DeleteConfirmationDialog({
     <dialog
       ref={dialogRef}
       className="sa-dialog sa-delete-dialog"
+      aria-labelledby={titleId}
+      aria-describedby={descriptionId}
+      aria-modal="true"
+      aria-busy={busy}
       onCancel={(event) => {
         event.preventDefault();
         if (!busy) onClose();
@@ -4296,14 +4307,14 @@ function DeleteConfirmationDialog({
         <span className="sa-delete-dialog-icon" aria-hidden="true">!</span>
         <div>
           <p className="sa-eyebrow">CONFIRM DELETION</p>
-          <h2>{confirmation?.title}</h2>
-          <p>{confirmation?.description}</p>
+          <h2 id={titleId}>{confirmation?.title}</h2>
+          <p id={descriptionId}>{confirmation?.description}</p>
         </div>
         <div className="sa-dialog-actions">
-          <button type="button" className="secondary" onClick={onClose} disabled={busy}>
+          <button ref={cancelRef} type="button" className="secondary" onClick={onClose} disabled={busy}>
             Keep it
           </button>
-          <button ref={confirmRef} type="button" className="danger" onClick={() => void confirm()} disabled={busy}>
+          <button type="button" className="danger" onClick={() => void confirm()} disabled={busy}>
             {busy ? "Deleting…" : confirmation?.confirmLabel ?? "Delete"}
           </button>
         </div>
@@ -5724,9 +5735,11 @@ function BulkImportWorkspace({
 function PackageTierPricingView({
   packages,
   token,
+  refreshKey = 0,
 }: {
   packages: Item[];
   token: string;
+  refreshKey?: number;
 }) {
   const activePackages = packages.filter((item) => item.isActive);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -5748,9 +5761,12 @@ function PackageTierPricingView({
     isActive: true,
   });
 
+  const firstPackageId = activePackages[0]?.id;
   useEffect(() => {
-    if (!packageId && activePackages[0]?.id) setPackageId(activePackages[0].id);
-  }, [activePackages, packageId]);
+    if (packageId || !firstPackageId) return;
+    const timer = window.setTimeout(() => setPackageId(firstPackageId), 0);
+    return () => window.clearTimeout(timer);
+  }, [firstPackageId, packageId]);
 
   const loadTiers = useCallback(async () => {
     if (!packageId) {
@@ -5766,11 +5782,13 @@ function PackageTierPricingView({
     } finally {
       setLoading(false);
     }
-  }, [packageId, token]);
+  }, [packageId, token, setTiers, setError, setLoading]);
 
   useEffect(() => {
-    if (packageId) void loadTiers();
-  }, [packageId, loadTiers]);
+    if (!packageId) return;
+    const timer = window.setTimeout(() => void loadTiers(), 0);
+    return () => window.clearTimeout(timer);
+  }, [packageId, loadTiers, refreshKey]);
 
   const openForm = (trigger: HTMLButtonElement, item?: Item) => {
     triggerRef.current = trigger;

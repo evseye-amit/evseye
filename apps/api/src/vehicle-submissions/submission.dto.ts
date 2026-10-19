@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { MaintenanceIssueCategory, MaintenanceIssueStatus } from '@prisma/client';
+import { MaintenanceIssueStatus } from '@prisma/client';
 import {
   ArrayMaxSize,
   ArrayUnique,
@@ -37,7 +37,6 @@ export class SubmissionPenaltyDto {
 }
 export class MaintenanceIssueDto {
   @IsOptional() @IsUUID() issueId?: string;
-  @IsEnum(MaintenanceIssueCategory) category!: MaintenanceIssueCategory;
   @IsString() @Matches(/\S/) @MaxLength(2000) description!: string;
   @IsEnum(MaintenanceIssueStatus) status!: MaintenanceIssueStatus;
   @IsArray() @ArrayMaxSize(20) @ArrayUnique() @IsUUID(undefined, { each: true }) evidencePhotoIds!: string[];

@@ -121,17 +121,6 @@ export class FleetManagerMaintenanceService {
           AND: [
             base,
             query.fleetStatus ? { status: query.fleetStatus } : {},
-            query.issueCategory
-              ? {
-                  maintenanceIssues: {
-                    some: {
-                      clientId,
-                      category: query.issueCategory,
-                      status: { not: 'RESOLVED' },
-                    },
-                  },
-                }
-              : {},
             query.search
               ? {
                   OR: [

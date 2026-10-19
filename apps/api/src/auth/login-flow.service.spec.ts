@@ -19,7 +19,7 @@ function fixture() {
 }
 
 describe('LoginFlowService', () => {
-  it.each([UserRole.RFD_MANAGER,UserRole.QC_MANAGER])('allows %s in the client panel only',role=>{
+  it.each([UserRole.ADVISOR,UserRole.RFD_MANAGER,UserRole.QC_MANAGER])('allows %s in the client panel only',role=>{
     const {service}=fixture();
     expect(service.roleAllowed('CLIENT_PANEL',role)).toBe(true);
     expect(service.roleAllowed('FLEET_MANAGER_APP',role)).toBe(false);

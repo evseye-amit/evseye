@@ -1,4 +1,5 @@
 "use client";
+import { usePanelLoading } from "./panel-loading";
 
 import { useEffect, useState, type FormEvent } from "react";
 import { sessionFetch } from "../../lib/session-fetch";
@@ -30,7 +31,7 @@ async function request(path: string, options?: RequestInit) {
   return body.data;
 }
 
-export function RiderReferenceReview() {
+export function RiderReferenceReview({ refreshKey = 0 }: { refreshKey?: number }) {
   const [rows, setRows] = useState<Reference[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState("");
@@ -39,13 +40,15 @@ export function RiderReferenceReview() {
   const [rejecting, setRejecting] = useState<Reference | null>(null);
   const [reason, setReason] = useState("");
 
+  usePanelLoading(loading || Boolean(busyId));
   useEffect(() => {
     let active = true;
+    Promise.resolve().then(() => { if (active) { setLoading(true); setError(""); } });
     request("/rider-references").then((data) => { if (active) setRows(data); })
       .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Unable to load references."); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, []);
+  }, [refreshKey]);
 
   async function review(reference: Reference, action: "approve" | "reject") {
     if (busyId) return;
@@ -76,8 +79,7 @@ export function RiderReferenceReview() {
     </section>
     {error && <p className="error" role="alert">{error}</p>}
     {notice && <p className="notice" role="status">{notice}</p>}
-    {loading ? <p className="muted">Loading rider references…</p> :
-      <ClientDataTable rows={rows} columns={columns} getRowId={(row) => row.id} emptyMessage="No rider references have been provided."
+    {<ClientDataTable loading={loading} rows={rows} columns={columns} getRowId={(row) => row.id} emptyMessage="No rider references have been provided."
         actions={(row) => row.status === "PENDING" ? <>
           <button type="button" className="table-action" disabled={Boolean(busyId)} onClick={() => void review(row, "approve")}>{busyId === row.id ? "Saving…" : "Approve"}</button>
           <button type="button" className="danger table-action" disabled={Boolean(busyId)} onClick={() => { setError(""); setReason(""); setRejecting(row); }}>Reject</button>

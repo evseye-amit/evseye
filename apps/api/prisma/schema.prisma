@@ -8,6 +8,7 @@ datasource db {
 }
 
 enum UserRole {
+  ADVISOR
   RFD_MANAGER
   QC_MANAGER
   SUPER_ADMIN
@@ -5981,18 +5982,6 @@ model RiderReferenceReview {
 }
 
 
-enum MaintenanceIssueCategory {
-  POWERTRAIN
-  BATTERY
-  ELECTRICAL
-  BRAKES
-  TYRES_WHEELS
-  SUSPENSION_STEERING
-  BODY_CHASSIS
-  ACCESSORIES
-  OTHER
-}
-
 enum MaintenanceIssueStatus {
   OPEN
   IN_PROGRESS
@@ -6006,7 +5995,6 @@ model VehicleMaintenanceIssue {
   fleet Fleet @relation(fields: [fleetId], references: [id], onDelete: Restrict)
   submissionId String
   submission VehicleSubmission @relation(fields: [submissionId], references: [id], onDelete: Restrict)
-  category MaintenanceIssueCategory
   description String @db.VarChar(2000)
   status MaintenanceIssueStatus @default(OPEN)
   evidencePhotoIds String[]
@@ -6018,7 +6006,6 @@ model VehicleMaintenanceIssue {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@index([clientId, fleetId, status])
-  @@index([clientId, category])
 }
 
 model VehicleSubmission {

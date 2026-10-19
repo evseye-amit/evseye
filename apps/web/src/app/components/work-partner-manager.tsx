@@ -1,6 +1,7 @@
 "use client";
+import { usePanelLoading } from "./panel-loading";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { ClientDataTable, type ClientColumn } from "./client-data-table";
 import { ClientFormDialog } from "./client-form-dialog";
 import { useLocale } from "./locale-provider";
@@ -69,10 +70,12 @@ export function WorkPartnerManager({
   mode,
   request,
   token,
+  refreshKey = 0,
 }: {
   mode: Mode;
   request: Request;
   token: string;
+  refreshKey?: number;
 }) {
   const { t } = useLocale();
   const [rows, setRows] = useState<WorkPartner[]>([]);
@@ -95,6 +98,7 @@ export function WorkPartnerManager({
   const [importsLoading, setImportsLoading] = useState(false);
   const root = mode === "platform" ? "/platform/work-partners" : "/client/work-partners";
 
+  usePanelLoading(loading || refreshing || busy);
   const loadRows = useCallback(async (initial = false) => {
     if (initial) setLoading(true);
     else setRefreshing(true);
@@ -118,6 +122,14 @@ export function WorkPartnerManager({
     const timer = window.setTimeout(() => void loadRows(true), 0);
     return () => window.clearTimeout(timer);
   }, [loadRows]);
+
+  const previousRefreshKey = useRef(refreshKey);
+  useEffect(() => {
+    if (previousRefreshKey.current === refreshKey) return;
+    previousRefreshKey.current = refreshKey;
+    const timer = window.setTimeout(() => void loadRows(), 0);
+    return () => window.clearTimeout(timer);
+  }, [refreshKey, loadRows]);
 
   const loadMasterOptions = useCallback(async (clearError = true) => {
     if (clearError) setCopyError("");
@@ -268,9 +280,11 @@ export function WorkPartnerManager({
         </div>
       </section>
       {notice && <p className="notice" role="status" aria-live="polite">{notice}</p>}
+      {refreshing && <p className="muted" role="status">{t("Refreshing work partners…")}</p>}
+      {loadError && rows.length > 0 && <p className="error" role="alert">{loadError}</p>}
       {loading ? (
         <p className="muted" role="status">{t("Loading work partners…")}</p>
-      ) : loadError ? (
+      ) : loadError && rows.length === 0 ? (
         <div role="alert">
           <p className="error">{loadError}</p>
           <button type="button" className="secondary" onClick={() => void loadRows(true)} disabled={refreshing}>{t("Retry")}</button>

@@ -22,4 +22,8 @@ export class ListRidersDto {
   @IsOptional()
   @IsIn(['ONBOARDING', 'ACTIVE', 'INACTIVE', 'BLOCKED', 'EXITED'])
   status?: 'ONBOARDING' | 'ACTIVE' | 'INACTIVE' | 'BLOCKED' | 'EXITED';
+  @IsOptional()
+  @IsIn(['name', 'mobile', 'status', 'createdAt'])
+  sortBy?: string;
+  @IsOptional() @IsIn(['asc', 'desc']) sortDirection?: 'asc' | 'desc';
 }
