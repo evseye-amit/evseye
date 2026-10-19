@@ -16,7 +16,6 @@ const input = (): MechanicReportDto => ({
   items: [],
   issues: [
     {
-      category: 'POWERTRAIN',
       description: ' Motor failure ',
       status: 'OPEN',
       evidencePhotoIds: ['11111111-1111-4111-a111-111111111111'],
@@ -30,25 +29,17 @@ describe('submission maintenance conditions', () => {
       maintenanceCondition(input(), 'client:submission:key'),
     );
     expect(first.issues[0]).toMatchObject({
-      category: 'POWERTRAIN',
       description: 'Motor failure',
       status: 'OPEN',
     });
     expect(first.issues[0].issueId).toMatch(/^[0-9a-f-]{36}$/);
   });
-  it.each([undefined, null])('accepts omitted or null category (%s) at the API boundary', async (category) => {
-    const dto = input();
-    dto.issues[0].category = category;
-    expect(await validate(plainToInstance(MechanicReportDto, dto))).toHaveLength(0);
-    expect(maintenanceCondition(dto, 'scope').issues[0].category).toBeNull();
-    dto.issues[0].evidencePhotoIds = [];
-    expect(() => maintenanceCondition(dto, 'scope')).toThrow('evidence');
-  });
-  it('still rejects an invalid optional category', async () => {
-    const dto = input();
-    dto.issues[0].category = 'UNKNOWN' as never;
-    expect((await validate(plainToInstance(MechanicReportDto, dto))).length).toBeGreaterThan(0);
-    expect(() => maintenanceCondition(dto, 'scope')).toThrow();
+  it('accepts issues without category and never writes a category to snapshots', async () => {
+    expect(await validate(plainToInstance(MechanicReportDto, input()))).toHaveLength(0);
+    expect(maintenanceCondition(input(), 'scope').issues[0]).not.toHaveProperty('category');
+    const legacy = { ...input(), issues: [{ ...input().issues[0], category: 'POWERTRAIN' }] };
+    expect(maintenanceCondition(legacy, 'scope').issues[0]).not.toHaveProperty('category');
+    expect((await validate(plainToInstance(MechanicReportDto, legacy), { whitelist: true, forbidNonWhitelisted: true })).length).toBeGreaterThan(0);
   });
   it('requires parts information for awaiting parts', () => {
     const dto = input();
@@ -88,7 +79,7 @@ describe('submission maintenance conditions', () => {
     const bad = {
       ...input(),
       fleetStatus: 'MECHANICALLY_OK',
-      issues: [{ category: 'UNKNOWN', status: 'DONE', description: '' }],
+      issues: [{ status: 'DONE', description: '' }],
     };
     expect(
       (await validate(plainToInstance(MechanicReportDto, bad))).length,

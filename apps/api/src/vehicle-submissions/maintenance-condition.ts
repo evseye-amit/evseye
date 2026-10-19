@@ -1,6 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
 import {
-  MaintenanceIssueCategory,
   MaintenanceIssueStatus,
 } from '@prisma/client';
 import { createHash } from 'node:crypto';
@@ -21,7 +20,6 @@ export function maintenanceCondition(input: MechanicReportDto, scope: string) {
     );
   const issues = input.issues.map((issue, index) => {
     if (
-      (issue.category != null && !Object.values(MaintenanceIssueCategory).includes(issue.category)) ||
       !Object.values(MaintenanceIssueStatus).includes(issue.status) ||
       !issue.description?.trim() ||
       !Array.isArray(issue.evidencePhotoIds) ||
@@ -35,7 +33,6 @@ export function maintenanceCondition(input: MechanicReportDto, scope: string) {
       issueId:
         issue.issueId ??
         `${key.slice(0, 8)}-${key.slice(8, 12)}-4${key.slice(13, 16)}-a${key.slice(17, 20)}-${key.slice(20, 32)}`,
-      category: issue.category ?? null,
       description: issue.description.trim(),
       status: issue.status,
       evidencePhotoIds: [...new Set(issue.evidencePhotoIds)].sort(),
