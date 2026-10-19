@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { useLocale } from "./locale-provider";
 
 export type ClientColumn<Row> = {
@@ -30,6 +30,7 @@ export function ClientDataTable<Row>({
 }) {
   const { t } = useLocale();
   const searchId = useId();
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [localQuery, setLocalQuery] = useState("");
   const query = server?.search ?? localQuery;
   const setQuery = (value: string) => server ? server.onSearch(value) : setLocalQuery(value);
@@ -43,7 +44,7 @@ export function ClientDataTable<Row>({
   const setPageSize = (value: number) => server ? server.onLimit(value) : setLocalPageSize(value);
   const [page, setLocalPage] = useState(1);
   const setPage = (value: number) => server ? server.onPage(value) : setLocalPage(value);
-  const hasColumnFilters = !server && rows.length >= 10;
+  const hasColumnFilters = !server && (rows.length >= 10 || Object.values(filters).some((values) => values.length > 0));
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const filteredRows = server ? rows : rows.filter((row) =>
     (!normalizedQuery || columns.some((column) => String(column.value(row)).toLocaleLowerCase().includes(normalizedQuery))) &&
@@ -90,11 +91,11 @@ export function ClientDataTable<Row>({
   };
   return <div className="client-data-table">
     <div className="sa-table-toolbar">
-      <div className="sa-table-search"><label htmlFor={searchId}>{t("Search this table")}</label><div className="sa-table-search-control"><input id={searchId} type="search" value={query} placeholder={t("Search this table")} onChange={(event) => { setQuery(event.target.value); setPage(1); }} />{query && <button type="button" className="secondary sa-table-search-clear" onClick={() => { setQuery(""); setPage(1); }}>{t("Clear")}</button>}</div></div>
+      <div className="sa-table-search"><label htmlFor={searchId}>{t("Search this table")}</label><div className="sa-table-search-control"><input id={searchId} ref={searchInputRef} type="search" value={query} placeholder={t("Search this table")} onChange={(event) => { setQuery(event.target.value); setPage(1); }} />{query && <button type="button" className="secondary sa-table-search-clear" aria-label="Clear table search" onClick={() => { setQuery(""); setPage(1); searchInputRef.current?.focus(); }}>{t("Clear")}</button>}</div></div>
       <div className="sa-table-toolbar-meta"><span className="sa-table-result-count" role="status" aria-live="polite">{total} {t(total === 1 ? "result" : "results")}</span><label className="sa-table-page-size">{t("Rows per page")}<select value={pageSize} disabled={total <= 10} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}>{[10, 25, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}</select></label>{activeFilterCount > 0 && <button type="button" className="secondary sa-table-filter-clear" onClick={() => { setFilters({}); setPage(1); }}>{t("Clear all")} ({activeFilterCount})</button>}</div>
     </div>
     {hasColumnFilters && <details className="sa-table-filter-panel"><summary>{t("Filters")}{activeFilterCount ? ` (${activeFilterCount})` : ""}</summary><div className="sa-table-filter-panel-fields">{columns.map((column) => <div key={column.key}>{renderFilter(column, true)}</div>)}</div></details>}
     <div className="sa-table-wrap"><table><thead><tr>{columns.map((column) => <th key={column.key} aria-sort={sort?.key === column.key ? sort.direction : "none"}><button type="button" className="sa-table-sort" aria-label={`Sort by ${column.label} ${sort?.key === column.key && sort.direction === "ascending" ? "descending" : "ascending"}`} onClick={() => { const next = { key: column.key, direction: (sort?.key === column.key && sort.direction === "ascending" ? "descending" : "ascending") as "ascending" | "descending" }; if (server) server.onSort(next); else setLocalSort(next); setPage(1); }}><span>{t(column.label)}</span><span className="sa-table-sort-indicator" aria-hidden="true">{sort?.key === column.key ? sort.direction === "ascending" ? "↑" : "↓" : "↕"}</span></button></th>)}{actions && <th className="sa-table-action-cell">{t("Actions")}</th>}</tr>{hasColumnFilters && <tr className="sa-table-filter-row">{columns.map((column) => <th key={column.key}>{renderFilter(column, false)}</th>)}{actions && <th className="sa-table-action-cell" />}</tr>}</thead><tbody>{visible.map((row) => <tr key={getRowId(row)}>{columns.map((column) => <td key={column.key}>{column.render ? column.render(row) : String(column.value(row))}</td>)}{actions && <td className="sa-table-action-cell"><div className="row-actions">{actions(row)}</div></td>}</tr>)}{visible.length === 0 && <tr><td colSpan={columns.length + (actions ? 1 : 0)}>{rows.length ? t("No matching records.") : t(emptyMessage)}</td></tr>}</tbody></table></div>
-    {total > pageSize && <div className="sa-pagination"><span>{total ? (currentPage - 1) * pageSize + 1 : 0}–{Math.min(currentPage * pageSize, total)} of {total} {t("records")}</span><div><button type="button" className="secondary" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>{t("Previous")}</button><span>{t("Page")} {currentPage} {t("of")} {pageCount}</span><button type="button" className="secondary" disabled={currentPage >= pageCount} onClick={() => setPage(currentPage + 1)}>{t("Next")}</button></div></div>}
+    {total > 0 && <div className="sa-pagination" aria-label="Table pagination"><span>{t("Showing")} {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, total)} {t("of")} {total}</span><div><button type="button" className="secondary" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>{t("Previous")}</button><span>{t("Page")} {currentPage} {t("of")} {pageCount}</span><button type="button" className="secondary" disabled={currentPage >= pageCount} onClick={() => setPage(currentPage + 1)}>{t("Next")}</button></div></div>}
   </div>;
 }
