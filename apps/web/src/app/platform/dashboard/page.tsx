@@ -2283,7 +2283,7 @@ export default function SuperAdminDashboard() {
                 group.items.map(([key, label, icon]) => (
                 <button
                   key={key}
-                  className={`${tab === key ? "active" : ""} ${groupIndex ? "sa-nav-child" : ""}`}
+                  className={`${tab === key ? "active" : ""} ${group.label ? "sa-nav-child" : ""}`}
                   onClick={() => {
                     setTab(key);
                     window.history.replaceState(null, "", key === "legalDocuments" ? "/platform/dashboard?tab=legalDocuments" : "/platform/dashboard");
@@ -2299,7 +2299,6 @@ export default function SuperAdminDashboard() {
               ))}
             </div>
           ))}
-          <Link href="/platform/kyc" className="sa-nav-child">KYC Command Center</Link>
         </nav>
         <div className="sa-user">
           <span>S</span>

@@ -172,7 +172,14 @@ export class MobileDeploymentService {
     if (!hubIds.length) return [];
     const requests = await this.prisma.allocation.findMany({
       where: { clientId, fleet: { currentHubId: { in: hubIds } }, mobileDeployment: { is: { status: { in: ['RIDER_WAITING', 'FLEET_REQUESTED', 'PAYMENT_PENDING', 'PAYMENT_PAID', 'PDI_PENDING_RIDER', 'TRAINING_PENDING', 'DEVICE_PAIRING_PENDING'] } } } },
-      include: { rider: true, fleet: { include: { iotDevice: true } }, mobileDeployment: true },
+      include: { rider: true, fleet: { include: {
+        iotDevice: true,
+        batteryHistory: {
+          where: { removedAt: null, battery: { clientId } },
+          orderBy: { installedAt: 'asc' },
+          select: { battery: { select: { batteryType: true, serialNumber: true } } },
+        },
+      } }, mobileDeployment: true },
     });
     if (!requests.length) return [];
     const photos = await this.prisma.photo.findMany({
@@ -246,13 +253,17 @@ export class MobileDeploymentService {
       },
       orderBy: { createdAt: 'desc' },
     });
-    const open = payments.find((payment) => payment.status === DeploymentPaymentStatus.PENDING || payment.status === DeploymentPaymentStatus.SUBMITTED) ?? null;
+    const open = payments.find((payment) => payment.status === DeploymentPaymentStatus.PENDING || payment.status === DeploymentPaymentStatus.SUBMITTED || payment.status === DeploymentPaymentStatus.REJECTED) ?? null;
     const amountDue = open?.amount.toFixed(2) ?? '0.00';
     return {
       currency: open?.currency ?? payments[0]?.currency ?? 'INR',
       amountDue,
       currentPayment: open && {
         id: open.id,
+        source: 'DEPLOYMENT',
+        submissionVersion: open.submissionVersion,
+        rejectionReason: open.rejectionReason,
+        rejectedAt: open.rejectedAt,
         status: open.status,
         amount: open.amount.toFixed(2),
         currency: open.currency,
@@ -264,6 +275,10 @@ export class MobileDeploymentService {
       },
       payments: payments.map((payment) => ({
         id: payment.id,
+        source: 'DEPLOYMENT',
+        submissionVersion: payment.submissionVersion,
+        rejectionReason: payment.rejectionReason,
+        rejectedAt: payment.rejectedAt,
         status: payment.status,
         amount: payment.amount.toFixed(2),
         currency: payment.currency,
@@ -299,26 +314,44 @@ export class MobileDeploymentService {
     const { workflow } = await this.workflow(clientId, allocationId);
     const payment = await this.prisma.deploymentPayment.findUnique({ where: { workflowId: workflow.id } });
     if (!payment) throw new NotFoundException('Payment request not found.');
-    return payment;
+    const receipts = await this.prisma.photo.findMany({ where: { clientId, entityType: 'PAYMENT_DEPLOYMENT', entityId: payment.id, status: 'COMPLETE' },
+      select: { id: true, mimeType: true, sizeBytes: true, uploadedAt: true }, orderBy: { createdAt: 'asc' } });
+    return { ...payment, source: 'DEPLOYMENT', receipts };
   }
   async submitPaymentReference(clientId: string, userId: string, allocationId: string, provider: string, providerReference: string) {
     await this.assertRiderAllocation(clientId, userId, allocationId);
-    const { workflow } = await this.workflow(clientId, allocationId);
-    if (workflow.status !== MobileDeploymentStatus.PAYMENT_PENDING) throw new BadRequestException('No payment is pending.');
-    const payment = await this.prisma.deploymentPayment.findUnique({ where: { workflowId: workflow.id } });
-    if (!payment) throw new NotFoundException('Payment request not found.');
-    if (payment.status === DeploymentPaymentStatus.SUBMITTED && payment.providerReference === providerReference.trim()) return payment;
-    if (payment.status !== DeploymentPaymentStatus.PENDING) throw new BadRequestException('This payment cannot be submitted in its current state.');
     try {
-      return await this.prisma.deploymentPayment.update({ where: { id: payment.id }, data: { status: DeploymentPaymentStatus.SUBMITTED, provider: provider.trim(), providerReference: providerReference.trim(), submittedAt: new Date() } });
+      return await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "Allocation" WHERE id = ${allocationId} AND "clientId" = ${clientId} FOR UPDATE`;
+        const allocation = await tx.allocation.findFirst({ where: { id: allocationId, clientId }, include: { mobileDeployment: { include: { payment: true } } } });
+        const workflow = allocation?.mobileDeployment, payment = workflow?.payment;
+        if (!workflow || !payment) throw new NotFoundException('Payment request not found.');
+        if (workflow.status !== MobileDeploymentStatus.PAYMENT_PENDING) throw new BadRequestException('No payment is pending.');
+        provider = provider.trim(); providerReference = providerReference.trim();
+        if (!provider || !providerReference) throw new BadRequestException('Payment provider and reference are required.');
+        if (payment.status === 'SUBMITTED' && payment.provider === provider && payment.providerReference === providerReference) return payment;
+        if (payment.status !== 'PENDING' && payment.status !== 'REJECTED') throw new BadRequestException('This payment cannot be submitted in its current state.');
+        const submitted = await tx.deploymentPayment.update({ where: { id: payment.id }, data: {
+          status: 'SUBMITTED', provider, providerReference, submittedAt: new Date(), submissionVersion: { increment: 1 },
+          rejectionReason: null, rejectedAt: null, rejectedById: null,
+        } });
+        await tx.auditLog.create({ data: { clientId, actorId: userId, action: 'PAYMENT_SUBMITTED', entityType: 'DeploymentPayment', entityId: payment.id,
+          newData: { provider, providerReference, submissionVersion: submitted.submissionVersion } } });
+        return submitted;
+      });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new BadRequestException('This payment reference has already been used.');
       throw error;
     }
   }
-  async verifyPayment(clientId: string, userId: string, allocationId: string) {
+  async rejectPayment(clientId: string, userId: string, allocationId: string, reason: string, expectedVersion: number) {
     await this.assertFleetManagerHub(clientId, userId, allocationId);
-    return this.commercial.verifyPayment(clientId, userId, allocationId);
+    return this.commercial.rejectPayment(clientId, userId, allocationId, reason, expectedVersion);
+  }
+
+  async verifyPayment(clientId: string, userId: string, allocationId: string, expectedVersion?: number) {
+    await this.assertFleetManagerHub(clientId, userId, allocationId);
+    return this.commercial.verifyPayment(clientId, userId, allocationId, expectedVersion);
   }
   async getAllocationEvidence(clientId: string, userId: string, allocationId: string) {
     await this.assertFleetManagerHub(clientId, userId, allocationId);

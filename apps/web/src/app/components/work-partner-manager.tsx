@@ -295,9 +295,9 @@ export function WorkPartnerManager({
           busy={busy}
           error={formError}
           onClose={() => setDialog(null)}
-        >
+          heading={<>{t(editing ? "Edit work partner" : "Add work partner")}</>}>
           <form className="form-stack" onSubmit={(event) => void submitForm(event)}>
-            <h2>{t(editing ? "Edit work partner" : "Add work partner")}</h2>
+
             <label>{t("Name")} *<input required maxLength={150} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
             <label>{t("Code")} *<input required maxLength={50} readOnly={Boolean(editing)} value={draft.code} onChange={(event) => setDraft({ ...draft, code: event.target.value })} aria-describedby={editing ? "work-partner-code-help" : undefined} /></label>
             {editing && <small id="work-partner-code-help">{t("Code cannot be changed after creation.")}</small>}
@@ -317,9 +317,9 @@ export function WorkPartnerManager({
           busy={busy || copyLoading}
           error={copyError}
           onClose={() => setDialog(null)}
-        >
+          heading={<>{t("Copy work partner from master")}</>}>
           <form className="form-stack" onSubmit={(event) => void submitCopy(event)}>
-            <h2>{t("Copy work partner from master")}</h2>
+
             {copyLoading ? (
               <p className="muted" role="status">{t("Loading shared work partners…")}</p>
             ) : masterOptions.length ? (

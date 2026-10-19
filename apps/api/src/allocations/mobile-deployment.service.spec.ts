@@ -41,7 +41,14 @@ describe('MobileDeploymentService.fleetRequests', () => {
       expect.objectContaining({
         include: {
           rider: true,
-          fleet: { include: { iotDevice: true } },
+          fleet: { include: {
+            iotDevice: true,
+            batteryHistory: {
+              where: { removedAt: null, battery: { clientId: 'client-1' } },
+              orderBy: { installedAt: 'asc' },
+              select: { battery: { select: { batteryType: true, serialNumber: true } } },
+            },
+          } },
           mobileDeployment: true,
         },
       }),

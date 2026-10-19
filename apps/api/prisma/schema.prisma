@@ -115,6 +115,10 @@ enum PhotoEntityType {
   INSPECTION
   RIDER_ONBOARDING
   SUPPORT_TICKET
+  PAYMENT_DEPLOYMENT
+  PAYMENT_COLLECTION
+  PAYMENT_AUTOPAY
+  PAYMENT_RECEIVED
 }
 
 enum RiderDocumentReviewStatus {
@@ -288,6 +292,7 @@ enum MobileDeploymentStatus {
 
 enum DeploymentPaymentStatus {
   PENDING
+  REJECTED
   SUBMITTED
   PAID
   FAILED
@@ -2974,6 +2979,10 @@ model DeploymentPayment {
   breakdown         Json
   provider          String?
   providerReference String?                  @unique
+  submissionVersion Int                     @default(0)
+  rejectionReason   String?                  @db.VarChar(1000)
+  rejectedAt        DateTime?
+  rejectedById      String?
   submittedAt       DateTime?
   verifiedAt        DateTime?
   verifiedById      String?
