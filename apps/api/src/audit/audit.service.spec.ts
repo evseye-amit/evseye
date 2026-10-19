@@ -9,10 +9,13 @@ describe('AuditService', () => {
     const service = new AuditService({
       auditLog: { findMany, count },
       $transaction: transaction,
+      user: { findMany: vi.fn().mockResolvedValue([]) },
+      fleet: { findMany: vi.fn().mockResolvedValue([]) },
+      rider: { findMany: vi.fn().mockResolvedValue([]) },
     } as never);
 
     await expect(service.list('client-a', 2, 200)).resolves.toEqual({
-      items: [{ id: 1n }],
+      items: [{ id: 1n, actorName: null, entityName: null }],
       meta: { page: 2, pageSize: 100, total: 1 },
     });
     expect(findMany).toHaveBeenCalledWith(

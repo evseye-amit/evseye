@@ -1,6 +1,7 @@
 import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsIn,
   IsEnum,
   IsInt,
   IsOptional,
@@ -29,4 +30,8 @@ export class ListFleetsDto {
   @Transform(({ value }) => value === true || value === 'true')
   @IsBoolean()
   isAllocatable?: boolean;
+  @IsOptional()
+  @IsIn(['vehicleNumber', 'chassisNumber', 'status', 'createdAt'])
+  sortBy?: string;
+  @IsOptional() @IsIn(['asc', 'desc']) sortDirection?: 'asc' | 'desc';
 }

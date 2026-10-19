@@ -92,6 +92,9 @@ describe.skipIf(!url)('Preparation + QC lifecycle in PostgreSQL', () => {
       ownershipType: 'CLIENT_OWNED',
       currentHubId: hub.id,
     });
+    // Provision fixture accounts in a dedicated mode. Simple mode disallows
+    // dedicated staff management; their existing assignments survive a mode change.
+    await db.client.update({ where: { id: client.id }, data: { fleetOperatingMode: 'PREPARATION_QC' } });
     await service.saveStaff(client.id, actor(admin), rfd.id, {
       assignments: [{ hubId: hub.id, canPrepare: true, canReview: true }],
     });
@@ -101,6 +104,7 @@ describe.skipIf(!url)('Preparation + QC lifecycle in PostgreSQL', () => {
     await service.saveStaff(client.id, actor(admin), secondQc.id, {
       assignments: [{ hubId: hub.id, canPrepare: false, canReview: true }],
     });
+    await db.client.update({ where: { id: client.id }, data: { fleetOperatingMode: 'SIMPLE' } });
     await db.userHub.create({
       data: { clientId: client.id, userId: manager.id, hubId: hub.id },
     });

@@ -34,6 +34,7 @@ const actionableRoles = [
   'CLIENT_ADMIN',
   'OPERATIONS_MANAGER',
   'FLEET_MANAGER',
+  'ADVISOR',
   'RFD_MANAGER',
   'QC_MANAGER',
 ];
@@ -454,11 +455,17 @@ export class FleetReadinessService {
         .object({
           name: z.string().trim().min(1).max(100),
           mobile: z.string().regex(/^\+91[6-9]\d{9}$/),
-          role: z.enum(['RFD_MANAGER', 'QC_MANAGER']),
+          role: z.enum(['ADVISOR', 'RFD_MANAGER', 'QC_MANAGER']),
         })
         .strict(),
       input,
     );
+    const client = await this.db.client.findUniqueOrThrow({
+      where: { id: clientId }, select: { fleetOperatingMode: true },
+    });
+    if (client.fleetOperatingMode === 'SIMPLE') {
+      throw new ForbiddenException('Dedicated Advisors and QC Managers are unavailable in Simple mode. Client Admins and Fleet Managers perform these responsibilities.');
+    }
     const exists = await this.db.user.findUnique({
       where: { clientId_mobile: { clientId, mobile: b.mobile } },
     });
@@ -532,6 +539,10 @@ export class FleetReadinessService {
       });
       if (!user)
         throw new NotFoundException('Active operations user not found.');
+      if (['ADVISOR', 'RFD_MANAGER', 'QC_MANAGER'].includes(user.role)) {
+        const client = await tx.client.findUniqueOrThrow({ where: { id: clientId }, select: { fleetOperatingMode: true } });
+        if (client.fleetOperatingMode === 'SIMPLE') throw new ForbiddenException('Dedicated staff permissions are unavailable in Simple mode.');
+      }
       for (const a of body.assignments)
         if (
           !(await tx.hub.findFirst({

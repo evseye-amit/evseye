@@ -468,6 +468,10 @@ export class FleetsService {
       ...(query.search
         ? {
             OR: [
+              { fleetCode: { contains: query.search, mode: 'insensitive' } },
+              { modelName: { contains: query.search, mode: 'insensitive' } },
+              { currentHub: { is: { name: { contains: query.search, mode: 'insensitive' } } } },
+              { homeHub: { is: { name: { contains: query.search, mode: 'insensitive' } } } },
               {
                 vehicleNumber: {
                   contains: query.search,
@@ -516,7 +520,9 @@ export class FleetsService {
             },
           },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: query.sortBy
+          ? [{ [query.sortBy]: query.sortDirection ?? 'asc' }, { id: 'asc' }]
+          : [{ createdAt: 'desc' }, { id: 'asc' }],
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
       }),

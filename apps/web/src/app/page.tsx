@@ -21,6 +21,7 @@ import {InstallationBoard} from "./components/installation-board";
 import { FleetReadiness, FleetReadinessStatus } from "./components/fleet-readiness";
 import { SupportTickets } from "./components/support-tickets";
 import { RiderReferenceReview } from "./components/rider-reference-review";
+import { OperationsTable } from "./components/operations-records";
 import { ClientDataTable, type ClientColumn } from "./components/client-data-table";
 import { ClientUserManager, parseCsv } from "./components/client-user-manager";
 import { ClientBulkImportWorkspace, type ClientImportHistoryEntry } from "./components/client-bulk-import-workspace";
@@ -47,7 +48,7 @@ const loginField = (flow: LoginFlow | null, featureCode: string) => flow?.steps.
 type Tab =
   | "payment-transactions"
   | "spares-penalties"
-  | "installation-board" | "vehicle-preparation" | "quality-check" | "readiness-settings" | "readiness-staff"
+  | "installation-board" | "vehicle-preparation" | "quality-check" | "readiness-settings" | "advisors" | "qc-managers"
   | "dashboard"
   | "legal-documents"
   | "refer-and-earn"
@@ -139,10 +140,11 @@ const CLIENT_NAVIGATION: Array<{
   {
     label: "Team Management",
     items: [
-      { id: "readiness-staff", label: "Installation, Preparation & QC Staff" },
       { id: "fleet-managers", label: "Fleet Manager" },
       { id: "team-leads", label: "Team Lead" },
       { id: "cluster-managers", label: "Cluster Manager" },
+      { id: "advisors", label: "Advisors" },
+      { id: "qc-managers", label: "QC Manager" },
     ],
   },
   {
@@ -172,6 +174,7 @@ const CLIENT_NAVIGATION: Array<{
   {
     label: "Rider Management",
     items: [
+      { id: "riders", label: "Riders" },
       { id: "work-partners", label: "Work Partners" },
       { id: "wallet", label: "Wallet" },
       { id: "payment-transactions", label: "Payment Transactions" },
@@ -207,7 +210,7 @@ const CLIENT_TAB_TITLES: Record<Tab, string> = {
   "payment-transactions": "Payment Transactions",
   "spares-penalties": "Spares & Penalties",
   "installation-board": "Installation Board",
-  "vehicle-preparation": "Vehicle Preparation", "quality-check": "Quality Check", "readiness-settings": "Fleet Readiness Settings", "readiness-staff": "Installation, Preparation & QC Staff",
+  "vehicle-preparation": "Vehicle Preparation", "quality-check": "Quality Check", "readiness-settings": "Fleet Readiness Settings", "advisors": "Advisors", "qc-managers": "QC Manager",
   dashboard: "Dashboard",
   "legal-documents": "Legal Documents",
   "refer-and-earn": "Refer & Earn",
@@ -247,7 +250,7 @@ const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
   "payment-transactions": "pricing",
   "spares-penalties": "factory",
   "installation-board": "vehicle",
-  "vehicle-preparation": "vehicle", "quality-check": "shield", "readiness-settings": "factory", "readiness-staff": "user",
+  "vehicle-preparation": "vehicle", "quality-check": "shield", "readiness-settings": "factory", "advisors": "user", "qc-managers": "shield",
   dashboard: "dashboard",
   "legal-documents": "audit",
   "refer-and-earn": "earnings",
@@ -286,7 +289,7 @@ const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
 const ACTIVE_CLIENT_TABS = new Set<Tab>([
   "payment-transactions",
   "spares-penalties",
-  "installation-board", "vehicle-preparation", "quality-check", "readiness-settings", "readiness-staff",
+  "installation-board", "vehicle-preparation", "quality-check", "readiness-settings", "advisors","qc-managers",
   "dashboard",
   "legal-documents",
   "refer-and-earn",
@@ -728,9 +731,9 @@ function clientColumns(tab: Tab): ClientColumn<RecordItem>[] {
 }
 
 function canAccessTab(id: Tab, userRoles: string[]) {
-    if (userRoles.some(role => ["RFD_MANAGER","QC_MANAGER"].includes(role))) return ["installation-board","vehicle-preparation","quality-check"].includes(id);
-    if (["payment-transactions","spares-penalties","legal-documents","refer-and-earn","readiness-settings","work-partners"].includes(id)) return userRoles.includes("CLIENT_ADMIN");
-    if (["notifications","readiness-staff"].includes(id)) return userRoles.some(role => ["CLIENT_ADMIN","OPERATIONS_MANAGER"].includes(role));
+    if (userRoles.some(role => ["ADVISOR","RFD_MANAGER","QC_MANAGER"].includes(role))) return ["installation-board","vehicle-preparation","quality-check"].includes(id);
+    if (["audit","payment-transactions","spares-penalties","legal-documents","refer-and-earn","readiness-settings","work-partners"].includes(id)) return userRoles.includes("CLIENT_ADMIN");
+    if (["notifications","advisors","qc-managers"].includes(id)) return userRoles.some(role => ["CLIENT_ADMIN","OPERATIONS_MANAGER"].includes(role));
     return true;
 }
 
@@ -741,6 +744,8 @@ export default function Home() {
   const restoringHistory = useRef(false);
   const [navigationError, setNavigationError] = useState("");
   const canSeeTab = (id: Tab) => canAccessTab(id, userRoles);
+  const [recordRefreshKey, setRecordRefreshKey] = useState(0);
+  const [identityKey, setIdentityKey] = useState("");
   const [panelRefreshKey, setPanelRefreshKey] = useState(0);
   const [panelLoading, setPanelLoading] = useState(false);
   const { appearance, hostClient } = useClientAppearance();
@@ -864,7 +869,10 @@ export default function Home() {
       return result;
     };
     if (!userRoles.length || !canAccessTab(nextTab, userRoles)) { setLoading(false); return; }
-    if (["spares-penalties","installation-board","vehicle-preparation","quality-check","readiness-settings","readiness-staff"].includes(nextTab)) { setItems([]); setLoading(false); return; }
+    if (["fleets", "riders", "audit"].includes(nextTab)) {
+      setRecordRefreshKey((key) => key + 1); setLoading(false); return;
+    }
+    if (["spares-penalties","installation-board","vehicle-preparation","quality-check","readiness-settings","advisors","qc-managers"].includes(nextTab)) { setItems([]); setLoading(false); return; }
     if (nextTab === "payment-transactions" || nextTab === "legal-documents" || nextTab === "refer-and-earn" || nextTab === "work-partners" || nextTab === "rider-reference-review" || nextTab === "support-tickets" || nextTab === "notifications") {
       setItems([]);
       setLoading(false);
@@ -1016,8 +1024,9 @@ export default function Home() {
   useEffect(() => {
     if (!userRoles.length) return;
     const readDestination = () => {
-      const requested = new URLSearchParams(window.location.search).get("tab") ?? "dashboard";
-      const fallback: Tab = userRoles.includes("RFD_MANAGER") ? "vehicle-preparation" : userRoles.includes("QC_MANAGER") ? "quality-check" : "dashboard";
+      const original = new URLSearchParams(window.location.search).get("tab") ?? "dashboard";
+      const requested = original === "readiness-staff" ? "advisors" : original;
+      const fallback: Tab = userRoles.some((role) => ["ADVISOR", "RFD_MANAGER"].includes(role)) ? "vehicle-preparation" : userRoles.includes("QC_MANAGER") ? "quality-check" : "dashboard";
       if (!Object.hasOwn(CLIENT_TAB_TITLES, requested)) return { tab: fallback, error: "This page does not exist. Choose a section from the menu." };
       if (!canAccessTab(requested as Tab, userRoles)) return { tab: fallback, error: "You do not have access to the requested section." };
       return { tab: requested as Tab, error: "" };
@@ -1052,6 +1061,7 @@ export default function Home() {
     void request("/auth/me", {}, token)
       .then(async (identity) => {
         const roles = (identity as { roles?: string[] }).roles ?? [];
+        setIdentityKey(`${(identity as { clientId?: string }).clientId ?? 'client'}:${(identity as { id?: string }).id ?? roles.join(',')}`);
         setUserRoles(roles);
         // Incomplete Client onboarding stays guided; active Clients use this
         // single full operations console as their dashboard.
@@ -2624,7 +2634,7 @@ export default function Home() {
         {tab === "payment-transactions" && userRoles.includes("CLIENT_ADMIN") && <PaymentTransactions refreshKey={panelRefreshKey} />}
         {tab === "spares-penalties" && <SparesCatalogue refreshKey={panelRefreshKey} />}
         {tab === "installation-board" && <InstallationBoard refreshKey={panelRefreshKey} />}
-        {["vehicle-preparation","quality-check","readiness-settings","readiness-staff"].includes(tab) && <FleetReadiness refreshKey={panelRefreshKey} key={tab} view={tab === "quality-check" ? "qc" : tab === "readiness-settings" ? "settings" : tab === "readiness-staff" ? "staff" : "preparation"} />}
+        {["vehicle-preparation","quality-check","readiness-settings","advisors","qc-managers"].includes(tab) && <FleetReadiness refreshKey={panelRefreshKey} key={tab} view={tab === "quality-check" ? "qc" : tab === "readiness-settings" ? "settings" : tab === "advisors" ? "advisors" : tab === "qc-managers" ? "qc-managers" : "preparation"} />}
         {tab === "support-tickets" && <SupportTickets refreshKey={panelRefreshKey} />}
         {tab === "notifications" && userRoles.some((role) => ["CLIENT_ADMIN", "OPERATIONS_MANAGER"].includes(role)) && <ClientNotifications refreshKey={panelRefreshKey} />}
         {tab === "rider-document-review" && <section className="client-page-intro client-review-intro"><p className="muted">Open each uploaded document, then approve it or record a rejection reason.</p><div className="client-review-counts"><span><strong>{items.filter((item) => item.status === "PENDING").length}</strong> Pending</span><span><strong>{items.filter((item) => item.status === "APPROVED").length}</strong> Approved</span><span><strong>{items.filter((item) => item.status === "REJECTED").length}</strong> Rejected</span></div></section>}
@@ -3000,6 +3010,10 @@ export default function Home() {
                 <strong>Address</strong>
                 <span>{String(riderDetail.address ?? "—")}</span>
               </div>
+              <div><strong>Rider code</strong><span>{String(riderDetail.riderCode ?? "—")}</span>
+              </div>
+              <div><strong>Joined</strong><span>{riderDetail.joiningDate ? new Date(String(riderDetail.joiningDate)).toLocaleDateString("en-IN") : "—"}</span>
+              </div>
             </div>
             <button
               className="secondary"
@@ -3023,6 +3037,7 @@ export default function Home() {
               </form>
             )}
             <h3>KYC</h3>
+            <div className="form-actions"><button className="secondary" onClick={() => requestNavigation(() => { setRiderDetail(null); commitNavigation("rider-document-review"); })}>Document verification</button>{canSeeTab("payment-transactions") && <button className="secondary" onClick={() => requestNavigation(() => { setRiderDetail(null); commitNavigation("payment-transactions"); })}>Payment transactions</button>}</div>
             <p>Overall KYC: <Status value={String(riderDetail.kycStatus ?? "NOT_STARTED")} /></p>
             <p className="muted">All required documents must be uploaded and all submitted documents approved.</p>
             <h4>Provider checks</h4>
@@ -3104,17 +3119,17 @@ export default function Home() {
           tab !== "support-tickets" &&
           tab !== "notifications" &&
           tab !== "payment-transactions" &&
-          !["spares-penalties","installation-board","vehicle-preparation","quality-check","readiness-settings","readiness-staff"].includes(tab) &&
+          !["spares-penalties","installation-board","vehicle-preparation","quality-check","readiness-settings","advisors","qc-managers"].includes(tab) &&
           tab !== "locations" &&
-          !PHOTO_EVIDENCE_TABS.has(tab) && (
+          !PHOTO_EVIDENCE_TABS.has(tab) && userRoles.length > 0 && canSeeTab(tab) && (
             <>
               {(tab === "fleet-managers" || tab === "team-leads") ? <ClientUserManager loading={loading} key={tab} kind={tab} rows={items} hubs={hubs} columns={clientColumns(tab)}
                 request={(path, options) => request(path, options ?? {}, token)}
                 refresh={() => loadView(tab)}
                 report={(message, failed) => { if (failed) setError(message); else { setError(""); setNotice(message); } }} onBulk={() => openBulkImport(tab)} /> :
-              <ClientDataTable key={tab} loading={loading} rows={items} columns={clientColumns(tab)}
+              <OperationsTable key={tab} tab={tab} identityKey={identityKey} refreshKey={recordRefreshKey} request={(path) => request(path, {}, token)} loading={loading} rows={items} columns={clientColumns(tab)}
                 getRowId={(item) => String(item.id)}
-                actions={tab === "fleets" ? (item) => <><FleetReadinessStatus fleetId={String(item.id)} /><button className="secondary table-action" onClick={() => void openFleetForm(String(item.id))}>Edit</button>{item.status === "AVAILABLE" && <button className="table-action" disabled title="Allocation is temporarily unavailable">Allocate</button>}{item.status === "ALLOCATED" && <button className="danger table-action" disabled title="De-allocation is temporarily unavailable">De-Allocate</button>}<button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(String(item.id)) })}>Delete</button></>
+                actions={tab === "fleets" ? (item) => <><FleetReadinessStatus fleetId={String(item.id)} /><button className="secondary table-action" onClick={() => void openFleetForm(String(item.id))}>Edit</button>{item.status === "AVAILABLE" && <button className="table-action" disabled title="Use the Fleet Manager app to complete allocation and its required checks.">Allocate</button>}{item.status === "ALLOCATED" && <button className="danger table-action" disabled title="Use the submission workflow in the Fleet Manager app to return this vehicle.">De-Allocate</button>}<button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(String(item.id)) })}>Delete</button></>
                   : tab === "riders" ? (item) => <><button className="secondary table-action" onClick={() => void openRiderDetail(String(item.id))}>View / Edit</button><button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Rider?", description: "This rider will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Rider", onConfirm: () => deleteRider(String(item.id)) })}>Delete</button></>
                   : tab === "iot-devices" ? (item) => <button className="secondary table-action" onClick={() => void openIotForm(item)}>Edit</button>
                   : tab === "batteries" || tab === "controllers" ? (item) => <button className="secondary table-action" onClick={() => void openExistingComponentForm(tab, item)}>Edit</button>

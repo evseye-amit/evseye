@@ -6,6 +6,7 @@ import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { ClientContextService } from '../auth/client-context.service.js';
+import { ListAuditDto } from './list-audit.dto.js';
 import { AuditService } from './audit.service.js';
 @Controller('audit-logs')
 @UseGuards(AccessTokenGuard, RolesGuard)
@@ -15,21 +16,13 @@ export class AuditController {
     private readonly audit: AuditService,
     private readonly clients: ClientContextService,
   ) {}
-  @Get() async list(
-    @CurrentUser() u: AuthUser,
-    @Query('page') page?: string,
-    @Query('pageSize') pageSize?: string,
-  ) {
-    const requestedPage = Math.max(Number(page) || 1, 1);
-    const requestedPageSize = Math.min(
-      Math.max(Number(pageSize) || 50, 1),
-      100,
-    );
+  @Get() async list(@CurrentUser() u: AuthUser, @Query() query: ListAuditDto) {
     return {
       data: await this.audit.list(
         this.clients.requireClientId(u),
-        requestedPage,
-        requestedPageSize,
+        query.page,
+        query.pageSize,
+        query,
       ),
     };
   }
