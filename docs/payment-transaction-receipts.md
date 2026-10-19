@@ -58,3 +58,58 @@ Fleet Managers retain `POST /api/v1/mobile-deployments/:allocationId/payment/ver
 Apply migration `20261019020000_payment_receipts_and_reviews`, regenerate Prisma and restart API/panel. No seed changes are required.
 
 Tests cover reason/file validation, ownership and generic-route bypass attempts, immutable upload completion, rejected evidence/history preservation, resubmission, stale reviews, concurrent Admin/Fleet Manager approvals, simultaneous approval/rejection, source de-duplication and server pagination.
+
+## Allocation Pay Now: UPI return and receipt submission
+
+Manual verification remains limited to allocation/onboarding (`DEPLOYMENT`). This does not introduce manual review for rental, wallet, penalty, collection or AutoPay payments.
+
+### App sequence
+
+1. Fetch `GET /api/v1/mobile-deployments/:allocationId/payment`. Retain the allocation ID and returned payment `id` before opening UPI. Amount/currency are server-owned.
+2. Launch the existing UPI intent. On return, prefill the reference/UTR if supplied by the UPI app, otherwise let the rider enter it. Cancelled/failed UPI attempts should not be automatically submitted.
+3. Offer an optional receipt screenshot from camera/gallery. An external UPI app does not supply the image through this API.
+4. For a selected image, use the existing `DEPLOYMENT/:paymentId/receipts/upload-intent`, PUT bytes to the returned signed URL, then call `.../receipts/:photoId/complete`. Finish the upload before submitting its ID. File size/type and private storage rules above apply.
+5. Submit using the **allocation ID**, not the payment ID:
+
+```http
+POST /api/v1/mobile-deployments/:allocationId/payment/submit
+```
+
+```json
+{
+  "provider": "UPI",
+  "providerReference": "123456789012",
+  "receiptPhotoIds": ["<completed receipt Photo UUID>"]
+}
+```
+
+`receiptPhotoIds` is optional (omit it or send `[]` when no screenshot is chosen), unique and limited to 20 IDs. Each ID must belong to a completed upload by this rider for this exact client/payment. Unknown, foreign, pending and wrong-source receipts are rejected before submission. Existing clients sending only provider/reference remain compatible. Completed receipts are already attached by payment ID; passing their IDs explicitly verifies that the intended uploads finished. All completed rider receipts are included in the response/audit snapshot.
+
+### Resume states
+
+Both GET payment and POST submit preserve their existing payment fields and return:
+
+- `source: "DEPLOYMENT"`
+- `receipts`: completed image metadata; obtain viewing URLs from the existing receipt download endpoint.
+- `receiptOptional: true`
+- `canSubmit`: true only for a pending/rejected payment while the workflow is `PAYMENT_PENDING`.
+- `nextAction`:
+  - `SUBMIT_PAYMENT_DETAILS`: collect UTR/reference and optional screenshot.
+  - `AWAITING_VERIFICATION`: show the existing submitted reference and pending approval message.
+  - `CORRECT_PAYMENT_DETAILS`: show `rejectionReason`, allow correction and resubmission.
+  - `PAYMENT_COMPLETE`: refresh/continue the existing allocation flow.
+  - `CONTACT_SUPPORT`: payment cancelled/failed or workflow no longer accepts submission.
+
+A submission records a claim as `SUBMITTED`; it does not credit the wallet, settle money or advance allocation. Existing Fleet Manager/Client Admin verification is still required. Do not mark a payment paid from a client-side UPI success callback.
+
+### Retry and concurrency rules
+
+- Persist payment/allocation IDs, entered UTR, selected local image path and pending upload Photo ID in the Flutter app before leaving the screen. These local lifecycle/network handlers are outside this repository.
+- On app resume/restart, fetch GET payment and render `nextAction`; completed receipts remain available on the server.
+- Retry an interrupted PUT/complete using the retained upload while its signed URL remains valid. If expired, create a fresh upload intent; pending uploads are never shown as accepted proof.
+- Retry POST submit with the same trimmed provider/reference after a lost response. It returns the existing submitted **or approved** payment without another ledger entry or submission-version increment.
+- A corrected reference can be submitted only from PENDING/REJECTED. An already submitted reference must be reviewed before changing it.
+- Receipt completion is idempotent. For DEPLOYMENT it uses the same allocation lock as approval, and a newly completed receipt on a SUBMITTED payment increments `submissionVersion`. A stale Admin/Fleet Manager review must reload; repeating completion does not increment the version or duplicate the upload audit.
+- Optional receipts may still be attached after payment approval. They do not reopen or settle the payment again.
+
+No new migration or seeds are required for this extension. The Flutter source is not present here; the app must implement the UPI-return screen, manual UTR entry, gallery/camera picker and local retry state using these contracts.

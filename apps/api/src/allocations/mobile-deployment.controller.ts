@@ -40,7 +40,7 @@ export class MobileDeploymentController {
   @Get(':id/payment') @Roles(UserRole.RIDER)
   async payment(@CurrentUser() user: AuthUser, @Param('id') id: string) { return { data: await this.deployments.payment(this.clients.requireClientId(user), user.id, id) }; }
   @Post(':id/payment/submit') @Roles(UserRole.RIDER)
-  async submitPayment(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: SubmitPaymentReferenceDto) { return { data: await this.deployments.submitPaymentReference(this.clients.requireClientId(user), user.id, id, body.provider, body.providerReference) }; }
+  async submitPayment(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: SubmitPaymentReferenceDto) { return { data: await this.deployments.submitPaymentReference(this.clients.requireClientId(user), user.id, id, body.provider, body.providerReference, body.receiptPhotoIds) }; }
   @Post(':id/payment/verify') @Roles(UserRole.FLEET_MANAGER)
   async verifyPayment(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: VerifyPaymentDto = {}) { return { data: await this.deployments.verifyPayment(this.clients.requireClientId(user), user.id, id, body?.expectedVersion) }; }
   @Post(':id/payment/reject') @Roles(UserRole.FLEET_MANAGER)
