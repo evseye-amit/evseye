@@ -236,10 +236,10 @@ export function ClientNotifications() {
   }
   return (
     <>
-      <section className="action-card notification-header">
+      <section className="client-page-intro notification-header">
         <div>
-          <p className="eyebrow">CLIENT COMMUNICATION</p>
-          <h2>Notification</h2>
+
+
           <p className="muted">
             Send a message to your users and track push acceptance and inbox
             reads.
@@ -359,7 +359,7 @@ export function ClientNotifications() {
           error={dialogError}
           onClose={() => setCompose(false)}
           wide
-        >
+          heading={<>Send notification</>}>
           <form
             className="form-stack"
             onSubmit={(event) => {
@@ -369,7 +369,7 @@ export function ClientNotifications() {
               } else void review(event);
             }}
           >
-            <h2>Send notification</h2>
+
             <label>
               Audience
               <select
@@ -544,12 +544,12 @@ export function ClientNotifications() {
           busy={busy}
           onClose={() => setDetails(null)}
           wide
-        >
+          heading={<>{details.title}</>}>
           <div className="form-stack">
             <p className="eyebrow">
               {audiences[details.audience] ?? details.source}
             </p>
-            <h2>{details.title}</h2>
+
             <p className="notification-body">{details.body}</p>
             <p className="muted">
               {new Date(details.createdAt).toLocaleString()} ·{" "}

@@ -355,7 +355,7 @@ export function InstallationBoard() {
     detail.status === "IN_PROGRESS";
   return (
     <section className="table-card">
-      <h2>Installation board</h2>
+
       {error && (
         <p className="error" role="alert">
           {error}
@@ -544,19 +544,10 @@ export function InstallationBoard() {
           wide
           title={`${detail.fleet.fleetCode} · ${detail.definition.name}`}
           onClose={() => setDetail(null)}
-        >
-          <div className="form-actions">
-            <h2>
+          heading={<>
               {detail.fleet.fleetCode} · {detail.definition.name}
-            </h2>
-            <button
-              className="secondary"
-              disabled={busy}
-              onClick={() => setDetail(null)}
-            >
-              Close
-            </button>
-          </div>
+            </>}>
+
           <p>
             Revision {detail.revision} · {label(detail.status)}
           </p>

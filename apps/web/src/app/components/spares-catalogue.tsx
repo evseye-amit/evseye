@@ -379,19 +379,9 @@ export function SparesCatalogue({ platform = false }: { platform?: boolean }) {
           busy={busy}
           wide
           onClose={() => setShowForm(false)}
-        >
+          heading={<>{editing ? "Edit spare / penalty" : "Add spare"}</>}>
           <form onSubmit={save}>
-            <div className="spares-dialog-header">
-              <h2>{editing ? "Edit spare / penalty" : "Add spare"}</h2>
-              <button
-                type="button"
-                className="secondary"
-                disabled={busy}
-                onClick={() => setShowForm(false)}
-              >
-                Close
-              </button>
-            </div>
+
             <div className="form-grid">
               <label>
                 Part code
@@ -543,10 +533,10 @@ export function SparesCatalogue({ platform = false }: { platform?: boolean }) {
           title="Spare history"
           wide
           onClose={() => setHistory(null)}
-        >
+          heading={<>Spare history</>}>
           <header className="spares-dialog-header">
             <div>
-              <h2>Spare history</h2>
+
               <p>{history.name}</p>
             </div>
             <button type="button" className="secondary" onClick={() => setHistory(null)}>Close</button>
@@ -586,17 +576,8 @@ export function SparesCatalogue({ platform = false }: { platform?: boolean }) {
           busy={busy}
           wide
           onClose={() => setUpdates(null)}
-        >
-          <div className="spares-dialog-header">
-            <h2>Review master updates</h2>
-            <button
-              className="secondary"
-              disabled={busy}
-              onClick={() => setUpdates(null)}
-            >
-              Close
-            </button>
-          </div>
+          heading={<>Review master updates</>}>
+
           <p>
             Applying updates preserves your penalty amount, evidence requirement
             and enabled status. Client-created spares are unaffected.

@@ -134,8 +134,8 @@ export function ClientUserManager({ kind, rows, hubs, columns, request, refresh,
   return (
     <section className="client-manager-actions">
       <section className="sa-page-head client-page-head"><div className="sa-actions"><button type="button" className="secondary" onClick={onBulk}>Bulk upload</button><button type="button" onClick={() => start()} disabled={busy}>+ Add {title}</button></div></section>
-      {open && <ClientFormDialog title={`${editing ? "Edit" : "Add"} ${title}`} error={formError} busy={busy} onClose={() => setOpen(false)}><form className="form-stack" onSubmit={(event) => void submit(event)}>
-        <h2>{editing ? "Edit" : "Add"} {title}</h2>
+      {open && <ClientFormDialog title={`${editing ? "Edit" : "Add"} ${title}`} error={formError} busy={busy} onClose={() => setOpen(false)} heading={<>{editing ? "Edit" : "Add"} {title}</>}><form className="form-stack" onSubmit={(event) => void submit(event)}>
+
         <label>Name *<input required maxLength={150} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
         <label>Mobile number *<input required inputMode="tel" value={draft.mobile} onChange={(event) => setDraft({ ...draft, mobile: event.target.value })} /></label>
         {isFleetManager ? <>
@@ -151,8 +151,8 @@ export function ClientUserManager({ kind, rows, hubs, columns, request, refresh,
         </>}
         <div className="form-actions"><button disabled={busy || (isFleetManager && !draft.hubIds.length)}>Save {title}</button><button type="button" className="secondary" onClick={() => setOpen(false)}>Cancel</button></div>
       </form></ClientFormDialog>}
-      {reassigning && <ClientFormDialog title={`Resign ${String((reassigning.user as Row | undefined)?.name ?? "Team Lead")}`} error={reassignError} busy={busy} onClose={() => setReassigning(null)}>
-        <h2>Resign Team Lead</h2>
+      {reassigning && <ClientFormDialog title={`Resign ${String((reassigning.user as Row | undefined)?.name ?? "Team Lead")}`} error={reassignError} busy={busy} onClose={() => setReassigning(null)} heading={<>Resign Team Lead</>}>
+
         <p>Record that this Team Lead has left the job. Their riders must be reassigned before the account is deactivated.</p>
         <p>{assignedRiders ? `${assignedRiders} rider${assignedRiders === 1 ? "" : "s"} will be moved to another Team Lead before this account is deactivated.` : "This Team Lead has no assigned riders. The account will be deactivated."}</p>
         <form className="form-stack" onSubmit={(event) => void reassign(event)}>

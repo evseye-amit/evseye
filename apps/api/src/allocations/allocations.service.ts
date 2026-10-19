@@ -77,7 +77,14 @@ export class AllocationsService {
       where: { id: allocationId, clientId, ...(hubIds ? { fleet: { currentHubId: { in: hubIds } } } : {}) },
       include: {
         rider: true,
-        fleet: { include: { currentHub: true } },
+        fleet: { include: {
+          currentHub: true,
+          batteryHistory: {
+            where: { removedAt: null, battery: { clientId } },
+            orderBy: { installedAt: 'asc' },
+            select: { battery: { select: { batteryType: true, serialNumber: true } } },
+          },
+        } },
         inspections: true,
       },
     });

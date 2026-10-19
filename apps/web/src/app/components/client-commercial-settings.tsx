@@ -321,10 +321,10 @@ export function ClientCommercialSettings({
           busy={busy}
           error={error}
           onClose={() => setOpen(false)}
-        >
+          heading={<>Commercials — {clientName}</>}>
           <header className="sa-commercial-head">
             <div>
-              <h2>Commercials — {clientName}</h2>
+
               <p>Manage client-specific feature entitlements, negotiated pricing, credit balances, and usage history.</p>
             </div>
             <button type="button" className="secondary" onClick={() => void load()} disabled={busy}>Refresh</button>

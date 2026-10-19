@@ -1,3 +1,4 @@
+import { PaymentTransactionsModule } from './payment-transactions/payment-transactions.module.js';
 import { FleetManagerMaintenanceModule } from './fleet-manager-maintenance/maintenance.module.js';
 import { FleetManagerHomeModule } from './fleet-manager-home/home.module.js';
 import { NotificationModule } from './notifications/notification.module.js';
@@ -85,6 +86,7 @@ import { WorkPartnersModule } from './work-partners/work-partners.module.js';
     BanksModule,
     NotificationModule,
     PaymentsModule,
+    PaymentTransactionsModule,
     CollectionsModule,
     FinalSettlementModule,
     NearestHubModule,
