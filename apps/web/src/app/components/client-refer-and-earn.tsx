@@ -1,9 +1,11 @@
 "use client";
+import { usePanelLoading } from "./panel-loading";
 
 import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
 import { sessionFetch } from "../../lib/session-fetch";
 import { QRCodeSVG } from "qrcode.react";
 import { ClientDataTable, type ClientColumn } from "./client-data-table";
+import { ClientConfirmationDialog } from "./client-confirmation-dialog";
 import { ClientFormDialog } from "./client-form-dialog";
 
 type Milestone = { milestoneType: string; operator: string; targetValue: string; sequence: number; mandatory: boolean };
@@ -108,7 +110,7 @@ const columns: ClientColumn<Campaign>[] = [
   { key: "status", label: "Status", value: (row) => row.status, render: (row) => <span className={`status status-${row.status.toLowerCase()}`}>{label(row.status)}</span>, filterOptions: ["DRAFT", "SCHEDULED", "ACTIVE", "PAUSED", "COMPLETED", "CANCELLED"] },
 ];
 
-export function ClientReferAndEarn() {
+export function ClientReferAndEarn({ refreshKey = 0 }: { refreshKey?: number }) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -119,8 +121,12 @@ export function ClientReferAndEarn() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<CampaignForm>(emptyForm);
   const [formStep, setFormStep] = useState(0);
+  const [confirmation, setConfirmation] = useState<{ campaign: Campaign; action: "activate" | "pause" | "close" | "cancel" } | null>(null);
+  const [duplicating, setDuplicating] = useState<Campaign | null>(null);
+  const [duplicateCode, setDuplicateCode] = useState("");
   const [preview, setPreview] = useState<Campaign | null>(null);
 
+  usePanelLoading(loading || busy);
   const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
@@ -135,7 +141,7 @@ export function ClientReferAndEarn() {
       else setError(failure.message || "Unable to load referral campaigns.");
     } finally { setLoading(false); }
   }, []);
-  useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
+  useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load, refreshKey]);
 
   function startNew() { setEditingId(null); setForm(emptyForm()); setFormStep(0); setError(""); setNotice(""); setShowForm(true); }
   function startEdit(campaign: Campaign) { setEditingId(campaign.id); setForm(formFrom(campaign)); setFormStep(0); setError(""); setNotice(""); setShowForm(true); }
@@ -163,20 +169,17 @@ export function ClientReferAndEarn() {
     finally { setBusy(false); }
   }
   async function transition(campaign: Campaign, action: "activate" | "pause" | "close" | "cancel") {
-    const meaning = action === "activate" ? "Riders will be able to join during the campaign period, and rewards can be earned." : action === "close" ? "The campaign will finish and stop accepting referrals." : action === "cancel" ? "The campaign will be cancelled." : "New referrals will be paused.";
-    if (!window.confirm(`${label(action)} ${campaign.name}? ${meaning}`)) return;
     setBusy(true); setError(""); setNotice("");
-    try { await api(`/${campaign.id}/${action}`, { method: "POST" }); setNotice(`Campaign ${action}d.`); await load(); }
+    try { await api(`/${campaign.id}/${action}`, { method: "POST" }); setNotice(({ activate: "Campaign activated.", pause: "Campaign paused.", close: "Campaign closed.", cancel: "Campaign cancelled." })[action]); await load(); setConfirmation(null); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to update campaign."); }
     finally { setBusy(false); }
   }
   async function duplicate(campaign: Campaign) {
-    const proposed = `${campaign.code}_COPY`;
-    const code = window.prompt("Code for the new draft campaign (A–Z, 0–9 and _):", proposed)?.trim().toUpperCase();
+    const code = duplicateCode.trim().toUpperCase();
     if (!code) return;
     if (!/^[A-Z0-9_]{3,48}$/.test(code)) { setError("Campaign code must be 3–48 characters: capital letters, numbers or underscores."); return; }
     setBusy(true); setError(""); setNotice("");
-    try { await api(`/${campaign.id}/duplicate`, { method: "POST", body: JSON.stringify({ code }) }); setNotice("Campaign duplicated as a draft. Review its dates and rewards before activation."); await load(); }
+    try { await api(`/${campaign.id}/duplicate`, { method: "POST", body: JSON.stringify({ code }) }); setNotice("Campaign duplicated as a draft. Review its dates and rewards before activation."); await load(); setDuplicating(null); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to duplicate campaign."); }
     finally { setBusy(false); }
   }
@@ -187,16 +190,18 @@ export function ClientReferAndEarn() {
   return <div className="client-legal-documents">
     <section className="client-page-intro client-legal-intro"><div><p className="muted">Set the rider reward, eligibility milestones, dates and budget. Save a draft, then activate it for riders.</p></div>{!featureDisabled && <button type="button" onClick={startNew}>+ New campaign</button>}</section>
     {featureDisabled && <section className="action-card"><h2>Refer &amp; Earn is not enabled</h2><p className="muted">Include REFERRAL_BENEFIT in this client’s active package to create and publish campaigns.</p></section>}
-    {error && !showForm && <p className="error" role="alert">{error}</p>}{notice && <p className="notice" role="status">{notice}</p>}
-    {!featureDisabled && (loading ? <p className="muted">Loading campaigns…</p> : <ClientDataTable rows={campaigns} columns={columns} getRowId={(row) => row.id} emptyMessage="No referral campaigns yet. Create a draft to begin." actions={(campaign) => <>
+    {error && !showForm && !confirmation && !duplicating && <p className="error" role="alert">{error}</p>}{notice && <p className="notice" role="status">{notice}</p>}
+    {!featureDisabled && (<ClientDataTable loading={loading} rows={campaigns} columns={columns} getRowId={(row) => row.id} emptyMessage="No referral campaigns yet. Create a draft to begin." actions={(campaign) => <>
       <button type="button" className="secondary table-action" onClick={() => setPreview(campaign)}>View</button>
       {campaign.status === "DRAFT" && <button type="button" className="secondary table-action" disabled={busy} onClick={() => startEdit(campaign)}>Edit</button>}
-      {["DRAFT", "SCHEDULED", "PAUSED"].includes(campaign.status) && <button type="button" className="table-action" disabled={busy} onClick={() => void transition(campaign, "activate")}>Activate</button>}
-      {campaign.status === "ACTIVE" && <button type="button" className="secondary table-action" disabled={busy} onClick={() => void transition(campaign, "pause")}>Pause</button>}
-      {["ACTIVE", "PAUSED"].includes(campaign.status) && <button type="button" className="secondary table-action" disabled={busy} onClick={() => void transition(campaign, "close")}>Close</button>}
-      {["DRAFT", "SCHEDULED", "PAUSED"].includes(campaign.status) && <button type="button" className="danger table-action" disabled={busy} onClick={() => void transition(campaign, "cancel")}>Cancel</button>}
-      <button type="button" className="secondary table-action" disabled={busy} onClick={() => void duplicate(campaign)}>Duplicate</button>
+      {["DRAFT", "SCHEDULED", "PAUSED"].includes(campaign.status) && <button type="button" className="table-action" disabled={busy} onClick={() => { setError(""); setConfirmation({ campaign, action: "activate" }); }}>Activate</button>}
+      {campaign.status === "ACTIVE" && <button type="button" className="secondary table-action" disabled={busy} onClick={() => { setError(""); setConfirmation({ campaign, action: "pause" }); }}>Pause</button>}
+      {["ACTIVE", "PAUSED"].includes(campaign.status) && <button type="button" className="secondary table-action" disabled={busy} onClick={() => { setError(""); setConfirmation({ campaign, action: "close" }); }}>Close</button>}
+      {["DRAFT", "SCHEDULED", "PAUSED"].includes(campaign.status) && <button type="button" className="danger table-action" disabled={busy} onClick={() => { setError(""); setConfirmation({ campaign, action: "cancel" }); }}>Cancel</button>}
+      <button type="button" className="secondary table-action" disabled={busy} onClick={() => { setError(""); setDuplicateCode(`${campaign.code}_COPY`); setDuplicating(campaign); }}>Duplicate</button>
     </>} />)}
+    {confirmation && <ClientConfirmationDialog title={`${label(confirmation.action)} campaign?`} description={`${confirmation.campaign.name}. ${{ activate: "Riders can join during the campaign period and earn rewards.", pause: "New referrals will be paused.", close: "The campaign will finish and stop accepting referrals.", cancel: "The campaign will be cancelled." }[confirmation.action]}`} confirmLabel={label(confirmation.action)} danger={confirmation.action === "cancel"} busy={busy} error={error} onClose={() => setConfirmation(null)} onConfirm={() => transition(confirmation.campaign, confirmation.action)} />}
+    {duplicating && <ClientFormDialog title="Duplicate campaign" busy={busy} error={error} onClose={() => setDuplicating(null)}><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void duplicate(duplicating); }}><p>Create a draft from {duplicating.name}.</p><label>Campaign code *<input required pattern="[A-Z0-9_]{3,48}" minLength={3} maxLength={48} value={duplicateCode} onChange={(event) => setDuplicateCode(event.target.value.toUpperCase())} /></label><div className="form-actions"><button disabled={busy}>Create draft</button><button type="button" className="secondary" disabled={busy} onClick={() => setDuplicating(null)}>Cancel</button></div></form></ClientFormDialog>}
     {showForm && <ClientFormDialog title={editingId ? "Edit referral campaign" : "Create referral campaign"} wide busy={busy} error={error} onClose={() => setShowForm(false)} heading={<>{editingId ? "Edit campaign draft" : "Create campaign draft"}</>}>
       <div className="referral-form-heading"><div><p className="eyebrow">REFER &amp; EARN</p><p className="muted">Step {formStep + 1} of {formSteps.length} · {formSteps[formStep]}</p></div></div>
       <ol className="referral-form-steps" aria-label="Campaign setup progress">{formSteps.map((step, index) => <li key={step} className={index === formStep ? "current" : index < formStep ? "complete" : ""} aria-current={index === formStep ? "step" : undefined}><span>{index < formStep ? "✓" : index + 1}</span>{step}</li>)}</ol>

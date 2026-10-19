@@ -1,4 +1,5 @@
 "use client";
+import { usePanelLoading } from "./panel-loading";
 import { useEffect, useState, type FormEvent } from "react";
 import { sessionFetch } from "../../lib/session-fetch";
 import { ClientFormDialog } from "./client-form-dialog";
@@ -119,6 +120,7 @@ export function SparesCatalogue({ platform = false, refreshKey = 0 }: { platform
     [vehicleTypes, setVehicleTypes] = useState<{ id: string; name: string }[]>(
       [],
     );
+  usePanelLoading(loading || busy);
   useEffect(() => {
     let active = true;
     const path = platform

@@ -1,4 +1,5 @@
 "use client";
+import { usePanelLoading } from "./panel-loading";
 
 import {
   useCallback,
@@ -8,6 +9,7 @@ import {
   type FormEvent,
 } from "react";
 import { sessionFetch } from "../../lib/session-fetch";
+import { ClientDataTable } from "./client-data-table";
 import { ClientFormDialog } from "./client-form-dialog";
 
 const audiences = {
@@ -77,7 +79,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     throw new Error(body.error?.message ?? "Unable to process notifications.");
   return body.data as T;
 }
-export function ClientNotifications() {
+export function ClientNotifications({ refreshKey = 0 }: { refreshKey?: number }) {
   const [rows, setRows] = useState<Broadcast[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [previous, setPrevious] = useState<Array<string | null>>([]);
@@ -94,6 +96,7 @@ export function ClientNotifications() {
   const [dialogError, setDialogError] = useState("");
   const [busy, setBusy] = useState(false);
   const [details, setDetails] = useState<Broadcast | null>(null);
+  usePanelLoading(loading || busy);
   const key = useRef<string | null>(null);
   const sequence = useRef(0);
   const load = useCallback(
@@ -138,7 +141,7 @@ export function ClientNotifications() {
       window.clearTimeout(initial);
       window.clearInterval(timer);
     };
-  }, [load, invalidateRequests]);
+  }, [load, invalidateRequests, refreshKey]);
   const contentBytes = new TextEncoder().encode(
     JSON.stringify({
       notification: { title: title.trim(), body: body.trim() },
@@ -274,59 +277,18 @@ export function ClientNotifications() {
           Firebase acceptance confirms submission to Firebase. App inbox reads
           are tracked separately.
         </p>
-        {loading && (
-          <p className="muted" role="status">
-            Loading notifications…
-          </p>
-        )}
-        <div className="sa-table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Created</th>
-                <th>Title</th>
-                <th>Audience</th>
-                <th>Status</th>
-                <th>Users</th>
-                <th>Accepted devices</th>
-                <th>Pending devices</th>
-                <th>Failed devices</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.id}>
-                  <td>{new Date(row.createdAt).toLocaleString()}</td>
-                  <td>{row.title}</td>
-                  <td>{audiences[row.audience] ?? row.source}</td>
-                  <td>
-                    <span className="status">{statusLabel(row.status)}</span>
-                  </td>
-                  <td>{row.totalUsers}</td>
-                  <td>{row.deliveryCounts.ACCEPTED ?? 0}</td>
-                  <td>{pending(row)}</td>
-                  <td>{row.deliveryCounts.FAILED ?? 0}</td>
-                  <td>
-                    <button
-                      className="secondary"
-                      disabled={busy}
-                      onClick={() => void openDetails(row.id)}
-                    >
-                      View
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {!loading && !rows.length && (
-                <tr>
-                  <td colSpan={9}>No notifications have been sent yet.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        <div className="sa-pagination">
+        <ClientDataTable rows={rows} loading={loading} pagination={false} searchable={false} sortable={false} filterable={false} getRowId={(row) => row.id} emptyMessage="No notifications have been sent yet." columns={[
+          { key: "created", label: "Created", value: (row) => row.createdAt, render: (row) => new Date(row.createdAt).toLocaleString() },
+          { key: "title", label: "Title", value: (row) => row.title },
+          { key: "audience", label: "Audience", value: (row) => audiences[row.audience] ?? row.source },
+          { key: "status", label: "Status", value: (row) => statusLabel(row.status), render: (row) => <span className={`status status-${row.status.toLowerCase()}`}>{statusLabel(row.status)}</span> },
+          { key: "users", label: "Users", value: (row) => row.totalUsers },
+          { key: "accepted", label: "Accepted devices", value: (row) => row.deliveryCounts.ACCEPTED ?? 0 },
+          { key: "pending", label: "Pending devices", value: pending },
+          { key: "failed", label: "Failed devices", value: (row) => row.deliveryCounts.FAILED ?? 0 },
+        ]} actions={(row) => <button type="button" className="secondary table-action" disabled={busy} onClick={() => void openDetails(row.id)}>View</button>} />
+        <p className="muted">Showing {rows.length} notifications on this page, newest first.</p>
+        <div className="sa-pagination" aria-label="Notification history pagination">
           <span>Page {previous.length + 1}</span>
           <div>
             <button
@@ -592,30 +554,13 @@ export function ClientNotifications() {
             {!!details.failures?.length && (
               <>
                 <h3>Recent failed, retrying or skipped attempts</h3>
-                <div className="sa-table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>User</th>
-                        <th>Mobile</th>
-                        <th>Status</th>
-                        <th>Attempts</th>
-                        <th>Reason</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {details.failures.map((failure) => (
-                        <tr key={failure.id}>
-                          <td>{failure.userNotification.user.name}</td>
-                          <td>{failure.userNotification.user.mobile}</td>
-                          <td>{failure.status}</td>
-                          <td>{failure.attempts}</td>
-                          <td>{failure.errorCode}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <ClientDataTable rows={details.failures} getRowId={(failure) => failure.id} emptyMessage="No unsuccessful attempts." columns={[
+                  { key: "user", label: "User", value: (failure) => failure.userNotification.user.name },
+                  { key: "mobile", label: "Mobile", value: (failure) => failure.userNotification.user.mobile },
+                  { key: "status", label: "Status", value: (failure) => failure.status.replaceAll("_", " "), render: (failure) => <span className={`status status-${failure.status.toLowerCase()}`}>{failure.status.replaceAll("_", " ")}</span> },
+                  { key: "attempts", label: "Attempts", value: (failure) => failure.attempts },
+                  { key: "reason", label: "Reason", value: (failure) => failure.errorCode },
+                ]} />
                 <p className="muted">
                   Showing up to 100 recent unsuccessful attempts.
                 </p>

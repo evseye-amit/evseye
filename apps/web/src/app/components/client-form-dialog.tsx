@@ -26,7 +26,8 @@ export function ClientFormDialog({ title, onClose, error, busy = false, wide = f
     dialog.showModal();
     const frame = requestAnimationFrame(() => {
       const content = dialog.querySelector(".client-dialog-content");
-      const target = content?.querySelector<HTMLElement>("input:not([type=file]):not(:disabled), select:not(:disabled), textarea:not(:disabled), button:not(:disabled)")
+      const target = content?.querySelector<HTMLElement>("[data-initial-focus]:not(:disabled)")
+        ?? content?.querySelector<HTMLElement>("input:not([type=file]):not(:disabled), select:not(:disabled), textarea:not(:disabled), button:not(:disabled)")
         ?? dialog.querySelector<HTMLElement>(".client-dialog-close");
       target?.focus();
     });
@@ -37,7 +38,7 @@ export function ClientFormDialog({ title, onClose, error, busy = false, wide = f
     };
   }, []);
 
-  return <dialog ref={dialogRef} className={`sa-dialog${wide ? " sa-dialog-wide" : ""}`} aria-labelledby={titleId} aria-modal="true"
+  return <dialog ref={dialogRef} className={`sa-dialog${wide ? " sa-dialog-wide" : ""}`} aria-labelledby={titleId} aria-modal="true" aria-busy={busy}
     onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
     <div className={`sa-form sa-dialog-surface client-form-dialog ${surfaceClassName}`}>
       <FormDialogHeader titleId={titleId} title={heading ?? t(title)} busy={busy} onClose={onClose} />

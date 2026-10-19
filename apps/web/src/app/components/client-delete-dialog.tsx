@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 import { useLocale } from "./locale-provider";
 
 export type ClientDeleteConfirmation = {
@@ -17,26 +17,32 @@ export function ClientDeleteDialog({ confirmation, busy, onClose }: {
 }) {
   const { t } = useLocale();
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const confirmRef = useRef<HTMLButtonElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const titleId = useId();
+  const descriptionId = useId();
+  const triggerRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
+    let focusFrame: number | undefined;
     if (confirmation && !dialog.open) {
+      triggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       dialog.showModal();
-      window.requestAnimationFrame(() => confirmRef.current?.focus());
+      focusFrame = window.requestAnimationFrame(() => cancelRef.current?.focus());
     }
-    if (!confirmation && dialog.open) dialog.close();
+    if (!confirmation && dialog.open) { dialog.close(); triggerRef.current?.focus(); }
+    return () => { if (focusFrame !== undefined) window.cancelAnimationFrame(focusFrame); };
   }, [confirmation]);
-  return <dialog ref={dialogRef} className="sa-dialog sa-delete-dialog" onCancel={(event) => {
+  return <dialog ref={dialogRef} className="sa-dialog sa-delete-dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} aria-busy={busy} onCancel={(event) => {
     event.preventDefault();
     if (!busy) onClose();
   }} onClose={() => { if (confirmation) onClose(); }}>
     <div className="sa-dialog-surface sa-delete-dialog-surface">
       <span className="sa-delete-dialog-icon" aria-hidden="true">!</span>
-      <div><p className="sa-eyebrow">{t("CONFIRM DELETION")}</p><h2>{t(confirmation?.title ?? "")}</h2><p>{t(confirmation?.description ?? "")}</p></div>
+      <div><p className="sa-eyebrow">{t("CONFIRM DELETION")}</p><h2 id={titleId}>{t(confirmation?.title ?? "")}</h2><p id={descriptionId}>{t(confirmation?.description ?? "")}</p></div>
       <div className="sa-dialog-actions">
-        <button type="button" className="secondary" disabled={busy} onClick={onClose}>{t("Keep it")}</button>
-        <button ref={confirmRef} type="button" className="danger" disabled={busy} onClick={() => { if (confirmation) void confirmation.onConfirm().finally(onClose); }}>{t(busy ? "Deleting…" : confirmation?.confirmLabel ?? "Delete")}</button>
+        <button ref={cancelRef} type="button" className="secondary" disabled={busy} onClick={onClose}>{t("Keep it")}</button>
+        <button type="button" className="danger" disabled={busy} onClick={() => { if (confirmation) void confirmation.onConfirm().finally(onClose); }}>{t(busy ? "Deleting…" : confirmation?.confirmLabel ?? "Delete")}</button>
       </div>
     </div>
   </dialog>;

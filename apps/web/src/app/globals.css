@@ -4653,3 +4653,51 @@ body:has(.sa-dialog[open]) {
   .sa-dialog .form-dialog-header { gap: 12px; }
   .platform-admin-shell .sa-dialog-content .sa-field-grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Client Operations: shared list and record-detail presentation. */
+.client-operations-main .client-data-table { min-width: 0; }
+.client-operations-main .client-data-table .sa-table-wrap { max-width: 100%; }
+.client-operations-main .sa-table-action-cell .row-actions { justify-content: flex-end; gap: 8px; }
+.client-operations-main .sa-table-action-cell .table-action { min-height: 36px; white-space: nowrap; }
+.sa-table-heading { display: block; padding: 0; font: inherit; color: inherit; }
+.client-record-title { display: grid; gap: 4px; min-width: 0; }
+.client-record-title small { color: var(--muted); overflow-wrap: anywhere; }
+.client-operations-main .client-data-table > [role="status"] { margin: 0 0 12px; }
+.client-operations-main .client-page-intro { gap: 16px; }
+.client-operations-main .client-page-intro .sa-actions { flex-wrap: wrap; gap: 8px; }
+.client-operations-main .sa-pagination { flex-wrap: wrap; gap: 12px; }
+.client-operations-main .sa-pagination > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.client-operations-main .status { white-space: normal; overflow-wrap: anywhere; }
+.client-dialog-content > :is(h3, h4) { margin: 8px 0 0; padding-top: 16px; border-top: 1px solid var(--line); }
+.client-dialog-content .detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.client-dialog-content .detail-grid > div { background: var(--wash, #f5f8f6); overflow-wrap: anywhere; }
+.client-dialog-content .inspection-summary { margin: 0; }
+.client-dialog-content .form-section { min-width: 0; }
+.client-dialog-content :is(fieldset, section, form, .form-grid) { min-width: 0; }
+.client-dialog-content dd { margin-left: 0; overflow-wrap: anywhere; }
+@media (max-width: 700px) {
+  .client-dialog-content .detail-grid { grid-template-columns: minmax(0, 1fr); }
+  .client-operations-main .sa-pagination > div { width: 100%; justify-content: space-between; }
+  .client-operations-main .client-page-intro .sa-actions { width: 100%; }
+  .client-operations-main .form-grid { grid-template-columns: minmax(0, 1fr); }
+}
+.client-operational-list { display: grid; min-width: 0; gap: 16px; }
+.client-operational-list > :is(p, h2, h3, .metrics) { margin: 0; }
+.client-filter-bar { display: flex; flex-wrap: wrap; align-items: end; gap: 16px; margin-bottom: 4px; }
+.client-filter-bar > label { display: grid; flex: 1 1 180px; min-width: 0; gap: 7px; font-size: 14px; color: var(--muted); }
+.client-filter-bar :is(input:not([type="checkbox"]), select),
+.client-dialog-content :is(input:not([type="checkbox"]):not([type="file"]), select, textarea) {
+  box-sizing: border-box; width: 100%; min-width: 0; padding: 11px 12px; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--ink); font: inherit;
+}
+.client-filter-bar > label:has(> input[type="checkbox"]) { display: flex; align-items: center; flex: 0 1 auto; min-height: 42px; }
+.client-dialog-content label { display: grid; min-width: 0; gap: 7px; color: var(--muted); font-size: 14px; }
+.client-dialog-content label:has(> input[type="checkbox"]) { display: flex; align-items: center; }
+.client-dialog-content fieldset { margin: 0; padding: 16px; border: 1px solid var(--line); border-radius: 8px; }
+.client-dialog-content legend { padding: 0 6px; font-weight: 600; }
+@media (max-width: 700px) {
+  .client-filter-bar > label { flex-basis: 100%; }
+  .client-filter-bar > button { min-height: 42px; }
+}
+.client-operations-main :is(.status-in_progress, .status-processing) { color: #1b5a99; background: #e7f0fc; }
+.client-operations-main :is(.status-awaiting_qc, .status-waiting, .status-rework_required, .status-submitted, .status-awaiting_parts) { color: #865c11; background: #fff3d9; }
+.client-operations-main :is(.status-cancelled, .status-invalidated, .status-broken) { color: #9f2620; background: #fde6e4; }

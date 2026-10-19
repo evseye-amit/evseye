@@ -1,4 +1,5 @@
 "use client";
+import { usePanelLoading } from "./panel-loading";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sessionFetch } from "../../lib/session-fetch";
 import { ClientDataTable, type ClientColumn } from "./client-data-table";
@@ -18,7 +19,7 @@ async function api<T>(path: string, init?: RequestInit) {
   if (!response.ok) throw new Error(body.error?.message ?? body.message ?? "Unable to load payment transactions.");
   return body.data as T;
 }
-export function PaymentTransactions() {
+export function PaymentTransactions({ refreshKey = 0 }: { refreshKey?: number }) {
   const [rows, setRows] = useState<Payment[]>([]), [total, setTotal] = useState(0);
   const [page, setPage] = useState(1), [limit, setLimit] = useState(25), [search, setSearch] = useState("");
   const [status, setStatus] = useState(""), [source, setSource] = useState(""), [from, setFrom] = useState(""), [to, setTo] = useState("");
@@ -27,6 +28,7 @@ export function PaymentTransactions() {
   const [error, setError] = useState(""), [dialogError, setDialogError] = useState(""), [notice, setNotice] = useState("");
   const [detail, setDetail] = useState<Detail | null>(null), [rejecting, setRejecting] = useState(false), [reason, setReason] = useState("");
   const [preview, setPreview] = useState<{url:string;name:string} | null>(null);
+  usePanelLoading(loading || busy);
   const generation = useRef(0);
   const load = useCallback(async () => {
     const current = ++generation.current;
@@ -44,7 +46,7 @@ export function PaymentTransactions() {
     } catch(e){if(current === generation.current)setError(e instanceof Error ? e.message : "Unable to load payments.");}
     finally{if(current === generation.current)setLoading(false);}
   },[page,limit,search,status,source,from,to,sort]);
-  useEffect(()=>{const requests=generation;const timer=setTimeout(()=>void load(),250);return ()=>{clearTimeout(timer);requests.current++;};},[load]);
+  useEffect(()=>{const requests=generation;const timer=setTimeout(()=>void load(),250);return ()=>{clearTimeout(timer);requests.current++;};},[load,refreshKey]);
   useEffect(()=>()=>{if(preview)URL.revokeObjectURL(preview.url);},[preview]);
   const open = async (row:Payment) => {
     setOpening(`${row.source}:${row.id}`);setError("");setDialogError("");
@@ -85,8 +87,7 @@ export function PaymentTransactions() {
       <button type="button" className="secondary" disabled={loading} onClick={()=>void load()}>Refresh</button>
     </div>
     {error&&<p className="error" role="alert">{error}</p>}{notice&&<p className="notice" role="status">{notice}</p>}
-    {loading&&<p className="muted" role="status">Loading transactions…</p>}
-    <ClientDataTable rows={rows} columns={columns} getRowId={r=>`${r.source}:${r.id}`} emptyMessage="No payment transactions match these filters."
+    <ClientDataTable loading={loading} rows={rows} columns={columns} getRowId={r=>`${r.source}:${r.id}`} emptyMessage="No payment transactions match these filters."
       server={{page,limit,total,search,sort,onSearch:value=>{setSearch(value);setPage(1);},onPage:setPage,onLimit:value=>{setLimit(value);setPage(1);},onSort:value=>{setSort(value);setPage(1);}}}
       actions={r=><button type="button" className="secondary table-action" disabled={Boolean(opening)} onClick={()=>void open(r)}>{opening===`${r.source}:${r.id}`?"Opening…":`${r.canReview?"Review":"View"} · ${r.receiptCount} receipt${r.receiptCount===1?"":"s"}`}</button>} />
     {detail&&<ClientFormDialog title="Payment transaction" wide busy={busy} error={dialogError} onClose={()=>{setDetail(null);setRejecting(false);}}>

@@ -1,8 +1,10 @@
 "use client";
+import { usePanelLoading } from "./panel-loading";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { sessionFetch } from "../../lib/session-fetch";
 import { ClientDataTable, type ClientColumn } from "./client-data-table";
+import { ClientConfirmationDialog } from "./client-confirmation-dialog";
 import { ClientFormDialog } from "./client-form-dialog";
 
 type LegalDocument = {
@@ -30,7 +32,7 @@ const columns: ClientColumn<LegalDocument>[] = [
   { key: "status", label: "Status", value: statusOf, render: (row) => <span className={`status status-${statusOf(row).toLowerCase()}`}>{statusOf(row)}</span>, filterOptions: ["Draft", "Published", "Retired"] },
 ];
 
-export function ClientLegalDocuments() {
+export function ClientLegalDocuments({ refreshKey = 0 }: { refreshKey?: number }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [documents, setDocuments] = useState<LegalDocument[]>([]);
@@ -39,15 +41,17 @@ export function ClientLegalDocuments() {
   const [showForm, setShowForm] = useState(false);
   const [preview, setPreview] = useState<LegalDocument | null>(null);
   const [error, setError] = useState("");
+  const [confirmation, setConfirmation] = useState<{ document: LegalDocument; action: "publish" | "delete" } | null>(null);
   const [notice, setNotice] = useState("");
 
+  usePanelLoading(loading || busy);
   const load = useCallback(async () => {
     setLoading(true); setError("");
     try { setDocuments(await api<LegalDocument[]>("")); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load legal documents."); }
     finally { setLoading(false); }
   }, []);
-  useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
+  useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load, refreshKey]);
 
   function startNew() { setEditingId(null); setForm(emptyForm()); setShowForm(true); setError(""); setNotice(""); }
   function startEdit(document: LegalDocument) {
@@ -66,24 +70,23 @@ export function ClientLegalDocuments() {
     finally { setBusy(false); }
   }
   async function publish(document: LegalDocument) {
-    if (!window.confirm(`Publish ${document.title} version ${document.version}? Published content cannot be edited or deleted.`)) return;
     setBusy(true); setError(""); setNotice("");
-    try { await api(`/${document.id}/publish`, { method: "POST" }); setDocuments(await api<LegalDocument[]>("")); setNotice(`Version ${document.version} published.`); }
+    try { await api(`/${document.id}/publish`, { method: "POST" }); setDocuments(await api<LegalDocument[]>("")); setNotice(`Version ${document.version} published.`); setConfirmation(null); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to publish draft."); }
     finally { setBusy(false); }
   }
   async function remove(document: LegalDocument) {
-    if (!window.confirm(`Delete draft ${document.title} version ${document.version}?`)) return;
     setBusy(true); setError(""); setNotice("");
-    try { await api(`/${document.id}`, { method: "DELETE" }); setDocuments(await api<LegalDocument[]>("")); setNotice("Draft deleted."); }
+    try { await api(`/${document.id}`, { method: "DELETE" }); setDocuments(await api<LegalDocument[]>("")); setNotice("Draft deleted."); setConfirmation(null); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to delete draft."); }
     finally { setBusy(false); }
   }
 
   return <div className="client-legal-documents">
     <section className="client-page-intro client-legal-intro"><div><p className="muted">Prepare terms, privacy policies and privacy consent for each app and user role. Published versions stay available as a permanent record.</p></div><button type="button" onClick={startNew}>+ New draft</button></section>
-    {error && !showForm && <p className="error" role="alert">{error}</p>}{notice && <p className="notice" role="status">{notice}</p>}
-    {loading ? <p className="muted">Loading documents…</p> : <ClientDataTable rows={documents} columns={columns} getRowId={(row) => row.id} emptyMessage="No legal documents yet. Create a draft to begin." actions={(document) => <><button type="button" className="secondary table-action" onClick={() => setPreview(document)}>Preview</button>{!document.publishedAt && <><button type="button" className="secondary table-action" disabled={busy} onClick={() => startEdit(document)}>Edit</button><button type="button" className="table-action" disabled={busy} onClick={() => void publish(document)}>Publish</button><button type="button" className="danger table-action" disabled={busy} onClick={() => void remove(document)}>Delete draft</button></>}</>} />}
+    {error && !showForm && !confirmation && <p className="error" role="alert">{error}</p>}{notice && <p className="notice" role="status">{notice}</p>}
+    {<ClientDataTable loading={loading} rows={documents} columns={columns} getRowId={(row) => row.id} emptyMessage="No legal documents yet. Create a draft to begin." actions={(document) => <><button type="button" className="secondary table-action" onClick={() => setPreview(document)}>Preview</button>{!document.publishedAt && <><button type="button" className="secondary table-action" disabled={busy} onClick={() => startEdit(document)}>Edit</button><button type="button" className="table-action" disabled={busy} onClick={() => { setError(""); setConfirmation({ document, action: "publish" }); }}>Publish</button><button type="button" className="danger table-action" disabled={busy} onClick={() => { setError(""); setConfirmation({ document, action: "delete" }); }}>Delete draft</button></>}</>} />}
+    {confirmation && <ClientConfirmationDialog title={confirmation.action === "publish" ? "Publish legal document?" : "Delete legal draft?"} description={`${confirmation.document.title} · Version ${confirmation.document.version}. ${confirmation.action === "publish" ? "Published content cannot be edited or deleted." : "This draft will be deleted."}`} confirmLabel={confirmation.action === "publish" ? "Publish document" : "Delete draft"} danger={confirmation.action === "delete"} busy={busy} error={error} onClose={() => setConfirmation(null)} onConfirm={() => confirmation.action === "publish" ? publish(confirmation.document) : remove(confirmation.document)} />}
     {showForm && <ClientFormDialog title={editingId ? "Edit legal draft" : "Create legal draft"} wide busy={busy} error={error} onClose={() => setShowForm(false)} heading={<>{editingId ? "Edit draft" : "Create a draft"}</>}><p className="eyebrow">LEGAL DOCUMENT</p><p className="muted">Write the document in HTML, then preview it before publishing.</p><form className="form-stack" onSubmit={(event) => void save(event)}><div className="form-grid">
       <label>App code *<input required maxLength={40} value={form.appCode} onChange={(event) => setForm({ ...form, appCode: event.target.value })} /></label>
       <label>User role *<select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}>{["RIDER", "FLEET_MANAGER", "TEAM_LEAD", "OPERATIONS_MANAGER", "CLIENT_ADMIN", "KYC_OPERATOR"].map((role) => <option key={role} value={role}>{role.replaceAll("_", " ")}</option>)}</select></label>

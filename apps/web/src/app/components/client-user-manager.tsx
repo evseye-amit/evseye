@@ -1,4 +1,5 @@
 "use client";
+import { usePanelLoading } from "./panel-loading";
 
 import { useState, type FormEvent } from "react";
 import { ClientDataTable, type ClientColumn } from "./client-data-table";
@@ -56,7 +57,8 @@ export function parseCsv(input: string): string[][] {
   return rows;
 }
 
-export function ClientUserManager({ kind, rows, hubs, columns, request, refresh, report, onBulk }: {
+export function ClientUserManager({ loading = false, kind, rows, hubs, columns, request, refresh, report, onBulk }: {
+  loading?: boolean;
   kind: Kind;
   rows: Row[];
   hubs: Row[];
@@ -78,6 +80,7 @@ export function ClientUserManager({ kind, rows, hubs, columns, request, refresh,
   const [targetTeamLeaderId, setTargetTeamLeaderId] = useState("");
   const [reassignError, setReassignError] = useState("");
   const [draft, setDraft] = useState({ name: "", mobile: "", employeeCode: "", designation: "", joiningDate: "", hubIds: [] as string[], primaryHubId: "", isActive: true });
+  usePanelLoading(busy);
   const start = (row?: Row) => {
     const user = (row?.user as Row | undefined) ?? row;
     const assigned = ((row?.hubAssignments as Row[]) ?? []).map((item) => String(item.hubId));
@@ -161,7 +164,7 @@ export function ClientUserManager({ kind, rows, hubs, columns, request, refresh,
           <div className="form-actions"><button type="button" className="secondary" onClick={() => setReassigning(null)}>Cancel</button><button className="danger" disabled={busy || (assignedRiders > 0 && (!targetTeamLeaderId || !eligibleLeaders.length))}>Confirm resignation</button></div>
         </form>
       </ClientFormDialog>}
-      <ClientDataTable rows={rows} columns={columns} getRowId={(row) => String(row.id)} actions={(row) => <>
+      <ClientDataTable loading={loading} rows={rows} columns={columns} getRowId={(row) => String(row.id)} actions={(row) => <>
         <button type="button" className="secondary table-action" disabled={busy} onClick={() => start(row)}>Edit</button>
         {isFleetManager ? <button type="button" className="danger table-action" disabled={busy} onClick={() => setDeleteConfirmation({ title: `Delete ${title}?`, description: `This ${title.toLowerCase()} will be removed from the active list. Existing history is retained.`, confirmLabel: `Delete ${title}`, onConfirm: () => remove(row) })}>Delete</button>
           : <button type="button" className="danger table-action" disabled={busy || (row.user as Row | undefined)?.isActive === false} onClick={() => { setReassigning(row); setTargetTeamLeaderId(""); setReassignError(""); }}>Resign</button>}

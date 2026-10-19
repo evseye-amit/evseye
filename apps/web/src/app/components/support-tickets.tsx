@@ -1,4 +1,5 @@
 "use client";
+import { usePanelLoading } from "./panel-loading";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { sessionFetch } from "../../lib/session-fetch";
@@ -35,7 +36,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return body.data as T;
 }
 
-export function SupportTickets() {
+export function SupportTickets({ refreshKey = 0 }: { refreshKey?: number }) {
   const [rows, setRows] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [openingId, setOpeningId] = useState("");
@@ -48,10 +49,12 @@ export function SupportTickets() {
   const [notice, setNotice] = useState("");
   const [preview, setPreview] = useState<{ url: string; mimeType: string; name: string } | null>(null);
   const [attachmentBusy, setAttachmentBusy] = useState("");
+  usePanelLoading(loading || busy);
   const openSequence = useRef(0);
 
   useEffect(() => {
     let active = true;
+    Promise.resolve().then(() => { if (active) { setLoading(true); setError(""); } });
     async function load() {
       try {
         const tickets: Ticket[] = [];
@@ -72,7 +75,7 @@ export function SupportTickets() {
     }
     void load();
     return () => { active = false; openSequence.current += 1; };
-  }, []);
+  }, [refreshKey]);
 
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview.url); }, [preview]);
 
@@ -149,7 +152,7 @@ export function SupportTickets() {
     </section>
     {error && <p className="error" role="alert">{error}</p>}
     {notice && <p className="notice" role="status">{notice}</p>}
-    {loading ? <p className="muted">Loading support tickets…</p> : <ClientDataTable rows={rows} columns={columns} getRowId={(row) => row.id} emptyMessage="No support tickets have been raised."
+    {<ClientDataTable loading={loading} rows={rows} columns={columns} getRowId={(row) => row.id} emptyMessage="No support tickets have been raised."
       actions={(row) => <button type="button" className="secondary table-action" disabled={Boolean(openingId)} onClick={() => void open(row)}>{openingId === row.id ? "Opening…" : "Open ticket"}</button>} />}
     {ticket && <ClientFormDialog title="Support ticket" wide busy={busy || Boolean(attachmentBusy)} error={dialogError} onClose={close} heading={<>{ticket.subject}</>}>
       <div className="support-ticket-heading"><div><p className="eyebrow">SUPPORT TICKET</p></div>{ticketStatus(ticket.status)}</div>
