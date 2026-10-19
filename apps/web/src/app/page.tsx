@@ -21,6 +21,7 @@ import {InstallationBoard} from "./components/installation-board";
 import { FleetReadiness, FleetReadinessStatus } from "./components/fleet-readiness";
 import { SupportTickets } from "./components/support-tickets";
 import { RiderReferenceReview } from "./components/rider-reference-review";
+import { OperationsTable } from "./components/operations-records";
 import { ClientDataTable, type ClientColumn } from "./components/client-data-table";
 import { ClientUserManager, parseCsv } from "./components/client-user-manager";
 import { ClientBulkImportWorkspace, type ClientImportHistoryEntry } from "./components/client-bulk-import-workspace";
@@ -172,6 +173,7 @@ const CLIENT_NAVIGATION: Array<{
   {
     label: "Rider Management",
     items: [
+      { id: "riders", label: "Riders" },
       { id: "work-partners", label: "Work Partners" },
       { id: "wallet", label: "Wallet" },
       { id: "payment-transactions", label: "Payment Transactions" },
@@ -729,7 +731,7 @@ function clientColumns(tab: Tab): ClientColumn<RecordItem>[] {
 
 function canAccessTab(id: Tab, userRoles: string[]) {
     if (userRoles.some(role => ["RFD_MANAGER","QC_MANAGER"].includes(role))) return ["installation-board","vehicle-preparation","quality-check"].includes(id);
-    if (["payment-transactions","spares-penalties","legal-documents","refer-and-earn","readiness-settings","work-partners"].includes(id)) return userRoles.includes("CLIENT_ADMIN");
+    if (["audit","payment-transactions","spares-penalties","legal-documents","refer-and-earn","readiness-settings","work-partners"].includes(id)) return userRoles.includes("CLIENT_ADMIN");
     if (["notifications","readiness-staff"].includes(id)) return userRoles.some(role => ["CLIENT_ADMIN","OPERATIONS_MANAGER"].includes(role));
     return true;
 }
@@ -741,6 +743,8 @@ export default function Home() {
   const restoringHistory = useRef(false);
   const [navigationError, setNavigationError] = useState("");
   const canSeeTab = (id: Tab) => canAccessTab(id, userRoles);
+  const [recordRefreshKey, setRecordRefreshKey] = useState(0);
+  const [identityKey, setIdentityKey] = useState("");
   const [panelRefreshKey, setPanelRefreshKey] = useState(0);
   const [panelLoading, setPanelLoading] = useState(false);
   const { appearance, hostClient } = useClientAppearance();
@@ -864,6 +868,9 @@ export default function Home() {
       return result;
     };
     if (!userRoles.length || !canAccessTab(nextTab, userRoles)) { setLoading(false); return; }
+    if (["fleets", "riders", "audit"].includes(nextTab)) {
+      setRecordRefreshKey((key) => key + 1); setLoading(false); return;
+    }
     if (["spares-penalties","installation-board","vehicle-preparation","quality-check","readiness-settings","readiness-staff"].includes(nextTab)) { setItems([]); setLoading(false); return; }
     if (nextTab === "payment-transactions" || nextTab === "legal-documents" || nextTab === "refer-and-earn" || nextTab === "work-partners" || nextTab === "rider-reference-review" || nextTab === "support-tickets" || nextTab === "notifications") {
       setItems([]);
@@ -1052,6 +1059,7 @@ export default function Home() {
     void request("/auth/me", {}, token)
       .then(async (identity) => {
         const roles = (identity as { roles?: string[] }).roles ?? [];
+        setIdentityKey(`${(identity as { clientId?: string }).clientId ?? 'client'}:${(identity as { id?: string }).id ?? roles.join(',')}`);
         setUserRoles(roles);
         // Incomplete Client onboarding stays guided; active Clients use this
         // single full operations console as their dashboard.
@@ -3000,6 +3008,10 @@ export default function Home() {
                 <strong>Address</strong>
                 <span>{String(riderDetail.address ?? "—")}</span>
               </div>
+              <div><strong>Rider code</strong><span>{String(riderDetail.riderCode ?? "—")}</span>
+              </div>
+              <div><strong>Joined</strong><span>{riderDetail.joiningDate ? new Date(String(riderDetail.joiningDate)).toLocaleDateString("en-IN") : "—"}</span>
+              </div>
             </div>
             <button
               className="secondary"
@@ -3023,6 +3035,7 @@ export default function Home() {
               </form>
             )}
             <h3>KYC</h3>
+            <div className="form-actions"><button className="secondary" onClick={() => requestNavigation(() => { setRiderDetail(null); commitNavigation("rider-document-review"); })}>Document verification</button>{canSeeTab("payment-transactions") && <button className="secondary" onClick={() => requestNavigation(() => { setRiderDetail(null); commitNavigation("payment-transactions"); })}>Payment transactions</button>}</div>
             <p>Overall KYC: <Status value={String(riderDetail.kycStatus ?? "NOT_STARTED")} /></p>
             <p className="muted">All required documents must be uploaded and all submitted documents approved.</p>
             <h4>Provider checks</h4>
@@ -3106,15 +3119,15 @@ export default function Home() {
           tab !== "payment-transactions" &&
           !["spares-penalties","installation-board","vehicle-preparation","quality-check","readiness-settings","readiness-staff"].includes(tab) &&
           tab !== "locations" &&
-          !PHOTO_EVIDENCE_TABS.has(tab) && (
+          !PHOTO_EVIDENCE_TABS.has(tab) && userRoles.length > 0 && canSeeTab(tab) && (
             <>
               {(tab === "fleet-managers" || tab === "team-leads") ? <ClientUserManager loading={loading} key={tab} kind={tab} rows={items} hubs={hubs} columns={clientColumns(tab)}
                 request={(path, options) => request(path, options ?? {}, token)}
                 refresh={() => loadView(tab)}
                 report={(message, failed) => { if (failed) setError(message); else { setError(""); setNotice(message); } }} onBulk={() => openBulkImport(tab)} /> :
-              <ClientDataTable key={tab} loading={loading} rows={items} columns={clientColumns(tab)}
+              <OperationsTable key={tab} tab={tab} identityKey={identityKey} refreshKey={recordRefreshKey} request={(path) => request(path, {}, token)} loading={loading} rows={items} columns={clientColumns(tab)}
                 getRowId={(item) => String(item.id)}
-                actions={tab === "fleets" ? (item) => <><FleetReadinessStatus fleetId={String(item.id)} /><button className="secondary table-action" onClick={() => void openFleetForm(String(item.id))}>Edit</button>{item.status === "AVAILABLE" && <button className="table-action" disabled title="Allocation is temporarily unavailable">Allocate</button>}{item.status === "ALLOCATED" && <button className="danger table-action" disabled title="De-allocation is temporarily unavailable">De-Allocate</button>}<button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(String(item.id)) })}>Delete</button></>
+                actions={tab === "fleets" ? (item) => <><FleetReadinessStatus fleetId={String(item.id)} /><button className="secondary table-action" onClick={() => void openFleetForm(String(item.id))}>Edit</button>{item.status === "AVAILABLE" && <button className="table-action" disabled title="Use the Fleet Manager app to complete allocation and its required checks.">Allocate</button>}{item.status === "ALLOCATED" && <button className="danger table-action" disabled title="Use the submission workflow in the Fleet Manager app to return this vehicle.">De-Allocate</button>}<button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(String(item.id)) })}>Delete</button></>
                   : tab === "riders" ? (item) => <><button className="secondary table-action" onClick={() => void openRiderDetail(String(item.id))}>View / Edit</button><button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Rider?", description: "This rider will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Rider", onConfirm: () => deleteRider(String(item.id)) })}>Delete</button></>
                   : tab === "iot-devices" ? (item) => <button className="secondary table-action" onClick={() => void openIotForm(item)}>Edit</button>
                   : tab === "batteries" || tab === "controllers" ? (item) => <button className="secondary table-action" onClick={() => void openExistingComponentForm(tab, item)}>Edit</button>
