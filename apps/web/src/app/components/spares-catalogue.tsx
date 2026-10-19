@@ -95,7 +95,7 @@ async function api<T>(
     );
   return body.data as T;
 }
-export function SparesCatalogue({ platform = false }: { platform?: boolean }) {
+export function SparesCatalogue({ platform = false, refreshKey = 0 }: { platform?: boolean; refreshKey?: number }) {
   const root = platform ? "platform/spares" : "client/spares";
   const [items, setItems] = useState<Spare[]>([]),
     [epoch, setEpoch] = useState(0),
@@ -141,7 +141,7 @@ export function SparesCatalogue({ platform = false }: { platform?: boolean }) {
     let active = true;
     void Promise.resolve()
       .then(async () => {
-        if (active) setLoading(true);
+        if (active) { setLoading(true); setError(""); }
         // Load every API page before using the shared table's local filters/pagination.
         const rows: Spare[] = [];
         let page = 1;
@@ -162,7 +162,7 @@ export function SparesCatalogue({ platform = false }: { platform?: boolean }) {
     return () => {
       active = false;
     };
-  }, [root, epoch]);
+  }, [root, epoch, refreshKey]);
   useEffect(() => {
     if (!bulk) return;
     let active = true;

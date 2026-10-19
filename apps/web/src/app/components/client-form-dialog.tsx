@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, type ReactNode } from "react";
+import { FormDialogHeader } from "./form-dialog-header";
 import { useLocale } from "./locale-provider";
 
 export function ClientFormDialog({ title, onClose, error, busy = false, wide = false, children, surfaceClassName = "", heading }: {
@@ -39,10 +40,7 @@ export function ClientFormDialog({ title, onClose, error, busy = false, wide = f
   return <dialog ref={dialogRef} className={`sa-dialog${wide ? " sa-dialog-wide" : ""}`} aria-labelledby={titleId} aria-modal="true"
     onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
     <div className={`sa-form sa-dialog-surface client-form-dialog ${surfaceClassName}`}>
-      <header className="client-dialog-header">
-        <h2 id={titleId}>{heading ?? t(title)}</h2>
-        <button type="button" className="secondary client-dialog-close" aria-label={t("Close")} disabled={busy} onClick={onClose}>×</button>
-      </header>
+      <FormDialogHeader titleId={titleId} title={heading ?? t(title)} busy={busy} onClose={onClose} />
       <div className="client-dialog-content">
         {error && <p className="error" role="alert">{error}</p>}
         {children}

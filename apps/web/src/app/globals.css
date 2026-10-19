@@ -4596,3 +4596,60 @@ body:has(.sa-dialog[open]) {
 .payment-transaction-summary p { margin: 6px 0 0; }
 .payment-receipt-actions { flex-wrap: wrap; }
 .status-rejected { color: #9f2620; background: #fde6e4; }
+
+/* Super Admin keeps its menu structure and shares Client Operations interaction states. */
+.platform-admin-shell .sa-sidebar nav button {
+  min-height: 44px;
+  padding-top: 11px;
+  padding-bottom: 11px;
+  line-height: 1.4;
+  overflow-wrap: normal;
+}
+.platform-admin-shell .sa-sidebar nav button.sa-nav-group-toggle > span:first-child {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  text-align: left;
+  white-space: normal;
+  word-break: normal;
+}
+.platform-admin-shell .sa-sidebar .ui-icon { flex-shrink: 0; }
+.platform-admin-shell .sa-sidebar nav button:is(:hover, .active, [data-active="true"], :focus-visible) {
+  color: #247a58;
+  background: #e9f7ef;
+}
+.platform-admin-shell .sa-sidebar nav button:focus:not(:focus-visible) { outline: none; }
+.platform-admin-shell .sa-sidebar nav button:focus-visible { outline: 2px solid #247a58; outline-offset: -2px; }
+
+/* Catalog, Spares and Work Partner dialogs use one header and close control. */
+.sa-dialog .form-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 0;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e4e9e6;
+}
+.form-dialog-header > div { min-width: 0; }
+.sa-dialog .form-dialog-header h2 { margin: 0; font-size: 21px; line-height: 1.35; overflow-wrap: anywhere; }
+.form-dialog-header p { margin: 5px 0 0; color: #657068; font-size: 14px; line-height: 1.45; }
+.sa-dialog-content { display: grid; min-width: 0; gap: 16px; }
+.sa-dialog-content > :is(.error, .notice) { margin: 0; }
+.platform-admin-shell .sa-dialog-actions {
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e4e9e6;
+}
+.platform-admin-shell .sa-dialog .form-dialog-header .client-dialog-close { min-width: 36px; }
+.platform-admin-shell .sa-table-action-cell .sa-table-cell-content { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.platform-admin-shell .sa-table-action-cell button { min-height: 36px; white-space: nowrap; }
+.platform-admin-shell .sa-topbar .header-actions { flex-wrap: wrap; }
+@media (max-width: 700px) {
+  .platform-admin-shell .sa-topbar { flex-wrap: wrap; }
+  .platform-admin-shell .sa-topbar .header-actions { width: 100%; justify-content: flex-start; }
+  .sa-dialog .form-dialog-header { gap: 12px; }
+  .platform-admin-shell .sa-dialog-content .sa-field-grid { grid-template-columns: minmax(0, 1fr); }
+}
