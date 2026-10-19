@@ -16,7 +16,7 @@ import {
 } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsNumber, IsOptional, Max, Min } from 'class-validator';
-import { UserRole } from '@prisma/client';
+import { MaintenanceIssueCategory, MaintenanceIssueStatus, UserRole } from '@prisma/client';
 import { ApiBearerAuth, ApiHeader, ApiTags } from '@nestjs/swagger';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
@@ -76,6 +76,15 @@ export class VehicleSubmissionController {
     private readonly db: PrismaService,
     private readonly media: MediaService,
   ) {}
+
+  @Get('client/vehicle-submissions/metadata')
+  async metadata() {
+    return { data: {
+      fleetStatuses: ['AVAILABLE', 'MAINTENANCE', 'BROKEN', 'AWAITING_PARTS'],
+      issueCategories: Object.values(MaintenanceIssueCategory),
+      issueStatuses: Object.values(MaintenanceIssueStatus),
+    } };
+  }
 
   @Get('rider-app/vehicle-submissions/options')
   @Roles(UserRole.RIDER)

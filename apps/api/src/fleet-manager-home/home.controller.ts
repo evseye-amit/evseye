@@ -26,7 +26,7 @@ export class FleetManagerHomeController {
     summary:
       'Selected hub, live operational summary and historical end-of-yesterday counts',
     description:
-      'All data is client and assigned-hub scoped. Yesterday is Asia/Kolkata; counts are null when history does not cover that cutoff. No IoT or bay metrics.',
+      'All data is client and assigned-hub scoped. Company includes gstin and supportNumber (null when unconfigured), including when no hub is assigned. Yesterday is Asia/Kolkata; counts are null when history does not cover that cutoff. No IoT or bay metrics.',
   })
   async get(
     @CurrentUser() user: AuthUser,

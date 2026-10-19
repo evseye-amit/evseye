@@ -17,6 +17,10 @@ All values are wrapped in the normal `{ "data": ... }` envelope. Example (IDs ab
     "generatedAt": "2026-10-18T06:00:00.000Z",
     "timezone": "Asia/Kolkata",
     "date": "2026-10-18",
+    "company": {
+      "gstin": "06ABCDE1234F1Z5",
+      "supportNumber": "+919876543210"
+    },
     "manager": {
       "id": "manager-id",
       "name": "Fleet Manager",
@@ -77,7 +81,9 @@ The app renders the four cards from `yesterday.counts`, using these titles:
 
 `summary` always contains live values. Do not use it as a fallback for yesterday. Greetings and translated labels can be rendered by the app; the API returns names and semantic keys. No uptime, free bays, service bays or open-job fields are returned.
 
-If the manager has no active assigned hub, `state` is `HUB_NOT_ASSIGNED`, a useful `message` is included, and `hub`, `summary`, and `yesterday` are null. Manager attendance remains available.
+`company.gstin` comes from the authenticated client's business profile; `company.supportNumber` comes from its branding support phone. Each value is null when unconfigured. These are company details and do not change with the selected hub.
+
+If the manager has no active assigned hub, `state` is `HUB_NOT_ASSIGNED`, a useful `message` is included, and `hub`, `summary`, and `yesterday` are null. Manager attendance and company details remain available.
 
 ## Metric definitions
 
@@ -105,7 +111,7 @@ Nondeleted vehicles physically recorded at this hub, with `status=AVAILABLE`, `o
 
 ### Under Maintenance
 
-Nondeleted vehicles with `status=MAINTENANCE`, attributed to current hub, falling back to home hub if current hub is missing.
+Nondeleted vehicles with status `MAINTENANCE`, `BROKEN` or `AWAITING_PARTS`, attributed to current hub, falling back to home hub if current hub is missing.
 
 ### Fleet utilisation
 
@@ -119,7 +125,7 @@ Continue using the existing `/api/v1/attendance/check-in` and `/api/v1/attendanc
 
 ### Parking
 
-Recorded stock at current hub in `AVAILABLE`, `RESERVED`, `ALLOCATION_IN_PROGRESS`, `INSPECTION_PENDING`, `MAINTENANCE`, or `OUT_OF_SERVICE` status. Deployed and in-transit vehicles are excluded. This is inventory-based occupancy, not sensor detection. Capacity uses `parkingSlots`, falling back to `vehicleCapacity`; unknown capacity remains null. Do not clamp overcapacity counts.
+Recorded stock at current hub in `AVAILABLE`, `RESERVED`, `ALLOCATION_IN_PROGRESS`, `INSPECTION_PENDING`, `MAINTENANCE`, `BROKEN`, `AWAITING_PARTS`, or `OUT_OF_SERVICE` status. Deployed and in-transit vehicles are excluded. This is inventory-based occupancy, not sensor detection. Capacity uses `parkingSlots`, falling back to `vehicleCapacity`; unknown capacity remains null. Do not clamp overcapacity counts.
 
 ## Yesterday history
 

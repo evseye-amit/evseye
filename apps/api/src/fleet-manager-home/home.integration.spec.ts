@@ -133,6 +133,18 @@ describe.skipIf(!url)('Fleet Manager home in PostgreSQL', () => {
     );
   });
 
+  it('counts broken and awaiting-parts scooters as maintenance and parked stock', async () => {
+    const f = await fixture();
+    for (const status of ['BROKEN', 'AWAITING_PARTS'] as const) {
+      const fleet = await f.fleet();
+      await db.fleet.update({ where: { id: fleet.id }, data: { status, allocationEnabled: false } });
+    }
+    const result = await service.get(f.clientId, f.manager.id);
+    expect(result.summary?.underMaintenance).toBe(2);
+    expect(result.summary?.readyForDeployment).toBe(0);
+    expect(result.hub?.parking.occupiedSlots).toBe(2);
+  });
+
   it('counts ready and maintenance fleet, uses allocation rows for utilisation and excludes deployed parking', async () => {
     const f = await fixture();
     await f.fleet();

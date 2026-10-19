@@ -114,12 +114,12 @@ export function homeCountsQuery(
         AND f."onboardingStatus" = 'ACTIVE' AND f."allocationEnabled"
         AND NOT EXISTS (SELECT 1 FROM "Allocation" a WHERE a."fleetId" = f.id
           AND a.status IN ('INITIATED','INSPECTION_PENDING','OTP_PENDING','ACTIVE','DEALLOCATION_INITIATED')))::int AS "readyForDeployment",
-      COUNT(*) FILTER (WHERE COALESCE(f."currentHubId", f."homeHubId") = ${hubId} AND f.status = 'MAINTENANCE')::int AS "underMaintenance",
+      COUNT(*) FILTER (WHERE COALESCE(f."currentHubId", f."homeHubId") = ${hubId} AND f.status IN ('MAINTENANCE','BROKEN','AWAITING_PARTS'))::int AS "underMaintenance",
       COUNT(*) FILTER (WHERE COALESCE(f."homeHubId", f."currentHubId") = ${hubId} AND f."onboardingStatus" = 'ACTIVE')::int AS "totalFleet",
       COUNT(*) FILTER (WHERE COALESCE(f."homeHubId", f."currentHubId") = ${hubId} AND f."onboardingStatus" = 'ACTIVE'
         AND EXISTS (SELECT 1 FROM "Allocation" a WHERE a."fleetId" = f.id AND a.status IN ('ACTIVE','DEALLOCATION_INITIATED')))::int AS "allocatedFleet",
       COUNT(*) FILTER (WHERE f."currentHubId" = ${hubId} AND f.status IN
-        ('AVAILABLE','RESERVED','ALLOCATION_IN_PROGRESS','INSPECTION_PENDING','MAINTENANCE','OUT_OF_SERVICE'))::int AS "occupiedSlots",
+        ('AVAILABLE','RESERVED','ALLOCATION_IN_PROGRESS','INSPECTION_PENDING','MAINTENANCE','BROKEN','AWAITING_PARTS','OUT_OF_SERVICE'))::int AS "occupiedSlots",
       (SELECT COUNT(*)::int FROM riders_scoped r WHERE r."attributedHubId" = ${hubId}) AS "activeRiders"
     FROM "Fleet" f WHERE f."deletedAt" IS NULL`;
 }

@@ -75,6 +75,20 @@ describe.skipIf(!url)('maintenance fleet APIs in PostgreSQL', () => {
   const query = (values: Partial<MaintenanceFleetsQueryDto> = {}) =>
     Object.assign(new MaintenanceFleetsQueryDto(), values);
 
+  it('includes both new maintenance conditions and filters by fleet status', async () => {
+    const f = await fixture();
+    const broken = await f.fleet('Broken motor');
+    const parts = await f.fleet('Awaiting controller');
+    await db.fleet.update({ where: { id: broken.id }, data: { status: 'BROKEN', allocationEnabled: false } });
+    await db.fleet.update({ where: { id: parts.id }, data: { status: 'AWAITING_PARTS', allocationEnabled: false } });
+    const all = await service.list(f.clientId, f.manager.id, query());
+    expect(all.summary.underMaintenance).toBe(2);
+    const filtered = await service.list(f.clientId, f.manager.id, query({ fleetStatus: 'AWAITING_PARTS' }));
+    expect(filtered.items.map(item => item.id)).toEqual([parts.id]);
+    expect(filtered.summary.underMaintenance).toBe(2);
+    expect((await service.get(f.clientId, f.manager.id, broken.id)).fleet.status).toBe('BROKEN');
+  });
+
   it('lists only scoped maintenance fleet with pagination, search and an unfiltered scope count', async () => {
     const f = await fixture();
     const first = await f.fleet('Tyres');

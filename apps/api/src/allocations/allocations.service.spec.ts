@@ -189,6 +189,7 @@ describe('collection allocation restriction', () => {
 describe('deallocation completion safety gate', () => {
   it('finalizes a received return from its safety result without legacy OTPs', async () => {
     const tx = {
+      vehicleMaintenanceIssue: { count: vi.fn().mockResolvedValue(0) },
       vehicleSubmission: { findUnique: vi.fn().mockResolvedValue(null) },
       vehicleExchangeRequest: { findFirst: vi.fn().mockResolvedValue(null) },
       allocation: {
@@ -227,6 +228,7 @@ describe('deallocation completion safety gate', () => {
 
   it('keeps the legacy dual OTP gate for standalone deallocation', async () => {
     const tx = {
+      vehicleMaintenanceIssue: { count: vi.fn().mockResolvedValue(0) },
       vehicleSubmission: { findUnique: vi.fn().mockResolvedValue(null) },
       vehicleExchangeRequest: { findFirst: vi.fn().mockResolvedValue(null) },
       allocation: {
@@ -269,6 +271,7 @@ describe('deallocation completion safety gate', () => {
 
   it('reuses an already initiated allocation for a legacy return adapter', async () => {
     const tx = {
+      vehicleMaintenanceIssue: { count: vi.fn().mockResolvedValue(0) },
       vehicleSubmission: { findUnique: vi.fn().mockResolvedValue(null) },
       vehicleExchangeRequest: { findFirst: vi.fn().mockResolvedValue(null) },
       allocation: {

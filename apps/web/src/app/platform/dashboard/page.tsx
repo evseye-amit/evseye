@@ -4235,7 +4235,7 @@ function DashboardView({
       Number(fleetStatus.ALLOCATED ?? 0) + Number(fleetStatus.IN_USE ?? 0),
       "#367eb5",
     ],
-    ["Maintenance", Number(fleetStatus.MAINTENANCE ?? 0), "#d5913a"],
+    ["Maintenance", Number(fleetStatus.MAINTENANCE ?? 0) + Number(fleetStatus.BROKEN ?? 0) + Number(fleetStatus.AWAITING_PARTS ?? 0), "#d5913a"],
     [
       "Offline",
       Number(fleetStatus.OFFLINE ?? 0) +

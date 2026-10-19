@@ -150,6 +150,7 @@ export class FleetsService {
           ownershipType: dto.ownershipType,
           odometerKm: dto.odometerKm,
           status: dto.status ?? FleetStatus.IN_TRANSIT,
+          ...(['MAINTENANCE', 'BROKEN', 'AWAITING_PARTS'].includes(dto.status ?? '') ? { allocationEnabled: false } : {}),
           statusHistory: {
             create: { toStatus: dto.status ?? FleetStatus.IN_TRANSIT },
           },
@@ -565,6 +566,7 @@ export class FleetsService {
         registration: true,
         insurance: true,
         fitness: true,
+        maintenanceIssues: { orderBy: { updatedAt: 'desc' } },
         batteryHistory: {
           where: { removedAt: null },
           include: { battery: true },
@@ -754,12 +756,15 @@ export class FleetsService {
       where: { id, clientId, deletedAt: null },
       select: {
         id: true,
+        status: true,
         oemId: true,
         vehicleCategoryId: true,
         vehicleTypeId: true,
       },
     });
     if (!current) throw new NotFoundException('Fleet not found.');
+    if (dto.allocationEnabled && ['MAINTENANCE', 'BROKEN', 'AWAITING_PARTS'].includes(current.status))
+      throw new ConflictException('Finish maintenance and readiness before enabling allocation.');
     await this.validateReferences(clientId, dto, current);
     try {
       await this.prisma.$transaction(async (tx) => {
@@ -967,9 +972,12 @@ export class FleetsService {
     const fleet = await this.get(clientId, id);
     this.statusPolicy.assertTransition(fleet.status, status);
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Fleet" WHERE id=${id} AND "clientId"=${clientId} FOR UPDATE`;
+      if (status === 'AVAILABLE' && await tx.vehicleMaintenanceIssue.count({ where: { clientId, fleetId: id, status: { not: 'RESOLVED' } } }))
+        throw new ConflictException('Resolve all outstanding maintenance issues before making the fleet available.');
       const updated = await tx.fleet.update({
         where: { id },
-        data: { status },
+        data: { status, ...(['MAINTENANCE', 'BROKEN', 'AWAITING_PARTS'].includes(status) ? { allocationEnabled: false, readinessApprovedPreparationId: null } : {}) },
       });
       await tx.fleetStatusHistory.create({
         data: {
