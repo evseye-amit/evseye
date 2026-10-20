@@ -1,88 +1,221 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { maintenanceCondition } from './maintenance-condition.js';
 import { MechanicReportDto } from './submission.dto.js';
+import { VehicleSubmissionService } from './submission.service.js';
 
-const input = (): MechanicReportDto => ({
+const input = (
+  fleetStatus: MechanicReportDto['fleetStatus'] = 'BROKEN',
+): MechanicReportDto => ({
   stage: 'BASIC',
-  fleetStatus: 'BROKEN',
+  fleetStatus,
   mechanicName: 'Mechanic',
   summary: 'Motor failure',
-  safeForReuse: false,
-  unsafeReason: 'Motor needs replacement',
+  safeForReuse: fleetStatus === 'AVAILABLE',
+  unsafeReason: fleetStatus === 'AVAILABLE' ? undefined : 'Motor needs replacement',
   checksComplete: true,
   evidencePhotoIds: ['11111111-1111-4111-a111-111111111111'],
   items: [],
-  issues: [
-    {
-      description: ' Motor failure ',
-      status: 'OPEN',
-      evidencePhotoIds: ['11111111-1111-4111-a111-111111111111'],
-    },
-  ],
 });
+
 describe('submission maintenance conditions', () => {
-  it('keeps issue IDs stable on retries and records a powertrain breakdown without a penalty', () => {
-    const first = maintenanceCondition(input(), 'client:submission:key');
-    expect(first).toEqual(
-      maintenanceCondition(input(), 'client:submission:key'),
-    );
-    expect(first.issues[0]).toMatchObject({
-      description: 'Motor failure',
-      status: 'OPEN',
-    });
-    expect(first.issues[0].issueId).toMatch(/^[0-9a-f-]{36}$/);
-  });
-  it('accepts issues without category and never writes a category to snapshots', async () => {
-    expect(await validate(plainToInstance(MechanicReportDto, input()))).toHaveLength(0);
-    expect(maintenanceCondition(input(), 'scope').issues[0]).not.toHaveProperty('category');
-    const legacy = { ...input(), issues: [{ ...input().issues[0], category: 'POWERTRAIN' }] };
-    expect(maintenanceCondition(legacy, 'scope').issues[0]).not.toHaveProperty('category');
-    expect((await validate(plainToInstance(MechanicReportDto, legacy), { whitelist: true, forbidNonWhitelisted: true })).length).toBeGreaterThan(0);
-  });
-  it('requires parts information for awaiting parts', () => {
-    const dto = input();
-    dto.fleetStatus = 'AWAITING_PARTS';
-    expect(() => maintenanceCondition(dto, 'scope')).toThrow('required parts');
-    dto.issues[0].requiredParts = 'Replacement controller';
-    expect(maintenanceCondition(dto, 'scope').fleetStatus).toBe(
-      'AWAITING_PARTS',
-    );
-  });
-  it('blocks readiness until checks and every included issue are resolved', () => {
-    const dto = input();
-    dto.fleetStatus = 'AVAILABLE';
-    dto.safeForReuse = true;
-    expect(() => maintenanceCondition(dto, 'scope')).toThrow(
-      'all issues resolved',
-    );
-    dto.issues[0].status = 'RESOLVED';
-    expect(maintenanceCondition(dto, 'scope').fleetStatus).toBe('AVAILABLE');
+  it.each(['AVAILABLE', 'MAINTENANCE', 'BROKEN', 'AWAITING_PARTS'] as const)(
+    'accepts %s without maintenance issues',
+    (fleetStatus) => {
+      const condition = maintenanceCondition(input(fleetStatus));
+      expect(condition).toEqual({ fleetStatus });
+      expect(condition).not.toHaveProperty('issues');
+    },
+  );
+
+  it('requires completed checks and safe reuse for AVAILABLE', () => {
+    const dto = input('AVAILABLE');
     dto.checksComplete = false;
-    expect(() => maintenanceCondition(dto, 'scope')).toThrow(
+    expect(() => maintenanceCondition(dto)).toThrow(
       'completed checks',
     );
+
+    dto.checksComplete = true;
+    dto.safeForReuse = false;
+    expect(() => maintenanceCondition(dto)).toThrow('safe for reuse');
   });
-  it('requires explicit status, described issues and evidence', () => {
-    const dto = input();
-    dto.issues = [];
-    expect(() => maintenanceCondition(dto, 'scope')).toThrow('described issue');
-    const noProof = input();
-    noProof.issues[0].evidencePhotoIds = [];
-    expect(() => maintenanceCondition(noProof, 'scope')).toThrow('evidence');
-  });
-  it('validates enum fields, nested issues and mandatory report fields at the API boundary', async () => {
+
+  it('validates fleet status and report fields at the API boundary', async () => {
     expect(
       await validate(plainToInstance(MechanicReportDto, input())),
     ).toHaveLength(0);
     const bad = {
       ...input(),
       fleetStatus: 'MECHANICALLY_OK',
-      issues: [{ status: 'DONE', description: '' }],
+      issues: [{ description: 'legacy issue' }],
     };
     expect(
       (await validate(plainToInstance(MechanicReportDto, bad))).length,
     ).toBeGreaterThan(0);
+    expect(
+      (
+        await validate(plainToInstance(MechanicReportDto, bad), {
+          whitelist: true,
+          forbidNonWhitelisted: true,
+        })
+      ).some((error) => error.property === 'issues'),
+    ).toBe(true);
+  });
+
+  it('requires What needs work for non-AVAILABLE reports even when marked safe for reuse', async () => {
+    const service = new VehicleSubmissionService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const dto = input('BROKEN');
+    dto.unsafeReason = undefined;
+    await expect(
+      service.recordReport(
+        'client-id',
+        {} as never,
+        'submission-id',
+        dto,
+        'unsafe-reason-key',
+      ),
+    ).rejects.toThrow('what needs work');
+  });
+
+  it('confirms a non-AVAILABLE BASIC report once and completes mechanic checks', async () => {
+    const actor = {
+      id: 'manager-id',
+      roles: ['FLEET_MANAGER'],
+    } as never;
+    const submission = {
+      id: 'submission-id',
+      fleetId: 'fleet-id',
+      allocationId: 'allocation-id',
+      inspectionId: 'inspection-id',
+      hubId: 'hub-id',
+      riderId: 'rider-id',
+      status: 'SUBMITTED',
+      requiredPhotoTypes: [],
+    };
+    const row = {
+      id: 'report-id',
+      status: 'SUBMITTED',
+      submissionId: submission.id,
+      stage: 'BASIC',
+      fleetStatus: 'BROKEN',
+      checksComplete: false,
+      safeForReuse: true,
+      unsafeReason: 'Motor needs replacement',
+      digest: 'report-digest',
+      riderOtpRequestId: null,
+      riderVerifiedUserId: null,
+      teamLeadOtpRequestId: null,
+      teamLeadVerifiedUserId: null,
+      summary: 'Motor needs replacement',
+      totalAmount: { toFixed: () => '0.00' },
+    };
+    const tx = {
+      $queryRaw: vi.fn(),
+      vehicleSubmissionReport: {
+        findFirst: vi.fn().mockResolvedValue(row),
+        update: vi.fn().mockResolvedValue({
+          ...row,
+          status: 'POSTED',
+          riderBypassReason: 'Rider unavailable',
+          teamLeadBypassReason: 'Lead unavailable',
+        }),
+      },
+      vehicleSubmission: {
+        update: vi.fn().mockResolvedValue({
+          ...submission,
+          status: 'CONFIRMED',
+          mechanicChecksComplete: true,
+        }),
+      },
+      allocation: { count: vi.fn().mockResolvedValue(0) },
+      fleet: {
+        findUniqueOrThrow: vi
+          .fn()
+          .mockResolvedValueOnce({
+            status: 'MAINTENANCE',
+            allocationBlockedByAdmin: false,
+          })
+          .mockResolvedValueOnce({ status: 'BROKEN' }),
+        update: vi.fn().mockResolvedValue({ status: 'BROKEN' }),
+      },
+      fleetStatusHistory: { create: vi.fn() },
+      otpRequest: { updateMany: vi.fn() },
+    };
+    const db = {
+      vehicleSubmissionReport: {
+        findMany: vi.fn().mockResolvedValue([{ ...row, status: 'POSTED' }]),
+      },
+      photo: { findMany: vi.fn().mockResolvedValue([]) },
+      rider: { findFirst: vi.fn().mockResolvedValue(null) },
+      hub: { findFirst: vi.fn().mockResolvedValue(null) },
+    };
+    const service = new VehicleSubmissionService(
+      db as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    vi.spyOn(service as any, 'reportAccess').mockResolvedValue({
+      submission,
+    });
+    vi.spyOn(service as any, 'assertReportEvidence').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(service as any, 'recipients').mockResolvedValue({
+      rider: { id: 'rider-id', phone: '9999999999' },
+      teamLead: { id: 'lead-id', phone: '8888888888' },
+    });
+    vi.spyOn(service as any, 'ensurePenaltyPayment').mockResolvedValue({
+      chargeId: null,
+      paymentRequest: null,
+    });
+    vi.spyOn(service as any, 'completePhysicalSubmission').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(service as any, 'audit').mockResolvedValue(undefined);
+    vi.spyOn(service as any, 'transaction').mockImplementation(
+      ((fn: (value: typeof tx) => Promise<unknown>) => fn(tx)) as any,
+    );
+
+    await service.confirm('client-id', actor, row.id, {
+      riderBypassReason: 'Rider unavailable',
+      teamLeadBypassReason: 'Lead unavailable',
+    });
+
+    expect(tx.vehicleSubmission.update).toHaveBeenCalledWith({
+      where: { id: submission.id },
+      data: expect.objectContaining({
+        status: 'CONFIRMED',
+        mechanicChecksComplete: true,
+      }),
+    });
+    expect(tx.fleet.update).toHaveBeenCalledWith({
+      where: { id: submission.fleetId },
+      data: {
+        status: 'BROKEN',
+        allocationEnabled: false,
+        readinessApprovedPreparationId: null,
+      },
+    });
+
+    vi.spyOn(service as any, 'accessible').mockResolvedValue({
+      ...submission,
+      status: 'CONFIRMED',
+      mechanicChecksComplete: true,
+    });
+    const viewed = await service.get('client-id', actor, submission.id);
+    expect(viewed).toMatchObject({
+      mechanicChecksComplete: true,
+      nextAction: 'COMPLETE',
+    });
+    expect(viewed.reports[0]).toMatchObject({ fleetStatus: 'BROKEN' });
+    expect(viewed).not.toHaveProperty('maintenanceIssues');
+    expect(viewed.reports[0]).not.toHaveProperty('issues');
   });
 });

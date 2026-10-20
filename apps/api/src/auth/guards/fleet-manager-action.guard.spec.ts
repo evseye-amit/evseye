@@ -42,7 +42,10 @@ function setup() {
   };
 }
 function context(
-  controller: typeof RideReturnsController | typeof VehicleSubmissionController,
+  controller:
+    | typeof RideReturnsController
+    | typeof VehicleSubmissionController
+    | typeof FleetsController,
   handler: Function,
 ) {
   return {
@@ -51,7 +54,7 @@ function context(
     switchToHttp: () => ({
       getRequest: () => ({
         method: 'POST',
-        params: { id: 'request-or-report' },
+        params: { id: 'outside-scooter' },
         body: { hubId: 'own-hub' },
         user: { id: 'manager', clientId: 'client', roles: ['FLEET_MANAGER'] },
       }),
@@ -90,6 +93,7 @@ describe('Return and submission actions require the scooter current hub', () => 
       VehicleSubmissionController,
       VehicleSubmissionController.prototype.requestOtp,
     ],
+    ['fleet status change', FleetsController, FleetsController.prototype.status],
   ] as const)(
     'blocks %s even if the receiving hub is assigned',
     async (_label, controller, handler) => {

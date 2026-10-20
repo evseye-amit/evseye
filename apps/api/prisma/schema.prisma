@@ -1716,7 +1716,6 @@ model Fleet {
   fitness            FleetFitness?
   documents          FleetDocument[]
   allocations        Allocation[]
-  maintenanceIssues VehicleMaintenanceIssue[]
   batteryHistory     FleetBatteryHistory[]
   controllerHistory  FleetControllerHistory[]
   statusHistory      FleetStatusHistory[]
@@ -5979,32 +5978,6 @@ model RiderReferenceReview {
 }
 
 
-enum MaintenanceIssueStatus {
-  OPEN
-  IN_PROGRESS
-  RESOLVED
-}
-
-model VehicleMaintenanceIssue {
-  id String @id @db.Uuid
-  clientId String
-  fleetId String
-  fleet Fleet @relation(fields: [fleetId], references: [id], onDelete: Restrict)
-  submissionId String
-  submission VehicleSubmission @relation(fields: [submissionId], references: [id], onDelete: Restrict)
-  description String @db.VarChar(2000)
-  status MaintenanceIssueStatus @default(OPEN)
-  evidencePhotoIds String[]
-  requiredParts String? @db.VarChar(1000)
-  penaltyFindingId String? @db.Uuid
-  lastReportId String
-  lastReport VehicleSubmissionReport @relation(fields: [lastReportId], references: [id], onDelete: Restrict)
-  updatedById String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  @@index([clientId, fleetId, status])
-}
-
 model VehicleSubmission {
   id                     String @id @default(uuid())
   clientId               String
@@ -6030,7 +6003,6 @@ model VehicleSubmission {
   createdById            String
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
-  maintenanceIssues      VehicleMaintenanceIssue[]
   reports                VehicleSubmissionReport[]
   @@index([clientId, riderId, createdAt])
   @@index([clientId, hubId, status])
@@ -6047,8 +6019,6 @@ model VehicleSubmissionReport {
   mechanicName          String @db.VarChar(150)
   summary               String @db.VarChar(4000)
   fleetStatus           FleetStatus?
-  issues                Json @default("[]")
-  maintenanceIssueRecords VehicleMaintenanceIssue[]
   safeForReuse          Boolean
   unsafeReason          String? @db.VarChar(500)
   checksComplete        Boolean @default(false)
