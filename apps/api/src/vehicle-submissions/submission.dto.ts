@@ -1,5 +1,4 @@
 import { Type } from 'class-transformer';
-import { MaintenanceIssueStatus } from '@prisma/client';
 import {
   ArrayMaxSize,
   ArrayUnique,
@@ -7,7 +6,6 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
-  IsEnum,
   IsOptional,
   IsString,
   IsUUID,
@@ -35,17 +33,8 @@ export class SubmissionPenaltyDto {
   @IsUUID(undefined, { each: true })
   evidencePhotoIds!: string[];
 }
-export class MaintenanceIssueDto {
-  @IsOptional() @IsUUID() issueId?: string;
-  @IsString() @Matches(/\S/) @MaxLength(2000) description!: string;
-  @IsEnum(MaintenanceIssueStatus) status!: MaintenanceIssueStatus;
-  @IsArray() @ArrayMaxSize(20) @ArrayUnique() @IsUUID(undefined, { each: true }) evidencePhotoIds!: string[];
-  @IsOptional() @IsString() @MaxLength(1000) requiredParts?: string;
-  @IsOptional() @IsUUID() penaltyFindingId?: string;
-}
 export class MechanicReportDto {
   @IsIn(['AVAILABLE', 'MAINTENANCE', 'BROKEN', 'AWAITING_PARTS']) fleetStatus!: 'AVAILABLE' | 'MAINTENANCE' | 'BROKEN' | 'AWAITING_PARTS';
-  @IsArray() @ArrayMaxSize(50) @ValidateNested({ each: true }) @Type(() => MaintenanceIssueDto) issues!: MaintenanceIssueDto[];
   @IsIn(['BASIC', 'DEEP']) stage!: 'BASIC' | 'DEEP';
   @IsString() @Matches(/\S/) @MaxLength(150) mechanicName!: string;
   @IsString() @Matches(/\S/) @MaxLength(4000) summary!: string;

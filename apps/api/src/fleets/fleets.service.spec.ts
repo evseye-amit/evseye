@@ -6,6 +6,7 @@ import {
 } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
 import { FleetsService } from './fleets.service.js';
+import { FleetStatusPolicy } from './fleet-status.policy.js';
 
 describe('FleetsService onboarding evidence', () => {
   it('allows Simple mode activation with missing onboarding photos', async () => {
@@ -249,5 +250,192 @@ describe('FleetsService onboarding evidence', () => {
         where: expect.objectContaining({ clientId: 'client-a' }),
       }),
     );
+  });
+
+  it.each([
+    { fromStatus: FleetStatus.MAINTENANCE, mode: 'SIMPLE', blocked: false, allocationEnabled: true },
+    { fromStatus: FleetStatus.BROKEN, mode: 'SIMPLE', blocked: true, allocationEnabled: false },
+    { fromStatus: FleetStatus.AWAITING_PARTS, mode: 'PREPARATION_QC', blocked: false, allocationEnabled: false },
+    { fromStatus: FleetStatus.BROKEN, mode: 'STAGED_PREPARATION_QC', blocked: false, allocationEnabled: false },
+  ])('releases a repaired fleet through status change without bypassing readiness rules', async ({ fromStatus, mode, blocked, allocationEnabled }) => {
+    const fleet = {
+      id: 'fleet-1',
+      status: fromStatus,
+      onboardingStatus: FleetOnboardingStatus.ACTIVE,
+      allocationEnabled: false,
+      allocationBlockedByAdmin: blocked,
+    };
+    const tx = {
+      $queryRaw: vi.fn(),
+      allocation: { count: vi.fn().mockResolvedValue(0) },
+      client: {
+        findUniqueOrThrow: vi.fn().mockResolvedValue({ fleetOperatingMode: mode }),
+      },
+      fleet: {
+        findUniqueOrThrow: vi.fn().mockResolvedValue({
+          status: fromStatus,
+          allocationBlockedByAdmin: blocked,
+        }),
+        update: vi.fn().mockResolvedValue({
+          ...fleet,
+          status: FleetStatus.AVAILABLE,
+          allocationEnabled,
+        }),
+      },
+      fleetStatusHistory: { create: vi.fn() },
+    };
+    const prisma = {
+      $transaction: vi.fn(async (fn: (value: typeof tx) => unknown) => fn(tx)),
+    };
+    const service = new FleetsService(prisma as never, new FleetStatusPolicy());
+    vi.spyOn(service, 'get').mockResolvedValue(fleet as never);
+
+    await expect(
+      service.changeStatus('client-a', fleet.id, FleetStatus.AVAILABLE, 'manager-1'),
+    ).resolves.toMatchObject({ status: FleetStatus.AVAILABLE, allocationEnabled });
+    expect(tx.fleet.update).toHaveBeenCalledWith({
+      where: { id: fleet.id },
+      data: expect.objectContaining({
+        status: FleetStatus.AVAILABLE,
+        allocationEnabled,
+      }),
+    });
+  });
+
+  it('does not release a fleet with an active allocation', async () => {
+    const fleet = {
+      id: 'fleet-1',
+      status: FleetStatus.BROKEN,
+      onboardingStatus: FleetOnboardingStatus.ACTIVE,
+      allocationEnabled: false,
+      allocationBlockedByAdmin: false,
+    };
+    const tx = {
+      $queryRaw: vi.fn(),
+      allocation: { count: vi.fn().mockResolvedValue(1) },
+      fleet: {
+        findUniqueOrThrow: vi.fn().mockResolvedValue({
+          status: FleetStatus.BROKEN,
+          allocationBlockedByAdmin: false,
+        }),
+        update: vi.fn(),
+      },
+      fleetStatusHistory: { create: vi.fn() },
+      client: { findUniqueOrThrow: vi.fn() },
+    };
+    const prisma = {
+      $transaction: vi.fn(async (fn: (value: typeof tx) => unknown) => fn(tx)),
+    };
+    const service = new FleetsService(prisma as never, new FleetStatusPolicy());
+    vi.spyOn(service, 'get').mockResolvedValue(fleet as never);
+
+    await expect(
+      service.changeStatus('client-a', fleet.id, FleetStatus.AVAILABLE, 'manager-1'),
+    ).rejects.toThrow('active allocation');
+    expect(tx.fleet.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects a stale status read after acquiring the fleet lock', async () => {
+    const fleet = {
+      id: 'fleet-1',
+      status: FleetStatus.BROKEN,
+      onboardingStatus: FleetOnboardingStatus.ACTIVE,
+      allocationEnabled: false,
+      allocationBlockedByAdmin: false,
+    };
+    const tx = {
+      $queryRaw: vi.fn(),
+      allocation: { count: vi.fn() },
+      fleet: {
+        findUniqueOrThrow: vi.fn().mockResolvedValue({
+          status: FleetStatus.RESERVED,
+          allocationBlockedByAdmin: false,
+        }),
+        update: vi.fn(),
+      },
+      fleetStatusHistory: { create: vi.fn() },
+    };
+    const prisma = {
+      $transaction: vi.fn(async (fn: (value: typeof tx) => unknown) => fn(tx)),
+    };
+    const service = new FleetsService(prisma as never, new FleetStatusPolicy());
+    vi.spyOn(service, 'get').mockResolvedValue(fleet as never);
+
+    await expect(
+      service.changeStatus('client-a', fleet.id, FleetStatus.AVAILABLE, 'manager-1'),
+    ).rejects.toThrow('Fleet status changed');
+    expect(tx.allocation.count).not.toHaveBeenCalled();
+    expect(tx.fleet.update).not.toHaveBeenCalled();
+  });
+
+  it('uses the locked admin block when releasing a repaired fleet', async () => {
+    const fleet = {
+      id: 'fleet-1',
+      status: FleetStatus.BROKEN,
+      onboardingStatus: FleetOnboardingStatus.ACTIVE,
+      allocationEnabled: false,
+      allocationBlockedByAdmin: false,
+    };
+    const tx = {
+      $queryRaw: vi.fn(),
+      allocation: { count: vi.fn().mockResolvedValue(0) },
+      fleet: {
+        findUniqueOrThrow: vi.fn().mockResolvedValue({
+          status: FleetStatus.BROKEN,
+          allocationBlockedByAdmin: true,
+        }),
+        update: vi.fn().mockResolvedValue({ ...fleet, status: FleetStatus.AVAILABLE }),
+      },
+      fleetStatusHistory: { create: vi.fn() },
+      client: { findUniqueOrThrow: vi.fn().mockResolvedValue({ fleetOperatingMode: 'SIMPLE' }) },
+    };
+    const prisma = {
+      $transaction: vi.fn(async (fn: (value: typeof tx) => unknown) => fn(tx)),
+    };
+    const service = new FleetsService(prisma as never, new FleetStatusPolicy());
+    vi.spyOn(service, 'get').mockResolvedValue(fleet as never);
+
+    await service.changeStatus('client-a', fleet.id, FleetStatus.AVAILABLE, 'manager-1');
+    expect(tx.fleet.update).toHaveBeenCalledWith({
+      where: { id: fleet.id },
+      data: { status: FleetStatus.AVAILABLE, allocationEnabled: false },
+    });
+  });
+
+  it('does not add release behavior to unrelated transitions', async () => {
+    const fleet = {
+      id: 'fleet-1',
+      status: FleetStatus.RESERVED,
+      onboardingStatus: FleetOnboardingStatus.ACTIVE,
+      allocationEnabled: false,
+      allocationBlockedByAdmin: false,
+    };
+    const tx = {
+      $queryRaw: vi.fn(),
+      allocation: { count: vi.fn().mockResolvedValue(1) },
+      fleet: {
+        findUniqueOrThrow: vi.fn().mockResolvedValue({
+          status: FleetStatus.RESERVED,
+          allocationBlockedByAdmin: true,
+        }),
+        update: vi.fn().mockResolvedValue({ ...fleet, status: FleetStatus.AVAILABLE }),
+      },
+      fleetStatusHistory: { create: vi.fn() },
+      client: { findUniqueOrThrow: vi.fn() },
+    };
+    const prisma = {
+      $transaction: vi.fn(async (fn: (value: typeof tx) => unknown) => fn(tx)),
+    };
+    const service = new FleetsService(prisma as never, new FleetStatusPolicy());
+    vi.spyOn(service, 'get').mockResolvedValue(fleet as never);
+
+    await expect(
+      service.changeStatus('client-a', fleet.id, FleetStatus.AVAILABLE, 'manager-1'),
+    ).resolves.toMatchObject({ status: FleetStatus.AVAILABLE });
+    expect(tx.client.findUniqueOrThrow).not.toHaveBeenCalled();
+    expect(tx.fleet.update).toHaveBeenCalledWith({
+      where: { id: fleet.id },
+      data: { status: FleetStatus.AVAILABLE },
+    });
   });
 });

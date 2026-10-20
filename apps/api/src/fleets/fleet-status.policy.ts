@@ -43,6 +43,7 @@ const transitions: Readonly<Record<FleetStatus, readonly FleetStatus[]>> = {
     FleetStatus.OUT_OF_SERVICE,
   ],
   BROKEN: [
+    FleetStatus.AVAILABLE,
     FleetStatus.MAINTENANCE,
     FleetStatus.AWAITING_PARTS,
     FleetStatus.OUT_OF_SERVICE,

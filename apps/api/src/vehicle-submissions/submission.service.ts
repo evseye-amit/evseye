@@ -527,7 +527,7 @@ export class VehicleSubmissionService {
 
   async get(clientId: string, actor: AuthUser, id: string) {
     const row = await this.accessible(this.db, clientId, actor, id);
-    const [reports, photos, rider, hub, maintenanceIssues] = await Promise.all([
+    const [reports, photos, rider, hub] = await Promise.all([
       this.db.vehicleSubmissionReport.findMany({
         where: { clientId, submissionId: id },
         orderBy: { createdAt: 'asc' },
@@ -549,14 +549,12 @@ export class VehicleSubmissionService {
         where: { clientId, id: row.hubId },
         select: { id: true, name: true, code: true },
       }),
-      this.db.vehicleMaintenanceIssue.findMany({ where: { clientId, fleetId: row.fleetId, submissionId: id }, orderBy: { updatedAt: 'desc' } }),
     ]);
     return {
       ...row,
       rider,
       hub,
       reports,
-      maintenanceIssues,
       photos,
       confirmationGuidance: guidance,
       missingPhotoTypes: row.requiredPhotoTypes.filter(
@@ -567,9 +565,7 @@ export class VehicleSubmissionService {
         : reports.some((report) => report.status === 'DRAFT')
           ? 'REVIEW_AND_IMPOSE'
           : row.status === 'CONFIRMED'
-            ? row.mechanicChecksComplete
-              ? 'COMPLETE'
-              : 'DEEP_MECHANIC_CHECK'
+            ? 'COMPLETE'
             : 'CAPTURE_PHOTOS_AND_BASIC_REPORT',
     };
   }
@@ -612,9 +608,12 @@ export class VehicleSubmissionService {
       throw new BadRequestException('A stable Idempotency-Key is required.');
     if (!input.mechanicName.trim() || !input.summary.trim())
       throw new BadRequestException('Mechanic name and report are required.');
-    if (!input.safeForReuse && !input.unsafeReason?.trim())
-      throw new BadRequestException('Explain why the vehicle is unsafe.');
-    const condition = maintenanceCondition(input, `${clientId}:${id}:${requestKey}`);
+    if (
+      (!input.safeForReuse || input.fleetStatus !== 'AVAILABLE') &&
+      !input.unsafeReason?.trim()
+    )
+      throw new BadRequestException('Explain what needs work on the vehicle.');
+    const condition = maintenanceCondition(input);
     return this.transaction(async (tx) => {
       const submission = await this.accessible(tx, clientId, actor, id);
       await this.staffHub(tx, clientId, actor, submission.hubId);
@@ -633,13 +632,14 @@ export class VehicleSubmissionService {
         const snapshot = old.items as unknown as ItemSnapshot[];
         const same =
           old.fleetStatus === condition.fleetStatus &&
-          hash(old.issues) === hash(condition.issues) &&
           old.stage === input.stage &&
           old.mechanicName === input.mechanicName.trim() &&
           old.summary === input.summary.trim() &&
           old.safeForReuse === input.safeForReuse &&
           old.unsafeReason ===
-            (input.safeForReuse ? null : input.unsafeReason!.trim()) &&
+            (input.fleetStatus === 'AVAILABLE' && input.safeForReuse
+              ? null
+              : input.unsafeReason!.trim()) &&
           old.checksComplete === Boolean(input.checksComplete) &&
           JSON.stringify([...old.evidencePhotoIds].sort()) ===
             JSON.stringify([...new Set(input.evidencePhotoIds)].sort()) &&
@@ -732,27 +732,6 @@ export class VehicleSubmissionService {
         throw new BadRequestException(
           'A mechanic report needs proof from this submission inspection.',
         );
-      for (const issue of condition.issues) {
-        if (issue.evidencePhotoIds.some(photo => !photoIds.has(photo)))
-          throw new BadRequestException('Issue evidence must belong to this submission inspection.');
-        if (issue.penaltyFindingId && !input.items.some(item => item.findingId === issue.penaltyFindingId)) {
-          const existingLink = await tx.vehicleMaintenanceIssue.findFirst({ where: {
-            id: issue.issueId, clientId, fleetId: submission.fleetId, submissionId: id,
-            penaltyFindingId: issue.penaltyFindingId,
-          }, select: { id: true } });
-          if (!existingLink)
-            throw new BadRequestException('A linked penalty finding must be included in this report or already belong to this issue.');
-        }
-      }
-      const draftIssueIds = new Set(edit && old ? (old.issues as ReturnType<typeof maintenanceCondition>['issues']).map(issue => issue.issueId) : []);
-      const existingIssueIds = input.issues.flatMap(issue => issue.issueId && !draftIssueIds.has(issue.issueId) ? [issue.issueId] : []);
-      if (existingIssueIds.length) {
-        const count = await tx.vehicleMaintenanceIssue.count({ where: {
-          id: { in: existingIssueIds }, clientId, fleetId: submission.fleetId, submissionId: id,
-        } });
-        if (count !== existingIssueIds.length)
-          throw new BadRequestException('Maintenance issue not found in this submission.');
-      }
       const vehicle = await tx.fleet.findFirstOrThrow({
         where: { id: submission.fleetId, clientId },
         select: { vehicleTypeId: true },
@@ -925,7 +904,10 @@ export class VehicleSubmissionService {
         mechanicName: input.mechanicName.trim(),
         summary: input.summary.trim(),
         safeForReuse: input.safeForReuse,
-        unsafeReason: input.safeForReuse ? null : input.unsafeReason!.trim(),
+        unsafeReason:
+          input.fleetStatus === 'AVAILABLE' && input.safeForReuse
+            ? null
+            : input.unsafeReason!.trim(),
         checksComplete: Boolean(input.checksComplete),
         evidencePhotoIds: [...new Set(input.evidencePhotoIds)].sort(),
         items,
@@ -1032,7 +1014,7 @@ export class VehicleSubmissionService {
   ) {
     await tx.$queryRaw`SELECT id FROM "Inspection" WHERE id=${submission.inspectionId} AND "clientId"=${clientId} FOR UPDATE`;
     const frozenDigest = hash({
-      ...(row.fleetStatus ? { fleetStatus: row.fleetStatus, issues: row.issues } : {}),
+      ...(row.fleetStatus ? { fleetStatus: row.fleetStatus } : {}),
       stage: row.stage,
       mechanicName: row.mechanicName,
       summary: row.summary,
@@ -1049,7 +1031,6 @@ export class VehicleSubmissionService {
     const evidenceIds = [
       ...new Set([
         ...row.evidencePhotoIds,
-        ...(row.issues as ReturnType<typeof maintenanceCondition>['issues']).flatMap(issue => issue.evidencePhotoIds),
         ...(row.items as unknown as ItemSnapshot[]).flatMap(
           (item) => item.evidencePhotoIds,
         ),
@@ -1410,23 +1391,6 @@ export class VehicleSubmissionService {
       if (await tx.allocation.count({ where: { clientId, fleetId: submission.fleetId,
         id: { not: submission.allocationId }, status: { notIn: ['COMPLETED', 'CANCELLED'] } } }))
         throw new ConflictException('Vehicle has another active allocation; this submission cannot change its condition.');
-      const previousIssues = await tx.vehicleMaintenanceIssue.findMany({ where: { clientId, fleetId: submission.fleetId } });
-      for (const issue of row.issues as ReturnType<typeof maintenanceCondition>['issues']) {
-        const { issueId, ...data } = issue;
-        const existing = await tx.vehicleMaintenanceIssue.findUnique({ where: { id: issueId } });
-        if (existing && (existing.clientId !== clientId || existing.fleetId !== submission.fleetId || existing.submissionId !== submission.id))
-          throw new ConflictException('Maintenance issue belongs to another submission.');
-        await tx.vehicleMaintenanceIssue.upsert({ where: { id: issueId },
-          create: { id: issueId, clientId, fleetId: submission.fleetId, submissionId: submission.id,
-            ...data, lastReportId: row.id, updatedById: actor.id },
-          update: { ...data, penaltyFindingId: data.penaltyFindingId ?? existing?.penaltyFindingId ?? null, lastReportId: row.id, updatedById: actor.id },
-        });
-      }
-      const openIssues = await tx.vehicleMaintenanceIssue.count({ where: {
-        clientId, fleetId: submission.fleetId, status: { not: 'RESOLVED' },
-      } });
-      if (row.fleetStatus === 'AVAILABLE' && openIssues)
-        throw new ConflictException('Resolve all outstanding fleet issues before releasing the vehicle.');
       const previousFleet = await tx.fleet.findUniqueOrThrow({ where: { id: submission.fleetId }, select: { status: true, allocationBlockedByAdmin: true } });
       const { chargeId, paymentRequest } = await this.ensurePenaltyPayment(
         tx,
@@ -1457,7 +1421,7 @@ export class VehicleSubmissionService {
           ...(row.stage === 'BASIC'
             ? { status: 'CONFIRMED', confirmedAt: now, confirmedById: actor.id }
             : {}),
-          mechanicChecksComplete: row.checksComplete && !openIssues && (!row.fleetStatus || row.fleetStatus === 'AVAILABLE'),
+          mechanicChecksComplete: true,
         },
       });
       if (row.stage === 'BASIC')
@@ -1468,7 +1432,7 @@ export class VehicleSubmissionService {
           submission,
           now,
         );
-      if (openIssues || !row.checksComplete || !row.safeForReuse || (row.fleetStatus && row.fleetStatus !== 'AVAILABLE'))
+      if (!row.checksComplete || !row.safeForReuse || (row.fleetStatus && row.fleetStatus !== 'AVAILABLE'))
         await tx.fleet.update({
           where: { id: submission.fleetId },
           data: { status: row.fleetStatus && row.fleetStatus !== 'AVAILABLE' ? row.fleetStatus : 'MAINTENANCE', allocationEnabled: false, readinessApprovedPreparationId: null },
@@ -1541,9 +1505,7 @@ export class VehicleSubmissionService {
           teamLeadBypassReason: result.teamLeadBypassReason,
           checksComplete: row.checksComplete,
           fleetStatus: finalFleet.status,
-          issues: row.issues,
           previousFleetStatus: previousFleet.status,
-          previousIssues,
         },
       );
       return {

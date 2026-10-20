@@ -572,7 +572,6 @@ export class FleetsService {
         registration: true,
         insurance: true,
         fitness: true,
-        maintenanceIssues: { orderBy: { updatedAt: 'desc' } },
         batteryHistory: {
           where: { removedAt: null },
           include: { battery: true },
@@ -979,26 +978,54 @@ export class FleetsService {
     this.statusPolicy.assertTransition(fleet.status, status);
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Fleet" WHERE id=${id} AND "clientId"=${clientId} FOR UPDATE`;
-      if (status === 'AVAILABLE' && await tx.vehicleMaintenanceIssue.count({ where: { clientId, fleetId: id, status: { not: 'RESOLVED' } } }))
-        throw new ConflictException('Resolve all outstanding maintenance issues before making the fleet available.');
-      const updated = await tx.fleet.update({
+      const lockedFleet = await tx.fleet.findUniqueOrThrow({
         where: { id },
-        data: { status, ...(['MAINTENANCE', 'BROKEN', 'AWAITING_PARTS'].includes(status) ? { allocationEnabled: false, readinessApprovedPreparationId: null } : {}) },
+        select: { status: true, allocationBlockedByAdmin: true },
       });
-      await tx.fleetStatusHistory.create({
-        data: {
-          fleetId: id,
-          fromStatus: fleet.status,
-          toStatus: status,
-          changedByUserId: actorId,
-          reason,
-        },
-      });
+      if (lockedFleet.status !== fleet.status)
+        throw new ConflictException(
+          'Fleet status changed while this update was in progress. Refresh and try again.',
+        );
+      const releasingMaintenance =
+        status === 'AVAILABLE' &&
+        ['MAINTENANCE', 'BROKEN', 'AWAITING_PARTS'].includes(lockedFleet.status);
       const activeAllocationCount = await tx.allocation.count({
         where: {
           clientId,
           fleetId: id,
           status: { in: this.activeAllocationStatuses },
+        },
+      });
+      if (releasingMaintenance && activeAllocationCount)
+        throw new ConflictException(
+          'Vehicle has another active allocation and cannot be released.',
+        );
+      const allocationData =
+        releasingMaintenance
+          ? ['PREPARATION_QC', 'STAGED_PREPARATION_QC'].includes(
+              (
+                await tx.client.findUniqueOrThrow({
+                  where: { id: clientId },
+                  select: { fleetOperatingMode: true },
+                })
+              ).fleetOperatingMode,
+            )
+            ? { allocationEnabled: false, readinessApprovedPreparationId: null }
+            : { allocationEnabled: !lockedFleet.allocationBlockedByAdmin }
+          : ['MAINTENANCE', 'BROKEN', 'AWAITING_PARTS'].includes(status)
+            ? { allocationEnabled: false, readinessApprovedPreparationId: null }
+            : {};
+      const updated = await tx.fleet.update({
+        where: { id },
+        data: { status, ...allocationData },
+      });
+      await tx.fleetStatusHistory.create({
+        data: {
+          fleetId: id,
+          fromStatus: lockedFleet.status,
+          toStatus: status,
+          changedByUserId: actorId,
+          reason,
         },
       });
       return this.present({

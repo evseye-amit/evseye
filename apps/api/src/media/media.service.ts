@@ -241,18 +241,13 @@ export class MediaService {
                 status: { in: ['SUBMITTED', 'POSTED'] },
                 submission: { inspectionId: photo.entityId },
               },
-              select: { evidencePhotoIds: true, items: true, issues: true },
+              select: { evidencePhotoIds: true, items: true },
             })
           : [];
       const protectedIds = [
         ...new Set(
           reports.flatMap((report) => [
             ...report.evidencePhotoIds,
-            ...(Array.isArray(report.issues)
-              ? (report.issues as { evidencePhotoIds?: string[] }[]).flatMap(
-                  (issue) => issue.evidencePhotoIds ?? [],
-                )
-              : []),
             ...(Array.isArray(report.items)
               ? (report.items as { evidencePhotoIds?: string[] }[]).flatMap(
                   (item) => item.evidencePhotoIds ?? [],
