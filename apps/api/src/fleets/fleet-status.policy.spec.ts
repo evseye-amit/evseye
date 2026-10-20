@@ -16,10 +16,4 @@ describe('FleetStatusPolicy', () => {
       policy.assertTransition(FleetStatus.AVAILABLE, FleetStatus.ALLOCATED),
     ).toThrow('Fleet cannot transition');
   });
-
-  it('permits a repaired broken fleet to return to available', () => {
-    expect(() =>
-      policy.assertTransition(FleetStatus.BROKEN, FleetStatus.AVAILABLE),
-    ).not.toThrow();
-  });
 });

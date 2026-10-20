@@ -35,7 +35,7 @@ export class SubmissionPenaltyDto {
 }
 export class MechanicReportDto {
   @IsIn(['AVAILABLE', 'MAINTENANCE', 'BROKEN', 'AWAITING_PARTS']) fleetStatus!: 'AVAILABLE' | 'MAINTENANCE' | 'BROKEN' | 'AWAITING_PARTS';
-  @IsIn(['BASIC', 'DEEP']) stage!: 'BASIC' | 'DEEP';
+  @IsIn(['BASIC']) stage!: 'BASIC';
   @IsString() @Matches(/\S/) @MaxLength(150) mechanicName!: string;
   @IsString() @Matches(/\S/) @MaxLength(4000) summary!: string;
   @IsBoolean() safeForReuse!: boolean;

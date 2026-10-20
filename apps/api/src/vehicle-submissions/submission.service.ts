@@ -560,13 +560,14 @@ export class VehicleSubmissionService {
       missingPhotoTypes: row.requiredPhotoTypes.filter(
         (type) => !photos.some((photo) => photo.photoType === type),
       ),
-      nextAction: reports.some((report) => report.status === 'SUBMITTED')
-        ? 'COLLECT_OTPS_OR_RECORD_BYPASS'
-        : reports.some((report) => report.status === 'DRAFT')
-          ? 'REVIEW_AND_IMPOSE'
-          : row.status === 'CONFIRMED'
-            ? 'COMPLETE'
-            : 'CAPTURE_PHOTOS_AND_BASIC_REPORT',
+      nextAction:
+        row.status === 'CONFIRMED'
+          ? 'COMPLETE'
+          : reports.some((report) => report.status === 'SUBMITTED')
+            ? 'COLLECT_OTPS_OR_RECORD_BYPASS'
+            : reports.some((report) => report.status === 'DRAFT')
+              ? 'REVIEW_AND_IMPOSE'
+              : 'CAPTURE_PHOTOS_AND_BASIC_REPORT',
     };
   }
 
@@ -608,6 +609,7 @@ export class VehicleSubmissionService {
       throw new BadRequestException('A stable Idempotency-Key is required.');
     if (!input.mechanicName.trim() || !input.summary.trim())
       throw new BadRequestException('Mechanic name and report are required.');
+    this.assertBasicReportWrite(input.stage);
     if (
       (!input.safeForReuse || input.fleetStatus !== 'AVAILABLE') &&
       !input.unsafeReason?.trim()
@@ -675,13 +677,7 @@ export class VehicleSubmissionService {
         if (old.stage !== input.stage)
           throw new BadRequestException('Report stage cannot be changed.');
       }
-      // Deeper reports may record repairs and additional findings after checks finish.
-      // The completed report remains immutable; changes use a new audited report.
-      if (
-        input.stage === 'BASIC'
-          ? submission.status !== 'IN_PROGRESS'
-          : submission.status !== 'CONFIRMED'
-      )
+      if (submission.status !== 'IN_PROGRESS')
         throw new ConflictException(
           'Report stage does not match the submission.',
         );
@@ -979,6 +975,7 @@ export class VehicleSubmissionService {
       actor,
       reportId,
     );
+    this.assertBasicReportWrite(report.stage);
     return this.recordReport(
       clientId,
       actor,
@@ -987,6 +984,12 @@ export class VehicleSubmissionService {
       report.requestKey,
       { reportId, expectedDigest },
     );
+  }
+  private assertBasicReportWrite(stage: string) {
+    if (stage !== 'BASIC')
+      throw new ConflictException(
+        'Historical DEEP mechanic reports are read-only.',
+      );
   }
   private async reportAccess(
     clientId: string,
@@ -1090,7 +1093,12 @@ export class VehicleSubmissionService {
     return { chargeId, paymentRequest };
   }
   async impose(clientId: string, actor: AuthUser, reportId: string) {
-    const { submission } = await this.reportAccess(clientId, actor, reportId);
+    const { report, submission } = await this.reportAccess(
+      clientId,
+      actor,
+      reportId,
+    );
+    this.assertBasicReportWrite(report.stage);
     return this.transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "VehicleSubmissionReport" WHERE id=${reportId} AND "clientId"=${clientId} FOR UPDATE`;
       const row = await tx.vehicleSubmissionReport.findFirstOrThrow({
@@ -1207,6 +1215,7 @@ export class VehicleSubmissionService {
       actor,
       reportId,
     );
+    this.assertBasicReportWrite(report.stage);
     if (report.status !== 'SUBMITTED')
       throw new ConflictException('Impose the report before requesting OTPs.');
     const recipients = await this.recipients(this.db, submission);
@@ -1268,6 +1277,7 @@ export class VehicleSubmissionService {
       actor,
       reportId,
     );
+    this.assertBasicReportWrite(report.stage);
     const recipients = await this.recipients(this.db, submission);
     const recipient =
       party === 'RIDER' ? recipients.rider : recipients.teamLead;
@@ -1296,7 +1306,12 @@ export class VehicleSubmissionService {
     reportId: string,
     input: ConfirmSubmissionReportDto,
   ) {
-    const { submission } = await this.reportAccess(clientId, actor, reportId);
+    const { report, submission } = await this.reportAccess(
+      clientId,
+      actor,
+      reportId,
+    );
+    this.assertBasicReportWrite(report.stage);
     const bypass = Boolean(
       input.riderBypassReason || input.teamLeadBypassReason,
     );
