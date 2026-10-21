@@ -1,3 +1,6 @@
+import { WalletModule } from '../wallet/wallet.module.js';
+import { RiderWalletOperationsController } from './rider-wallet.controller.js';
+import { RiderWalletOperationsService } from './rider-wallet.service.js';
 import { RiderEarningsController } from './rider-earnings.controller.js';
 import { RiderEarningsService } from './rider-earnings.service.js';
 import { RiderReferenceReviewController } from './rider-reference-review.controller.js';
@@ -17,9 +20,9 @@ import { WorkflowModule } from '../workflow/workflow.module.js';
 import { RiderKycStatusModule } from './rider-kyc-status.module.js';
 
 @Module({
-  imports: [AuthModule, AuditModule, MediaModule, ReferralModule, WorkflowModule, RiderKycStatusModule],
-  controllers: [RiderEarningsController, RiderReferenceReviewController, RidersController, RiderAppController, RiderDocumentReviewController],
-  providers: [RiderEarningsService, RiderReferenceReviewService, RidersService, RiderAppService, RiderDocumentReviewService],
+  imports: [WalletModule, AuthModule, AuditModule, MediaModule, ReferralModule, WorkflowModule, RiderKycStatusModule],
+  controllers: [RiderWalletOperationsController, RiderEarningsController, RiderReferenceReviewController, RidersController, RiderAppController, RiderDocumentReviewController],
+  providers: [RiderWalletOperationsService, RiderEarningsService, RiderReferenceReviewService, RidersService, RiderAppService, RiderDocumentReviewService],
   exports: [RiderDocumentReviewService],
 })
 export class RidersModule {}

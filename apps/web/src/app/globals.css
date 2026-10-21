@@ -4786,3 +4786,13 @@ body:has(.sa-dialog[open]) {
 .client-operations-shell .client-nav-items > .client-nav-subheading:first-child {
   margin-top: 8px;
 }
+
+/* Rider financial views share one dialog and retain each tab's filters. */
+.rider-wallet-tabs { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.rider-wallet-panel:not([hidden]) { display: grid; min-width: 0; gap: 16px; }
+.rider-wallet-panel[hidden] { display: none; }
+.rider-wallet-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 16px 0; }
+.rider-wallet-totals dt { color: var(--muted); font-size: 13px; }
+.rider-wallet-totals dd { margin: 6px 0 0; font-size: 20px; font-weight: 700; overflow-wrap: anywhere; }
+.rider-wallet-reference { display: block; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .rider-wallet-totals { grid-template-columns: minmax(0, 1fr); } }

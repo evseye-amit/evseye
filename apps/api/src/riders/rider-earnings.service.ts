@@ -1,24 +1,14 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { riderFinancialPeriod } from './rider-financial-period.js';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RiderEarningsQueryDto, riderEarningTypes } from './dto/rider-earnings.dto.js';
-
-function boundary(value?: string) {
-  if (value === undefined) return undefined;
-  const date = new Date(`${value}T00:00:00.000Z`);
-  if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value)
-    throw new BadRequestException('Choose a valid earnings date (YYYY-MM-DD).');
-  return date;
-}
 
 @Injectable()
 export class RiderEarningsService {
   constructor(private readonly prisma: PrismaService) {}
   async list(clientId: string, riderId: string, query: RiderEarningsQueryDto) {
-    const from = boundary(query.from);
-    const to = boundary(query.to);
-    if (from && to && from > to) throw new BadRequestException('From date must not be after To date.');
-    const end = to ? new Date(to.getTime() + 86400000) : undefined;
+    const { from, end } = riderFinancialPeriod(query.from, query.to);
     return this.prisma.$transaction(async tx => {
       const rider = await tx.rider.findFirst({ where: { id: riderId, clientId, deletedAt: null }, select: { id: true, name: true, mobile: true } });
       if (!rider) throw new NotFoundException('Rider not found.');

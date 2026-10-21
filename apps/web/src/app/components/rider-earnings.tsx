@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ClientDataTable } from "./client-data-table";
-import { ClientFormDialog } from "./client-form-dialog";
 import { formatDateTime, formatMoney } from "../../lib/presentation";
 
 type Earning = { id: string; transactionNumber: string; transactionType: string; description: string; currency: string; amount: string; referenceType: string | null; referenceId: string | null; postedAt: string };
@@ -14,10 +13,9 @@ type Result = {
 const types = [
   ["REWARD", "Reward"], ["REFERRAL_REWARD", "Referral reward"], ["SELF_SUBMISSION_REWARD", "Self-submission reward"],
 ];
-export function RiderEarnings({ rider, request, onClose }: {
+export function RiderRewardEarnings({ rider, request }: {
   rider: { id: string; name: string; mobile: string };
   request: (path: string) => Promise<unknown>;
-  onClose: () => void;
 }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -52,8 +50,8 @@ export function RiderEarnings({ rider, request, onClose }: {
   }, [signature, page, retry, invalidDates]);
   const current = !invalidDates && result?.signature === signature ? result.data : null;
   const awaiting = !invalidDates && !error && (loading || !current);
-  return <ClientFormDialog title="Rider earnings" heading={<>Earnings · {rider.name}</>} wide formsOnly onClose={onClose}>
-    <p className="muted">{rider.mobile} · Posted wallet rewards only. Reversed rewards are excluded.</p>
+  return <>
+    <p className="muted">Posted wallet rewards only. Reversed rewards are excluded.</p>
     <div className="client-filter-bar">
       <label>From (UTC)<input type="date" value={from} max={to || undefined} onChange={event => { setFrom(event.target.value); setPage(1); setError(""); }} /></label>
       <label>To (UTC)<input type="date" value={to} min={from || undefined} onChange={event => { setTo(event.target.value); setPage(1); setError(""); }} /></label>
@@ -81,5 +79,5 @@ export function RiderEarnings({ rider, request, onClose }: {
       ]}
       server={{ page, limit: pageSize, total: !error ? current?.meta.total ?? 0 : 0, search: '', onSearch: () => {}, onPage: setPage, onLimit: size => { setPageSize(size); setPage(1); } }}
       emptyMessage={error ? "Unable to load earnings. Retry to continue." : "No reward earnings in the selected period."} />}
-  </ClientFormDialog>;
+  </>;
 }

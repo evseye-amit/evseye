@@ -1,3 +1,6 @@
+import { RiderWalletOperationsService } from './rider-wallet.service.js';
+import { RiderWalletTransactionsQueryDto } from './dto/rider-wallet.dto.js';
+import { WalletService } from '../wallet/wallet.service.js';
 import { afterAll, describe, expect, it } from 'vitest';
 import { PrismaClient, type WalletTransactionStatus, type WalletTransactionType } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
@@ -9,6 +12,7 @@ if (url && !new URL(url).pathname.includes('_test_')) throw new Error('Use a dis
 const db = new PrismaClient({ datasources: { db: { url: url ?? 'postgresql://unused:unused@localhost:5432/unused' } } });
 afterAll(() => db.$disconnect());
 const service = new RiderEarningsService(db as never);
+const wallets = new RiderWalletOperationsService(db as never, new WalletService(db as never));
 const query = (values = {}) => Object.assign(new RiderEarningsQueryDto(), values);
 describe.skipIf(!url)('rider earnings in PostgreSQL', () => {
   async function fixture() {
@@ -25,7 +29,7 @@ describe.skipIf(!url)('rider earnings in PostgreSQL', () => {
       ] });
       return txn;
     }
-    return { client, rider, wallet, earning };
+    return { client, rider, wallet, earning, reward, clearing };
   }
   it('counts only posted reward credits, excludes reversals and other riders, and sums decimals exactly', async () => {
     const f = await fixture();
@@ -74,4 +78,54 @@ describe.skipIf(!url)('rider earnings in PostgreSQL', () => {
     await db.rider.update({ where: { id: rider.id }, data: { deletedAt: new Date() } });
     await expect(service.list(f.client.id, rider.id, query())).rejects.toThrow('Rider not found');
   });
+  it('reuses wallet balances with cash, rewards, deposits and partially captured holds', async () => {
+    const f = await fixture();
+    await f.earning('REWARD', '100.00', '2026-10-01T00:00:00Z');
+    const cash = await db.walletAccount.create({ data: { clientId: f.client.id, walletId: f.wallet.id, accountType: 'CASH', currency: 'INR' } });
+    const deposit = await db.walletAccount.create({ data: { clientId: f.client.id, walletId: f.wallet.id, accountType: 'SECURITY_DEPOSIT', currency: 'INR' } });
+    const post = async (type: WalletTransactionType, amount: string, accountId: string, entryType: 'CREDIT' | 'DEBIT', status: WalletTransactionStatus = 'POSTED', createdAt = '2026-10-10T00:00:00Z') => {
+      const row = await db.walletTransaction.create({ data: { clientId: f.client.id, walletId: f.wallet.id, transactionType: type, status, transactionNumber: randomUUID(), idempotencyKey: randomUUID(), requestHash: 'a'.repeat(64), currency: 'INR', amount, description: 'Wallet test', createdAt: new Date(createdAt), postedAt: status === 'POSTED' || status === 'REVERSED' ? new Date(createdAt) : null } });
+      await db.walletLedgerEntry.createMany({ data: [
+        { clientId: f.client.id, walletId: f.wallet.id, accountId, transactionId: row.id, amount, currency: 'INR', entryType, sequence: 1 },
+        { clientId: f.client.id, walletId: f.wallet.id, accountId: f.clearing.id, transactionId: row.id, amount, currency: 'INR', entryType: entryType === 'CREDIT' ? 'DEBIT' : 'CREDIT', sequence: 2 },
+      ] });
+      return row;
+    };
+    await post('TOP_UP', '500.00', cash.id, 'CREDIT');
+    await post('RENTAL', '200.00', cash.id, 'DEBIT');
+    await post('SECURITY_DEPOSIT', '300.00', deposit.id, 'CREDIT');
+    await post('TOP_UP', '25.00', cash.id, 'CREDIT', 'REVERSED');
+    await post('REVERSAL', '25.00', cash.id, 'DEBIT');
+    const pending = await post('TOP_UP', '999.00', cash.id, 'CREDIT', 'PENDING');
+    await db.walletHold.createMany({ data: [
+      { clientId: f.client.id, walletId: f.wallet.id, accountId: cash.id, amount: '50.00', capturedAmount: '10.00', currency: 'INR', reason: 'Hold', idempotencyKey: randomUUID() },
+      { clientId: f.client.id, walletId: f.wallet.id, accountId: f.reward.id, amount: '20.00', currency: 'INR', reason: 'Hold', idempotencyKey: randomUUID() },
+    ] });
+    const before = await db.walletTransaction.count({ where: { clientId: f.client.id } });
+    const balance = await wallets.balance(f.client.id, f.rider.id);
+    expect(balance.wallets[0]).toMatchObject({ totalBalance: '400.00', heldBalance: '60.00', availableBalance: '340.00', cash: { totalBalance: '300.00', heldBalance: '40.00', availableBalance: '260.00' }, rewards: { totalBalance: '100.00', availableBalance: '80.00' }, securityDepositBucket: { totalBalance: '300.00' } });
+    const history = await wallets.transactions(f.client.id, f.rider.id, new RiderWalletTransactionsQueryDto());
+    expect(history.meta.total).toBe(before);
+    expect(history.items.find(row => row.transactionType === 'RENTAL')?.movements).toEqual([{ bucket: 'CASH', amount: '-200.00' }]);
+    expect(history.items.find(row => row.id === pending.id)?.movements).toEqual([]);
+    const filtered = await wallets.transactions(f.client.id, f.rider.id, Object.assign(new RiderWalletTransactionsQueryDto(), { type: 'TOP_UP', status: 'PENDING', from: '2026-10-10', to: '2026-10-10', pageSize: 1 }));
+    expect(filtered.meta.total).toBe(1); expect(filtered.items[0].id).toBe(pending.id);
+    const nextDay = await wallets.transactions(f.client.id, f.rider.id, Object.assign(new RiderWalletTransactionsQueryDto(), { from: '2026-10-11', to: '2026-10-11' }));
+    expect(nextDay.items).toEqual([]);
+    expect((await service.list(f.client.id, f.rider.id, query())).summary[0].allTimeAmount).toBe('100.00');
+    expect(await db.walletTransaction.count({ where: { clientId: f.client.id } })).toBe(before);
+  });
+  it('protects both wallet views across clients and does not create a missing wallet', async () => {
+    const f = await fixture(), other = await fixture();
+    await expect(wallets.balance(f.client.id, other.rider.id)).rejects.toThrow('Rider not found');
+    await expect(wallets.transactions(f.client.id, other.rider.id, new RiderWalletTransactionsQueryDto())).rejects.toThrow('Rider not found');
+    const noWallet = await db.rider.create({ data: { clientId: f.client.id, name: 'No wallet', mobile: '9876543222' } });
+    expect((await wallets.balance(f.client.id, noWallet.id)).wallets).toEqual([]);
+    expect((await wallets.transactions(f.client.id, noWallet.id, new RiderWalletTransactionsQueryDto())).meta.total).toBe(0);
+    expect(await db.riderWallet.count({ where: { riderId: noWallet.id } })).toBe(0);
+    await db.rider.update({ where: { id: noWallet.id }, data: { deletedAt: new Date() } });
+    await expect(wallets.balance(f.client.id, noWallet.id)).rejects.toThrow('Rider not found');
+    await expect(wallets.transactions(f.client.id, noWallet.id, new RiderWalletTransactionsQueryDto())).rejects.toThrow('Rider not found');
+  });
+
 });
