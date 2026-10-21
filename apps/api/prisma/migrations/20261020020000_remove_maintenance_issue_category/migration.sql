@@ -44,6 +44,10 @@ CREATE TEMP TABLE changed_issue_reports ON COMMIT DROP AS
 SELECT id, digest AS old_digest FROM "VehicleSubmissionReport"
 WHERE issues IS DISTINCT FROM pg_temp.strip_issue_categories(issues, TRUE);
 
+-- Existing reports may already be terminal; disable the immutability guard only
+-- while this migration rewrites the maintenance issue payload and digest.
+DROP TRIGGER vehicle_submission_report_guard ON "VehicleSubmissionReport";
+
 UPDATE "VehicleSubmissionReport" r
 SET issues = pg_temp.strip_issue_categories(r.issues, TRUE)
 FROM changed_issue_reports c WHERE r.id = c.id;
@@ -68,8 +72,13 @@ WHERE o.context->>'reportId' = c.id AND o.status = 'PENDING';
 UPDATE "VehicleSubmissionReport" r SET
   "riderOtpRequestId" = NULL, "riderVerifiedUserId" = NULL,
   "teamLeadOtpRequestId" = NULL, "teamLeadVerifiedUserId" = NULL
-FROM changed_issue_reports c WHERE r.id = c.id AND r.status <> 'CONFIRMED';
+FROM changed_issue_reports c WHERE r.id = c.id AND r.status IN ('DRAFT', 'SUBMITTED');
 
 ALTER TABLE "VehicleMaintenanceIssue" DROP COLUMN "category";
 DROP TYPE "MaintenanceIssueCategory";
+
+CREATE TRIGGER vehicle_submission_report_guard
+BEFORE UPDATE ON "VehicleSubmissionReport"
+FOR EACH ROW EXECUTE FUNCTION guard_vehicle_submission_report();
+
 COMMIT;
