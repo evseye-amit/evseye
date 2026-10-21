@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { ClientFormDialog } from "./client-form-dialog";
 import { UiIcon } from "./ui-icon";
 import { useClientAppearance } from "./client-provider";
-export function ClientBrandingSettings({ token }: { token: string }) {
+export function ClientBrandingSettings({ token, triggerClassName = "client-nav-utility" }: { token: string; triggerClassName?: string }) {
   const { appearance, setAppearance } = useClientAppearance();
   const [authorized, setAuthorized] = useState(false);
   const [open, setOpen] = useState(false);
@@ -94,7 +94,7 @@ export function ClientBrandingSettings({ token }: { token: string }) {
   return (
     <>
       <button
-        className="client-nav-utility"
+        className={triggerClassName}
         type="button"
         onClick={() => {
           setDraft(appearance.branding);

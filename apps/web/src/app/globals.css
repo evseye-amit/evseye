@@ -4569,6 +4569,8 @@ body:has(.sa-dialog[open]) {
   .client-dialog-content .form-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
+.client-operations-shell .sa-sidebar nav a.sa-nav-child { margin: 0; padding-left: 20px; font-size: 15px; }
+
 /* Use one interaction treatment for direct links, group headings and child items. */
 .client-operations-shell .sa-sidebar :is(nav button, .client-nav-utility) {
   min-height: 44px;
