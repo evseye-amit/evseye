@@ -872,6 +872,7 @@ model Client {
   domains                     ClientDomain[]
   branding                    ClientBranding?
   users                       User[]
+  riderIdentityClaims         RiderIdentityClaim[]
   attendancePeriods           AttendancePeriod[]
   riders                      Rider[]
   photos                      Photo[]
@@ -1993,6 +1994,7 @@ model User {
   deletedAt                DateTime?
   sessions                 Session[]
   rider                    Rider?
+  riderIdentityClaim      RiderIdentityClaim?
   riderOnboardingProgress  RiderOnboardingProgress?
   riderOnboardingDocuments RiderOnboardingDocument[] @relation("RiderOnboardingDocumentUploader")
   hubAssignments           UserHub[]
@@ -2072,6 +2074,21 @@ model Rider {
   @@unique([clientId, riderCode])
   @@index([clientId, status])
   @@index([clientId, name])
+}
+
+model RiderIdentityClaim {
+  clientId      String
+  userId        String
+  aadhaarNumber String?
+  panNumber     String?
+  client        Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  user          User   @relation(fields: [clientId, userId], references: [clientId, id], onDelete: Restrict)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@id([clientId, userId])
+  @@unique([clientId, aadhaarNumber], map: "rider_identity_claim_client_aadhaar_unique")
+  @@unique([clientId, panNumber], map: "rider_identity_claim_client_pan_unique")
 }
 
 model PaymentMandate {

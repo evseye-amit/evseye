@@ -19,6 +19,11 @@ import type { ListRidersDto } from './dto/list-riders.dto.js';
 import type { UpdateRiderDto } from './dto/update-rider.dto.js';
 import { RiderOnboardingConfigurationService } from './rider-onboarding-configuration.service.js';
 import { RiderKycStatusService } from './rider-kyc-status.service.js';
+import {
+  riderIdentityConflictField,
+  riderIdentityConflictException,
+  riderIdentityValuesFromMetadata,
+} from './rider-identity.js';
 
 @Injectable()
 export class RidersService {
@@ -49,6 +54,8 @@ export class RidersService {
       await this.completeOnboardingStep(clientId);
       return rider;
     } catch (error) {
+      const identityError = riderIdentityConflictException(error);
+      if (identityError) throw identityError;
       if (this.isUniqueViolation(error)) {
         throw new ConflictException(
           USER_MOBILE_CONFLICT_MESSAGE,
@@ -88,12 +95,13 @@ export class RidersService {
         await this.create(clientId, row);
         created += 1;
       } catch (error) {
+        const identityField = riderIdentityConflictField(error);
         failures.push({
           ...row,
           row_number: index + 2,
           failure_reason:
             error instanceof Error ? error.message : 'Invalid row.',
-          failure_fields: Object.keys(row.values ?? {}).join(','),
+          failure_fields: identityField ?? Object.keys(row.values ?? {}).join(','),
         });
       }
     }
@@ -219,6 +227,13 @@ export class RidersService {
     const { data } = await this.onboardingConfiguration.validateAndMapValues(clientId, dto.values, 'EDIT', existing.metadata);
     const mobile = typeof data.mobile === 'string' ? data.mobile : undefined;
     if (mobile !== undefined) await assertUserMobileAvailable(this.prisma, clientId, mobile, existing.userId ?? undefined);
+    const identityInputProvided = Object.keys(riderIdentityValuesFromMetadata({
+      aadhaarNumber: dto.values.AADHAAR_NUMBER,
+      panNumber: dto.values.PAN_NUMBER,
+    })).length > 0;
+    if (identityInputProvided && !existing.userId) {
+      throw new ConflictException('Rider identity cannot be changed because this rider is not linked to a user.');
+    }
     try {
       return await this.prisma.$transaction(async (tx) => {
         const rider = await tx.rider.update({ where: { id }, data: { ...data, ...(mobile !== undefined ? { mobile: normalizeIndianMobile(mobile) } : {}) } });
@@ -236,6 +251,8 @@ export class RidersService {
         return rider;
       });
     } catch (error) {
+      const identityError = riderIdentityConflictException(error);
+      if (identityError) throw identityError;
       if (this.isUniqueViolation(error)) {
         throw new ConflictException(
           USER_MOBILE_CONFLICT_MESSAGE,

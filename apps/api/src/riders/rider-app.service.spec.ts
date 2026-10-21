@@ -42,7 +42,7 @@ function workflowFromLegacyFixture(prisma: any) {
 function createService() {
   const transaction = {
     riderOnboardingProgress: { update: vi.fn().mockResolvedValue({}) },
-    rider: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({ id: 'rider-1' }) },
+    rider: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({ id: 'rider-1' }), update: vi.fn().mockResolvedValue({}) },
     riderOnboardingDocument: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     user: { update: vi.fn().mockResolvedValue({}) },
   };
@@ -255,6 +255,51 @@ describe('RiderAppService.saveStep', () => {
     expect(kyc.sync).toHaveBeenCalledWith(transaction, 'client-1', 'user-1', configuration.onboarding.steps[0].fields);
   });
 
+  it('reads the Rider after progress identity projection before merging stored bank fields', async () => {
+    const { service, transaction, resolver } = createService();
+    vi.spyOn(resolver, 'getEffectiveConfiguration').mockResolvedValue({
+      ...configuration,
+      onboarding: { ...configuration.onboarding, steps: [{
+        ...configuration.onboarding.steps[0],
+        fields: [...configuration.onboarding.steps[0].fields,
+          {
+            fieldCode: 'PAN_NUMBER', storageKey: 'metadata.panNumber', fieldType: 'TEXT', dataType: 'STRING',
+            required: false, isUpload: false, editable: true, readOnly: false, disabled: false,
+            validation: { pattern: '^[A-Z]{5}[0-9]{4}[A-Z]$' }, configuration: {},
+          },
+          {
+            fieldCode: 'IFSC_CODE', storageKey: 'metadata.ifscCode', fieldType: 'TEXT', dataType: 'STRING',
+            required: true, isUpload: false, editable: true, readOnly: false, disabled: false,
+            validation: { pattern: '^[A-Z]{4}0[A-Z0-9]{6}$' }, configuration: {},
+          },
+          {
+            fieldCode: 'BANK_ACCOUNT_NUMBER', storageKey: 'metadata.bankAccountNumber', fieldType: 'TEXT', dataType: 'STRING',
+            required: true, isUpload: false, editable: true, readOnly: false, disabled: false,
+            validation: { pattern: '^[0-9]{6,40}$' }, configuration: {},
+          },
+        ],
+      }] },
+    } as never);
+    // The progress trigger has already projected the new PAN by the time this
+    // read runs. A stale pre-trigger read would restore the old PAN here.
+    transaction.rider.findUnique.mockResolvedValue({
+      id: 'rider-1', clientId: 'client-1', metadata: { panNumber: 'NEWAB1234C', bankName: 'Existing Bank' },
+    });
+
+    await service.saveStep('client-1', 'user-1', 'step-1', {
+      FULL_NAME: 'Aman Singh', MOBILE_NUMBER: '6573838383', PAN_NUMBER: 'newab1234c',
+      IFSC_CODE: 'HDFC0001234', BANK_ACCOUNT_NUMBER: '1234567890',
+    });
+
+    expect(transaction.rider.findUnique.mock.invocationCallOrder[0])
+      .toBeGreaterThan(transaction.riderOnboardingProgress.update.mock.invocationCallOrder[0]);
+    expect(transaction.rider.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        metadata: expect.objectContaining({ panNumber: 'NEWAB1234C', ifscCode: 'HDFC0001234', bankAccountNumber: '1234567890' }),
+      }),
+    }));
+  });
+
   it('rejects an invalid birth date before saving onboarding progress', async () => {
     const { service, prisma } = createService();
     await expect(service.saveStep('client-1', 'user-1', 'step-1', {
@@ -285,6 +330,106 @@ describe('RiderAppService.saveStep', () => {
     expect(transaction.rider.create).toHaveBeenCalledWith({ data: expect.objectContaining({
       metadata: expect.objectContaining({ panNumber: 'ABCDE1234F' }),
     }) });
+  });
+
+  it('persists canonical identity values on an unfinished save; database triggers synchronize the Rider and claim', async () => {
+    const { service, transaction, resolver } = createService();
+    const profile = configuration.onboarding.steps[0];
+    vi.spyOn(resolver, 'getEffectiveConfiguration').mockResolvedValue({
+      ...configuration,
+      onboarding: { ...configuration.onboarding, steps: [
+        { ...profile, fields: [...profile.fields, {
+          fieldCode: 'PAN_NUMBER', storageKey: 'metadata.panNumber', fieldType: 'TEXT', dataType: 'STRING',
+          required: false, isUpload: false, editable: true, readOnly: false, disabled: false,
+          validation: { pattern: '^[A-Z]{5}[0-9]{4}[A-Z]$' }, configuration: {},
+        }] },
+        { ...profile, stepId: 'documents', fields: [] },
+      ] },
+    } as never);
+    transaction.rider.findUnique.mockResolvedValue({
+      id: 'rider-1', clientId: 'client-1', metadata: { references: ['preserved'] },
+    });
+
+    await service.saveStep('client-1', 'user-1', 'step-1', {
+      FULL_NAME: 'Aman Singh', MOBILE_NUMBER: '6573838383', PAN_NUMBER: 'abcde1234f',
+    });
+
+    expect(transaction.riderOnboardingProgress.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ values: expect.objectContaining({ PAN_NUMBER: 'ABCDE1234F' }) }),
+    }));
+    expect(transaction.rider.create).not.toHaveBeenCalled();
+    expect(transaction.rider.update).not.toHaveBeenCalled();
+  });
+
+  it('does not bypass identity reservation when a step is skipped with a supplied value', async () => {
+    const { service, transaction, resolver } = createService();
+    vi.spyOn(resolver, 'getEffectiveConfiguration').mockResolvedValue({
+      ...configuration,
+      onboarding: { ...configuration.onboarding, steps: [
+        { ...configuration.onboarding.steps[0], fields: [...configuration.onboarding.steps[0].fields, {
+          fieldCode: 'PAN_NUMBER', storageKey: 'metadata.panNumber', fieldType: 'TEXT', dataType: 'STRING',
+          required: false, isUpload: false, editable: true, readOnly: false, disabled: false,
+          validation: { pattern: '^[A-Z]{5}[0-9]{4}[A-Z]$' }, configuration: {},
+        }] },
+        { ...configuration.onboarding.steps[0], stepId: 'documents', fields: [] },
+      ] },
+    } as never);
+
+    await service.saveStep('client-1', 'user-1', 'step-1', { PAN_NUMBER: 'abcde1234f' }, true);
+
+    expect(transaction.riderOnboardingProgress.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ values: expect.objectContaining({ PAN_NUMBER: 'ABCDE1234F' }) }),
+    }));
+  });
+
+  it('maps a mobile trigger PAN conflict to a field-specific 409', async () => {
+    const { service, transaction, resolver } = createService();
+    vi.spyOn(resolver, 'getEffectiveConfiguration').mockResolvedValue({
+      ...configuration,
+      onboarding: { ...configuration.onboarding, steps: [{
+        ...configuration.onboarding.steps[0],
+        fields: [...configuration.onboarding.steps[0].fields, {
+          fieldCode: 'PAN_NUMBER', storageKey: 'metadata.panNumber', fieldType: 'TEXT', dataType: 'STRING',
+          required: false, isUpload: false, editable: true, readOnly: false, disabled: false,
+          validation: { pattern: '^[A-Z]{5}[0-9]{4}[A-Z]$' }, configuration: {},
+        }],
+      }] },
+    } as never);
+    transaction.riderOnboardingProgress.update.mockRejectedValue({ code: 'P2002', meta: { target: ['clientId', 'panNumber'] } });
+
+    await expect(service.saveStep('client-1', 'user-1', 'step-1', { PAN_NUMBER: 'abcde1234f' }, true))
+      .rejects.toMatchObject({ status: 409, fieldCode: 'PAN_NUMBER' });
+  });
+
+  it('does not write claims or replay a stale identity when an unrelated step is saved', async () => {
+    const { service, prisma, transaction, resolver } = createService();
+    const profile = configuration.onboarding.steps[0];
+    vi.spyOn(resolver, 'getEffectiveConfiguration').mockResolvedValue({
+      ...configuration,
+      onboarding: { ...configuration.onboarding, steps: [
+        { ...profile, fields: [...profile.fields, {
+          fieldCode: 'PAN_NUMBER', storageKey: 'metadata.panNumber', fieldType: 'TEXT', dataType: 'STRING',
+          required: false, isUpload: false, editable: true, readOnly: false, disabled: false,
+          validation: { pattern: '^[A-Z]{5}[0-9]{4}[A-Z]$' }, configuration: {},
+        }] },
+        { ...profile, stepId: 'documents', fields: [] },
+      ] },
+    } as never);
+    prisma.riderOnboardingProgress.findUnique.mockResolvedValue({
+      completedStepIds: [], skippedStepIds: [], values: { PAN_NUMBER: 'ABCDE1111A' },
+    });
+    transaction.rider.findUnique.mockResolvedValue({
+      id: 'rider-1', clientId: 'client-1', metadata: { panNumber: 'ABCDE2222B' },
+    });
+
+    await service.saveStep('client-1', 'user-1', 'step-1', {
+      FULL_NAME: 'Aman Singh', MOBILE_NUMBER: '6573838383',
+    });
+
+    expect(transaction.riderOnboardingProgress.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ values: expect.objectContaining({ PAN_NUMBER: 'ABCDE1111A' }) }),
+    }));
+    expect(transaction.rider.update).not.toHaveBeenCalled();
   });
 
   it('attributes an optional referral code without writing it into Rider profile fields', async () => {

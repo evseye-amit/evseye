@@ -12,6 +12,10 @@ import { ReferralQualificationService } from '../referrals/referral-qualificatio
 import { homeDates } from '../fleet-manager-home/home-metrics.js';
 import { parseSnapshot } from '../rider-rate-cards/commercial-snapshot.js';
 import { RiderKycStatusService } from './rider-kyc-status.service.js';
+import {
+  normalizeRiderIdentityInput,
+  riderIdentityConflictException,
+} from './rider-identity.js';
 
 @Injectable()
 export class RiderAppService {
@@ -169,9 +173,7 @@ export class RiderAppService {
     if (skip && step.fields.some(field => field.featureCode === 'CAPTURE_BANK_ACCOUNT' && field.required && !field.disabled))
       throw new BadRequestException('Bank account and IFSC details are required before continuing.');
     if (!skip) values = normalizeRiderBankValues(values, allowed);
-    if (allowed.has('PAN_NUMBER') && typeof values.PAN_NUMBER === 'string') {
-      values = { ...values, PAN_NUMBER: values.PAN_NUMBER.trim().toUpperCase() };
-    }
+    values = normalizeRiderIdentityInput(values);
     const current = await this.prisma.riderOnboardingProgress.findUnique({ where: { userId } });
     if (!current) throw new BadRequestException('Rider onboarding has not been started.');
     // Attribution belongs to the authenticated Rider. It is deliberately not part of
@@ -245,40 +247,48 @@ export class RiderAppService {
     const riderValues = allFinished
       ? (await this.configuration.validateAndMapValues(clientId, storedValues, 'CREATE', {}, { requireAll: false })).data
       : {};
-    await this.prisma.$transaction(async (tx) => {
-      await this.kyc.lockUser(tx, clientId, userId);
-      await tx.riderOnboardingProgress.update({ where: { userId }, data: { values: merged as Prisma.InputJsonValue, completedStepIds: [...completed], skippedStepIds: [...skipped], ...(allFinished ? { completedAt: new Date() } : {}) } });
-      // Keep the account name useful while the remaining onboarding steps are pending.
-      const nameField = effective.onboarding.steps.flatMap((item) => item.fields).find((field) => field.storageKey === 'name');
-      const enteredName = nameField ? merged[nameField.fieldCode] : undefined;
-      if (!allFinished && typeof enteredName === 'string' && enteredName.trim()) {
-        await tx.user.update({ where: { id: userId }, data: { name: enteredName.trim() } });
-      }
-      const existingRider = allFinished ? await tx.rider.findUnique({ where: { userId } }) : null;
-      if (allFinished && !existingRider) {
-        const data: Record<string, unknown> = {
-          ...riderValues,
-          clientId,
-          userId,
-          status: 'ACTIVE',
-          name: String(riderValues.name ?? 'Rider'),
-          mobile: String(riderValues.mobile ?? ''),
-        };
-        const rider = await tx.rider.create({ data: data as never });
-        await tx.riderOnboardingDocument.updateMany({ where: { clientId, userId, riderId: null }, data: { riderId: rider.id } });
-        await tx.user.update({ where: { id: userId }, data: { name: data.name as string } });
-      } else if (existingRider && existingRider.clientId === clientId) {
-        const metadata = riderValues.metadata as Record<string, unknown> | undefined;
-        const bankMetadata = Object.fromEntries(riderBankFields
-          .filter(field => storedValues[field.fieldCode] !== undefined && metadata?.[field.storageKey.slice('metadata.'.length)] !== undefined)
-          .map(field => [field.storageKey.slice('metadata.'.length), metadata![field.storageKey.slice('metadata.'.length)]]));
-        if (Object.keys(bankMetadata).length) {
-          const previous = existingRider.metadata && typeof existingRider.metadata === 'object' && !Array.isArray(existingRider.metadata) ? existingRider.metadata : {};
-          await tx.rider.update({ where: { id: existingRider.id }, data: { metadata: { ...previous, ...bankMetadata } as Prisma.InputJsonValue } });
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await this.kyc.lockUser(tx, clientId, userId);
+        await tx.riderOnboardingProgress.update({ where: { userId }, data: { values: merged as Prisma.InputJsonValue, completedStepIds: [...completed], skippedStepIds: [...skipped], ...(allFinished ? { completedAt: new Date() } : {}) } });
+        // The progress trigger may have projected a changed identity into Rider.
+        // Read after that write so a bank-only merge cannot restore stale JSON.
+        const existingRider = await tx.rider.findUnique({ where: { userId } });
+        // Keep the account name useful while the remaining onboarding steps are pending.
+        const nameField = effective.onboarding.steps.flatMap((item) => item.fields).find((field) => field.storageKey === 'name');
+        const enteredName = nameField ? merged[nameField.fieldCode] : undefined;
+        if (!allFinished && typeof enteredName === 'string' && enteredName.trim()) {
+          await tx.user.update({ where: { id: userId }, data: { name: enteredName.trim() } });
         }
-      }
-      if (allFinished) await this.kyc.sync(tx, clientId, userId, effective.onboarding.steps.flatMap(step => step.fields));
-    });
+        if (allFinished && !existingRider) {
+          const data: Record<string, unknown> = {
+            ...riderValues,
+            clientId,
+            userId,
+            status: 'ACTIVE',
+            name: String(riderValues.name ?? 'Rider'),
+            mobile: String(riderValues.mobile ?? ''),
+          };
+          const rider = await tx.rider.create({ data: data as never });
+          await tx.riderOnboardingDocument.updateMany({ where: { clientId, userId, riderId: null }, data: { riderId: rider.id } });
+          await tx.user.update({ where: { id: userId }, data: { name: data.name as string } });
+        } else if (existingRider && existingRider.clientId === clientId) {
+          const metadata = riderValues.metadata as Record<string, unknown> | undefined;
+          const bankMetadata = Object.fromEntries(riderBankFields
+            .filter(field => storedValues[field.fieldCode] !== undefined && metadata?.[field.storageKey.slice('metadata.'.length)] !== undefined)
+            .map(field => [field.storageKey.slice('metadata.'.length), metadata![field.storageKey.slice('metadata.'.length)]]));
+          if (Object.keys(bankMetadata).length) {
+            const previous = existingRider.metadata && typeof existingRider.metadata === 'object' && !Array.isArray(existingRider.metadata) ? existingRider.metadata : {};
+            await tx.rider.update({ where: { id: existingRider.id }, data: { metadata: { ...previous, ...bankMetadata } as Prisma.InputJsonValue } });
+          }
+        }
+        if (allFinished) await this.kyc.sync(tx, clientId, userId, effective.onboarding.steps.flatMap(step => step.fields));
+      });
+    } catch (error) {
+      const identityError = riderIdentityConflictException(error);
+      if (identityError) throw identityError;
+      throw error;
+    }
     if (allFinished && this.referrals && this.referralQualification) {
       const rider = await this.prisma.rider.findUnique({ where: { userId }, select: { id: true } });
       if (rider) {
