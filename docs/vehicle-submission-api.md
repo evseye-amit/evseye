@@ -46,8 +46,8 @@ Each item includes `fleet` with `id`, `fleetCode`, `vehicleNumber`,
 existing submission; exchanges show the outgoing scooter. A historical request
 without a resolvable scooter returns `fleet: null`. Fleet status and hub reflect
 the current fleet record. Use
-`source=EXCHANGE` for exchanges. `phase=CHECKS` lists intake/deep checks still in
-progress; `phase=ALL` includes completed submissions. Fleet Managers see only
+`source=EXCHANGE` for exchanges. `phase=CHECKS` lists intake/mechanic checks
+still in progress; `phase=ALL` includes completed submissions. Fleet Managers see only
 their assigned hubs; client admins and operations managers see their client.
 
 Start intake at the planned hub, or pass an actual receiving `hubId`:
@@ -118,7 +118,7 @@ penalty price master; price/category/currency and amounts are frozen in the
 report. Reusing the same price plus exact proof set as a previous finding is
 rejected to prevent duplicate charges.
 
-Report content is immutable. To correct an unposted report, call
+Report content is immutable. To correct an unposted BASIC report, call
 `POST /client/vehicle-submission-reports/:reportId/cancel` with a required
 `{"reason":"..."}` and create a fresh report/key. Only one pending report is
 allowed per submission. Posted reports cannot be edited or cancelled.
@@ -167,24 +167,23 @@ the active agreement, clears its old current vehicle, and returns to the
 existing replacement selection/offer/deposit/handover workflow. The Fleet
 Manager intake API does not grant commercial pricing permissions.
 
-## Later detailed findings
+## Historical detailed findings
 
-After BASIC confirmation, record each further finding with `stage: "DEEP"`,
-new evidence and a fresh idempotency key. Use the same impose/OTP-or-bypass/confirm
-sequence. Each positive report posts a separate rider charge and immutable
-ledger entry linked to the original agreement and vehicle. Earlier charges and
-their proofs remain unchanged. Additional photos can still be uploaded against
-the same inspection after initial handover.
+Existing `DEEP` reports remain readable in submission history, penalty and
+invoice breakdowns, fleet-manager maintenance views, and audit/evidence records.
+They are historical records only: new report creation and editing accept only
+`stage: "BASIC"`, and impose, OTP, verification and confirmation reject
+historical `DEEP` reports with HTTP 409. Historical report contents, damaged
+items, charges, finding IDs and evidence references are not rewritten.
 
-Keep `checksComplete: false` while mechanic work continues. The final report
-sets `checksComplete: true`; it may have zero penalties. A vehicle remains in
-MAINTENANCE and cannot be reallocated while checks are open. It is released only
-when the final confirmed report also marks it safe for reuse. Unsafe vehicles
-stay in maintenance after checks finish. No further reports can be added after
-checks are explicitly completed.
+An old uncharged `DEEP` draft or submitted report may still be cancelled. A
+charged or posted report remains financial history and must use the existing
+financial adjustment process.
 
 Final settlement approval/closure is blocked until all mechanic checks and
-reports are complete and all submission penalties are invoiced. Operations use
+the pending BASIC report flow is complete and all submission penalties are
+invoiced. Historical DEEP rows do not reopen the removed final-check workflow;
+an OPEN rider charge still blocks settlement. Operations use
 the existing rider billing invoice finalization flow for charges posted after
 the rental cutoff; this does not extend rent or backdate the penalty. The
 rental schedule and existing payment, tax, deposit and refund rules continue

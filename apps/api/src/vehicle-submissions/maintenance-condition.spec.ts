@@ -61,6 +61,11 @@ describe('submission maintenance conditions', () => {
         })
       ).some((error) => error.property === 'issues'),
     ).toBe(true);
+    expect(
+      (await validate(
+        plainToInstance(MechanicReportDto, { ...input(), stage: 'DEEP' }),
+      )).some((error) => error.property === 'stage'),
+    ).toBe(true);
   });
 
   it('requires What needs work for non-AVAILABLE reports even when marked safe for reuse', async () => {
@@ -81,6 +86,169 @@ describe('submission maintenance conditions', () => {
         'unsafe-reason-key',
       ),
     ).rejects.toThrow('what needs work');
+  });
+
+  it('rejects a non-BASIC report even when the service bypasses DTO validation', async () => {
+    const service = new VehicleSubmissionService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    await expect(
+      service.recordReport(
+        'client-id',
+        {} as never,
+        'submission-id',
+        { ...input(), stage: 'DEEP' } as never,
+        'historical-deep-key',
+      ),
+    ).rejects.toThrow('read-only');
+  });
+
+  it('keeps historical DEEP reports read-only across all report write and consent actions', async () => {
+    const service = new VehicleSubmissionService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const report = {
+      stage: 'DEEP',
+      status: 'POSTED',
+      requestKey: 'historical-deep-key',
+      digest: 'a'.repeat(64),
+    };
+    const submission = { id: 'submission-id' };
+    vi.spyOn(service as any, 'reportAccess').mockResolvedValue({
+      report,
+      submission,
+    } as never);
+    const actor = { id: 'manager-id', roles: ['FLEET_MANAGER'] } as never;
+
+    await expect(
+      service.updateReport(
+        'client-id',
+        actor,
+        'report-id',
+        input(),
+        report.digest,
+      ),
+    ).rejects.toThrow('read-only');
+    await expect(
+      service.impose('client-id', actor, 'report-id'),
+    ).rejects.toThrow('read-only');
+    await expect(
+      service.requestOtps('client-id', actor, 'report-id', 'RIDER'),
+    ).rejects.toThrow('read-only');
+    await expect(
+      service.verifyOtp(
+        'client-id',
+        actor,
+        'report-id',
+        'RIDER',
+        'otp-request-id',
+        '123456',
+      ),
+    ).rejects.toThrow('read-only');
+    await expect(
+      service.confirm('client-id', actor, 'report-id', {}),
+    ).rejects.toThrow('read-only');
+  });
+
+  it('returns historical reports unchanged and completes confirmed submissions', async () => {
+    const report = {
+      id: 'historical-report',
+      stage: 'DEEP',
+      status: 'SUBMITTED',
+      fleetStatus: 'BROKEN',
+      summary: 'Historical repair finding',
+      items: [{ findingId: 'finding-id', amount: '25.00' }],
+    };
+    const submission = {
+      id: 'submission-id',
+      inspectionId: 'inspection-id',
+      riderId: 'rider-id',
+      hubId: 'hub-id',
+      requiredPhotoTypes: [],
+      status: 'CONFIRMED',
+    };
+    const db = {
+      vehicleSubmissionReport: { findMany: vi.fn().mockResolvedValue([report]) },
+      photo: { findMany: vi.fn().mockResolvedValue([]) },
+      rider: { findFirst: vi.fn().mockResolvedValue(null) },
+      hub: { findFirst: vi.fn().mockResolvedValue(null) },
+    };
+    const service = new VehicleSubmissionService(
+      db as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    vi.spyOn(service as any, 'accessible').mockResolvedValue(
+      submission as never,
+    );
+
+    const viewed = await service.get(
+      'client-id',
+      { id: 'manager-id', roles: ['FLEET_MANAGER'] } as never,
+      submission.id,
+    );
+    expect(viewed.nextAction).toBe('COMPLETE');
+    expect(viewed.reports).toEqual([report]);
+  });
+
+  it('allows uncharged historical cancellation but keeps charged reports financially restricted', async () => {
+    const transaction = (report: unknown, count: number) => {
+      const tx = {
+        vehicleSubmissionReport: {
+          updateMany: vi.fn().mockResolvedValue({ count }),
+          findUniqueOrThrow: vi.fn().mockResolvedValue({
+            id: 'historical-report',
+            status: 'CANCELLED',
+          }),
+        },
+        otpRequest: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      };
+      const service = new VehicleSubmissionService(
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+      );
+      vi.spyOn(service as any, 'reportAccess').mockResolvedValue({
+        report,
+        submission: { inspectionId: 'inspection-id' },
+      } as never);
+      vi.spyOn(service as any, 'transaction').mockImplementation(
+        ((fn: (value: unknown) => Promise<unknown>) => fn(tx)) as any,
+      );
+      vi.spyOn(service as any, 'audit').mockResolvedValue(undefined);
+      return service;
+    };
+    const actor = { id: 'manager-id', roles: ['FLEET_MANAGER'] } as never;
+    for (const status of ['DRAFT', 'SUBMITTED'] as const) {
+      const uncharged = transaction(
+        { stage: 'DEEP', status, postedChargeId: null },
+        1,
+      );
+      await expect(
+        uncharged.cancelReport(
+          'client-id',
+          actor,
+          'historical-report',
+          'Undo',
+        ),
+      ).resolves.toMatchObject({ status: 'CANCELLED' });
+    }
+
+    const charged = transaction(
+      { stage: 'DEEP', status: 'POSTED', postedChargeId: 'charge-id' },
+      0,
+    );
+    await expect(
+      charged.cancelReport('client-id', actor, 'historical-report', 'Undo'),
+    ).rejects.toThrow('financial');
   });
 
   it('confirms a non-AVAILABLE BASIC report once and completes mechanic checks', async () => {
@@ -162,6 +330,7 @@ describe('submission maintenance conditions', () => {
       {} as never,
     );
     vi.spyOn(service as any, 'reportAccess').mockResolvedValue({
+      report: row,
       submission,
     });
     vi.spyOn(service as any, 'assertReportEvidence').mockResolvedValue(

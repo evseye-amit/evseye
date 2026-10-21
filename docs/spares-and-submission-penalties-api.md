@@ -86,7 +86,10 @@ Existing creation route:
 
 `POST /api/v1/client/vehicle-submissions/:submissionId/reports`
 
-Requires a stable `Idempotency-Key`. Keep the existing BASIC/DEEP stage, mechanic, safety, checksComplete and report evidence fields. Selected items now support:
+Requires a stable `Idempotency-Key`. New reports use `stage: "BASIC"` together
+with the mechanic, safety, checksComplete and report evidence fields. Historical
+DEEP reports remain readable in report and invoice history but are read-only.
+Selected items now support:
 
 ```json
 {
@@ -114,7 +117,7 @@ Saving a report creates a DRAFT and no financial debit. The returned items conta
 - Final confirmation: existing OTP/bypass and `.../:reportId/confirm` process remains. It reuses the existing charge/invoice; it does not charge twice or wait for payment.
 - Draft cancellation remains available with a reason. A report already carrying a financial charge cannot be cancelled/edited; correct it through the existing financial adjustment process. Zero-amount reports containing no penalty items retain normal submission behavior.
 
-Duplicate findings are detected within/across reports even without photos. A stable findingId identifies a physical finding across retries. Reusing the same part/evidence, or the same part/type/normalized remarks without evidence, cannot create a duplicate charge by changing findingId. New independent deep-check findings need distinct details/proofs as applicable. Changes remain subject to the original report-stage rules.
+Duplicate findings are detected within/across reports even without photos. A stable findingId identifies a physical finding across retries. Reusing the same part/evidence, or the same part/type/normalized remarks without evidence, cannot create a duplicate charge by changing findingId. Historical finding and charge records remain unchanged.
 
 Replacing an inspection photo preserves COMPLETE photos referenced by imposed/posted reports. The evidence and the corresponding financial snapshot remain usable for review and confirmation.
 

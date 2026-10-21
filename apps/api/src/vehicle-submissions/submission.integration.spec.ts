@@ -318,7 +318,7 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
     }
     function report(
       proof: string,
-      stage: 'BASIC' | 'DEEP' = 'BASIC',
+      stage: 'BASIC' = 'BASIC',
       checksComplete = false,
     ): MechanicReportDto {
       return {
@@ -479,7 +479,7 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
     expect((await penaltyDebt(prisma, cid, f.rider.id)).hasDebt).toBe(true);
   });
 
-  it('requires proof, binds both OTPs, posts initial and later charges once, and holds the vehicle until checks finish', async () => {
+  it('requires proof, binds both OTPs, posts the initial charge once, and completes mechanic checks', async () => {
     const f = await fixture();
     const cid = f.client.id;
     const first = await f.photo('VEHICLE_FRONT');
@@ -639,58 +639,78 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
         cid,
         f.actor,
         f.submission.id,
-        f.report(proof, 'DEEP'),
+        { ...f.report(proof), stage: 'DEEP' } as never,
         'duplicate-finding',
       ),
-    ).rejects.toThrow('charged twice');
-    const laterProof = await f.photo('DEEP_PANEL_DAMAGE');
-    const deep = await service.recordReport(
-      cid,
-      f.actor,
-      f.submission.id,
-      f.report(laterProof.id, 'DEEP', true),
-      'deep-report',
-    );
-    await service.impose(cid, f.actor, deep.id);
-    expect((await service.get(cid, f.actor, f.submission.id)).nextAction).toBe(
-      'COLLECT_OTPS_OR_RECORD_BYPASS',
+    ).rejects.toThrow('read-only');
+    const deep = await db.vehicleSubmissionReport.create({
+      data: {
+        clientId: cid,
+        submissionId: f.submission.id,
+        requestKey: 'deep-history',
+        stage: 'DEEP',
+        fleetStatus: 'BROKEN',
+        mechanicName: 'Mechanic',
+        summary: 'Historical deep repair finding',
+        safeForReuse: false,
+        unsafeReason: 'Historical repair was pending',
+        checksComplete: false,
+        evidencePhotoIds: [proof],
+        items: [],
+        totalAmount: 0,
+        currency: 'INR',
+        digest: 'b'.repeat(64),
+        status: 'POSTED',
+        recordedById: f.actor.id,
+        confirmedAt: new Date(),
+        confirmedById: f.actor.id,
+      },
+    });
+    await expect(
+      service.updateReport(cid, f.actor, deep.id, f.report(proof), 'b'.repeat(64)),
+    ).rejects.toThrow('read-only');
+    await expect(service.impose(cid, f.actor, deep.id)).rejects.toThrow(
+      'read-only',
     );
     await expect(
-      service.confirm(
-        cid,
-        { ...f.actor, roles: ['OPERATIONS_MANAGER'] },
-        deep.id,
-        {
-          riderBypassReason: 'Unavailable',
-          teamLeadBypassReason: 'Unavailable',
-        },
-      ),
-    ).rejects.toThrow('Only a fleet manager');
-    await service.confirm(cid, f.actor, deep.id, {
-      riderBypassReason: 'Rider could not receive SMS; findings explained',
-      teamLeadBypassReason: 'Team lead unavailable; notified of findings',
-    });
-    expect(
-      await db.riderCharge.count({
-        where: {
-          clientId: cid,
-          agreementId: f.agreement.id,
-          vehicleId: f.fleet.id,
-        },
-      }),
-    ).toBe(2);
-    expect(await db.riderInvoice.count({ where: { clientId: cid, invoiceType: 'SUBMISSION_PENALTY' } })).toBe(2);
-    const released = await db.fleet.findUniqueOrThrow({
-      where: { id: f.fleet.id },
-    });
-    expect(released.status).toBe('AVAILABLE');
-    expect(released.allocationEnabled).toBe(true);
+      service.requestOtps(cid, f.actor, deep.id, 'RIDER'),
+    ).rejects.toThrow('read-only');
+    await expect(
+      service.verifyOtp(cid, f.actor, deep.id, 'RIDER', randomUUID(), '123456'),
+    ).rejects.toThrow('read-only');
+    await expect(service.confirm(cid, f.actor, deep.id, {})).rejects.toThrow(
+      'read-only',
+    );
     expect((await service.get(cid, f.actor, f.submission.id)).nextAction).toBe(
       'COMPLETE',
     );
     await expect(
       service.cancelReport(cid, f.actor, deep.id, 'Undo'),
     ).rejects.toThrow('posted report');
+    const oldDraft = await db.vehicleSubmissionReport.create({
+      data: {
+        clientId: cid,
+        submissionId: f.submission.id,
+        requestKey: 'deep-draft-history',
+        stage: 'DEEP',
+        fleetStatus: 'BROKEN',
+        mechanicName: 'Mechanic',
+        summary: 'Historical draft finding',
+        safeForReuse: false,
+        unsafeReason: 'Historical draft was pending',
+        checksComplete: false,
+        evidencePhotoIds: [proof],
+        items: [],
+        totalAmount: 0,
+        currency: 'INR',
+        digest: 'c'.repeat(64),
+        status: 'DRAFT',
+        recordedById: f.actor.id,
+      },
+    });
+    await expect(
+      service.cancelReport(cid, f.actor, oldDraft.id, 'Undo historical draft'),
+    ).resolves.toMatchObject({ status: 'CANCELLED' });
   }, 30000);
 
   it('completes exchange intake without terminating the agreement and restricts hub and rider access', async () => {
