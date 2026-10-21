@@ -1,3 +1,5 @@
+import { RiderEarningsController } from './rider-earnings.controller.js';
+import { RiderEarningsService } from './rider-earnings.service.js';
 import { RiderReferenceReviewController } from './rider-reference-review.controller.js';
 import { RiderReferenceReviewService } from './rider-reference-review.service.js';
 import { Module } from '@nestjs/common';
@@ -16,8 +18,8 @@ import { RiderKycStatusModule } from './rider-kyc-status.module.js';
 
 @Module({
   imports: [AuthModule, AuditModule, MediaModule, ReferralModule, WorkflowModule, RiderKycStatusModule],
-  controllers: [RiderReferenceReviewController, RidersController, RiderAppController, RiderDocumentReviewController],
-  providers: [RiderReferenceReviewService, RidersService, RiderAppService, RiderDocumentReviewService],
+  controllers: [RiderEarningsController, RiderReferenceReviewController, RidersController, RiderAppController, RiderDocumentReviewController],
+  providers: [RiderEarningsService, RiderReferenceReviewService, RidersService, RiderAppService, RiderDocumentReviewService],
   exports: [RiderDocumentReviewService],
 })
 export class RidersModule {}

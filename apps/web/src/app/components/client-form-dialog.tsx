@@ -5,7 +5,7 @@ import { UnsavedChangesScope, type UnsavedChangesHandle } from "./unsaved-change
 import { FormDialogHeader } from "./form-dialog-header";
 import { useLocale } from "./locale-provider";
 
-export function ClientFormDialog({ title, onClose, error, busy = false, wide = false, children, surfaceClassName = "", heading }: {
+export function ClientFormDialog({ title, onClose, error, busy = false, wide = false, children, surfaceClassName = "", heading, formsOnly = false }: {
   title: string;
   heading?: ReactNode;
   onClose: () => void;
@@ -14,6 +14,8 @@ export function ClientFormDialog({ title, onClose, error, busy = false, wide = f
   wide?: boolean;
   children: ReactNode;
   surfaceClassName?: string;
+  // Read-only viewers can exclude filters from unsaved form change tracking.
+  formsOnly?: boolean;
 }) {
   const { t } = useLocale();
   const titleId = useId();
@@ -45,7 +47,7 @@ export function ClientFormDialog({ title, onClose, error, busy = false, wide = f
     onCancel={(event) => { event.preventDefault(); if (!busy) close(); }}>
     <div className={`sa-form sa-dialog-surface client-form-dialog ${surfaceClassName}`}>
       <FormDialogHeader titleId={titleId} title={heading ?? t(title)} busy={busy} onClose={close} />
-      <UnsavedChangesScope ref={unsaved}><div className="client-dialog-content">
+      <UnsavedChangesScope ref={unsaved} formsOnly={formsOnly}><div className="client-dialog-content">
         {error && <p className="error" role="alert">{error}</p>}
         {children}
       </div></UnsavedChangesScope>

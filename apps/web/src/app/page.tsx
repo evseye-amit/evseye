@@ -21,6 +21,7 @@ import {InstallationBoard} from "./components/installation-board";
 import { FleetReadiness, FleetReadinessStatus } from "./components/fleet-readiness";
 import { SupportTickets } from "./components/support-tickets";
 import { RiderReferenceReview } from "./components/rider-reference-review";
+import { RiderEarnings } from "./components/rider-earnings";
 import { OperationsTable } from "./components/operations-records";
 import { ClientDataTable, type ClientColumn } from "./components/client-data-table";
 import { ClientUserManager, parseCsv } from "./components/client-user-manager";
@@ -72,7 +73,6 @@ type Tab =
   | "fleet-component-mapping"
   | "deallocations"
   | "wallet"
-  | "rider-earnings"
   | "rider-document-review"
   | "rider-reference-review"
   | "support-tickets"
@@ -176,7 +176,6 @@ const CLIENT_NAVIGATION: Array<{
       { id: "work-partners", label: "Work Partners" },
       { id: "wallet", label: "Wallet" },
       { id: "payment-transactions", label: "Payment Transactions" },
-      { id: "rider-earnings", label: "Rider Earnings" },
       { id: "rider-document-review", label: "Document Verification" },
       { id: "rider-reference-review", label: "Reference Verification" },
     ],
@@ -230,7 +229,6 @@ const CLIENT_TAB_TITLES: Record<Tab, string> = {
   "fleet-component-mapping": "Fleet Component Mapping",
   deallocations: "Deallocation",
   wallet: "Wallet",
-  "rider-earnings": "Rider Earnings",
   "rider-document-review": "Rider Document Verification",
   "rider-reference-review": "Rider Reference Verification",
   "support-tickets": "Support Tickets",
@@ -268,7 +266,6 @@ const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
   "fleet-component-mapping": "link",
   deallocations: "allocation",
   wallet: "wallet",
-  "rider-earnings": "earnings",
   "rider-document-review": "shield",
   "rider-reference-review": "shield",
   "support-tickets": "support",
@@ -803,6 +800,7 @@ export default function Home() {
     null,
   );
   const [vehicleState, setVehicleState] = useState<RecordItem | null>(null);
+  const [earningsRider, setEarningsRider] = useState<{ id: string; name: string; mobile: string } | null>(null);
   const [riderDetail, setRiderDetail] = useState<RecordItem | null>(null);
   const [editingRider, setEditingRider] = useState(false);
   const [riderDraft, setRiderDraft] = useState<Record<string, string>>({});
@@ -2975,6 +2973,7 @@ export default function Home() {
             </button>
           </ClientFormDialog>
         )}
+        {earningsRider && <RiderEarnings key={earningsRider.id} rider={earningsRider} request={(path) => request(path, {}, token)} onClose={() => setEarningsRider(null)} />}
         {riderDetail && (
           <ClientFormDialog title="Rider details" heading={String(riderDetail.name)} wide busy={loading} error={error} onClose={() => setRiderDetail(null)}>
             <p className="eyebrow">RIDER DETAIL</p>
@@ -3127,7 +3126,7 @@ export default function Home() {
               <OperationsTable key={tab} tab={tab} identityKey={identityKey} refreshKey={recordRefreshKey} request={(path) => request(path, {}, token)} loading={loading} rows={items} columns={clientColumns(tab)}
                 getRowId={(item) => String(item.id)}
                 actions={tab === "fleets" ? (item) => <><FleetReadinessStatus fleetId={String(item.id)} /><button className="secondary table-action" onClick={() => void openFleetForm(String(item.id))}>Edit</button>{item.status === "AVAILABLE" && <button className="table-action" disabled title="Use the Fleet Manager app to complete allocation and its required checks.">Allocate</button>}{item.status === "ALLOCATED" && <button className="danger table-action" disabled title="Use the submission workflow in the Fleet Manager app to return this vehicle.">De-Allocate</button>}<button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(String(item.id)) })}>Delete</button></>
-                  : tab === "riders" ? (item) => <><button className="secondary table-action" onClick={() => void openRiderDetail(String(item.id))}>View / Edit</button><button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Rider?", description: "This rider will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Rider", onConfirm: () => deleteRider(String(item.id)) })}>Delete</button></>
+                  : tab === "riders" ? (item) => <><button className="secondary table-action" onClick={() => void openRiderDetail(String(item.id))}>View / Edit</button>{userRoles.some(role => role === "CLIENT_ADMIN" || role === "OPERATIONS_MANAGER") && <button className="secondary table-action" onClick={() => setEarningsRider({ id: String(item.id), name: String(item.name), mobile: String(item.mobile) })}>Earnings</button>}<button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Rider?", description: "This rider will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Rider", onConfirm: () => deleteRider(String(item.id)) })}>Delete</button></>
                   : tab === "iot-devices" ? (item) => <button className="secondary table-action" onClick={() => void openIotForm(item)}>Edit</button>
                   : tab === "batteries" || tab === "controllers" ? (item) => <button className="secondary table-action" onClick={() => void openExistingComponentForm(tab, item)}>Edit</button>
                   : tab === "fleet-component-mapping" ? (item) => <button className="secondary table-action" onClick={() => void openMappingForm(item)}>Edit</button>
