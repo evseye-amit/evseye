@@ -36,7 +36,8 @@ Base: `/api/v1/client/payment-transactions` (CLIENT_ADMIN only).
 - `GET /:source/:id`: details, receipts and review history.
 - `POST /DEPLOYMENT/:id/approve`: `{ "expectedVersion": 1 }`.
 - `POST /DEPLOYMENT/:id/reject`: `{ "expectedVersion": 1, "reason": "Reference does not match received funds" }`.
-- `GET /:source/:id/receipts/:photoId/download-url`: temporary image URL.
+- `GET /:source/:id/receipts/:photoId/download-url`: temporary image URL for existing clients.
+- `GET /:source/:id/receipts/:photoId/content`: authenticated private image bytes, used by the panel for viewing/downloading.
 
 List query: `page` (1–10000), `limit` (1–100), `search`, `source`, `status`, ISO `from`/`to`, `sortBy` (`createdAt`, `riderName`, `mobile`, `amount`, `status`, `reference`, `source`, `method`, `purpose`) and `sortDirection` (`asc`/`desc`). Response: `{ data: { items, total, page, limit } }`. Rows include `receiptCount`, `submissionVersion`, `rejectionReason`, and `canReview`.
 
@@ -113,3 +114,9 @@ A submission records a claim as `SUBMITTED`; it does not credit the wallet, sett
 - Optional receipts may still be attached after payment approval. They do not reopen or settle the payment again.
 
 No new migration or seeds are required for this extension. The Flutter source is not present here; the app must implement the UPI-return screen, manual UTR entry, gallery/camera picker and local retry state using these contracts.
+
+## Panel receipt delivery
+
+The panel fetches `/api/v1/client/payment-transactions/:source/:id/receipts/:photoId/content` through its same-origin authenticated gateway, then opens the returned image in the existing dialog and offers download. The API checks Client Admin access, authenticated client scope, payment ownership, receipt source/payment association and COMPLETE status before reading the sealed object using the internal storage client. Only JPEG, PNG and WebP receipts up to 5 MiB are returned. Responses have a private/no-store cache policy. Reads have a strict byte limit, close storage streams and return useful missing-image/unavailable-storage errors without exposing object URLs or credentials.
+
+This avoids direct cross-origin browser reads of signed S3/MinIO URLs, including on tenant and custom domains. The mobile signed-download API remains unchanged. No migration or seed changes are required.

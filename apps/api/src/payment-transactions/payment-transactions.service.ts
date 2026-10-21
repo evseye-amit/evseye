@@ -139,6 +139,10 @@ export class PaymentTransactionsService {
       newData: { source: row.source, paymentId: id } } });
     return { id: photo.id, status: photo.status, uploadedAt: photo.uploadedAt };
   }
+  async receiptContent(clientId: string, actor: AuthUser, source: string, id: string, photoId: string) {
+    const row = await this.detail(clientId, actor, source, id);
+    return this.media.paymentContent(clientId, paymentPhotoTypes[row.source], id, photoId);
+  }
   async download(clientId: string, actor: AuthUser, source: string, id: string, photoId: string) {
     const row = await this.detail(clientId, actor, source, id);
     return this.media.paymentDownloadUrl(clientId, paymentPhotoTypes[row.source], id, photoId);

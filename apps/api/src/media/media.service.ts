@@ -94,6 +94,17 @@ export class MediaService {
     return this.downloadPhoto(photo);
   }
 
+  async paymentContent(clientId: string, entityType: PhotoEntityType, entityId: string, photoId: string) {
+    const photo = await this.getPhoto(clientId, photoId);
+    if (!isPaymentPhoto(entityType) || photo.entityType !== entityType || photo.entityId !== entityId)
+      throw new NotFoundException('Payment receipt not found.');
+    if (photo.status !== PhotoStatus.COMPLETE) throw new BadRequestException('Receipt image is not available.');
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(photo.mimeType) || photo.sizeBytes < 1 || photo.sizeBytes > 5 * 1024 * 1024)
+      throw new BadRequestException('Receipt image has an unsupported type or size.');
+    const bytes = await this.storage.readObject(photo.objectKey, photo.sizeBytes);
+    return { bytes, mimeType: photo.mimeType, filename: `payment-receipt-${photo.id}.${this.extensionFor(photo.mimeType)}` };
+  }
+
   private async createUploadIntentForEntity(
     clientId: string,
     uploadedById: string,
