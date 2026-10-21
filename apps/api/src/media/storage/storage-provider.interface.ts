@@ -7,6 +7,8 @@ export interface CreateUploadUrlInput {
 export interface StorageProvider {
   createUploadUrl(input: CreateUploadUrlInput): Promise<string>;
   createDownloadUrl(objectKey: string): Promise<string>;
+  /** Read private bytes through the server storage endpoint with a strict size limit. */
+  readObject(objectKey: string, maxBytes: number): Promise<Uint8Array>;
   /** Returns a stable delivery URL for non-sensitive public assets. */
   createPublicUrl(objectKey: string): string;
   assertObjectExists(objectKey: string, image?: { maxBytes: number }): Promise<void>;

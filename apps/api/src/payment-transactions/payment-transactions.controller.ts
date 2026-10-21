@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Header, Param, ParseUUIDPipe, Post, Query, StreamableFile, UseGuards } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
@@ -21,6 +21,13 @@ export class ClientPaymentTransactionsController {
   }
   @Post(':source/:id/reject') reject(@CurrentUser() user: AuthUser, @Param('source') source: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RejectPaymentDto) {
     return this.service.reject(this.clients.requireClientId(user), user, source, id, dto.expectedVersion, dto.reason).then(data => ({ data }));
+  }
+  @Get(':source/:id/receipts/:photoId/content')
+  @Header('Cache-Control', 'private, no-store')
+  @Header('X-Content-Type-Options', 'nosniff')
+  async receiptContent(@CurrentUser() user: AuthUser, @Param('source') source: string, @Param('id', ParseUUIDPipe) id: string, @Param('photoId', ParseUUIDPipe) photoId: string) {
+    const image = await this.service.receiptContent(this.clients.requireClientId(user), user, source, id, photoId);
+    return new StreamableFile(image.bytes, { type: image.mimeType, disposition: `inline; filename="${image.filename}"`, length: image.bytes.byteLength });
   }
   @Get(':source/:id/receipts/:photoId/download-url') download(@CurrentUser() user: AuthUser, @Param('source') source: string, @Param('id', ParseUUIDPipe) id: string, @Param('photoId', ParseUUIDPipe) photoId: string) {
     return this.service.download(this.clients.requireClientId(user), user, source, id, photoId).then(data => ({ data }));

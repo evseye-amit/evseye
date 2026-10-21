@@ -95,3 +95,33 @@ describe('stored branding image validation', () => {
     send.mockRestore();
   });
 });
+
+describe('server-side private image reads', () => {
+  it('uses the internal storage client and returns bytes without a browser URL', async () => {
+    const { Readable } = await import('node:stream');
+    const provider = storage({ S3_ENDPOINT: 'http://minio:9000', S3_PUBLIC_ENDPOINT: 'http://localhost:9000' });
+    const body = Readable.from([Buffer.from('image')]);
+    const send = vi.spyOn(provider['client'], 'send').mockResolvedValue({ Body: body, ContentLength: 5 } as never);
+    expect(Buffer.from(await provider.readObject('clients/c/payment-receipts/p/image.png', 100)).toString()).toBe('image');
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ input: { Bucket: 'evseye-logos-production', Key: 'clients/c/payment-receipts/p/image.png' } }), expect.objectContaining({ abortSignal: expect.any(AbortSignal) }));
+    expect(body.destroyed).toBe(true);
+  });
+  it('discards oversized and failed streams, including missing length metadata', async () => {
+    const { Readable } = await import('node:stream');
+    for (const length of [undefined, 10]) {
+      const provider = storage();
+      const body = Readable.from([Buffer.from('1234'), Buffer.from('5678')]);
+      vi.spyOn(provider['client'], 'send').mockResolvedValue({ Body: body, ContentLength: length } as never);
+      await expect(provider.readObject('receipt.png', 6)).rejects.toThrow(/size/);
+      expect(body.destroyed).toBe(true);
+    }
+  });
+  it('returns useful errors for a missing object and unavailable storage without exposing signed URLs', async () => {
+    const provider = storage();
+    const send = vi.spyOn(provider['client'], 'send');
+    send.mockRejectedValueOnce(Object.assign(new Error('private key'), { name: 'NoSuchKey' }));
+    await expect(provider.readObject('receipt.png', 100)).rejects.toThrow('not found in storage');
+    send.mockRejectedValueOnce(new Error('private storage credentials'));
+    await expect(provider.readObject('receipt.png', 100)).rejects.toThrow('Please retry or contact support');
+  });
+});

@@ -72,7 +72,6 @@ type Tab =
   | "controllers"
   | "fleet-component-mapping"
   | "deallocations"
-  | "wallet"
   | "rider-document-review"
   | "rider-reference-review"
   | "support-tickets"
@@ -174,7 +173,6 @@ const CLIENT_NAVIGATION: Array<{
     items: [
       { id: "riders", label: "Riders" },
       { id: "work-partners", label: "Work Partners" },
-      { id: "wallet", label: "Wallet" },
       { id: "payment-transactions", label: "Payment Transactions" },
       { id: "rider-document-review", label: "Document Verification" },
       { id: "rider-reference-review", label: "Reference Verification" },
@@ -228,7 +226,6 @@ const CLIENT_TAB_TITLES: Record<Tab, string> = {
   controllers: "Controller",
   "fleet-component-mapping": "Fleet Component Mapping",
   deallocations: "Deallocation",
-  wallet: "Wallet",
   "rider-document-review": "Rider Document Verification",
   "rider-reference-review": "Rider Reference Verification",
   "support-tickets": "Support Tickets",
@@ -265,7 +262,6 @@ const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
   controllers: "factory",
   "fleet-component-mapping": "link",
   deallocations: "allocation",
-  wallet: "wallet",
   "rider-document-review": "shield",
   "rider-reference-review": "shield",
   "support-tickets": "support",

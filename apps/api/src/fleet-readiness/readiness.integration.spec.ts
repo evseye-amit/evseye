@@ -21,6 +21,7 @@ const db = new PrismaClient({
 const storage = {
   createUploadUrl: vi.fn().mockResolvedValue('http://storage/upload'),
   createDownloadUrl: vi.fn().mockResolvedValue('http://storage/photo'),
+  readObject: vi.fn().mockResolvedValue(new Uint8Array()),
   createPublicUrl: vi.fn(),
   assertObjectExists: vi.fn().mockResolvedValue(undefined),
   sealObject: vi.fn().mockResolvedValue(undefined),

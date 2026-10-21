@@ -65,8 +65,9 @@ export function PaymentTransactions({ refreshKey = 0 }: { refreshKey?: number })
   const viewReceipt=async(photo:Detail["receipts"][number])=>{
     if(!detail)return;setBusy(true);setDialogError("");
     try{
-      const {url}=await api<{url:string}>(`/${detail.source}/${detail.id}/receipts/${photo.id}/download-url`);
-      const response=await sessionFetch(url);if(!response.ok)throw new Error("Unable to open receipt image.");
+      const response=await sessionFetch(`/api/v1/client/payment-transactions/${detail.source}/${detail.id}/receipts/${photo.id}/content`);
+      if(!response.ok){const body=await response.json().catch(()=>null);throw new Error(body?.error?.message??"Unable to open receipt image. Please retry.");}
+      if(!["image/jpeg","image/png","image/webp"].includes(response.headers.get("content-type")?.split(";")[0]??""))throw new Error("The receipt image could not be loaded. Please retry.");
       setPreview({url:URL.createObjectURL(await response.blob()),name:`payment-receipt-${photo.id}.${photo.mimeType === "image/jpeg"?"jpg":photo.mimeType === "image/png"?"png":"webp"}`});
     }catch(e){setDialogError(e instanceof Error?e.message:"Unable to open receipt.");}finally{setBusy(false);}
   };
