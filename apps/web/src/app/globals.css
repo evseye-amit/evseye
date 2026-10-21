@@ -4788,7 +4788,7 @@ body:has(.sa-dialog[open]) {
 }
 
 /* Rider financial views share one dialog and retain each tab's filters. */
-.rider-wallet-tabs { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.rider-wallet-tabs, .client-dialog-view-switcher { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
 .rider-wallet-panel:not([hidden]) { display: grid; min-width: 0; gap: 16px; }
 .rider-wallet-panel[hidden] { display: none; }
 .rider-wallet-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 16px 0; }

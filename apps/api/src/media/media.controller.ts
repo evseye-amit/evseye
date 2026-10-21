@@ -4,6 +4,8 @@ import {
   Body,
   Controller,
   Get,
+  Header,
+  StreamableFile,
   Param,
   ParseEnumPipe,
   ParseUUIDPipe,
@@ -33,6 +35,41 @@ export class MediaController {
     private readonly audit: AuditService,
     private readonly clients: ClientContextService,
   ) {}
+
+  @Get('fleets/:fleetId/evidence')
+  @Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+  async fleetEvidence(
+    @CurrentUser() user: AuthUser,
+    @Param('fleetId', ParseUUIDPipe) fleetId: string,
+  ) {
+    return {
+      data: await this.mediaService.fleetEvidence(
+        this.clients.requireClientId(user),
+        fleetId,
+      ),
+    };
+  }
+
+  @Get('fleets/:fleetId/evidence/:photoId/content')
+  @Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+  @Header('Cache-Control', 'private, no-store')
+  @Header('X-Content-Type-Options', 'nosniff')
+  async fleetEvidenceContent(
+    @CurrentUser() user: AuthUser,
+    @Param('fleetId', ParseUUIDPipe) fleetId: string,
+    @Param('photoId', ParseUUIDPipe) photoId: string,
+  ) {
+    const image = await this.mediaService.fleetEvidenceContent(
+      this.clients.requireClientId(user),
+      fleetId,
+      photoId,
+    );
+    return new StreamableFile(image.bytes, {
+      type: image.mimeType,
+      disposition: `inline; filename="${image.filename}"`,
+      length: image.bytes.byteLength,
+    });
+  }
 
   @Get('photo-requirements')
   @Roles(
