@@ -132,6 +132,8 @@ const CLIENT_BULK_CONFIG: Record<ClientBulkTab, { title: string; requiredColumns
 
 const CLIENT_NAVIGATION: Array<{
   label: string;
+  kyc?: boolean;
+  branding?: boolean;
   items: Array<{ id: Tab; label: string; group?: string }>;
 }> = [
   { label: "", items: [{ id: "dashboard", label: "Dashboard" }] },
@@ -178,16 +180,22 @@ const CLIENT_NAVIGATION: Array<{
     ],
   },
   {
-    label: "",
+    label: "Engagement & Support",
     items: [{ id: "refer-and-earn", label: "Refer & Earn" }, { id: "support-tickets", label: "Support Tickets" }, { id: "notifications", label: "Notification" }],
   },
   {
-    label: "",
+    label: "Monitoring & Compliance",
+    kyc: true,
     items: [
       { id: "reports", label: "Reports" },
       { id: "audit", label: "Audit Log" },
       { id: "feature-usage", label: "Feature Usage" },
     ],
+  },
+  {
+    label: "Workspace Settings",
+    branding: true,
+    items: [{ id: "legal-documents", label: "Legal Documents" }],
   },
 ];
 
@@ -839,6 +847,7 @@ export default function Home() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [userRoles, setUserRoles] = useState<string[]>([]);
+  const canSeeKyc = userRoles.some(role => role === "CLIENT_ADMIN" || role === "KYC_OPERATOR");
 
   async function loadView(nextTab: Tab) {
     const generation = ++viewGeneration.current;
@@ -2518,7 +2527,7 @@ export default function Home() {
       <aside className="sa-sidebar">
         <ClientBrand token={token} />
         <nav className="client-navigation" aria-label="Client operations">
-          {CLIENT_NAVIGATION.filter(section => section.items.some(item => canSeeTab(item.id))).map((section, index) => (
+          {CLIENT_NAVIGATION.filter(section => section.items.some(item => canSeeTab(item.id)) || (section.kyc && canSeeKyc) || (section.branding && userRoles.includes("CLIENT_ADMIN"))).map((section, index) => (
             <div
               className="sa-nav-group client-nav-section"
               key={`${section.label}-${index}`}
@@ -2565,23 +2574,12 @@ export default function Home() {
                     </button>
                   </Fragment>
                 ))}
+                {section.kyc && canSeeKyc && <Link className="client-nav-utility sa-nav-child" href="/client/kyc"><UiIcon name="shield" /> {t("KYC & Verification")}</Link>}
+                {section.branding && <ClientBrandingSettings token={token} triggerClassName="sa-nav-child" />}
               </div>
             </div>
           ))}
         </nav>
-        {userRoles.some((role) => role === "CLIENT_ADMIN" || role === "KYC_OPERATOR") &&
-          <Link className="client-nav-utility" href="/client/kyc"><UiIcon name="shield" /> KYC &amp; Verification</Link>}
-        {userRoles.includes("CLIENT_ADMIN") && (
-          <button
-            type="button"
-            className={`client-nav-utility${tab === "legal-documents" ? " active" : ""}`}
-            onClick={() => navigateTo("legal-documents")}
-          >
-            <UiIcon name={CLIENT_TAB_ICONS["legal-documents"]} />
-            {t("Legal Documents")}
-          </button>
-        )}
-        <ClientBrandingSettings token={token} />
         <div className="sa-user client-sidebar-footer">
           <span aria-hidden="true">C</span>
           <div><strong>{t("Client Operations")}</strong><small>{t("EVs Eye workspace")}</small></div>
