@@ -150,8 +150,17 @@ export class RidersService {
                 status: { in: ['ACTIVE' as const, 'INSPECTION_PENDING' as const, 'OTP_PENDING' as const, 'DEALLOCATION_INITIATED' as const] },
                 fleet: { is: { OR: [
                   { vehicleNumber: { contains: query.search, mode: 'insensitive' as const } },
+                  { fleetCode: { contains: query.search, mode: 'insensitive' as const } },
                   { currentHub: { is: { name: { contains: query.search, mode: 'insensitive' as const } } } },
                   { homeHub: { is: { name: { contains: query.search, mode: 'insensitive' as const } } } },
+                ] } },
+              } } },
+              { allocations: { some: {
+                clientId,
+                status: { in: ['ACTIVE' as const, 'INSPECTION_PENDING' as const, 'OTP_PENDING' as const, 'DEALLOCATION_INITIATED' as const] },
+                mobileDeployment: { is: { OR: [
+                  { workPartnerName: { contains: query.search, mode: 'insensitive' as const } },
+                  { clientWorkPartner: { is: { clientId, name: { contains: query.search, mode: 'insensitive' as const } } } },
                 ] } },
               } } },
               {
@@ -166,10 +175,12 @@ export class RidersService {
       this.prisma.rider.findMany({
         where,
         include: { allocations: {
-          where: { status: { in: ['INSPECTION_PENDING', 'OTP_PENDING', 'ACTIVE', 'DEALLOCATION_INITIATED'] } },
+          where: { clientId, status: { in: ['INSPECTION_PENDING', 'OTP_PENDING', 'ACTIVE', 'DEALLOCATION_INITIATED'] } },
           orderBy: { createdAt: 'desc' }, take: 1,
-          select: { id: true, status: true, fleet: { select: {
-            vehicleNumber: true, currentHub: { select: { name: true } }, homeHub: { select: { name: true } },
+          select: { id: true, status: true,
+            mobileDeployment: { select: { workPartnerName: true, clientWorkPartner: { select: { name: true } } } },
+            fleet: { select: {
+            fleetCode: true, vehicleNumber: true, currentHub: { select: { name: true } }, homeHub: { select: { name: true } },
           } } },
         } },
         orderBy: query.sortBy
