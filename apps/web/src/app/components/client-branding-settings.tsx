@@ -70,24 +70,11 @@ export function ClientBrandingSettings({ token }: { token: string }) {
           objectKey: intent.objectKey,
         });
       }
-      const {
-        primaryColor,
-        secondaryColor,
-        accentColor,
-        loginTitle,
-        loginSubtitle,
-        supportEmail,
-        supportPhone,
-      } = draft;
+      const { supportEmail, supportPhone } = draft;
       setAppearance(
         await request(
           "branding",
           {
-            primaryColor,
-            secondaryColor,
-            accentColor,
-            loginTitle,
-            loginSubtitle,
             supportEmail: supportEmail || null,
             supportPhone: supportPhone || null,
           },
@@ -128,8 +115,8 @@ export function ClientBrandingSettings({ token }: { token: string }) {
           <form className="form-stack client-branding-settings" onSubmit={save}>
 
             <p>
-              Customize your client login and operations panel. Powered by EV
-              Spares India Pvt Ltd remains visible.
+              Update your company logo, browser icon and support contact details.
+              Powered by EV Spares India Pvt Ltd remains visible.
             </p>
             {(["logo", "favicon"] as const).map((kind) => (
               <label key={kind}>
@@ -147,42 +134,6 @@ export function ClientBrandingSettings({ token }: { token: string }) {
                 <small>PNG, JPEG or WebP, maximum 2 MB.</small>
               </label>
             ))}
-            <div className="branding-colors">
-              {(["primaryColor", "secondaryColor", "accentColor"] as const).map(
-                (key) => (
-                  <label key={key}>
-                    {key.replace("Color", " color")}
-                    <input
-                      type="color"
-                      value={draft[key]}
-                      onChange={(event) =>
-                        setDraft({ ...draft, [key]: event.target.value })
-                      }
-                    />
-                  </label>
-                ),
-              )}
-            </div>
-            <label>
-              Login title
-              <input
-                maxLength={100}
-                value={draft.loginTitle}
-                onChange={(event) =>
-                  setDraft({ ...draft, loginTitle: event.target.value })
-                }
-              />
-            </label>
-            <label>
-              Login subtitle
-              <input
-                maxLength={240}
-                value={draft.loginSubtitle}
-                onChange={(event) =>
-                  setDraft({ ...draft, loginSubtitle: event.target.value })
-                }
-              />
-            </label>
             <label>
               Support email
               <input

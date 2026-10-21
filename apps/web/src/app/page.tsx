@@ -72,8 +72,6 @@ type Tab =
   | "fleet-component-mapping"
   | "deallocations"
   | "wallet"
-  | "rider-fleet-mapping"
-  | "rider-vendor-mapping"
   | "rider-earnings"
   | "rider-document-review"
   | "rider-reference-review"
@@ -136,7 +134,7 @@ const CLIENT_NAVIGATION: Array<{
   label: string;
   items: Array<{ id: Tab; label: string; group?: string }>;
 }> = [
-  { label: "", items: [{ id: "dashboard", label: "Dashboard" }, { id: "refer-and-earn", label: "Refer & Earn" }] },
+  { label: "", items: [{ id: "dashboard", label: "Dashboard" }] },
   {
     label: "Team Management",
     items: [
@@ -178,8 +176,6 @@ const CLIENT_NAVIGATION: Array<{
       { id: "work-partners", label: "Work Partners" },
       { id: "wallet", label: "Wallet" },
       { id: "payment-transactions", label: "Payment Transactions" },
-      { id: "rider-fleet-mapping", label: "Rider Fleet Mapping" },
-      { id: "rider-vendor-mapping", label: "Rider Vendor Mapping" },
       { id: "rider-earnings", label: "Rider Earnings" },
       { id: "rider-document-review", label: "Document Verification" },
       { id: "rider-reference-review", label: "Reference Verification" },
@@ -194,7 +190,7 @@ const CLIENT_NAVIGATION: Array<{
   },
   {
     label: "",
-    items: [{ id: "support-tickets", label: "Support Tickets" }, { id: "notifications", label: "Notification" }],
+    items: [{ id: "refer-and-earn", label: "Refer & Earn" }, { id: "support-tickets", label: "Support Tickets" }, { id: "notifications", label: "Notification" }],
   },
   {
     label: "",
@@ -234,8 +230,6 @@ const CLIENT_TAB_TITLES: Record<Tab, string> = {
   "fleet-component-mapping": "Fleet Component Mapping",
   deallocations: "Deallocation",
   wallet: "Wallet",
-  "rider-fleet-mapping": "Rider Fleet Mapping",
-  "rider-vendor-mapping": "Rider Vendor Mapping",
   "rider-earnings": "Rider Earnings",
   "rider-document-review": "Rider Document Verification",
   "rider-reference-review": "Rider Reference Verification",
@@ -274,8 +268,6 @@ const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
   "fleet-component-mapping": "link",
   deallocations: "allocation",
   wallet: "wallet",
-  "rider-fleet-mapping": "link",
-  "rider-vendor-mapping": "link",
   "rider-earnings": "earnings",
   "rider-document-review": "shield",
   "rider-reference-review": "shield",
