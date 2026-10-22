@@ -7,6 +7,7 @@ import { usePanelLoading } from "./panel-loading";
 import { useTableViewState, defaultTablePreferences, isTablePreferences } from "./table-view-state";
 import { formatDateTime } from "../../lib/presentation";
 import { useLocale } from "./locale-provider";
+import { readinessCellModel } from "./fleet-readiness-ui";
 
 type Row = Record<string, unknown>;
 type Kind = "fleets" | "riders" | "audit";
@@ -18,6 +19,17 @@ const riderStatuses = ['ONBOARDING','ACTIVE','INACTIVE','BLOCKED','EXITED'];
 const sortKeys: Record<Kind, string[]> = { fleets: ['vehicleNumber','chassisNumber','status','createdAt'], riders: ['name','mobile','status','createdAt'], audit: ['action','entityType','createdAt'] };
 const hubName = (row: Row) => related(row, 'currentHub').name ?? related(row, 'homeHub').name;
 const allocation = (row: Row): Row => Array.isArray(row.allocations) ? (row.allocations[0] ?? {}) as Row : {};
+const readinessCell = (row: Row) => {
+  const model = readinessCellModel(row);
+  if (model.state === "unavailable") return <div className="vehicle-readiness-cell"><span className="status status-unavailable">Unavailable</span><small>{model.guidance ?? "Readiness unavailable."}</small></div>;
+  const blocked = model.state === "blocked";
+  return <div className="vehicle-readiness-cell">
+    <span className={`status ${blocked ? 'status-blocked' : 'status-ready'}`}>{blocked ? `Blocked${model.blockers.length ? ` · ${model.blockers.length} ${model.blockers.length === 1 ? 'reason' : 'reasons'}` : ''}` : 'Ready'}</span>
+    {model.blockers.length > 0 && <ul className="vehicle-readiness-reasons">{model.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul>}
+    {model.nextStep && <small><strong>Next:</strong> {model.nextStep}</small>}
+    {model.guidance && <small>{model.guidance}</small>}
+  </div>;
+};
 
 export function OperationsRecords({ kind, identityKey, refreshKey, request, actions }: {
   kind: Kind; identityKey: string; refreshKey: number;
@@ -83,6 +95,7 @@ export function OperationsRecords({ kind, identityKey, refreshKey, request, acti
     column('oem','OEM / model', (row) => [related(row,'oem').displayName ?? related(row,'oem').code, row.modelName].filter(Boolean).join(' · ')),
     column('hub','Hub', hubName), statusColumn('status','Status', (row) => row.status),
     statusColumn('onboardingStatus','Onboarding', (row) => row.onboardingStatus),
+    { key: 'vehicleReadiness', label: 'Vehicle readiness', value: (row: Row) => { const model = readinessCellModel(row); return model.state === 'ready' ? 'Ready' : model.state === 'blocked' ? 'Blocked' : 'Unavailable'; }, render: readinessCell, sortable: false },
   ] : kind === 'riders' ? [
     column('name','Rider', (row) => row.name), column('mobile','Mobile', (row) => row.mobile),
     statusColumn('status','Status', (row) => row.status), statusColumn('kycStatus','KYC', (row) => row.kycStatus),
@@ -141,9 +154,8 @@ export function OperationsRecords({ kind, identityKey, refreshKey, request, acti
           ['Vehicle', detail.vehicleNumber], ['Fleet code', detail.fleetCode], ['Chassis number', detail.chassisNumber], ['OEM', related(detail,'oem').displayName ?? related(detail,'oem').code],
           ['Model', detail.modelName], ['Variant', detail.variantName], ['Colour', detail.colour],
         ]} />
-        <h3>{t('Hub and readiness')}</h3><RecordFields fields={[
+        <h3>{t('Hub and status')}</h3><RecordFields fields={[
           ['Status', label(detail.status)], ['Onboarding status', label(detail.onboardingStatus)], ['Current hub', related(detail,'currentHub').name], ['Home hub', related(detail,'homeHub').name],
-          ['Eligible for allocation', detail.isAllocatable === true ? 'Yes' : 'No'],
         ]} />
         <h3>{t('Installed components')}</h3><RecordFields fields={[
           ['Batteries', Array.isArray(detail.batteryHistory) ? detail.batteryHistory.map((entry: Row) => text(related(entry,'battery').serialNumber)).join(', ') : null],

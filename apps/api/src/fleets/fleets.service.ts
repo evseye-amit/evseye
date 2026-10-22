@@ -27,6 +27,7 @@ import { FleetStatusPolicy } from './fleet-status.policy.js';
 import {
   policySchema,
   stagePlans,
+  vehicleReadiness,
 } from '../fleet-readiness/readiness-policy.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 
@@ -574,7 +575,7 @@ export class FleetsService {
           }
         : {}),
     };
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total, client] = await this.prisma.$transaction([
       this.prisma.fleet.findMany({
         where,
         include: {
@@ -619,9 +620,45 @@ export class FleetsService {
         take: query.pageSize,
       }),
       this.prisma.fleet.count({ where }),
+      this.prisma.client.findUniqueOrThrow({
+        where: { id: clientId },
+        select: {
+          fleetOperatingMode: true,
+          readinessPolicies: {
+            orderBy: { version: 'desc' },
+            take: 1,
+            select: { configuration: true },
+          },
+        },
+      }),
     ]);
+    const configuration = policySchema.safeParse(
+      client.readinessPolicies?.[0]?.configuration,
+    );
+    const configuredStagePlans = configuration.success
+      ? stagePlans(configuration.data)
+      : [];
     return {
-      items: items.map((fleet) => this.present(fleet)),
+      items: items.map((fleet) => ({
+        ...this.present(fleet),
+        vehicleReadiness: vehicleReadiness({
+          operatingMode:
+            fleet.readinessWorkflow === 'ONBOARDING_EVIDENCE'
+              ? 'SIMPLE'
+              : (fleet.readinessWorkflow ?? client.fleetOperatingMode),
+          status: fleet.status,
+          allocationEnabled: fleet.allocationEnabled,
+          onboardingStatus: fleet.onboardingStatus,
+          readinessApprovedPreparationId:
+            fleet.readinessApprovedPreparationId,
+          unfinishedAllocationCount: fleet._count?.allocations ?? 0,
+          stagePlanSelected:
+            fleet.readinessWorkflow !== 'STAGED_PREPARATION_QC' ||
+            configuredStagePlans.some(
+              ({ code }) => code === fleet.readinessStagePlanCode,
+            ),
+        }),
+      })),
       meta: { page: query.page, pageSize: query.pageSize, total },
     };
   }

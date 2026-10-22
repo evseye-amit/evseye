@@ -19,6 +19,7 @@ import { UiIcon, type IconName } from "./components/ui-icon";
 import { ClientNotifications } from "./components/client-notifications";
 import {InstallationBoard} from "./components/installation-board";
 import { FleetMoreMenu, FleetReadiness, FleetReadinessStatus } from "./components/fleet-readiness";
+import { readinessCellModel } from "./components/fleet-readiness-ui";
 import {
   normalizeReadinessPlans,
   normalizeReadinessWorkflows,
@@ -3233,10 +3234,11 @@ export default function Home() {
                   const fleetName = String(item.vehicleNumber ?? item.fleetCode ?? item.chassisNumber ?? item.id);
                   const status = String(item.status ?? "");
                   const activeTransfer = item.activeTransfer as RecordItem | null | undefined;
+                  const readiness = readinessCellModel(item);
                   const readinessAction = fleetReadinessAction(item);
                   const canManageEvidence = userRoles.some((role) => role === "CLIENT_ADMIN" || role === "OPERATIONS_MANAGER");
                   return <div className="fleet-row-actions">
-                    <FleetReadinessStatus fleetId={fleetId} />
+                    <FleetReadinessStatus fleetId={fleetId} vehicleLabel={fleetName} readinessState={readiness.state} />
                     {readinessAction ? <button className="table-action" disabled={Boolean(fleetActionId)} onClick={() => readinessAction.kind === "activate" ? void runFleetLifecycleAction(item) : navigateTo("vehicle-preparation", fleetId)}>{fleetActionId === fleetId ? "Working…" : readinessAction.label}</button> : null}
                     <FleetMoreMenu fleetId={fleetId} fleetName={fleetName} status={status} activeTransfer={activeTransfer} canManageEvidence={canManageEvidence} onTransferDone={() => void loadView("fleets")} onEvidence={canManageEvidence ? () => setEvidenceFleet({ id: fleetId, name: fleetName }) : undefined} onEdit={() => void openFleetForm(fleetId)} onDelete={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(fleetId) })} />
                   </div>;

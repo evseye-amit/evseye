@@ -39,7 +39,8 @@ describe('Operations list contracts', () => {
   it('applies fleet search, status, sort and paging inside the client boundary', async () => {
     const prisma = {
       fleet: { findMany: vi.fn(), count: vi.fn() },
-      $transaction: vi.fn().mockResolvedValue([[], 31]),
+      client: { findUniqueOrThrow: vi.fn() },
+      $transaction: vi.fn().mockResolvedValue([[], 31, { fleetOperatingMode: 'SIMPLE' }]),
     };
     await new FleetsService(prisma as never, {} as never).list('client-a', {
       page: 2,

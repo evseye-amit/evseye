@@ -27,6 +27,7 @@ import {
   resultSchema,
   stagePlans,
   type ReadinessPolicy,
+  vehicleReadiness,
 } from './readiness-policy.js';
 
 type Tx = Prisma.TransactionClient;
@@ -302,6 +303,7 @@ export class FleetReadinessService {
       unallocatedScooters: unallocated,
       activeAllocations,
       blocked: changed && (inProgressAllocations > 0 || openPreparations > 0),
+      vehicleImpact: [],
       message:
         'Active handovers, submissions, and open preparations must finish before changing mode. Allocated scooters stay with their riders.',
     };
@@ -1738,30 +1740,24 @@ export class FleetReadinessService {
         revisions: { orderBy: { revision: 'desc' }, take: 1 },
       },
     });
-    const blockers: string[] = [];
-    if (fleet.status !== 'AVAILABLE')
-      blockers.push(`Scooter status is ${fleet.status}.`);
-    if (!fleet.allocationEnabled)
-      blockers.push('Allocation is administratively disabled.');
-    if (fleet.onboardingStatus !== 'ACTIVE')
-      blockers.push('Fleet activation is incomplete.');
-    if (
-      ['PREPARATION_QC', 'STAGED_PREPARATION_QC'].includes(workflow) &&
-      !fleet.readinessApprovedPreparationId
-    )
-      blockers.push('Preparation and QC approval are required.');
-    if (workflow === 'STAGED_PREPARATION_QC' && !selectedPlan)
-      blockers.push('Select a stage plan before starting preparation.');
-    if (
-      await this.db.allocation.count({
-        where: {
-          clientId,
-          fleetId,
-          status: { notIn: ['COMPLETED', 'CANCELLED'] },
-        },
-      })
-    )
-      blockers.push('Scooter has an unfinished allocation.');
+    const unfinishedAllocationCount = await this.db.allocation.count({
+      where: {
+        clientId,
+        fleetId,
+        status: { notIn: ['COMPLETED', 'CANCELLED'] },
+      },
+    });
+    const report = vehicleReadiness({
+      operatingMode: workflow,
+      status: fleet.status,
+      allocationEnabled: fleet.allocationEnabled,
+      onboardingStatus: fleet.onboardingStatus,
+      readinessApprovedPreparationId: fleet.readinessApprovedPreparationId,
+      unfinishedAllocationCount,
+      stagePlanSelected:
+        workflow !== 'STAGED_PREPARATION_QC' || selectedPlan !== null,
+    });
+    const blockers = report.blockers.map(({ message }) => message);
     return {
       fleetId,
       operatingMode: workflow,
@@ -1783,7 +1779,8 @@ export class FleetReadinessService {
         : null,
       preparation,
       blockers,
-      canAllocate: blockers.length === 0,
+      nextStep: report.nextStep,
+      canAllocate: report.ready,
     };
   }
 }

@@ -10,6 +10,7 @@ import {
   normalizeReadinessPlans,
   type ReadinessPlanOption,
 } from "./readiness-workflow-picker";
+import { policySaveBody, previewVehicleImpactMessage } from "./fleet-readiness-ui";
 
 import {
   InstallationStageSettings,
@@ -141,6 +142,59 @@ const requiredChecks = [
   "OPERATIONAL_TEST",
 ];
 const editableStatuses = ["PENDING", "IN_PROGRESS", "REWORK_REQUIRED"];
+const preparationModes: Mode[] = ["PREPARATION_QC", "STAGED_PREPARATION_QC"];
+const modeExplanation: Record<Mode, string> = {
+  SIMPLE: "No web preparation or QC workflow. Use the Fleet Manager app for allocation checks.",
+  ONBOARDING_EVIDENCE: "Activation uses onboarding photos and evidence; no web preparation or QC workflow is shown.",
+  PREPARATION_QC: "Vehicles use a checklist and QC review before allocation.",
+  STAGED_PREPARATION_QC: "Vehicles use a checklist and QC review, plus the configured installation stages before allocation.",
+};
+type VehicleImpact = {
+  fleetId?: string;
+  vehicleNumber?: string | null;
+  fleetCode?: string | null;
+  chassisNumber?: string | null;
+  effects?: string[];
+};
+type PolicyImpact = {
+  currentMode: string;
+  proposedMode: string;
+  vehicleImpact?: unknown;
+  [key: string]: unknown;
+};
+const impactEffectLabel = (effect: string) => ({
+  MOVE_TO_INSPECTION_PENDING: "Moves to inspection",
+  CLEAR_READINESS_APPROVAL: "Clears readiness approval",
+  INVALIDATE_APPROVED_PREPARATION: "Invalidates approved preparation",
+  BLOCKED_BY_ALLOCATION_WORK: "Blocked by allocation work",
+  BLOCKED_BY_OPEN_PREPARATION: "Blocked by open preparation",
+  PRESERVE_ADMIN_ALLOCATION_BLOCK: "Keeps the admin allocation block",
+  ACTIVE_ALLOCATION_UNCHANGED: "Vehicle stays with the current rider",
+  AFFECTED: "Affected vehicles",
+}[effect] ?? label(effect));
+const vehicleImpactList = (impact: Record<string, unknown> | null): VehicleImpact[] => {
+  if (!impact || !Array.isArray(impact.vehicleImpact)) return [];
+  return impact.vehicleImpact.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const item = entry as Record<string, unknown>;
+    return [{
+      fleetId: typeof item.fleetId === "string" ? item.fleetId : undefined,
+      vehicleNumber: typeof item.vehicleNumber === "string" ? item.vehicleNumber : null,
+      fleetCode: typeof item.fleetCode === "string" ? item.fleetCode : null,
+      chassisNumber: typeof item.chassisNumber === "string" ? item.chassisNumber : null,
+      effects: Array.isArray(item.effects) ? item.effects.filter((effect): effect is string => typeof effect === "string") : [],
+    }];
+  });
+};
+const groupedVehicleImpact = (impact: Record<string, unknown> | null) => {
+  const groups = new Map<string, VehicleImpact[]>();
+  for (const vehicle of vehicleImpactList(impact)) {
+    for (const effect of vehicle.effects?.length ? vehicle.effects : ["AFFECTED"]) {
+      groups.set(effect, [...(groups.get(effect) ?? []), vehicle]);
+    }
+  }
+  return [...groups.entries()];
+};
 async function api<T>(
   path: string,
   method = "GET",
@@ -214,7 +268,7 @@ function FleetReadinessManager({
       mobile: "",
     }),
     [policyReason, setPolicyReason] = useState(""),
-    [impact, setImpact] = useState<Record<string, unknown> | null>(null),
+    [impact, setImpact] = useState<PolicyImpact | null>(null),
     [extraCode, setExtraCode] = useState(""),
     [extraLabel, setExtraLabel] = useState("");
   const [contextLoading, setContextLoading] = useState(false);
@@ -420,6 +474,14 @@ function FleetReadinessManager({
     return label(text);
   };
   const config = policy?.configuration;
+  const preparationMode = preparationModes.includes(policy?.operatingMode ?? "SIMPLE");
+  const stagedMode = policy?.operatingMode === "STAGED_PREPARATION_QC";
+  const impactGroups = groupedVehicleImpact(impact);
+  const impactEmptyMessage = previewVehicleImpactMessage(
+    impact?.currentMode,
+    impact?.proposedMode,
+    impact?.vehicleImpact,
+  );
   const setConfig = (patch: Partial<Configuration>) => {
     if (policy) {
       setPolicy({
@@ -585,12 +647,7 @@ function FleetReadinessManager({
           onSubmit={(event: FormEvent) => {
             event.preventDefault();
             void run(async () => {
-              const p = await api<Policy>("fleet-readiness/policy", "PUT", {
-                ...policy,
-                expectedVersion: policy.version,
-                version: undefined,
-                reason: policyReason,
-              });
+              const p = await api<Policy>("fleet-readiness/policy", "PUT", policySaveBody(policy, policyReason));
               setPolicy(p);
               setPolicyReason("");
               setImpact(null);
@@ -617,7 +674,9 @@ function FleetReadinessManager({
               </option>
             </select>
           </label>
-          <InstallationStageSettings
+          <p className="muted">{modeExplanation[policy.operatingMode]}</p>
+          {!preparationMode && <p className="muted">Stored preparation and QC settings stay saved for later mode changes.</p>}
+          {stagedMode && <InstallationStageSettings
             templates={policy.installationStageTemplates ?? []}
             value={config.stages ?? []}
             onChange={(stages) => {
@@ -626,7 +685,9 @@ function FleetReadinessManager({
             }}
             hubs={context?.hubs ?? []}
             vehicleTypes={context?.vehicleTypes ?? []}
-          />
+          />}
+          {preparationMode && <fieldset className="form-section">
+            <legend>Preparation and QC settings</legend>
           <label>
             <input
               type="checkbox"
@@ -635,10 +696,10 @@ function FleetReadinessManager({
                 setConfig({ independentReview: e.target.checked })
               }
             />
-            Require a different person for QC
+            Different reviewer for QC
           </label>
           <label>
-            Minimum installed batteries
+            Minimum batteries
             <input
               type="number"
               min={1}
@@ -657,7 +718,7 @@ function FleetReadinessManager({
                 setConfig({ requireController: e.target.checked })
               }
             />
-            Controller required
+            Controller needed
           </label>
           <label>
             <input
@@ -665,7 +726,7 @@ function FleetReadinessManager({
               checked={config.iotRequired}
               onChange={(e) => setConfig({ iotRequired: e.target.checked })}
             />
-            IoT installation required
+            IoT device needed
           </label>
           <h3>Preparation checklist</h3>
           {config.items.map((item) => (
@@ -748,7 +809,7 @@ function FleetReadinessManager({
             </button>
           </div>
           <label>
-            Photo slots (comma separated; component photos are added
+            Required photos (comma separated; component photos are added
             automatically)
             <input
               value={config.photoTypes.join(",")}
@@ -762,6 +823,7 @@ function FleetReadinessManager({
               }
             />
           </label>
+          </fieldset>}
           <label>
             Reason for policy change
             <textarea
@@ -779,7 +841,7 @@ function FleetReadinessManager({
               onClick={() =>
                 void run(async () =>
                   setImpact(
-                    await api<Record<string, unknown>>(
+                    await api<PolicyImpact>(
                       "fleet-readiness/policy/preview",
                       "POST",
                       {
@@ -798,21 +860,33 @@ function FleetReadinessManager({
             </button>
           </div>
           {impact && (
-            <div role="status">
-              <p>{String(impact.message)}</p>
+            <div role="status" className="readiness-impact-preview">
+              <p>{typeof impact.message === "string" ? impact.message : "Preview loaded."}</p>
               <p>
-                Unallocated scooters: {String(impact.unallocatedScooters)} ·
-                Active allocations: {String(impact.activeAllocations)} ·
+                Unallocated scooters: {impact.unallocatedScooters === undefined ? "Unavailable" : String(impact.unallocatedScooters)} ·
+                Active allocations: {impact.activeAllocations === undefined ? "Unavailable" : String(impact.activeAllocations)} ·
                 In-progress allocations/submissions:{" "}
-                {String(impact.inProgressAllocations)} · Open preparations:{" "}
-                {String(impact.openPreparations)}
+                {impact.inProgressAllocations === undefined ? "Unavailable" : String(impact.inProgressAllocations)} · Open preparations:{" "}
+                {impact.openPreparations === undefined ? "Unavailable" : String(impact.openPreparations)}
               </p>
-              <p>{String(impact.policyEffect ?? "")}</p>
+              {typeof impact.policyEffect === "string" && <p>{impact.policyEffect}</p>}
               {Boolean(impact.blocked) && (
                 <p className="error">
                   Finish the in-progress work before changing operating mode.
                 </p>
               )}
+              {Array.isArray(impact.vehicleImpact) ? impactGroups.length > 0 ? <div className="readiness-impact-vehicles">
+                <h4>Exact vehicle effects</h4>
+                {impactGroups.map(([effect, vehicles]) => <details key={effect} open>
+                  <summary>{impactEffectLabel(effect)} ({vehicles.length})</summary>
+                  <ul>
+                    {vehicles.map((vehicle) => <li key={`${effect}:${vehicle.fleetId ?? vehicle.fleetCode ?? vehicle.vehicleNumber ?? vehicle.chassisNumber}`}>
+                      <strong>{vehicle.vehicleNumber || vehicle.fleetCode || vehicle.fleetId || "Unnamed vehicle"}</strong>
+                      <span> · Chassis: {vehicle.chassisNumber || "Unavailable"}</span>
+                    </li>)}
+                  </ul>
+                </details>)}
+              </div> : <p className="muted">{impactEmptyMessage ?? "Exact vehicle impact is unavailable."}</p> : <p className="muted">Exact vehicle impact is unavailable.</p>}
             </div>
           )}
         </form>
@@ -1401,6 +1475,7 @@ type ReadinessOverviewData = {
   preparation?: unknown;
   canAllocate?: boolean;
   canActivate?: boolean;
+  nextStep?: string | null;
   selectablePlans?: unknown;
   readinessStagePlans?: unknown;
   stagePlans?: unknown;
@@ -1564,38 +1639,13 @@ function FleetReadinessOverview({
       ) : (
         <>
           <div className="readiness-overview-grid">
-            <article className="readiness-overview-card">
-              <p className="eyebrow">WORKFLOW</p>
-              <h3>{overviewStatus(workflow)}</h3>
-              <p>{direct ? "Direct activation" : "Preparation and quality control"}</p>
-            </article>
-            <article className="readiness-overview-card">
-              <p className="eyebrow">PROGRESS</p>
-              <h3>{progress.percent}%</h3>
-              <p>{progress.completed} of {progress.total || "—"} stages complete</p>
-              <div className="readiness-progress-track" aria-label={`${progress.percent}% complete`}><span style={{ width: `${progress.percent}%` }} /></div>
-              {progress.current !== "—" && <small>Current: {label(progress.current)}</small>}
-            </article>
-            <article className="readiness-overview-card">
-              <p className="eyebrow">QUALITY CHECK</p>
-              <h3>{overviewStatus(qc?.status ?? qc?.decision ?? (direct ? "NOT_REQUIRED" : "PENDING"))}</h3>
-              <p>{stringValue(qc?.message ?? qc?.notes, direct ? "No QC gate for direct activation." : "Waiting for the quality check.")}</p>
-            </article>
+            <article className="readiness-overview-card"><p className="eyebrow">WORKFLOW</p><h3>{overviewStatus(workflow)}</h3><p>{direct ? "Direct activation" : "Preparation and quality control"}</p></article>
+            <article className="readiness-overview-card"><p className="eyebrow">PROGRESS</p><h3>{progress.percent}%</h3><p>{progress.completed} of {progress.total || "—"} stages complete</p><div className="readiness-progress-track" aria-label={`${progress.percent}% complete`}><span style={{ width: `${progress.percent}%` }} /></div>{progress.current !== "—" && <small>Current: {label(progress.current)}</small>}</article>
+            <article className="readiness-overview-card"><p className="eyebrow">QUALITY CHECK</p><h3>{overviewStatus(qc?.status ?? qc?.decision ?? (direct ? "NOT_REQUIRED" : "PENDING"))}</h3><p>{stringValue(qc?.message ?? qc?.notes, direct ? "No QC gate for direct activation." : "Waiting for the quality check.")}</p></article>
           </div>
           <div className="readiness-detail-columns">
-            <section className="readiness-detail-card">
-              <p className="eyebrow">NEXT HANDOFF</p>
-              <h3>{preparation ? overviewStatus(preparation.status) : direct ? "Ready for activation" : "Preparation not started"}</h3>
-              {blockers.length ? <ul className="readiness-blocker-list">{blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul> : <p className="muted">No blockers reported by the readiness service.</p>}
-              <div className="readiness-primary-action">
-                {showActivate ? <button type="button" disabled={busy || activationDisabled} onClick={() => void activate()}>{busy ? "Activating…" : "Activate fleet"}</button> : <button type="button" onClick={() => onOpenPreparation?.(fleetId)}>Open preparation</button>}
-              </div>
-            </section>
-            <section className="readiness-detail-card">
-              <p className="eyebrow">STAGE PLAN</p>
-              <h3>{planLabel}</h3>
-              {workflow === "STAGED_PREPARATION_QC" && plans.length ? <form className="readiness-plan-form" onSubmit={(event) => void savePlan(event)}><label>Change plan<select value={stagePlanCode} onChange={(event) => setStagePlanCode(event.target.value)} disabled={busy}><option value="">Select a plan</option>{plans.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}</select></label><button type="submit" className="secondary" disabled={busy || !stagePlanCode}>Save stage plan</button></form> : <p className="muted">{workflow === "STAGED_PREPARATION_QC" ? "No alternate plans are available for this workflow." : "This workflow does not use a shared stage plan."}</p>}
-            </section>
+            <section className="readiness-detail-card"><p className="eyebrow">NEXT HANDOFF</p><h3>{preparation ? overviewStatus(preparation.status) : direct ? "Ready for activation" : "Preparation not started"}</h3>{blockers.length ? <ul className="readiness-blocker-list">{blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul> : <p className="muted">No blockers reported by the readiness service.</p>}<p><strong>Next step:</strong> {data.nextStep || "No next step was provided."}</p><div className="readiness-primary-action">{showActivate ? <button type="button" disabled={busy || activationDisabled} onClick={() => void activate()}>{busy ? "Activating…" : "Activate fleet"}</button> : <button type="button" onClick={() => onOpenPreparation?.(fleetId)}>Open preparation</button>}</div></section>
+            <section className="readiness-detail-card"><p className="eyebrow">STAGE PLAN</p><h3>{planLabel}</h3>{workflow === "STAGED_PREPARATION_QC" && plans.length ? <form className="readiness-plan-form" onSubmit={(event) => void savePlan(event)}><label>Change plan<select value={stagePlanCode} onChange={(event) => setStagePlanCode(event.target.value)} disabled={busy}><option value="">Select a plan</option>{plans.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}</select></label><button type="submit" className="secondary" disabled={busy || !stagePlanCode}>Save stage plan</button></form> : <p className="muted">{workflow === "STAGED_PREPARATION_QC" ? "No alternate plans are available for this workflow." : "This workflow does not use a shared stage plan."}</p>}</section>
           </div>
         </>
       )}
@@ -1619,29 +1669,38 @@ export function FleetReadiness({
   return <FleetReadinessManager {...managerProps} />;
 }
 
-export function FleetReadinessStatus({ fleetId }: { fleetId: string }) {
+export function FleetReadinessStatus({ fleetId, vehicleLabel, readinessState }: {
+  fleetId: string;
+  vehicleLabel: string;
+  readinessState: "ready" | "blocked" | "unavailable";
+}) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const [data, setData] = useState<{
-      workflow?: string;
-      readinessWorkflow?: string;
-      operatingMode?: string;
-      plan?: { code?: string; name?: string; label?: string } | string | null;
-      progress?: { percent?: number; completed?: number; total?: number } | null;
-      qc?: { status?: string; decision?: string } | null;
-      canAllocate?: boolean;
-      blockers?: string[];
-      preparation?: { status: string } | null;
-    } | null>(null),
-    [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
+    workflow?: string;
+    readinessWorkflow?: string;
+    operatingMode?: string;
+    plan?: { code?: string; name?: string; label?: string } | string | null;
+    progress?: { percent?: number; completed?: number; total?: number } | null;
+    qc?: { status?: string; decision?: string } | null;
+    canAllocate?: boolean;
+    blockers?: Array<string | { message?: string }>;
+    nextStep?: string | null;
+    preparation?: { status: string } | null;
+  } | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   const workflow = data?.workflow ?? data?.readinessWorkflow ?? data?.operatingMode ?? "SIMPLE";
   const plan = typeof data?.plan === "string" ? data.plan : data?.plan?.name ?? data?.plan?.label ?? data?.plan?.code;
+  const readinessLabel = readinessState === "ready" ? "Ready" : readinessState === "blocked" ? "Blocked" : "Unavailable";
+  const blockers = data?.blockers?.flatMap((blocker) => typeof blocker === "string" ? [blocker] : blocker.message ? [blocker.message] : []) ?? [];
   return (
     <>
       <button
+        ref={triggerRef}
         type="button"
         className="readiness-info-button"
-        aria-label="View readiness details"
-        title="View readiness details"
+        aria-label={`Readiness details for ${vehicleLabel}: ${readinessLabel}`}
+        title={`Readiness details for ${vehicleLabel}: ${readinessLabel}`}
         aria-disabled={busy}
         onClick={() => {
           if (busy) return;
@@ -1659,19 +1718,23 @@ export function FleetReadinessStatus({ fleetId }: { fleetId: string }) {
       {data && (
         <ClientFormDialog
           title="Fleet readiness"
-          onClose={() => setData(null)}
+          onClose={() => {
+            setData(null);
+            requestAnimationFrame(() => triggerRef.current?.focus());
+          }}
           heading={<>Fleet readiness</>}
           formsOnly
         >
+          <p className="notice">{data.canAllocate ? "Ready to allocate" : "Blocked from allocation"}</p>
+          {blockers.length > 0 && <><h3>Blockers</h3><ul>{blockers.map((reason) => <li key={reason}>{reason}</li>)}</ul></>}
+          <p><strong>Next step:</strong> {data.nextStep || "No next step was provided."}</p>
           <div className="readiness-info-summary">
             <p><strong>Workflow</strong><span>{overviewStatus(workflow)}</span></p>
-            <p><strong>Allocation</strong><span>{data.canAllocate ? "Ready" : "Blocked"}</span></p>
             <p><strong>Stage plan</strong><span>{stringValue(plan, "Not selected")}</span></p>
             {data.progress && <p><strong>Progress</strong><span>{data.progress.completed ?? 0} of {data.progress.total ?? 0} stages</span></p>}
             <p><strong>Preparation</strong><span>{data.preparation ? overviewStatus(data.preparation.status) : "Not started"}</span></p>
             {data.qc && <p><strong>QC</strong><span>{overviewStatus(data.qc.status ?? data.qc.decision)}</span></p>}
           </div>
-          {data.blockers?.length ? <><h3>Blockers</h3><ul>{data.blockers.map((reason) => <li key={reason}>{reason}</li>)}</ul></> : <p className="notice">No blockers reported.</p>}
         </ClientFormDialog>
       )}
     </>
