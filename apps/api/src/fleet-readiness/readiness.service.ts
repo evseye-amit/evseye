@@ -729,7 +729,9 @@ export class FleetReadinessService {
     const where: Prisma.FleetWhereInput = {
       clientId,
       deletedAt: null,
-      status: { in: ['IN_TRANSIT', 'INSPECTION_PENDING', 'AVAILABLE'] },
+      status: {
+        in: ['PENDING_ACTIVATION', 'INSPECTION_PENDING', 'AVAILABLE'],
+      },
       readinessApprovedPreparationId: null,
       id: { notIn: open.map((p) => p.fleetId) },
       currentHubId: q.hubId
@@ -846,7 +848,9 @@ export class FleetReadinessService {
           );
       } else
         await this.access(tx, clientId, actor, f.currentHubId, 'canPrepare');
-      if (!['IN_TRANSIT', 'AVAILABLE', 'INSPECTION_PENDING'].includes(f.status))
+      if (f.status === 'IN_TRANSIT')
+        throw new ConflictException('Receive the fleet before starting preparation.');
+      if (!['PENDING_ACTIVATION', 'AVAILABLE', 'INSPECTION_PENDING'].includes(f.status))
         throw new ConflictException(
           'Finish maintenance, submission, or allocation before preparation.',
         );
@@ -877,13 +881,25 @@ export class FleetReadinessService {
           revisions: { create: { revision: 1 } },
         },
       });
+      const nextStatus =
+        f.onboardingStatus === 'ACTIVE' ? 'INSPECTION_PENDING' : f.status;
       await tx.fleet.update({
         where: { id: fleetId },
         data: {
           readinessApprovedPreparationId: null,
-          status: 'INSPECTION_PENDING',
+          ...(nextStatus !== f.status ? { status: nextStatus } : {}),
         },
       });
+      if (nextStatus !== f.status)
+        await tx.fleetStatusHistory.create({
+          data: {
+            fleetId,
+            fromStatus: f.status,
+            toStatus: nextStatus,
+            changedByUserId: actor.id,
+            reason: 'Fleet preparation started.',
+          },
+        });
       if (policy.operatingMode === 'STAGED_PREPARATION_QC') {
         const stages = policy.configuration.stages.filter(
           (stage) =>
@@ -1460,11 +1476,13 @@ export class FleetReadinessService {
         );
       if (approve) {
         await this.requireStages(tx, p.id);
-        if (
-          !['IN_TRANSIT', 'INSPECTION_PENDING', 'AVAILABLE'].includes(
-            fleet.status,
-          )
-        )
+        const reviewableStatus =
+          fleet.onboardingStatus === 'ACTIVE'
+            ? ['INSPECTION_PENDING', 'AVAILABLE'].includes(
+                fleet.status,
+              )
+            : fleet.status === 'PENDING_ACTIVATION';
+        if (!reviewableStatus)
           throw new ConflictException(
             'Resolve maintenance or operational blocks before approval.',
           );
@@ -1530,6 +1548,16 @@ export class FleetReadinessService {
             activatedAt: new Date(),
             odometerKm: (revision.checklist as { odometerKm: number })
               .odometerKm,
+          },
+        });
+      if (approve && fleet.status !== 'AVAILABLE')
+        await tx.fleetStatusHistory.create({
+          data: {
+            fleetId: p.fleetId,
+            fromStatus: fleet.status,
+            toStatus: 'AVAILABLE',
+            changedByUserId: actor.id,
+            reason: b.reason ?? 'Fleet preparation QC approved.',
           },
         });
       await this.event(tx, p, actor, approve ? 'QC_APPROVED' : 'QC_REJECTED', {

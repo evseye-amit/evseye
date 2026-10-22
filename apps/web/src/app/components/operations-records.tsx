@@ -13,7 +13,7 @@ type Kind = "fleets" | "riders" | "audit";
 const related = (row: Row, key: string): Row => (row[key] && typeof row[key] === 'object' ? row[key] : {}) as Row;
 const text = (value: unknown) => value === null || value === undefined || value === '' ? '—' : String(value);
 const label = (value: unknown) => text(value).replaceAll('_', ' ').toLocaleLowerCase().replace(/(^|\s)\S/g, (c) => c.toLocaleUpperCase());
-const fleetStatuses = ['IN_TRANSIT','AVAILABLE','RESERVED','ALLOCATION_IN_PROGRESS','ALLOCATED','IN_USE','DEALLOCATION_IN_PROGRESS','INSPECTION_PENDING','MAINTENANCE','BROKEN','AWAITING_PARTS','OUT_OF_SERVICE'];
+const fleetStatuses = ['IN_TRANSIT','PENDING_ACTIVATION','AVAILABLE','RESERVED','ALLOCATION_IN_PROGRESS','ALLOCATED','IN_USE','DEALLOCATION_IN_PROGRESS','INSPECTION_PENDING','MAINTENANCE','BROKEN','AWAITING_PARTS','OUT_OF_SERVICE'];
 const riderStatuses = ['ONBOARDING','ACTIVE','INACTIVE','BLOCKED','EXITED'];
 const sortKeys: Record<Kind, string[]> = { fleets: ['vehicleNumber','chassisNumber','status','createdAt'], riders: ['name','mobile','status','createdAt'], audit: ['action','entityType','createdAt'] };
 const hubName = (row: Row) => related(row, 'currentHub').name ?? related(row, 'homeHub').name;

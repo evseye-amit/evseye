@@ -2,8 +2,14 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { FleetStatus } from '@prisma/client';
 
 const transitions: Readonly<Record<FleetStatus, readonly FleetStatus[]>> = {
+  PENDING_ACTIVATION: [
+    FleetStatus.MAINTENANCE,
+    FleetStatus.BROKEN,
+    FleetStatus.AWAITING_PARTS,
+    FleetStatus.OUT_OF_SERVICE,
+  ],
   IN_TRANSIT: [
-    FleetStatus.AVAILABLE,
+    FleetStatus.PENDING_ACTIVATION,
     FleetStatus.MAINTENANCE,
     FleetStatus.BROKEN,
     FleetStatus.AWAITING_PARTS,
@@ -37,6 +43,7 @@ const transitions: Readonly<Record<FleetStatus, readonly FleetStatus[]>> = {
     FleetStatus.AWAITING_PARTS,
   ],
   MAINTENANCE: [
+    FleetStatus.PENDING_ACTIVATION,
     FleetStatus.AVAILABLE,
     FleetStatus.BROKEN,
     FleetStatus.AWAITING_PARTS,
@@ -49,11 +56,16 @@ const transitions: Readonly<Record<FleetStatus, readonly FleetStatus[]>> = {
   ],
   AWAITING_PARTS: [
     FleetStatus.MAINTENANCE,
+    FleetStatus.PENDING_ACTIVATION,
     FleetStatus.BROKEN,
     FleetStatus.AVAILABLE,
     FleetStatus.OUT_OF_SERVICE,
   ],
-  OUT_OF_SERVICE: [FleetStatus.MAINTENANCE, FleetStatus.AVAILABLE],
+  OUT_OF_SERVICE: [
+    FleetStatus.MAINTENANCE,
+    FleetStatus.PENDING_ACTIVATION,
+    FleetStatus.AVAILABLE,
+  ],
 };
 
 @Injectable()

@@ -229,6 +229,15 @@ describe.skipIf(!url)('Preparation + QC lifecycle in PostgreSQL', () => {
   });
   it('requires installed components, complete checks, and fresh preparation photos', async () => {
     const f = await fixture();
+    await db.fleet.update({
+      where: { id: f.fleet.id },
+      data: { status: 'IN_TRANSIT' },
+    });
+    await expect(f.start()).rejects.toThrow('Receive the fleet');
+    await db.fleet.update({
+      where: { id: f.fleet.id },
+      data: { status: 'PENDING_ACTIVATION' },
+    });
     const p = await f.start();
     await expect(
       service.submit(f.client.id, f.actor(f.rfd), p.id, { revision: 1 }),
@@ -263,7 +272,15 @@ describe.skipIf(!url)('Preparation + QC lifecycle in PostgreSQL', () => {
   });
   it('prevents self-review, freezes submitted photos, rejects with reason, and keeps rework revisions separate', async () => {
     const f = await fixture();
+    expect(
+      (await service.candidates(f.client.id, f.actor(f.rfd), {})).items.map(
+        (item) => item.id,
+      ),
+    ).toContain(f.fleet.id);
     const p = await f.start();
+    expect(
+      (await db.fleet.findUniqueOrThrow({ where: { id: f.fleet.id } })).status,
+    ).toBe('PENDING_ACTIVATION');
     const first = await f.submit(p.id);
     expect(
       first.photos.every((photo) => photo.objectKey.includes('/sealed/')),
@@ -345,6 +362,28 @@ describe.skipIf(!url)('Preparation + QC lifecycle in PostgreSQL', () => {
       (await service.readiness(f.client.id, f.actor(f.admin), f.fleet.id))
         .canAllocate,
     ).toBe(true);
+    expect(
+      await db.fleetStatusHistory.count({
+        where: {
+          fleetId: f.fleet.id,
+          fromStatus: 'PENDING_ACTIVATION',
+          toStatus: 'AVAILABLE',
+        },
+      }),
+    ).toBe(1);
+  });
+  it('does not approve a preparation while an active fleet remains in transit', async () => {
+    const f = await fixture();
+    const p = await f.start();
+    await f.submit(p.id);
+    await db.fleet.update({
+      where: { id: f.fleet.id },
+      data: { status: 'IN_TRANSIT', onboardingStatus: 'ACTIVE' },
+    });
+
+    await expect(
+      service.review(f.client.id, f.actor(f.qc), p.id, { revision: 1 }, true),
+    ).rejects.toThrow('Resolve maintenance or operational blocks before approval.');
   });
   it('atomically approves once, gates allocation/exchange entry, preserves administrative blocks, and invalidates component changes', async () => {
     const f = await fixture();
@@ -379,13 +418,9 @@ describe.skipIf(!url)('Preparation + QC lifecycle in PostgreSQL', () => {
       });
     await expect(allocation()).rejects.toThrow('PREPARATION_QC_REQUIRED');
     await fleets.update(f.client.id, f.fleet.id, { allocationEnabled: false });
-    await db.fleet.update({
-      where: { id: f.fleet.id },
-      data: { status: 'AVAILABLE' },
-    });
     expect(
       (await db.fleet.findUniqueOrThrow({ where: { id: f.fleet.id } })).status,
-    ).toBe('INSPECTION_PENDING');
+    ).toBe('PENDING_ACTIVATION');
     const results = await Promise.allSettled([
       service.review(f.client.id, f.actor(f.qc), p.id, { revision: 1 }, true),
       service.review(
@@ -671,6 +706,24 @@ describe.skipIf(!url)('Preparation + QC lifecycle in PostgreSQL', () => {
     expect(
       (await db.fleet.findUniqueOrThrow({ where: { id: f.fleet.id } })).status,
     ).toBe('AVAILABLE');
+    const reprepare = await service.start(
+      f.client.id,
+      f.actor(f.rfd),
+      f.fleet.id,
+    );
+    expect(reprepare.existing).toBe(false);
+    expect(
+      (await db.fleet.findUniqueOrThrow({ where: { id: f.fleet.id } })).status,
+    ).toBe('INSPECTION_PENDING');
+    expect(
+      await db.fleetStatusHistory.count({
+        where: {
+          fleetId: f.fleet.id,
+          fromStatus: 'AVAILABLE',
+          toStatus: 'INSPECTION_PENDING',
+        },
+      }),
+    ).toBe(1);
     expect(
       await db.fleetInstallationStage.count({
         where: { preparationId: f.p.id, status: 'COMPLETED' },

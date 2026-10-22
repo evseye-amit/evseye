@@ -151,6 +151,7 @@ enum KycStatus {
 }
 
 enum FleetStatus {
+  PENDING_ACTIVATION
   IN_TRANSIT
   AVAILABLE
   RESERVED
@@ -1697,7 +1698,7 @@ model Fleet {
   manufacturingMonth Int?
   motorNumber        String?                            @db.VarChar(100)
   ownershipType      FleetOwnershipType                 @default(CLIENT_OWNED)
-  status             FleetStatus                        @default(IN_TRANSIT)
+  status             FleetStatus                        @default(PENDING_ACTIVATION)
   allocationEnabled  Boolean                            @default(true)
   homeHubId          String?
   homeHub            Hub?                               @relation("FleetHomeHub", fields: [homeHubId], references: [id], onDelete: SetNull)

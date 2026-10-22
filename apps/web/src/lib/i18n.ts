@@ -88,6 +88,7 @@ const hi: Record<string, string> = {
   "Set up": "सेट अप करें", "FLEET HEALTH": "फ़्लीट की स्थिति",
   "Fleet status distribution": "फ़्लीट स्थिति का वितरण", "total": "कुल",
   "Available": "उपलब्ध", "Allocated": "आवंटित", "In use": "उपयोग में",
+  "In Transit": "यात्रा में", "IN TRANSIT": "यात्रा में", "Pending Activation": "सक्रियण लंबित", "PENDING ACTIVATION": "सक्रियण लंबित",
   "Maintenance": "रखरखाव", "Offline": "ऑफ़लाइन", "Out of service": "सेवा से बाहर",
   "WORKFORCE": "कर्मीदल", "Rider readiness": "राइडर तैयारी",
   "active": "सक्रिय", "active Riders": "सक्रिय राइडर",

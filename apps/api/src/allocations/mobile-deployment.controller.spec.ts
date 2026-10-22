@@ -9,7 +9,10 @@ describe('MobileDeploymentController', () => {
       locale: 'te',
       screens: { PAYMENT: 'చెల్లింపు' },
       deploymentStatuses: { PAYMENT_PENDING: 'చెల్లింపు పెండింగ్‌లో ఉంది' },
-      fleetStatuses: { AVAILABLE: 'అందుబాటులో ఉంది' },
+      fleetStatuses: {
+        AVAILABLE: 'అందుబాటులో ఉంది',
+        PENDING_ACTIVATION: 'యాక్టివేషన్ పెండింగ్‌లో ఉంది',
+      },
     });
   });
 

@@ -80,6 +80,7 @@ export const te: Record<string, string> = {
   "Set up": "సెటప్ చేయండి", "FLEET HEALTH": "ఫ్లీట్ ఆరోగ్యం",
   "Fleet status distribution": "ఫ్లీట్ స్థితి పంపిణీ", "total": "మొత్తం",
   "Available": "అందుబాటులో", "Allocated": "కేటాయించబడింది", "In use": "వినియోగంలో",
+  "In Transit": "రవాణాలో ఉంది", "IN TRANSIT": "రవాణాలో ఉంది", "Pending Activation": "సక్రియత పెండింగ్‌లో ఉంది", "PENDING ACTIVATION": "సక్రియత పెండింగ్‌లో ఉంది",
   "Maintenance": "నిర్వహణలో", "Offline": "ఆఫ్‌లైన్", "Out of service": "సేవలో లేదు",
   "WORKFORCE": "సిబ్బంది", "Rider readiness": "రైడర్ సిద్ధత",
   "active": "సక్రియం", "active Riders": "సక్రియ రైడర్లు",
