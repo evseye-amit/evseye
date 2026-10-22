@@ -9,8 +9,6 @@ import {
   FleetStatus,
   InspectionStatus,
   InspectionType,
-  PhotoEntityType,
-  PhotoStatus,
   Prisma,
   RiderStatus,
 } from '@prisma/client';
@@ -185,46 +183,30 @@ export class AllocationsService {
       where: { id: clientId },
       select: { fleetOperatingMode: true },
     });
-    if (['PREPARATION_QC','STAGED_PREPARATION_QC'].includes(client.fleetOperatingMode)) {
-      const fleet = await tx.fleet.findFirst({ where: { id: fleetId, clientId }, select: { readinessApprovedPreparationId: true, allocationBlockedByAdmin: true, allocationEnabled: true } });
-      if (!fleet?.readinessApprovedPreparationId) throw new ConflictException('Preparation and QC approval are required before allocation.');
-      if (fleet.allocationBlockedByAdmin || !fleet.allocationEnabled) throw new ConflictException('Allocation is administratively disabled for this scooter.');
-      return;
-    }
-    if (client.fleetOperatingMode === 'SIMPLE') return;
-    const requirements = await tx.photoRequirement.findMany({
-      where: {
-        clientId,
-        entityType: PhotoEntityType.FLEET,
-        isRequired: true,
+    const fleet = await tx.fleet.findFirst({
+      where: { id: fleetId, clientId },
+      select: {
+        readinessWorkflow: true,
+        readinessApprovedPreparationId: true,
+        allocationBlockedByAdmin: true,
+        allocationEnabled: true,
       },
-      select: { photoType: true },
     });
-    if (requirements.length === 0) return;
-
-    const completedPhotos = await tx.photo.findMany({
-      where: {
-        clientId,
-        entityType: PhotoEntityType.FLEET,
-        entityId: fleetId,
-        status: PhotoStatus.COMPLETE,
-        photoType: {
-          in: requirements.map((requirement) => requirement.photoType),
-        },
-      },
-      select: { photoType: true },
-    });
-    const completeTypes = new Set(
-      completedPhotos.map((photo) => photo.photoType),
-    );
-    const missing = requirements
-      .map((requirement) => requirement.photoType)
-      .filter((photoType) => !completeTypes.has(photoType));
-    if (missing.length > 0) {
+    const workflow = fleet?.readinessWorkflow === 'ONBOARDING_EVIDENCE'
+      ? 'SIMPLE'
+      : fleet?.readinessWorkflow ?? client.fleetOperatingMode;
+    if (fleet?.allocationBlockedByAdmin || fleet?.allocationEnabled === false)
       throw new ConflictException(
-        `Fleet onboarding photos are incomplete: ${missing.join(', ')}.`,
+        'Allocation is administratively disabled for this scooter.',
       );
+    if (['PREPARATION_QC', 'STAGED_PREPARATION_QC'].includes(workflow)) {
+      if (!fleet?.readinessApprovedPreparationId)
+        throw new ConflictException(
+          'Preparation and QC approval are required before allocation.',
+        );
     }
+    // Keep onboarding media readable as history, but never use it as an
+    // allocation gate. Preparation media remains enforced by readiness.
   }
   async activate(clientId: string, allocationId: string) {
     return this.prisma.$transaction(async (tx) => {

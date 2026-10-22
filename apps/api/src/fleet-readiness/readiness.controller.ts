@@ -97,6 +97,20 @@ export class FleetReadinessController {
   ) {
     return { data: await this.service.readiness(this.cid(u), u, id) };
   }
+  @Patch('fleets/:id/readiness') async configureFleetReadiness(
+    @CurrentUser() u: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() b: unknown,
+  ) {
+    return {
+      data: await this.service.configureFleet(
+        this.cid(u),
+        u,
+        id,
+        b,
+      ),
+    };
+  }
   @Post('fleets/:id/preparations') async start(
     @CurrentUser() u: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,

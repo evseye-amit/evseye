@@ -4790,6 +4790,64 @@ body:has(.sa-dialog[open]) {
 .readiness-staff-stage { display: grid; align-content: start; gap: 10px; min-width: 0; }
 .readiness-staff-hub label { min-width: 0; overflow-wrap: anywhere; }
 
+/* Fleet readiness: a compact overview that keeps the next action visible. */
+.readiness-workflow-picker { grid-column: 1 / -1; display: grid; gap: 12px; margin: 4px 0 8px; padding: 16px; border: 1px solid #dce9e0; border-radius: 12px; background: #f8fbf9; }
+.readiness-workflow-picker legend { padding: 0 6px; color: #203128; font-size: 15px; font-weight: 800; }
+.readiness-workflow-help, .readiness-workflow-default { margin: 0; color: #617068; font-size: 13px; }
+.readiness-workflow-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.readiness-workflow-option { display: grid; grid-template-columns: auto 1fr; align-items: start; gap: 10px; min-width: 0; padding: 13px; border: 1px solid #d6e4da; border-radius: 10px; background: #fff; color: #203128; cursor: pointer; }
+.readiness-workflow-option.selected { border-color: #378b61; box-shadow: 0 0 0 2px rgba(55, 139, 97, .14); background: #f3faf5; }
+.readiness-workflow-option input { margin-top: 2px; accent-color: var(--client-primary, #247a58); }
+.readiness-workflow-option span { display: grid; gap: 5px; min-width: 0; }
+.readiness-workflow-option small, .readiness-stage-plan-field small { color: #66766d; font-size: 12px; line-height: 1.45; }
+.readiness-stage-plan-field { max-width: 480px; }
+.readiness-info-button { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border: 1px solid #c9d8cd; border-radius: 50%; background: #fff; color: #247a58; cursor: pointer; }
+.readiness-info-button:hover { border-color: #247a58; background: #eff8f2; }
+.readiness-info-button:focus-visible, .fleet-more-summary:focus-visible { outline: 3px solid #8bc8a6; outline-offset: 2px; }
+.readiness-info-button .ui-icon { width: 17px; height: 17px; }
+.readiness-info-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 8px 0 18px; }
+.readiness-info-summary p { display: grid; gap: 4px; margin: 0; padding: 12px; border: 1px solid #e0e9e3; border-radius: 8px; background: #f8fbf9; }
+.readiness-info-summary span { color: #4f6057; }
+.fleet-row-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.fleet-more-menu { position: relative; display: inline-block; }
+.fleet-more-summary { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 0 12px; border: 1px solid #c9d8cd; border-radius: 7px; background: #fff; color: #325343; font-size: 13px; font-weight: 700; cursor: pointer; list-style: none; }
+.fleet-more-summary::-webkit-details-marker { display: none; }
+.fleet-more-summary::after { content: "⌄"; margin-left: 7px; font-size: 14px; }
+.fleet-more-menu[open] .fleet-more-summary::after { content: "⌃"; }
+.fleet-more-popover { position: absolute; z-index: 5; top: calc(100% + 6px); right: 0; display: grid; min-width: 190px; padding: 6px; border: 1px solid #d4e0d8; border-radius: 10px; background: #fff; box-shadow: 0 12px 30px rgba(28, 53, 39, .14); }
+.fleet-more-popover button { display: block; width: 100%; padding: 9px 10px; border: 0; border-radius: 6px; background: transparent; color: #263a2e; font: inherit; text-align: left; cursor: pointer; }
+.fleet-more-popover button:hover, .fleet-more-popover button:focus-visible { background: #eff8f2; color: #176c4d; outline: none; }
+.fleet-more-popover button.danger { color: #a33b32; }
+.readiness-detail-page { display: grid; gap: 22px; }
+.readiness-detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.readiness-detail-header h2 { margin: 4px 0 7px; color: #203128; }
+.readiness-detail-header p { margin: 0; }
+.readiness-overview-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.readiness-overview-card, .readiness-detail-card { min-width: 0; padding: 18px; border: 1px solid #dce9e0; border-radius: 12px; background: #fff; }
+.readiness-overview-card h3, .readiness-detail-card h3 { margin: 5px 0 7px; color: #203128; font-size: 18px; }
+.readiness-overview-card p, .readiness-detail-card p { margin: 0; color: #637169; line-height: 1.5; }
+.readiness-overview-card small { display: block; margin-top: 8px; color: #637169; }
+.readiness-progress-track { height: 7px; margin-top: 15px; overflow: hidden; border-radius: 999px; background: #e3eee6; }
+.readiness-progress-track span { display: block; height: 100%; border-radius: inherit; background: var(--client-primary, #247a58); transition: width 180ms ease; }
+.readiness-detail-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.readiness-detail-card { display: grid; align-content: start; gap: 10px; }
+.readiness-blocker-list { display: grid; gap: 6px; margin: 2px 0 4px; padding-left: 20px; color: #7a3f2f; }
+.readiness-primary-action { margin-top: auto; padding-top: 8px; }
+.readiness-plan-form { display: grid; gap: 10px; }
+.readiness-plan-form label { display: grid; gap: 6px; color: #5e6e64; font-size: 13px; font-weight: 700; }
+.readiness-plan-form select { min-height: 40px; }
+.readiness-empty-state { display: grid; gap: 12px; justify-items: start; }
+@media (max-width: 900px) {
+  .readiness-workflow-options, .readiness-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .readiness-workflow-options, .readiness-overview-grid, .readiness-detail-columns, .readiness-info-summary { grid-template-columns: minmax(0, 1fr); }
+  .readiness-detail-header { display: grid; }
+  .readiness-detail-header > button { width: 100%; }
+  .fleet-row-actions { justify-content: flex-start; }
+  .fleet-more-popover { right: auto; left: 0; }
+}
+
 /* Non-interactive workflow headings within the Vehicle Management menu. */
 .client-operations-shell .client-nav-items > .client-nav-subheading {
   margin: 14px 11px 4px;

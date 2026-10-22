@@ -14,6 +14,7 @@ import {
 } from 'class-validator';
 import {
   FleetOwnershipType,
+  FleetOperatingMode,
   FleetStatus,
   InsuranceType,
   VehicleSpeedType,
@@ -37,8 +38,16 @@ export class CreateFleetDto {
   @IsOptional() @IsInt() @Min(1) @Max(12) manufacturingMonth?: number;
   @IsOptional() @IsEnum(FleetOwnershipType) ownershipType?: FleetOwnershipType;
   @IsOptional()
-  @IsIn([FleetStatus.PENDING_ACTIVATION, FleetStatus.IN_TRANSIT])
+  @IsIn([FleetStatus.PENDING_ACTIVATION])
   status?: FleetStatus;
+  @IsOptional()
+  @IsIn([
+    FleetOperatingMode.SIMPLE,
+    FleetOperatingMode.PREPARATION_QC,
+    FleetOperatingMode.STAGED_PREPARATION_QC,
+  ])
+  readinessWorkflow?: FleetOperatingMode;
+  @IsOptional() @IsString() @MaxLength(80) readinessStagePlanCode?: string;
   @IsOptional()
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })

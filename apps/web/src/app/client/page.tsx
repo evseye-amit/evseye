@@ -13,6 +13,11 @@ import {
 
 import { ClientBrand } from "../components/client-brand";
 import { LanguageSwitcher, useLocale } from "../components/locale-provider";
+import {
+  normalizeReadinessPlans,
+  normalizeReadinessWorkflows,
+  ReadinessWorkflowPicker,
+} from "../components/readiness-workflow-picker";
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import * as XLSX from "xlsx";
@@ -56,6 +61,14 @@ type FleetOnboardingOptions = {
     energyType: string;
     usageType?: string | null;
   }[];
+  readinessDefaultWorkflow?: string;
+  readinessDefaultStagePlanCode?: string | null;
+  readinessAllowedWorkflows?: unknown;
+  readinessWorkflows?: unknown;
+  allowedReadinessWorkflows?: unknown;
+  readinessStagePlans?: unknown;
+  selectableReadinessPlans?: unknown;
+  selectablePlans?: unknown;
 };
 type FleetOnboardingWorkbookRows = {
   fleets: Record<string, string>[];
@@ -63,24 +76,6 @@ type FleetOnboardingWorkbookRows = {
   controllers: Record<string, string>[];
   iotDevices: Record<string, string>[];
 };
-type FleetCreateStatus = "PENDING_ACTIVATION" | "IN_TRANSIT";
-
-type FleetEvidenceStatus = {
-  ready: boolean;
-  operatingMode: "SIMPLE" | "ONBOARDING_EVIDENCE";
-  photosRequired: boolean;
-  evidenceComplete: boolean;
-  items: Array<{
-    entityType: string;
-    entityId: string;
-    label: string | null;
-    requiredPhotoTypes: string[];
-    completedPhotoTypes: string[];
-    missingPhotoTypes: string[];
-    ready: boolean;
-  }>;
-};
-
 export default function ClientHome() {
   const { t } = useLocale();
   const [brandingToken, setBrandingToken] = useState("");
@@ -697,7 +692,6 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
     vehicleCategories: [],
     vehicleTypes: [],
   });
-  const [fleetCreateStatus, setFleetCreateStatus] = useState<FleetCreateStatus>("PENDING_ACTIVATION");
   const [form, setForm] = useState({
     fleetCode: "",
     vehicleNumber: "",
@@ -708,6 +702,8 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
     vehicleTypeId: "",
     speedType: "",
     homeHubId: "",
+    readinessWorkflow: "SIMPLE",
+    readinessStagePlanCode: "",
     modelName: "",
     variantName: "",
     colour: "",
@@ -776,6 +772,11 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
           throw new Error(fleetsBody.message ?? "Unable to load saved Fleets.");
         setHubs(hubsBody.data);
         setOptions(optionsBody.data);
+        setForm((current) => ({
+          ...current,
+          readinessWorkflow: String(optionsBody.data.readinessDefaultWorkflow ?? current.readinessWorkflow ?? "SIMPLE"),
+          readinessStagePlanCode: String(optionsBody.data.readinessDefaultWorkflow === "STAGED_PREPARATION_QC" ? optionsBody.data.readinessDefaultStagePlanCode ?? current.readinessStagePlanCode ?? "" : ""),
+        }));
         setExistingFleets(fleetsBody.data?.items ?? []);
       })
       .catch((cause: unknown) =>
@@ -807,7 +808,8 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
     try {
       const payload = {
         ...form,
-        ...(!editingFleetId ? { status: fleetCreateStatus } : {}),
+        readinessWorkflow: editingFleetId ? undefined : form.readinessWorkflow || undefined,
+        readinessStagePlanCode: editingFleetId ? undefined : form.readinessStagePlanCode || undefined,
         fleetCode: form.fleetCode.trim() || undefined,
         vehicleNumber: form.vehicleNumber.trim().toUpperCase() || undefined,
         chassisNumber: form.chassisNumber.trim().toUpperCase(),
@@ -849,9 +851,9 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
         setCreatedFleet(savedFleet);
       } else {
         setEditingComponents(false);
-        setCreatedFleet({ ...savedFleet, status: savedFleet.status ?? fleetCreateStatus });
+        setCreatedFleet({ ...savedFleet, status: savedFleet.status });
         setMessage(
-          "Fleet created. Review its onboarding photos and activate when ready.",
+          "Fleet created. Continue with component setup, then use Fleet readiness for the next handoff.",
         );
       }
     } catch (cause) {
@@ -1004,6 +1006,8 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
         vehicleTypeId: text(fleet.vehicleTypeId),
         speedType: text(fleet.speedType),
         homeHubId: text(fleet.homeHubId),
+        readinessWorkflow: text(fleet.readinessWorkflow ?? fleet.operatingMode ?? "SIMPLE"),
+        readinessStagePlanCode: text(fleet.readinessStagePlanCode),
         modelName: text(fleet.modelName),
         variantName: text(fleet.variantName),
         colour: text(fleet.colour),
@@ -1023,7 +1027,6 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
         fitnessCertificateNumber: text(fitness.certificateNumber),
         fitnessExpiryDate: date(fitness.expiryDate),
       });
-      setFleetCreateStatus("PENDING_ACTIVATION");
       setEditingFleetId(fleetId);
     } catch (cause) {
       setMessage(
@@ -1059,7 +1062,22 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
         />
       );
     }
-    return <FleetEvidenceSetup fleet={createdFleet} onActivated={onSaved} />;
+    return (
+      <section className="client-onboarding-action">
+        <div>
+          <p className="eyebrow">STEP 4 · FLEET READY</p>
+          <h2>{createdFleet.vehicleNumber || createdFleet.chassisNumber} is ready for the next handoff</h2>
+          <p>
+            Components are saved. Continue to Rider creation now, or use Fleet
+            readiness in Client Operations to follow the saved workflow later.
+          </p>
+        </div>
+        <div className="fleet-evidence-actions">
+          <button type="button" onClick={onSaved}>Continue to Rider creation</button>
+        </div>
+        {message ? <p className="client-action-message">{message}</p> : null}
+      </section>
+    );
   }
   return (
     <section className="client-onboarding-action">
@@ -1167,13 +1185,7 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
               placeholder="Vehicle identification number"
             />
           </label>
-          {!editingFleetId ? <label>
-            Initial status
-            <select value={fleetCreateStatus} onChange={(event) => setFleetCreateStatus(event.target.value as FleetCreateStatus)}>
-              <option value="PENDING_ACTIVATION">Pending activation</option>
-              <option value="IN_TRANSIT">In transit</option>
-            </select>
-          </label> : null}
+          {!editingFleetId ? <div className="client-form-wide"><ReadinessWorkflowPicker workflow={form.readinessWorkflow} stagePlanCode={form.readinessStagePlanCode} workflows={normalizeReadinessWorkflows(options.readinessAllowedWorkflows ?? options.readinessWorkflows ?? options.allowedReadinessWorkflows)} plans={normalizeReadinessPlans(options.readinessStagePlans ?? options.selectableReadinessPlans ?? options.selectablePlans)} defaultWorkflow={options.readinessDefaultWorkflow} onWorkflowChange={(value) => setForm({ ...form, readinessWorkflow: value, readinessStagePlanCode: value === "STAGED_PREPARATION_QC" ? form.readinessStagePlanCode : "" })} onStagePlanChange={(value) => setForm({ ...form, readinessStagePlanCode: value })} disabled={busy} /></div> : null}
           <label>
             OEM *
            <select
@@ -1913,8 +1925,8 @@ function FleetComponentsSetup({
         <form onSubmit={saveIotDevice} className="client-hub-form">
           <h3 className="client-form-section-title">IoT device</h3>
           <p className="client-form-hint client-form-wide">
-            Device installation and serial-label photos can be uploaded in the
-            next step when a tracker is assigned. Simple mode makes these onboarding photos optional.
+            Device installation details are saved here. Shared photo tools remain
+            available from Client Operations when a field workflow needs them.
           </p>
           <label>
             Device number *
@@ -2013,219 +2025,7 @@ function FleetComponentsSetup({
           Skip components for now
         </button>
         <button disabled={busy} type="button" onClick={onContinue}>
-          Continue to Fleet evidence
-        </button>
-      </div>
-      {message ? <p className="client-action-message">{message}</p> : null}
-    </section>
-  );
-}
-
-function FleetEvidenceSetup({
-  fleet,
-  onActivated,
-}: {
-  fleet: { id: string; vehicleNumber?: string | null; chassisNumber: string };
-  onActivated: () => void;
-}) {
-  const [evidence, setEvidence] = useState<FleetEvidenceStatus | null>(null);
-  const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
-  const token = () => sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? "";
-  const fetchEvidence = useCallback(async () => {
-    const response = await fetch(
-      `${API_URL}/fleets/${fleet.id}/onboarding-status`,
-      { headers: { Authorization: `Bearer ${sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? ""}` } },
-    );
-    const body = await response.json();
-    if (!response.ok) {
-      throw new Error(
-        body.error?.message ?? body.message ?? "Unable to load Fleet evidence.",
-      );
-    }
-    return body.data as FleetEvidenceStatus;
-  }, [fleet.id]);
-  const reload = async () => setEvidence(await fetchEvidence());
-  useEffect(() => {
-    fetchEvidence().then(setEvidence).catch((cause: unknown) =>
-      setMessage(
-        cause instanceof Error
-          ? cause.message
-          : "Unable to load Fleet evidence.",
-      ),
-    );
-  }, [fetchEvidence]);
-  const upload = async (
-    entityType: string,
-    entityId: string,
-    photoType: string,
-    file: File,
-  ) => {
-    if (file.size > 5 * 1024 * 1024) {
-      setMessage("Each photo must be 5 MB or smaller.");
-      return;
-    }
-    setBusy(true);
-    setMessage("");
-    try {
-      const intentResponse = await fetch(`${API_URL}/media/upload-intents`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token()}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          entityType,
-          entityId,
-          photoType,
-          mimeType: file.type,
-          fileName: file.name,
-          sizeBytes: file.size,
-        }),
-      });
-      const intentBody = await intentResponse.json();
-      if (!intentResponse.ok) {
-        throw new Error(
-          intentBody.error?.message ??
-            intentBody.message ??
-            "Unable to prepare photo upload.",
-        );
-      }
-      const uploadResponse = await fetch(intentBody.data.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      if (!uploadResponse.ok) {
-        throw new Error("The photo could not be uploaded to secure storage.");
-      }
-      const completeResponse = await fetch(
-        `${API_URL}/media/${intentBody.data.photo.id}/complete`,
-        {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token()}` },
-        },
-      );
-      const completeBody = await completeResponse.json();
-      if (!completeResponse.ok) {
-        throw new Error(
-          completeBody.error?.message ??
-            completeBody.message ??
-            "Unable to confirm photo upload.",
-        );
-      }
-      await reload();
-      setMessage(`${photoType.replaceAll("_", " ")} photo uploaded.`);
-    } catch (cause) {
-      setMessage(
-        cause instanceof Error ? cause.message : "Unable to upload photo.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
-  const activate = async () => {
-    setBusy(true);
-    setMessage("");
-    try {
-      const response = await fetch(`${API_URL}/fleets/${fleet.id}/activate`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token()}` },
-      });
-      const body = await response.json();
-      if (!response.ok) {
-        throw new Error(
-          body.error?.message ??
-            body.message ??
-            "Unable to activate the Fleet.",
-        );
-      }
-      onActivated();
-    } catch (cause) {
-      setMessage(
-        cause instanceof Error
-          ? cause.message
-          : "Unable to activate the Fleet.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <section className="client-onboarding-action">
-      <div>
-        <p className="eyebrow">STEP 4 · FLEET EVIDENCE</p>
-        <h2>Activate {fleet.vehicleNumber || fleet.chassisNumber}</h2>
-        <p>
-          {evidence?.photosRequired
-            ? "Complete the required onboarding photos before activating this scooter."
-            : "Onboarding photos are optional. Upload now or complete later. Allocation and submission photos are still required."}
-        </p>
-      </div>
-      {!evidence ? (
-        <p className="client-action-message">Loading required photo slots…</p>
-      ) : (
-        <div className="fleet-evidence-list">
-          {evidence.items.map((item) => (
-            <section className="fleet-evidence-card" key={item.entityId}>
-              <div>
-                <strong>{item.label || item.entityType}</strong>
-                <span>
-                  {item.ready
-                    ? "Evidence complete"
-                    : `${item.missingPhotoTypes.length} ${evidence.photosRequired ? "required" : "optional"} photo slot(s) remaining`}
-                </span>
-              </div>
-              <div className="fleet-photo-slots">
-                {item.requiredPhotoTypes.map((photoType) => {
-                  const complete = item.completedPhotoTypes.includes(photoType);
-                  return (
-                    <label
-                      className={complete ? "complete" : ""}
-                      key={photoType}
-                    >
-                      <span>
-                        {complete ? "✓" : "○"} {photoType.replaceAll("_", " ")}
-                        {complete ? " · Replace photo" : ""}
-                      </span>
-                      <input
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        disabled={busy}
-                        onChange={(event) => {
-                          const file = event.target.files?.[0];
-                          if (file)
-                            void upload(
-                              item.entityType,
-                              item.entityId,
-                              photoType,
-                              file,
-                            );
-                        }}
-                      />
-                    </label>
-                  );
-                })}
-              </div>
-            </section>
-          ))}
-        </div>
-      )}
-      <div className="fleet-evidence-actions">
-        <button
-          className="secondary-button"
-          disabled={busy}
-          type="button"
-          onClick={() => void reload()}
-        >
-          Refresh evidence
-        </button>
-        <button
-          disabled={busy || !evidence?.ready}
-          type="button"
-          onClick={() => void activate()}
-        >
-          {busy ? "Working…" : evidence && !evidence.photosRequired && !evidence.evidenceComplete ? "Complete later and activate Fleet" : "Activate Fleet"}
+          Continue to Fleet readiness
         </button>
       </div>
       {message ? <p className="client-action-message">{message}</p> : null}
