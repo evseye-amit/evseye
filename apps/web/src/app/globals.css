@@ -4602,6 +4602,8 @@ body:has(.sa-dialog[open]) {
   .client-dialog-content .form-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
+.client-operations-shell .sa-sidebar nav a.sa-nav-child { margin: 0; padding-left: 20px; font-size: 15px; }
+
 /* Use one interaction treatment for direct links, group headings and child items. */
 .client-operations-shell .sa-sidebar :is(nav button, .client-nav-utility) {
   min-height: 44px;
@@ -4819,3 +4821,13 @@ body:has(.sa-dialog[open]) {
 .client-operations-shell .client-nav-items > .client-nav-subheading:first-child {
   margin-top: 8px;
 }
+
+/* Rider financial views share one dialog and retain each tab's filters. */
+.rider-wallet-tabs, .client-dialog-view-switcher { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.rider-wallet-panel:not([hidden]) { display: grid; min-width: 0; gap: 16px; }
+.rider-wallet-panel[hidden] { display: none; }
+.rider-wallet-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 16px 0; }
+.rider-wallet-totals dt { color: var(--muted); font-size: 13px; }
+.rider-wallet-totals dd { margin: 6px 0 0; font-size: 20px; font-weight: 700; overflow-wrap: anywhere; }
+.rider-wallet-reference { display: block; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .rider-wallet-totals { grid-template-columns: minmax(0, 1fr); } }

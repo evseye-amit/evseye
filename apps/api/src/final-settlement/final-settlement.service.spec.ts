@@ -147,4 +147,65 @@ describe('mechanic completion before settlement', () => {
     Object.assign(db.riderCharge, { findFirst: vi.fn().mockResolvedValue({ id: 'charge' }) });
     await expect(service.approve('client', 'settlement', 'checker')).rejects.toThrow('invoiced');
   });
+
+  it('treats only BASIC pending reports as mechanic blockers', async () => {
+    const { db, service } = fixture();
+    db.rentalTerminationRequest.findUnique.mockResolvedValue({
+      submissionRequired: true,
+    } as never);
+    const findFirst = vi.fn().mockResolvedValue({ id: 'submission' });
+    Object.assign(db, { vehicleSubmission: { findFirst } });
+
+    await expect(
+      service.approve('client', 'settlement', 'checker'),
+    ).rejects.toThrow('mechanic checks');
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: expect.arrayContaining([
+            {
+              reports: {
+                some: {
+                  stage: 'BASIC',
+                  status: { in: ['DRAFT', 'SUBMITTED'] },
+                },
+              },
+            },
+          ]),
+        }),
+      }),
+    );
+  });
+
+  it('ignores historical DEEP pending reports but still blocks open rider charges', async () => {
+    const { db, service } = fixture();
+    db.rentalTerminationRequest.findUnique.mockResolvedValue({
+      submissionRequired: true,
+    } as never);
+    const findFirst = vi.fn().mockResolvedValue(null);
+    Object.assign(db, { vehicleSubmission: { findFirst } });
+    Object.assign(db.riderCharge, {
+      findFirst: vi.fn().mockResolvedValue({ id: 'charge' }),
+    });
+
+    await expect(
+      service.approve('client', 'settlement', 'checker'),
+    ).rejects.toThrow('invoiced');
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: expect.arrayContaining([
+            {
+              reports: {
+                some: {
+                  stage: 'BASIC',
+                  status: { in: ['DRAFT', 'SUBMITTED'] },
+                },
+              },
+            },
+          ]),
+        }),
+      }),
+    );
+  });
 });

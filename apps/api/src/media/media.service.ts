@@ -94,6 +94,17 @@ export class MediaService {
     return this.downloadPhoto(photo);
   }
 
+  async paymentContent(clientId: string, entityType: PhotoEntityType, entityId: string, photoId: string) {
+    const photo = await this.getPhoto(clientId, photoId);
+    if (!isPaymentPhoto(entityType) || photo.entityType !== entityType || photo.entityId !== entityId)
+      throw new NotFoundException('Payment receipt not found.');
+    if (photo.status !== PhotoStatus.COMPLETE) throw new BadRequestException('Receipt image is not available.');
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(photo.mimeType) || photo.sizeBytes < 1 || photo.sizeBytes > 5 * 1024 * 1024)
+      throw new BadRequestException('Receipt image has an unsupported type or size.');
+    const bytes = await this.storage.readObject(photo.objectKey, photo.sizeBytes);
+    return { bytes, mimeType: photo.mimeType, filename: `payment-receipt-${photo.id}.${this.extensionFor(photo.mimeType)}` };
+  }
+
   private async createUploadIntentForEntity(
     clientId: string,
     uploadedById: string,
@@ -125,6 +136,176 @@ export class MediaService {
     });
 
     return { photo, uploadUrl };
+  }
+
+  private async fleetEvidenceScope(clientId: string, fleetId: string) {
+    const fleet = await this.prisma.fleet.findFirst({
+      where: { id: fleetId, clientId, deletedAt: null },
+      include: {
+        batteryHistory: { where: { removedAt: null, battery: { clientId } }, select: { batteryId: true, installedAt: true, battery: { select: { serialNumber: true } } }, orderBy: { installedAt: 'asc' } },
+        controllerHistory: { where: { removedAt: null, controller: { clientId } }, select: { controllerId: true, installedAt: true, controller: { select: { controllerNumber: true } } }, orderBy: { installedAt: 'asc' } },
+        iotDevice: { select: { id: true, clientId: true } },
+      },
+    });
+    if (!fleet) throw new NotFoundException('Fleet not found.');
+    const [inspections, preparations] = await Promise.all([
+      this.prisma.inspection.findMany({
+        where: { clientId, allocation: { clientId, fleetId } },
+        select: { id: true, type: true, createdAt: true, allocationId: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.fleetPreparation.findMany({
+        where: { clientId, fleetId },
+        include: { revisions: { where: { clientId } }, stages: { where: { clientId } } },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+    type Group = {
+      id: string;
+      category: string;
+      label: string;
+      date: Date | null;
+      entityType: PhotoEntityType;
+      entityId: string;
+      prefix?: boolean;
+    };
+    const groups: Group[] = [
+      {
+        id: fleetId,
+        category: 'Fleet & components',
+        label: 'Fleet onboarding',
+        date: null,
+        entityType: PhotoEntityType.FLEET,
+        entityId: fleetId,
+      },
+    ];
+    for (const entry of fleet.batteryHistory)
+      groups.push({
+        id: `battery:${entry.batteryId}`,
+        category: 'Fleet & components',
+        label: `Battery · ${entry.battery.serialNumber}`,
+        date: entry.installedAt,
+        entityType: PhotoEntityType.BATTERY,
+        entityId: entry.batteryId,
+      });
+    for (const entry of fleet.controllerHistory)
+      groups.push({
+        id: `controller:${entry.controllerId}`,
+        category: 'Fleet & components',
+        label: `Controller · ${entry.controller.controllerNumber}`,
+        date: entry.installedAt,
+        entityType: PhotoEntityType.CONTROLLER,
+        entityId: entry.controllerId,
+      });
+    if (fleet.iotDevice?.clientId === clientId)
+      groups.push({
+        id: `iot:${fleet.iotDevice.id}`,
+        category: 'Fleet & components',
+        label: 'IoT installation',
+        date: null,
+        entityType: PhotoEntityType.IOT_DEVICE,
+        entityId: fleet.iotDevice.id,
+      });
+    for (const inspection of inspections)
+      groups.push({
+        id: inspection.id,
+        category:
+          inspection.type === 'PRE_ALLOCATION' ? 'Allocation' : 'Submission',
+        label: `${inspection.type === 'PRE_ALLOCATION' ? 'Allocation' : 'Submission'} · ${inspection.allocationId}`,
+        date: inspection.createdAt,
+        entityType: PhotoEntityType.INSPECTION,
+        entityId: inspection.id,
+      });
+    for (const preparation of preparations) {
+      for (const revision of preparation.revisions)
+        groups.push({
+          id: revision.id,
+          category: 'Preparation & QC',
+          label: `Preparation ${preparation.id} · revision ${revision.revision}`,
+          date: revision.createdAt,
+          entityType: PhotoEntityType.PREPARATION,
+          entityId: revision.id,
+        });
+      for (const stage of preparation.stages)
+        groups.push({
+          id: stage.id,
+          category: 'Installation',
+          label: `${stage.code} · ${preparation.id}`,
+          date: preparation.createdAt,
+          entityType: PhotoEntityType.PREPARATION,
+          entityId: `installation:${stage.id}:`,
+          prefix: true,
+        });
+    }
+    const unique = [
+      ...new Map(groups.map((group) => [group.id, group])).values(),
+    ];
+    const where: Prisma.PhotoWhereInput = {
+      clientId,
+      status: PhotoStatus.COMPLETE,
+      OR: unique.map((group) => ({
+        entityType: group.entityType,
+        entityId: group.prefix
+          ? { startsWith: group.entityId }
+          : group.entityId,
+      })),
+    };
+    return { groups: unique, where };
+  }
+
+  async fleetEvidence(clientId: string, fleetId: string) {
+    const { groups, where } = await this.fleetEvidenceScope(clientId, fleetId);
+    const photos = await this.prisma.photo.findMany({
+      where,
+      select: {
+        id: true,
+        entityType: true,
+        entityId: true,
+        photoType: true,
+        mimeType: true,
+        uploadedAt: true,
+        createdAt: true,
+      },
+      orderBy: [{ uploadedAt: 'desc' }, { id: 'desc' }],
+    });
+    return groups.map((group) => ({
+      id: group.id,
+      category: group.category,
+      label: group.label,
+      date: group.date,
+      photos: photos.filter(
+        (photo) =>
+          photo.entityType === group.entityType &&
+          (group.prefix
+            ? photo.entityId.startsWith(group.entityId)
+            : photo.entityId === group.entityId),
+      ),
+    }));
+  }
+
+  async fleetEvidenceContent(
+    clientId: string,
+    fleetId: string,
+    photoId: string,
+  ) {
+    const { where } = await this.fleetEvidenceScope(clientId, fleetId);
+    const photo = await this.prisma.photo.findFirst({
+      where: { ...where, id: photoId },
+    });
+    if (!photo) throw new NotFoundException('Fleet evidence photo not found.');
+    if (
+      !['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(
+        photo.mimeType,
+      ) ||
+      photo.sizeBytes < 1 ||
+      photo.sizeBytes > 5 * 1024 * 1024
+    )
+      throw new BadRequestException('This evidence file cannot be previewed.');
+    return {
+      bytes: await this.storage.readObject(photo.objectKey, photo.sizeBytes),
+      mimeType: photo.mimeType,
+      filename: `fleet-evidence-${photo.id}.${photo.mimeType === 'application/pdf' ? 'pdf' : photo.mimeType.split('/')[1]}`,
+    };
   }
 
   async requirements(clientId: string, entityType: PhotoEntityType) {
@@ -241,18 +422,13 @@ export class MediaService {
                 status: { in: ['SUBMITTED', 'POSTED'] },
                 submission: { inspectionId: photo.entityId },
               },
-              select: { evidencePhotoIds: true, items: true, issues: true },
+              select: { evidencePhotoIds: true, items: true },
             })
           : [];
       const protectedIds = [
         ...new Set(
           reports.flatMap((report) => [
             ...report.evidencePhotoIds,
-            ...(Array.isArray(report.issues)
-              ? (report.issues as { evidencePhotoIds?: string[] }[]).flatMap(
-                  (issue) => issue.evidencePhotoIds ?? [],
-                )
-              : []),
             ...(Array.isArray(report.items)
               ? (report.items as { evidencePhotoIds?: string[] }[]).flatMap(
                   (item) => item.evidencePhotoIds ?? [],

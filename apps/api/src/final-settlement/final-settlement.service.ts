@@ -601,7 +601,14 @@ export class FinalSettlementService {
         OR: [
           { status: { not: "CONFIRMED" } },
           { mechanicChecksComplete: false },
-          { reports: { some: { status: { in: ["DRAFT", "SUBMITTED"] } } } },
+          {
+            reports: {
+              some: {
+                stage: "BASIC",
+                status: { in: ["DRAFT", "SUBMITTED"] },
+              },
+            },
+          },
         ],
       },
       select: { id: true },

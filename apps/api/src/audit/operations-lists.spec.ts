@@ -67,7 +67,7 @@ describe('Operations list contracts', () => {
     });
   });
 
-  it('returns only open allocation summaries for rider lists and preserves KYC decoration', async () => {
+  it('returns client-scoped open allocation and work partner summaries and preserves KYC decoration', async () => {
     const prisma = {
       rider: { findMany: vi.fn(), count: vi.fn() },
       $transaction: vi.fn().mockResolvedValue([[{ id: 'rider-1' }], 1]),
@@ -94,7 +94,21 @@ describe('Operations list contracts', () => {
         include: {
           allocations: expect.objectContaining({
             take: 1,
+            orderBy: { createdAt: 'desc' },
+            select: expect.objectContaining({
+              fleet: { select: {
+                fleetCode: true,
+                vehicleNumber: true,
+                currentHub: { select: { name: true } },
+                homeHub: { select: { name: true } },
+              } },
+              mobileDeployment: { select: {
+                workPartnerName: true,
+                clientWorkPartner: { select: { name: true } },
+              } },
+            }),
             where: {
+              clientId: 'client-a',
               status: {
                 in: [
                   'INSPECTION_PENDING',
@@ -108,6 +122,7 @@ describe('Operations list contracts', () => {
         },
       }),
     );
+    expect(prisma.rider.count).toHaveBeenCalledWith({ where: prisma.rider.findMany.mock.calls[0][0].where });
     expect(kyc.decorate).toHaveBeenCalledWith('client-a', [{ id: 'rider-1' }]);
     expect(result.items[0].kycStatus).toBe('VERIFIED');
   });

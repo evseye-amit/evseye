@@ -21,6 +21,8 @@ import {InstallationBoard} from "./components/installation-board";
 import { FleetReadiness, FleetReadinessStatus } from "./components/fleet-readiness";
 import { SupportTickets } from "./components/support-tickets";
 import { RiderReferenceReview } from "./components/rider-reference-review";
+import { FleetEvidenceDialog } from "./components/fleet-evidence";
+import { RiderWalletDialog } from "./components/rider-wallet";
 import { OperationsTable } from "./components/operations-records";
 import { ClientDataTable, type ClientColumn } from "./components/client-data-table";
 import { ClientUserManager, parseCsv } from "./components/client-user-manager";
@@ -71,10 +73,6 @@ type Tab =
   | "controllers"
   | "fleet-component-mapping"
   | "deallocations"
-  | "wallet"
-  | "rider-fleet-mapping"
-  | "rider-vendor-mapping"
-  | "rider-earnings"
   | "rider-document-review"
   | "rider-reference-review"
   | "support-tickets"
@@ -134,9 +132,11 @@ const CLIENT_BULK_CONFIG: Record<ClientBulkTab, { title: string; requiredColumns
 
 const CLIENT_NAVIGATION: Array<{
   label: string;
+  kyc?: boolean;
+  branding?: boolean;
   items: Array<{ id: Tab; label: string; group?: string }>;
 }> = [
-  { label: "", items: [{ id: "dashboard", label: "Dashboard" }, { id: "refer-and-earn", label: "Refer & Earn" }] },
+  { label: "", items: [{ id: "dashboard", label: "Dashboard" }] },
   {
     label: "Team Management",
     items: [
@@ -163,24 +163,11 @@ const CLIENT_NAVIGATION: Array<{
     ],
   },
   {
-    label: "Photo & Evidence",
-    items: [
-      { id: "fleet-evidence", label: "Fleet" },
-      { id: "allocation-evidence", label: "Allocation" },
-      { id: "deallocation-evidence", label: "De-allocation" },
-      { id: "rider-evidence", label: "Rider" },
-    ],
-  },
-  {
     label: "Rider Management",
     items: [
       { id: "riders", label: "Riders" },
       { id: "work-partners", label: "Work Partners" },
-      { id: "wallet", label: "Wallet" },
       { id: "payment-transactions", label: "Payment Transactions" },
-      { id: "rider-fleet-mapping", label: "Rider Fleet Mapping" },
-      { id: "rider-vendor-mapping", label: "Rider Vendor Mapping" },
-      { id: "rider-earnings", label: "Rider Earnings" },
       { id: "rider-document-review", label: "Document Verification" },
       { id: "rider-reference-review", label: "Reference Verification" },
     ],
@@ -193,16 +180,22 @@ const CLIENT_NAVIGATION: Array<{
     ],
   },
   {
-    label: "",
-    items: [{ id: "support-tickets", label: "Support Tickets" }, { id: "notifications", label: "Notification" }],
+    label: "Engagement & Support",
+    items: [{ id: "refer-and-earn", label: "Refer & Earn" }, { id: "support-tickets", label: "Support Tickets" }, { id: "notifications", label: "Notification" }],
   },
   {
-    label: "",
+    label: "Monitoring & Compliance",
+    kyc: true,
     items: [
       { id: "reports", label: "Reports" },
       { id: "audit", label: "Audit Log" },
       { id: "feature-usage", label: "Feature Usage" },
     ],
+  },
+  {
+    label: "Workspace Settings",
+    branding: true,
+    items: [{ id: "legal-documents", label: "Legal Documents" }],
   },
 ];
 
@@ -233,10 +226,6 @@ const CLIENT_TAB_TITLES: Record<Tab, string> = {
   controllers: "Controller",
   "fleet-component-mapping": "Fleet Component Mapping",
   deallocations: "Deallocation",
-  wallet: "Wallet",
-  "rider-fleet-mapping": "Rider Fleet Mapping",
-  "rider-vendor-mapping": "Rider Vendor Mapping",
-  "rider-earnings": "Rider Earnings",
   "rider-document-review": "Rider Document Verification",
   "rider-reference-review": "Rider Reference Verification",
   "support-tickets": "Support Tickets",
@@ -273,10 +262,6 @@ const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
   controllers: "factory",
   "fleet-component-mapping": "link",
   deallocations: "allocation",
-  wallet: "wallet",
-  "rider-fleet-mapping": "link",
-  "rider-vendor-mapping": "link",
-  "rider-earnings": "earnings",
   "rider-document-review": "shield",
   "rider-reference-review": "shield",
   "support-tickets": "support",
@@ -811,9 +796,11 @@ export default function Home() {
     null,
   );
   const [vehicleState, setVehicleState] = useState<RecordItem | null>(null);
+  const [walletRider, setWalletRider] = useState<{ id: string; name: string; mobile: string } | null>(null);
   const [riderDetail, setRiderDetail] = useState<RecordItem | null>(null);
   const [editingRider, setEditingRider] = useState(false);
   const [riderDraft, setRiderDraft] = useState<Record<string, string>>({});
+  const [evidenceFleet, setEvidenceFleet] = useState<{ id: string; name: string } | null>(null);
   const [fleetDetail, setFleetDetail] = useState<RecordItem | null>(null);
   const [fleetOnboardingStatus, setFleetOnboardingStatus] =
     useState<RecordItem | null>(null);
@@ -860,6 +847,7 @@ export default function Home() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [userRoles, setUserRoles] = useState<string[]>([]);
+  const canSeeKyc = userRoles.some(role => role === "CLIENT_ADMIN" || role === "KYC_OPERATOR");
 
   async function loadView(nextTab: Tab) {
     const generation = ++viewGeneration.current;
@@ -2539,7 +2527,7 @@ export default function Home() {
       <aside className="sa-sidebar">
         <ClientBrand token={token} />
         <nav className="client-navigation" aria-label="Client operations">
-          {CLIENT_NAVIGATION.filter(section => section.items.some(item => canSeeTab(item.id))).map((section, index) => (
+          {CLIENT_NAVIGATION.filter(section => section.items.some(item => canSeeTab(item.id)) || (section.kyc && canSeeKyc) || (section.branding && userRoles.includes("CLIENT_ADMIN"))).map((section, index) => (
             <div
               className="sa-nav-group client-nav-section"
               key={`${section.label}-${index}`}
@@ -2586,17 +2574,12 @@ export default function Home() {
                     </button>
                   </Fragment>
                 ))}
+                {section.kyc && canSeeKyc && <Link className="client-nav-utility sa-nav-child" href="/client/kyc"><UiIcon name="shield" /> {t("KYC & Verification")}</Link>}
+                {section.branding && <ClientBrandingSettings token={token} triggerClassName="sa-nav-child" />}
               </div>
             </div>
           ))}
         </nav>
-        {userRoles.some((role) => role === "CLIENT_ADMIN" || role === "KYC_OPERATOR") &&
-          <Link className="client-nav-utility" href="/client/kyc"><UiIcon name="shield" /> KYC &amp; Verification</Link>}
-        {userRoles.includes("CLIENT_ADMIN") &&
-          <button type="button" className={`client-nav-utility${tab === "legal-documents" ? " active" : ""}`} onClick={() => navigateTo("legal-documents")}>
-            <UiIcon name={CLIENT_TAB_ICONS["legal-documents"]} /> {t("Legal Documents")}
-          </button>}
-        <ClientBrandingSettings token={token} />
         <div className="sa-user client-sidebar-footer">
           <span aria-hidden="true">C</span>
           <div><strong>{t("Client Operations")}</strong><small>{t("EVs Eye workspace")}</small></div>
@@ -2977,6 +2960,7 @@ export default function Home() {
             </button>
           </ClientFormDialog>
         )}
+        {walletRider && <RiderWalletDialog key={walletRider.id} rider={walletRider} request={(path) => request(path, {}, token)} onClose={() => setWalletRider(null)} />}
         {riderDetail && (
           <ClientFormDialog title="Rider details" heading={String(riderDetail.name)} wide busy={loading} error={error} onClose={() => setRiderDetail(null)}>
             <p className="eyebrow">RIDER DETAIL</p>
@@ -3128,8 +3112,8 @@ export default function Home() {
                 report={(message, failed) => { if (failed) setError(message); else { setError(""); setNotice(message); } }} onBulk={() => openBulkImport(tab)} /> :
               <OperationsTable key={tab} tab={tab} identityKey={identityKey} refreshKey={recordRefreshKey} request={(path) => request(path, {}, token)} loading={loading} rows={items} columns={clientColumns(tab)}
                 getRowId={(item) => String(item.id)}
-                actions={tab === "fleets" ? (item) => <><FleetReadinessStatus fleetId={String(item.id)} /><button className="secondary table-action" onClick={() => void openFleetForm(String(item.id))}>Edit</button>{item.status === "AVAILABLE" && <button className="table-action" disabled title="Use the Fleet Manager app to complete allocation and its required checks.">Allocate</button>}{item.status === "ALLOCATED" && <button className="danger table-action" disabled title="Use the submission workflow in the Fleet Manager app to return this vehicle.">De-Allocate</button>}<button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(String(item.id)) })}>Delete</button></>
-                  : tab === "riders" ? (item) => <><button className="secondary table-action" onClick={() => void openRiderDetail(String(item.id))}>View / Edit</button><button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Rider?", description: "This rider will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Rider", onConfirm: () => deleteRider(String(item.id)) })}>Delete</button></>
+                actions={tab === "fleets" ? (item) => <><FleetReadinessStatus fleetId={String(item.id)} />{userRoles.some(role => role === "CLIENT_ADMIN" || role === "OPERATIONS_MANAGER") && <button className="secondary table-action" onClick={() => setEvidenceFleet({ id: String(item.id), name: String(item.vehicleNumber ?? item.fleetCode ?? item.chassisNumber ?? item.id) })}>Photos &amp; Evidence</button>}<button className="secondary table-action" onClick={() => void openFleetForm(String(item.id))}>Edit</button>{item.status === "AVAILABLE" && <button className="table-action" disabled title="Use the Fleet Manager app to complete allocation and its required checks.">Allocate</button>}{item.status === "ALLOCATED" && <button className="danger table-action" disabled title="Use the submission workflow in the Fleet Manager app to return this vehicle.">De-Allocate</button>}<button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(String(item.id)) })}>Delete</button></>
+                  : tab === "riders" ? (item) => <><button className="secondary table-action" onClick={() => void openRiderDetail(String(item.id))}>View / Edit</button>{userRoles.some(role => role === "CLIENT_ADMIN" || role === "OPERATIONS_MANAGER") && <button className="secondary table-action" onClick={() => setWalletRider({ id: String(item.id), name: String(item.name), mobile: String(item.mobile) })}>Wallet</button>}<button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Rider?", description: "This rider will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Rider", onConfirm: () => deleteRider(String(item.id)) })}>Delete</button></>
                   : tab === "iot-devices" ? (item) => <button className="secondary table-action" onClick={() => void openIotForm(item)}>Edit</button>
                   : tab === "batteries" || tab === "controllers" ? (item) => <button className="secondary table-action" onClick={() => void openExistingComponentForm(tab, item)}>Edit</button>
                   : tab === "fleet-component-mapping" ? (item) => <button className="secondary table-action" onClick={() => void openMappingForm(item)}>Edit</button>
@@ -3232,6 +3216,7 @@ export default function Home() {
                 </label>
                 <div className="form-actions"><button disabled={loading}>Add photo type</button><button type="button" className="secondary" onClick={() => setShowPhotoTypeForm(false)}>Cancel</button></div>
               </form></ClientFormDialog>}
+        {evidenceFleet && <FleetEvidenceDialog key={evidenceFleet.id} fleet={evidenceFleet} request={(path, options) => request(path, options, token)} canEditRequirements={userRoles.includes("CLIENT_ADMIN")} onClose={() => setEvidenceFleet(null)} />}
         {fleetDetail && showDetailIotForm && <ClientFormDialog title="Register IoT device" busy={loading} error={error} onClose={() => setShowDetailIotForm(false)} heading={<>Register IoT device</>}><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void registerIotDevice(String(fleetDetail.id)); }}><label>Device number *<input required value={iotDeviceNumber} onChange={(event) => setIotDeviceNumber(event.target.value)} /></label><div className="form-actions"><button disabled={loading}>Register device</button><button type="button" className="secondary" onClick={() => setShowDetailIotForm(false)}>Cancel</button></div></form></ClientFormDialog>}
         {componentForm && <ClientFormDialog title={`${editingComponentId ? "Edit" : "Add"} ${componentForm === "batteries" ? "battery" : "controller"}`} busy={loading} error={error} onClose={() => setComponentForm(null)} heading={<>{editingComponentId ? "Edit" : "Add"} {componentForm === "batteries" ? "battery" : "controller"}</>}><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void saveComponent(componentFleetId, componentForm); }}><label>Fleet (optional)<select disabled={Boolean(editingComponentId)} value={componentFleetId} onChange={(event) => setComponentFleetId(event.target.value)}><option value="">Leave unassigned</option>{iotFleetOptions.map((fleet) => <option key={String(fleet.id)} value={String(fleet.id)}>{String(fleet.fleetCode ?? fleet.vehicleNumber ?? fleet.chassisNumber)}</option>)}</select></label><label>{componentForm === "batteries" ? "Battery serial number" : "Controller number"} *<input required value={componentSerial} onChange={(event) => setComponentSerial(event.target.value)} /></label><div className="form-grid"><label>Manufacturer<input value={componentDetails.manufacturer} onChange={(event) => setComponentDetails((current) => ({ ...current, manufacturer: event.target.value }))} /></label><label>Model<input value={componentDetails.model} onChange={(event) => setComponentDetails((current) => ({ ...current, model: event.target.value }))} /></label>{componentForm === "batteries" ? <><label>Battery code<input value={componentDetails.batteryCode} onChange={(event) => setComponentDetails((current) => ({ ...current, batteryCode: event.target.value }))} /></label><label>Battery type<select value={componentDetails.batteryType} onChange={(event) => setComponentDetails((current) => ({ ...current, batteryType: event.target.value }))}><option value="FIXED_SINGLE">Fixed single</option><option value="FIXED_DOUBLE">Fixed double</option><option value="SWAP_IF">Swap IF</option><option value="SWAP_BS">Swap BS</option><option value="SWAP_MOVING">Swap moving</option><option value="SWAP_OTHER">Swap other</option></select></label><label>Battery slot<select value={componentDetails.batterySlot} onChange={(event) => setComponentDetails((current) => ({ ...current, batterySlot: event.target.value }))}><option value="PRIMARY">Primary</option><option value="SECONDARY">Secondary</option></select></label><label>Chemistry<input value={componentDetails.chemistry} onChange={(event) => setComponentDetails((current) => ({ ...current, chemistry: event.target.value }))} placeholder="LFP, NMC, LTO…" /></label><label>Capacity (kWh)<input type="number" min="0" step="0.001" value={componentDetails.capacityKwh} onChange={(event) => setComponentDetails((current) => ({ ...current, capacityKwh: event.target.value }))} /></label><label>Voltage<input type="number" min="0" step="0.01" value={componentDetails.voltage} onChange={(event) => setComponentDetails((current) => ({ ...current, voltage: event.target.value }))} /></label><label>Amp hour<input type="number" min="0" step="0.01" value={componentDetails.ampHour} onChange={(event) => setComponentDetails((current) => ({ ...current, ampHour: event.target.value }))} /></label><label>Installed odometer (km)<input type="number" min="0" step="0.01" value={componentDetails.installedOdometerKm} onChange={(event) => setComponentDetails((current) => ({ ...current, installedOdometerKm: event.target.value }))} /></label><label>Manufacturing date<input type="date" value={componentDetails.manufacturingDate} onChange={(event) => setComponentDetails((current) => ({ ...current, manufacturingDate: event.target.value }))} /></label><label>Warranty start date<input type="date" value={componentDetails.warrantyStartDate} onChange={(event) => setComponentDetails((current) => ({ ...current, warrantyStartDate: event.target.value }))} /></label><label>Warranty end date<input type="date" value={componentDetails.warrantyEndDate} onChange={(event) => setComponentDetails((current) => ({ ...current, warrantyEndDate: event.target.value }))} /></label></> : <><label>Rated voltage<input type="number" min="0" step="0.01" value={componentDetails.ratedVoltage} onChange={(event) => setComponentDetails((current) => ({ ...current, ratedVoltage: event.target.value }))} /></label><label>Rated current<input type="number" min="0" step="0.01" value={componentDetails.ratedCurrent} onChange={(event) => setComponentDetails((current) => ({ ...current, ratedCurrent: event.target.value }))} /></label></>}</div><div className="form-actions"><button disabled={loading || !componentSerial.trim()}>{editingComponentId ? "Save" : "Add"} {componentForm === "batteries" ? "battery" : "controller"}</button><button type="button" className="secondary" onClick={() => setComponentForm(null)}>Cancel</button></div></form></ClientFormDialog>}
         {rejectingDocument && <ClientFormDialog title="Reject rider document" busy={Boolean(reviewBusyId)} error={error} onClose={() => setRejectingDocument(null)}><form className="form-stack" onSubmit={rejectRiderDocument}><p className="muted">Provide a clear reason so the Rider knows what to correct before uploading a replacement.</p><label>Rejection reason *<textarea required minLength={3} maxLength={1000} value={documentRejectionReason} onChange={(event) => setDocumentRejectionReason(event.target.value)} placeholder="For example, document is blurred or does not match the submitted details." /></label><div className="form-actions"><button className="danger" disabled={Boolean(reviewBusyId) || !documentRejectionReason.trim()}>{reviewBusyId ? "Rejecting…" : "Reject document"}</button><button type="button" className="secondary" disabled={Boolean(reviewBusyId)} onClick={() => setRejectingDocument(null)}>Cancel</button></div></form></ClientFormDialog>}

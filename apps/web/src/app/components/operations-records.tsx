@@ -86,7 +86,8 @@ export function OperationsRecords({ kind, identityKey, refreshKey, request, acti
   ] : kind === 'riders' ? [
     column('name','Rider', (row) => row.name), column('mobile','Mobile', (row) => row.mobile),
     statusColumn('status','Status', (row) => row.status), statusColumn('kycStatus','KYC', (row) => row.kycStatus),
-    column('fleet','Current fleet', (row) => related(allocation(row),'fleet').vehicleNumber),
+    column('fleet','Fleet Number', (row) => related(allocation(row),'fleet').vehicleNumber ?? related(allocation(row),'fleet').fleetCode),
+    column('workPartner','Work Partner', (row) => related(related(allocation(row),'mobileDeployment'),'clientWorkPartner').name ?? related(allocation(row),'mobileDeployment').workPartnerName),
     column('hub','Hub', (row) => hubName(related(allocation(row),'fleet'))),
   ] : [
     column('action','Action', (row) => label(row.action)),

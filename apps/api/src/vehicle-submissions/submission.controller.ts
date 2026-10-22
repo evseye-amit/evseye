@@ -16,7 +16,7 @@ import {
 } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsNumber, IsOptional, Max, Min } from 'class-validator';
-import { MaintenanceIssueStatus, UserRole } from '@prisma/client';
+import { UserRole } from '@prisma/client';
 import { ApiBearerAuth, ApiHeader, ApiTags } from '@nestjs/swagger';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
@@ -81,7 +81,6 @@ export class VehicleSubmissionController {
   async metadata() {
     return { data: {
       fleetStatuses: ['AVAILABLE', 'MAINTENANCE', 'BROKEN', 'AWAITING_PARTS'],
-      issueStatuses: Object.values(MaintenanceIssueStatus),
     } };
   }
 

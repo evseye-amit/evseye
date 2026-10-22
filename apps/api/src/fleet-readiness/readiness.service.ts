@@ -1505,8 +1505,6 @@ export class FleetReadinessService {
         )
           throw new ConflictException('Submitted evidence changed.');
       }
-      if (approve && await tx.vehicleMaintenanceIssue.count({ where: { clientId, fleetId: p.fleetId, status: { not: 'RESOLVED' } } }))
-        throw new ConflictException('Resolve all outstanding maintenance issues before QC approval.');
       await tx.fleetPreparationRevision.update({
         where: { id: revision.id },
         data: {

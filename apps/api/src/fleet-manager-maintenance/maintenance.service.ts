@@ -21,7 +21,6 @@ const fleetSelect = {
   currentHub: { select: { id: true, code: true, name: true } },
   homeHub: { select: { id: true, code: true, name: true } },
   updatedAt: true,
-  maintenanceIssues: { orderBy: { updatedAt: 'desc' } },
   statusHistory: {
     where: { toStatus: { in: ['MAINTENANCE', 'BROKEN', 'AWAITING_PARTS'] } },
     select: { id: true, reason: true, createdAt: true },
@@ -47,7 +46,6 @@ const reportSelect = {
   mechanicName: true,
   summary: true,
   fleetStatus: true,
-  issues: true,
   safeForReuse: true,
   unsafeReason: true,
   checksComplete: true,
@@ -231,12 +229,7 @@ export class FleetManagerMaintenanceService {
         const visibleReports = reports.slice(0, 50);
         const photoIds = [
           ...new Set(
-            visibleReports.flatMap((report) => [
-              ...report.evidencePhotoIds,
-              ...(report.issues as { evidencePhotoIds: string[] }[]).flatMap(
-                (issue) => issue.evidencePhotoIds,
-              ),
-            ]),
+            visibleReports.flatMap((report) => report.evidencePhotoIds),
           ),
         ];
         const evidencePhotos = photoIds.length

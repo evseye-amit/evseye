@@ -42,3 +42,32 @@ describe('payment receipt validation and integrity', () => {
     expect(storage.sealObject).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('private receipt content delivery', () => {
+  const photo = { id: 'photo', clientId: 'client', entityType: 'PAYMENT_DEPLOYMENT', entityId: 'payment', mimeType: 'image/png', sizeBytes: 100, status: 'COMPLETE', objectKey: 'sealed.png' };
+  it('requires a completed receipt from the same client, payment and source before reading bytes', async () => {
+    const db = { photo: { findFirst: vi.fn().mockResolvedValue(photo) } };
+    const storage = { readObject: vi.fn().mockResolvedValue(Buffer.from('png')) };
+    const media = new MediaService(db as never, storage as never);
+    expect(await media.paymentContent('client', 'PAYMENT_DEPLOYMENT', 'payment', 'photo')).toEqual({ bytes: Buffer.from('png'), mimeType: 'image/png', filename: 'payment-receipt-photo.png' });
+    expect(db.photo.findFirst).toHaveBeenCalledWith({ where: { id: 'photo', clientId: 'client' } });
+    expect(storage.readObject).toHaveBeenCalledWith('sealed.png', 100);
+    storage.readObject.mockClear();
+    await expect(media.paymentContent('client', 'PAYMENT_DEPLOYMENT', 'other-payment', 'photo')).rejects.toThrow('not found');
+    await expect(media.paymentContent('client', 'PAYMENT_COLLECTION', 'payment', 'photo')).rejects.toThrow('not found');
+    db.photo.findFirst.mockResolvedValue({ ...photo, status: 'PENDING_UPLOAD' });
+    await expect(media.paymentContent('client', 'PAYMENT_DEPLOYMENT', 'payment', 'photo')).rejects.toThrow('not available');
+    db.photo.findFirst.mockResolvedValue(null as never);
+    await expect(media.paymentContent('other-client', 'PAYMENT_DEPLOYMENT', 'payment', 'photo')).rejects.toThrow('not found');
+    expect(storage.readObject).not.toHaveBeenCalled();
+  });
+  it('rejects unsupported receipt types and oversized metadata before touching storage', async () => {
+    const db = { photo: { findFirst: vi.fn() } }, storage = { readObject: vi.fn() };
+    const media = new MediaService(db as never, storage as never);
+    for (const invalid of [{ mimeType: 'text/html' }, { sizeBytes: 6 * 1024 * 1024 }]) {
+      db.photo.findFirst.mockResolvedValue({ ...photo, ...invalid });
+      await expect(media.paymentContent('client', 'PAYMENT_DEPLOYMENT', 'payment', 'photo')).rejects.toThrow('unsupported type or size');
+    }
+    expect(storage.readObject).not.toHaveBeenCalled();
+  });
+});

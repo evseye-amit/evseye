@@ -14,8 +14,9 @@ A zero-penalty report returns `paymentRequest: null`.
 
 Physical return/exchange intake completes regardless of whether the rider pays.
 A push/payment provider is never called during confirmation. Identical retries
-return the same invoice and never post another charge. Later DEEP reports with
-new proof create separate invoices; existing duplicate-finding protection stays.
+return the same invoice and never post another charge. Historical DEEP reports
+and their existing invoices remain readable; new report writes accept only the
+BASIC stage.
 
 Penalty amounts are displayed as outstanding dues, not spendable wallet funds.
 The existing charge posts the debit once; invoice creation posts no second debit.
