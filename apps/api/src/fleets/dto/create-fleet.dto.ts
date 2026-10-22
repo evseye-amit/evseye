@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   IsEnum,
   IsISO8601,
+  IsIn,
   IsInt,
   IsOptional,
   IsNumber,
@@ -35,7 +36,9 @@ export class CreateFleetDto {
   @IsOptional() @IsInt() @Min(1900) @Max(2100) manufacturingYear?: number;
   @IsOptional() @IsInt() @Min(1) @Max(12) manufacturingMonth?: number;
   @IsOptional() @IsEnum(FleetOwnershipType) ownershipType?: FleetOwnershipType;
-  @IsOptional() @IsEnum(FleetStatus) status?: FleetStatus;
+  @IsOptional()
+  @IsIn([FleetStatus.PENDING_ACTIVATION, FleetStatus.IN_TRANSIT])
+  status?: FleetStatus;
   @IsOptional()
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })

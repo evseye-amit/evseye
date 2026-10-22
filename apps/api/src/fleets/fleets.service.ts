@@ -21,6 +21,7 @@ import type { CreateFleetDto } from './dto/create-fleet.dto.js';
 import type { ListFleetsDto } from './dto/list-fleets.dto.js';
 import type { UpdateFleetDto } from './dto/update-fleet.dto.js';
 import { FleetStatusPolicy } from './fleet-status.policy.js';
+import { vehicleReadiness } from '../fleet-readiness/readiness-policy.js';
 
 @Injectable()
 export class FleetsService {
@@ -149,10 +150,9 @@ export class FleetsService {
           manufacturingMonth: dto.manufacturingMonth,
           ownershipType: dto.ownershipType,
           odometerKm: dto.odometerKm,
-          status: dto.status ?? FleetStatus.IN_TRANSIT,
-          ...(['MAINTENANCE', 'BROKEN', 'AWAITING_PARTS'].includes(dto.status ?? '') ? { allocationEnabled: false } : {}),
+          status: dto.status ?? FleetStatus.PENDING_ACTIVATION,
           statusHistory: {
-            create: { toStatus: dto.status ?? FleetStatus.IN_TRANSIT },
+            create: { toStatus: dto.status ?? FleetStatus.PENDING_ACTIVATION },
           },
           registration: dto.registrationDate
             ? {
@@ -503,7 +503,7 @@ export class FleetsService {
           }
         : {}),
     };
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total, client] = await this.prisma.$transaction([
       this.prisma.fleet.findMany({
         where,
         include: {
@@ -527,9 +527,24 @@ export class FleetsService {
         take: query.pageSize,
       }),
       this.prisma.fleet.count({ where }),
+      this.prisma.client.findUniqueOrThrow({
+        where: { id: clientId },
+        select: { fleetOperatingMode: true },
+      }),
     ]);
     return {
-      items: items.map((fleet) => this.present(fleet)),
+      items: items.map((fleet) => ({
+        ...this.present(fleet),
+        vehicleReadiness: vehicleReadiness({
+          operatingMode: client.fleetOperatingMode,
+          status: fleet.status,
+          allocationEnabled: fleet.allocationEnabled,
+          onboardingStatus: fleet.onboardingStatus,
+          readinessApprovedPreparationId:
+            fleet.readinessApprovedPreparationId,
+          unfinishedAllocationCount: fleet._count?.allocations ?? 0,
+        }),
+      })),
       meta: { page: query.page, pageSize: query.pageSize, total },
     };
   }
@@ -900,8 +915,15 @@ export class FleetsService {
 
   async activate(clientId: string, id: string, actorId: string) {
     const fleet = await this.get(clientId, id);
-    if (fleet.onboardingStatus === 'ACTIVE') return fleet;
-    if (!['IN_TRANSIT', 'AVAILABLE'].includes(fleet.status)) {
+    if (fleet.status === FleetStatus.IN_TRANSIT) {
+      throw new ConflictException('Receive the fleet before activation.');
+    }
+    if (
+      fleet.onboardingStatus === 'ACTIVE' &&
+      fleet.status !== FleetStatus.PENDING_ACTIVATION
+    )
+      return fleet;
+    if (fleet.status !== FleetStatus.PENDING_ACTIVATION) {
       throw new ConflictException('Only an unallocated fleet awaiting activation can be activated.');
     }
     const evidence = await this.onboardingStatus(clientId, id);
@@ -914,11 +936,18 @@ export class FleetsService {
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "Fleet" WHERE "id" = ${id} AND "clientId" = ${clientId} FOR UPDATE`;
       const current = await tx.fleet.findFirstOrThrow({ where: { id, clientId, deletedAt: null } });
-      if (current.onboardingStatus === 'ACTIVE') return current;
+      if (current.status === FleetStatus.IN_TRANSIT) {
+        throw new ConflictException('Receive the fleet before activation.');
+      }
+      if (
+        current.onboardingStatus === 'ACTIVE' &&
+        current.status !== FleetStatus.PENDING_ACTIVATION
+      )
+        return current;
       const allocated = await tx.allocation.count({
         where: { clientId, fleetId: id, status: { notIn: ['COMPLETED', 'CANCELLED'] } },
       });
-      if (allocated || !['IN_TRANSIT', 'AVAILABLE'].includes(current.status)) {
+      if (allocated || current.status !== FleetStatus.PENDING_ACTIVATION) {
         throw new ConflictException('Only an unallocated fleet awaiting activation can be activated.');
       }
       const updated = await tx.fleet.update({
@@ -928,6 +957,7 @@ export class FleetsService {
           onboardedAt: fleet.onboardedAt ?? new Date(),
           activatedAt: new Date(),
           status: FleetStatus.AVAILABLE,
+          allocationEnabled: !current.allocationBlockedByAdmin,
         },
       });
       await tx.fleetStatusHistory.create({
@@ -974,10 +1004,21 @@ export class FleetsService {
     actorId?: string,
     reason?: string,
   ) {
-    const fleet = await this.get(clientId, id);
-    this.statusPolicy.assertTransition(fleet.status, status);
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Fleet" WHERE id=${id} AND "clientId"=${clientId} FOR UPDATE`;
+      const fleet = await tx.fleet.findFirst({
+        where: { id, clientId, deletedAt: null },
+      });
+      if (!fleet) throw new NotFoundException('Fleet not found.');
+      this.statusPolicy.assertTransition(fleet.status, status);
+      if (status === FleetStatus.AVAILABLE && fleet.onboardingStatus !== 'ACTIVE')
+        throw new ConflictException('Fleet activation is incomplete.');
+      if (
+        status === FleetStatus.PENDING_ACTIVATION &&
+        fleet.onboardingStatus === 'ACTIVE' &&
+        fleet.status !== FleetStatus.IN_TRANSIT
+      )
+        throw new ConflictException('Active fleet cannot return to pending activation.');
       const updated = await tx.fleet.update({
         where: { id },
         data: { status, ...(['MAINTENANCE', 'BROKEN', 'AWAITING_PARTS'].includes(status) ? { allocationEnabled: false, readinessApprovedPreparationId: null } : {}) },

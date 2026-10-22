@@ -19,6 +19,7 @@ import { UiIcon, type IconName } from "./components/ui-icon";
 import { ClientNotifications } from "./components/client-notifications";
 import {InstallationBoard} from "./components/installation-board";
 import { FleetReadiness, FleetReadinessStatus } from "./components/fleet-readiness";
+import { readinessCellModel } from "./components/fleet-readiness-ui";
 import { SupportTickets } from "./components/support-tickets";
 import { RiderReferenceReview } from "./components/rider-reference-review";
 import { FleetEvidenceDialog } from "./components/fleet-evidence";
@@ -104,6 +105,7 @@ type FleetForm = {
   insuranceProviderName: string; insurancePolicyNumber: string; insuranceType: string;
   insuranceStartDate: string; insuranceEndDate: string; fitnessCertificateNumber: string; fitnessExpiryDate: string;
 };
+type FleetCreateStatus = "PENDING_ACTIVATION" | "IN_TRANSIT";
 const emptyFleetForm = (): FleetForm => ({
   fleetCode: "", vehicleNumber: "", chassisNumber: "", vinNumber: "", oemId: "", vehicleCategoryId: "", vehicleTypeId: "", speedType: "", homeHubId: "",
   modelName: "", variantName: "", colour: "", motorNumber: "", manufacturingYear: "", manufacturingMonth: "", ownershipType: "", odometerKm: "",
@@ -767,6 +769,7 @@ export default function Home() {
   const [riderBulkFields, setRiderBulkFields] = useState<RiderOnboardingField[]>([]);
   const [deleteConfirmation, setDeleteConfirmation] = useState<ClientDeleteConfirmation | null>(null);
   const [newFleet, setNewFleet] = useState<FleetForm>(emptyFleetForm);
+  const [fleetCreateStatus, setFleetCreateStatus] = useState<FleetCreateStatus>("PENDING_ACTIVATION");
   const [editingFleetId, setEditingFleetId] = useState("");
   const [fleetOptions, setFleetOptions] = useState<FleetOnboardingOptions>({
     oems: [], vehicleCategories: [], vehicleTypes: [],
@@ -844,6 +847,7 @@ export default function Home() {
   const [documentRejectionReason, setDocumentRejectionReason] = useState("");
   const [ingestSecret, setIngestSecret] = useState("");
   const [loading, setLoading] = useState(false);
+  const [fleetActionId, setFleetActionId] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [userRoles, setUserRoles] = useState<string[]>([]);
@@ -1309,7 +1313,10 @@ export default function Home() {
     setLoading(true);
     setError("");
     try {
-      const payload = Object.fromEntries(Object.entries(newFleet).filter(([, value]) => value !== "")) as Record<string, string | number>;
+      const payload = {
+        ...Object.fromEntries(Object.entries(newFleet).filter(([, value]) => value !== "")),
+        ...(!editingFleetId ? { status: fleetCreateStatus } : {}),
+      } as Record<string, string | number>;
       for (const field of ["manufacturingYear", "manufacturingMonth", "odometerKm"]) {
         if (payload[field] !== undefined) payload[field] = Number(payload[field]);
       }
@@ -1348,12 +1355,52 @@ export default function Home() {
       setFleetOptions(options);
       setHubs(hubRows);
       setEditingFleetId(fleetId ?? "");
+      setFleetCreateStatus("PENDING_ACTIVATION");
       setNewFleet(fleet ? fleetFormFromRecord(fleet) : emptyFleetForm());
       setShowFleetForm(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to load hubs.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function runFleetLifecycleAction(item: RecordItem) {
+    if (fleetActionId) return;
+    const id = String(item.id);
+    const currentStatus = String(item.status ?? "");
+    setFleetActionId(id);
+    setError("");
+    setNotice("");
+    try {
+      if (currentStatus === "IN_TRANSIT") {
+        await request(`/fleets/${id}/status`, {
+          method: "PATCH",
+          body: JSON.stringify({ status: "PENDING_ACTIVATION", reason: "Fleet received." }),
+        }, token);
+        await loadView("fleets");
+        setNotice("Fleet received and is pending activation.");
+        return;
+      }
+
+      if (currentStatus !== "PENDING_ACTIVATION") return;
+      const policy = await request("/client/fleet-readiness/policy", {}, token) as { operatingMode?: string };
+      if (policy.operatingMode === "PREPARATION_QC" || policy.operatingMode === "STAGED_PREPARATION_QC") {
+        await loadView("fleets");
+        navigateTo(policy.operatingMode === "PREPARATION_QC" ? "vehicle-preparation" : "installation-board");
+        setNotice("Continue the existing workflow to activate this fleet.");
+        return;
+      }
+      if (policy.operatingMode !== "SIMPLE" && policy.operatingMode !== "ONBOARDING_EVIDENCE") {
+        throw new Error("Unable to determine the fleet activation workflow.");
+      }
+      await request(`/fleets/${id}/activate`, { method: "POST" }, token);
+      await loadView("fleets");
+      setNotice("Fleet activated.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to update fleet status.");
+    } finally {
+      setFleetActionId("");
     }
   }
 
@@ -2744,6 +2791,7 @@ export default function Home() {
               <FleetTextInput label="Vehicle number" field="vehicleNumber" form={newFleet} setForm={setNewFleet} placeholder="DL01EV0001" />
               <FleetTextInput label="Chassis number" field="chassisNumber" form={newFleet} setForm={setNewFleet} required placeholder="ME4JF123456789001" />
               <FleetTextInput label="VIN number" field="vinNumber" form={newFleet} setForm={setNewFleet} placeholder="Vehicle identification number" />
+              {!editingFleetId && <label>Initial status<select value={fleetCreateStatus} onChange={(event) => setFleetCreateStatus(event.target.value as FleetCreateStatus)}><option value="PENDING_ACTIVATION">Pending activation</option><option value="IN_TRANSIT">In transit</option></select></label>}
               <label>OEM *<select required value={newFleet.oemId} onChange={(event) => setNewFleet({ ...newFleet, oemId: event.target.value })}><option value="">Select OEM</option>{fleetOptions.oems.map((oem) => <option key={oem.id} value={oem.id}>{oem.displayName} ({oem.code})</option>)}</select></label>
               <label>Vehicle category *<select required value={newFleet.vehicleCategoryId} onChange={(event) => setNewFleet({ ...newFleet, vehicleCategoryId: event.target.value, vehicleTypeId: "" })}><option value="">Select vehicle category</option>{fleetOptions.vehicleCategories.map((category) => <option key={category.id} value={category.id}>{category.name} ({category.code})</option>)}</select></label>
               <label>Vehicle type *<select required disabled={!newFleet.vehicleCategoryId} value={newFleet.vehicleTypeId} onChange={(event) => setNewFleet({ ...newFleet, vehicleTypeId: event.target.value })}><option value="">Select vehicle type</option>{fleetOptions.vehicleTypes.filter((type) => type.categoryId === newFleet.vehicleCategoryId).map((type) => <option key={type.id} value={type.id}>{type.name} ({type.energyType})</option>)}</select></label>
@@ -3112,7 +3160,11 @@ export default function Home() {
                 report={(message, failed) => { if (failed) setError(message); else { setError(""); setNotice(message); } }} onBulk={() => openBulkImport(tab)} /> :
               <OperationsTable key={tab} tab={tab} identityKey={identityKey} refreshKey={recordRefreshKey} request={(path) => request(path, {}, token)} loading={loading} rows={items} columns={clientColumns(tab)}
                 getRowId={(item) => String(item.id)}
-                actions={tab === "fleets" ? (item) => <><FleetReadinessStatus fleetId={String(item.id)} />{userRoles.some(role => role === "CLIENT_ADMIN" || role === "OPERATIONS_MANAGER") && <button className="secondary table-action" onClick={() => setEvidenceFleet({ id: String(item.id), name: String(item.vehicleNumber ?? item.fleetCode ?? item.chassisNumber ?? item.id) })}>Photos &amp; Evidence</button>}<button className="secondary table-action" onClick={() => void openFleetForm(String(item.id))}>Edit</button>{item.status === "AVAILABLE" && <button className="table-action" disabled title="Use the Fleet Manager app to complete allocation and its required checks.">Allocate</button>}{item.status === "ALLOCATED" && <button className="danger table-action" disabled title="Use the submission workflow in the Fleet Manager app to return this vehicle.">De-Allocate</button>}<button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(String(item.id)) })}>Delete</button></>
+                actions={tab === "fleets" ? (item) => {
+                  const readiness = readinessCellModel(item);
+                  const vehicleLabel = String(item.vehicleNumber ?? item.fleetCode ?? item.chassisNumber ?? item.id);
+                  return <><FleetReadinessStatus fleetId={String(item.id)} vehicleLabel={vehicleLabel} readinessState={readiness.state} />{item.status === "IN_TRANSIT" && <button className="table-action" disabled={Boolean(fleetActionId)} onClick={() => void runFleetLifecycleAction(item)}>{fleetActionId === String(item.id) ? "Receiving…" : "Mark received"}</button>}{item.status === "PENDING_ACTIVATION" && <button className="table-action" disabled={Boolean(fleetActionId)} onClick={() => void runFleetLifecycleAction(item)}>{fleetActionId === String(item.id) ? "Working…" : "Mark active"}</button>}{userRoles.some(role => role === "CLIENT_ADMIN" || role === "OPERATIONS_MANAGER") && <button className="secondary table-action" onClick={() => setEvidenceFleet({ id: String(item.id), name: vehicleLabel })}>Photos &amp; Evidence</button>}<button className="secondary table-action" onClick={() => void openFleetForm(String(item.id))}>Edit</button><button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(String(item.id)) })}>Delete</button></>;
+                }
                   : tab === "riders" ? (item) => <><button className="secondary table-action" onClick={() => void openRiderDetail(String(item.id))}>View / Edit</button>{userRoles.some(role => role === "CLIENT_ADMIN" || role === "OPERATIONS_MANAGER") && <button className="secondary table-action" onClick={() => setWalletRider({ id: String(item.id), name: String(item.name), mobile: String(item.mobile) })}>Wallet</button>}<button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Rider?", description: "This rider will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Rider", onConfirm: () => deleteRider(String(item.id)) })}>Delete</button></>
                   : tab === "iot-devices" ? (item) => <button className="secondary table-action" onClick={() => void openIotForm(item)}>Edit</button>
                   : tab === "batteries" || tab === "controllers" ? (item) => <button className="secondary table-action" onClick={() => void openExistingComponentForm(tab, item)}>Edit</button>
