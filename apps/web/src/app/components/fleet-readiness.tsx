@@ -1642,8 +1642,9 @@ export function FleetReadinessStatus({ fleetId }: { fleetId: string }) {
         className="readiness-info-button"
         aria-label="View readiness details"
         title="View readiness details"
-        disabled={busy}
+        aria-disabled={busy}
         onClick={() => {
+          if (busy) return;
           setBusy(true);
           setError("");
           void api<NonNullable<typeof data>>(`fleets/${fleetId}/readiness`)
