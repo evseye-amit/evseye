@@ -80,6 +80,7 @@ export const kn: Record<string, string> = {
   "Set up": "ಹೊಂದಿಸಿ", "FLEET HEALTH": "ಫ್ಲೀಟ್ ಸ್ಥಿತಿ",
   "Fleet status distribution": "ಫ್ಲೀಟ್ ಸ್ಥಿತಿ ಹಂಚಿಕೆ", "total": "ಒಟ್ಟು",
   "Available": "ಲಭ್ಯ", "Allocated": "ಹಂಚಿಕೆಯಾಗಿದೆ", "In use": "ಬಳಕೆಯಲ್ಲಿದೆ",
+  "In Transit": "ಸಾಗಣೆಯಲ್ಲಿದೆ", "IN TRANSIT": "ಸಾಗಣೆಯಲ್ಲಿದೆ", "Pending Activation": "ಸಕ್ರಿಯಗೊಳಿಸುವಿಕೆ ಬಾಕಿಯಿದೆ", "PENDING ACTIVATION": "ಸಕ್ರಿಯಗೊಳಿಸುವಿಕೆ ಬಾಕಿಯಿದೆ",
   "Maintenance": "ನಿರ್ವಹಣೆಯಲ್ಲಿದೆ", "Offline": "ಆಫ್‌ಲೈನ್", "Out of service": "ಸೇವೆಯಿಂದ ಹೊರಗೆ",
   "WORKFORCE": "ಸಿಬ್ಬಂದಿ", "Rider readiness": "ರೈಡರ್ ಸಿದ್ಧತೆ",
   "active": "ಸಕ್ರಿಯ", "active Riders": "ಸಕ್ರಿಯ ರೈಡರ್‌ಗಳು",

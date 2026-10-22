@@ -849,6 +849,7 @@ th {
 }
 .status-maintenance,
 .status-pending,
+.status-pending-activation,
 .status-draft,
 .status-inspection-pending {
   color: #875e11;

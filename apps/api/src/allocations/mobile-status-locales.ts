@@ -31,6 +31,7 @@ const paymentStatuses: Record<string, Labels> = {
   CANCELLED: ['Cancelled', 'रद्द', 'రద్దయింది', 'ರದ್ದಾಗಿದೆ'],
 };
 const fleetStatuses: Record<string, Labels> = {
+  PENDING_ACTIVATION: ['Pending activation', 'सक्रियण लंबित', 'యాక్టివేషన్ పెండింగ్‌లో ఉంది', 'ಸಕ್ರಿಯಗೊಳಿಸುವಿಕೆ ಬಾಕಿಯಿದೆ'],
   IN_TRANSIT: ['In transit', 'रास्ते में', 'రవాణాలో ఉంది', 'ಸಾಗಣೆಯಲ್ಲಿದೆ'],
   AVAILABLE: ['Available', 'उपलब्ध', 'అందుబాటులో ఉంది', 'ಲಭ್ಯವಿದೆ'],
   RESERVED: ['Reserved', 'आरक्षित', 'రిజర్వ్ చేయబడింది', 'ಮೀಸಲಾಗಿದೆ'],

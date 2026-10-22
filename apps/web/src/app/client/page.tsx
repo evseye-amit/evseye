@@ -63,6 +63,7 @@ type FleetOnboardingWorkbookRows = {
   controllers: Record<string, string>[];
   iotDevices: Record<string, string>[];
 };
+type FleetCreateStatus = "PENDING_ACTIVATION" | "IN_TRANSIT";
 
 type FleetEvidenceStatus = {
   ready: boolean;
@@ -696,6 +697,7 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
     vehicleCategories: [],
     vehicleTypes: [],
   });
+  const [fleetCreateStatus, setFleetCreateStatus] = useState<FleetCreateStatus>("PENDING_ACTIVATION");
   const [form, setForm] = useState({
     fleetCode: "",
     vehicleNumber: "",
@@ -741,6 +743,7 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
     id: string;
     vehicleNumber?: string | null;
     chassisNumber: string;
+    status?: string;
   } | null>(null);
   const [componentsReady, setComponentsReady] = useState(false);
   const [editingComponents, setEditingComponents] = useState(false);
@@ -804,6 +807,7 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
     try {
       const payload = {
         ...form,
+        ...(!editingFleetId ? { status: fleetCreateStatus } : {}),
         fleetCode: form.fleetCode.trim() || undefined,
         vehicleNumber: form.vehicleNumber.trim().toUpperCase() || undefined,
         chassisNumber: form.chassisNumber.trim().toUpperCase(),
@@ -837,14 +841,15 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
         payload,
         editingFleetId ? "PATCH" : "POST",
       );
+      const savedFleet = fleet as { id: string; vehicleNumber?: string | null; chassisNumber: string; status?: string };
       if (editingFleetId) {
         setEditingFleetId(null);
         setEditingComponents(true);
         setComponentsReady(false);
-        setCreatedFleet(fleet);
+        setCreatedFleet(savedFleet);
       } else {
         setEditingComponents(false);
-        setCreatedFleet(fleet);
+        setCreatedFleet({ ...savedFleet, status: savedFleet.status ?? fleetCreateStatus });
         setMessage(
           "Fleet created. Review its onboarding photos and activate when ready.",
         );
@@ -1018,6 +1023,7 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
         fitnessCertificateNumber: text(fitness.certificateNumber),
         fitnessExpiryDate: date(fitness.expiryDate),
       });
+      setFleetCreateStatus("PENDING_ACTIVATION");
       setEditingFleetId(fleetId);
     } catch (cause) {
       setMessage(
@@ -1028,6 +1034,22 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
     }
   };
   if (createdFleet) {
+    if (createdFleet.status === "IN_TRANSIT") {
+      return (
+        <section className="client-onboarding-action">
+          <div>
+            <p className="eyebrow">STEP 4 · FLEET RECEIPT</p>
+            <h2>Fleet is in transit</h2>
+            <p>
+              This Fleet stays in transit until it reaches its Hub. An operations user can mark it received before the activation workflow begins.
+            </p>
+          </div>
+          <button type="button" onClick={onSaved}>
+            Continue to Rider creation
+          </button>
+        </section>
+      );
+    }
     if (!componentsReady) {
       return (
         <FleetComponentsSetup
@@ -1145,6 +1167,13 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
               placeholder="Vehicle identification number"
             />
           </label>
+          {!editingFleetId ? <label>
+            Initial status
+            <select value={fleetCreateStatus} onChange={(event) => setFleetCreateStatus(event.target.value as FleetCreateStatus)}>
+              <option value="PENDING_ACTIVATION">Pending activation</option>
+              <option value="IN_TRANSIT">In transit</option>
+            </select>
+          </label> : null}
           <label>
             OEM *
            <select
