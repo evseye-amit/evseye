@@ -133,13 +133,18 @@ describe.skipIf(!url)('Preparation + QC lifecycle in PostgreSQL', () => {
         installedAt: new Date(),
       },
     });
-    if (prepMode)
+    if (prepMode) {
       await service.savePolicy(client.id, actor(admin), {
         operatingMode: 'PREPARATION_QC',
         expectedVersion: 0,
         configuration: defaultPolicy,
         reason: 'Enable independent preparation and QC.',
       });
+      await db.fleet.update({
+        where: { id: fleet.id },
+        data: { readinessWorkflow: 'PREPARATION_QC' },
+      });
+    }
     const start = async () => service.start(client.id, actor(rfd), fleet.id);
     const fill = async (id: string) => {
       let detail = await service.detail(client.id, actor(rfd), id);
@@ -204,7 +209,7 @@ describe.skipIf(!url)('Preparation + QC lifecycle in PostgreSQL', () => {
     expect(
       (await mobile.eligibleFleets(f.client.id, f.manager.id)).map((f) => f.id),
     ).toContain(f.fleet.id);
-    await expect(f.start()).rejects.toThrow('Enable Preparation + QC');
+    await expect(f.start()).rejects.toThrow('does not use a preparation');
     await db.photoRequirement.create({
       data: {
         clientId: f.client.id,
@@ -225,7 +230,7 @@ describe.skipIf(!url)('Preparation + QC lifecycle in PostgreSQL', () => {
     ).toMatchObject({ isRequired: true });
     expect(
       (await mobile.eligibleFleets(f.client.id, f.manager.id)).map((f) => f.id),
-    ).not.toContain(f.fleet.id);
+    ).toContain(f.fleet.id);
   });
   it('requires installed components, complete checks, and fresh preparation photos', async () => {
     const f = await fixture();
@@ -361,6 +366,11 @@ describe.skipIf(!url)('Preparation + QC lifecycle in PostgreSQL', () => {
     expect(
       (await service.readiness(f.client.id, f.actor(f.admin), f.fleet.id))
         .canAllocate,
+    ).toBe(false);
+    await fleets.activate(f.client.id, f.fleet.id, f.admin.id);
+    expect(
+      (await service.readiness(f.client.id, f.actor(f.admin), f.fleet.id))
+        .canAllocate,
     ).toBe(true);
     expect(
       await db.fleetStatusHistory.count({
@@ -435,7 +445,7 @@ describe.skipIf(!url)('Preparation + QC lifecycle in PostgreSQL', () => {
     let current = await db.fleet.findUniqueOrThrow({
       where: { id: f.fleet.id },
     });
-    expect(current.status).toBe('AVAILABLE');
+    expect(current.status).toBe('PENDING_ACTIVATION');
     expect(current.allocationEnabled).toBe(false);
     expect(
       (await service.readiness(f.client.id, f.actor(f.admin), f.fleet.id))
@@ -445,6 +455,7 @@ describe.skipIf(!url)('Preparation + QC lifecycle in PostgreSQL', () => {
       where: { id: f.fleet.id },
       data: { allocationEnabled: true, allocationBlockedByAdmin: false },
     });
+    await fleets.activate(f.client.id, f.fleet.id, f.admin.id);
     const a = await allocation();
     await db.battery.update({
       where: { id: f.battery.id },
@@ -528,7 +539,7 @@ describe.skipIf(!url)('Preparation + QC lifecycle in PostgreSQL', () => {
       ).blocked,
     ).toBe(false);
   });
-  it('previews mode changes, blocks changes during preparation, and snapshots policy versions', async () => {
+  it('previews mode changes without rewriting active preparation snapshots', async () => {
     const f = await fixture();
     const p = await f.start();
     expect(
@@ -536,21 +547,19 @@ describe.skipIf(!url)('Preparation + QC lifecycle in PostgreSQL', () => {
         await service.preview(f.client.id, f.actor(f.admin), {
           operatingMode: 'SIMPLE',
         })
-      ).blocked,
-    ).toBe(true);
-    await expect(
-      service.savePolicy(f.client.id, f.actor(f.admin), {
-        operatingMode: 'SIMPLE',
-        configuration: defaultPolicy,
-        reason: 'Switch mode',
-        expectedVersion: 1,
-      }),
-    ).rejects.toThrow();
+    ).blocked,
+    ).toBe(false);
+    await service.savePolicy(f.client.id, f.actor(f.admin), {
+      operatingMode: 'SIMPLE',
+      configuration: defaultPolicy,
+      reason: 'Switch mode for new fleets',
+      expectedVersion: 1,
+    });
     await service.savePolicy(f.client.id, f.actor(f.admin), {
       operatingMode: 'PREPARATION_QC',
       configuration: { ...defaultPolicy, minBatteryCount: 2 },
       reason: 'Require two batteries for future cycles',
-      expectedVersion: 1,
+      expectedVersion: 2,
     });
     const d = await service.detail(f.client.id, f.actor(f.rfd), p.id);
     expect(d.configuration.minBatteryCount).toBe(1);
@@ -595,6 +604,13 @@ describe.skipIf(!url)('Preparation + QC lifecycle in PostgreSQL', () => {
           ...s,
           verificationRequired: verify,
         })),
+      },
+    });
+    await db.fleet.update({
+      where: { id: f.fleet.id },
+      data: {
+        readinessWorkflow: 'STAGED_PREPARATION_QC',
+        readinessStagePlanCode: 'standard',
       },
     });
     for (const [user, canPrepare, canReview] of [
@@ -703,6 +719,10 @@ describe.skipIf(!url)('Preparation + QC lifecycle in PostgreSQL', () => {
       { revision: detail.currentRevision },
       true,
     );
+    expect(
+      (await db.fleet.findUniqueOrThrow({ where: { id: f.fleet.id } })).status,
+    ).toBe('PENDING_ACTIVATION');
+    await fleets.activate(f.client.id, f.fleet.id, f.admin.id);
     expect(
       (await db.fleet.findUniqueOrThrow({ where: { id: f.fleet.id } })).status,
     ).toBe('AVAILABLE');

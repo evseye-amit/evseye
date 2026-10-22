@@ -7,6 +7,99 @@ const actor = (id: string, role: string) =>
   ({ id, clientId: 'client-1', roles: [role] }) as AuthUser;
 
 describe('FleetReadinessService status history', () => {
+  it('rejects the removed onboarding-evidence company default', async () => {
+    const service = new FleetReadinessService({} as never, {} as never);
+    await expect(
+      service.savePolicy('client-1', actor('admin-1', 'CLIENT_ADMIN'), {
+        operatingMode: 'ONBOARDING_EVIDENCE',
+        expectedVersion: 1,
+        reason: 'Update readiness policy',
+        configuration: defaultPolicy,
+      }),
+    ).rejects.toThrow();
+  });
+
+  it('selects a shared stage plan before staged preparation starts', async () => {
+    const fleet = {
+      id: 'fleet-1',
+      clientId: 'client-1',
+      status: 'PENDING_ACTIVATION',
+      readinessWorkflow: 'STAGED_PREPARATION_QC',
+      readinessStagePlanCode: null,
+      currentHubId: 'hub-1',
+    };
+    const tx = {
+      $queryRaw: vi.fn(),
+      fleetPreparation: { findFirst: vi.fn().mockResolvedValue(null) },
+      fleet: { update: vi.fn() },
+    };
+    const db = {
+      $transaction: vi.fn(async (fn: (value: typeof tx) => unknown) => fn(tx)),
+    };
+    const service = new FleetReadinessService(db as never, {} as never);
+    vi.spyOn(service, 'fleet').mockResolvedValue(fleet as never);
+    vi.spyOn(service, 'access').mockResolvedValue(undefined);
+    vi.spyOn(service, 'policy').mockResolvedValue({
+      operatingMode: 'SIMPLE',
+      version: 1,
+      installationStageTemplates: [],
+      configuration: {
+        ...defaultPolicy,
+        stagePlans: [{ code: 'standard', name: 'Standard', stages: [] }],
+      },
+      stagePlans: [{ code: 'standard', name: 'Standard', stages: [] }],
+      defaultStagePlanCode: 'standard',
+    });
+    vi.spyOn(service, 'readiness').mockResolvedValue({ workflow: 'STAGED_PREPARATION_QC' } as never);
+
+    await service.configureFleet(
+      'client-1',
+      actor('admin-1', 'CLIENT_ADMIN'),
+      fleet.id,
+      { stagePlanCode: 'standard' },
+    );
+
+    expect(tx.fleet.update).toHaveBeenCalledWith({
+      where: { id: fleet.id },
+      data: {
+        readinessStagePlanCode: 'standard',
+      },
+    });
+  });
+
+  it('rejects a workflow-change payload after fleet creation', async () => {
+    const service = new FleetReadinessService({} as never, {} as never);
+    await expect(
+      service.configureFleet(
+        'client-1',
+        actor('admin-1', 'CLIENT_ADMIN'),
+        'fleet-1',
+        { readinessWorkflow: 'PREPARATION_QC' },
+      ),
+    ).rejects.toThrow();
+  });
+
+  it('does not infer the first stage plan as the default', async () => {
+    const configuration = {
+      ...defaultPolicy,
+      stagePlans: [{ code: 'standard', name: 'Standard', stages: [] }],
+    };
+    const db = {
+      client: {
+        findUniqueOrThrow: vi.fn().mockResolvedValue({ fleetOperatingMode: 'STAGED_PREPARATION_QC' }),
+      },
+      fleetReadinessPolicy: {
+        findFirst: vi.fn().mockResolvedValue({ version: 2, configuration }),
+      },
+    };
+    const service = new FleetReadinessService(db as never, {} as never);
+
+    await expect(service.policy('client-1')).resolves.toMatchObject({
+      stagePlans: configuration.stagePlans,
+      defaultStagePlanCode: null,
+    });
+  });
+
   it('records the available-to-inspection transition when re-preparation starts', async () => {
     const fleet = {
       id: 'fleet-1',
@@ -40,6 +133,8 @@ describe('FleetReadinessService status history', () => {
       version: 0,
       installationStageTemplates: [],
       configuration: defaultPolicy,
+      stagePlans: [],
+      defaultStagePlanCode: null,
     });
     vi.spyOn(service, 'fleet').mockResolvedValue(fleet as never);
     vi.spyOn(service, 'access').mockResolvedValue(undefined);

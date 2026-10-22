@@ -45,6 +45,14 @@ export const stageDefinitionSchema = z
   })
   .strict();
 export type StageDefinition = z.infer<typeof stageDefinitionSchema>;
+export const stagePlanSchema = z
+  .object({
+    code: z.string().regex(/^[a-z][a-z0-9_-]{0,39}$/),
+    name: z.string().trim().min(1).max(100),
+    stages: z.array(stageDefinitionSchema).max(20),
+  })
+  .strict();
+export type StagePlan = z.infer<typeof stagePlanSchema>;
 export const defaultStages: StageDefinition[] = [
   {
     code: 'INTAKE',
@@ -132,6 +140,11 @@ export function validateStages(stages: StageDefinition[]) {
 export const policySchema = z
   .object({
     stages: z.array(stageDefinitionSchema).max(20).default([]),
+    stagePlans: z.array(stagePlanSchema).max(20).default([]),
+    defaultStagePlanCode: z
+      .string()
+      .regex(/^[a-z][a-z0-9_-]{0,39}$/)
+      .optional(),
     independentReview: z.boolean(),
     minBatteryCount: z.number().int().min(1).max(8),
     requireController: z.boolean(),
@@ -165,6 +178,30 @@ export const policySchema = z
       });
     if (new Set(value.photoTypes).size !== value.photoTypes.length)
       ctx.addIssue({ code: 'custom', message: 'Photo slots must be unique.' });
+    if (
+      new Set(value.stagePlans.map((plan) => plan.code)).size !==
+      value.stagePlans.length
+    )
+      ctx.addIssue({ code: 'custom', message: 'Stage plan codes must be unique.' });
+    if (
+      value.defaultStagePlanCode &&
+      !value.stagePlans.some((plan) => plan.code === value.defaultStagePlanCode)
+    )
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Default stage plan must reference a configured plan.',
+      });
+    value.stagePlans.forEach((plan) => {
+      try {
+        validateStages(plan.stages);
+      } catch (error) {
+        ctx.addIssue({
+          code: 'custom',
+          message: error instanceof Error ? error.message : 'Invalid stage plan.',
+          path: ['stagePlans', plan.code],
+        });
+      }
+    });
     for (const required of items)
       if (
         !value.items.some(
@@ -186,6 +223,7 @@ export const policySchema = z
 export type ReadinessPolicy = z.infer<typeof policySchema>;
 export const defaultPolicy: ReadinessPolicy = {
   stages: [],
+  stagePlans: [],
   independentReview: true,
   minBatteryCount: 1,
   requireController: true,
@@ -193,6 +231,12 @@ export const defaultPolicy: ReadinessPolicy = {
   items,
   photoTypes: ['FRONT', 'REAR', 'LEFT', 'RIGHT', 'DASHBOARD'],
 };
+export function stagePlans(configuration: ReadinessPolicy): StagePlan[] {
+  if (configuration.stagePlans.length) return configuration.stagePlans;
+  return configuration.stages.length
+    ? [{ code: 'standard', name: 'Standard', stages: configuration.stages }]
+    : [];
+}
 export const reasonSchema = z.string().trim().min(1).max(500);
 export const modeSchema = z.enum([
   'SIMPLE',

@@ -274,6 +274,47 @@ describe('FleetsService onboarding evidence', () => {
     );
   });
 
+  it('rechecks readiness approval after locking before activation', async () => {
+    const pendingFleet = {
+      id: 'fleet-readiness-race',
+      status: FleetStatus.PENDING_ACTIVATION,
+      onboardingStatus: FleetOnboardingStatus.DRAFT,
+      allocationEnabled: true,
+      readinessWorkflow: 'PREPARATION_QC',
+      readinessApprovedPreparationId: 'preparation-1',
+      batteryHistory: [],
+      controllerHistory: [],
+      iotDevice: null,
+    };
+    const revokedApproval = {
+      ...pendingFleet,
+      readinessApprovedPreparationId: null,
+    };
+    const tx = {
+      $queryRaw: vi.fn(),
+      fleet: {
+        findFirstOrThrow: vi.fn().mockResolvedValue(revokedApproval),
+        update: vi.fn().mockResolvedValue({ ...revokedApproval, status: FleetStatus.AVAILABLE }),
+      },
+      allocation: { count: vi.fn().mockResolvedValue(0) },
+      fleetStatusHistory: { create: vi.fn() },
+    };
+    const prisma = {
+      fleet: { findFirst: vi.fn().mockResolvedValue(pendingFleet) },
+      $transaction: vi.fn(async (fn: (value: typeof tx) => unknown) => fn(tx)),
+    };
+    const service = new FleetsService(prisma as never, {} as never);
+    vi.spyOn(service, 'onboardingStatus').mockResolvedValue({
+      readinessWorkflow: 'PREPARATION_QC',
+      ready: true,
+    } as never);
+
+    await expect(
+      service.activate('client-a', pendingFleet.id, 'admin-1'),
+    ).rejects.toThrow('Complete preparation and quality check before activation.');
+    expect(tx.fleet.update).not.toHaveBeenCalled();
+  });
+
   it('checks the freshly locked fleet before applying a status change', async () => {
     const stale = {
       id: 'fleet-1',
@@ -421,7 +462,9 @@ describe('FleetsService onboarding evidence', () => {
       status: FleetStatus.AVAILABLE, onboardingStatus: FleetOnboardingStatus.ACTIVE, isAllocatable: true,
     });
     prisma.client.findUniqueOrThrow.mockResolvedValue({ fleetOperatingMode: 'ONBOARDING_EVIDENCE' });
-    await expect(service.activate('client-a', fleet.id, 'admin-1')).rejects.toThrow('Complete all required operational photos');
+    await expect(service.activate('client-a', fleet.id, 'admin-1')).resolves.toMatchObject({
+      status: FleetStatus.AVAILABLE,
+    });
     prisma.client.findUniqueOrThrow.mockResolvedValue({ fleetOperatingMode: 'SIMPLE' });
     tx.allocation.count.mockResolvedValue(1);
     await expect(service.activate('client-a', fleet.id, 'admin-1')).rejects.toThrow('Only an unallocated fleet');
@@ -545,11 +588,12 @@ describe('FleetsService onboarding evidence', () => {
 
     await expect(
       service.onboardingStatus('client-a', 'fleet-1'),
-    ).resolves.toEqual({
-      operatingMode: 'ONBOARDING_EVIDENCE',
-      photosRequired: true,
+    ).resolves.toMatchObject({
+      operatingMode: 'SIMPLE',
+      readinessWorkflow: 'SIMPLE',
+      photosRequired: false,
       evidenceComplete: false,
-      ready: false,
+      ready: true,
       items: [
         {
           entityType: PhotoEntityType.FLEET,
@@ -585,9 +629,7 @@ describe('FleetsService onboarding evidence', () => {
         where: expect.objectContaining({ status: PhotoStatus.COMPLETE }),
       }),
     );
-    expect(prisma.photoRequirement.createMany).toHaveBeenCalledWith(
-      expect.objectContaining({ skipDuplicates: true }),
-    );
+    expect(prisma.photoRequirement.createMany).not.toHaveBeenCalled();
   });
 
   it('derives allocatability from lifecycle, onboarding, policy, and active allocations', async () => {

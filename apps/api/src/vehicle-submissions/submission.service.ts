@@ -1406,7 +1406,7 @@ export class VehicleSubmissionService {
       if (await tx.allocation.count({ where: { clientId, fleetId: submission.fleetId,
         id: { not: submission.allocationId }, status: { notIn: ['COMPLETED', 'CANCELLED'] } } }))
         throw new ConflictException('Vehicle has another active allocation; this submission cannot change its condition.');
-      const previousFleet = await tx.fleet.findUniqueOrThrow({ where: { id: submission.fleetId }, select: { status: true, allocationBlockedByAdmin: true } });
+      const previousFleet = await tx.fleet.findUniqueOrThrow({ where: { id: submission.fleetId }, select: { status: true, allocationBlockedByAdmin: true, readinessWorkflow: true } });
       const { chargeId, paymentRequest } = await this.ensurePenaltyPayment(
         tx,
         clientId,
@@ -1472,16 +1472,12 @@ export class VehicleSubmissionService {
           throw new ConflictException(
             'Vehicle has another active allocation and cannot be released by this report.',
           );
-        const readinessClient = await tx.client.findUniqueOrThrow({
-          where: { id: clientId },
-          select: { fleetOperatingMode: true },
-        });
         await tx.fleet.update({
           where: { id: submission.fleetId },
           data: {
             status: 'AVAILABLE',
             ...(['PREPARATION_QC', 'STAGED_PREPARATION_QC'].includes(
-              readinessClient.fleetOperatingMode,
+              previousFleet.readinessWorkflow,
             )
               ? { allocationEnabled: false, readinessApprovedPreparationId: null }
               : { allocationEnabled: !previousFleet.allocationBlockedByAdmin }),

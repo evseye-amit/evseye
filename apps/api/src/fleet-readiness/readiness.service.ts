@@ -25,6 +25,7 @@ import {
   policySchema,
   reasonSchema,
   resultSchema,
+  stagePlans,
   type ReadinessPolicy,
 } from './readiness-policy.js';
 
@@ -201,7 +202,17 @@ export class FleetReadinessService {
         : []),
     ];
   }
-  async policy(clientId: string, tx: Tx = this.db) {
+  async policy(
+    clientId: string,
+    tx: Tx = this.db,
+  ): Promise<{
+    installationStageTemplates: typeof defaultStages;
+    operatingMode: import('@prisma/client').FleetOperatingMode;
+    version: number;
+    configuration: ReadinessPolicy;
+    stagePlans: ReturnType<typeof stagePlans>;
+    defaultStagePlanCode: string | null;
+  }> {
     const client = await tx.client.findUniqueOrThrow({
       where: { id: clientId },
       select: { fleetOperatingMode: true },
@@ -210,13 +221,17 @@ export class FleetReadinessService {
       where: { clientId },
       orderBy: { version: 'desc' },
     });
+    const configuration = policy
+      ? parse(policySchema, policy.configuration)
+      : defaultPolicy;
+    const availablePlans = stagePlans(configuration);
     return {
       installationStageTemplates: defaultStages,
       operatingMode: client.fleetOperatingMode,
       version: policy?.version ?? 0,
-      configuration: policy
-        ? parse(policySchema, policy.configuration)
-        : defaultPolicy,
+      configuration,
+      stagePlans: availablePlans,
+      defaultStagePlanCode: configuration.defaultStagePlanCode ?? null,
     };
   }
   async preview(
@@ -235,7 +250,10 @@ export class FleetReadinessService {
         .strict(),
       input,
     );
-    if (configuration) validateStages(configuration.stages);
+    if (configuration) {
+      validateStages(configuration.stages);
+      configuration.stagePlans.forEach((plan) => validateStages(plan.stages));
+    }
     const current = await this.policy(clientId, tx);
     const inProgressAllocations = await tx.allocation.count({
       where: {
@@ -293,7 +311,11 @@ export class FleetReadinessService {
     const body = parse(
       z
         .object({
-          operatingMode: modeSchema,
+          operatingMode: z.enum([
+            'SIMPLE',
+            'PREPARATION_QC',
+            'STAGED_PREPARATION_QC',
+          ]),
           expectedVersion: z.number().int().min(0),
           reason: reasonSchema,
           configuration: policySchema,
@@ -302,16 +324,21 @@ export class FleetReadinessService {
       input,
     );
     validateStages(body.configuration.stages);
+    body.configuration.stagePlans.forEach((plan) => validateStages(plan.stages));
     if (
       body.operatingMode === 'STAGED_PREPARATION_QC' &&
-      !body.configuration.stages.length
+      !body.configuration.stages.length &&
+      !body.configuration.stagePlans.length
     )
       throw new BadRequestException(
         'Configure at least one installation stage.',
       );
     return this.db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${clientId} FOR UPDATE`;
-      for (const stage of body.configuration.stages) {
+      const configuredStages = body.configuration.stagePlans.length
+        ? body.configuration.stagePlans.flatMap((plan) => plan.stages)
+        : body.configuration.stages;
+      for (const stage of configuredStages) {
         if (
           stage.hubIds.length !==
           (await tx.hub.count({
@@ -339,13 +366,6 @@ export class FleetReadinessService {
       const current = await this.policy(clientId, tx);
       if (current.version !== body.expectedVersion)
         throw new ConflictException('Policy changed. Reload before saving.');
-      const preview = await this.preview(
-        clientId,
-        actor,
-        { operatingMode: body.operatingMode },
-        tx,
-      );
-      if (preview.blocked) throw new ConflictException(preview);
       const policy = await tx.fleetReadinessPolicy.create({
         data: {
           clientId,
@@ -355,51 +375,10 @@ export class FleetReadinessService {
           createdById: actor.id,
         },
       });
-      if (
-        ['PREPARATION_QC', 'STAGED_PREPARATION_QC'].includes(
-          body.operatingMode,
-        ) &&
-        current.operatingMode !== body.operatingMode
-      ) {
-        await tx.fleet.updateMany({
-          where: { clientId, status: 'AVAILABLE', allocationEnabled: false },
-          data: { allocationBlockedByAdmin: true },
-        });
-      }
       await tx.client.update({
         where: { id: clientId },
         data: { fleetOperatingMode: body.operatingMode },
       });
-      if (current.operatingMode !== body.operatingMode) {
-        const approved = await tx.fleetPreparation.findMany({
-          where: { clientId, status: 'APPROVED' },
-        });
-        for (const p of approved)
-          await this.event(tx, p, actor, 'INVALIDATED', {
-            reason: 'Client operating mode changed.',
-          });
-        await tx.fleetPreparation.updateMany({
-          where: { clientId, status: 'APPROVED' },
-          data: {
-            status: 'INVALIDATED',
-            invalidationReason: 'Client operating mode changed.',
-          },
-        });
-        // Clear approvals on every mode transition; never resurrect an earlier QC approval.
-        await tx.fleet.updateMany({
-          where: { clientId, deletedAt: null },
-          data: { readinessApprovedPreparationId: null },
-        });
-        if (
-          ['PREPARATION_QC', 'STAGED_PREPARATION_QC'].includes(
-            body.operatingMode,
-          )
-        )
-          await tx.fleet.updateMany({
-            where: { clientId, status: 'AVAILABLE', deletedAt: null },
-            data: { status: 'INSPECTION_PENDING' },
-          });
-      }
       await tx.auditLog.create({
         data: {
           clientId,
@@ -419,6 +398,8 @@ export class FleetReadinessService {
         operatingMode: body.operatingMode,
         version: policy.version,
         configuration: body.configuration,
+        stagePlans: stagePlans(body.configuration),
+        defaultStagePlanCode: body.configuration.defaultStagePlanCode ?? null,
       };
     });
   }
@@ -818,20 +799,21 @@ export class FleetReadinessService {
   async start(clientId: string, actor: AuthUser, fleetId: string) {
     return this.db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${clientId} FOR SHARE`;
-      if (
-        !['PREPARATION_QC', 'STAGED_PREPARATION_QC'].includes(
-          (await this.policy(clientId, tx)).operatingMode,
-        )
-      )
-        throw new ConflictException(
-          'Enable Preparation + QC mode before starting preparation.',
-        );
       await tx.$queryRaw`SELECT id FROM "Fleet" WHERE id = ${fleetId} AND "clientId" = ${clientId} FOR UPDATE`;
       const f = await this.fleet(tx, clientId, fleetId);
+      const configuredWorkflow =
+        f.readinessWorkflow ?? (await this.policy(clientId, tx)).operatingMode;
+      const workflow = configuredWorkflow === 'ONBOARDING_EVIDENCE'
+        ? 'SIMPLE'
+        : configuredWorkflow;
+      if (!['PREPARATION_QC', 'STAGED_PREPARATION_QC'].includes(workflow))
+        throw new ConflictException(
+          'This fleet does not use a preparation and QC workflow.',
+        );
       if (!f.currentHubId)
         throw new BadRequestException('Assign a current hub first.');
-      const startPolicy = await this.policy(clientId, tx);
-      if (startPolicy.operatingMode === 'STAGED_PREPARATION_QC') {
+      const companyPolicy = await this.policy(clientId, tx);
+      if (workflow === 'STAGED_PREPARATION_QC') {
         await this.access(tx, clientId, actor, f.currentHubId);
         const grant = await tx.fleetReadinessStaff.findUnique({
           where: {
@@ -868,7 +850,27 @@ export class FleetReadinessService {
         where: { clientId, fleetId, status: { notIn: closed } },
       });
       if (open) return { id: open.id, existing: true };
-      const policy = await this.policy(clientId, tx);
+      const availablePlans = stagePlans(companyPolicy.configuration);
+      let selectedPlan = availablePlans.find(
+        (plan) => plan.code === f.readinessStagePlanCode,
+      );
+      if (workflow === 'STAGED_PREPARATION_QC' && !selectedPlan) {
+        throw new ConflictException(
+          'Select a stage plan before starting staged preparation.',
+        );
+      }
+      const policy = {
+        ...companyPolicy,
+        operatingMode: workflow,
+        defaultStagePlanCode: f.readinessStagePlanCode ?? null,
+        configuration: {
+          ...companyPolicy.configuration,
+          stages: selectedPlan?.stages ?? companyPolicy.configuration.stages,
+        },
+        selectedStagePlan: selectedPlan
+          ? { code: selectedPlan.code, name: selectedPlan.name, stages: selectedPlan.stages }
+          : null,
+      };
       const p = await tx.fleetPreparation.create({
         data: {
           clientId,
@@ -900,8 +902,8 @@ export class FleetReadinessService {
             reason: 'Fleet preparation started.',
           },
         });
-      if (policy.operatingMode === 'STAGED_PREPARATION_QC') {
-        const stages = policy.configuration.stages.filter(
+      if (workflow === 'STAGED_PREPARATION_QC') {
+        const stages = selectedPlan!.stages.filter(
           (stage) =>
             (!stage.hubIds.length || stage.hubIds.includes(f.currentHubId!)) &&
             (!stage.vehicleTypeIds.length ||
@@ -934,6 +936,54 @@ export class FleetReadinessService {
       await this.event(tx, p, actor, 'PREPARATION_STARTED');
       return { id: p.id, existing: false };
     });
+  }
+
+  async configureFleet(clientId: string, actor: AuthUser, fleetId: string, input: unknown) {
+    const body = parse(
+      z
+        .object({
+          stagePlanCode: z
+            .string()
+            .regex(/^[a-z][a-z0-9_-]{0,39}$/)
+            .nullable()
+            .optional(),
+        })
+        .strict(),
+      input,
+    );
+    await this.db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Fleet" WHERE id = ${fleetId} AND "clientId" = ${clientId} FOR UPDATE`;
+      const fleet = await this.fleet(tx, clientId, fleetId);
+      if (!fleet.currentHubId) throw new BadRequestException('Assign a current hub first.');
+      await this.access(tx, clientId, actor, fleet.currentHubId);
+      const open = await tx.fleetPreparation.findFirst({
+        where: { clientId, fleetId, status: { notIn: closed } },
+        select: { id: true },
+      });
+      if (open) throw new ConflictException('Readiness cannot be changed after preparation starts.');
+      if (fleet.status === 'IN_TRANSIT') throw new ConflictException('Receive the fleet before changing readiness.');
+      const workflow =
+        fleet.readinessWorkflow === 'ONBOARDING_EVIDENCE'
+          ? 'SIMPLE'
+          : fleet.readinessWorkflow;
+      const planCode = body.stagePlanCode === undefined
+        ? fleet.readinessStagePlanCode
+        : body.stagePlanCode;
+      if (workflow === 'STAGED_PREPARATION_QC' && planCode) {
+        const policy = await this.policy(clientId, tx);
+        if (!stagePlans(policy.configuration).some((plan) => plan.code === planCode))
+          throw new BadRequestException('Select a configured stage plan.');
+      }
+      if (workflow !== 'STAGED_PREPARATION_QC' && planCode)
+        throw new BadRequestException('A stage plan is only valid for staged preparation.');
+      await tx.fleet.update({
+        where: { id: fleetId },
+        data: {
+          readinessStagePlanCode: workflow === 'STAGED_PREPARATION_QC' ? planCode : null,
+        },
+      });
+    });
+    return this.readiness(clientId, actor, fleetId);
   }
   async detail(clientId: string, actor: AuthUser, id: string) {
     const p = await this.db.fleetPreparation.findFirst({
@@ -1389,13 +1439,17 @@ export class FleetReadinessService {
           revision: z.number().int().min(1),
           reason: reasonSchema.optional(),
           failedItems: z.array(z.string()).max(80).default([]),
+          failedStageCode: z
+            .string()
+            .regex(/^[A-Z][A-Z0-9_]{0,39}$/)
+            .optional(),
         })
         .strict(),
       input,
     );
-    if (!approve && (!b.reason || !b.failedItems.length))
+    if (!approve && !b.reason)
       throw new BadRequestException(
-        'Rejection requires a reason and failed checklist items.',
+        'Rejection requires a reason.',
       );
     return this.db.$transaction(async (tx) => {
       const p = await this.locked(tx, clientId, id);
@@ -1427,6 +1481,24 @@ export class FleetReadinessService {
         policySchema,
         (p.policySnapshot as { configuration: unknown }).configuration,
       );
+      const staged =
+        (p.policySnapshot as { operatingMode?: unknown }).operatingMode ===
+        'STAGED_PREPARATION_QC';
+      if (!approve && !staged && !b.failedItems.length)
+        throw new BadRequestException(
+          'Rejection requires failed checklist items.',
+        );
+      if (!approve && staged && !b.failedStageCode)
+        throw new BadRequestException(
+          'Staged QC rejection must identify exactly one failed stage.',
+        );
+      if (!approve && staged && b.failedStageCode) {
+        const failedStage = await tx.fleetInstallationStage.findFirst({
+          where: { preparationId: id, code: b.failedStageCode },
+        });
+        if (!failedStage)
+          throw new BadRequestException('Unknown failed preparation stage.');
+      }
       const contributed =
         policy.independentReview &&
         (revision.submittedById === actor.id ||
@@ -1537,33 +1609,35 @@ export class FleetReadinessService {
         where: { id },
         data: { status: approve ? 'APPROVED' : 'REWORK_REQUIRED' },
       });
+      if (!approve && staged && b.failedStageCode) {
+        await tx.fleetInstallationStage.update({
+          where: {
+            preparationId_code: {
+              preparationId: id,
+              code: b.failedStageCode,
+            },
+          },
+          data: {
+            status: 'REWORK_REQUIRED',
+            reason: b.reason,
+            failedItems: b.failedItems,
+          },
+        });
+      }
       if (approve)
         await tx.fleet.update({
           where: { id: p.fleetId },
           data: {
             readinessApprovedPreparationId: id,
-            allocationEnabled: !fleet.allocationBlockedByAdmin,
-            status: 'AVAILABLE',
-            onboardingStatus: 'ACTIVE',
-            activatedAt: new Date(),
             odometerKm: (revision.checklist as { odometerKm: number })
               .odometerKm,
-          },
-        });
-      if (approve && fleet.status !== 'AVAILABLE')
-        await tx.fleetStatusHistory.create({
-          data: {
-            fleetId: p.fleetId,
-            fromStatus: fleet.status,
-            toStatus: 'AVAILABLE',
-            changedByUserId: actor.id,
-            reason: b.reason ?? 'Fleet preparation QC approved.',
           },
         });
       await this.event(tx, p, actor, approve ? 'QC_APPROVED' : 'QC_REJECTED', {
         revision: b.revision,
         reason: b.reason,
         failedItems: b.failedItems,
+        failedStageCode: b.failedStageCode,
       });
       return { id, revision: b.revision };
     });
@@ -1648,10 +1722,21 @@ export class FleetReadinessService {
     if (!fleet.currentHubId)
       throw new BadRequestException('Scooter has no current hub.');
     await this.access(this.db, clientId, actor, fleet.currentHubId);
-    const policy = await this.policy(clientId);
+    const companyPolicy = await this.policy(clientId);
+    const workflow = (fleet.readinessWorkflow ?? companyPolicy.operatingMode) === 'ONBOARDING_EVIDENCE'
+      ? 'SIMPLE'
+      : (fleet.readinessWorkflow ?? companyPolicy.operatingMode);
+    const plans = stagePlans(companyPolicy.configuration);
+    const selectedPlan = plans.find(
+      (plan) => plan.code === fleet.readinessStagePlanCode,
+    ) ?? null;
     const preparation = await this.db.fleetPreparation.findFirst({
       where: { clientId, fleetId },
       orderBy: { createdAt: 'desc' },
+      include: {
+        stages: true,
+        revisions: { orderBy: { revision: 'desc' }, take: 1 },
+      },
     });
     const blockers: string[] = [];
     if (fleet.status !== 'AVAILABLE')
@@ -1661,12 +1746,12 @@ export class FleetReadinessService {
     if (fleet.onboardingStatus !== 'ACTIVE')
       blockers.push('Fleet activation is incomplete.');
     if (
-      ['PREPARATION_QC', 'STAGED_PREPARATION_QC'].includes(
-        policy.operatingMode,
-      ) &&
+      ['PREPARATION_QC', 'STAGED_PREPARATION_QC'].includes(workflow) &&
       !fleet.readinessApprovedPreparationId
     )
       blockers.push('Preparation and QC approval are required.');
+    if (workflow === 'STAGED_PREPARATION_QC' && !selectedPlan)
+      blockers.push('Select a stage plan before starting preparation.');
     if (
       await this.db.allocation.count({
         where: {
@@ -1679,7 +1764,23 @@ export class FleetReadinessService {
       blockers.push('Scooter has an unfinished allocation.');
     return {
       fleetId,
-      operatingMode: policy.operatingMode,
+      operatingMode: workflow,
+      workflow,
+      plan: selectedPlan,
+      progress: preparation
+        ? {
+            completed: preparation.stages.filter((stage) => stage.status === 'COMPLETED').length,
+            total: preparation.stages.length,
+          }
+        : { completed: 0, total: 0 },
+      qc: preparation?.revisions[0]
+        ? {
+            decision: preparation.revisions[0].decision,
+            reviewedAt: preparation.revisions[0].reviewedAt,
+            rejectionReason: preparation.revisions[0].rejectionReason,
+            failedItems: preparation.revisions[0].failedItems,
+          }
+        : null,
       preparation,
       blockers,
       canAllocate: blockers.length === 0,

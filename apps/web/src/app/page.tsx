@@ -18,7 +18,12 @@ import { OtpCodeInput } from "./components/otp-code-input";
 import { UiIcon, type IconName } from "./components/ui-icon";
 import { ClientNotifications } from "./components/client-notifications";
 import {InstallationBoard} from "./components/installation-board";
-import { FleetReadiness, FleetReadinessStatus } from "./components/fleet-readiness";
+import { FleetMoreMenu, FleetReadiness, FleetReadinessStatus } from "./components/fleet-readiness";
+import {
+  normalizeReadinessPlans,
+  normalizeReadinessWorkflows,
+  ReadinessWorkflowPicker,
+} from "./components/readiness-workflow-picker";
 import { SupportTickets } from "./components/support-tickets";
 import { RiderReferenceReview } from "./components/rider-reference-review";
 import { FleetEvidenceDialog } from "./components/fleet-evidence";
@@ -94,19 +99,28 @@ type FleetOnboardingOptions = {
   oems: Array<{ id: string; code: string; displayName: string }>;
   vehicleCategories: Array<{ id: string; code: string; name: string }>;
   vehicleTypes: Array<{ id: string; categoryId: string; code: string; name: string; energyType: string }>;
+  readinessDefaultWorkflow?: string;
+  readinessDefaultStagePlanCode?: string | null;
+  readinessAllowedWorkflows?: unknown;
+  readinessWorkflows?: unknown;
+  allowedReadinessWorkflows?: unknown;
+  readinessStagePlans?: unknown;
+  selectableReadinessPlans?: unknown;
+  selectablePlans?: unknown;
 };
 type FleetForm = {
   fleetCode: string; vehicleNumber: string; chassisNumber: string; vinNumber: string;
   oemId: string; vehicleCategoryId: string; vehicleTypeId: string; speedType: string; homeHubId: string;
+  readinessWorkflow: string; readinessStagePlanCode: string;
   modelName: string; variantName: string; colour: string; motorNumber: string;
   manufacturingYear: string; manufacturingMonth: string; ownershipType: string; odometerKm: string;
   registrationDate: string; registeringAuthority: string; rcExpiryDate: string;
   insuranceProviderName: string; insurancePolicyNumber: string; insuranceType: string;
   insuranceStartDate: string; insuranceEndDate: string; fitnessCertificateNumber: string; fitnessExpiryDate: string;
 };
-type FleetCreateStatus = "PENDING_ACTIVATION" | "IN_TRANSIT";
 const emptyFleetForm = (): FleetForm => ({
   fleetCode: "", vehicleNumber: "", chassisNumber: "", vinNumber: "", oemId: "", vehicleCategoryId: "", vehicleTypeId: "", speedType: "", homeHubId: "",
+  readinessWorkflow: "SIMPLE", readinessStagePlanCode: "",
   modelName: "", variantName: "", colour: "", motorNumber: "", manufacturingYear: "", manufacturingMonth: "", ownershipType: "", odometerKm: "",
   registrationDate: "", registeringAuthority: "", rcExpiryDate: "", insuranceProviderName: "", insurancePolicyNumber: "", insuranceType: "", insuranceStartDate: "", insuranceEndDate: "", fitnessCertificateNumber: "", fitnessExpiryDate: "",
 });
@@ -623,6 +637,46 @@ function Status({ value }: { value: string }) {
   );
 }
 
+function fleetReadinessLabel(row: RecordItem) {
+  const summary = (row.readinessSummary as RecordItem | undefined) ?? (row.readiness as RecordItem | undefined) ?? {};
+  const workflow = String(summary.workflow ?? row.readinessWorkflow ?? "SIMPLE");
+  const preparationStatus = String(summary.preparationStatus ?? "");
+  const progress = summary.stageProgress as RecordItem | undefined;
+  const blockers = Array.isArray(summary.blockers) ? summary.blockers.filter((entry): entry is string => typeof entry === "string") : [];
+  const status = String(row.status ?? "");
+  const transfer = row.activeTransfer as RecordItem | undefined;
+  if (status === "IN_TRANSIT") {
+    const from = String(transfer?.fromHubId ?? "");
+    const to = String(transfer?.toHubId ?? "");
+    return from && to ? `In transit · ${from} → ${to}` : "In transit";
+  }
+  if (status === "AVAILABLE") return "Available";
+  if (workflow === "SIMPLE") return blockers.length ? `Draft · ${blockers[0]}` : "Draft · Direct activation";
+  if (workflow === "STAGED_PREPARATION_QC" && !summary.stagePlanCode) return "Preparing · Stages not selected";
+  if (preparationStatus === "AWAITING_QC") return "Ready for QC";
+  if (preparationStatus === "APPROVED" || summary.canActivate === true) return "QC passed · Activate";
+  if (preparationStatus) return `${labelForDisplay(preparationStatus)}${progress ? ` · ${String(progress.completed ?? 0)} of ${String(progress.total ?? 0)} stages` : ""}`;
+  return workflow === "PREPARATION_QC" ? "Preparing · Not started" : "Preparing";
+}
+
+function labelForDisplay(value: string) {
+  return value.replaceAll("_", " ").replace(/^./, (character) => character.toUpperCase());
+}
+
+function fleetReadinessAction(row: RecordItem): { label: string; kind: "activate" | "readiness" } | null {
+  const summary = (row.readinessSummary as RecordItem | undefined) ?? (row.readiness as RecordItem | undefined) ?? {};
+  const workflow = String(summary.workflow ?? row.readinessWorkflow ?? "SIMPLE");
+  const preparationStatus = String(summary.preparationStatus ?? "");
+  const status = String(row.status ?? "");
+  if (status !== "PENDING_ACTIVATION" && status !== "INSPECTION_PENDING") return null;
+  if (preparationStatus === "APPROVED" || summary.canActivate === true) return { label: "Activate", kind: "activate" };
+  if (preparationStatus === "AWAITING_QC") return { label: "Start QC", kind: "readiness" };
+  if (preparationStatus === "IN_PROGRESS" || preparationStatus === "REWORK_REQUIRED") return { label: "Continue preparation", kind: "readiness" };
+  if (workflow === "SIMPLE") return status === "PENDING_ACTIVATION" ? { label: "Activate", kind: "activate" } : null;
+  if (workflow === "STAGED_PREPARATION_QC" && !summary.stagePlanCode) return { label: "Select stages", kind: "readiness" };
+  return { label: "Start preparation", kind: "readiness" };
+}
+
 function clientColumns(tab: Tab): ClientColumn<RecordItem>[] {
   const text = (key: string, label: string, value: (row: RecordItem) => unknown): ClientColumn<RecordItem> => ({
     key, label, value: (row) => String(value(row) ?? "—"),
@@ -693,6 +747,7 @@ function clientColumns(tab: Tab): ClientColumn<RecordItem>[] {
       text("vehicle", "Vehicle", (row) => row.vehicleNumber),
       text("oem", "OEM", (row) => oemLabel(row.oem)),
       status("status", "Status", (row) => row.status),
+      text("readiness", "Readiness", fleetReadinessLabel),
       text("hub", "Hub", (row) => (row.hub as RecordItem | undefined)?.name),
     ];
     case "riders": return [
@@ -733,6 +788,7 @@ export default function Home() {
   const [recordRefreshKey, setRecordRefreshKey] = useState(0);
   const [identityKey, setIdentityKey] = useState("");
   const [panelRefreshKey, setPanelRefreshKey] = useState(0);
+  const [readinessFleetId, setReadinessFleetId] = useState("");
   const [panelLoading, setPanelLoading] = useState(false);
   const { appearance, hostClient } = useClientAppearance();
   const { t } = useLocale();
@@ -768,7 +824,6 @@ export default function Home() {
   const [riderBulkFields, setRiderBulkFields] = useState<RiderOnboardingField[]>([]);
   const [deleteConfirmation, setDeleteConfirmation] = useState<ClientDeleteConfirmation | null>(null);
   const [newFleet, setNewFleet] = useState<FleetForm>(emptyFleetForm);
-  const [fleetCreateStatus, setFleetCreateStatus] = useState<FleetCreateStatus>("PENDING_ACTIVATION");
   const [editingFleetId, setEditingFleetId] = useState("");
   const [fleetOptions, setFleetOptions] = useState<FleetOnboardingOptions>({
     oems: [], vehicleCategories: [], vehicleTypes: [],
@@ -957,17 +1012,18 @@ export default function Home() {
     }
   }
 
-  function navigateTo(nextTab: Tab) {
-    if (nextTab === tab) return;
-    requestNavigation(() => commitNavigation(nextTab));
+  function navigateTo(nextTab: Tab, fleetId = "") {
+    if (nextTab === tab && !(nextTab === "vehicle-preparation" && fleetId !== readinessFleetId)) return;
+    requestNavigation(() => commitNavigation(nextTab, "push", fleetId));
   }
 
-  function commitNavigation(nextTab: Tab, historyMode: "push" | "none" = "push") {
+  function commitNavigation(nextTab: Tab, historyMode: "push" | "none" = "push", fleetId = "") {
     if (!canAccessTab(nextTab, userRoles)) { setNavigationError("You do not have access to this section."); return; }
     setNavigationError("");
     const group = CLIENT_NAVIGATION.find((section) => section.label && section.items.some((item) => item.id === nextTab));
     if (group) setExpandedClientNavGroups((current) => ({ ...current, [group.label]: true }));
-    if (nextTab !== tab) { viewGeneration.current += 1; setItems([]); setConfiguredRequirements([]); setAllocationDetail(null); }
+    const detailChanged = nextTab === "vehicle-preparation" && fleetId !== readinessFleetId;
+    if (nextTab !== tab || detailChanged) { viewGeneration.current += 1; setItems([]); setConfiguredRequirements([]); setAllocationDetail(null); }
     if (nextTab === "dashboard") setExpandedClientNavGroups({});
     setShowAllocationForm(false);
     setShowRiderForm(false);
@@ -986,6 +1042,7 @@ export default function Home() {
     setEditingRider(false);
     setIngestSecret("");
     setNotice("");
+    setReadinessFleetId(nextTab === "vehicle-preparation" ? fleetId : "");
     setError("");
     if (PHOTO_EVIDENCE_TABS.has(nextTab)) {
       setPhotoRequirementEntityType(evidenceEntityType(nextTab));
@@ -993,6 +1050,8 @@ export default function Home() {
     setTab(nextTab);
     const url = new URL(window.location.href);
     url.searchParams.set("tab", nextTab);
+    if (nextTab === "vehicle-preparation" && fleetId) url.searchParams.set("fleetId", fleetId);
+    else url.searchParams.delete("fleetId");
     if (historyMode === "push") {
       historyIndex.current += 1;
       window.history.pushState({ evseyeIndex: historyIndex.current }, "", url);
@@ -1016,17 +1075,18 @@ export default function Home() {
     if (!userRoles.length) return;
     const readDestination = () => {
       const original = new URLSearchParams(window.location.search).get("tab") ?? "dashboard";
+      const fleetId = new URLSearchParams(window.location.search).get("fleetId") ?? "";
       const requested = original === "readiness-staff" ? "advisors" : original;
       const fallback: Tab = userRoles.some((role) => ["ADVISOR", "RFD_MANAGER"].includes(role)) ? "vehicle-preparation" : userRoles.includes("QC_MANAGER") ? "quality-check" : "dashboard";
-      if (!Object.hasOwn(CLIENT_TAB_TITLES, requested)) return { tab: fallback, error: "This page does not exist. Choose a section from the menu." };
-      if (!canAccessTab(requested as Tab, userRoles)) return { tab: fallback, error: "You do not have access to the requested section." };
-      return { tab: requested as Tab, error: "" };
+      if (!Object.hasOwn(CLIENT_TAB_TITLES, requested)) return { tab: fallback, fleetId: "", error: "This page does not exist. Choose a section from the menu." };
+      if (!canAccessTab(requested as Tab, userRoles)) return { tab: fallback, fleetId: "", error: "You do not have access to the requested section." };
+      return { tab: requested as Tab, fleetId: requested === "vehicle-preparation" ? fleetId : "", error: "" };
     };
     historyIndex.current = window.history.state?.evseyeIndex ?? 0;
     window.history.replaceState({ ...window.history.state, evseyeIndex: historyIndex.current }, "");
     const timer = window.setTimeout(() => {
       const destination = readDestination();
-      commitNavigation(destination.tab, "none"); setNavigationError(destination.error);
+      commitNavigation(destination.tab, "none", destination.fleetId); setNavigationError(destination.error);
     }, 0);
     const pop = (event: PopStateEvent) => {
       if (restoringHistory.current) { restoringHistory.current = false; return; }
@@ -1037,7 +1097,7 @@ export default function Home() {
       const accepted = requestNavigation(() => {
         if (restored && delta) { window.history.go(delta); return; }
         historyIndex.current = targetIndex;
-        commitNavigation(destination.tab, "none"); setNavigationError(destination.error);
+        commitNavigation(destination.tab, "none", destination.fleetId); setNavigationError(destination.error);
       });
       if (!accepted && delta) { restored = true; restoringHistory.current = true; window.history.go(-delta); }
     };
@@ -1299,6 +1359,7 @@ export default function Home() {
     return {
       fleetCode: text(fleet.fleetCode), vehicleNumber: text(fleet.vehicleNumber), chassisNumber: text(fleet.chassisNumber), vinNumber: text(fleet.vinNumber),
       oemId: text(fleet.oemId), vehicleCategoryId: text(fleet.vehicleCategoryId), vehicleTypeId: text(fleet.vehicleTypeId), speedType: text(fleet.speedType), homeHubId: text(fleet.homeHubId),
+      readinessWorkflow: text(fleet.readinessWorkflow ?? fleet.operatingMode ?? "SIMPLE"), readinessStagePlanCode: text(fleet.readinessStagePlanCode),
       modelName: text(fleet.modelName), variantName: text(fleet.variantName), colour: text(fleet.colour), motorNumber: text(fleet.motorNumber),
       manufacturingYear: text(fleet.manufacturingYear), manufacturingMonth: text(fleet.manufacturingMonth), ownershipType: text(fleet.ownershipType), odometerKm: text(fleet.odometerKm),
       registrationDate: dateInputValue(registration.registrationDate), registeringAuthority: text(registration.registeringAuthority), rcExpiryDate: dateInputValue(registration.rcExpiryDate),
@@ -1314,8 +1375,11 @@ export default function Home() {
     try {
       const payload = {
         ...Object.fromEntries(Object.entries(newFleet).filter(([, value]) => value !== "")),
-        ...(!editingFleetId ? { status: fleetCreateStatus } : {}),
       } as Record<string, string | number>;
+      if (editingFleetId) {
+        delete payload.readinessWorkflow;
+        delete payload.readinessStagePlanCode;
+      }
       for (const field of ["manufacturingYear", "manufacturingMonth", "odometerKm"]) {
         if (payload[field] !== undefined) payload[field] = Number(payload[field]);
       }
@@ -1354,8 +1418,12 @@ export default function Home() {
       setFleetOptions(options);
       setHubs(hubRows);
       setEditingFleetId(fleetId ?? "");
-      setFleetCreateStatus("PENDING_ACTIVATION");
       setNewFleet(fleet ? fleetFormFromRecord(fleet) : emptyFleetForm());
+      if (!fleetId) {
+        const defaultWorkflow = String(options.readinessDefaultWorkflow ?? "SIMPLE");
+        const defaultPlan = defaultWorkflow === "STAGED_PREPARATION_QC" ? String(options.readinessDefaultStagePlanCode ?? "") : "";
+        setNewFleet((current) => ({ ...current, readinessWorkflow: defaultWorkflow, readinessStagePlanCode: defaultPlan }));
+      }
       setShowFleetForm(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to load hubs.");
@@ -1372,25 +1440,26 @@ export default function Home() {
     setError("");
     setNotice("");
     try {
-      if (currentStatus === "IN_TRANSIT") {
-        await request(`/fleets/${id}/status`, {
-          method: "PATCH",
-          body: JSON.stringify({ status: "PENDING_ACTIVATION", reason: "Fleet received." }),
-        }, token);
+      const summary = (item.readinessSummary as RecordItem | undefined) ?? (item.readiness as RecordItem | undefined) ?? {};
+      const workflow = String(summary.workflow ?? item.readinessWorkflow ?? "SIMPLE");
+      if (currentStatus !== "PENDING_ACTIVATION" && currentStatus !== "INSPECTION_PENDING") return;
+      if (currentStatus === "INSPECTION_PENDING" && workflow === "SIMPLE") return;
+      const preparationStatus = String(summary.preparationStatus ?? "");
+      const qcDecision = String((summary.qc as RecordItem | undefined)?.decision ?? summary.qcDecision ?? "");
+      const readinessCanActivate = summary.canActivate === true || preparationStatus === "APPROVED" || qcDecision === "APPROVED";
+      if (readinessCanActivate) {
+        await request(`/fleets/${id}/activate`, { method: "POST" }, token);
         await loadView("fleets");
-        setNotice("Fleet received and is pending activation.");
+        setNotice("Fleet activated.");
         return;
       }
-
-      if (currentStatus !== "PENDING_ACTIVATION") return;
-      const policy = await request("/client/fleet-readiness/policy", {}, token) as { operatingMode?: string };
-      if (policy.operatingMode === "PREPARATION_QC" || policy.operatingMode === "STAGED_PREPARATION_QC") {
+      if (workflow === "PREPARATION_QC" || workflow === "STAGED_PREPARATION_QC") {
         await loadView("fleets");
-        navigateTo(policy.operatingMode === "PREPARATION_QC" ? "vehicle-preparation" : "installation-board");
-        setNotice("Continue the existing workflow to activate this fleet.");
+        navigateTo("vehicle-preparation", id);
+        setNotice("Continue the saved readiness workflow to activate this fleet.");
         return;
       }
-      if (policy.operatingMode !== "SIMPLE" && policy.operatingMode !== "ONBOARDING_EVIDENCE") {
+      if (workflow !== "SIMPLE" && workflow !== "ONBOARDING_EVIDENCE") {
         throw new Error("Unable to determine the fleet activation workflow.");
       }
       await request(`/fleets/${id}/activate`, { method: "POST" }, token);
@@ -2661,7 +2730,7 @@ export default function Home() {
         {tab === "payment-transactions" && userRoles.includes("CLIENT_ADMIN") && <PaymentTransactions refreshKey={panelRefreshKey} />}
         {tab === "spares-penalties" && <SparesCatalogue refreshKey={panelRefreshKey} />}
         {tab === "installation-board" && <InstallationBoard refreshKey={panelRefreshKey} />}
-        {["vehicle-preparation","quality-check","readiness-settings","advisors","qc-managers"].includes(tab) && <FleetReadiness refreshKey={panelRefreshKey} key={tab} view={tab === "quality-check" ? "qc" : tab === "readiness-settings" ? "settings" : tab === "advisors" ? "advisors" : tab === "qc-managers" ? "qc-managers" : "preparation"} />}
+        {["vehicle-preparation","quality-check","readiness-settings","advisors","qc-managers"].includes(tab) && <FleetReadiness refreshKey={panelRefreshKey} key={`${tab}:${readinessFleetId}`} fleetId={tab === "vehicle-preparation" ? readinessFleetId : undefined} onBack={() => navigateTo("fleets")} onOpenPreparation={() => navigateTo("vehicle-preparation")} view={tab === "quality-check" ? "qc" : tab === "readiness-settings" ? "settings" : tab === "advisors" ? "advisors" : tab === "qc-managers" ? "qc-managers" : "preparation"} />}
         {tab === "support-tickets" && <SupportTickets refreshKey={panelRefreshKey} />}
         {tab === "notifications" && userRoles.some((role) => ["CLIENT_ADMIN", "OPERATIONS_MANAGER"].includes(role)) && <ClientNotifications refreshKey={panelRefreshKey} />}
         {tab === "rider-document-review" && <section className="client-page-intro client-review-intro"><p className="muted">Open each uploaded document, then approve it or record a rejection reason.</p><div className="client-review-counts"><span><strong>{items.filter((item) => item.status === "PENDING").length}</strong> Pending</span><span><strong>{items.filter((item) => item.status === "APPROVED").length}</strong> Approved</span><span><strong>{items.filter((item) => item.status === "REJECTED").length}</strong> Rejected</span></div></section>}
@@ -2790,7 +2859,7 @@ export default function Home() {
               <FleetTextInput label="Vehicle number" field="vehicleNumber" form={newFleet} setForm={setNewFleet} placeholder="DL01EV0001" />
               <FleetTextInput label="Chassis number" field="chassisNumber" form={newFleet} setForm={setNewFleet} required placeholder="ME4JF123456789001" />
               <FleetTextInput label="VIN number" field="vinNumber" form={newFleet} setForm={setNewFleet} placeholder="Vehicle identification number" />
-              {!editingFleetId && <label>Initial status<select value={fleetCreateStatus} onChange={(event) => setFleetCreateStatus(event.target.value as FleetCreateStatus)}><option value="PENDING_ACTIVATION">Pending activation</option><option value="IN_TRANSIT">In transit</option></select></label>}
+              {!editingFleetId ? <div className="client-form-wide"><ReadinessWorkflowPicker workflow={newFleet.readinessWorkflow} stagePlanCode={newFleet.readinessStagePlanCode} workflows={normalizeReadinessWorkflows(fleetOptions.readinessAllowedWorkflows ?? fleetOptions.readinessWorkflows ?? fleetOptions.allowedReadinessWorkflows)} plans={normalizeReadinessPlans(fleetOptions.readinessStagePlans ?? fleetOptions.selectableReadinessPlans ?? fleetOptions.selectablePlans)} defaultWorkflow={fleetOptions.readinessDefaultWorkflow} onWorkflowChange={(value) => setNewFleet((current) => ({ ...current, readinessWorkflow: value, readinessStagePlanCode: value === "STAGED_PREPARATION_QC" ? current.readinessStagePlanCode : "" }))} onStagePlanChange={(value) => setNewFleet((current) => ({ ...current, readinessStagePlanCode: value }))} disabled={loading} /></div> : null}
               <label>OEM *<select required value={newFleet.oemId} onChange={(event) => setNewFleet({ ...newFleet, oemId: event.target.value })}><option value="">Select OEM</option>{fleetOptions.oems.map((oem) => <option key={oem.id} value={oem.id}>{oem.displayName} ({oem.code})</option>)}</select></label>
               <label>Vehicle category *<select required value={newFleet.vehicleCategoryId} onChange={(event) => setNewFleet({ ...newFleet, vehicleCategoryId: event.target.value, vehicleTypeId: "" })}><option value="">Select vehicle category</option>{fleetOptions.vehicleCategories.map((category) => <option key={category.id} value={category.id}>{category.name} ({category.code})</option>)}</select></label>
               <label>Vehicle type *<select required disabled={!newFleet.vehicleCategoryId} value={newFleet.vehicleTypeId} onChange={(event) => setNewFleet({ ...newFleet, vehicleTypeId: event.target.value })}><option value="">Select vehicle type</option>{fleetOptions.vehicleTypes.filter((type) => type.categoryId === newFleet.vehicleCategoryId).map((type) => <option key={type.id} value={type.id}>{type.name} ({type.energyType})</option>)}</select></label>
@@ -3159,7 +3228,19 @@ export default function Home() {
                 report={(message, failed) => { if (failed) setError(message); else { setError(""); setNotice(message); } }} onBulk={() => openBulkImport(tab)} /> :
               <OperationsTable key={tab} tab={tab} identityKey={identityKey} refreshKey={recordRefreshKey} request={(path) => request(path, {}, token)} loading={loading} rows={items} columns={clientColumns(tab)}
                 getRowId={(item) => String(item.id)}
-                actions={tab === "fleets" ? (item) => <><FleetReadinessStatus fleetId={String(item.id)} />{item.status === "IN_TRANSIT" && <button className="table-action" disabled={Boolean(fleetActionId)} onClick={() => void runFleetLifecycleAction(item)}>{fleetActionId === String(item.id) ? "Receiving…" : "Mark received"}</button>}{item.status === "PENDING_ACTIVATION" && <button className="table-action" disabled={Boolean(fleetActionId)} onClick={() => void runFleetLifecycleAction(item)}>{fleetActionId === String(item.id) ? "Working…" : "Mark active"}</button>}{userRoles.some(role => role === "CLIENT_ADMIN" || role === "OPERATIONS_MANAGER") && <button className="secondary table-action" onClick={() => setEvidenceFleet({ id: String(item.id), name: String(item.vehicleNumber ?? item.fleetCode ?? item.chassisNumber ?? item.id) })}>Photos &amp; Evidence</button>}<button className="secondary table-action" onClick={() => void openFleetForm(String(item.id))}>Edit</button>{item.status === "AVAILABLE" && <button className="table-action" disabled title="Use the Fleet Manager app to complete allocation and its required checks.">Allocate</button>}{item.status === "ALLOCATED" && <button className="danger table-action" disabled title="Use the submission workflow in the Fleet Manager app to return this vehicle.">De-Allocate</button>}<button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(String(item.id)) })}>Delete</button></>
+                actions={tab === "fleets" ? (item) => {
+                  const fleetId = String(item.id);
+                  const fleetName = String(item.vehicleNumber ?? item.fleetCode ?? item.chassisNumber ?? item.id);
+                  const status = String(item.status ?? "");
+                  const activeTransfer = item.activeTransfer as RecordItem | null | undefined;
+                  const readinessAction = fleetReadinessAction(item);
+                  const canManageEvidence = userRoles.some((role) => role === "CLIENT_ADMIN" || role === "OPERATIONS_MANAGER");
+                  return <div className="fleet-row-actions">
+                    <FleetReadinessStatus fleetId={fleetId} />
+                    {readinessAction ? <button className="table-action" disabled={Boolean(fleetActionId)} onClick={() => readinessAction.kind === "activate" ? void runFleetLifecycleAction(item) : navigateTo("vehicle-preparation", fleetId)}>{fleetActionId === fleetId ? "Working…" : readinessAction.label}</button> : null}
+                    <FleetMoreMenu fleetId={fleetId} fleetName={fleetName} status={status} activeTransfer={activeTransfer} canManageEvidence={canManageEvidence} onTransferDone={() => void loadView("fleets")} onEvidence={canManageEvidence ? () => setEvidenceFleet({ id: fleetId, name: fleetName }) : undefined} onEdit={() => void openFleetForm(fleetId)} onDelete={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(fleetId) })} />
+                  </div>;
+                }
                   : tab === "riders" ? (item) => <><button className="secondary table-action" onClick={() => void openRiderDetail(String(item.id))}>View / Edit</button>{userRoles.some(role => role === "CLIENT_ADMIN" || role === "OPERATIONS_MANAGER") && <button className="secondary table-action" onClick={() => setWalletRider({ id: String(item.id), name: String(item.name), mobile: String(item.mobile) })}>Wallet</button>}<button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Rider?", description: "This rider will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Rider", onConfirm: () => deleteRider(String(item.id)) })}>Delete</button></>
                   : tab === "iot-devices" ? (item) => <button className="secondary table-action" onClick={() => void openIotForm(item)}>Edit</button>
                   : tab === "batteries" || tab === "controllers" ? (item) => <button className="secondary table-action" onClick={() => void openExistingComponentForm(tab, item)}>Edit</button>

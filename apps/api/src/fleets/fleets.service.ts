@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -10,6 +11,8 @@ import {
   ClientStatus,
   AllocationStatus,
   FleetStatus,
+  FleetOperatingMode,
+  FleetTransferStatus,
   ImportEntityType,
   ImportStatus,
   Prisma,
@@ -21,6 +24,11 @@ import type { CreateFleetDto } from './dto/create-fleet.dto.js';
 import type { ListFleetsDto } from './dto/list-fleets.dto.js';
 import type { UpdateFleetDto } from './dto/update-fleet.dto.js';
 import { FleetStatusPolicy } from './fleet-status.policy.js';
+import {
+  policySchema,
+  stagePlans,
+} from '../fleet-readiness/readiness-policy.js';
+import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 
 @Injectable()
 export class FleetsService {
@@ -36,28 +44,6 @@ export class FleetsService {
     AllocationStatus.ACTIVE,
     AllocationStatus.DEALLOCATION_INITIATED,
   ];
-  private readonly defaultOnboardingPhotoRequirements = [
-    PhotoEntityType.FLEET,
-    PhotoEntityType.BATTERY,
-    PhotoEntityType.CONTROLLER,
-    PhotoEntityType.IOT_DEVICE,
-  ].flatMap((entityType) => {
-    const photoTypes =
-      entityType === PhotoEntityType.FLEET
-        ? ['FRONT', 'REAR', 'LEFT', 'RIGHT', 'DASHBOARD']
-        : entityType === PhotoEntityType.BATTERY
-          ? ['FRONT', 'REAR', 'LABEL', 'SERIAL']
-          : entityType === PhotoEntityType.IOT_DEVICE
-            ? ['INSTALLATION', 'SERIAL_LABEL']
-            : ['FRONT', 'REAR'];
-    return photoTypes.map((photoType, sortOrder) => ({
-      entityType,
-      photoType,
-      sortOrder,
-      isRequired: true,
-    }));
-  });
-
   private asAllocatable(fleet: {
     status: FleetStatus;
     onboardingStatus: import('@prisma/client').FleetOnboardingStatus;
@@ -80,10 +66,92 @@ export class FleetsService {
       _count?: { allocations: number };
     },
   >(fleet: T) {
-    const { _count, ...data } = fleet;
-    return { ...data, isAllocatable: this.asAllocatable(fleet) };
+    const record = fleet as T & {
+      readinessWorkflow?: FleetOperatingMode;
+      readinessStagePlanCode?: string | null;
+      preparations?: Array<{
+        id: string;
+        status: string;
+        stages?: Array<{ status: string }>;
+      }>;
+      transfers?: Array<{
+        id: string;
+        status: string;
+        fromHubId: string | null;
+        toHubId: string;
+        initiatedAt: Date;
+      }>;
+    };
+    const { _count, preparations, transfers, ...data } = record;
+    const preparation = preparations?.[0];
+    const stages = preparation?.stages ?? [];
+    return {
+      ...data,
+      readinessSummary: {
+        workflow: record.readinessWorkflow,
+        stagePlanCode: record.readinessStagePlanCode ?? null,
+        preparationStatus: preparation?.status ?? null,
+        stageProgress: stages.length
+          ? {
+              completed: stages.filter((stage) => stage.status === 'COMPLETED')
+                .length,
+              total: stages.length,
+            }
+          : null,
+      },
+      activeTransfer: transfers?.[0] ?? null,
+      isAllocatable: this.asAllocatable(fleet),
+    };
   }
   async create(clientId: string, dto: CreateFleetDto) {
+    if (dto.status === FleetStatus.IN_TRANSIT) {
+      throw new ConflictException(
+        'Fleet transfers start after creation; a fleet cannot be created in transit.',
+      );
+    }
+    const configuredWorkflow = dto.readinessWorkflow;
+    if (configuredWorkflow === FleetOperatingMode.ONBOARDING_EVIDENCE) {
+      throw new BadRequestException(
+        'ONBOARDING_EVIDENCE is no longer a supported fleet workflow.',
+      );
+    }
+    const defaultWorkflow = this.prisma.client
+      ? (
+          await this.prisma.client.findUnique({
+            where: { id: clientId },
+            select: { fleetOperatingMode: true },
+          })
+        )?.fleetOperatingMode
+      : undefined;
+    const readinessWorkflow =
+      configuredWorkflow ??
+      (defaultWorkflow === FleetOperatingMode.ONBOARDING_EVIDENCE
+        ? FleetOperatingMode.SIMPLE
+        : defaultWorkflow ?? FleetOperatingMode.SIMPLE);
+    if (
+      dto.readinessStagePlanCode &&
+      readinessWorkflow !== FleetOperatingMode.STAGED_PREPARATION_QC
+    )
+      throw new BadRequestException(
+        'A stage plan is only valid for staged preparation.',
+      );
+    if (dto.readinessStagePlanCode && this.prisma.fleetReadinessPolicy) {
+      const policy = await this.prisma.fleetReadinessPolicy.findFirst({
+        where: { clientId },
+        orderBy: { version: 'desc' },
+        select: { configuration: true },
+      });
+      const configuration = policy
+        ? policySchema.safeParse(policy.configuration)
+        : null;
+      if (
+        !configuration?.success ||
+        !stagePlans(configuration.data).some(
+          (plan) => plan.code === dto.readinessStagePlanCode,
+        )
+      )
+        throw new BadRequestException('Select a configured stage plan.');
+    }
     const [oem, category, type, homeHub, currentHub] = await Promise.all([
       this.prisma.oem.findFirst({
         where: { id: dto.oemId, status: 'ACTIVE' },
@@ -149,9 +217,13 @@ export class FleetsService {
           manufacturingMonth: dto.manufacturingMonth,
           ownershipType: dto.ownershipType,
           odometerKm: dto.odometerKm,
-          status: dto.status ?? FleetStatus.PENDING_ACTIVATION,
+          // Creation never represents a hub transfer. Transfers are explicit
+          // and begin only after a fleet is available.
+          status: FleetStatus.PENDING_ACTIVATION,
+          readinessWorkflow,
+          readinessStagePlanCode: dto.readinessStagePlanCode,
           statusHistory: {
-            create: { toStatus: dto.status ?? FleetStatus.PENDING_ACTIVATION },
+            create: { toStatus: FleetStatus.PENDING_ACTIVATION },
           },
           registration: dto.registrationDate
             ? {
@@ -518,6 +590,27 @@ export class FleetsService {
               },
             },
           },
+          preparations: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: {
+              id: true,
+              status: true,
+              stages: { select: { status: true } },
+            },
+          },
+          transfers: {
+            where: { status: { in: ['INITIATED', 'IN_TRANSIT'] } },
+            orderBy: { initiatedAt: 'desc' },
+            take: 1,
+            select: {
+              id: true,
+              status: true,
+              fromHubId: true,
+              toHubId: true,
+              initiatedAt: true,
+            },
+          },
         },
         orderBy: query.sortBy
           ? [{ [query.sortBy]: query.sortDirection ?? 'asc' }, { id: 'asc' }]
@@ -532,7 +625,7 @@ export class FleetsService {
       meta: { page: query.page, pageSize: query.pageSize, total },
     };
   }
-  async onboardingOptions() {
+  async onboardingOptions(clientId?: string) {
     const [oems, vehicleCategories, vehicleTypes] = await Promise.all([
       this.prisma.oem.findMany({
         where: { status: 'ACTIVE' },
@@ -557,7 +650,45 @@ export class FleetsService {
         orderBy: [{ name: 'asc' }, { energyType: 'asc' }],
       }),
     ]);
-    return { oems, vehicleCategories, vehicleTypes };
+    const client = clientId && this.prisma.client
+      ? await this.prisma.client.findUnique({
+          where: { id: clientId },
+          select: { fleetOperatingMode: true },
+        })
+      : null;
+    const policy = clientId && this.prisma.fleetReadinessPolicy
+      ? await this.prisma.fleetReadinessPolicy.findFirst({
+          where: { clientId },
+          orderBy: { version: 'desc' },
+          select: { configuration: true },
+        })
+      : null;
+    const configuration = policy
+      ? policySchema.safeParse(policy.configuration)
+      : null;
+    const plans = configuration?.success ? stagePlans(configuration.data) : [];
+    const defaultStagePlanCode = configuration?.success
+      ? configuration.data.defaultStagePlanCode ?? null
+      : null;
+    const defaultWorkflow =
+      client?.fleetOperatingMode === FleetOperatingMode.ONBOARDING_EVIDENCE
+        ? FleetOperatingMode.SIMPLE
+        : client?.fleetOperatingMode ?? FleetOperatingMode.SIMPLE;
+    return {
+      oems,
+      vehicleCategories,
+      vehicleTypes,
+      readinessDefaultWorkflow: defaultWorkflow,
+      allowedReadinessWorkflows: [
+        FleetOperatingMode.SIMPLE,
+        FleetOperatingMode.PREPARATION_QC,
+        FleetOperatingMode.STAGED_PREPARATION_QC,
+      ],
+      readinessStagePlans: plans,
+      readinessDefaultStagePlanCode: defaultStagePlanCode,
+      // Keep the short name for clients that already consume policy plans.
+      stagePlans: plans,
+    };
   }
   async get(clientId: string, id: string) {
     const fleet = await this.prisma.fleet.findFirst({
@@ -587,6 +718,27 @@ export class FleetsService {
             },
           },
         },
+        preparations: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            status: true,
+            stages: { select: { status: true } },
+          },
+        },
+        transfers: {
+          where: { status: { in: ['INITIATED', 'IN_TRANSIT'] } },
+          orderBy: { initiatedAt: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            status: true,
+            fromHubId: true,
+            toHubId: true,
+            initiatedAt: true,
+          },
+        },
       },
     });
     if (!fleet) throw new NotFoundException('Fleet not found.');
@@ -598,14 +750,11 @@ export class FleetsService {
       where: { id: clientId },
       select: { fleetOperatingMode: true },
     });
-    const photosRequired = client.fleetOperatingMode === 'ONBOARDING_EVIDENCE';
-    await this.prisma.photoRequirement.createMany({
-      data: this.defaultOnboardingPhotoRequirements.map((requirement) => ({
-        ...requirement,
-        clientId,
-      })),
-      skipDuplicates: true,
-    });
+    const readinessWorkflow =
+      fleet.readinessWorkflow ??
+      (client.fleetOperatingMode === FleetOperatingMode.ONBOARDING_EVIDENCE
+        ? FleetOperatingMode.SIMPLE
+        : client.fleetOperatingMode);
     const entities = [
       {
         entityType: PhotoEntityType.FLEET,
@@ -677,10 +826,18 @@ export class FleetsService {
       };
     });
     return {
-      operatingMode: client.fleetOperatingMode,
-      photosRequired,
+      operatingMode: readinessWorkflow,
+      readinessWorkflow,
+      // Retain the historical photo projection for authorized readers, but it
+      // is no longer an activation or allocation requirement.
+      photosRequired: false,
       evidenceComplete: items.every((item) => item.ready),
-      ready: ['PREPARATION_QC','STAGED_PREPARATION_QC'].includes(client.fleetOperatingMode) ? Boolean(fleet.readinessApprovedPreparationId) : !photosRequired || items.every((item) => item.ready),
+      ready: ([
+        FleetOperatingMode.PREPARATION_QC,
+        FleetOperatingMode.STAGED_PREPARATION_QC,
+      ] as FleetOperatingMode[]).includes(readinessWorkflow)
+        ? Boolean(fleet.readinessApprovedPreparationId)
+        : true,
       items,
     };
   }
@@ -902,19 +1059,33 @@ export class FleetsService {
     if (fleet.status === FleetStatus.IN_TRANSIT) {
       throw new ConflictException('Receive the fleet before activation.');
     }
+    const evidence = await this.onboardingStatus(clientId, id);
+    const savedWorkflow = fleet.readinessWorkflow ?? evidence.readinessWorkflow;
+    const preparationWorkflow = ([
+      FleetOperatingMode.PREPARATION_QC,
+      FleetOperatingMode.STAGED_PREPARATION_QC,
+    ] as FleetOperatingMode[]).includes(savedWorkflow);
     if (
       fleet.onboardingStatus === 'ACTIVE' &&
-      fleet.status !== FleetStatus.PENDING_ACTIVATION
+      fleet.status !== FleetStatus.PENDING_ACTIVATION &&
+      !(preparationWorkflow && fleet.status === FleetStatus.INSPECTION_PENDING)
     )
       return fleet;
-    if (fleet.status !== FleetStatus.PENDING_ACTIVATION) {
+    if (
+      fleet.status !== FleetStatus.PENDING_ACTIVATION &&
+      !(preparationWorkflow && fleet.status === FleetStatus.INSPECTION_PENDING)
+    ) {
       throw new ConflictException('Only an unallocated fleet awaiting activation can be activated.');
     }
-    const evidence = await this.onboardingStatus(clientId, id);
-    if (['PREPARATION_QC','STAGED_PREPARATION_QC'].includes(evidence.operatingMode)) throw new ConflictException('Use Vehicle Preparation and Quality Check to activate this scooter.');
-    if (!evidence.ready) {
-      throw new BadRequestException(
-        'Complete all required operational photos before activation.',
+    if (
+      ([
+        FleetOperatingMode.PREPARATION_QC,
+        FleetOperatingMode.STAGED_PREPARATION_QC,
+      ] as FleetOperatingMode[]).includes(evidence.readinessWorkflow) &&
+      !fleet.readinessApprovedPreparationId
+    ) {
+      throw new ConflictException(
+        'Complete preparation and quality check before activation.',
       );
     }
     return this.prisma.$transaction(async (tx) => {
@@ -925,13 +1096,30 @@ export class FleetsService {
       }
       if (
         current.onboardingStatus === 'ACTIVE' &&
-        current.status !== FleetStatus.PENDING_ACTIVATION
+        current.status !== FleetStatus.PENDING_ACTIVATION &&
+        !(preparationWorkflow && current.status === FleetStatus.INSPECTION_PENDING)
       )
         return current;
+      const currentWorkflow =
+        current.readinessWorkflow === FleetOperatingMode.ONBOARDING_EVIDENCE
+          ? FleetOperatingMode.SIMPLE
+          : current.readinessWorkflow ?? savedWorkflow;
+      const currentPreparationWorkflow = ([
+        FleetOperatingMode.PREPARATION_QC,
+        FleetOperatingMode.STAGED_PREPARATION_QC,
+      ] as FleetOperatingMode[]).includes(currentWorkflow);
+      if (currentPreparationWorkflow && !current.readinessApprovedPreparationId)
+        throw new ConflictException(
+          'Complete preparation and quality check before activation.',
+        );
       const allocated = await tx.allocation.count({
         where: { clientId, fleetId: id, status: { notIn: ['COMPLETED', 'CANCELLED'] } },
       });
-      if (allocated || current.status !== FleetStatus.PENDING_ACTIVATION) {
+      if (
+        allocated ||
+        (current.status !== FleetStatus.PENDING_ACTIVATION &&
+          !(preparationWorkflow && current.status === FleetStatus.INSPECTION_PENDING))
+      ) {
         throw new ConflictException('Only an unallocated fleet awaiting activation can be activated.');
       }
       const updated = await tx.fleet.update({
@@ -955,6 +1143,181 @@ export class FleetsService {
       });
       return this.present({ ...updated, _count: { allocations: 0 } });
     });
+  }
+
+  async startTransfer(
+    clientId: string,
+    fleetId: string,
+    destinationHubId: string,
+    actorId: string,
+  ) {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Fleet" WHERE id=${fleetId} AND "clientId"=${clientId} FOR UPDATE`;
+      const fleet = await tx.fleet.findFirst({
+        where: { id: fleetId, clientId, deletedAt: null },
+      });
+      if (!fleet) throw new NotFoundException('Fleet not found.');
+      if (fleet.status !== FleetStatus.AVAILABLE)
+        throw new ConflictException('Only an available fleet can start a transfer.');
+      if (!fleet.currentHubId)
+        throw new BadRequestException('Fleet has no current hub.');
+      if (fleet.currentHubId === destinationHubId)
+        throw new BadRequestException('Destination hub must differ from the current hub.');
+      const destination = await tx.hub.findFirst({
+        where: {
+          id: destinationHubId,
+          clientId,
+          status: 'ACTIVE',
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
+      if (!destination) throw new NotFoundException('Destination hub not found.');
+      const allocated = await tx.allocation.count({
+        where: {
+          clientId,
+          fleetId,
+          status: { notIn: ['COMPLETED', 'CANCELLED'] },
+        },
+      });
+      if (allocated)
+        throw new ConflictException('Fleet has an unfinished allocation.');
+      const open = await tx.fleetTransfer.findFirst({
+        where: {
+          clientId,
+          fleetId,
+          status: { in: [FleetTransferStatus.INITIATED, FleetTransferStatus.IN_TRANSIT] },
+        },
+        select: { id: true },
+      });
+      if (open) throw new ConflictException('Fleet already has an active transfer.');
+      await tx.fleetTransfer.create({
+        data: {
+          clientId,
+          fleetId,
+          fromHubId: fleet.currentHubId,
+          toHubId: destinationHubId,
+          status: FleetTransferStatus.IN_TRANSIT,
+          initiatedById: actorId,
+        },
+      });
+      await tx.fleet.update({
+        where: { id: fleetId },
+        data: { status: FleetStatus.IN_TRANSIT, allocationEnabled: false },
+      });
+      await tx.fleetStatusHistory.create({
+        data: {
+          fleetId,
+          fromStatus: fleet.status,
+          toStatus: FleetStatus.IN_TRANSIT,
+          changedByUserId: actorId,
+          reason: 'Fleet transfer started.',
+        },
+      });
+    });
+    return this.get(clientId, fleetId);
+  }
+
+  async receiveTransfer(
+    clientId: string,
+    transferId: string,
+    actor: AuthUser,
+  ) {
+    const fleetId = await this.prisma.$transaction(async (tx) => {
+      const transfer = await tx.fleetTransfer.findFirst({
+        where: { id: transferId, clientId },
+      });
+      if (!transfer) throw new NotFoundException('Fleet transfer not found.');
+      await tx.$queryRaw`SELECT id FROM "FleetTransfer" WHERE id=${transferId} AND "clientId"=${clientId} FOR UPDATE`;
+      const current = await tx.fleetTransfer.findFirstOrThrow({
+        where: { id: transferId, clientId },
+      });
+      if (
+        !([FleetTransferStatus.INITIATED, FleetTransferStatus.IN_TRANSIT] as FleetTransferStatus[]).includes(
+          current.status,
+        )
+      )
+        throw new ConflictException('Fleet transfer has already been received or cancelled.');
+      const fleet = await tx.fleet.findFirst({
+        where: { id: current.fleetId, clientId, deletedAt: null },
+      });
+      if (!fleet) throw new NotFoundException('Fleet not found.');
+      const destination = await tx.hub.findFirst({
+        where: {
+          id: current.toHubId,
+          clientId,
+          status: 'ACTIVE',
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
+      if (!destination) throw new NotFoundException('Destination hub not found.');
+      if (
+        !actor.roles.some((role) =>
+          [
+            'CLIENT_ADMIN',
+            'OPERATIONS_MANAGER',
+          ].includes(role),
+        )
+      ) {
+        if (!actor.roles.includes('FLEET_MANAGER'))
+          throw new ForbiddenException('Destination hub receipt permission is required.');
+        const assigned = await tx.userHub.findFirst({
+          where: {
+            clientId,
+            userId: actor.id,
+            hubId: current.toHubId,
+          },
+          select: { id: true },
+        });
+        if (!assigned)
+          throw new ForbiddenException('You are not assigned to the destination hub.');
+      }
+      if (fleet.status !== FleetStatus.IN_TRANSIT)
+        throw new ConflictException('Fleet is not in transit.');
+      if (fleet.currentHubId !== current.fromHubId)
+        throw new ConflictException('Fleet current hub no longer matches this transfer.');
+      const allocated = await tx.allocation.count({
+        where: {
+          clientId,
+          fleetId: current.fleetId,
+          status: { notIn: ['COMPLETED', 'CANCELLED'] },
+        },
+      });
+      if (allocated)
+        throw new ConflictException('Fleet has an unfinished allocation.');
+      // The readiness trigger uses this transaction-local marker to distinguish
+      // this receipt from an older matching transfer row.
+      await tx.$queryRaw`SELECT set_config('evseye.fleet_transfer_receipt_id', ${transferId}, true)`;
+      await tx.fleetTransfer.update({
+        where: { id: transferId },
+        data: {
+          status: FleetTransferStatus.RECEIVED,
+          receivedById: actor.id,
+          receivedAt: new Date(),
+        },
+      });
+      await tx.fleet.update({
+        where: { id: current.fleetId },
+        data: {
+          currentHubId: current.toHubId,
+          status: FleetStatus.AVAILABLE,
+          allocationEnabled: !fleet.allocationBlockedByAdmin,
+        },
+      });
+      await tx.fleetStatusHistory.create({
+        data: {
+          fleetId: current.fleetId,
+          fromStatus: FleetStatus.IN_TRANSIT,
+          toStatus: FleetStatus.AVAILABLE,
+          changedByUserId: actor.id,
+          reason: 'Fleet transfer received at destination hub.',
+        },
+      });
+      return current.fleetId;
+    });
+    const fleet = await this.get(clientId, fleetId);
+    return { transfer: await this.prisma.fleetTransfer.findFirstOrThrow({ where: { id: transferId, clientId } }), fleet };
   }
 
   async remove(clientId: string, id: string) {

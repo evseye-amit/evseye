@@ -3,7 +3,6 @@ import {
   FleetStatus,
   InspectionStatus,
   InspectionType,
-  PhotoEntityType,
   RiderStatus,
 } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
@@ -47,7 +46,7 @@ describe('AllocationsService concurrency guard', () => {
     );
   });
 
-  it('rejects allocation when a required fleet onboarding photo is missing', async () => {
+  it('allows allocation when onboarding photos are missing', async () => {
     const tx = {
       client: { findUniqueOrThrow: vi.fn().mockResolvedValue({ fleetOperatingMode: 'ONBOARDING_EVIDENCE' }) },
       $queryRaw: vi.fn().mockResolvedValue([{ id: 'fleet-1' }]),
@@ -59,13 +58,18 @@ describe('AllocationsService concurrency guard', () => {
           status: RiderStatus.ACTIVE,
         }),
       },
-      fleet: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
-      photoRequirement: {
-        findMany: vi.fn().mockResolvedValue([{ photoType: 'FRONT' }]),
+      fleet: {
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        findFirst: vi.fn().mockResolvedValue({
+          readinessWorkflow: 'SIMPLE',
+          readinessApprovedPreparationId: null,
+          allocationBlockedByAdmin: false,
+          allocationEnabled: true,
+        }),
       },
-      photo: { findMany: vi.fn().mockResolvedValue([]) },
-      allocation: { create: vi.fn() },
+      allocation: { create: vi.fn().mockResolvedValue({ id: 'allocation-1' }) },
       inspection: { create: vi.fn() },
+      mobileDeploymentWorkflow: { create: vi.fn() },
     };
     const prisma = {
       $transaction: vi.fn(async (operation: (client: typeof tx) => unknown) =>
@@ -76,15 +80,7 @@ describe('AllocationsService concurrency guard', () => {
 
     await expect(
       service.initiate('client-a', 'fleet-1', 'rider-1', 'operator-1'),
-    ).rejects.toThrow('Fleet onboarding photos are incomplete: FRONT.');
-    expect(tx.photoRequirement.findMany).toHaveBeenCalledWith({
-      where: {
-        clientId: 'client-a',
-        entityType: PhotoEntityType.FLEET,
-        isRequired: true,
-      },
-      select: { photoType: true },
-    });
+    ).resolves.toMatchObject({ id: 'allocation-1' });
     tx.client.findUniqueOrThrow.mockResolvedValue({ fleetOperatingMode: 'SIMPLE' });
     tx.allocation.create.mockResolvedValue({ id: 'allocation-1' });
     Object.assign(tx, { mobileDeploymentWorkflow: { create: vi.fn() } });
@@ -92,6 +88,41 @@ describe('AllocationsService concurrency guard', () => {
     expect(tx.inspection.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ type: InspectionType.PRE_ALLOCATION, status: InspectionStatus.DRAFT }),
     }));
+  });
+
+  it('blocks direct allocation when the fleet is administratively disabled', async () => {
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'fleet-1' }]),
+      vehicleExchangeRequest: { findFirst: vi.fn().mockResolvedValue(null) },
+      commercialRestriction: { findFirst: vi.fn().mockResolvedValue(null) },
+      client: {
+        findUniqueOrThrow: vi.fn().mockResolvedValue({ fleetOperatingMode: 'SIMPLE' }),
+      },
+      rider: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'rider-1', status: RiderStatus.ACTIVE }),
+      },
+      fleet: {
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        findFirst: vi.fn().mockResolvedValue({
+          readinessWorkflow: 'SIMPLE',
+          readinessApprovedPreparationId: null,
+          allocationBlockedByAdmin: false,
+          allocationEnabled: false,
+        }),
+      },
+      allocation: { create: vi.fn().mockResolvedValue({ id: 'allocation-1' }) },
+      inspection: { create: vi.fn() },
+      mobileDeploymentWorkflow: { create: vi.fn() },
+    };
+    const prisma = {
+      $transaction: vi.fn(async (operation: (client: typeof tx) => unknown) => operation(tx)),
+    };
+    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never);
+
+    await expect(
+      service.initiate('client-a', 'fleet-1', 'rider-1', 'operator-1'),
+    ).rejects.toThrow('Allocation is administratively disabled for this scooter.');
+    expect(tx.allocation.create).not.toHaveBeenCalled();
   });
 
   it('rejects allocation for an inactive rider even when called directly', async () => {

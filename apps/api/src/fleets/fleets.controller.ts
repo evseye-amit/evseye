@@ -30,6 +30,7 @@ import { ChangeFleetStatusDto } from './dto/change-fleet-status.dto.js';
 import { UpdateFleetDto } from './dto/update-fleet.dto.js';
 import { FleetsService } from './fleets.service.js';
 import { ComponentsService } from './components.service.js';
+import { StartFleetTransferDto } from './dto/start-fleet-transfer.dto.js';
 @Controller('fleets')
 @UseGuards(AccessTokenGuard, RolesGuard, FleetManagerActionGuard)
 @FleetActionResource('fleet')
@@ -48,8 +49,10 @@ export class FleetsController {
   @Get() async list(@CurrentUser() u: AuthUser, @Query() q: ListFleetsDto) {
     return { data: await this.fleets.list(this.clients.requireClientId(u), q) };
   }
-  @Get('onboarding-options') onboardingOptions() {
-    return this.fleets.onboardingOptions().then((data) => ({ data }));
+  @Get('onboarding-options') onboardingOptions(@CurrentUser() u: AuthUser) {
+    return this.fleets
+      .onboardingOptions(this.clients.requireClientId(u))
+      .then((data) => ({ data }));
   }
   @Get('batteries') async listBatteries(@CurrentUser() u: AuthUser) {
     return {
@@ -214,6 +217,28 @@ export class FleetsController {
         status: fleet.status,
         onboardingStatus: fleet.onboardingStatus,
       },
+    });
+    return { data: fleet };
+  }
+  @Post(':id/transfers') async startTransfer(
+    @CurrentUser() u: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: StartFleetTransferDto,
+  ) {
+    const clientId = this.clients.requireClientId(u);
+    const fleet = await this.fleets.startTransfer(
+      clientId,
+      id,
+      dto.destinationHubId,
+      u.id,
+    );
+    await this.audit.record({
+      clientId,
+      actorId: u.id,
+      action: 'FLEET_TRANSFER_STARTED',
+      entityType: 'FLEET',
+      entityId: id,
+      newData: fleet.activeTransfer ?? undefined,
     });
     return { data: fleet };
   }

@@ -5,10 +5,11 @@ import { FleetStatusPolicy } from './fleet-status.policy.js';
 import { FleetsService } from './fleets.service.js';
 import { FleetsController } from './fleets.controller.js';
 import { ComponentsService } from './components.service.js';
+import { FleetTransfersController } from './fleet-transfers.controller.js';
 
 @Module({
   imports: [AuthModule, AuditModule],
-  controllers: [FleetsController],
+  controllers: [FleetsController, FleetTransfersController],
   providers: [FleetStatusPolicy, FleetsService, ComponentsService],
   exports: [FleetStatusPolicy, FleetsService],
 })

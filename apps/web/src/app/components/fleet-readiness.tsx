@@ -1,10 +1,15 @@
 "use client";
 import { UnsavedChangesScope, markFormsSaved, requestNavigation } from "./unsaved-changes";
 import { usePanelLoading } from "./panel-loading";
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { sessionFetch } from "../../lib/session-fetch";
 import { ClientDataTable } from "./client-data-table";
 import { ClientFormDialog } from "./client-form-dialog";
+import { UiIcon } from "./ui-icon";
+import {
+  normalizeReadinessPlans,
+  type ReadinessPlanOption,
+} from "./readiness-workflow-picker";
 
 import {
   InstallationStageSettings,
@@ -158,7 +163,7 @@ async function api<T>(
   return body.data as T;
 }
 
-export function FleetReadiness({
+function FleetReadinessManager({
   view, refreshKey = 0,
 }: {
   refreshKey?: number;
@@ -610,7 +615,6 @@ export function FleetReadiness({
               <option value="STAGED_PREPARATION_QC">
                 Staged Preparation + QC
               </option>
-              <option value="ONBOARDING_EVIDENCE">Onboarding evidence</option>
             </select>
           </label>
           <InstallationStageSettings
@@ -1381,56 +1385,418 @@ export function FleetReadiness({
   );
 }
 
+type ReadinessOverviewData = {
+  id?: string;
+  name?: string;
+  fleet?: Record<string, unknown> | null;
+  workflow?: string;
+  readinessWorkflow?: string;
+  operatingMode?: string;
+  plan?: unknown;
+  stagePlanCode?: string | null;
+  readinessStagePlanCode?: string | null;
+  progress?: unknown;
+  qc?: unknown;
+  blockers?: unknown;
+  preparation?: unknown;
+  canAllocate?: boolean;
+  canActivate?: boolean;
+  selectablePlans?: unknown;
+  readinessStagePlans?: unknown;
+  stagePlans?: unknown;
+};
+
+const objectValue = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+
+const stringValue = (value: unknown, fallback = "—") =>
+  typeof value === "string" && value.trim() ? value : fallback;
+
+const overviewStatus = (value: unknown) =>
+  label(String(value ?? "PENDING")).replace(/^./, (character) => character.toUpperCase());
+
+const overviewList = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => {
+      if (typeof entry === "string" && entry.trim()) return [entry];
+      const record = objectValue(entry);
+      const message = record?.message ?? record?.label ?? record?.reason ?? record?.code;
+      return typeof message === "string" && message.trim() ? [message] : [];
+    });
+  }
+  const record = objectValue(value);
+  if (!record) return [];
+  return Object.entries(record).flatMap(([key, entry]) =>
+    typeof entry === "string" && entry.trim() ? [`${label(key)}: ${entry}`] : [],
+  );
+};
+
+function readinessProgress(value: unknown) {
+  const record = objectValue(value);
+  if (record) {
+    const completed = Number(record.completed ?? record.completedCount ?? 0);
+    const total = Number(record.total ?? record.totalCount ?? 0);
+    const percent = Number(record.percent ?? record.percentage ?? (total ? completed / total * 100 : 0));
+    return {
+      completed: Number.isFinite(completed) ? completed : 0,
+      total: Number.isFinite(total) ? total : 0,
+      percent: Number.isFinite(percent) ? Math.max(0, Math.min(100, Math.round(percent))) : 0,
+      current: stringValue(record.currentStage ?? record.current ?? record.stage),
+    };
+  }
+  if (Array.isArray(value)) {
+    const completed = value.filter((entry) => objectValue(entry)?.status === "COMPLETED").length;
+    return { completed, total: value.length, percent: value.length ? Math.round(completed / value.length * 100) : 0, current: "—" };
+  }
+  return { completed: 0, total: 0, percent: 0, current: "—" };
+}
+
+function FleetReadinessOverview({
+  fleetId,
+  onBack,
+  onOpenPreparation,
+}: Readonly<{
+  fleetId: string;
+  onBack?: () => void;
+  onOpenPreparation?: (fleetId: string) => void;
+}>) {
+  const [data, setData] = useState<ReadinessOverviewData | null>(null);
+  const [stagePlanCode, setStagePlanCode] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [availablePlans, setAvailablePlans] = useState<ReadinessPlanOption[]>([]);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    setError("");
+    void api<ReadinessOverviewData>(`fleets/${fleetId}/readiness`)
+      .then((next) => {
+        setData(next);
+        const plan = objectValue(next.plan);
+        setStagePlanCode(String(next.stagePlanCode ?? next.readinessStagePlanCode ?? plan?.code ?? ""));
+        void api<Record<string, unknown>>("fleets/onboarding-options")
+          .then((options) => setAvailablePlans(normalizeReadinessPlans(options.readinessStagePlans ?? options.selectablePlans ?? options.stagePlans)))
+          .catch(() => setAvailablePlans([]));
+      })
+      .catch((cause) => setError(cause instanceof Error ? cause.message : "Unable to load fleet readiness."))
+      .finally(() => setLoading(false));
+  }, [fleetId]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => load(), 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
+
+  const savePlan = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!stagePlanCode) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await api(`fleets/${fleetId}/readiness`, "PATCH", { stagePlanCode });
+      setNotice("Stage plan saved.");
+      load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to save the stage plan.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const activate = async () => {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await api(`fleets/${fleetId}/activate`, "POST");
+      setNotice("Fleet activated.");
+      load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to activate fleet.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (loading && !data) {
+    return <section className="action-card readiness-detail-page"><p className="muted">Loading readiness…</p></section>;
+  }
+
+  const fleet = objectValue(data?.fleet);
+  const workflow = String(data?.workflow ?? data?.readinessWorkflow ?? data?.operatingMode ?? "SIMPLE");
+  const plan = objectValue(data?.plan);
+  const planLabel = stringValue(plan?.name ?? plan?.label ?? data?.stagePlanCode ?? data?.readinessStagePlanCode, "No shared stage plan");
+  const progress = readinessProgress(data?.progress);
+  const qc = objectValue(data?.qc);
+  const preparation = objectValue(data?.preparation);
+  const blockers = overviewList(data?.blockers);
+  const plans: ReadinessPlanOption[] = availablePlans.length
+    ? availablePlans
+    : normalizeReadinessPlans(data?.selectablePlans ?? data?.readinessStagePlans ?? data?.stagePlans);
+  const displayName = stringValue(data?.name ?? fleet?.vehicleNumber ?? fleet?.fleetCode ?? fleet?.chassisNumber, "Fleet readiness");
+  const direct = workflow === "SIMPLE" || workflow === "ONBOARDING_EVIDENCE";
+  const preparationStatus = String(preparation?.status ?? "").toUpperCase();
+  const qcDecision = String(qc?.decision ?? qc?.status ?? "").toUpperCase();
+  const approvalReady = ["APPROVED", "QC_APPROVED"].includes(preparationStatus) || ["APPROVED", "QC_APPROVED"].includes(qcDecision);
+  const approvalBlocker = blockers.some((blocker) => blocker.toLowerCase().includes("preparation and qc approval"));
+  const showActivate = direct || data?.canActivate === true || (data?.canActivate === undefined && approvalReady && !approvalBlocker);
+  const activationDisabled = data?.canActivate === false && !approvalReady;
+
+  return (
+    <section className="action-card readiness-detail-page" aria-labelledby="readiness-detail-title">
+      <header className="readiness-detail-header">
+        <div>
+          <p className="eyebrow">FLEET READINESS</p>
+          <h2 id="readiness-detail-title">{displayName}</h2>
+          <p className="muted">{stringValue(fleet?.chassisNumber, "Review the saved workflow and the next operational handoff.")}</p>
+        </div>
+        <button type="button" className="secondary" onClick={onBack}>Back to fleets</button>
+      </header>
+      {error && <p className="error" role="alert">{error}</p>}
+      {notice && <p className="notice" role="status">{notice}</p>}
+      {!data ? (
+        <div className="readiness-empty-state"><p>Readiness details are not available.</p><button type="button" className="secondary" onClick={load}>Try again</button></div>
+      ) : (
+        <>
+          <div className="readiness-overview-grid">
+            <article className="readiness-overview-card">
+              <p className="eyebrow">WORKFLOW</p>
+              <h3>{overviewStatus(workflow)}</h3>
+              <p>{direct ? "Direct activation" : "Preparation and quality control"}</p>
+            </article>
+            <article className="readiness-overview-card">
+              <p className="eyebrow">PROGRESS</p>
+              <h3>{progress.percent}%</h3>
+              <p>{progress.completed} of {progress.total || "—"} stages complete</p>
+              <div className="readiness-progress-track" aria-label={`${progress.percent}% complete`}><span style={{ width: `${progress.percent}%` }} /></div>
+              {progress.current !== "—" && <small>Current: {label(progress.current)}</small>}
+            </article>
+            <article className="readiness-overview-card">
+              <p className="eyebrow">QUALITY CHECK</p>
+              <h3>{overviewStatus(qc?.status ?? qc?.decision ?? (direct ? "NOT_REQUIRED" : "PENDING"))}</h3>
+              <p>{stringValue(qc?.message ?? qc?.notes, direct ? "No QC gate for direct activation." : "Waiting for the quality check.")}</p>
+            </article>
+          </div>
+          <div className="readiness-detail-columns">
+            <section className="readiness-detail-card">
+              <p className="eyebrow">NEXT HANDOFF</p>
+              <h3>{preparation ? overviewStatus(preparation.status) : direct ? "Ready for activation" : "Preparation not started"}</h3>
+              {blockers.length ? <ul className="readiness-blocker-list">{blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul> : <p className="muted">No blockers reported by the readiness service.</p>}
+              <div className="readiness-primary-action">
+                {showActivate ? <button type="button" disabled={busy || activationDisabled} onClick={() => void activate()}>{busy ? "Activating…" : "Activate fleet"}</button> : <button type="button" onClick={() => onOpenPreparation?.(fleetId)}>Open preparation</button>}
+              </div>
+            </section>
+            <section className="readiness-detail-card">
+              <p className="eyebrow">STAGE PLAN</p>
+              <h3>{planLabel}</h3>
+              {workflow === "STAGED_PREPARATION_QC" && plans.length ? <form className="readiness-plan-form" onSubmit={(event) => void savePlan(event)}><label>Change plan<select value={stagePlanCode} onChange={(event) => setStagePlanCode(event.target.value)} disabled={busy}><option value="">Select a plan</option>{plans.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}</select></label><button type="submit" className="secondary" disabled={busy || !stagePlanCode}>Save stage plan</button></form> : <p className="muted">{workflow === "STAGED_PREPARATION_QC" ? "No alternate plans are available for this workflow." : "This workflow does not use a shared stage plan."}</p>}
+            </section>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+export function FleetReadiness({
+  fleetId,
+  onBack,
+  onOpenPreparation,
+  ...managerProps
+}: {
+  refreshKey?: number;
+  view: "preparation" | "qc" | "settings" | "advisors" | "qc-managers";
+  fleetId?: string;
+  onBack?: () => void;
+  onOpenPreparation?: (fleetId: string) => void;
+}) {
+  if (fleetId) return <FleetReadinessOverview fleetId={fleetId} onBack={onBack} onOpenPreparation={onOpenPreparation} />;
+  return <FleetReadinessManager {...managerProps} />;
+}
+
 export function FleetReadinessStatus({ fleetId }: { fleetId: string }) {
   const [data, setData] = useState<{
-      operatingMode: string;
-      canAllocate: boolean;
-      blockers: string[];
-      preparation: { status: string } | null;
+      workflow?: string;
+      readinessWorkflow?: string;
+      operatingMode?: string;
+      plan?: { code?: string; name?: string; label?: string } | string | null;
+      progress?: { percent?: number; completed?: number; total?: number } | null;
+      qc?: { status?: string; decision?: string } | null;
+      canAllocate?: boolean;
+      blockers?: string[];
+      preparation?: { status: string } | null;
     } | null>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  const workflow = data?.workflow ?? data?.readinessWorkflow ?? data?.operatingMode ?? "SIMPLE";
+  const plan = typeof data?.plan === "string" ? data.plan : data?.plan?.name ?? data?.plan?.label ?? data?.plan?.code;
   return (
     <>
       <button
-        className="secondary table-action"
+        type="button"
+        className="readiness-info-button"
+        aria-label="View readiness details"
+        title="View readiness details"
         disabled={busy}
         onClick={() => {
           setBusy(true);
           setError("");
           void api<NonNullable<typeof data>>(`fleets/${fleetId}/readiness`)
             .then(setData)
-            .catch((e) => setError(e.message))
+            .catch((cause) => setError(cause instanceof Error ? cause.message : "Unable to load readiness."))
             .finally(() => setBusy(false));
         }}
       >
-        Readiness
+        <UiIcon name="info" />
       </button>
-      {error && <span className="error">{error}</span>}
+      {error && <span className="error" role="alert">{error}</span>}
       {data && (
         <ClientFormDialog
-          title="Scooter readiness"
+          title="Fleet readiness"
           onClose={() => setData(null)}
-          heading={<>Scooter readiness</>}>
-
-          <p>Mode: {label(data.operatingMode)}</p>
-          <p>
-            {data.canAllocate ? "Ready for allocation" : "Allocation blocked"}
-          </p>
-          <ul>
-            {data.blockers.map((reason) => (
-              <li key={reason}>{reason}</li>
-            ))}
-          </ul>
-          <p>
-            Preparation:{" "}
-            {data.preparation
-              ? label(data.preparation.status)
-              : "No preparation cycle"}
-          </p>
-
+          heading={<>Fleet readiness</>}
+          formsOnly
+        >
+          <div className="readiness-info-summary">
+            <p><strong>Workflow</strong><span>{overviewStatus(workflow)}</span></p>
+            <p><strong>Allocation</strong><span>{data.canAllocate ? "Ready" : "Blocked"}</span></p>
+            <p><strong>Stage plan</strong><span>{stringValue(plan, "Not selected")}</span></p>
+            {data.progress && <p><strong>Progress</strong><span>{data.progress.completed ?? 0} of {data.progress.total ?? 0} stages</span></p>}
+            <p><strong>Preparation</strong><span>{data.preparation ? overviewStatus(data.preparation.status) : "Not started"}</span></p>
+            {data.qc && <p><strong>QC</strong><span>{overviewStatus(data.qc.status ?? data.qc.decision)}</span></p>}
+          </div>
+          {data.blockers?.length ? <><h3>Blockers</h3><ul>{data.blockers.map((reason) => <li key={reason}>{reason}</li>)}</ul></> : <p className="notice">No blockers reported.</p>}
         </ClientFormDialog>
       )}
+    </>
+  );
+}
+
+type ActiveTransfer = Record<string, unknown> | null | undefined;
+
+export function FleetMoreMenu({
+  fleetId,
+  fleetName,
+  status,
+  activeTransfer,
+  onEdit,
+  onEvidence,
+  onDelete,
+  onTransferDone,
+  canManageEvidence,
+}: Readonly<{
+  fleetId: string;
+  fleetName: string;
+  status: string;
+  activeTransfer?: ActiveTransfer;
+  onEdit: () => void;
+  onEvidence?: () => void;
+  onDelete: () => void;
+  onTransferDone: () => void;
+  canManageEvidence: boolean;
+}>) {
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const summaryRef = useRef<HTMLElement>(null);
+  const [open, setOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [hubs, setHubs] = useState<Hub[]>([]);
+  const [destinationHubId, setDestinationHubId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const transferId = String(activeTransfer?.id ?? activeTransfer?.transferId ?? "");
+  const destinationHub = objectValue(activeTransfer?.destinationHub);
+  const destinationName = String(activeTransfer?.destinationHubName ?? destinationHub?.name ?? activeTransfer?.toHubId ?? "");
+  const canStartTransfer = status === "AVAILABLE" && !transferId;
+  const canReceiveTransfer = Boolean(transferId) || (status === "IN_TRANSIT" && !transferId);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setOpen(false);
+        detailsRef.current?.removeAttribute("open");
+        summaryRef.current?.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open]);
+
+  useEffect(() => {
+    if (!transferOpen) return;
+    const timer = window.setTimeout(() => {
+      setError("");
+      if (!hubs.length) {
+        void api<Hub[] | { items: Hub[] }>("hubs")
+          .then((result) => setHubs(Array.isArray(result) ? result : result.items))
+          .catch((cause) => setError(cause instanceof Error ? cause.message : "Unable to load hubs."));
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [transferOpen, hubs.length]);
+
+  const closeMenu = () => {
+    setOpen(false);
+    detailsRef.current?.removeAttribute("open");
+  };
+  const startTransfer = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!destinationHubId) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api(`fleets/${fleetId}/transfers`, "POST", { destinationHubId });
+      setTransferOpen(false);
+      setDestinationHubId("");
+      onTransferDone();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to start transfer.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const receiveTransfer = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      if (transferId) await api(`fleet-transfers/${transferId}/receipt`, "POST");
+      else await api(`fleets/${fleetId}/status`, "PATCH", { status: "PENDING_ACTIVATION", reason: "Fleet received." });
+      closeMenu();
+      onTransferDone();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to record receipt.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <details ref={detailsRef} className="fleet-more-menu" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+        <summary ref={summaryRef} className="fleet-more-summary">More</summary>
+        <div className="fleet-more-popover" role="menu" aria-label={`More actions for ${fleetName}`}>
+          {canStartTransfer && <button type="button" role="menuitem" onClick={() => { closeMenu(); setTransferOpen(true); }}>Transfer to hub</button>}
+          {canReceiveTransfer && <button type="button" role="menuitem" disabled={busy} onClick={() => void receiveTransfer()}>Mark received{destinationName ? ` · ${destinationName}` : ""}</button>}
+          {canManageEvidence && onEvidence && <button type="button" role="menuitem" onClick={() => { closeMenu(); onEvidence(); }}>Photos &amp; evidence</button>}
+          {status === "AVAILABLE" && <button type="button" role="menuitem" disabled title="Use the Fleet Manager app to complete allocation and its required checks.">Allocate</button>}
+          {status === "ALLOCATED" && <button type="button" role="menuitem" className="danger" disabled title="Use the submission workflow in the Fleet Manager app to return this vehicle.">De-allocate</button>}
+          <button type="button" role="menuitem" onClick={() => { closeMenu(); onEdit(); }}>Edit fleet</button>
+          <button type="button" role="menuitem" className="danger" onClick={() => { closeMenu(); onDelete(); }}>Delete fleet</button>
+        </div>
+      </details>
+      {transferOpen && <ClientFormDialog title={`Transfer ${fleetName}`} busy={busy} error={error} onClose={() => setTransferOpen(false)} heading={<>Transfer fleet</>}>
+        <p className="muted">Choose the destination hub. The fleet remains unavailable until the destination records receipt.</p>
+        <form className="form-stack" onSubmit={(event) => void startTransfer(event)}>
+          <label>Destination hub *<select required value={destinationHubId} onChange={(event) => setDestinationHubId(event.target.value)}><option value="">Select destination</option>{hubs.map((hub) => <option key={hub.id} value={hub.id}>{hub.name}</option>)}</select></label>
+          <div className="form-actions"><button disabled={busy || !destinationHubId}>{busy ? "Starting…" : "Start transfer"}</button><button type="button" className="secondary" onClick={() => setTransferOpen(false)}>Cancel</button></div>
+        </form>
+      </ClientFormDialog>}
     </>
   );
 }
