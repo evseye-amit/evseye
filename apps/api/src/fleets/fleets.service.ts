@@ -21,6 +21,7 @@ import type { CreateFleetDto } from './dto/create-fleet.dto.js';
 import type { ListFleetsDto } from './dto/list-fleets.dto.js';
 import type { UpdateFleetDto } from './dto/update-fleet.dto.js';
 import { FleetStatusPolicy } from './fleet-status.policy.js';
+import { vehicleReadiness } from '../fleet-readiness/readiness-policy.js';
 
 @Injectable()
 export class FleetsService {
@@ -502,7 +503,7 @@ export class FleetsService {
           }
         : {}),
     };
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total, client] = await this.prisma.$transaction([
       this.prisma.fleet.findMany({
         where,
         include: {
@@ -526,9 +527,24 @@ export class FleetsService {
         take: query.pageSize,
       }),
       this.prisma.fleet.count({ where }),
+      this.prisma.client.findUniqueOrThrow({
+        where: { id: clientId },
+        select: { fleetOperatingMode: true },
+      }),
     ]);
     return {
-      items: items.map((fleet) => this.present(fleet)),
+      items: items.map((fleet) => ({
+        ...this.present(fleet),
+        vehicleReadiness: vehicleReadiness({
+          operatingMode: client.fleetOperatingMode,
+          status: fleet.status,
+          allocationEnabled: fleet.allocationEnabled,
+          onboardingStatus: fleet.onboardingStatus,
+          readinessApprovedPreparationId:
+            fleet.readinessApprovedPreparationId,
+          unfinishedAllocationCount: fleet._count?.allocations ?? 0,
+        }),
+      })),
       meta: { page: query.page, pageSize: query.pageSize, total },
     };
   }

@@ -200,6 +200,93 @@ export const modeSchema = z.enum([
   'PREPARATION_QC',
   'STAGED_PREPARATION_QC',
 ]);
+export type FleetReadinessMode = z.infer<typeof modeSchema>;
+export type VehicleReadinessBlockerCode =
+  | 'STATUS'
+  | 'ADMIN_DISABLED'
+  | 'ACTIVATION_INCOMPLETE'
+  | 'PREPARATION_QC_REQUIRED'
+  | 'UNFINISHED_ALLOCATION';
+export type VehicleReadinessBlocker = {
+  code: VehicleReadinessBlockerCode;
+  message: string;
+};
+export type VehicleReadinessReport = {
+  ready: boolean;
+  blockers: VehicleReadinessBlocker[];
+  nextStep: string;
+};
+export type VehicleReadinessInput = {
+  operatingMode: FleetReadinessMode;
+  status: string;
+  allocationEnabled: boolean;
+  onboardingStatus: string;
+  readinessApprovedPreparationId: string | null;
+  unfinishedAllocationCount: number;
+};
+
+const qcModes: FleetReadinessMode[] = [
+  'PREPARATION_QC',
+  'STAGED_PREPARATION_QC',
+];
+const readyNextStep = 'Use the Fleet Manager app to allocate this scooter.';
+
+export function vehicleReadiness(
+  input: VehicleReadinessInput,
+): VehicleReadinessReport {
+  const blockers: VehicleReadinessBlocker[] = [];
+  let nextStep = readyNextStep;
+  const add = (
+    code: VehicleReadinessBlockerCode,
+    message: string,
+    step: string,
+  ) => {
+    if (blockers.length === 0) nextStep = step;
+    blockers.push({ code, message });
+  };
+
+  if (input.status !== 'AVAILABLE') {
+    const step =
+      input.status === 'IN_TRANSIT'
+        ? 'Mark the scooter received.'
+        : input.status === 'PENDING_ACTIVATION'
+          ? 'Complete fleet activation.'
+          : input.status === 'INSPECTION_PENDING' &&
+              qcModes.includes(input.operatingMode)
+            ? 'Complete preparation and QC approval.'
+            : `Resolve the scooter's ${input.status} state before allocation.`;
+    add('STATUS', `Scooter status is ${input.status}.`, step);
+  }
+  if (!input.allocationEnabled)
+    add(
+      'ADMIN_DISABLED',
+      'Allocation is administratively disabled.',
+      'Enable allocation for this scooter.',
+    );
+  if (input.onboardingStatus !== 'ACTIVE')
+    add(
+      'ACTIVATION_INCOMPLETE',
+      'Fleet activation is incomplete.',
+      'Complete fleet activation.',
+    );
+  if (
+    qcModes.includes(input.operatingMode) &&
+    !input.readinessApprovedPreparationId
+  )
+    add(
+      'PREPARATION_QC_REQUIRED',
+      'Preparation and QC approval are required.',
+      'Complete preparation and QC approval.',
+    );
+  if (input.unfinishedAllocationCount > 0)
+    add(
+      'UNFINISHED_ALLOCATION',
+      'Scooter has an unfinished allocation.',
+      'Finish the current allocation workflow.',
+    );
+
+  return { ready: blockers.length === 0, blockers, nextStep };
+}
 export const resultSchema = z.record(
   z.string(),
   z

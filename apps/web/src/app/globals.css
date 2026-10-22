@@ -4763,11 +4763,26 @@ body:has(.sa-dialog[open]) {
 .operations-records > .client-data-table .sa-table-wrap table { min-width: 1080px; }
 .operations-records > .client-data-table .sa-table-wrap :is(th, td):not(.sa-table-action-cell) { min-width: 120px; overflow-wrap: normal; word-break: normal; }
 .operations-records > .client-data-table .status { white-space: nowrap; overflow-wrap: normal; }
+.vehicle-readiness-cell { display: grid; gap: 5px; min-width: 190px; max-width: 280px; white-space: normal; overflow-wrap: anywhere; }
+.vehicle-readiness-cell .status { width: max-content; }
+.vehicle-readiness-cell small { color: var(--muted); line-height: 1.35; }
+.vehicle-readiness-reasons { display: grid; gap: 3px; margin: 0; padding-left: 18px; color: var(--ink); line-height: 1.35; }
+.vehicle-readiness-reasons li { overflow-wrap: anywhere; }
+.status-ready { color: #176c4d; background: #e2f3e8; }
+.status-unavailable { color: #5f6a63; background: #eef1ef; }
 .operations-record-filters :is(input, select) { min-height: 40px; padding: 8px 10px; border: 1px solid #d7e1d9; border-radius: 7px; background: #fff; color: #263a2e; font: inherit; }
 .operations-record-filters :is(input, select):focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
 
 .readiness-workspace .staff-operator-selector { display: grid; gap: 6px; max-width: 520px; margin: 16px 0; color: var(--muted); font-size: 13px; font-weight: 600; }
 .readiness-workspace .staff-operator-selector select { min-height: 40px; padding: 8px 10px; border: 1px solid #d7e1d9; border-radius: 7px; background: #fff; color: #263a2e; font: inherit; }
+.readiness-impact-preview { display: grid; gap: 8px; }
+.readiness-impact-preview p { margin: 0; }
+.readiness-impact-vehicles { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: #f8fbf8; }
+.readiness-impact-vehicles h4, .readiness-impact-vehicles h5 { margin: 0; }
+.readiness-impact-vehicles details { display: grid; gap: 6px; }
+.readiness-impact-vehicles summary { cursor: pointer; font-weight: 700; }
+.readiness-impact-vehicles ul { display: grid; gap: 5px; margin: 0; padding-left: 20px; }
+.readiness-impact-vehicles span { color: var(--muted); }
 .readiness-staff-directory .sa-table-wrap table { min-width: 800px; }
 .readiness-staff-directory .sa-table-wrap :is(th, td):not(.sa-table-action-cell) { min-width: 120px; overflow-wrap: normal; word-break: normal; }
 .readiness-staff-hub { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 16px; padding: 18px; margin: 12px 0; border: 1px solid var(--line); border-radius: 10px; background: #fff; min-width: 0; }

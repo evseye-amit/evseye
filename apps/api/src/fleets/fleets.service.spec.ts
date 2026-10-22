@@ -610,8 +610,10 @@ describe('FleetsService onboarding evidence', () => {
           },
         ],
         2,
+        { fleetOperatingMode: 'SIMPLE' },
       ]),
       fleet: { findMany: vi.fn(), count: vi.fn() },
+      client: { findUniqueOrThrow: vi.fn() },
     };
     const service = new FleetsService(prisma as never, {} as never);
 
@@ -621,6 +623,129 @@ describe('FleetsService onboarding evidence', () => {
       true,
       false,
     ]);
+    expect(prisma.$transaction.mock.calls[0]?.[0]).toHaveLength(3);
+  });
+
+  it('reports ordered vehicle blockers without changing legacy allocatability', async () => {
+    const prisma = {
+      $transaction: vi.fn().mockResolvedValue([
+        [
+          {
+            id: 'fleet-1',
+            status: FleetStatus.INSPECTION_PENDING,
+            onboardingStatus: FleetOnboardingStatus.DRAFT,
+            allocationEnabled: false,
+            readinessApprovedPreparationId: null,
+            _count: { allocations: 1 },
+          },
+        ],
+        1,
+        { fleetOperatingMode: 'PREPARATION_QC' },
+      ]),
+      fleet: { findMany: vi.fn(), count: vi.fn() },
+      client: { findUniqueOrThrow: vi.fn() },
+    };
+    const service = new FleetsService(prisma as never, {} as never);
+
+    const result = await service.list('client-a', { page: 1, pageSize: 20 });
+
+    expect(result.items[0]).toMatchObject({
+      isAllocatable: false,
+      vehicleReadiness: {
+        ready: false,
+        blockers: [
+          {
+            code: 'STATUS',
+            message: 'Scooter status is INSPECTION_PENDING.',
+          },
+          {
+            code: 'ADMIN_DISABLED',
+            message: 'Allocation is administratively disabled.',
+          },
+          {
+            code: 'ACTIVATION_INCOMPLETE',
+            message: 'Fleet activation is incomplete.',
+          },
+          {
+            code: 'PREPARATION_QC_REQUIRED',
+            message: 'Preparation and QC approval are required.',
+          },
+          {
+            code: 'UNFINISHED_ALLOCATION',
+            message: 'Scooter has an unfinished allocation.',
+          },
+        ],
+        nextStep: 'Complete preparation and QC approval.',
+      },
+    });
+  });
+
+  it('reports QC approval separately from the legacy allocatable flag', async () => {
+    const prisma = {
+      $transaction: vi.fn().mockResolvedValue([
+        [
+          {
+            id: 'fleet-1',
+            status: FleetStatus.AVAILABLE,
+            onboardingStatus: FleetOnboardingStatus.ACTIVE,
+            allocationEnabled: true,
+            readinessApprovedPreparationId: null,
+            _count: { allocations: 0 },
+          },
+        ],
+        1,
+        { fleetOperatingMode: 'PREPARATION_QC' },
+      ]),
+      fleet: { findMany: vi.fn(), count: vi.fn() },
+      client: { findUniqueOrThrow: vi.fn() },
+    };
+    const service = new FleetsService(prisma as never, {} as never);
+
+    const result = await service.list('client-a', { page: 1, pageSize: 20 });
+
+    expect(result.items[0]).toMatchObject({
+      isAllocatable: true,
+      vehicleReadiness: {
+        ready: false,
+        blockers: [
+          {
+            code: 'PREPARATION_QC_REQUIRED',
+            message: 'Preparation and QC approval are required.',
+          },
+        ],
+        nextStep: 'Complete preparation and QC approval.',
+      },
+    });
+  });
+
+  it('reports a ready Simple-mode fleet with app-only allocation guidance', async () => {
+    const prisma = {
+      $transaction: vi.fn().mockResolvedValue([
+        [
+          {
+            id: 'fleet-1',
+            status: FleetStatus.AVAILABLE,
+            onboardingStatus: FleetOnboardingStatus.ACTIVE,
+            allocationEnabled: true,
+            readinessApprovedPreparationId: null,
+            _count: { allocations: 0 },
+          },
+        ],
+        1,
+        { fleetOperatingMode: 'SIMPLE' },
+      ]),
+      fleet: { findMany: vi.fn(), count: vi.fn() },
+      client: { findUniqueOrThrow: vi.fn() },
+    };
+    const service = new FleetsService(prisma as never, {} as never);
+
+    const result = await service.list('client-a', { page: 1, pageSize: 20 });
+
+    expect(result.items[0]?.vehicleReadiness).toEqual({
+      ready: true,
+      blockers: [],
+      nextStep: 'Use the Fleet Manager app to allocate this scooter.',
+    });
   });
 
   it('uses the client boundary when retrieving a fleet', async () => {

@@ -26,10 +26,20 @@ import {
   reasonSchema,
   resultSchema,
   type ReadinessPolicy,
+  vehicleReadiness,
 } from './readiness-policy.js';
 
 type Tx = Prisma.TransactionClient;
 const closed = ['APPROVED', 'INVALIDATED', 'CANCELLED'];
+const qcModes = ['PREPARATION_QC', 'STAGED_PREPARATION_QC'];
+type VehicleImpactEffect =
+  | 'MOVE_TO_INSPECTION_PENDING'
+  | 'PRESERVE_ADMIN_ALLOCATION_BLOCK'
+  | 'CLEAR_READINESS_APPROVAL'
+  | 'INVALIDATE_APPROVED_PREPARATION'
+  | 'BLOCKED_BY_ALLOCATION_WORK'
+  | 'BLOCKED_BY_OPEN_PREPARATION'
+  | 'ACTIVE_ALLOCATION_UNCHANGED';
 const actionableRoles = [
   'CLIENT_ADMIN',
   'OPERATIONS_MANAGER',
@@ -266,6 +276,92 @@ export class FleetReadinessService {
       where: { clientId, status: 'ACTIVE' },
     });
     const changed = current.operatingMode !== operatingMode;
+    const vehicleImpact = changed
+      ? (await tx.fleet.findMany({
+          where: { clientId },
+          select: {
+            id: true,
+            vehicleNumber: true,
+            fleetCode: true,
+            chassisNumber: true,
+            deletedAt: true,
+            status: true,
+            allocationEnabled: true,
+            readinessApprovedPreparationId: true,
+            allocations: {
+              where: {
+                status: {
+                  in: [
+                    'INITIATED',
+                    'INSPECTION_PENDING',
+                    'OTP_PENDING',
+                    'DEALLOCATION_INITIATED',
+                    'ACTIVE',
+                  ],
+                },
+              },
+              select: { status: true },
+            },
+            preparations: {
+              where: { status: { notIn: ['INVALIDATED', 'CANCELLED'] } },
+              select: { status: true },
+            },
+          },
+        }))
+          .map((fleet) => {
+            const effects: VehicleImpactEffect[] = [];
+            const entersQc = qcModes.includes(operatingMode);
+            if (
+              entersQc &&
+              fleet.deletedAt === null &&
+              fleet.status === 'AVAILABLE'
+            )
+              effects.push('MOVE_TO_INSPECTION_PENDING');
+            if (
+              entersQc &&
+              fleet.status === 'AVAILABLE' &&
+              !fleet.allocationEnabled
+            )
+              effects.push('PRESERVE_ADMIN_ALLOCATION_BLOCK');
+            if (
+              fleet.deletedAt === null &&
+              fleet.readinessApprovedPreparationId !== null
+            )
+              effects.push('CLEAR_READINESS_APPROVAL');
+            if (fleet.preparations.some(({ status }) => status === 'APPROVED'))
+              effects.push('INVALIDATE_APPROVED_PREPARATION');
+            if (
+              fleet.allocations.some(({ status }) =>
+                [
+                  'INITIATED',
+                  'INSPECTION_PENDING',
+                  'OTP_PENDING',
+                  'DEALLOCATION_INITIATED',
+                ].includes(status),
+              )
+            )
+              effects.push('BLOCKED_BY_ALLOCATION_WORK');
+            if (fleet.preparations.some(({ status }) => !closed.includes(status)))
+              effects.push('BLOCKED_BY_OPEN_PREPARATION');
+            if (fleet.allocations.some(({ status }) => status === 'ACTIVE'))
+              effects.push('ACTIVE_ALLOCATION_UNCHANGED');
+            return effects.length
+              ? {
+                  fleetId: fleet.id,
+                  vehicleNumber: fleet.vehicleNumber,
+                  fleetCode: fleet.fleetCode,
+                  chassisNumber: fleet.chassisNumber,
+                  effects,
+                }
+              : null;
+          })
+          .filter((row): row is NonNullable<typeof row> => row !== null)
+          .sort(
+            (a, b) =>
+              a.fleetCode.localeCompare(b.fleetCode) ||
+              a.fleetId.localeCompare(b.fleetId),
+          )
+      : [];
     return {
       currentMode: current.operatingMode,
       proposedMode: operatingMode,
@@ -284,6 +380,7 @@ export class FleetReadinessService {
       unallocatedScooters: unallocated,
       activeAllocations,
       blocked: changed && (inProgressAllocations > 0 || openPreparations > 0),
+      vehicleImpact,
       message:
         'Active handovers, submissions, and open preparations must finish before changing mode. Allocated scooters stay with their riders.',
     };
@@ -1653,36 +1750,28 @@ export class FleetReadinessService {
       where: { clientId, fleetId },
       orderBy: { createdAt: 'desc' },
     });
-    const blockers: string[] = [];
-    if (fleet.status !== 'AVAILABLE')
-      blockers.push(`Scooter status is ${fleet.status}.`);
-    if (!fleet.allocationEnabled)
-      blockers.push('Allocation is administratively disabled.');
-    if (fleet.onboardingStatus !== 'ACTIVE')
-      blockers.push('Fleet activation is incomplete.');
-    if (
-      ['PREPARATION_QC', 'STAGED_PREPARATION_QC'].includes(
-        policy.operatingMode,
-      ) &&
-      !fleet.readinessApprovedPreparationId
-    )
-      blockers.push('Preparation and QC approval are required.');
-    if (
-      await this.db.allocation.count({
-        where: {
-          clientId,
-          fleetId,
-          status: { notIn: ['COMPLETED', 'CANCELLED'] },
-        },
-      })
-    )
-      blockers.push('Scooter has an unfinished allocation.');
+    const unfinishedAllocationCount = await this.db.allocation.count({
+      where: {
+        clientId,
+        fleetId,
+        status: { notIn: ['COMPLETED', 'CANCELLED'] },
+      },
+    });
+    const report = vehicleReadiness({
+      operatingMode: policy.operatingMode,
+      status: fleet.status,
+      allocationEnabled: fleet.allocationEnabled,
+      onboardingStatus: fleet.onboardingStatus,
+      readinessApprovedPreparationId: fleet.readinessApprovedPreparationId,
+      unfinishedAllocationCount,
+    });
     return {
       fleetId,
       operatingMode: policy.operatingMode,
       preparation,
-      blockers,
-      canAllocate: blockers.length === 0,
+      blockers: report.blockers.map(({ message }) => message),
+      nextStep: report.nextStep,
+      canAllocate: report.ready,
     };
   }
 }
