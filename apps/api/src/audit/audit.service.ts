@@ -99,6 +99,7 @@ export class AuditService {
     return {
       items: items.map((item) => ({
         ...item,
+        id: item.id.toString(),
         actorName: item.actorId ? (actorNames.get(item.actorId) ?? null) : null,
         entityName:
           entityNames.get(`${item.entityType}:${item.entityId}`) ?? null,
