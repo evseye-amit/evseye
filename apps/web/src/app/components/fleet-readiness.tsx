@@ -39,7 +39,7 @@ type Policy = {
   version: number;
   configuration: Configuration;
 };
-type Hub = { id: string; name: string };
+type Hub = { id: string; name: string; status?: string };
 type User = {
   id: string;
   name: string;
@@ -200,7 +200,8 @@ async function api<T>(
   method = "GET",
   data?: unknown,
 ): Promise<T> {
-  const res = await sessionFetch(`/api/v1/client/${path}`, {
+  const endpoint = path.startsWith("/api/v1/") ? path : `/api/v1/client/${path}`;
+  const res = await sessionFetch(endpoint, {
     method,
     ...(data === undefined
       ? {}
@@ -1747,6 +1748,7 @@ export function FleetMoreMenu({
   fleetId,
   fleetName,
   status,
+  currentHubId,
   activeTransfer,
   onEdit,
   onEvidence,
@@ -1757,6 +1759,7 @@ export function FleetMoreMenu({
   fleetId: string;
   fleetName: string;
   status: string;
+  currentHubId: string;
   activeTransfer?: ActiveTransfer;
   onEdit: () => void;
   onEvidence?: () => void;
@@ -1769,6 +1772,7 @@ export function FleetMoreMenu({
   const [open, setOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [hubs, setHubs] = useState<Hub[]>([]);
+  const [hubsLoading, setHubsLoading] = useState(false);
   const [destinationHubId, setDestinationHubId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -1777,6 +1781,7 @@ export function FleetMoreMenu({
   const destinationName = String(activeTransfer?.destinationHubName ?? destinationHub?.name ?? activeTransfer?.toHubId ?? "");
   const canStartTransfer = status === "AVAILABLE" && !transferId;
   const canReceiveTransfer = Boolean(transferId) || (status === "IN_TRANSIT" && !transferId);
+  const destinationHubs = hubs.filter((hub) => hub.id !== currentHubId && hub.status === "ACTIVE");
 
   useEffect(() => {
     if (!open) return;
@@ -1792,18 +1797,25 @@ export function FleetMoreMenu({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [open]);
 
+  const loadHubs = useCallback(async () => {
+    setHubsLoading(true);
+    setError("");
+    try {
+      const result = await api<Hub[] | { items: Hub[] }>("/api/v1/hubs");
+      setHubs(Array.isArray(result) ? result : result.items);
+    } catch (cause) {
+      setHubs([]);
+      setError(cause instanceof Error ? cause.message : "Unable to load hubs.");
+    } finally {
+      setHubsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    if (!transferOpen) return;
-    const timer = window.setTimeout(() => {
-      setError("");
-      if (!hubs.length) {
-        void api<Hub[] | { items: Hub[] }>("hubs")
-          .then((result) => setHubs(Array.isArray(result) ? result : result.items))
-          .catch((cause) => setError(cause instanceof Error ? cause.message : "Unable to load hubs."));
-      }
-    }, 0);
+    if (!transferOpen || hubs.length) return;
+    const timer = window.setTimeout(() => void loadHubs(), 0);
     return () => window.clearTimeout(timer);
-  }, [transferOpen, hubs.length]);
+  }, [transferOpen, hubs.length, loadHubs]);
 
   const closeMenu = () => {
     setOpen(false);
@@ -1815,7 +1827,7 @@ export function FleetMoreMenu({
     setBusy(true);
     setError("");
     try {
-      await api(`fleets/${fleetId}/transfers`, "POST", { destinationHubId });
+      await api(`/api/v1/fleets/${fleetId}/transfers`, "POST", { destinationHubId });
       setTransferOpen(false);
       setDestinationHubId("");
       onTransferDone();
@@ -1829,8 +1841,8 @@ export function FleetMoreMenu({
     setBusy(true);
     setError("");
     try {
-      if (transferId) await api(`fleet-transfers/${transferId}/receipt`, "POST");
-      else await api(`fleets/${fleetId}/status`, "PATCH", { status: "PENDING_ACTIVATION", reason: "Fleet received." });
+      if (transferId) await api(`/api/v1/fleet-transfers/${transferId}/receipt`, "POST");
+      else await api(`/api/v1/fleets/${fleetId}/status`, "PATCH", { status: "PENDING_ACTIVATION", reason: "Fleet received." });
       closeMenu();
       onTransferDone();
     } catch (cause) {
@@ -1845,7 +1857,8 @@ export function FleetMoreMenu({
       <details ref={detailsRef} className="fleet-more-menu" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
         <summary ref={summaryRef} className="fleet-more-summary">More</summary>
         <div className="fleet-more-popover" role="menu" aria-label={`More actions for ${fleetName}`}>
-          {canStartTransfer && <button type="button" role="menuitem" onClick={() => { closeMenu(); setTransferOpen(true); }}>Transfer to hub</button>}
+          {error && !transferOpen && <p className="error" role="alert">{error}</p>}
+          {canStartTransfer && <button type="button" role="menuitem" onClick={() => { closeMenu(); setError(""); setDestinationHubId(""); setTransferOpen(true); }}>Transfer to hub</button>}
           {canReceiveTransfer && <button type="button" role="menuitem" disabled={busy} onClick={() => void receiveTransfer()}>Mark received{destinationName ? ` · ${destinationName}` : ""}</button>}
           {canManageEvidence && onEvidence && <button type="button" role="menuitem" onClick={() => { closeMenu(); onEvidence(); }}>Photos &amp; evidence</button>}
           {status === "AVAILABLE" && <button type="button" role="menuitem" disabled title="Use the Fleet Manager app to complete allocation and its required checks.">Allocate</button>}
@@ -1856,9 +1869,12 @@ export function FleetMoreMenu({
       </details>
       {transferOpen && <ClientFormDialog title={`Transfer ${fleetName}`} busy={busy} error={error} onClose={() => setTransferOpen(false)} heading={<>Transfer fleet</>}>
         <p className="muted">Choose the destination hub. The fleet remains unavailable until the destination records receipt.</p>
+        {hubsLoading && <p className="muted" role="status">Loading destination hubs…</p>}
+        {!hubsLoading && !error && !destinationHubs.length && <p className="muted" role="status">No active destination hubs are available.</p>}
+        {!hubsLoading && error && !hubs.length && <button type="button" className="secondary" onClick={() => void loadHubs()}>Retry loading hubs</button>}
         <form className="form-stack" onSubmit={(event) => void startTransfer(event)}>
-          <label>Destination hub *<select required value={destinationHubId} onChange={(event) => setDestinationHubId(event.target.value)}><option value="">Select destination</option>{hubs.map((hub) => <option key={hub.id} value={hub.id}>{hub.name}</option>)}</select></label>
-          <div className="form-actions"><button disabled={busy || !destinationHubId}>{busy ? "Starting…" : "Start transfer"}</button><button type="button" className="secondary" onClick={() => setTransferOpen(false)}>Cancel</button></div>
+          <label>Destination hub *<select required disabled={hubsLoading || (!hubs.length && Boolean(error)) || !destinationHubs.length} value={destinationHubId} onChange={(event) => setDestinationHubId(event.target.value)}><option value="">Select destination</option>{destinationHubs.map((hub) => <option key={hub.id} value={hub.id}>{hub.name}</option>)}</select></label>
+          <div className="form-actions"><button disabled={busy || hubsLoading || (!hubs.length && Boolean(error)) || !destinationHubId}>{busy ? "Starting…" : "Start transfer"}</button><button type="button" className="secondary" disabled={busy} onClick={() => setTransferOpen(false)}>Cancel</button></div>
         </form>
       </ClientFormDialog>}
     </>

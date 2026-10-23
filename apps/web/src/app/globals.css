@@ -1838,6 +1838,7 @@ body:has(.sa-dialog[open]) {
   margin: auto;
   width: min(640px, calc(100vw - 24px));
   max-width: calc(100vw - 24px);
+  min-width: 0;
   max-height: calc(100dvh - 24px);
   padding: 0;
   border: 0;
@@ -1846,6 +1847,7 @@ body:has(.sa-dialog[open]) {
   background: transparent;
   box-shadow: 0 24px 70px #071d2640;
   overflow: hidden;
+  white-space: normal;
 }
 .sa-dialog-wide {
   width: min(960px, calc(100vw - 24px));
@@ -1854,6 +1856,8 @@ body:has(.sa-dialog[open]) {
   background: #16231f80;
 }
 .sa-dialog .sa-dialog-surface {
+  box-sizing: border-box;
+  min-width: 0;
   max-height: calc(100dvh - 24px);
   overflow-y: auto;
   padding: 24px;
@@ -4818,6 +4822,7 @@ body:has(.sa-dialog[open]) {
 .fleet-more-popover button { display: block; width: 100%; padding: 9px 10px; border: 0; border-radius: 6px; background: transparent; color: #263a2e; font: inherit; text-align: left; cursor: pointer; }
 .fleet-more-popover button:hover, .fleet-more-popover button:focus-visible { background: #eff8f2; color: #176c4d; outline: none; }
 .fleet-more-popover button.danger { color: #a33b32; }
+.fleet-more-popover .error { margin: 6px; white-space: normal; overflow-wrap: anywhere; }
 .readiness-detail-page { display: grid; gap: 22px; }
 .readiness-detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
 .readiness-detail-header h2 { margin: 4px 0 7px; color: #203128; }
