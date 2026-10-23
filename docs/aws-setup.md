@@ -182,11 +182,12 @@ In your GitHub repo, go to **Settings → Secrets and variables → Actions → 
 | `ECS_API_TASK` | `evseye-staging-api` |
 | `ECS_WEB_TASK` | `evseye-staging-web` |
 | `ECS_MIGRATE_TASK` | `terraform output -raw ecs_migrate_task_family` |
-| `ECS_PRIVATE_SUBNETS` | `terraform output -json ecs_private_subnet_ids \| jq -r 'join(",")'` |
 | `ECS_TASK_SG` | `terraform output -raw ecs_task_security_group_id` |
 | `ECR_API_URL` | Full URL from `terraform output -raw ecr_api_url` |
 | `WEB_URL` | `staging.evseye.com` |
 | `API_URL` | `api.staging.evseye.com` |
+
+The staging workflow discovers the Terraform-managed public subnets by tag, so no subnet-ID secret is required.
 
 ---
 

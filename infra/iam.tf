@@ -211,6 +211,12 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
         Resource = "*"
       },
       {
+        Sid      = "DescribeStagingSubnets"
+        Effect   = "Allow"
+        Action   = ["ec2:DescribeSubnets"]
+        Resource = "*"
+      },
+      {
         Sid    = "PassRoleToECS"
         Effect = "Allow"
         Action = "iam:PassRole"

@@ -31,7 +31,7 @@ resource "aws_ecs_cluster" "main" {
 
   setting {
     name  = "containerInsights"
-    value = "enabled"
+    value = "disabled"
   }
 
   tags = { Name = "${local.name_prefix}-cluster" }
@@ -248,9 +248,11 @@ resource "aws_ecs_service" "api" {
   enable_execute_command = true
 
   network_configuration {
-    subnets          = aws_subnet.private[*].id
+    # Staging tasks use public subnets to avoid an always-on NAT Gateway.
+    # The task SG still accepts application traffic from the ALB only.
+    subnets          = aws_subnet.public[*].id
     security_groups  = [aws_security_group.ecs_tasks.id]
-    assign_public_ip = false
+    assign_public_ip = true
   }
 
   load_balancer {
@@ -284,9 +286,11 @@ resource "aws_ecs_service" "web" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = aws_subnet.private[*].id
+    # Staging tasks use public subnets to avoid an always-on NAT Gateway.
+    # The task SG still accepts application traffic from the ALB only.
+    subnets          = aws_subnet.public[*].id
     security_groups  = [aws_security_group.ecs_tasks.id]
-    assign_public_ip = false
+    assign_public_ip = true
   }
 
   load_balancer {
