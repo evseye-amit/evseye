@@ -48,9 +48,9 @@ output "ecs_migrate_task_family" {
   value       = aws_ecs_task_definition.migrate.family
 }
 
-output "ecs_private_subnet_ids" {
-  description = "Private subnet IDs (used by CI/CD to run migrate task)."
-  value       = aws_subnet.private[*].id
+output "ecs_public_subnet_ids" {
+  description = "Public subnet IDs used by ECS services and CI/CD migration tasks."
+  value       = aws_subnet.public[*].id
 }
 
 output "ecs_task_security_group_id" {
