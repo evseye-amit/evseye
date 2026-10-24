@@ -90,3 +90,10 @@ resource "aws_secretsmanager_secret_version" "client_proxy" {
   secret_id     = aws_secretsmanager_secret.client_proxy.id
   secret_string = random_password.client_proxy.result
 }
+
+# Staging payment credentials are provisioned directly in Secrets Manager.
+# Read metadata only: secret values must never enter Terraform state or Git.
+data "aws_secretsmanager_secret" "staging_razorpay" {
+  count = var.environment == "staging" ? 1 : 0
+  name  = "${local.name_prefix}/razorpay"
+}

@@ -97,7 +97,7 @@ resource "aws_ecs_task_definition" "api" {
     ]
 
     # Secrets fetched from Secrets Manager at task start
-    secrets = [
+    secrets = concat([
       {
         name      = "DATABASE_URL"
         valueFrom = "${aws_secretsmanager_secret.database_url.arn}"
@@ -118,7 +118,16 @@ resource "aws_ecs_task_definition" "api" {
         name      = "CLIENT_PROXY_SECRET"
         valueFrom = "${aws_secretsmanager_secret.client_proxy.arn}"
       },
-    ]
+      ], var.environment == "staging" ? [
+      for name in [
+        "RAZORPAY_ENABLED", "RAZORPAY_CLIENT_IDS", "RAZORPAY_KEY_ID",
+        "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET",
+        "AUTOPAY_PROVIDER", "RAZORPAY_AUTOPAY_ENABLED"
+        ] : {
+        name      = name
+        valueFrom = "${data.aws_secretsmanager_secret.staging_razorpay[0].arn}:${name}::"
+      }
+    ] : [])
 
     logConfiguration = {
       logDriver = "awslogs"

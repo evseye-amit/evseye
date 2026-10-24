@@ -76,3 +76,11 @@ Official contracts:
 - [Hosted UPI authorization](https://razorpay.com/docs/payments/payment-gateway/s2s-integration/recurring-payments/upi/authorization-transaction/)
 - [Subsequent UPI payments](https://razorpay.com/docs/payments/payment-gateway/s2s-integration/recurring-payments/upi/subsequent-payments/)
 - [Recurring UPI tokens and cancellation](https://razorpay.com/docs/api/payments/recurring-payments/upi/tokens/)
+
+## Staging infrastructure configuration
+
+Staging reads the seven Razorpay settings from the JSON secret `evseye-staging/razorpay` in Secrets Manager. The ECS task definition references individual JSON keys; credentials are not stored in Terraform state or task environment values. The execution role has read access to this secret. The secret must exist before applying staging Terraform. Production is unaffected by these staging-only references.
+
+After changing secret values, replace the API tasks to load them. The existing staging deployment workflow preserves the current task definition's secret references when updating the image.
+
+Configure the Razorpay test-mode webhook URL as `https://api.staging.evseye.com/api/v1/webhooks/payments/razorpay`, using the matching webhook secret. Subscribe to the payment and UPI token events described above. Provider dashboard configuration and a real merchant test payment require separate verification.
