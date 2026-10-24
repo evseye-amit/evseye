@@ -1,3 +1,7 @@
+import { RazorpayRecurringClient } from './razorpay/razorpay-recurring.client.js';
+import { RazorpayAutoPayProvider } from './razorpay/razorpay-autopay.provider.js';
+import { RazorpayAutoPayWorker } from './razorpay/razorpay-autopay.worker.js';
+import { AutoPayProviderRouter } from './autopay-provider-router.service.js';
 import { AllocationsModule } from '../allocations/allocations.module.js';
 import { CommonPaymentController } from './common-payment.controller.js';
 import { CommonPaymentService } from './common-payment.service.js';
@@ -68,6 +72,7 @@ import {
     ProviderSettlementController,
   ],
   providers: [
+    RazorpayRecurringClient, RazorpayAutoPayProvider, RazorpayAutoPayWorker, AutoPayProviderRouter,
     CommonPaymentService,
     CashfreeHttpClient,
     CashfreePaymentProvider,

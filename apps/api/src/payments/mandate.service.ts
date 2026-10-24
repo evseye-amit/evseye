@@ -1,3 +1,4 @@
+import { AutoPayProviderRouter } from './autopay-provider-router.service.js';
 import { randomUUID, createHash } from 'node:crypto';
 import {
   BadRequestException,
@@ -53,6 +54,7 @@ export class MandateService {
     private readonly config: ConfigService<Environment, true>,
     @Inject(PAYMENT_PROVIDER) private readonly provider: PaymentProvider,
     private readonly collections: PaymentOrchestratorService,
+    private readonly providers?: AutoPayProviderRouter,
   ) {}
 
   private async context(
@@ -168,8 +170,15 @@ export class MandateService {
     authorizedAt: Date | null;
     providerStatus: string | null;
     method?: string;
+    provider?: string;
+    providerKeyId?: string | null;
+    authorizationUrl?: string | null;
+    providerCancelRequestedAt?: Date | null;
   }) {
     return {
+      provider: mandate.provider ?? this.config.getOrThrow('PAYMENT_PROVIDER').toUpperCase(),
+      capabilities: { pause: mandate.provider !== 'RAZORPAY', resume: mandate.provider !== 'RAZORPAY', cancel: true, localDisable: true },
+      ...(mandate.provider === 'RAZORPAY' ? { authorization: mandate.authorizationUrl && ['CREATED', 'AUTHORIZATION_PENDING'].includes(mandate.status) ? { type: 'HOSTED', url: mandate.authorizationUrl, keyId: mandate.providerKeyId } : null, cancellationPending: Boolean(mandate.providerCancelRequestedAt) && mandate.status !== 'CANCELLED' } : {}),
       mandateId: mandate.id,
       mandateNumber: mandate.mandateNumber ?? null,
       autoDebitEnabled: mandate.autoDebitEnabled ?? true,
@@ -182,7 +191,7 @@ export class MandateService {
       currency: mandate.currency,
       expiresAt: mandate.expiresAt.toISOString(),
       authorizedAt: mandate.authorizedAt?.toISOString() ?? null,
-      environment: this.config.getOrThrow('CASHFREE_ENVIRONMENT'),
+      environment: mandate.provider === 'RAZORPAY' ? (mandate.providerKeyId?.startsWith('rzp_live_') ? 'PRODUCTION' : 'SANDBOX') : this.config.getOrThrow('CASHFREE_ENVIRONMENT'),
     };
   }
 
@@ -201,6 +210,7 @@ export class MandateService {
         currency: 'INR',
         validityDays,
         methods: paymentMethods,
+        provider: this.providers?.selected() ?? this.config.getOrThrow('PAYMENT_PROVIDER').toUpperCase(),
       },
       mandate: mandate ? this.view(mandate) : null,
     };
@@ -217,7 +227,7 @@ export class MandateService {
     return items.map(item => ({ debitId: item.id, debitNumber: item.debitNumber, invoiceNumber: item.invoice.invoiceNumber,
       scheduledAmount: item.amount.toFixed(2), currentOutstanding: item.invoice.outstandingAmount.toFixed(2),
       amountMayChange: !item.amount.eq(item.invoice.outstandingAmount), scheduledFor: item.scheduledAt,
-      mandateType: item.mandate.method, status: item.status,
+      provider: item.provider, mandateType: item.mandate.method, status: item.status,
       preDebitNotifiedAt: item.preDebitNotifiedAt }));
   }
 
@@ -225,7 +235,7 @@ export class MandateService {
     const rider = await this.prisma.rider.findFirst({ where: { clientId, userId, deletedAt: null }, select: { id: true } });
     if (!rider) throw new NotFoundException('Rider profile not found.');
     const items = await this.prisma.paymentTransaction.findMany({ where: { clientId, riderId: rider.id }, orderBy: { createdAt: 'desc' }, take: 100 });
-    return items.map(item => ({ debitId: item.id, debitNumber: item.debitNumber, invoiceId: item.invoiceId, amount: item.amount.toFixed(2), currency: item.currency, status: item.status, scheduledFor: item.scheduledAt, failureCode: item.failureCode }));
+    return items.map(item => ({ debitId: item.id, debitNumber: item.debitNumber, invoiceId: item.invoiceId, provider: item.provider, amount: item.amount.toFixed(2), currency: item.currency, status: item.status, scheduledFor: item.scheduledAt, failureCode: item.failureCode }));
   }
 
   async create(
@@ -233,8 +243,9 @@ export class MandateService {
     userId: string,
     requestKey: string,
     method: 'UPI_AUTOPAY' | 'ENACH' = 'UPI_AUTOPAY',
+    email?: string,
   ) {
-    if (this.config.getOrThrow('PAYMENT_PROVIDER') === 'disabled')
+    if (!this.providers && this.config.getOrThrow('PAYMENT_PROVIDER') === 'disabled')
       throw new ServiceUnavailableException('Payment provider is disabled.');
     if (!/^[A-Za-z0-9:_-]{8,120}$/.test(requestKey))
       throw new BadRequestException(
@@ -257,12 +268,14 @@ export class MandateService {
       },
     });
     if (previous) {
+      if (previous.method && previous.method !== method) throw new ConflictException('Idempotency-Key was used for another mandate method.');
+      const provider = this.providers?.forProvider(previous.provider) ?? this.provider;
       if (previous.status === 'CREATING' || previous.status === 'UNKNOWN') {
         try {
           return this.view(
             await this.applyProviderResult(
               previous.id,
-              await this.provider.fetchMandate(previous.providerMandateId),
+              await provider.fetchMandate(previous.providerMandateId),
               'RECONCILE',
             ),
           );
@@ -279,8 +292,19 @@ export class MandateService {
       throw new ConflictException(
         'An AutoPay mandate already exists for this rider. Verify its status before creating another.',
       );
+    const providerName = this.providers?.selected(method) ?? this.config.getOrThrow('PAYMENT_PROVIDER').toUpperCase();
+    const provider: import('./autopay-provider.interface.js').AutoPayProvider = this.providers?.forProvider(providerName) ?? this.provider;
     const expiresAt = new Date(Date.now() + validityDays * 86400000);
     const providerMandateId = `EVSEYE_${randomUUID().replaceAll('-', '')}`;
+    const input = {
+      providerMandateId, idempotencyKey: '',
+      customer: { name: rider.name, phone: rider.mobile, ...(email ? { email } : {}) },
+      planName: `${subscription.package.name} Rider AutoPay`,
+      mode: 'ON_DEMAND' as const, maxAmount: maxAmount.toFixed(2),
+      paymentMethods: [method], expiresAt: expiresAt.toISOString(),
+      authorizationAmount: authorizationAmount?.toFixed(2),
+    };
+    provider.assertMandateEligible?.(clientId, input);
     let mandate;
     try {
       mandate = await this.prisma.$transaction(async tx => {
@@ -293,7 +317,7 @@ export class MandateService {
           clientId,
           riderId: rider.id,
           requestKey,
-          provider: this.config.getOrThrow('PAYMENT_PROVIDER').toUpperCase(),
+          provider: providerName,
           providerMandateId,
           status: 'CREATING',
           maxAmount,
@@ -317,20 +341,10 @@ export class MandateService {
       throw error;
     }
     try {
-      const result = await this.provider.createMandate({
-        providerMandateId,
-        idempotencyKey: mandate.id,
-        customer: { name: rider.name, phone: rider.mobile },
-        planName: `${subscription.package.name} Rider AutoPay`,
-        mode: 'ON_DEMAND',
-        maxAmount: maxAmount.toFixed(2),
-        paymentMethods: [method],
-        expiresAt: expiresAt.toISOString(),
-        authorizationAmount: authorizationAmount?.toFixed(2),
-      });
+      const result = await provider.createMandate({ ...input, idempotencyKey: mandate.id });
       const authoritative =
         result.status === 'ACTIVE'
-          ? await this.provider.fetchMandate(providerMandateId)
+          ? await provider.fetchMandate(providerMandateId)
           : result;
       return this.view(
         await this.applyProviderResult(mandate.id, authoritative, 'CREATE'),
@@ -379,7 +393,7 @@ export class MandateService {
       });
       if (result.providerMandateId !== current.providerMandateId)
         throw new BadRequestException(
-          'Cashfree returned an unexpected subscription ID.',
+          'The payment provider returned an unexpected mandate ID.',
         );
       const incoming = result.status as PaymentMandateStatus;
       const terminal = ['CANCELLED', 'FAILED', 'EXPIRED'];
@@ -472,10 +486,16 @@ export class MandateService {
       where: { id: mandateId, clientId, riderId: rider.id },
     });
     if (!mandate) throw new NotFoundException('AutoPay mandate not found.');
-    const result = await this.provider.fetchMandate(mandate.providerMandateId);
+    const result = await (this.providers?.forProvider(mandate.provider) ?? this.provider).fetchMandate(mandate.providerMandateId);
     return this.view(
       await this.applyProviderResult(mandate.id, result, 'VERIFY'),
     );
+  }
+
+  async reconcileStored(mandateId: string) {
+    const mandate = await this.prisma.paymentMandate.findUniqueOrThrow({ where: { id: mandateId } });
+    const provider = this.providers?.forProvider(mandate.provider) ?? this.provider;
+    return this.applyProviderResult(mandate.id, await provider.fetchMandate(mandate.providerMandateId), 'RECONCILE');
   }
 
   async cancel(
@@ -496,7 +516,7 @@ export class MandateService {
     });
     if (!mandate) throw new NotFoundException('AutoPay mandate not found.');
     if (mandate.status === 'CANCELLED') return this.view(mandate);
-    const result = await this.provider.cancelMandate(
+    const result = await (this.providers?.forProvider(mandate.provider) ?? this.provider).cancelMandate(
       mandate.providerMandateId,
       requestKey,
     );
@@ -515,9 +535,10 @@ export class MandateService {
     if (action === 'RESUME' && mandate.status === 'ACTIVE') return this.view(mandate);
     if (action === 'PAUSE' && mandate.status !== 'ACTIVE') throw new ConflictException('Only an active mandate can be paused.');
     if (action === 'RESUME' && mandate.status !== 'PAUSED') throw new ConflictException('Only a paused mandate can be resumed.');
+    const provider = this.providers?.forProvider(mandate.provider) ?? this.provider;
     const result = action === 'PAUSE'
-      ? await this.provider.pauseMandate(mandate.providerMandateId, requestKey)
-      : await this.provider.resumeMandate(mandate.providerMandateId, requestKey);
+      ? await provider.pauseMandate(mandate.providerMandateId, requestKey)
+      : await provider.resumeMandate(mandate.providerMandateId, requestKey);
     return this.view(await this.applyProviderResult(mandate.id, result, `RIDER_${action}`));
   }
 
@@ -527,6 +548,7 @@ export class MandateService {
     return this.prisma.$transaction(async tx => {
       const mandate = await tx.paymentMandate.findFirst({ where: { clientId, riderId: rider.id, status: 'ACTIVE' }, orderBy: { authorizedAt: 'desc' } });
       if (!mandate) throw new ConflictException('An active mandate is required.');
+      if (enabled && mandate.provider === 'RAZORPAY' && mandate.providerCancelRequestedAt) throw new ConflictException('A mandate awaiting bank cancellation cannot be enabled.');
       const updated = await tx.paymentMandate.update({ where: { id: mandate.id }, data: { autoDebitEnabled: enabled } });
       await tx.riderPaymentProfile.upsert({ where: { clientId_riderId: { clientId, riderId: rider.id } }, create: { clientId, riderId: rider.id, autoPayEnabled: enabled }, update: { autoPayEnabled: enabled } });
       await tx.auditLog.create({ data: { clientId, actorId: userId, action: enabled ? 'AUTOPAY_LOCAL_ENABLED' : 'AUTOPAY_LOCAL_DISABLED', entityType: 'PaymentMandate', entityId: mandate.id } });
@@ -535,11 +557,11 @@ export class MandateService {
   }
 
   async webhook(rawBody: Buffer, timestamp: string, signature: string) {
-    if (this.config.getOrThrow('PAYMENT_PROVIDER') !== 'cashfree')
+    if (!this.providers && this.config.getOrThrow('PAYMENT_PROVIDER') !== 'cashfree')
       throw new ServiceUnavailableException(
         'Cashfree webhooks are unavailable.',
       );
-    const verified = this.provider.verifyWebhook(rawBody, timestamp, signature);
+    const verified = this.providers ? this.providers.verifyCashfreeWebhook(rawBody, timestamp, signature) : this.provider.verifyWebhook(rawBody, timestamp, signature);
     const payload = verified.payload as Record<string, unknown>;
     const eventType = typeof payload.type === 'string' ? payload.type : '';
     const hash = createHash('sha256').update(rawBody).digest('hex');
@@ -616,7 +638,7 @@ export class MandateService {
         paymentTransactionId = await this.collections.processWebhook(mandate!.clientId, providerMandateId, providerPaymentId);
       }
       if (supported) {
-        const result = await this.provider.fetchMandate(providerMandateId);
+        const result = await (this.providers?.forProvider('CASHFREE') ?? this.provider).fetchMandate(providerMandateId);
         await this.applyProviderResult(
           mandate!.id,
           result,

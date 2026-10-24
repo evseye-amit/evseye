@@ -1,3 +1,4 @@
+import { AutoPayProviderRouter } from './autopay-provider-router.service.js';
 import { PENALTY_PAYMENT } from './outstanding-payment.js';
 import { randomUUID } from 'node:crypto';
 import {
@@ -32,6 +33,7 @@ export class PaymentOrchestratorService {
     @Inject(PAYMENT_PROVIDER) private readonly provider: PaymentProvider,
     private readonly riderPayments: RiderPaymentsService,
     private readonly wallet: WalletService,
+    private readonly providers?: AutoPayProviderRouter,
   ) {}
 
   private async serializable<T>(work: (tx: Tx) => Promise<T>): Promise<T> {
@@ -64,8 +66,12 @@ export class PaymentOrchestratorService {
     providerPaymentId: string;
     providerReference: string | null;
     completedAt: Date | null;
+    provider?: string;
+    failureCode?: string | null;
   }) {
     return {
+      provider: item.provider,
+      failureCode: item.failureCode ?? null,
       paymentId: item.id,
       invoiceId: item.invoiceId,
       riderId: item.riderId,
@@ -86,7 +92,7 @@ export class PaymentOrchestratorService {
     requestKey: string,
     scheduledAtText: string,
   ) {
-    if (this.config.getOrThrow('PAYMENT_PROVIDER') === 'disabled')
+    if (!this.providers && this.config.getOrThrow('PAYMENT_PROVIDER') === 'disabled')
       throw new ServiceUnavailableException('Payment provider is disabled.');
     if (!/^[A-Za-z0-9:_-]{8,120}$/.test(requestKey))
       throw new BadRequestException(
@@ -155,11 +161,6 @@ export class PaymentOrchestratorService {
           throw new BadRequestException(
             'Payment schedule must be in the future.',
           );
-        this.provider.assertChargeEligible({
-          amount: invoice.outstandingAmount.toFixed(2),
-          currency: invoice.currency,
-          scheduledAt,
-        });
         const mandate = await tx.paymentMandate.findFirst({
           where: {
             clientId,
@@ -175,6 +176,7 @@ export class PaymentOrchestratorService {
           throw new ConflictException(
             'An active AutoPay mandate valid on the scheduled date is required.',
           );
+        (this.providers?.forProvider(mandate.provider) ?? this.provider).assertChargeEligible({ amount: invoice.outstandingAmount.toFixed(2), currency: invoice.currency, scheduledAt });
         if (invoice.outstandingAmount.gt(mandate.maxAmount))
           throw new ConflictException(
             'Invoice outstanding amount exceeds the AutoPay mandate limit.',
@@ -187,7 +189,7 @@ export class PaymentOrchestratorService {
             invoiceId,
             mandateId: mandate.id,
             requestKey,
-            provider: this.config.getOrThrow('PAYMENT_PROVIDER').toUpperCase(),
+            provider: mandate.provider ?? this.config.getOrThrow('PAYMENT_PROVIDER').toUpperCase(),
             providerPaymentId,
             debitNumber: `EVD-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}-${randomUUID().slice(0, 12).toUpperCase()}`,
             status: 'CREATING',
@@ -196,7 +198,6 @@ export class PaymentOrchestratorService {
             scheduledAt,
             attempts: {
               create: {
-                clientId,
                 sequence: 1,
                 providerPaymentId,
                 status: 'CREATING',
@@ -264,9 +265,10 @@ export class PaymentOrchestratorService {
         'Invoice outstanding changed before the provider debit request.',
       );
     }
+    const provider = this.providers?.forProvider(reserved.provider ?? mandate.provider) ?? this.provider;
     let result: PaymentResult;
     try {
-      result = await this.provider.createPayment({
+      result = await provider.createPayment({
         providerMandateId: mandate.providerMandateId,
         providerPaymentId: reserved.providerPaymentId,
         idempotencyKey: reserved.id,
@@ -316,7 +318,7 @@ export class PaymentOrchestratorService {
     // before posting to the immutable ledger; reconciliation failures stay visible.
     const authoritative =
       result.status === 'SUCCESS'
-        ? await this.provider.fetchPayment(
+        ? await provider.fetchPayment(
             mandate.providerMandateId,
             reserved.providerPaymentId,
           )
@@ -336,6 +338,7 @@ export class PaymentOrchestratorService {
     verified: boolean,
   ) {
     return this.serializable(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "PaymentTransaction" WHERE id = ${transactionId} FOR UPDATE`;
       const item = await tx.paymentTransaction.findUniqueOrThrow({
         where: { id: transactionId },
       });
@@ -371,7 +374,7 @@ export class PaymentOrchestratorService {
           invoice.clientId !== item.clientId ||
           invoice.riderId !== item.riderId ||
           invoice.currency !== item.currency ||
-          invoice.status === 'VOID'
+          (invoice.status === 'VOID' && item.provider !== 'RAZORPAY')
         )
           throw new ConflictException(
             'Invoice state no longer permits payment settlement.',
@@ -384,7 +387,8 @@ export class PaymentOrchestratorService {
             currency: item.currency,
             method: mandate.method,
             provider: item.provider,
-            providerPaymentId: item.providerPaymentId,
+            providerPaymentId: item.provider === 'RAZORPAY' ? result.providerReference! : item.providerPaymentId,
+            ...(item.provider === 'RAZORPAY' && invoice.status === 'VOID' ? { allocate: false } : {}),
             sourceId: item.id,
             invoiceId: item.invoiceId,
           });
@@ -421,10 +425,17 @@ export class PaymentOrchestratorService {
           },
         });
       }
+      let reviewCode: string | undefined;
+      if (item.provider === 'RAZORPAY' && next === 'SUCCESS' && riderPaymentId) {
+        const receipt = await tx.riderPayment.findUniqueOrThrow({ where: { id: riderPaymentId } });
+        if (receipt.unallocatedAmount.gt(0)) reviewCode = 'UNAPPLIED_PROVIDER_PAYMENT_REVIEW';
+        await tx.razorpayAutoPayCapture.updateMany({ where: { transactionId: item.id, providerPaymentId: result.providerReference }, data: { status: reviewCode ? 'REVIEW_REQUIRED' : 'SETTLED', reason: reviewCode ?? null } });
+      }
       const updated = await tx.paymentTransaction.update({
         where: { id: item.id },
         data: {
           status: next,
+          ...(reviewCode ? { failureCode: reviewCode, retryability: 'NON_RETRYABLE' } : {}),
           ...(next === 'FAILED'
             ? {
                 failureCode: result.failureCode ?? 'UNKNOWN',
@@ -479,11 +490,18 @@ export class PaymentOrchestratorService {
       where: { id: transactionId, clientId, riderId },
     });
     if (!item) throw new NotFoundException('Invoice collection not found.');
-    if (item.status === 'SUCCESS') return this.view(item);
+    if (item.status === 'SUCCESS') {
+      if (item.provider === 'RAZORPAY' && this.providers) {
+        const mandate = await this.prisma.paymentMandate.findFirstOrThrow({ where: { id: item.mandateId, clientId } });
+        await this.providers.forProvider(item.provider).fetchPayment(mandate.providerMandateId, item.providerPaymentId);
+        return this.view(await this.prisma.paymentTransaction.findUniqueOrThrow({ where: { id: item.id } }));
+      }
+      return this.view(item);
+    }
     const mandate = await this.prisma.paymentMandate.findFirstOrThrow({
       where: { id: item.mandateId, clientId },
     });
-    const result = await this.provider.fetchPayment(
+    const result = await (this.providers?.forProvider(item.provider ?? mandate.provider) ?? this.provider).fetchPayment(
       mandate.providerMandateId,
       item.providerPaymentId,
     );
