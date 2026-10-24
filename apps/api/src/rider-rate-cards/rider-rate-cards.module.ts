@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module.js';
 import { AllocationsModule } from '../allocations/allocations.module.js';
+import { ExchangeHubGuard } from '../vehicle-exchanges/exchange-hub.guard.js';
 import { VehicleExchangeService } from '../vehicle-exchanges/vehicle-exchange.service.js';
 import {
   RiderVehicleExchangeController,
@@ -49,6 +50,7 @@ import { CommercialCoreModule } from './commercial-core.module.js';
   providers: [
     RiderRateCardsService,
     VehicleExchangeService,
+    ExchangeHubGuard,
   ],
   exports: [CommercialCoreModule],
 })

@@ -90,9 +90,9 @@ export class VehicleExchangeService {
   details(clientId: string, id: string, riderId?: string) {
     return this.get(clientId, id, riderId);
   }
-  list(clientId: string, riderId?: string) {
+  list(clientId: string, riderId?: string, hubScope?: Prisma.VehicleExchangeRequestWhereInput) {
     return this.db.vehicleExchangeRequest.findMany({
-      where: { clientId, ...(riderId ? { riderId } : {}) },
+      where: { clientId, ...(riderId ? { riderId } : {}), ...(hubScope ? { AND: hubScope } : {}) },
       orderBy: { createdAt: 'desc' },
       include: { vehicleSubmission: true },
     });
@@ -320,7 +320,7 @@ export class VehicleExchangeService {
     });
     return this.get(clientId, id);
   }
-  async select(clientId: string, id: string, actorId: string, raw: unknown) {
+  async select(clientId: string, id: string, actorId: string, raw: unknown, allowedHubIds?: string[]) {
     const input = parseInput(selection, raw);
     const exchange = await this.get(clientId, id);
     if (
@@ -363,6 +363,7 @@ export class VehicleExchangeService {
             clientId,
             status: 'AVAILABLE',
             deletedAt: null,
+            ...(allowedHubIds ? { currentHubId: { in: allowedHubIds } } : {}),
           },
         });
         if (!fleet) fail('REPLACEMENT_NOT_AVAILABLE');

@@ -15,6 +15,7 @@ import {
   parsePaymentRequestId,
   parseRazorpayCallback,
 } from './common-payment.input.js';
+import { RazorpayInvoiceService } from './razorpay/razorpay-invoice.service.js';
 import { PENALTY_PAYMENT } from './outstanding-payment.js';
 
 const purposes: Record<string, string> = {
@@ -56,6 +57,7 @@ export class CommonPaymentService {
     private readonly checkout: CheckoutCollectionService,
     private readonly deployments: RazorpayDeploymentService,
     private readonly penalties: RazorpayPenaltyService,
+    private readonly invoices?: RazorpayInvoiceService,
   ) {}
 
   async create(clientId: string, userId: string, body: unknown, key?: string) {
@@ -106,31 +108,47 @@ export class CommonPaymentService {
     }
     // Existing Cashfree checkout owns idempotency, wallet use and settlement.
     const result =
-      input.purpose === 'SUBMISSION_PENALTY'
-        ? await this.checkout.payOutstanding(clientId, riderId, key ?? '', {
-            scope: 'SUBMISSION_PENALTY',
-            ...(input.amount === undefined ? {} : { amount: input.amount }),
-          })
-        : input.purpose === 'INVOICE'
-          ? await this.checkout.payInvoice(
-              clientId,
-              riderId,
-              input.invoiceId,
-              key ?? '',
-              input.useWallet ?? true,
-              userId,
-            )
-          : input.purpose === 'SECURITY_DEPOSIT'
-            ? await this.checkout.payDeposit(
+      input.purpose === 'INVOICE' && input.provider === 'RAZORPAY'
+        ? await this.invoices!.payInvoice(
+            clientId,
+            riderId,
+            input.invoiceId,
+            key ?? '',
+            input.useWallet ?? true,
+            userId,
+          )
+        : input.purpose === 'SUBMISSION_PENALTY'
+          ? await this.checkout.payOutstanding(clientId, riderId, key ?? '', {
+              scope: 'SUBMISSION_PENALTY',
+              ...(input.amount === undefined ? {} : { amount: input.amount }),
+            })
+          : input.purpose === 'INVOICE'
+            ? await this.checkout.payInvoice(
                 clientId,
                 riderId,
-                input.depositId,
+                input.invoiceId,
                 key ?? '',
+                input.useWallet ?? true,
+                userId,
               )
-            : await this.checkout.payOutstanding(clientId, riderId, key ?? '', {
-                scope: 'ALL',
-                ...(input.amount === undefined ? {} : { amount: input.amount }),
-              });
+            : input.purpose === 'SECURITY_DEPOSIT'
+              ? await this.checkout.payDeposit(
+                  clientId,
+                  riderId,
+                  input.depositId,
+                  key ?? '',
+                )
+              : await this.checkout.payOutstanding(
+                  clientId,
+                  riderId,
+                  key ?? '',
+                  {
+                    scope: 'ALL',
+                    ...(input.amount === undefined
+                      ? {}
+                      : { amount: input.amount }),
+                  },
+                );
     if (!result.collectionId)
       return {
         paymentRequestId: null,

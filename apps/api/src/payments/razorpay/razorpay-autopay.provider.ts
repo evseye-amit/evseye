@@ -589,7 +589,10 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
           status: reason ? 'REVIEW_REQUIRED' : 'OBSERVED',
           reason,
         },
-        update: reason ? { status: 'REVIEW_REQUIRED', reason } : {},
+        // A nonempty update keeps this a native atomic PostgreSQL upsert.
+        update: reason
+          ? { status: 'REVIEW_REQUIRED', reason }
+          : { providerPaymentId: payment.id },
       });
       if (reason) {
         await this.db.paymentTransaction.update({

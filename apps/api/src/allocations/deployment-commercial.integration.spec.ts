@@ -1,3 +1,9 @@
+import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
+import type { ExecutionContext } from '@nestjs/common';
+import { ClientContextService } from '../auth/client-context.service.js';
+import { ExchangeHubGuard, type ExchangeHubRequest } from '../vehicle-exchanges/exchange-hub.guard.js';
+import { VehicleExchangeService } from '../vehicle-exchanges/vehicle-exchange.service.js';
+import { VehicleExchangeController } from '../vehicle-exchanges/vehicle-exchange.controller.js';
 import { CommonPaymentService } from '../payments/common-payment.service.js';
 import { CheckoutCollectionService } from '../payments/checkout-collection.service.js';
 import { PaymentTransactionsService } from '../payment-transactions/payment-transactions.service.js';
@@ -578,6 +584,46 @@ describe.skipIf(!url)(
         handover,
       };
     }
+
+    it('scopes Fleet Manager exchange access by actual/planned hubs and protects foreign replacements', async () => {
+      const f = await fixture(); const { agreement } = await f.select();
+      const otherHub = await db.hub.create({ data: { clientId: f.client.id, code: 'OTHER', name: 'Other hub', city: 'Gurugram' } });
+      const exchange = await db.vehicleExchangeRequest.create({ data: { clientId: f.client.id, agreementId: agreement.id, riderId: f.rider.id, oldVehicleId: f.fleet.id, oldAllocationId: f.allocation.id, plannedHubId: f.hub.id, baseVersionNumber: 1, reasonCode: 'VEHICLE_EXCHANGE', createdById: f.user.id } });
+      const guard = new ExchangeHubGuard(db as never, new ClientContextService());
+      const service = new VehicleExchangeService(db as never, pricing, deposits, allocations);
+      const controller = new VehicleExchangeController(service, new ClientContextService());
+      async function scoped(actor: AuthUser = f.actor, id?: string, method = 'GET') {
+        const request: ExchangeHubRequest = { user: actor, method, params: id ? { id } : {} };
+        await guard.canActivate({ switchToHttp: () => ({ getRequest: () => request }) } as unknown as ExecutionContext);
+        return request;
+      }
+      expect((await controller.list(f.actor, await scoped())).map(row => row.id)).toContain(exchange.id);
+      await scoped(f.actor, exchange.id, 'POST'); await controller.approve(f.actor, exchange.id);
+      expect(await db.auditLog.findFirst({ where: { clientId: f.client.id, actorId: f.manager.id, action: 'VEHICLE_EXCHANGE_APPROVED', entityId: exchange.id } })).not.toBeNull();
+      // A foreign planned hub must not fall back to the old scooter's local hub.
+      await db.vehicleExchangeRequest.update({ where: { id: exchange.id }, data: { plannedHubId: otherHub.id } });
+      expect(await controller.list(f.actor, await scoped())).toEqual([]);
+      await expect(scoped(f.actor, exchange.id)).rejects.toThrow('assigned hubs');
+      await db.vehicleExchangeRequest.update({ where: { id: exchange.id }, data: { plannedHubId: null } });
+      expect((await controller.list(f.actor, await scoped())).map(row => row.id)).toContain(exchange.id);
+      // Once intake exists, its actual hub is authoritative over both fallbacks.
+      const inspection = await db.inspection.create({ data: { clientId: f.client.id, allocationId: f.allocation.id, type: 'POST_DEALLOCATION' } });
+      const submission = await db.vehicleSubmission.create({ data: { clientId: f.client.id, allocationId: f.allocation.id, inspectionId: inspection.id, exchangeRequestId: exchange.id, riderId: f.rider.id, fleetId: f.fleet.id, agreementId: agreement.id, hubId: otherHub.id, assetSnapshot: {}, requiredPhotoTypes: [], createdById: f.manager.id } });
+      await db.vehicleExchangeRequest.update({ where: { id: exchange.id }, data: { plannedHubId: f.hub.id } });
+      expect(await controller.list(f.actor, await scoped())).toEqual([]);
+      await db.vehicleSubmission.update({ where: { id: submission.id }, data: { hubId: f.hub.id } });
+      await db.vehicleExchangeRequest.update({ where: { id: exchange.id }, data: { plannedHubId: otherHub.id } });
+      expect((await controller.list(f.actor, await scoped())).map(row => row.id)).toContain(exchange.id);
+      const replacement = await db.fleet.create({ data: { clientId: f.client.id, fleetCode: 'FOREIGN-REPLACEMENT', chassisNumber: randomUUID(), oemId: f.fleet.oemId, vehicleCategoryId: f.fleet.vehicleCategoryId, vehicleTypeId: f.fleet.vehicleTypeId, speedType: f.fleet.speedType, currentHubId: otherHub.id, status: 'AVAILABLE' } });
+      await db.vehicleExchangeRequest.update({ where: { id: exchange.id }, data: { replacementVehicleId: replacement.id } });
+      await expect(scoped(f.actor, exchange.id, 'POST')).rejects.toThrow('replacement scooter');
+      // Existing administrative access remains client-wide.
+      const admin = { ...f.actor, roles: [UserRole.CLIENT_ADMIN] };
+      expect((await controller.list(admin, await scoped(admin))).map(row => row.id)).toContain(exchange.id);
+      const unassigned = await db.user.create({ data: { clientId: f.client.id, name: 'Unassigned manager', mobile: randomUUID(), role: 'FLEET_MANAGER' } });
+      expect(await controller.list({ ...f.actor, id: unassigned.id }, await scoped({ ...f.actor, id: unassigned.id }))).toEqual([]);
+      const foreign = await fixture(); await expect(scoped(foreign.actor, exchange.id)).rejects.toThrow('assigned hubs');
+    }, 30000);
 
     it('uploads immutable receipt evidence, rejects with history, resubmits and credits once across admin and fleet-manager approval', async () => {
       const f = await fixture();

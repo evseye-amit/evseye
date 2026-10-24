@@ -36,7 +36,7 @@ export class CommonPaymentController {
     name: 'Idempotency-Key',
     required: false,
     description:
-      'Required for Cashfree/configured-provider checkout, including Cashfree penalties; reuse for retries.',
+      'Required for INVOICE payments (including Razorpay), configured-provider checkout and Cashfree penalties; reuse for retries.',
   })
   @ApiBody({
     schema: {
@@ -79,6 +79,12 @@ export class CommonPaymentController {
           required: ['purpose', 'invoiceId'],
           properties: {
             purpose: { type: 'string', enum: ['INVOICE'] },
+            provider: {
+              type: 'string',
+              enum: ['RAZORPAY', 'CASHFREE'],
+              description:
+                'RAZORPAY supports rental invoices. Omit to retain the configured checkout provider.',
+            },
             invoiceId: { type: 'string', format: 'uuid' },
             useWallet: { type: 'boolean' },
           },

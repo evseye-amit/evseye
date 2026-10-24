@@ -15,6 +15,7 @@ import {
   parseOutstandingInput,
   planPenaltyPayment,
 } from '../outstanding-payment.js';
+import { settleRazorpayRentalInvoice } from '../rental-invoice-payment-settlement.js';
 import { settlePenaltyPayment } from '../penalty-payment-settlement.js';
 import {
   RazorpayClient,
@@ -74,6 +75,7 @@ export class RazorpayPenaltyService {
             );
           const existing = active.razorpayPenaltyOrder;
           if (
+            active.collectionType !== PENALTY_PAYMENT ||
             !existing ||
             (selection.requestedAmount !== null &&
               !active.amount.eq(selection.requestedAmount))
@@ -177,6 +179,15 @@ export class RazorpayPenaltyService {
       },
       { timeout: 12000 },
     );
+    return this.startOrder(clientId, order, PENALTY_PAYMENT);
+  }
+
+  /** Shared Razorpay collection storage retains its historical penalty model names. */
+  async startOrder(
+    clientId: string,
+    order: RazorpayPenaltyOrder,
+    purpose: string,
+  ) {
     this.gateway.assertConfigured(clientId, order.keyId);
     let bound = order;
     if (!bound.providerOrderId) {
@@ -193,7 +204,7 @@ export class RazorpayPenaltyService {
               Number(order.amountPaise),
               order.currency,
               order.id,
-              { purpose: PENALTY_PAYMENT },
+              { purpose },
             ),
           );
         } catch (error) {
@@ -279,7 +290,7 @@ export class RazorpayPenaltyService {
         collection: { clientId, riderId },
       },
     });
-    if (!order) throw new NotFoundException('Penalty payment order not found.');
+    if (!order) throw new NotFoundException('Payment order not found.');
     this.gateway.assertConfigured(clientId, order.keyId);
     this.gateway.verifyCheckout(
       body.razorpayOrderId,
@@ -299,7 +310,9 @@ export class RazorpayPenaltyService {
       where: { id: order.collectionId },
     });
     return {
-      ...(await this.penalties.summary(clientId, riderId)),
+      ...(current.collectionType === PENALTY_PAYMENT
+        ? await this.penalties.summary(clientId, riderId)
+        : {}),
       orderId: body.razorpayOrderId,
       paymentId: body.razorpayPaymentId,
       paymentStatus: current.status,
@@ -344,7 +357,11 @@ export class RazorpayPenaltyService {
           : null;
     if (!reason) {
       try {
-        const settled = await settlePenaltyPayment(
+        const settle =
+          request.collectionType === 'INVOICE_PAYMENT'
+            ? settleRazorpayRentalInvoice
+            : settlePenaltyPayment;
+        const settled = await settle(
           this.db,
           this.payments,
           this.wallet,
@@ -433,7 +450,7 @@ export class RazorpayPenaltyService {
     let order = await this.db.razorpayPenaltyOrder.findFirst({
       where: { collectionId, collection: { clientId, riderId } },
     });
-    if (!order) throw new NotFoundException('Penalty payment order not found.');
+    if (!order) throw new NotFoundException('Payment order not found.');
     this.gateway.assertConfigured(clientId, order.keyId);
     if (!order.providerOrderId) {
       if (Date.now() - order.createdAt.getTime() < 30000) return;
