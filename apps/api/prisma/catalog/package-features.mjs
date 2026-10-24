@@ -1,6 +1,8 @@
 // Exported from the development database on 2026-10-09. Package and Feature codes keep links portable.
 // Each package feature assignment is an explicit database snapshot.
 export const basicPackageFeatureCatalog = [
+  { "packageCode": "BASIC", "featureCode": "CAPTURE_DATE_OF_BIRTH", "isIncluded": true, "resetPeriod": "NONE", "isUnlimited": false, "rolloverAllowed": false, "configuration": null, "displayOrder": 106, "includedQuantity": null },
+  { "packageCode": "BASIC", "featureCode": "CAPTURE_CURRENT_FULL_ADDRESS", "isIncluded": true, "resetPeriod": "NONE", "isUnlimited": false, "rolloverAllowed": false, "configuration": null, "displayOrder": 109, "includedQuantity": null },
   { "packageCode": "BASIC", "featureCode": "CAPTURE_FULL_NAME", "isIncluded": true, "resetPeriod": "MONTHLY", "isUnlimited": false, "rolloverAllowed": false, "configuration": null, "displayOrder": 5, "includedQuantity": "500" },
   { "packageCode": "BASIC", "featureCode": "SHOW_MOBILE_NUMBER", "isIncluded": true, "resetPeriod": "MONTHLY", "isUnlimited": false, "rolloverAllowed": false, "configuration": null, "displayOrder": 6, "includedQuantity": "500" },
   { "packageCode": "BASIC", "featureCode": "CAPTURE_MOBILE_NUMBER", "isIncluded": true, "resetPeriod": "MONTHLY", "isUnlimited": false, "rolloverAllowed": false, "configuration": null, "displayOrder": 10, "includedQuantity": "500" },

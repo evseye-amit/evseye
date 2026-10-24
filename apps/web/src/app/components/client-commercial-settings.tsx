@@ -55,6 +55,12 @@ export function ClientCommercialSettings({
   const [subscriptions, setSubscriptions] = useState<Item[]>([]);
   const [packageRevisions, setPackageRevisions] = useState<Item[]>([]);
   const [selectedPackageRevision, setSelectedPackageRevision] = useState("");
+  const [upgradePreview, setUpgradePreview] = useState<{
+    previewToken: string; fromVersion: number; toVersion: number; preservedOverrides: number;
+    addedFeatures: { featureId: string; name: string; code: string }[];
+    changedFeatures: { featureId: string; name: string; code: string; previous: unknown; next: unknown }[];
+  } | null>(null);
+  const [upgradeReason, setUpgradeReason] = useState("");
   const [adjustments, setAdjustments] = useState<Item[]>([]);
   const [clientFeatures, setClientFeatures] = useState<Item[]>([]);
   const [creditLots, setCreditLots] = useState<Item[]>([]);
@@ -114,6 +120,7 @@ export function ClientCommercialSettings({
   );
 
   const load = useCallback(async () => {
+    setUpgradePreview(null);
     setBusy(true);
     setError("");
     try {
@@ -168,16 +175,24 @@ export function ClientCommercialSettings({
     }
   }, [clientId]);
 
-  async function upgradePackageVersion() {
+  async function upgradePackageVersion(apply = false) {
     if (!activeSubscription || !selectedPackageRevision) return;
     setBusy(true);
     setError("");
     try {
-      await platformRequest(`/subscriptions/${activeSubscription.id}/package-revisions/${selectedPackageRevision}`, "POST");
-      setNotice("Published Package version assigned to this subscription.");
-      await load();
+      const path = `/subscriptions/${activeSubscription.id}/package-upgrades/${selectedPackageRevision}`;
+      if (!apply) {
+        setUpgradePreview(await platformRequest(`${path}/preview`));
+      } else if (upgradePreview) {
+        await platformRequest(path, "POST", { previewToken: upgradePreview.previewToken, reason: upgradeReason });
+        setUpgradePreview(null);
+        setUpgradeReason("");
+        setNotice("Package upgraded. Pricing, usage history and client settings preserved.");
+        await load();
+      }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not assign the Package version.");
+      setUpgradePreview(null);
+      setError(cause instanceof Error ? cause.message : "Could not upgrade the Package version.");
     } finally {
       setBusy(false);
     }
@@ -332,11 +347,21 @@ export function ClientCommercialSettings({
           {notice && <p className="notice" role="status">{notice}</p>}
 
           {activeSubscription && <section className="sa-commercial-section">
-            <div className="sa-commercial-section-head"><div><h3>Published Package version</h3><p>This subscription keeps its assigned version until you upgrade it. Changes to commercial allowances require a new subscription.</p></div></div>
+            <div className="sa-commercial-section-head"><div><h3>Published Package version</h3><p>Review a newer published version before upgrading. Existing pricing, allowances, usage history and client settings are preserved.</p></div></div>
             <div className="sa-commercial-grid">
-              <label><span>Package version</span><select value={selectedPackageRevision} onChange={(event) => setSelectedPackageRevision(event.target.value)}>{packageRevisions.map((revision) => <option key={String(revision.id)} value={String(revision.id)}>v{String(revision.version)}{revision.id === (activeSubscription.packageRevision as Item)?.id ? " · current" : ""}</option>)}</select></label>
-              <div className="sa-commercial-form-action"><button type="button" disabled={busy || !selectedPackageRevision || selectedPackageRevision === (activeSubscription.packageRevision as Item)?.id} onClick={() => void upgradePackageVersion()}>Assign selected version</button></div>
+              <label><span>Package version</span><select disabled={busy} value={selectedPackageRevision} onChange={(event) => { setSelectedPackageRevision(event.target.value); setUpgradePreview(null); }}>{packageRevisions.map((revision) => <option key={String(revision.id)} value={String(revision.id)} disabled={Number(revision.version) < Number((activeSubscription.packageRevision as Item)?.version ?? 0)}>v{String(revision.version)}{revision.id === (activeSubscription.packageRevision as Item)?.id ? " · current" : ""}</option>)}</select></label>
+              <div className="sa-commercial-form-action"><button type="button" disabled={busy || !selectedPackageRevision || selectedPackageRevision === (activeSubscription.packageRevision as Item)?.id} onClick={() => void upgradePackageVersion()}>Review upgrade</button></div>
             </div>
+            {upgradePreview && <div className="sa-commercial-section">
+              <h4>Review upgrade: v{upgradePreview.fromVersion} → v{upgradePreview.toVersion}</h4>
+              <p>Existing pricing and usage history stay unchanged. {upgradePreview.preservedOverrides} saved workflow settings will be carried forward.</p>
+              <p>New features: {upgradePreview.addedFeatures.map((item) => item.name).join(", ") || "None"}</p>
+              <p>Updated features: {upgradePreview.changedFeatures.map((item) => item.name).join(", ") || "None"}</p>
+              {upgradePreview.changedFeatures.map((item) => <details key={item.featureId}><summary>{item.name}: review configuration changes</summary><pre style={{ maxHeight: 240, overflow: "auto", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{JSON.stringify({ previous: item.previous, next: item.next }, null, 2)}</pre></details>)}
+              <p>Reload the Rider onboarding configuration after upgrading. Existing Rider data is retained.</p>
+              <label><span>Upgrade reason (required)</span><textarea value={upgradeReason} maxLength={1000} onChange={(event) => setUpgradeReason(event.target.value)} /></label>
+              <button type="button" disabled={busy || !upgradeReason.trim()} onClick={() => void upgradePackageVersion(true)}>Confirm Package upgrade</button>
+            </div>}
           </section>}
 
           {(!section || section === "pricing") && <section className="sa-commercial-section">
