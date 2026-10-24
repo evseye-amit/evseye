@@ -5,7 +5,6 @@ import { WalletModule } from '../../wallet/wallet.module.js';
 import { SubmissionPenaltyModule } from '../../submission-penalties/submission-penalty.module.js';
 import { RazorpayClient } from './razorpay.client.js';
 import { RazorpayPenaltyService } from './razorpay-penalty.service.js';
-import { RazorpayPenaltyController } from './razorpay-penalty.controller.js';
 @Module({
   imports: [
     AuthModule,
@@ -13,7 +12,6 @@ import { RazorpayPenaltyController } from './razorpay-penalty.controller.js';
     WalletModule,
     SubmissionPenaltyModule,
   ],
-  controllers: [RazorpayPenaltyController],
   providers: [RazorpayClient, RazorpayPenaltyService],
   exports: [RazorpayPenaltyService],
 })

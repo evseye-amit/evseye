@@ -402,8 +402,7 @@ export class CheckoutCollectionService {
           where: {
             clientId,
             riderId,
-            depositId,
-            paymentNumber: paymentNumber(),
+            OR: [{ depositId }, { collectionType: { in: ['OUTSTANDING_PAYMENT', PENALTY_PAYMENT] } }],
             status: { in: ['CREATING', 'PENDING', 'UNKNOWN'] },
           },
         });

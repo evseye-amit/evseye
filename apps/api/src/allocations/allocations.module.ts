@@ -1,7 +1,7 @@
 import { RazorpayPenaltyModule } from '../payments/razorpay/razorpay-penalty.module.js';
 import { RazorpayClient } from '../payments/razorpay/razorpay.client.js';
 import { RazorpayDeploymentService } from '../payments/razorpay/razorpay-deployment.service.js';
-import { RazorpayDeploymentController, RazorpayWebhookController, RazorpayDeploymentAdminController } from '../payments/razorpay/razorpay-deployment.controller.js';
+import { RazorpayWebhookController, RazorpayDeploymentAdminController } from '../payments/razorpay/razorpay-deployment.controller.js';
 import { SubmissionPenaltyModule } from '../submission-penalties/submission-penalty.module.js';
 import { FleetSearchController } from './fleet-search.controller.js';
 import { FleetSearchService } from './fleet-search.service.js';
@@ -23,8 +23,8 @@ import { DeploymentCommercialController } from './deployment-commercial.controll
 
 @Module({
   imports: [RazorpayPenaltyModule, SubmissionPenaltyModule, WalletModule, AuthModule, AuditModule, MediaModule, RidersModule, ReferralModule, CommercialCoreModule],
-  controllers: [RazorpayDeploymentController, RazorpayWebhookController, RazorpayDeploymentAdminController, FleetSearchController, AllocationTeamLeadController, AllocationsController, MobileDeploymentController, DeploymentCommercialController],
+  controllers: [RazorpayWebhookController, RazorpayDeploymentAdminController, FleetSearchController, AllocationTeamLeadController, AllocationsController, MobileDeploymentController, DeploymentCommercialController],
   providers: [RazorpayClient, RazorpayDeploymentService, FleetSearchService, AllocationTeamLeadService, AllocationsService, MobileDeploymentService],
-  exports: [AllocationsService],
+  exports: [AllocationsService, RazorpayDeploymentService],
 })
 export class AllocationsModule {}

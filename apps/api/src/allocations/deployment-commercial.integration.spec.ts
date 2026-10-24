@@ -1,3 +1,5 @@
+import { CommonPaymentService } from '../payments/common-payment.service.js';
+import { CheckoutCollectionService } from '../payments/checkout-collection.service.js';
 import { PaymentTransactionsService } from '../payment-transactions/payment-transactions.service.js';
 import { MediaService } from '../media/media.service.js';
 import { SubmissionPenaltyService } from '../submission-penalties/submission-penalty.service.js';
@@ -233,6 +235,34 @@ describe.skipIf(!url)(
       expect(await db.razorpayDeploymentCapture.findUnique({ where: { providerPaymentId: f.remote.id } })).toMatchObject({ status: 'SETTLED' });
       expect(await db.riderPayment.count({ where: { clientId: f.client.id } })).toBe(1);
       expect(f.gateway.refund).not.toHaveBeenCalled();
+    }, 30000);
+
+    it('routes common DEPLOYMENT checkout to existing deposit and commercial settlement exactly once', async () => {
+      const f = await razorpayFixture();
+      const api = new CommonPaymentService(db as never, new RiderBillingService(db as never), {} as never, f.service, {} as never);
+      const created = await api.create(f.client.id, f.user.id, { purpose: 'DEPLOYMENT', allocationId: f.allocation.id });
+      expect(created).toMatchObject({ purpose: 'DEPLOYMENT', provider: 'RAZORPAY', status: 'PENDING', amount: '1350.00' });
+      expect(f.gateway.createOrder).toHaveBeenCalledTimes(1);
+      f.remotes.push(f.remote);
+      await api.verify(f.client.id, f.user.id, created.paymentRequestId!, f.input);
+      expect(await api.verify(f.client.id, f.user.id, created.paymentRequestId!, f.input)).toMatchObject({ status: 'SUCCEEDED', checkout: null });
+      expect(await db.riderPayment.count({ where: { clientId: f.client.id } })).toBe(1);
+      expect(await db.mobileDeploymentWorkflow.findUnique({ where: { allocationId: f.allocation.id } })).toMatchObject({ status: 'PAYMENT_PAID' });
+      expect(await db.riderDeposit.findFirst({ where: { clientId: f.client.id, fundedAmount: { gt: 0 } } })).not.toBeNull();
+    }, 30000);
+    it('common deposit checkout reuses the same key and blocks new-key duplicates against real pending collections', async () => {
+      const f = await fixture(); await f.select();
+      const deposit = await db.riderDeposit.findFirstOrThrow({ where: { clientId: f.client.id, requiredAmount: { gt: 0 } } });
+      const provider = { createCheckoutOrder: vi.fn(async (input: { orderId: string }) => ({ orderId: input.orderId, paymentSessionId: 'test-session', rawStatus: 'ACTIVE' })) };
+      const checkout = new CheckoutCollectionService(db as never, { getOrThrow: () => 'mock', get: () => undefined } as never, provider as never, {} as never, {} as never, {} as never, {} as never, {} as never);
+      const api = new CommonPaymentService(db as never, new RiderBillingService(db as never), checkout, {} as never, {} as never);
+      const key = randomUUID();
+      const request = await api.create(f.client.id, f.user.id, { purpose: 'SECURITY_DEPOSIT', depositId: deposit.id }, key);
+      expect(await api.create(f.client.id, f.user.id, { purpose: 'SECURITY_DEPOSIT', depositId: deposit.id }, key)).toEqual(request);
+      const duplicates = await Promise.allSettled([randomUUID(), randomUUID()].map(k => api.create(f.client.id, f.user.id, { purpose: 'SECURITY_DEPOSIT', depositId: deposit.id }, k)));
+      expect(duplicates.every(result => result.status === 'rejected')).toBe(true);
+      expect(await db.paymentCollectionRequest.count({ where: { clientId: f.client.id, depositId: deposit.id } })).toBe(1);
+      expect(provider.createCheckoutOrder).toHaveBeenCalledTimes(1);
     }, 30000);
 
     async function fixture(zero = false) {

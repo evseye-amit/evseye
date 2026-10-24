@@ -29,7 +29,8 @@ export const paymentView = (invoice: RiderInvoice) => ({
       : 'PENDING',
   breakdown: invoice.pricingSnapshot,
   createdAt: invoice.createdAt,
-  payEndpoint: `/api/v1/rider-app/billing/invoices/${invoice.id}/pay`,
+  payEndpoint: '/api/v1/rider-app/payments/orders',
+  paymentPurpose: 'INVOICE',
 });
 
 /** A dedicated invoice references the existing debit: it does not post another charge or spendable-wallet movement. */
