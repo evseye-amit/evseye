@@ -5,6 +5,9 @@ import { CatalogRevisionService } from './catalog-revision.service.js';
 import { RiderOnboardingConfigurationService } from '../riders/rider-onboarding-configuration.service.js';
 import { WorkflowResolverService } from '../workflow/workflow-resolver.service.js';
 
+// @ts-expect-error Shared JavaScript seed repair has no TypeScript declarations.
+import { repairBasicLegalConsent } from '../../prisma/catalog/repair-basic-legal-consent.mjs';
+
 const url = process.env.PACKAGE_UPGRADE_TEST_DATABASE_URL;
 if (url && !new URL(url).pathname.includes('_test_')) throw new Error('Use a disposable _test_ database.');
 const db = new PrismaClient({ datasources: { db: { url: url ?? 'postgresql://unused:unused@localhost:5432/unused' } } });
@@ -43,6 +46,29 @@ describe.skipIf(!url)('Package upgrade database preservation', () => {
       featureId: feature.id, creditLotId: lot.id, sourceType: 'PACKAGE_ALLOWANCE', transactionType: 'DEBIT', quantity: -179 } });
     return { client, admin, subscription, target, workflow, lot, ledger };
   }
+  it('repairs Basic idempotently and publishes a fresh draft without rewriting subscriptions or old drafts', async () => {
+    const pkg = await db.package.create({ data: { code: 'BASIC', name: 'Basic' } });
+    const oldDraft = await db.packageRevision.create({ data: { packageId: pkg.id, version: 1,
+      contentHash: 'd'.repeat(64), snapshot: { features: [] } } });
+    const client = await db.client.create({ data: { name: 'Yogmaya test', slug: randomUUID(), status: 'ACTIVE' } });
+    const subscription = await db.clientSubscription.create({ data: { clientId: client.id, packageId: pkg.id,
+      packageRevisionId: oldDraft.id, billingCycle: 'MONTHLY', startDate: new Date(), recurringAmount: 1234 } });
+    await expect(service.publishPackage(oldDraft.id)).rejects.toThrow('legal consent');
+    const repaired = await repairBasicLegalConsent(db);
+    const again = await repairBasicLegalConsent(db);
+    expect(again).toEqual(repaired);
+    expect(await db.featureRevision.count({ where: { featureId: repaired.featureId } })).toBe(1);
+    await db.packageFeature.update({ where: { packageId_featureId: { packageId: pkg.id, featureId: repaired.featureId } },
+      data: { isIncluded: false, configuration: { enabled: false, appCodes: ['RIDER'], displayTitle: 'Saved title' } } });
+    await repairBasicLegalConsent(db);
+    expect((await db.packageFeature.findUniqueOrThrow({ where: { packageId_featureId: { packageId: pkg.id, featureId: repaired.featureId } } })).configuration)
+      .toMatchObject({ enabled: true, appCodes: ['RIDER', 'FLEET_MANAGER'], displayTitle: 'Saved title' });
+    const fresh = await service.draftPackage(pkg.id);
+    await expect(service.publishPackage(fresh.id)).resolves.toMatchObject({ id: fresh.id, publishedAt: expect.any(Date) });
+    expect(await db.clientSubscription.findUnique({ where: { id: subscription.id } })).toEqual(subscription);
+    expect(await db.packageRevision.findUnique({ where: { id: oldDraft.id } })).toEqual(oldDraft);
+    expect((await db.client.findUniqueOrThrow({ where: { id: client.id } })).fleetOperatingMode).toBe('SIMPLE');
+  });
   it('preserves subscription pricing, historical records and overrides while exposing DOB and address', async () => {
     const f = await fixture();
     const preview = await service.previewPackageUpgrade(f.subscription.id, f.target.id);

@@ -3,10 +3,8 @@ import { createHash } from 'node:crypto';
 const hash = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
-export async function seedInitialRevisions(prisma) {
-  const features = await prisma.feature.findMany({ include: { featureStep: { include: { parent: true } } } });
-  for (const feature of features) {
-    const snapshot = plain({ id: feature.id, code: feature.code, name: feature.name,
+export function featureRevisionSnapshot(feature) {
+  return plain({ id: feature.id, code: feature.code, name: feature.name,
       category: feature.category, featureType: feature.featureType, billingUnit: feature.billingUnit,
       description: feature.description, translations: feature.translations,
       configuration: feature.configuration,
@@ -16,6 +14,12 @@ export async function seedInitialRevisions(prisma) {
         name: feature.featureStep.displayName, description: feature.featureStep.description,
         translations: feature.featureStep.translations, order: feature.featureStep.displayOrder,
         parentCode: feature.featureStep.parent?.code ?? null } : null });
+}
+
+export async function seedInitialRevisions(prisma) {
+  const features = await prisma.feature.findMany({ include: { featureStep: { include: { parent: true } } } });
+  for (const feature of features) {
+    const snapshot = featureRevisionSnapshot(feature);
     const contentHash = hash(snapshot);
     const latest = await prisma.featureRevision.findFirst({
       where: { featureId: feature.id }, orderBy: { version: 'desc' },

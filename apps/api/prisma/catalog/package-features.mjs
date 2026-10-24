@@ -1,6 +1,7 @@
 // Exported from the development database on 2026-10-09. Package and Feature codes keep links portable.
 // Each package feature assignment is an explicit database snapshot.
 export const basicPackageFeatureCatalog = [
+  {"packageCode": "BASIC", "featureCode": "ACCEPT_APP_TERMS", "isIncluded": true, "resetPeriod": "NONE", "isUnlimited": false, "rolloverAllowed": false, "configuration": {"enabled": true, "required": true, "componentType": "LEGAL_CONSENT", "kind": "TERMS_AND_CONDITIONS", "appCodes": ["RIDER", "FLEET_MANAGER"]}, "displayOrder": 3, "includedQuantity": null},
   { "packageCode": "BASIC", "featureCode": "CAPTURE_DATE_OF_BIRTH", "isIncluded": true, "resetPeriod": "NONE", "isUnlimited": false, "rolloverAllowed": false, "configuration": null, "displayOrder": 106, "includedQuantity": null },
   { "packageCode": "BASIC", "featureCode": "CAPTURE_CURRENT_FULL_ADDRESS", "isIncluded": true, "resetPeriod": "NONE", "isUnlimited": false, "rolloverAllowed": false, "configuration": null, "displayOrder": 109, "includedQuantity": null },
   { "packageCode": "BASIC", "featureCode": "CAPTURE_FULL_NAME", "isIncluded": true, "resetPeriod": "MONTHLY", "isUnlimited": false, "rolloverAllowed": false, "configuration": null, "displayOrder": 5, "includedQuantity": "500" },
@@ -25,6 +26,9 @@ export const basicPackageFeatureCatalog = [
 ];
 
 export const packageFeatureCatalog = [
+  {"packageCode": "STANDARD", "featureCode": "ACCEPT_APP_TERMS", "isIncluded": true, "resetPeriod": "NONE", "isUnlimited": false, "rolloverAllowed": false, "configuration": {"enabled": true, "required": true, "componentType": "LEGAL_CONSENT", "kind": "TERMS_AND_CONDITIONS", "appCodes": ["RIDER", "FLEET_MANAGER"]}, "displayOrder": 3, "includedQuantity": null},
+  {"packageCode": "PREMIUM", "featureCode": "ACCEPT_APP_TERMS", "isIncluded": true, "resetPeriod": "NONE", "isUnlimited": false, "rolloverAllowed": false, "configuration": {"enabled": true, "required": true, "componentType": "LEGAL_CONSENT", "kind": "TERMS_AND_CONDITIONS", "appCodes": ["RIDER", "FLEET_MANAGER"]}, "displayOrder": 3, "includedQuantity": null},
+  {"packageCode": "CUSTOM", "featureCode": "ACCEPT_APP_TERMS", "isIncluded": true, "resetPeriod": "NONE", "isUnlimited": false, "rolloverAllowed": false, "configuration": {"enabled": true, "required": true, "componentType": "LEGAL_CONSENT", "kind": "TERMS_AND_CONDITIONS", "appCodes": ["RIDER", "FLEET_MANAGER"]}, "displayOrder": 3, "includedQuantity": null},
   { "packageCode": "BASIC", "featureCode": "SELECT_APP_LANGUAGE", "isIncluded": true, "resetPeriod": "NONE", "isUnlimited": false, "rolloverAllowed": false, "configuration": null, "displayOrder": 1, "includedQuantity": null },
   { "packageCode": "BASIC", "featureCode": "ACCEPT_RIDER_PRIVACY_CONSENT", "isIncluded": true, "resetPeriod": "NONE", "isUnlimited": false, "rolloverAllowed": false, "configuration": null, "displayOrder": 2, "includedQuantity": null },
   { "packageCode": "BASIC", "featureCode": "SHOW_APP_INTRO", "isIncluded": true, "resetPeriod": "NONE", "isUnlimited": false, "rolloverAllowed": false, "configuration": null, "displayOrder": 3, "includedQuantity": null },
