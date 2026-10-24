@@ -73,24 +73,17 @@ export function PaymentTransactions({ refreshKey = 0 }: { refreshKey?: number })
   };
   const columns:ClientColumn<Payment>[]=[
     {key:"riderName",label:"Rider",value:r=>r.riderName}, {key:"mobile",label:"Phone",value:r=>r.mobile},
-    {key:"purpose",label:"Purpose",value:r=>label(r.purpose)}, {key:"source",label:"Source",value:r=>label(r.source)},
+    {key:"purpose",label:"Purpose",value:r=>label(r.purpose)}, {key:"source",label:"Source",serverFilter:(id)=><select id={id} aria-label="Filter by Source" value={source} onChange={e=>{setSource(e.target.value);setPage(1);}}><option value="">All sources</option>{["DEPLOYMENT","COLLECTION","AUTOPAY","RECEIVED"].map(s=><option key={s} value={s}>{label(s)}</option>)}</select>,value:r=>label(r.source)},
     {key:"amount",label:"Amount",value:r=>Number(r.amount),render:money}, {key:"method",label:"Method",value:r=>r.method},
     {key:"reference",label:"Reference",value:r=>r.reference??r.paymentNumber??"—"},
-    {key:"status",label:"Status",value:r=>r.status,render:r=><span className={`status status-${r.status.toLowerCase()}`}>{label(r.status)}</span>},
-    {key:"createdAt",label:"Date",value:r=>r.createdAt,render:r=>date(r.createdAt)},
+    {key:"status",label:"Status",serverFilter:(id)=><select id={id} aria-label="Filter by Status" value={status} onChange={e=>{setStatus(e.target.value);setPage(1);}}><option value="">All statuses</option>{["PENDING","SUBMITTED","REJECTED","PAID","CONFIRMED","SUCCESS","SUCCEEDED","FAILED","CANCELLED","CREATED","CREATING","PROCESSING","UNKNOWN","EXPIRED","PARTIALLY_REFUNDED","REFUNDED"].map(s=><option key={s} value={s}>{label(s)}</option>)}</select>,value:r=>r.status,render:r=><span className={`status status-${r.status.toLowerCase()}`}>{label(r.status)}</span>},
+    {key:"createdAt",label:"Date",serverFilter:(id)=><div className="sa-table-filter-range"><label htmlFor={`${id}-from`}><span>From</span><input id={`${id}-from`} type="date" value={from} onChange={e=>{setFrom(e.target.value);setPage(1);}} /></label><label htmlFor={`${id}-to`}><span>To</span><input id={`${id}-to`} type="date" value={to} min={from||undefined} onChange={e=>{setTo(e.target.value);setPage(1);}} /></label></div>,value:r=>r.createdAt,render:r=>date(r.createdAt)},
   ];
   return <section className="client-manager-actions">
     <div className="client-page-intro"><p className="muted">Review submitted allocation payments and view receipt images for rider transactions.</p></div>
-    <div className="payment-transaction-filters">
-      <label>Status<select value={status} onChange={e=>{setStatus(e.target.value);setPage(1);}}><option value="">All statuses</option>{["PENDING","SUBMITTED","REJECTED","PAID","CONFIRMED","SUCCESS","SUCCEEDED","FAILED","CANCELLED","CREATED","CREATING","PROCESSING","UNKNOWN","EXPIRED","PARTIALLY_REFUNDED","REFUNDED"].map(s=><option key={s} value={s}>{label(s)}</option>)}</select></label>
-      <label>Source<select value={source} onChange={e=>{setSource(e.target.value);setPage(1);}}><option value="">All sources</option>{["DEPLOYMENT","COLLECTION","AUTOPAY","RECEIVED"].map(s=><option key={s} value={s}>{label(s)}</option>)}</select></label>
-      <label>From<input type="date" value={from} onChange={e=>{setFrom(e.target.value);setPage(1);}} /></label>
-      <label>To<input type="date" value={to} min={from||undefined} onChange={e=>{setTo(e.target.value);setPage(1);}} /></label>
-      <button type="button" className="secondary" disabled={loading} onClick={()=>void load()}>Refresh</button>
-    </div>
     {error&&<p className="error" role="alert">{error}</p>}{notice&&<p className="notice" role="status">{notice}</p>}
-    <ClientDataTable loading={loading} rows={rows} columns={columns} getRowId={r=>`${r.source}:${r.id}`} emptyMessage="No payment transactions match these filters."
-      server={{page,limit,total,search,sort,onSearch:value=>{setSearch(value);setPage(1);},onPage:setPage,onLimit:value=>{setLimit(value);setPage(1);},onSort:value=>{setSort(value);setPage(1);}}}
+    <ClientDataTable toolbarActions={<button type="button" className="secondary" disabled={loading} onClick={()=>void load()}>Refresh</button>} loading={loading} rows={rows} columns={columns} getRowId={r=>`${r.source}:${r.id}`} emptyMessage="No payment transactions match these filters."
+      server={{page,limit,total,search,sort,filterCount:[status,source,from,to].filter(Boolean).length,onReset:()=>{setStatus("");setSource("");setFrom("");setTo("");setSearch("");setPage(1);setSort({key:"createdAt",direction:"descending"});},onSearch:value=>{setSearch(value);setPage(1);},onPage:setPage,onLimit:value=>{setLimit(value);setPage(1);},onSort:value=>{setSort(value);setPage(1);}}}
       actions={r=><button type="button" className="secondary table-action" disabled={Boolean(opening)} onClick={()=>void open(r)}>{opening===`${r.source}:${r.id}`?"Opening…":`${r.canReview?"Review":"View"} · ${r.receiptCount} receipt${r.receiptCount===1?"":"s"}`}</button>} />
     {detail&&<ClientFormDialog title="Payment transaction" wide busy={busy} error={dialogError} onClose={()=>{setDetail(null);setRejecting(false);}}>
       <div className="payment-transaction-summary"><div><strong>{detail.riderName}</strong><p>{detail.mobile}</p></div><strong>{money(detail)}</strong><span className={`status status-${detail.status.toLowerCase()}`}>{label(detail.status)}</span></div>

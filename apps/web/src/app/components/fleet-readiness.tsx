@@ -542,22 +542,18 @@ function FleetReadinessManager({
               </div>
             ))}
           </div>
-          <div className="client-filter-bar">
-            <label>
-              Search scooter
-              <input
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setPage(1);
-                  setCandidatePage(1);
-                }}
-                placeholder="Registration, fleet code or chassis"
-              />
-            </label>
-            <label>
-              Hub
-              <select
+          <ClientDataTable toolbarActions={<button
+              type="button"
+              className="secondary"
+              disabled={loading || busy}
+              onClick={() => setEpoch((n) => n + 1)}
+            >
+              Refresh
+            </button>} rows={rows} loading={loading} getRowId={(row) => row.id} emptyMessage="No preparations in this view."
+            server={{ page, limit: 20, total, search, filterCount: [hub,status,owner].filter(Boolean).length, onReset: () => { setSearch(""); setHub(""); setStatus(""); setOwner(""); setPage(1); setCandidatePage(1); }, onSearch: value => { setSearch(value); setPage(1); setCandidatePage(1); }, onPage: setPage }}
+            columns={[
+              { key: "scooter", label: "Scooter", value: (row) => row.fleet?.vehicleNumber || row.fleet?.fleetCode, render: (row) => <span className="client-record-title"><strong>{row.fleet?.vehicleNumber || row.fleet?.fleetCode}</strong><small>{row.fleet?.chassisNumber}</small></span> },
+              { key: "hub", label: "Hub", serverFilter: (id) => (<select id={id} aria-label="Filter by Hub"
                 value={hub}
                 onChange={(e) => {
                   setHub(e.target.value);
@@ -571,11 +567,9 @@ function FleetReadinessManager({
                     {h.name}
                   </option>
                 ))}
-              </select>
-            </label>
-            <label>
-              Status
-              <select
+              </select>), value: (row) => row.hub?.name ?? "—" },
+              { key: "assignee", label: "Assigned to", serverFilter: (id) => <select id={id} aria-label="Filter by assignee" value={owner ? "mine" : ""} onChange={event => { setOwner(event.target.value ? (context?.userId ?? "") : ""); setPage(1); }}><option value="">All assignees</option><option value="mine">Assigned to me</option></select>, value: (row) => row.assignee?.name ?? "Unassigned" },
+              { key: "status", label: "Status", serverFilter: (id) => (<select id={id} aria-label="Filter by Status"
                 value={status}
                 onChange={(e) => {
                   setStatus(e.target.value);
@@ -596,42 +590,14 @@ function FleetReadinessManager({
                 ].map((s) => (
                   <option key={s} value={s}>{label(s)}</option>
                 ))}
-              </select>
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={!!owner}
-                onChange={(e) => {
-                  setOwner(e.target.checked ? (context?.userId ?? "") : "");
-                  setPage(1);
-                }}
-              />
-              Assigned to me
-            </label>
-            <button
-              type="button"
-              className="secondary"
-              disabled={loading || busy}
-              onClick={() => setEpoch((n) => n + 1)}
-            >
-              Refresh
-            </button>
-          </div>
-          <ClientDataTable rows={rows} loading={loading} searchable={false} getRowId={(row) => row.id} emptyMessage="No preparations in this view."
-            server={{ page, limit: 20, total, search, onSearch: setSearch, onPage: setPage }}
-            columns={[
-              { key: "scooter", label: "Scooter", value: (row) => row.fleet?.vehicleNumber || row.fleet?.fleetCode, render: (row) => <span className="client-record-title"><strong>{row.fleet?.vehicleNumber || row.fleet?.fleetCode}</strong><small>{row.fleet?.chassisNumber}</small></span> },
-              { key: "hub", label: "Hub", value: (row) => row.hub?.name ?? "—" },
-              { key: "assignee", label: "Assigned to", value: (row) => row.assignee?.name ?? "Unassigned" },
-              { key: "status", label: "Status", value: (row) => label(row.status), render: (row) => <span className={`status status-${row.status.toLowerCase()}`}>{label(row.status)}</span> },
+              </select>), value: (row) => label(row.status), render: (row) => <span className={`status status-${row.status.toLowerCase()}`}>{label(row.status)}</span> },
               { key: "revision", label: "Revision", value: (row) => row.currentRevision },
               { key: "updated", label: "Updated", value: (row) => row.updatedAt, render: (row) => new Date(row.updatedAt).toLocaleString() },
             ]} actions={(row) => <button type="button" disabled={busy || loading} className="secondary table-action" onClick={() => void run(async () => { await loadDetail(row.id); })}>Open</button>} />
           {view === "preparation" && (
             <>
               <h3>Scooters awaiting preparation</h3>
-              <p>Use search and hub filters to browse scooters.</p>
+              <p>Use the table search and Hub column filter above to browse scooters.</p>
               <ClientDataTable rows={candidates} loading={loading} searchable={false} getRowId={(fleet) => fleet.id} emptyMessage="No scooters awaiting preparation."
                 server={{ page: candidatePage, limit: 20, total: candidateTotal, search, onSearch: setSearch, onPage: setCandidatePage }}
                 columns={[

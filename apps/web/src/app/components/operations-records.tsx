@@ -110,6 +110,21 @@ export function OperationsRecords({ kind, identityKey, refreshKey, request, acti
     column('createdAt','When', (row) => formatDateTime(text(row.createdAt))),
   ];
   const setFilter = (key: string, value: string) => setView((current) => ({ ...current, page: 1, filters: { ...current.filters, [key]: value ? [value] : [] } }));
+  const tableColumns = columns.map((entry) => ({
+    ...entry,
+    ...(kind === 'audit' && (entry.key === 'action' || entry.key === 'entityType') ? {
+      serverFilter: (id: string) => <input id={id} type="search" maxLength={100} aria-label={`Filter by ${entry.label}`} placeholder={t(`Search ${entry.label}`)} value={view.filters[entry.key]?.[0] ?? ''} onChange={event => setFilter(entry.key, event.target.value)} />,
+    } : kind === 'audit' && entry.key === 'createdAt' ? {
+      serverFilter: (id: string) => <div className="sa-table-filter-range">
+        <label htmlFor={`${id}-from`}><span>{t('From (UTC)')}</span><input id={`${id}-from`} type="date" value={view.filters.from?.[0] ?? ''} max={view.filters.to?.[0]} onChange={event => setFilter('from', event.target.value)} /></label>
+        <label htmlFor={`${id}-to`}><span>{t('To (UTC)')}</span><input id={`${id}-to`} type="date" value={view.filters.to?.[0] ?? ''} min={view.filters.from?.[0]} onChange={event => setFilter('to', event.target.value)} /></label>
+      </div>,
+    } : kind !== 'audit' && entry.key === 'status' ? {
+      serverFilter: (id: string) => <select id={id} aria-label="Filter by Status" value={view.filters.status?.[0] ?? ''} onChange={event => setFilter('status', event.target.value)}><option value="">{t('All statuses')}</option>{(kind === 'fleets' ? fleetStatuses : riderStatuses).map(value => <option key={value} value={value}>{t(label(value))}</option>)}</select>,
+    } : kind === 'fleets' && entry.key === 'hub' ? {
+      serverFilter: (id: string) => <select id={id} aria-label="Home or current hub" value={view.filters.hubId?.[0] ?? ''} onChange={event => setFilter('hubId', event.target.value)}><option value="">{t('All hubs')}</option>{view.filters.hubId?.[0] && !hubs.some(hub => hub.id === view.filters.hubId[0]) && <option value={view.filters.hubId[0]}>{t('Previously selected hub')}</option>}{hubs.map(hub => <option key={String(hub.id)} value={String(hub.id)}>{text(hub.name)}</option>)}</select>,
+    } : {}),
+  }));
   const openDetail = async (row: Row) => {
     setDetail(row); setDetailError('');
     if (kind === 'audit') return;
@@ -120,22 +135,11 @@ export function OperationsRecords({ kind, identityKey, refreshKey, request, acti
     finally { setDetailLoading(false); }
   };
   return <section className="operations-records" aria-label={`${kind} records`}>
-    <div className="operations-record-filters">
-      {kind === 'fleets' && <label>{t('Home or current hub')}<select value={view.filters.hubId?.[0] ?? ''} onChange={(e) => setFilter('hubId',e.target.value)}><option value="">{t('All hubs')}</option>{view.filters.hubId?.[0] && !hubs.some((hub) => hub.id === view.filters.hubId[0]) && <option value={view.filters.hubId[0]}>{t('Previously selected hub')}</option>}{hubs.map((hub) => <option key={String(hub.id)} value={String(hub.id)}>{text(hub.name)}</option>)}</select></label>}
-      {kind !== 'audit' ? <label>{t('Status')}<select value={view.filters.status?.[0] ?? ''} onChange={(e) => setFilter('status', e.target.value)}><option value="">{t('All statuses')}</option>{(kind === 'fleets' ? fleetStatuses : riderStatuses).map((value) => <option key={value} value={value}>{t(label(value))}</option>)}</select></label> : <>
-        <label>{t('Action')}<input type="search" maxLength={100} placeholder="e.g. RIDER_CREATED" value={view.filters.action?.[0] ?? ''} onChange={(e) => setFilter('action', e.target.value)} /></label>
-        <label>{t('Entity type')}<input type="search" maxLength={100} placeholder="e.g. FLEET" value={view.filters.entityType?.[0] ?? ''} onChange={(e) => setFilter('entityType', e.target.value)} /></label>
-        <label>{t('From (UTC)')}<input type="date" value={view.filters.from?.[0] ?? ''} max={view.filters.to?.[0]} onChange={(e) => setFilter('from', e.target.value)} /></label>
-        <label>{t('To (UTC)')}<input type="date" value={view.filters.to?.[0] ?? ''} min={view.filters.from?.[0]} onChange={(e) => setFilter('to', e.target.value)} /></label>
-      </>}
-      <button type="button" className="secondary" onClick={() => setView({ ...defaultTablePreferences })}>{t('Reset filters')}</button>
-    </div>
-    {kind === 'audit' && <p className="muted">{t('Search by action, entity type, record ID, actor ID or actor name. Date filters use UTC.')}</p>}
     {hubError && <p className="muted" role="status">{t(hubError)} <button className="secondary" onClick={() => { setHubError(''); setRetry((value) => value + 1); }}>{t('Retry')}</button></p>}
     {error && <div role="alert" className="error"><p>{error}</p><button type="button" className="secondary" onClick={() => setRetry((value) => value + 1)}>{t('Retry')}</button></div>}
-    <ClientDataTable rows={rows} columns={columns} getRowId={(row) => String(row.id)} loading={awaiting && !error}
+    <ClientDataTable rows={rows} columns={tableColumns} getRowId={(row) => String(row.id)} loading={awaiting && !error}
       emptyMessage={error ? 'Unable to load records. Retry to continue.' : 'No records match this view.'}
-      server={{ page: view.page, limit: view.limit, total: result?.signature === signature ? result.total : 0, search: view.search, sort: view.sort ?? undefined,
+      server={{ filterCount: Object.values(view.filters).filter(values => values.length > 0).length, onReset: () => setView({ ...defaultTablePreferences }), page: view.page, limit: view.limit, total: result?.signature === signature ? result.total : 0, search: view.search, sort: view.sort ?? undefined,
         onPage: (page) => setView((current) => ({ ...current, page })), onLimit: (limit) => setView((current) => ({ ...current, page: 1, limit })),
         onSearch: (search) => setView((current) => ({ ...current, page: 1, search: search.slice(0,200) })),
         onSort: (sort) => setView((current) => ({ ...current, page: 1, sort })), }}

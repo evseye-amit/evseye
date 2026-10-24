@@ -4764,6 +4764,9 @@ body:has(.sa-dialog[open]) {
 .operations-record-fields dd { margin: 0; overflow-wrap: anywhere; }
 .operations-change-value { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin: 0; max-width: 460px; }
 @media (max-width: 600px) { .operations-record-fields { grid-template-columns: minmax(0,1fr); } .operations-record-filters > button { width: 100%; } }
+/* Keep shared list headings readable; narrow screens scroll the table horizontally. */
+.client-operations-main .client-data-table .sa-table-wrap th:not(.sa-table-action-cell) { min-width: 120px; overflow-wrap: normal; word-break: normal; }
+.client-operations-main .client-data-table .sa-table-filter-range:has(input[type="date"]) { min-width: 300px; }
 .operations-records > .client-data-table .sa-table-wrap table { min-width: 1080px; }
 .operations-records > .client-data-table .sa-table-wrap :is(th, td):not(.sa-table-action-cell) { min-width: 120px; overflow-wrap: normal; word-break: normal; }
 .operations-records > .client-data-table .status { white-space: nowrap; overflow-wrap: normal; }
