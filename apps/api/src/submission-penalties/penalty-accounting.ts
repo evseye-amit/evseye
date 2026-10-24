@@ -13,6 +13,10 @@ export const payableStatuses = [
   'PARTIALLY_PAID',
   'OVERDUE',
 ] as const;
+// Penalty settlement is independent of invoice lifecycle and gateway attempt status.
+export const penaltyPaymentStatus = (outstandingAmount: Prisma.Decimal): 'PAID' | 'UNPAID' =>
+  outstandingAmount.lte(0) ? 'PAID' : 'UNPAID';
+
 export const paymentView = (invoice: RiderInvoice) => ({
   invoiceId: invoice.id,
   invoiceNumber: invoice.invoiceNumber,
@@ -22,11 +26,7 @@ export const paymentView = (invoice: RiderInvoice) => ({
   settledCreditAmount: invoice.appliedSettlementCreditAmount.toFixed(2),
   outstandingAmount: invoice.outstandingAmount.toFixed(2),
   status: invoice.status,
-  paymentStatus: invoice.outstandingAmount.lte(0)
-    ? 'PAID'
-    : invoice.paidAmount.gt(0)
-      ? 'PARTIALLY_PAID'
-      : 'PENDING',
+  paymentStatus: penaltyPaymentStatus(invoice.outstandingAmount),
   breakdown: invoice.pricingSnapshot,
   createdAt: invoice.createdAt,
   payEndpoint: '/api/v1/rider-app/payments/orders',

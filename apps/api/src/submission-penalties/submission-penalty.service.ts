@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import {
   paymentView,
+  penaltyPaymentStatus,
   penaltyDebt,
   PENALTY_INVOICE,
   payableStatuses,
@@ -76,6 +77,7 @@ export class SubmissionPenaltyService {
         tx.paymentTransaction.findFirst({ where: { clientId, riderId, status: { in: ['CREATING', 'PENDING', 'UNKNOWN'] } }, select: { id: true, amount: true, currency: true, status: true }, orderBy: { createdAt: 'desc' } }),
       ]);
       const totals = groups.map(group => ({ currency: group.currency,
+        paymentStatus: penaltyPaymentStatus(group._sum.outstandingAmount ?? new Prisma.Decimal(0)),
         totalAmount: (group._sum.totalAmount ?? new Prisma.Decimal(0)).toFixed(2),
         paidAmount: (group._sum.paidAmount ?? new Prisma.Decimal(0)).toFixed(2),
         settledCreditAmount: (group._sum.appliedSettlementCreditAmount ?? new Prisma.Decimal(0)).toFixed(2),

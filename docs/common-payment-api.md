@@ -76,3 +76,9 @@ The common API calls the existing deployment, penalty and configured checkout se
 The replaced Rider gateway-specific order/verify and billing checkout create/verify routes are removed from controllers. Billing collection read endpoints remain available. Manual payment submission/receipt/approve/reject, AutoPay/mandate/scheduled collection, admin reconciliation and gateway webhooks remain unchanged.
 
 No change to PAYMENT_PROVIDER is needed for Razorpay; it remains independent of the configured Cashfree/mock/disabled checkout adapter. Razorpay must still be enabled and configured for the client. Gateway secrets are never returned. Configure existing webhook URLs for server-side recovery when the app closes.
+
+### Submission penalty settlement status
+
+`GET /rider-app/submission-penalties` (including `status=ALL`), penalty detail, submission penalty requests and home pending penalty requests expose `paymentStatus` as **PAID** when the invoice has no remaining outstanding balance, otherwise **UNPAID**. Summary currency totals use the same rule. Partial payments and partial settlement credits remain UNPAID until fully settled; the amount fields retain the exact paid, credited and outstanding balances.
+
+The existing `status` field continues to describe the invoice lifecycle (for example, `PARTIALLY_PAID`). Gateway attempt states and payment-in-progress details are unchanged: a successful partial payment does not mean the entire penalty is paid. The `status=PENDING` list filter still selects outstanding penalties; its name and pagination contract are unchanged.

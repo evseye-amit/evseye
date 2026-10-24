@@ -244,6 +244,7 @@ describe.skipIf(!url)(
         payNowAvailable: false,
         paymentInProgress: { source: 'RAZORPAY', orderId: order.orderId },
       });
+      expect((await f.penalties.list(f.client.id, f.rider.id, 1, 100, true)).data.every(row => row.paymentStatus === 'UNPAID')).toBe(true);
       const later = await f.invoice('50', 'SUBMISSION_PENALTY', '2025-01-01');
       const callback = r.capture(order);
       await Promise.all([
@@ -251,6 +252,10 @@ describe.skipIf(!url)(
         r.service.verify(f.client.id, f.user.id, callback),
       ]);
       const result = await r.service.verify(f.client.id, f.user.id, callback);
+      const penaltyList = await f.penalties.list(f.client.id, f.rider.id, 1, 100, true);
+      expect(penaltyList.data.find(row => row.invoiceId === f.older.id)).toMatchObject({ paymentStatus: 'PAID', paidAmount: '300.00', outstandingAmount: '0.00' });
+      expect(penaltyList.data.find(row => row.invoiceId === f.newer.id)).toMatchObject({ paymentStatus: 'UNPAID', paidAmount: '200.00', outstandingAmount: '700.00' });
+
       expect(result).toMatchObject({
         defaultAmount: '750.00',
         paymentStatus: 'SUCCESS',
@@ -328,6 +333,8 @@ describe.skipIf(!url)(
       await expect(
         r.service.verify(f.client.id, f.user.id, wrong),
       ).rejects.toThrow('PROVIDER_PAYMENT_MISMATCH');
+      expect((await f.penalties.list(f.client.id, f.rider.id, 1, 100, true)).data.every(row => row.paymentStatus === 'UNPAID')).toBe(true);
+
       expect(
         await db.riderPayment.count({ where: { clientId: f.client.id } }),
       ).toBe(0);
@@ -505,6 +512,9 @@ describe.skipIf(!url)(
       expect(await db.riderPayment.count({ where: { clientId: f.client.id } })).toBe(2);
       expect(await db.walletTransaction.count({ where: { clientId: f.client.id, transactionType: 'PAYMENT' } })).toBe(2);
       expect((await f.penalties.summary(f.client.id, f.rider.id)).defaultAmount).toBe('500.00');
+      expect(await f.penalties.get(f.client.id, f.rider.id, f.older.id)).toMatchObject({ paymentStatus: 'PAID' });
+      expect(await f.penalties.get(f.client.id, f.rider.id, f.newer.id)).toMatchObject({ paymentStatus: 'UNPAID', outstandingAmount: '500.00' });
+
     });
     it('makes one partial payment across penalties, preserves rent, and posts one receipt/ledger/wallet history entry', async () => {
       const f = await fixture();
@@ -608,6 +618,10 @@ describe.skipIf(!url)(
       );
       f.success(request.orderId!, request.amount);
       await f.checkout.verify(f.client.id, f.rider.id, request.collectionId);
+      const paidList = await f.penalties.list(f.client.id, f.rider.id, 1, 100, true);
+      expect(paidList.data).toHaveLength(2);
+      expect(paidList.data.every(row => row.paymentStatus === 'PAID')).toBe(true);
+      expect((await f.penalties.list(f.client.id, f.rider.id, 1, 100)).data).toEqual([]);
       expect(await f.penalties.summary(f.client.id, f.rider.id)).toMatchObject({
         defaultAmount: '0.00',
         pendingCount: 0,
