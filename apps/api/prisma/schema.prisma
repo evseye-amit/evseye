@@ -2283,6 +2283,7 @@ model PaymentCollectionRequest {
   updatedAt            DateTime                     @updatedAt
   attempts             PaymentAttempt[]
   providerEvents       PaymentProviderEvent[]
+  razorpayPenaltyOrder RazorpayPenaltyOrder?
   providerObservations ProviderPaymentObservation[]
 
   @@unique([clientId, idempotencyKey])
@@ -6376,4 +6377,34 @@ model RazorpayDeploymentCapture {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@index([status, updatedAt])
+}
+
+model RazorpayPenaltyOrder {
+  id String @id @default(uuid())
+  collectionId String @unique
+  collection PaymentCollectionRequest @relation(fields: [collectionId], references: [id], onDelete: Restrict)
+  keyId String @db.VarChar(100)
+  providerOrderId String? @unique @db.VarChar(80)
+  amountPaise BigInt
+  currency String @db.Char(3)
+  status String @default("CREATING") @db.VarChar(30)
+  createdAt DateTime @default(now())
+  checkedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  captures RazorpayPenaltyCapture[]
+  @@index([status, checkedAt])
+}
+
+model RazorpayPenaltyCapture {
+  id String @id @default(uuid())
+  orderId String
+  order RazorpayPenaltyOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  providerPaymentId String @unique @db.VarChar(120)
+  amountPaise BigInt
+  currency String @db.Char(3)
+  status String @db.VarChar(30)
+  reason String? @db.VarChar(100)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([status, createdAt])
 }

@@ -49,6 +49,8 @@ export async function pendingPenaltySummary(
     paymentRequests: requests.map(paymentView),
     listEndpoint: '/api/v1/rider-app/submission-penalties',
     summaryEndpoint: '/api/v1/rider-app/submission-penalties/summary',
+    razorpayOrderEndpoint: '/api/v1/rider-app/submission-penalties/razorpay/order',
+        razorpayVerifyEndpoint: '/api/v1/rider-app/submission-penalties/razorpay/verify',
     payEndpoint: '/api/v1/rider-app/billing/payments/pay-outstanding',
     paymentScope: 'SUBMISSION_PENALTY',
     partialPaymentAllowed: true,
@@ -72,7 +74,7 @@ export class SubmissionPenaltyService {
       const [groups, pendingCount, checkout, autoPay] = await Promise.all([
         tx.riderInvoice.groupBy({ by: ['currency'], where, _sum: { totalAmount: true, paidAmount: true, appliedSettlementCreditAmount: true, outstandingAmount: true } }),
         tx.riderInvoice.count({ where: { ...where, outstandingAmount: { gt: 0 } } }),
-        tx.paymentCollectionRequest.findFirst({ where: { clientId, riderId, status: { in: ['CREATING', 'PENDING', 'UNKNOWN'] } }, select: { id: true, amount: true, currency: true, status: true }, orderBy: { createdAt: 'desc' } }),
+        tx.paymentCollectionRequest.findFirst({ where: { clientId, riderId, OR: [{ status: { in: ['CREATING', 'PENDING', 'UNKNOWN'] } }, { provider: 'RAZORPAY', status: 'SUCCESS', failureCode: { not: null } }] }, select: { id: true, amount: true, currency: true, status: true, provider: true, providerOrderId: true }, orderBy: { createdAt: 'desc' } }),
         tx.paymentTransaction.findFirst({ where: { clientId, riderId, status: { in: ['CREATING', 'PENDING', 'UNKNOWN'] } }, select: { id: true, amount: true, currency: true, status: true }, orderBy: { createdAt: 'desc' } }),
       ]);
       const totals = groups.map(group => ({ currency: group.currency,
@@ -87,7 +89,9 @@ export class SubmissionPenaltyService {
       return { totals, pendingCount, currency: supported ? 'INR' : null, defaultAmount: supported ? debt[0].outstandingAmount : '0.00',
         minimumPaymentAmount: '1.00', maximumPaymentAmount: supported ? debt[0].outstandingAmount : '0.00', partialPaymentAllowed: supported && new Prisma.Decimal(debt[0].outstandingAmount).gt(1),
         payNowAvailable: supported && new Prisma.Decimal(debt[0].outstandingAmount).gte(1) && !active,
-        paymentInProgress: active ? { id: active.id, source: checkout ? 'CHECKOUT' : 'AUTOPAY', status: active.status, amount: active.amount.toFixed(2), currency: active.currency } : null,
+        paymentInProgress: active ? { id: active.id, source: checkout?.provider === 'RAZORPAY' ? 'RAZORPAY' : checkout ? 'CHECKOUT' : 'AUTOPAY', ...(checkout?.provider === 'RAZORPAY' ? { orderId: checkout.providerOrderId } : {}), status: active.status, amount: active.amount.toFixed(2), currency: active.currency } : null,
+        razorpayOrderEndpoint: '/api/v1/rider-app/submission-penalties/razorpay/order',
+        razorpayVerifyEndpoint: '/api/v1/rider-app/submission-penalties/razorpay/verify',
         payEndpoint: '/api/v1/rider-app/billing/payments/pay-outstanding', paymentScope: 'SUBMISSION_PENALTY',
         breakdownEndpoint: '/api/v1/rider-app/submission-penalties',
       };

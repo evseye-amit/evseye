@@ -362,6 +362,7 @@ export class AutoCollectionService {
     }
     const checkouts = await this.prisma.paymentCollectionRequest.findMany({
       where: {
+        provider: { not: 'RAZORPAY' },
         status: { in: ['UNKNOWN', 'PENDING'] },
         createdAt: { lt: new Date(Date.now() - 3600000) },
       },

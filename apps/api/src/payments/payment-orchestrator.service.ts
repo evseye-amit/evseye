@@ -102,6 +102,7 @@ export class PaymentOrchestratorService {
     let created = false;
     try {
       reserved = await this.serializable(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "Rider" WHERE id = ${riderId} AND "clientId" = ${clientId} FOR UPDATE`;
         const invoice = await tx.riderInvoice.findFirst({
           where: { id: invoiceId, clientId, riderId },
         });
