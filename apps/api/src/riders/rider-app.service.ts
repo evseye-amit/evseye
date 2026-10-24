@@ -1,5 +1,5 @@
 import { normalizeRiderBankValues, riderBankFields } from './rider-bank-fields.js';
-import { BadRequestException, ConflictException, Injectable, Logger, Optional } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { PhotoEntityType, PhotoStatus, Prisma, ReferralAttributionSource, RiderDocumentReviewStatus, UserRole } from '@prisma/client';
 import { normalizeIndianMobile } from '../common/phone.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -28,6 +28,48 @@ export class RiderAppService {
     const configuration = await this.configuration.getEffectiveConfiguration(client.id);
     await this.prisma.riderOnboardingProgress.upsert({ where: { userId: user.id }, create: { clientId: client.id, userId: user.id, packageId: configuration.package.id, currentStepId: configuration.onboarding.steps[0]?.stepId }, update: {} });
     return { clientId: client.id, userId: user.id, phone: mobile };
+  }
+
+  async profile(clientId: string, userId: string) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, clientId, role: UserRole.RIDER, isActive: true, deletedAt: null },
+      select: { id: true, name: true, mobile: true },
+    });
+    if (!user) throw new NotFoundException('Rider account not found.');
+    const [rider, progress, fields] = await Promise.all([
+      this.prisma.rider.findFirst({ where: { clientId, userId, deletedAt: null } }),
+      this.prisma.riderOnboardingProgress.findFirst({ where: { clientId, userId } }),
+      this.kyc.fields(clientId),
+    ]);
+    const values = progress?.values && typeof progress.values === 'object' && !Array.isArray(progress.values)
+      ? progress.values as Record<string, unknown> : {};
+    const fallback: Record<string, unknown> = {};
+    if (!progress?.completedAt) {
+      // Resolve configured storage keys rather than assuming fixed onboarding field codes.
+      for (const field of fields as Array<{ fieldCode: string; storageKey?: string }>) {
+        if (field.storageKey && values[field.fieldCode] !== undefined) fallback[field.storageKey] = values[field.fieldCode];
+      }
+    }
+    const metadata = rider?.metadata && typeof rider.metadata === 'object' && !Array.isArray(rider.metadata) ? rider.metadata : {};
+    const present = (value: unknown) => value === undefined || value === null || value === '' ? null : value;
+    const read = (key: string) => present((rider as unknown as Record<string, unknown> | null)?.[key]) ?? present(fallback[key]);
+    const bank = Object.fromEntries(riderBankFields.map(field => {
+      const key = field.storageKey.slice('metadata.'.length);
+      return [key, present(metadata[key]) ?? present(fallback[field.storageKey])];
+    }));
+    return {
+      userId: user.id, riderId: rider?.id ?? null,
+      name: read('name') ?? (user.name === 'Pending Rider' ? null : user.name),
+      mobile: read('mobile') ?? user.mobile,
+      riderCode: read('riderCode'), dateOfBirth: read('dateOfBirth'), gender: read('gender'),
+      address: read('address'), addressLine1: read('addressLine1'), addressLine2: read('addressLine2'),
+      city: read('city'), state: read('state'), postalCode: read('postalCode'),
+      emergencyContactName: read('emergencyContactName'), emergencyContactMobile: read('emergencyContactMobile'),
+      bankDetails: bank,
+      status: rider?.status ?? 'ONBOARDING',
+      onboarding: { completed: Boolean(progress?.completedAt), completedAt: progress?.completedAt ?? null },
+      ...await this.kyc.forUser(clientId, userId, fields),
+    };
   }
 
   async onboarding(clientId: string, userId: string, locale: ApiLocale = 'en') {
@@ -268,14 +310,13 @@ export class RiderAppService {
         await tx.riderOnboardingDocument.updateMany({ where: { clientId, userId, riderId: null }, data: { riderId: rider.id } });
         await tx.user.update({ where: { id: userId }, data: { name: data.name as string } });
       } else if (existingRider && existingRider.clientId === clientId) {
+        const previous = existingRider.metadata && typeof existingRider.metadata === 'object' && !Array.isArray(existingRider.metadata) ? existingRider.metadata : {};
         const metadata = riderValues.metadata as Record<string, unknown> | undefined;
-        const bankMetadata = Object.fromEntries(riderBankFields
-          .filter(field => storedValues[field.fieldCode] !== undefined && metadata?.[field.storageKey.slice('metadata.'.length)] !== undefined)
-          .map(field => [field.storageKey.slice('metadata.'.length), metadata![field.storageKey.slice('metadata.'.length)]]));
-        if (Object.keys(bankMetadata).length) {
-          const previous = existingRider.metadata && typeof existingRider.metadata === 'object' && !Array.isArray(existingRider.metadata) ? existingRider.metadata : {};
-          await tx.rider.update({ where: { id: existingRider.id }, data: { metadata: { ...previous, ...bankMetadata } as Prisma.InputJsonValue } });
-        }
+        await tx.rider.update({ where: { id: existingRider.id }, data: {
+          ...riderValues,
+          ...(metadata ? { metadata: { ...previous, ...metadata } as Prisma.InputJsonValue } : {}),
+        } });
+        if (typeof riderValues.name === 'string') await tx.user.update({ where: { id: userId }, data: { name: riderValues.name } });
       }
       if (allFinished) await this.kyc.sync(tx, clientId, userId, effective.onboarding.steps.flatMap(step => step.fields));
     });
