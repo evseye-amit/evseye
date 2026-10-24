@@ -235,7 +235,7 @@ Header: `Idempotency-Key: <unique key for this payment attempt; reuse unchanged 
 
 Omit `amount` to pay the entire outstanding penalty balance. Amounts must be decimal strings, at most two decimal places, at least INR 1.00, and no greater than current scoped debt. The server derives ownership, eligible invoices, currency and maximum payable amount. Reusing a key with a different scope/amount is rejected. Unknown request fields are rejected.
 
-The response is the existing checkout collection view: collection ID, payment number, requested amount/currency, provider order/session, status and failure code. This uses the existing configured checkout provider (Cashfree, or mock in tests); it does not extend Razorpay's separate deployment/handover integration. Payment receipts remain automatically verified through the existing collection verification/webhook flow, without staff approval.
+The response is the existing checkout collection view: collection ID, payment number, requested amount/currency, provider order/session, status and failure code. This route uses the existing configured checkout provider (Cashfree, or mock in tests). Razorpay penalty checkout is also available through dedicated order/verify routes; see [Razorpay penalty payments](razorpay-penalty-payments.md). Payment receipts remain automatically verified through the existing collection verification/webhook flow, without staff approval.
 
 Calls without a body retain the old ALL-outstanding/full-payment behaviour. Existing invoice-specific payments and Cashfree AutoPay remain available. A penalty aggregate checkout blocks overlapping per-invoice checkout attempts until its state is resolved.
 

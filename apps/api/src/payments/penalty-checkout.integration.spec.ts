@@ -1,3 +1,6 @@
+import { RazorpayDeploymentService } from './razorpay/razorpay-deployment.service.js';
+import { RazorpayPenaltyService } from './razorpay/razorpay-penalty.service.js';
+import { RazorpayProviderError } from './razorpay/razorpay.client.js';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
@@ -25,9 +28,13 @@ describe.skipIf(!url)(
       const client = await db.client.create({
         data: { name: 'Penalty checkout test', slug: id, status: 'ACTIVE' },
       });
+      const user = await db.user.create({
+        data: { clientId: client.id, name: 'Rider', mobile: id, role: 'RIDER' },
+      });
       const rider = await db.rider.create({
         data: {
           clientId: client.id,
+          userId: user.id,
           name: 'Rider',
           mobile: id,
           status: 'ACTIVE',
@@ -136,6 +143,7 @@ describe.skipIf(!url)(
       }
       return {
         client,
+        user,
         rider,
         older,
         newer,
@@ -148,6 +156,336 @@ describe.skipIf(!url)(
         success,
       };
     }
+    function razorpay(f: Awaited<ReturnType<typeof fixture>>) {
+      const orders = new Map<string, any>();
+      const captures = new Map<string, any>();
+      const gateway = {
+        keyId: 'rzp_test_penalty',
+        enabled: true,
+        verifyWebhook: vi.fn(),
+        assertConfigured: vi.fn(),
+        verifyCheckout: vi.fn(),
+        createOrder: vi.fn(
+          async (amount: number, currency: string, receipt: string) => {
+            const order = {
+              id: `order_${randomUUID().replaceAll('-', '')}`,
+              amount,
+              currency,
+              receipt,
+              status: 'created',
+            };
+            orders.set(order.id, order);
+            return order;
+          },
+        ),
+        fetchOrder: vi.fn(async (id: string) => orders.get(id)),
+        findOrders: vi.fn(async (receipt: string) =>
+          [...orders.values()].filter((o) => o.receipt === receipt),
+        ),
+        fetchPayment: vi.fn(async (id: string) => captures.get(id)),
+        orderPayments: vi.fn(async (id: string) =>
+          [...captures.values()].filter((p) => p.order_id === id),
+        ),
+      };
+      const penalties = {
+        rider: f.penalties.rider.bind(f.penalties),
+        summary: f.penalties.summary.bind(f.penalties),
+      };
+      const service = new RazorpayPenaltyService(
+        db as never,
+        gateway as never,
+        new RiderPaymentsService(db as never),
+        f.wallet,
+        penalties as never,
+      );
+      function capture(
+        order: { orderId: string | null; amount: number; currency: string },
+        extra = {},
+      ) {
+        const payment = {
+          id: `pay_${randomUUID().replaceAll('-', '')}`,
+          order_id: order.orderId,
+          amount: order.amount,
+          currency: order.currency,
+          status: 'captured',
+          captured: true,
+          amount_refunded: 0,
+          ...extra,
+        };
+        captures.set(payment.id, payment);
+        return {
+          razorpayOrderId: order.orderId!,
+          razorpayPaymentId: payment.id,
+          razorpaySignature: 'a'.repeat(64),
+        };
+      }
+      return { service, gateway, capture, captures };
+    }
+    it('Razorpay reuses an open order, blocks Cashfree, and settles partial payment exactly once without paying later charges', async () => {
+      const f = await fixture();
+      const r = razorpay(f);
+      const order = await r.service.createOrder(f.client.id, f.user.id, {
+        amount: '500',
+      });
+      expect(
+        await r.service.createOrder(f.client.id, f.user.id, {
+          amount: '500.00',
+        }),
+      ).toEqual(order);
+      expect(r.gateway.createOrder).toHaveBeenCalledTimes(1);
+      await expect(
+        f.checkout.payOutstanding(f.client.id, f.rider.id, randomUUID(), {
+          scope: 'SUBMISSION_PENALTY',
+        }),
+      ).rejects.toThrow('PAYMENT_ALREADY_IN_PROGRESS');
+      expect(await f.penalties.summary(f.client.id, f.rider.id)).toMatchObject({
+        payNowAvailable: false,
+        paymentInProgress: { source: 'RAZORPAY', orderId: order.orderId },
+      });
+      const later = await f.invoice('50', 'SUBMISSION_PENALTY', '2025-01-01');
+      const callback = r.capture(order);
+      await Promise.all([
+        r.service.verify(f.client.id, f.user.id, callback),
+        r.service.verify(f.client.id, f.user.id, callback),
+      ]);
+      const result = await r.service.verify(f.client.id, f.user.id, callback);
+      expect(result).toMatchObject({
+        defaultAmount: '750.00',
+        paymentStatus: 'SUCCESS',
+      });
+      expect(result).not.toHaveProperty('nextAction');
+      expect(
+        (
+          await db.riderInvoice.findUniqueOrThrow({ where: { id: later.id } })
+        ).outstandingAmount.toFixed(2),
+      ).toBe('50.00');
+      expect(
+        (
+          await db.riderInvoice.findUniqueOrThrow({
+            where: { id: f.rental.id },
+          })
+        ).paidAmount.toFixed(2),
+      ).toBe('0.00');
+      expect(
+        await db.riderPayment.count({ where: { clientId: f.client.id } }),
+      ).toBe(1);
+      expect(
+        await db.razorpayPenaltyCapture.count({
+          where: {
+            order: { collection: { clientId: f.client.id } },
+            status: 'SETTLED',
+          },
+        }),
+      ).toBe(1);
+      expect(
+        await db.riderLedgerEntry.count({
+          where: { clientId: f.client.id, entryType: 'PAYMENT' },
+        }),
+      ).toBe(1);
+      expect(
+        await db.walletTransaction.count({
+          where: { clientId: f.client.id, transactionType: 'PAYMENT' },
+        }),
+      ).toBe(1);
+      const duplicate = r.capture(order);
+      expect(
+        await r.service.verify(f.client.id, f.user.id, duplicate),
+      ).toMatchObject({
+        paymentStatus: 'SUCCESS',
+        nextAction: 'CONTACT_SUPPORT',
+      });
+      expect(
+        await db.riderPayment.count({ where: { clientId: f.client.id } }),
+      ).toBe(1);
+    });
+    it('Razorpay rejects invalid amounts, foreign orders, invalid signatures and mismatched captures', async () => {
+      const f = await fixture();
+      const r = razorpay(f);
+      for (const body of [
+        { amount: '0.99' },
+        { amount: '1201' },
+        { amount: 5 },
+        { amount: '1.001' },
+        { scope: 'ALL' },
+      ])
+        await expect(
+          r.service.createOrder(f.client.id, f.user.id, body),
+        ).rejects.toThrow();
+      const order = await r.service.createOrder(f.client.id, f.user.id, {});
+      const callback = r.capture(order);
+      await expect(
+        r.service.verify('foreign-client', f.user.id, callback),
+      ).rejects.toThrow('not found');
+      r.gateway.verifyCheckout.mockImplementationOnce(() => {
+        throw new Error('Invalid signature');
+      });
+      await expect(
+        r.service.verify(f.client.id, f.user.id, callback),
+      ).rejects.toThrow('Invalid signature');
+      const wrong = r.capture(order, { amount: order.amount - 1 });
+      await expect(
+        r.service.verify(f.client.id, f.user.id, wrong),
+      ).rejects.toThrow('PROVIDER_PAYMENT_MISMATCH');
+      expect(
+        await db.riderPayment.count({ where: { clientId: f.client.id } }),
+      ).toBe(0);
+    });
+    it('Razorpay reconciles app-closed captures and preserves surplus for review when planned charges were paid elsewhere', async () => {
+      const f = await fixture();
+      const r = razorpay(f);
+      const order = await r.service.createOrder(f.client.id, f.user.id, {
+        amount: '500',
+      });
+      r.capture(order);
+      await db.riderInvoice.update({
+        where: { id: f.older.id },
+        data: { paidAmount: 300, outstandingAmount: 0, status: 'PAID' },
+      });
+      const collection = await db.paymentCollectionRequest.findUniqueOrThrow({
+        where: { providerOrderId: order.orderId! },
+      });
+      await r.service.reconcileCollection(
+        f.client.id,
+        f.rider.id,
+        collection.id,
+      );
+      const payment = await db.riderPayment.findFirstOrThrow({
+        where: { clientId: f.client.id },
+      });
+      expect(payment.unallocatedAmount.toFixed(2)).toBe('300.00');
+      expect(
+        (
+          await db.riderInvoice.findUniqueOrThrow({ where: { id: f.newer.id } })
+        ).paidAmount.toFixed(2),
+      ).toBe('200.00');
+      expect(
+        await db.razorpayPenaltyCapture.findFirst({
+          where: { providerPaymentId: payment.externalReference! },
+        }),
+      ).toMatchObject({ status: 'REVIEW_REQUIRED' });
+    });
+    it('Razorpay keeps authorization pending and recovers an ambiguous create by receipt without a second POST', async () => {
+      const f = await fixture();
+      const r = razorpay(f);
+      const original = r.gateway.createOrder.getMockImplementation()!;
+      r.gateway.createOrder.mockImplementationOnce(async (...args) => {
+        await original(...args);
+        throw new RazorpayProviderError();
+      });
+      await expect(
+        r.service.createOrder(f.client.id, f.user.id, {}),
+      ).rejects.toThrow();
+      await db.razorpayPenaltyOrder.updateMany({
+        where: { collection: { clientId: f.client.id } },
+        data: { createdAt: new Date(Date.now() - 60000) },
+      });
+      const recovered = await r.service.createOrder(f.client.id, f.user.id, {});
+      expect(r.gateway.createOrder).toHaveBeenCalledTimes(1);
+      const callback = r.capture(recovered, {
+        status: 'authorized',
+        captured: false,
+      });
+      expect(
+        await r.service.verify(f.client.id, f.user.id, callback),
+      ).toMatchObject({
+        nextAction: 'AWAITING_GATEWAY_CONFIRMATION',
+        payNowAvailable: false,
+      });
+      r.captures.get(callback.razorpayPaymentId).captured = true;
+      r.captures.get(callback.razorpayPaymentId).status = 'captured';
+      const collection = await db.paymentCollectionRequest.findUniqueOrThrow({
+        where: { providerOrderId: recovered.orderId! },
+      });
+      await r.service.reconcileCollection(
+        f.client.id,
+        f.rider.id,
+        collection.id,
+      );
+      expect(
+        (await f.penalties.summary(f.client.id, f.rider.id)).defaultAmount,
+      ).toBe('0.00');
+    });
+    it('routes durable Razorpay webhook events to penalty settlement and rejects event ID collisions', async () => {
+      const f = await fixture();
+      const r = razorpay(f);
+      const order = await r.service.createOrder(f.client.id, f.user.id, {
+        amount: '100',
+      });
+      const callback = r.capture(order);
+      const worker = new RazorpayDeploymentService(
+        db as never,
+        r.gateway as never,
+        {} as never,
+        r.service,
+      );
+      const eventId = randomUUID();
+      const raw = Buffer.from(
+        JSON.stringify({
+          event: 'payment.captured',
+          payload: {
+            payment: {
+              entity: {
+                id: callback.razorpayPaymentId,
+                order_id: order.orderId,
+              },
+            },
+          },
+        }),
+      );
+      await worker.webhook(raw, 'test', eventId);
+      await worker.webhook(raw, 'test', eventId);
+      const event = await db.paymentProviderEvent.findUniqueOrThrow({
+        where: {
+          provider_eventKey: { provider: 'RAZORPAY', eventKey: eventId },
+        },
+      });
+      await worker['processEvent'](event);
+      await worker['processEvent'](event);
+      expect(
+        await db.paymentProviderEvent.findUnique({ where: { id: event.id } }),
+      ).toMatchObject({ status: 'PROCESSED', clientId: f.client.id });
+      expect(
+        await db.riderPayment.count({ where: { clientId: f.client.id } }),
+      ).toBe(1);
+      await expect(
+        worker.webhook(
+          Buffer.from(
+            raw.toString().replace('payment.captured', 'payment.failed'),
+          ),
+          'test',
+          eventId,
+        ),
+      ).rejects.toThrow('different content');
+    });
+    it('reserves only one Razorpay order for concurrent Pay taps and retries failed attempts using that order', async () => {
+      const f = await fixture();
+      const r = razorpay(f);
+      const results = await Promise.allSettled(
+        Array.from({ length: 3 }, () =>
+          r.service.createOrder(f.client.id, f.user.id, { amount: '50' }),
+        ),
+      );
+      expect(results.some((result) => result.status === 'fulfilled')).toBe(
+        true,
+      );
+      expect(r.gateway.createOrder).toHaveBeenCalledTimes(1);
+      expect(
+        await db.razorpayPenaltyOrder.count({
+          where: { collection: { clientId: f.client.id } },
+        }),
+      ).toBe(1);
+      const order = await r.service.createOrder(f.client.id, f.user.id, {
+        amount: '50',
+      });
+      const callback = r.capture(order, { status: 'failed', captured: false });
+      expect(
+        await r.service.verify(f.client.id, f.user.id, callback),
+      ).toMatchObject({ nextAction: 'RETRY_ONLINE_PAYMENT' });
+      expect(
+        await r.service.createOrder(f.client.id, f.user.id, { amount: '50' }),
+      ).toEqual(order);
+      expect(r.gateway.createOrder).toHaveBeenCalledTimes(1);
+    });
     it('makes one partial payment across penalties, preserves rent, and posts one receipt/ledger/wallet history entry', async () => {
       const f = await fixture();
       expect(await f.penalties.summary(f.client.id, f.rider.id)).toMatchObject({

@@ -98,6 +98,7 @@ export class PaymentRefundService {
         include: { mandate: true },
       }),
     ]);
+    if (checkout?.provider === 'RAZORPAY') throw new ConflictException('Razorpay penalty refunds require support review.');
     if (checkout?.providerOrderId)
       return {
         kind: 'CHECKOUT' as const,

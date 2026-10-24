@@ -46,6 +46,7 @@ function fixture() {
     lastVerifiedAt: null as Date | null,
   };
   const tx = {
+    $queryRaw: vi.fn().mockResolvedValue([]),
     riderInvoice: {
       findFirst: vi.fn().mockResolvedValue(invoice),
       findUniqueOrThrow: vi.fn().mockResolvedValue(invoice),
