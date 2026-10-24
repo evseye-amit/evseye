@@ -1,5 +1,7 @@
 // Exported from the local database; feature and package codes keep links portable.
 export const packageFeatureCatalog = [
+  {"isIncluded": true, "featureCode": "CAPTURE_DATE_OF_BIRTH", "isUnlimited": false, "packageCode": "BASIC", "resetPeriod": "NONE", "displayOrder": 207, "configuration": null, "rolloverAllowed": false, "includedQuantity": null},
+  {"isIncluded": true, "featureCode": "CAPTURE_CURRENT_FULL_ADDRESS", "isUnlimited": false, "packageCode": "BASIC", "resetPeriod": "NONE", "displayOrder": 209, "configuration": null, "rolloverAllowed": false, "includedQuantity": null},
   {"isIncluded": true, "featureCode": "SELECT_APP_LANGUAGE", "isUnlimited": false, "packageCode": "BASIC", "resetPeriod": "NONE", "displayOrder": 1, "configuration": null, "rolloverAllowed": false, "includedQuantity": null},
   {"isIncluded": true, "featureCode": "ACCEPT_RIDER_PRIVACY_CONSENT", "isUnlimited": false, "packageCode": "BASIC", "resetPeriod": "NONE", "displayOrder": 2, "configuration": null, "rolloverAllowed": false, "includedQuantity": null},
   {"isIncluded": true, "featureCode": "SHOW_APP_INTRO", "isUnlimited": false, "packageCode": "BASIC", "resetPeriod": "NONE", "displayOrder": 3, "configuration": null, "rolloverAllowed": false, "includedQuantity": null},
