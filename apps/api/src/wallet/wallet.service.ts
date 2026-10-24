@@ -23,14 +23,22 @@ export class WalletService {
   async ensure(clientId: string, riderId: string, actorId?: string) {
     const rider = await this.prisma.rider.findFirst({ where: { id: riderId, clientId, deletedAt: null } });
     if (!rider) throw new NotFoundException('RIDER_NOT_FOUND');
-    return this.prisma.$transaction(async tx => {
-      const wallet = await tx.riderWallet.upsert({ where: { clientId_riderId_currency: { clientId, riderId, currency: 'INR' } }, create: { clientId, riderId, currency: 'INR', createdById: actorId }, update: {} });
-      await tx.walletAccount.upsert({ where: { clientId_walletId_accountType: { clientId, walletId: wallet.id, accountType: WalletAccountType.CASH } }, create: { clientId, walletId: wallet.id, accountType: WalletAccountType.CASH, currency: 'INR' }, update: {} });
-      await tx.walletAccount.upsert({ where: { clientId_walletId_accountType: { clientId, walletId: wallet.id, accountType: WalletAccountType.CLEARING } }, create: { clientId, walletId: wallet.id, accountType: WalletAccountType.CLEARING, currency: 'INR' }, update: {} });
-      await tx.walletAccount.upsert({ where: { clientId_walletId_accountType: { clientId, walletId: wallet.id, accountType: WalletAccountType.PROVIDER_CLEARING } }, create: { clientId, walletId: wallet.id, accountType: WalletAccountType.PROVIDER_CLEARING, currency: 'INR' }, update: {} });
-      await tx.walletAccount.upsert({ where: { clientId_walletId_accountType: { clientId, walletId: wallet.id, accountType: WalletAccountType.REWARD } }, create: { clientId, walletId: wallet.id, accountType: WalletAccountType.REWARD, currency: 'INR' }, update: {} });
-      return wallet;
-    });
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.prisma.$transaction(async tx => {
+          const wallet = await tx.riderWallet.upsert({ where: { clientId_riderId_currency: { clientId, riderId, currency: 'INR' } }, create: { clientId, riderId, currency: 'INR', createdById: actorId }, update: {} });
+          await tx.walletAccount.upsert({ where: { clientId_walletId_accountType: { clientId, walletId: wallet.id, accountType: WalletAccountType.CASH } }, create: { clientId, walletId: wallet.id, accountType: WalletAccountType.CASH, currency: 'INR' }, update: {} });
+          await tx.walletAccount.upsert({ where: { clientId_walletId_accountType: { clientId, walletId: wallet.id, accountType: WalletAccountType.CLEARING } }, create: { clientId, walletId: wallet.id, accountType: WalletAccountType.CLEARING, currency: 'INR' }, update: {} });
+          await tx.walletAccount.upsert({ where: { clientId_walletId_accountType: { clientId, walletId: wallet.id, accountType: WalletAccountType.PROVIDER_CLEARING } }, create: { clientId, walletId: wallet.id, accountType: WalletAccountType.PROVIDER_CLEARING, currency: 'INR' }, update: {} });
+          await tx.walletAccount.upsert({ where: { clientId_walletId_accountType: { clientId, walletId: wallet.id, accountType: WalletAccountType.REWARD } }, create: { clientId, walletId: wallet.id, accountType: WalletAccountType.REWARD, currency: 'INR' }, update: {} });
+          return wallet;
+        });
+      } catch (error) {
+        // Another callback may create the wallet/accounts before this transaction commits.
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002' && attempt < 2) continue;
+        throw error;
+      }
+    }
   }
   async riderWallet(clientId: string, userId: string) {
     const rider = await this.prisma.rider.findFirst({ where: { clientId, userId, deletedAt: null } });

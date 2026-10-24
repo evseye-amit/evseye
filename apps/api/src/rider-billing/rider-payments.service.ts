@@ -45,9 +45,14 @@ export class RiderPaymentsService {
       sourceId: string;
       invoiceId?: string;
       allocate?: boolean;
+      invoiceLimits?: Array<{ invoiceId: string; amount: string }>;
+      invoiceType?: string;
     },
   ) {
     const { clientId, riderId, amount, currency } = input;
+    const limits = input.invoiceLimits;
+    if (limits && (!limits.length || new Set(limits.map(row => row.invoiceId)).size !== limits.length || limits.some(row => !/^[0-9]+\.\d{2}$/.test(row.amount) || new Prisma.Decimal(row.amount).lte(0)) || !limits.reduce((sum, row) => sum.plus(row.amount), new Prisma.Decimal(0)).eq(amount))) throw new BadRequestException('Invalid invoice payment allocation plan.');
+
     if (amount.lte(0) || amount.decimalPlaces() > 2)
       throw new BadRequestException('Provider payment amount is invalid.');
     const idempotencyKey = `provider:${input.provider}:${input.sourceId}`;
@@ -99,7 +104,8 @@ export class RiderPaymentsService {
             where: {
               clientId,
               riderId,
-              ...(input.invoiceId ? { id: input.invoiceId } : {}),
+              ...(input.invoiceId ? { id: input.invoiceId } : limits ? { id: { in: limits.map(row => row.invoiceId) } } : {}),
+              ...(input.invoiceType ? { invoiceType: input.invoiceType } : {}),
               status: { in: ['FINALIZED', 'PARTIALLY_PAID', 'OVERDUE'] },
               outstandingAmount: { gt: ZERO },
             },
@@ -110,7 +116,7 @@ export class RiderPaymentsService {
       if (remaining.lte(0)) break;
       if (invoice.currency !== currency)
         throw new ConflictException('PAYMENT_CURRENCY_MISMATCH');
-      const used = Prisma.Decimal.min(remaining, invoice.outstandingAmount);
+      const used = Prisma.Decimal.min(remaining, invoice.outstandingAmount, limits ? new Prisma.Decimal(limits.find(row => row.invoiceId === invoice.id)!.amount) : remaining);
       const outstanding = invoice.outstandingAmount.minus(used);
       await tx.riderPaymentAllocation.create({
         data: {
