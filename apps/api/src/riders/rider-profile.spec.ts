@@ -1,3 +1,4 @@
+import { profileBirthDate } from './rider-profile-values.js';
 import { describe, expect, it, vi } from 'vitest';
 import { RiderAppService } from './rider-app.service.js';
 import { RiderAppController } from './rider-app.controller.js';
@@ -84,5 +85,26 @@ describe('Rider profile photos, addresses and birth date', () => {
     prisma.rider.findFirst.mockResolvedValue({ metadata: { currentAddress: 'Current', sameAsCurrentAddress: 'false' } } as never);
     expect(await service.profile('client', 'user')).toMatchObject({ profilePhotoUrl: null, dateOfBirth: null, addresses: { permanent: { address: null }, sameAsCurrentAddress: false } });
     expect(media.downloadUrl).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('historical completed onboarding profile recovery', () => {
+  it('recovers DOB and addresses from completed onboarding even when configuration has changed', async () => {
+    const { service, prisma } = fixture(true);
+    prisma.rider.findFirst.mockResolvedValue({ dateOfBirth: null, address: null, metadata: {} } as never);
+    prisma.riderOnboardingProgress.findFirst.mockResolvedValue({ completedAt: new Date(), values: { DATE_OF_BIRTH: '22/01/2002', CURRENT_ADDRESS: 'Saved onboarding address', CURRENT_ADDRESS_CITY: 'Delhi', CURRENT_ADDRESS_PINCODE: '110001', PERMANENT_ADDRESS: 'Permanent address' } } as never);
+    expect(await service.profile('client', 'user')).toMatchObject({ dateOfBirth: '2002-01-22', address: 'Saved onboarding address', city: 'Delhi', addresses: { current: { address: 'Saved onboarding address', postalCode: '110001' }, permanent: { address: 'Permanent address' } } });
+  });
+  it('keeps saved Rider data ahead of historical onboarding data', async () => {
+    const { service, prisma } = fixture(true);
+    prisma.rider.findFirst.mockResolvedValue({ dateOfBirth: new Date('1999-01-02'), address: 'Updated address' } as never);
+    prisma.riderOnboardingProgress.findFirst.mockResolvedValue({ completedAt: new Date(), values: { DATE_OF_BIRTH: '22/01/2002', ADDRESS: 'Old address' } } as never);
+    expect(await service.profile('client', 'user')).toMatchObject({ dateOfBirth: '1999-01-02', address: 'Updated address' });
+  });
+  it.each(['2002-02-31', '31/02/2002', 'not a date', '', null])('rejects invalid birth date %j', value => expect(profileBirthDate(value)).toBeNull());
+  it('accepts both supported date formats', () => {
+    expect(profileBirthDate('29/02/2000')).toBe('2000-02-29');
+    expect(profileBirthDate('2000-02-29')).toBe('2000-02-29');
   });
 });
