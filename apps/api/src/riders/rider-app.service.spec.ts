@@ -42,7 +42,7 @@ function workflowFromLegacyFixture(prisma: any) {
 function createService() {
   const transaction = {
     riderOnboardingProgress: { update: vi.fn().mockResolvedValue({}) },
-    rider: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({ id: 'rider-1' }) },
+    rider: { update: vi.fn().mockResolvedValue({}), findUnique: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({ id: 'rider-1' }) },
     riderOnboardingDocument: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     user: { update: vi.fn().mockResolvedValue({}) },
   };
@@ -464,5 +464,17 @@ describe('RiderOnboardingConfigurationService', () => {
       expect.objectContaining({ featureCode: 'CAPTURE_REFERENCE', fieldCode: 'RIDER_REFERENCES', configuration: expect.objectContaining({ fieldType: 'REFERENCE', minReferences: 1, maxReferences: 2, storageKey: 'metadata.references' }) }),
       expect.objectContaining({ featureCode: 'CAPTURE_REFERRAL', fieldCode: 'REFERRAL_CODE' }),
     ]));
+  });
+});
+
+
+describe('existing Rider onboarding persistence', () => {
+  it('updates personal details and account name without resetting Rider status or metadata', async () => {
+    const { service, transaction } = createService();
+    transaction.rider.findUnique.mockResolvedValue({ id: 'rider-1', clientId: 'client-1', metadata: { retained: 'value' } } as never);
+    await service.saveStep('client-1', 'user-1', 'step-1', { FULL_NAME: 'Updated Name', MOBILE_NUMBER: '9000000001', DATE_OF_BIRTH: '2000-01-02' });
+    expect(transaction.rider.update).toHaveBeenCalledWith({ where: { id: 'rider-1' }, data: { name: 'Updated Name', mobile: '+919000000001', dateOfBirth: new Date('2000-01-02') } });
+    expect(transaction.user.update).toHaveBeenCalledWith({ where: { id: 'user-1' }, data: { name: 'Updated Name' } });
+    expect(transaction.rider.create).not.toHaveBeenCalled();
   });
 });

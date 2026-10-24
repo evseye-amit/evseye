@@ -19,6 +19,15 @@ export class RiderAppController {
   @Post('enroll')
   async enroll(@Body() dto: RiderAppEnrollDto) { return { data: await this.riderApp.enroll(dto.companyCode, dto.phone) }; }
 
+  @Get('profile')
+  @UseGuards(AccessTokenGuard, RolesGuard)
+  @Roles(UserRole.RIDER)
+  @ApiOperation({ summary: 'Get the authenticated Rider profile and onboarding/KYC status' })
+  async profile(@CurrentUser() user: AuthUser) {
+    if (!user.clientId) throw new ForbiddenException('Rider is not associated with a client.');
+    return { data: await this.riderApp.profile(user.clientId, user.id) };
+  }
+
   @Get('home')
   @UseGuards(AccessTokenGuard, RolesGuard)
   @Roles(UserRole.RIDER)
