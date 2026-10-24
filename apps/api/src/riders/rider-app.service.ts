@@ -91,8 +91,6 @@ export class RiderAppService {
       mobile: read('mobile') ?? user.mobile,
       profilePhotoUrl, addresses: { current, permanent, sameAsCurrentAddress },
       riderCode: read('riderCode'), dateOfBirth: validDob, gender: read('gender'),
-      address: current.address, addressLine1: current.addressLine1, addressLine2: current.addressLine2,
-      city: current.city, state: current.state, postalCode: current.postalCode,
       emergencyContactName: read('emergencyContactName'), emergencyContactMobile: read('emergencyContactMobile'),
       bankDetails: bank,
       status: rider?.status ?? 'ONBOARDING',
