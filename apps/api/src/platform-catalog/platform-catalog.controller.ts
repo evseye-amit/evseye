@@ -74,6 +74,17 @@ export class PlatformCatalogController {
   ) {
     return this.revisions.assignPackageRevision(id, revisionId).then((data) => ({ data }));
   }
+  @Get('subscriptions/:id/package-upgrades/:revisionId/preview') previewPackageUpgrade(
+    @Param('id') id: string, @Param('revisionId') revisionId: string,
+  ) {
+    return this.revisions.previewPackageUpgrade(id, revisionId).then((data) => ({ data }));
+  }
+  @Post('subscriptions/:id/package-upgrades/:revisionId') upgradePackageRevision(
+    @Param('id') id: string, @Param('revisionId') revisionId: string,
+    @Body() body: unknown, @CurrentUser() user: AuthUser,
+  ) {
+    return this.revisions.upgradePackageRevision(id, revisionId, body, user.id).then((data) => ({ data }));
+  }
   @Get('subscriptions/:id/workflow-revisions') clientWorkflowRevisions(@Param('id') id: string) {
     return this.revisions.clientWorkflowRevisions(id).then((data) => ({ data }));
   }

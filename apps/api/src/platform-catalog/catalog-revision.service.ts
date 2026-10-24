@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -142,6 +142,93 @@ export class CatalogRevisionService {
         throw new BadRequestException('Commercial limits or allowances changed. Create a new subscription to upgrade this Package version.');
     }
     return this.prisma.clientSubscription.update({ where: { id: subscriptionId }, data: { packageRevisionId: revisionId } });
+  }
+
+  // Additive upgrades retain the subscription and its commercial/usage identities.
+  private async packageUpgradePlan(db: Prisma.TransactionClient, subscriptionId: string, revisionId: string) {
+    const subscription = await db.clientSubscription.findUnique({ where: { id: subscriptionId }, include: { packageRevision: true } });
+    const target = await db.packageRevision.findUnique({ where: { id: revisionId } });
+    const current = subscription?.packageRevision;
+    if (!subscription || subscription.status !== 'ACTIVE' || !current || !target?.publishedAt ||
+        target.packageId !== subscription.packageId || target.version <= current.version)
+      throw new BadRequestException('Choose a newer published version of the active subscription’s Package.');
+    type Part = { featureId: string; feature?: { code?: string; name?: string }; includedQuantity?: string | null;
+      resetPeriod?: string; isUnlimited?: boolean; rolloverAllowed?: boolean };
+    const before = current.snapshot as { limits?: unknown; features?: Part[] };
+    const after = target.snapshot as { limits?: unknown; features?: Part[] };
+    const next = new Map((after.features ?? []).map((item) => [item.featureId, item]));
+    const allowance = (item: Part) => hash([item.includedQuantity ?? null, item.resetPeriod, item.isUnlimited, item.rolloverAllowed]);
+    if (hash(before.limits ?? null) !== hash(after.limits ?? null) || (before.features ?? []).some((item) =>
+      !next.has(item.featureId) || allowance(item) !== allowance(next.get(item.featureId)!)))
+      throw new BadRequestException('This upgrade must preserve existing features, limits and allowances. Publish an additive Package version.');
+    const workflow = await db.clientWorkflowRevision.findFirst({ where: { subscriptionId, publishedAt: { not: null },
+      snapshot: { path: ['packageRevisionId'], equals: current.id } }, orderBy: { version: 'desc' } });
+    const overrides = (workflow?.snapshot as { overrides?: Prisma.JsonValue[] } | undefined)?.overrides ?? [];
+    const old = new Map((before.features ?? []).map((item) => [item.featureId, item]));
+    const added = (after.features ?? []).filter((item) => !old.has(item.featureId));
+    const changed = (after.features ?? []).filter((item) => old.has(item.featureId) && hash(old.get(item.featureId)) !== hash(item));
+    const describe = (item: Part) => ({ featureId: item.featureId, code: item.feature?.code ?? item.featureId,
+      name: item.feature?.name ?? item.feature?.code ?? item.featureId,
+      includedQuantity: item.includedQuantity ?? null, isUnlimited: item.isUnlimited ?? false });
+    const preview = { subscriptionId, fromRevisionId: current.id, toRevisionId: target.id,
+      fromVersion: current.version, toVersion: target.version,
+      addedFeatures: added.map(describe), changedFeatures: changed.map((item) => ({ ...describe(item),
+        previous: old.get(item.featureId), next: item })),
+      preservedOverrides: overrides.length, pricingUnchanged: true, usageHistoryPreserved: true };
+    const previewToken = hash({ preview, subscriptionUpdatedAt: subscription.updatedAt, targetHash: target.contentHash,
+      workflowId: workflow?.id, workflowHash: workflow?.contentHash });
+    return { subscription, target, overrides, added, preview: { ...preview, previewToken } };
+  }
+
+  async previewPackageUpgrade(subscriptionId: string, revisionId: string) {
+    return (await this.packageUpgradePlan(this.prisma, subscriptionId, revisionId)).preview;
+  }
+
+  async upgradePackageRevision(subscriptionId: string, revisionId: string, input: unknown, actorId: string) {
+    const body = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+    if (typeof body.reason !== 'string' || !body.reason.trim() || body.reason.length > 1000)
+      throw new BadRequestException('Provide an upgrade reason (maximum 1000 characters).');
+    const reason = body.reason.trim();
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const plan = await this.packageUpgradePlan(tx, subscriptionId, revisionId);
+        if (typeof body.previewToken !== 'string' || body.previewToken !== plan.preview.previewToken)
+          throw new ConflictException('The Package or client settings changed. Review the upgrade again.');
+        const latest = await tx.clientWorkflowRevision.findFirst({ where: { subscriptionId }, orderBy: { version: 'desc' } });
+        const snapshot = { subscriptionId, packageRevisionId: revisionId, overrides: plan.overrides };
+        await tx.clientWorkflowRevision.create({ data: { subscriptionId, version: (latest?.version ?? 0) + 1,
+          snapshot: json(snapshot), contentHash: hash(snapshot), publishedAt: new Date() } });
+        // Only the version pointer changes: pricing, add-ons, credits and usage remain intact.
+        const updated = await tx.clientSubscription.updateMany({ where: { id: subscriptionId,
+          packageRevisionId: plan.subscription.packageRevisionId, updatedAt: plan.subscription.updatedAt },
+          data: { packageRevisionId: revisionId } });
+        if (updated.count !== 1) throw new ConflictException('Subscription changed. Review the upgrade again.');
+        const now = new Date();
+        for (const item of plan.added) {
+          const quantity = new Prisma.Decimal(item.includedQuantity ?? 0);
+          if (item.isUnlimited || quantity.lte(0)) continue;
+          // Never replenish a previously granted feature when upgrading.
+          const existing = await tx.featureCreditLot.findFirst({ where: { subscriptionId, featureId: item.featureId,
+            sourceType: 'PACKAGE_ALLOWANCE' } });
+          if (existing) continue;
+          const lot = await tx.featureCreditLot.create({ data: { clientId: plan.subscription.clientId, subscriptionId,
+            featureId: item.featureId, sourceType: 'PACKAGE_ALLOWANCE', sourceId: revisionId,
+            sourceKey: `upgrade:${subscriptionId}:${revisionId}:${item.featureId}`,
+            quantityOriginal: quantity, quantityAvailable: quantity, periodStart: now } });
+          await tx.featureUsageLedger.create({ data: { clientId: plan.subscription.clientId, subscriptionId,
+            featureId: item.featureId, creditLotId: lot.id, sourceType: 'PACKAGE_ALLOWANCE', sourceId: revisionId,
+            transactionType: 'CREDIT', quantity, referenceType: 'PACKAGE_UPGRADE', referenceId: subscriptionId, occurredAt: now } });
+        }
+        await tx.auditLog.create({ data: { clientId: plan.subscription.clientId, actorId,
+          action: 'SUBSCRIPTION_PACKAGE_UPGRADED', entityType: 'ClientSubscription', entityId: subscriptionId,
+          previousData: { packageRevisionId: plan.subscription.packageRevisionId }, newData: json({ ...plan.preview, reason }) } });
+        return plan.preview;
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && ['P2034', 'P2002'].includes(error.code))
+        throw new ConflictException('Subscription or workflow changed. Review the upgrade again.');
+      throw error;
+    }
   }
 
   clientWorkflowRevisions(subscriptionId: string) {
