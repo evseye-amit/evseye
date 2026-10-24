@@ -33,14 +33,14 @@ resource "aws_iam_role_policy" "ecs_task_execution_secrets" {
     Statement = [{
       Effect = "Allow"
       Action = ["secretsmanager:GetSecretValue"]
-      Resource = [
+      Resource = concat([
         aws_secretsmanager_secret.database_url.arn,
         aws_secretsmanager_secret.db_password.arn,
         aws_secretsmanager_secret.jwt_access.arn,
         aws_secretsmanager_secret.jwt_refresh.arn,
         aws_secretsmanager_secret.otp_hash.arn,
         aws_secretsmanager_secret.client_proxy.arn,
-      ]
+      ], var.environment == "staging" ? [data.aws_secretsmanager_secret.staging_razorpay[0].arn] : [])
     }]
   })
 }
