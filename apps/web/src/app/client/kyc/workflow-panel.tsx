@@ -79,9 +79,6 @@ export default function WorkflowPanel({ view }: { view: "workflows" | "reviews" 
 
   return <section>
     <h2>{view === "reviews" ? "Manual review" : view === "definitions" ? "Workflow definitions" : "Workflows"}</h2>
-    {view === "workflows" && <div className="client-filter-bar"><label>Status <select value={status} onChange={(event) => { setStatus(event.target.value); setPage(0); }}>
-      <option value="">All</option>{["ACTION_REQUIRED", "IN_PROGRESS", "VERIFIED", "MANUAL_REVIEW", "REJECTED", "EXPIRED"].map((value) => <option key={value}>{value}</option>)}
-    </select></label></div>}
     {loading && <p role="status">Loading workflows…</p>}
     {error && <p role="alert">{error}</p>}
     {!loading && view === "definitions" && (definitions.length ? definitions.map((definition) => <article className="client-metric-card" key={definition.id} style={{ marginTop: "1rem" }}>
@@ -90,12 +87,14 @@ export default function WorkflowPanel({ view }: { view: "workflows" | "reviews" 
       <h4>Decision rules</h4><ol>{definition.rules.map((rule) => <li key={rule.id}>Priority {rule.priority}: {rule.condition.kind}{rule.condition.statuses?.length ? ` (${rule.condition.statuses.join(", ")})` : ""} → {rule.action} · {rule.reasonCode}</li>)}</ol>
     </article>) : <p>No workflow definitions configured.</p>)}
     {view !== "definitions" && <>
-      <ClientDataTable rows={rows} loading={loading} pagination={false} searchable={false} sortable={false} filterable={false} getRowId={(row) => row.id} emptyMessage={view === "reviews" ? "No reviews pending." : "No workflows match these filters."} columns={[
+      <ClientDataTable rows={rows} loading={loading} pagination={false} searchable={false} sortable={false} resultCountSuffix="on this page" server={{page:page+1,limit:50,total:rows.length,search:"",onSearch:()=>{},onPage:()=>{},filterCount:status?1:0,onReset:view === "workflows" ? ()=>{setStatus("");setPage(0);} : undefined}} getRowId={(row) => row.id} emptyMessage={view === "reviews" ? "No reviews pending." : "No workflows match these filters."} columns={[
         { key: "workflow", label: "Workflow", value: (row) => row.workflowDefinition.code, render: (row) => <span>{row.workflowDefinition.name}<details><summary>Identifiers</summary>{row.id} · Client {row.clientId}</details></span> },
         { key: "rider", label: "Rider", value: (row) => row.rider?.name ?? row.riderId },
         { key: "version", label: "Version", value: (row) => row.workflowVersion },
         { key: "step", label: "Current step", value: (row) => row.stepExecutions.find((step) => ["IN_PROGRESS", "ACTION_REQUIRED"].includes(step.status))?.workflowStep.name ?? "—" },
-        { key: "status", label: "Status", value: (row) => row.status, render: (row) => <span className={`status status-${row.status.toLowerCase()}`}>{row.status.replaceAll("_", " ")}</span> },
+        { key: "status", label: "Status", serverFilter: view === "workflows" ? (id) => (<select id={id} aria-label="Filter by Status" value={status} onChange={(event) => { setStatus(event.target.value); setPage(0); }}>
+      <option value="">All</option>{["ACTION_REQUIRED", "IN_PROGRESS", "VERIFIED", "MANUAL_REVIEW", "REJECTED", "EXPIRED"].map((value) => <option key={value}>{value}</option>)}
+    </select>) : undefined, value: (row) => row.status, render: (row) => <span className={`status status-${row.status.toLowerCase()}`}>{row.status.replaceAll("_", " ")}</span> },
         { key: "decision", label: "Decision", value: (row) => row.decisions[0]?.decision ?? "—" },
         ...(view === "reviews" ? [
           { key: "reason", label: "Reason", value: (row: WorkflowRow) => row.decisions[0]?.reasonCode ?? "—" },
@@ -105,8 +104,8 @@ export default function WorkflowPanel({ view }: { view: "workflows" | "reviews" 
         { key: "started", label: "Started", value: (row) => row.startedAt, render: (row) => new Date(row.startedAt).toLocaleString("en-IN") },
         { key: "completed", label: "Completed", value: (row) => row.completedAt ?? "—", render: (row) => row.completedAt ? new Date(row.completedAt).toLocaleString("en-IN") : "—" },
       ]} actions={(row) => <button type="button" className="secondary table-action" disabled={busy} onClick={() => void open(row.id)}>Details</button>} />
-      <div className="sa-pagination" aria-label="Workflow pagination"><button type="button" disabled={loading || page === 0} onClick={() => setPage(page - 1)}>Previous</button>
-        <span>Page {page + 1}</span><button type="button" disabled={loading || rows.length < 50} onClick={() => setPage(page + 1)}>Next</button></div>
+      <div className="sa-pagination" aria-label="Workflow pagination"><button type="button" className="secondary" disabled={loading || page === 0} onClick={() => setPage(page - 1)}>Previous</button>
+        <span>Page {page + 1}</span><button type="button" className="secondary" disabled={loading || rows.length < 50} onClick={() => setPage(page + 1)}>Next</button></div>
     </>}
     {detail && view !== "definitions" && <ClientFormDialog title={`${detail.rider.name} · ${detail.status.replaceAll("_", " ")}`} wide busy={busy} error={error} onClose={() => setDetail(null)}><p>Workflow {detail.id} · Version {detail.workflowVersion}</p>
       <h4>Progress</h4><ol>{detail.workflowDefinition.steps.map((step) => {
