@@ -1,3 +1,4 @@
+import { profileBirthDate, profileAddressFields, recoverableProfileKeys } from './rider-profile-values.js';
 import { normalizeRiderBankValues, riderBankFields } from './rider-bank-fields.js';
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { PhotoEntityType, PhotoStatus, Prisma, ReferralAttributionSource, RiderDocumentReviewStatus, UserRole } from '@prisma/client';
@@ -44,11 +45,13 @@ export class RiderAppService {
     const values = progress?.values && typeof progress.values === 'object' && !Array.isArray(progress.values)
       ? progress.values as Record<string, unknown> : {};
     const fallback: Record<string, unknown> = {};
-    if (!progress?.completedAt) {
-      // Resolve configured storage keys rather than assuming fixed onboarding field codes.
-      for (const field of fields as Array<{ fieldCode: string; storageKey?: string }>) {
-        if (field.storageKey && values[field.fieldCode] !== undefined) fallback[field.storageKey] = values[field.fieldCode];
-      }
+    // Historical onboarding can contain DOB/address values missing from the Rider row.
+    // Limit recovery after completion to these profile fields; bank/name fallback stays unchanged.
+    for (const [code, key] of Object.entries(profileAddressFields)) {
+      if (values[code] !== undefined) fallback[key] = values[code];
+    }
+    for (const field of fields as Array<{ fieldCode: string; storageKey?: string }>) {
+      if (field.storageKey && values[field.fieldCode] !== undefined && (!progress?.completedAt || recoverableProfileKeys.has(field.storageKey))) fallback[field.storageKey] = values[field.fieldCode];
     }
     const metadata = rider?.metadata && typeof rider.metadata === 'object' && !Array.isArray(rider.metadata) ? rider.metadata : {};
     const present = (value: unknown) => value === undefined || value === null || value === '' ? null : value;
@@ -57,14 +60,15 @@ export class RiderAppService {
       const key = field.storageKey.slice('metadata.'.length);
       return [key, present(metadata[key]) ?? present(fallback[field.storageKey])];
     }));
-    const readAddress = (key: string) => present(metadata[key]) ?? present(fallback[`metadata.${key}`]) ?? read(key);
+    const savedRider = rider as unknown as Record<string, unknown> | null;
+    const readAddress = (key: string, legacy?: string) => present(metadata[key]) ?? present(savedRider?.[key]) ?? (legacy ? present(savedRider?.[legacy]) : null) ?? present(fallback[`metadata.${key}`]) ?? present(fallback[key]) ?? (legacy ? present(fallback[legacy]) : null);
     const current = {
-      address: readAddress('currentAddress') ?? read('address'),
-      addressLine1: readAddress('currentAddressLine1') ?? read('addressLine1'),
-      addressLine2: readAddress('currentAddressLine2') ?? read('addressLine2'),
-      city: readAddress('currentAddressCity') ?? read('city'),
-      state: readAddress('currentAddressState') ?? read('state'),
-      postalCode: readAddress('currentAddressPincode') ?? read('postalCode'),
+      address: readAddress('currentAddress', 'address'),
+      addressLine1: readAddress('currentAddressLine1', 'addressLine1'),
+      addressLine2: readAddress('currentAddressLine2', 'addressLine2'),
+      city: readAddress('currentAddressCity', 'city'),
+      state: readAddress('currentAddressState', 'state'),
+      postalCode: readAddress('currentAddressPincode', 'postalCode'),
     };
     const same = readAddress('sameAsCurrentAddress');
     const sameAsCurrentAddress = same === true || same === 'true';
@@ -73,9 +77,7 @@ export class RiderAppService {
       addressLine2: readAddress('permanentAddressLine2'), city: readAddress('permanentAddressCity'),
       state: readAddress('permanentAddressState'), postalCode: readAddress('permanentAddressPincode'),
     };
-    const rawDob = read('dateOfBirth');
-    const dob = rawDob instanceof Date ? rawDob.toISOString().slice(0, 10) : typeof rawDob === 'string' ? rawDob.slice(0, 10) : null;
-    const validDob = dob && /^\d{4}-\d{2}-\d{2}$/.test(dob) && Number.isFinite(Date.parse(dob)) && new Date(dob).toISOString().slice(0, 10) === dob ? dob : null;
+    const validDob = profileBirthDate(read('dateOfBirth'));
     const profilePhoto = await this.prisma.riderOnboardingDocument.findFirst({
       where: { clientId, userId, supersededAt: null, status: { in: [RiderDocumentReviewStatus.PENDING, RiderDocumentReviewStatus.APPROVED] },
         feature: { code: 'UPLOAD_PROFILE_PHOTO' },
@@ -89,8 +91,8 @@ export class RiderAppService {
       mobile: read('mobile') ?? user.mobile,
       profilePhotoUrl, addresses: { current, permanent, sameAsCurrentAddress },
       riderCode: read('riderCode'), dateOfBirth: validDob, gender: read('gender'),
-      address: read('address'), addressLine1: read('addressLine1'), addressLine2: read('addressLine2'),
-      city: read('city'), state: read('state'), postalCode: read('postalCode'),
+      address: current.address, addressLine1: current.addressLine1, addressLine2: current.addressLine2,
+      city: current.city, state: current.state, postalCode: current.postalCode,
       emergencyContactName: read('emergencyContactName'), emergencyContactMobile: read('emergencyContactMobile'),
       bankDetails: bank,
       status: rider?.status ?? 'ONBOARDING',
