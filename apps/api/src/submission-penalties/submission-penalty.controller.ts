@@ -56,6 +56,11 @@ export class RiderSubmissionPenaltyController {
       query.status === 'ALL',
     );
   }
+  @Get('summary')
+  async summary(@CurrentUser() actor: AuthUser) {
+    const clientId = this.clients.requireClientId(actor);
+    return { data: await this.service.summary(clientId, await this.service.rider(clientId, actor.id)) };
+  }
   @Get(':invoiceId')
   async get(
     @CurrentUser() actor: AuthUser,

@@ -1,3 +1,4 @@
+import { PENALTY_PAYMENT } from './outstanding-payment.js';
 import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
@@ -132,7 +133,7 @@ export class PaymentOrchestratorService {
           where: {
             clientId,
             riderId,
-            OR: [{ invoiceId }, { collectionType: 'OUTSTANDING_PAYMENT' }],
+            OR: [{ invoiceId }, { collectionType: { in: ['OUTSTANDING_PAYMENT', PENALTY_PAYMENT] } }],
             status: { in: ['CREATING', 'PENDING', 'UNKNOWN'] },
           },
         });

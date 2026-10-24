@@ -643,75 +643,84 @@ export class DeploymentCommercialService {
           'PAYMENT_REFERENCE_REQUIRED',
           'The rider must submit a payment reference before verification.',
         );
-      const quote = await this.quote(tx, clientId, a);
-      if (
-        !p.amount.eq(quote.total) ||
-        p.currency !== quote.currency ||
-        canonicalJson(p.breakdown) !== canonicalJson(quote)
-      )
-        fail(
-          'DEPLOYMENT_PAYMENT_STALE',
-          'The agreement or deposit balance changed. Refresh the allocation payment.',
+      return this.settlePaymentInTransaction(tx, clientId, actorId, a, false);
+    });
+  }
+
+  async assertPaymentQuote(tx: Tx, clientId: string, a: Allocation & { mobileDeployment: { payment: { amount: Prisma.Decimal; currency: string; breakdown: unknown } | null } | null }) {
+    const p = a.mobileDeployment?.payment;
+    const quote = await this.quote(tx, clientId, a);
+    if (!p || !p.amount.eq(quote.total) || p.currency !== quote.currency || canonicalJson(p.breakdown) !== canonicalJson(quote))
+      fail('DEPLOYMENT_PAYMENT_STALE', 'The agreement or deposit balance changed. Refresh the allocation payment.');
+    return quote;
+  }
+
+  async settlePaymentInTransaction(tx: Tx, clientId: string, actorId: string,
+    a: Allocation & { mobileDeployment: (Prisma.MobileDeploymentWorkflowGetPayload<{ include: { payment: true } }>) | null }, automatic: boolean) {
+    const w = a.mobileDeployment;
+    const p = w?.payment;
+    if (!w || !p) throw new NotFoundException('Payment request not found.');
+    if (p.status === 'PAID') return w;
+    if (w.status !== 'PAYMENT_PENDING') throw new ConflictException('No payment is pending.');
+    const quote = await this.assertPaymentQuote(tx, clientId, a);
+    for (const line of quote.deposits)
+      if (new Prisma.Decimal(line.amount).gt(0))
+        await this.deposits.collectDeploymentInTransaction(
+          tx,
+          clientId,
+          line.id,
+          new Prisma.Decimal(line.amount),
+          actorId,
+          p.id,
+          p.providerReference!,
+          p.provider!,
         );
-      for (const line of quote.deposits)
-        if (new Prisma.Decimal(line.amount).gt(0))
-          await this.deposits.collectDeploymentInTransaction(
-            tx,
-            clientId,
-            line.id,
-            new Prisma.Decimal(line.amount),
-            actorId,
-            p.id,
-            p.providerReference!,
-            p.provider!,
-          );
-      const nonRefundable = new Prisma.Decimal(quote.nonRefundableAmount);
-      if (nonRefundable.gt(0)) {
-        const credit = await tx.riderPayment.create({
-          data: {
-            clientId,
-            riderId: a.riderId,
-            amount: nonRefundable,
-            unallocatedAmount: nonRefundable,
-            currency: p.currency,
-            method: 'DEPLOYMENT',
-            externalReference: p.providerReference,
-            idempotencyKey: `deployment:${p.id}`,
-            receivedAt: new Date(),
-            createdById: actorId,
-          },
-        });
-        await tx.riderLedgerEntry.create({
-          data: {
-            clientId,
-            riderId: a.riderId,
-            agreementId: quote.agreementId,
-            vehicleId: a.fleetId,
-            entryType: 'PAYMENT',
-            sourceType: 'RIDER_PAYMENT',
-            sourceId: credit.id,
-            description: 'Verified upfront rental and onboarding payment',
-            creditAmount: nonRefundable,
-            currency: p.currency,
-          },
-        });
-      }
-      const now = new Date();
-      await tx.deploymentPayment.update({
-        where: { id: p.id },
+    const nonRefundable = new Prisma.Decimal(quote.nonRefundableAmount);
+    if (nonRefundable.gt(0)) {
+      const credit = await tx.riderPayment.create({
         data: {
-          status: 'PAID',
-          paidAt: now,
-          verifiedAt: now,
-          verifiedById: actorId,
+          clientId,
+          riderId: a.riderId,
+          amount: nonRefundable,
+          unallocatedAmount: nonRefundable,
+          currency: p.currency,
+          method: 'DEPLOYMENT',
+          externalReference: p.providerReference,
+          idempotencyKey: `deployment:${p.id}`,
+          receivedAt: new Date(),
+          createdById: actorId,
         },
       });
-      await tx.auditLog.create({ data: { clientId, actorId, action: 'PAYMENT_APPROVED', entityType: 'DeploymentPayment', entityId: p.id,
-        newData: { submissionVersion: p.submissionVersion, provider: p.provider, providerReference: p.providerReference, amount: p.amount.toFixed(2) } } });
-      return tx.mobileDeploymentWorkflow.update({
-        where: { id: w.id },
-        data: { status: 'PAYMENT_PAID', paymentPaidAt: now },
+      await tx.riderLedgerEntry.create({
+        data: {
+          clientId,
+          riderId: a.riderId,
+          agreementId: quote.agreementId,
+          vehicleId: a.fleetId,
+          entryType: 'PAYMENT',
+          sourceType: 'RIDER_PAYMENT',
+          sourceId: credit.id,
+          description: 'Verified upfront rental and onboarding payment',
+          creditAmount: nonRefundable,
+          currency: p.currency,
+        },
       });
+    }
+    const now = new Date();
+    await tx.deploymentPayment.update({
+      where: { id: p.id },
+      data: {
+        status: 'PAID',
+        paidAt: now,
+        verifiedAt: now,
+        verifiedById: automatic ? null : actorId,
+      },
+    });
+    await tx.auditLog.create({ data: { clientId, actorId: automatic ? null : actorId, action: 'PAYMENT_APPROVED', entityType: 'DeploymentPayment', entityId: p.id,
+      newData: { verificationSource: automatic ? 'RAZORPAY' : 'MANUAL', submissionVersion: p.submissionVersion, provider: p.provider, providerReference: p.providerReference, amount: p.amount.toFixed(2) } } });
+    return tx.mobileDeploymentWorkflow.update({
+      where: { id: w.id },
+      data: { status: 'PAYMENT_PAID', paymentPaidAt: now },
     });
   }
 

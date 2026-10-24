@@ -90,7 +90,7 @@ export class PaymentTransactionsService {
     const receipts = await this.db.photo.findMany({ where: { clientId, entityType: paymentPhotoTypes[source], entityId: id, status: 'COMPLETE' },
       select: { id: true, mimeType: true, sizeBytes: true, uploadedAt: true, uploadedById: true }, orderBy: { createdAt: 'asc' } });
     const history = source === 'DEPLOYMENT' ? await this.db.auditLog.findMany({ where: { clientId, entityType: 'DeploymentPayment', entityId: id,
-      action: { in: ['PAYMENT_SUBMITTED', 'PAYMENT_REJECTED', 'PAYMENT_APPROVED'] } }, select: { id: true, action: true, actorId: true, newData: true, createdAt: true }, orderBy: { createdAt: 'asc' } }) : [];
+      action: { in: ['PAYMENT_SUBMITTED', 'PAYMENT_REJECTED', 'PAYMENT_APPROVED', 'RAZORPAY_PAYMENT_RECONCILED', 'RAZORPAY_REFUND_RECONCILED'] } }, select: { id: true, action: true, actorId: true, newData: true, createdAt: true }, orderBy: { createdAt: 'asc' } }) : [];
     const reviewers = history.length ? await this.db.user.findMany({ where: { clientId, id: { in: [...new Set(history.flatMap(x => x.actorId ? [x.actorId] : []))] } }, select: { id: true, name: true } }) : [];
     return { ...row, receipts, history: history.map(x => ({ ...x, id: x.id.toString(), actorName: reviewers.find(u => u.id === x.actorId)?.name ?? 'System' })),
       canReview: actor.roles.includes(UserRole.CLIENT_ADMIN) && source === 'DEPLOYMENT' && row.status === 'SUBMITTED' };
