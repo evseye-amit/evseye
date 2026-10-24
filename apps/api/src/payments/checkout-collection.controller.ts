@@ -1,7 +1,5 @@
-import { parseOutstandingInput } from './outstanding-payment.js';
 import {
   BadRequestException,
-  Body,
   Controller,
   Get,
   Headers,
@@ -11,7 +9,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBody, ApiHeader, ApiTags } from '@nestjs/swagger';
+import { ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import type { RawBodyRequest } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
@@ -39,69 +37,6 @@ export class RiderCheckoutController {
     return {
       clientId,
       riderId: await this.billing.riderForUser(clientId, user.id),
-    };
-  }
-  @Post('invoices/:invoiceId/pay')
-  @ApiHeader({ name: 'Idempotency-Key', required: true })
-  async pay(
-    @CurrentUser() user: AuthUser,
-    @Param('invoiceId') invoiceId: string,
-    @Headers('idempotency-key') key?: string,
-    @Body() body?: { useWallet?: boolean },
-  ) {
-    if (body?.useWallet !== undefined && typeof body.useWallet !== 'boolean')
-      throw new BadRequestException('useWallet must be a boolean.');
-    const { clientId, riderId } = await this.context(user);
-    return {
-      data: await this.checkout.payInvoice(
-        clientId,
-        riderId,
-        invoiceId,
-        key ?? '',
-        body?.useWallet ?? true,
-        user.id,
-      ),
-    };
-  }
-  @Post('payments/pay-outstanding')
-  @ApiHeader({ name: 'Idempotency-Key', required: true })
-  @ApiBody({ required: false, schema: { type: 'object', additionalProperties: false, properties: { scope: { type: 'string', enum: ['ALL', 'SUBMISSION_PENALTY'], default: 'ALL' }, amount: { type: 'string', example: '500.00', description: 'Optional partial payment in INR; omitted means full scoped outstanding.' } } } })
-  async payOutstanding(
-    @CurrentUser() user: AuthUser,
-    @Headers('idempotency-key') key?: string,
-    @Body() body?: unknown,
-  ) {
-    parseOutstandingInput(body);
-    const { clientId, riderId } = await this.context(user);
-    return {
-      data: await this.checkout.payOutstanding(clientId, riderId, key ?? '', body),
-    };
-  }
-  @Post('deposits/:depositId/pay')
-  @ApiHeader({ name: 'Idempotency-Key', required: true })
-  async payDeposit(
-    @CurrentUser() user: AuthUser,
-    @Param('depositId') depositId: string,
-    @Headers('idempotency-key') key?: string,
-  ) {
-    const { clientId, riderId } = await this.context(user);
-    return {
-      data: await this.checkout.payDeposit(
-        clientId,
-        riderId,
-        depositId,
-        key ?? '',
-      ),
-    };
-  }
-  @Post('collections/:collectionId/verify')
-  async verify(
-    @CurrentUser() user: AuthUser,
-    @Param('collectionId') collectionId: string,
-  ) {
-    const { clientId, riderId } = await this.context(user);
-    return {
-      data: await this.checkout.verify(clientId, riderId, collectionId),
     };
   }
   @Get('collections')

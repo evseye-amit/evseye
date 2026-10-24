@@ -154,6 +154,8 @@ const environmentSchema = z.object({
   KYC_OPS_MAX_TECHNICAL_RETRIES: z.coerce.number().int().min(0).max(3).default(1),
   KYC_ANALYTICS_MIN_SAMPLE_SIZE: z.coerce.number().int().min(1).max(100000).default(30),
   KYC_ROUTING_DEADLINE_MS: z.coerce.number().int().min(1000).max(120000).default(30000),
+  AUTOPAY_PROVIDER: z.enum(['configured', 'cashfree', 'razorpay', 'mock', 'disabled']).default('configured'),
+  RAZORPAY_AUTOPAY_ENABLED: z.enum(['true', 'false']).default('false'),
   RAZORPAY_ENABLED: z.enum(['true', 'false']).default('false'),
   RAZORPAY_KEY_ID: z.string().optional(),
   RAZORPAY_KEY_SECRET: z.string().optional(),
@@ -311,7 +313,7 @@ export function validateEnvironment(
       throw new Error('CLIENT_LOGIN_URL must use HTTPS in production.');
     }
   }
-  if (result.data.PAYMENT_PROVIDER === 'cashfree') {
+  if (result.data.PAYMENT_PROVIDER === 'cashfree' || result.data.AUTOPAY_PROVIDER === 'cashfree') {
     const required = [
       'CASHFREE_CLIENT_ID',
       'CASHFREE_CLIENT_SECRET',
@@ -342,7 +344,7 @@ export function validateEnvironment(
   }
   if (
     result.data.NODE_ENV === 'production' &&
-    result.data.PAYMENT_PROVIDER === 'mock'
+    (result.data.PAYMENT_PROVIDER === 'mock' || result.data.AUTOPAY_PROVIDER === 'mock')
   ) {
     throw new Error('Mock payment provider is not allowed in production.');
   }
@@ -385,6 +387,7 @@ export function validateEnvironment(
     if (!result.data.DATABASE_URL)
       throw new Error('DATABASE_URL is required in production.');
   }
+  if ((result.data.AUTOPAY_PROVIDER === 'razorpay' || result.data.RAZORPAY_AUTOPAY_ENABLED === 'true') && (result.data.RAZORPAY_ENABLED !== 'true' || result.data.RAZORPAY_AUTOPAY_ENABLED !== 'true')) throw new Error('Razorpay AutoPay requires RAZORPAY_ENABLED and RAZORPAY_AUTOPAY_ENABLED.');
   if (result.data.RAZORPAY_ENABLED === 'true') {
     if (!/^rzp_(test|live)_[A-Za-z0-9]+$/.test(result.data.RAZORPAY_KEY_ID ?? '') || !result.data.RAZORPAY_KEY_SECRET || !result.data.RAZORPAY_WEBHOOK_SECRET || !result.data.RAZORPAY_CLIENT_IDS.trim())
       throw new Error('Razorpay requires API credentials, a webhook secret and an explicit client allowlist.');

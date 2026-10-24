@@ -1,3 +1,10 @@
+import { RazorpayRecurringClient } from './razorpay/razorpay-recurring.client.js';
+import { RazorpayAutoPayProvider } from './razorpay/razorpay-autopay.provider.js';
+import { RazorpayAutoPayWorker } from './razorpay/razorpay-autopay.worker.js';
+import { AutoPayProviderRouter } from './autopay-provider-router.service.js';
+import { AllocationsModule } from '../allocations/allocations.module.js';
+import { CommonPaymentController } from './common-payment.controller.js';
+import { CommonPaymentService } from './common-payment.service.js';
 import { RazorpayPenaltyModule } from './razorpay/razorpay-penalty.module.js';
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -45,8 +52,9 @@ import {
 } from './mandate.controller.js';
 
 @Module({
-  imports: [RazorpayPenaltyModule, AuthModule, RiderBillingModule, RiderRateCardsModule, WalletModule],
+  imports: [AllocationsModule, RazorpayPenaltyModule, AuthModule, RiderBillingModule, RiderRateCardsModule, WalletModule],
   controllers: [
+    CommonPaymentController,
     RiderMandateController,
     AutoPayOperationsController,
     PaymentWebhookController,
@@ -64,6 +72,8 @@ import {
     ProviderSettlementController,
   ],
   providers: [
+    RazorpayRecurringClient, RazorpayAutoPayProvider, RazorpayAutoPayWorker, AutoPayProviderRouter,
+    CommonPaymentService,
     CashfreeHttpClient,
     CashfreePaymentProvider,
     MockPaymentProvider,

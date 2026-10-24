@@ -49,10 +49,8 @@ export async function pendingPenaltySummary(
     paymentRequests: requests.map(paymentView),
     listEndpoint: '/api/v1/rider-app/submission-penalties',
     summaryEndpoint: '/api/v1/rider-app/submission-penalties/summary',
-    razorpayOrderEndpoint: '/api/v1/rider-app/submission-penalties/razorpay/order',
-        razorpayVerifyEndpoint: '/api/v1/rider-app/submission-penalties/razorpay/verify',
-    payEndpoint: '/api/v1/rider-app/billing/payments/pay-outstanding',
-    paymentScope: 'SUBMISSION_PENALTY',
+    payEndpoint: '/api/v1/rider-app/payments/orders',
+    paymentPurpose: 'SUBMISSION_PENALTY',
     partialPaymentAllowed: true,
   };
 }
@@ -89,10 +87,8 @@ export class SubmissionPenaltyService {
       return { totals, pendingCount, currency: supported ? 'INR' : null, defaultAmount: supported ? debt[0].outstandingAmount : '0.00',
         minimumPaymentAmount: '1.00', maximumPaymentAmount: supported ? debt[0].outstandingAmount : '0.00', partialPaymentAllowed: supported && new Prisma.Decimal(debt[0].outstandingAmount).gt(1),
         payNowAvailable: supported && new Prisma.Decimal(debt[0].outstandingAmount).gte(1) && !active,
-        paymentInProgress: active ? { id: active.id, source: checkout?.provider === 'RAZORPAY' ? 'RAZORPAY' : checkout ? 'CHECKOUT' : 'AUTOPAY', ...(checkout?.provider === 'RAZORPAY' ? { orderId: checkout.providerOrderId } : {}), status: active.status, amount: active.amount.toFixed(2), currency: active.currency } : null,
-        razorpayOrderEndpoint: '/api/v1/rider-app/submission-penalties/razorpay/order',
-        razorpayVerifyEndpoint: '/api/v1/rider-app/submission-penalties/razorpay/verify',
-        payEndpoint: '/api/v1/rider-app/billing/payments/pay-outstanding', paymentScope: 'SUBMISSION_PENALTY',
+        paymentInProgress: active ? { id: active.id, ...(checkout ? { paymentRequestId: `collection:${checkout.id}` } : {}), source: checkout?.provider === 'RAZORPAY' ? 'RAZORPAY' : checkout ? 'CHECKOUT' : 'AUTOPAY', ...(checkout?.provider === 'RAZORPAY' ? { orderId: checkout.providerOrderId } : {}), status: active.status, amount: active.amount.toFixed(2), currency: active.currency } : null,
+        payEndpoint: '/api/v1/rider-app/payments/orders', paymentPurpose: 'SUBMISSION_PENALTY',
         breakdownEndpoint: '/api/v1/rider-app/submission-penalties',
       };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });

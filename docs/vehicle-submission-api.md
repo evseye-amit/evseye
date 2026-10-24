@@ -218,26 +218,13 @@ Flutter can show one penalty balance and one editable payment amount while retai
 
 Returns `{ data: ... }` with `totals` grouped by currency (total, paid, settled credit and outstanding amounts), `pendingCount`, `currency`, `defaultAmount`, `minimumPaymentAmount`, `maximumPaymentAmount`, `partialPaymentAllowed`, `payNowAvailable`, `paymentInProgress`, and payment/breakdown endpoints. Totals include all eligible invoices, independently of pagination. VOID and DRAFT invoices are excluded. An active checkout or AutoPay attempt disables a new checkout. The current online checkout supports INR only; currencies are never summed together.
 
-The existing home penalty summary also includes `summaryEndpoint`, `payEndpoint` and `paymentScope`. Existing per-invoice links remain for backward compatibility.
+The existing home penalty summary also includes `summaryEndpoint`, `payEndpoint` and `paymentPurpose`. Per-invoice links use the common INVOICE purpose.
 
 ### Full or partial payment
 
-`POST /api/v1/rider-app/billing/payments/pay-outstanding`
+Use `POST /api/v1/rider-app/payments/orders` with `{"purpose":"SUBMISSION_PENALTY","amount":"500.00"}`. Omit amount for the full penalty balance. Razorpay is the default; explicit `provider: CASHFREE` retains configured-provider checkout and requires an Idempotency-Key. Amount is a decimal string between INR 1 and the outstanding penalty balance.
 
-Header: `Idempotency-Key: <unique key for this payment attempt; reuse unchanged on retries>`
-
-```json
-{
-  "scope": "SUBMISSION_PENALTY",
-  "amount": "500.00"
-}
-```
-
-Omit `amount` to pay the entire outstanding penalty balance. Amounts must be decimal strings, at most two decimal places, at least INR 1.00, and no greater than current scoped debt. The server derives ownership, eligible invoices, currency and maximum payable amount. Reusing a key with a different scope/amount is rejected. Unknown request fields are rejected.
-
-The response is the existing checkout collection view: collection ID, payment number, requested amount/currency, provider order/session, status and failure code. This route uses the existing configured checkout provider (Cashfree, or mock in tests). Razorpay penalty checkout is also available through dedicated order/verify routes; see [Razorpay penalty payments](razorpay-penalty-payments.md). Payment receipts remain automatically verified through the existing collection verification/webhook flow, without staff approval.
-
-Calls without a body retain the old ALL-outstanding/full-payment behaviour. Existing invoice-specific payments and Cashfree AutoPay remain available. A penalty aggregate checkout blocks overlapping per-invoice checkout attempts until its state is resolved.
+Use the returned paymentRequestId with the common read/verify routes. Razorpay verifies Checkout IDs/signature; Cashfree verifies server-side with an empty body. Both preserve invoice snapshots, automatic accounting and overlap protection. See [common payment API](common-payment-api.md) for request/response details. Existing AutoPay and manual payment workflows remain unchanged.
 
 ### Allocation and accounting
 

@@ -2,25 +2,15 @@
 
 Rider authentication and client scoping apply to both endpoints. Existing Cashfree invoice/AutoPay and Razorpay handover routes remain available. Flutter integration is separate.
 
-## Create or reuse an order
+## Create, read and verify
 
-`POST /api/v1/rider-app/submission-penalties/razorpay/order`
+Use the [common payment API](common-payment-api.md):
 
-Send `{}` (or no body) for the outstanding penalty balance, or `{"amount":"500.00"}` for a partial payment. Amount is a decimal string, minimum INR 1, maximum the current outstanding penalty balance. Other fields are rejected.
+- `POST /api/v1/rider-app/payments/orders` with `{"purpose":"SUBMISSION_PENALTY","amount":"500.00"}`. Omit amount for full balance; Razorpay is the default provider. Explicit `provider: CASHFREE` retains the configured-provider partial penalty option.
+- `GET /api/v1/rider-app/payments/orders/:paymentRequestId` reads the common state.
+- `POST /api/v1/rider-app/payments/orders/:paymentRequestId/verify` accepts the Razorpay order/payment IDs and signature, or an empty body for Cashfree.
 
-Response: `{"data":{"keyId":"rzp_test_...","orderId":"order_...","amount":50000,"currency":"INR"}}`.
-
-Checkout amount is in paise. Invoices and allocation limits are saved before contacting Razorpay. Existing open orders are reused for the same amount. A pending collection with another provider blocks a new order and vice versa. Ambiguous order creation is recovered by receipt; it is never blindly retried as another create request.
-
-## Verify
-
-`POST /api/v1/rider-app/submission-penalties/razorpay/verify`
-
-Body: `{"razorpayOrderId":"order_...","razorpayPaymentId":"pay_...","razorpaySignature":"<64 hex characters>"}`.
-
-Ownership, signature, gateway payment order, amount, currency and capture state are checked. An authorized payment is still pending. Captured payments automatically post one RiderPayment, invoice allocations, billing ledger credit and wallet payment history using the same settlement function as Cashfree penalty checkout.
-
-Response `data` contains the refreshed submission penalty summary plus `orderId`, `paymentId`, `paymentStatus`. `nextAction` is `AWAITING_GATEWAY_CONFIRMATION` for pending capture or `CONTACT_SUPPORT` for review. A failed attempt returns `RETRY_ONLINE_PAYMENT` when no other attempt is pending; retry Checkout with the same order (the collection remains reserved to prevent a concurrent second checkout). It is absent on settled payments.
+Purpose and provider are resolved from the saved payment request during verification. Penalty allocation uses the immutable invoice snapshot. Captured payments post one RiderPayment, billing ledger credit and wallet history entry using the shared penalty settlement code. The common response uses SUCCEEDED or REVIEW_REQUIRED rather than exposing a raw collection SUCCESS with a review code.
 
 ## Webhooks and recovery
 
@@ -28,7 +18,7 @@ The existing signed `POST /api/v1/webhooks/payments/razorpay` persists events be
 
 New invoices after order creation are excluded. Payments against already cleared invoice portions remain unallocated and are flagged for support review. Duplicate captures and external refunds are also flagged for review; no automatic refund or accounting reversal is performed. The existing payment collection detail includes the Razorpay order and capture review evidence. Existing collection verification/admin reconciliation also routes Razorpay collections to Razorpay rather than Cashfree. Cashfree refund routes reject Razorpay payments rather than sending them to the wrong provider.
 
-The summary exposes `razorpayOrderEndpoint` and `razorpayVerifyEndpoint`. Active Razorpay checkout appears as `paymentInProgress.source = RAZORPAY`, including `orderId`, and disables `payNowAvailable`. Review-required captured payments also block another Razorpay attempt pending support resolution. Partial unpaid debt continues to block the next handover under existing rules.
+The summary exposes the common `payEndpoint` and `paymentPurpose`. Active Razorpay checkout appears as `paymentInProgress.source = RAZORPAY`, including `orderId`, and disables `payNowAvailable`. Review-required captured payments also block another Razorpay attempt pending support resolution. Partial unpaid debt continues to block the next handover under existing rules.
 
 ## Configuration and database
 

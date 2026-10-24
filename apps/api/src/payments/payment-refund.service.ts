@@ -105,6 +105,7 @@ export class PaymentRefundService {
         orderId: checkout.providerOrderId,
         provider: checkout.provider,
       };
+    if (autopay?.provider === 'RAZORPAY') throw new ConflictException('Razorpay AutoPay refunds require support review; no Cashfree refund will be submitted.');
     if (autopay?.providerReference)
       return {
         kind: 'AUTOPAY' as const,
