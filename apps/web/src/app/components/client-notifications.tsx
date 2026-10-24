@@ -271,13 +271,12 @@ export function ClientNotifications({ refreshKey = 0 }: { refreshKey?: number })
           {error}
         </p>
       )}
-      <section className="action-card">
-        <h2>Sending history</h2>
+      <section className="client-operational-list" aria-label="Sending history">
         <p className="muted">
           Firebase acceptance confirms submission to Firebase. App inbox reads
           are tracked separately.
         </p>
-        <ClientDataTable rows={rows} loading={loading} pagination={false} searchable={false} sortable={false} filterable={false} getRowId={(row) => row.id} emptyMessage="No notifications have been sent yet." columns={[
+        <ClientDataTable rows={rows} loading={loading} resultCountSuffix="on this page" pagination={false} searchable={false} sortable={false} filterable={false} getRowId={(row) => row.id} emptyMessage="No notifications have been sent yet." columns={[
           { key: "created", label: "Created", value: (row) => row.createdAt, render: (row) => new Date(row.createdAt).toLocaleString() },
           { key: "title", label: "Title", value: (row) => row.title },
           { key: "audience", label: "Audience", value: (row) => audiences[row.audience] ?? row.source },

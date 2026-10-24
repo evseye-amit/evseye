@@ -34,6 +34,7 @@ const paths = {
   support: ["M21 11a8 8 0 0 1-8 8H7l-4 3V11a9 9 0 0 1 18 0Z", "M8 9h8", "M8 13h5"],
   chevron: ["m6 9 6 6 6-6"],
   arrowRight: ["M4 12h16", "m14 6 6 6-6 6"],
+  info: ["M12 10v6", "M12 7h.01", "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z"],
 } as const;
 
 export type IconName = keyof typeof paths;

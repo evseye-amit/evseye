@@ -105,7 +105,7 @@ describe('MobileDeploymentService.requestFleet', () => {
       ).resolves.toMatchObject({ status: 'FLEET_REQUESTED' });
       expect(prisma.photoRequirement.findMany).not.toHaveBeenCalled();
       prisma.client.findUniqueOrThrow.mockResolvedValue({ fleetOperatingMode: 'ONBOARDING_EVIDENCE' });
-      await expect(service.requestFleet('client-1', 'manager-1', 'allocation-1')).rejects.toThrow('Fleet evidence is incomplete: FRONT.');
+      await expect(service.requestFleet('client-1', 'manager-1', 'allocation-1')).resolves.toMatchObject({ status: 'FLEET_REQUESTED' });
     },
   );
 });

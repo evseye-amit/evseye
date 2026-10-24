@@ -7,6 +7,99 @@ const actor = (id: string, role: string) =>
   ({ id, clientId: 'client-1', roles: [role] }) as AuthUser;
 
 describe('FleetReadinessService status history', () => {
+  it('rejects the removed onboarding-evidence company default', async () => {
+    const service = new FleetReadinessService({} as never, {} as never);
+    await expect(
+      service.savePolicy('client-1', actor('admin-1', 'CLIENT_ADMIN'), {
+        operatingMode: 'ONBOARDING_EVIDENCE',
+        expectedVersion: 1,
+        reason: 'Update readiness policy',
+        configuration: defaultPolicy,
+      }),
+    ).rejects.toThrow();
+  });
+
+  it('selects a shared stage plan before staged preparation starts', async () => {
+    const fleet = {
+      id: 'fleet-1',
+      clientId: 'client-1',
+      status: 'PENDING_ACTIVATION',
+      readinessWorkflow: 'STAGED_PREPARATION_QC',
+      readinessStagePlanCode: null,
+      currentHubId: 'hub-1',
+    };
+    const tx = {
+      $queryRaw: vi.fn(),
+      fleetPreparation: { findFirst: vi.fn().mockResolvedValue(null) },
+      fleet: { update: vi.fn() },
+    };
+    const db = {
+      $transaction: vi.fn(async (fn: (value: typeof tx) => unknown) => fn(tx)),
+    };
+    const service = new FleetReadinessService(db as never, {} as never);
+    vi.spyOn(service, 'fleet').mockResolvedValue(fleet as never);
+    vi.spyOn(service, 'access').mockResolvedValue(undefined);
+    vi.spyOn(service, 'policy').mockResolvedValue({
+      operatingMode: 'SIMPLE',
+      version: 1,
+      installationStageTemplates: [],
+      configuration: {
+        ...defaultPolicy,
+        stagePlans: [{ code: 'standard', name: 'Standard', stages: [] }],
+      },
+      stagePlans: [{ code: 'standard', name: 'Standard', stages: [] }],
+      defaultStagePlanCode: 'standard',
+    });
+    vi.spyOn(service, 'readiness').mockResolvedValue({ workflow: 'STAGED_PREPARATION_QC' } as never);
+
+    await service.configureFleet(
+      'client-1',
+      actor('admin-1', 'CLIENT_ADMIN'),
+      fleet.id,
+      { stagePlanCode: 'standard' },
+    );
+
+    expect(tx.fleet.update).toHaveBeenCalledWith({
+      where: { id: fleet.id },
+      data: {
+        readinessStagePlanCode: 'standard',
+      },
+    });
+  });
+
+  it('rejects a workflow-change payload after fleet creation', async () => {
+    const service = new FleetReadinessService({} as never, {} as never);
+    await expect(
+      service.configureFleet(
+        'client-1',
+        actor('admin-1', 'CLIENT_ADMIN'),
+        'fleet-1',
+        { readinessWorkflow: 'PREPARATION_QC' },
+      ),
+    ).rejects.toThrow();
+  });
+
+  it('does not infer the first stage plan as the default', async () => {
+    const configuration = {
+      ...defaultPolicy,
+      stagePlans: [{ code: 'standard', name: 'Standard', stages: [] }],
+    };
+    const db = {
+      client: {
+        findUniqueOrThrow: vi.fn().mockResolvedValue({ fleetOperatingMode: 'STAGED_PREPARATION_QC' }),
+      },
+      fleetReadinessPolicy: {
+        findFirst: vi.fn().mockResolvedValue({ version: 2, configuration }),
+      },
+    };
+    const service = new FleetReadinessService(db as never, {} as never);
+
+    await expect(service.policy('client-1')).resolves.toMatchObject({
+      stagePlans: configuration.stagePlans,
+      defaultStagePlanCode: null,
+    });
+  });
+
   it.each([
     ['SIMPLE', true],
     ['ONBOARDING_EVIDENCE', true],
@@ -58,6 +151,8 @@ describe('FleetReadinessService status history', () => {
       version: 0,
       installationStageTemplates: [],
       configuration: defaultPolicy,
+      stagePlans: [],
+      defaultStagePlanCode: null,
     });
     vi.spyOn(service, 'fleet').mockResolvedValue(fleet as never);
     vi.spyOn(service, 'access').mockResolvedValue(undefined);
@@ -104,6 +199,8 @@ describe('FleetReadinessService status history', () => {
       version: 0,
       installationStageTemplates: [],
       configuration: defaultPolicy,
+      stagePlans: [],
+      defaultStagePlanCode: null,
     });
 
     await expect(
@@ -186,6 +283,8 @@ describe('FleetReadinessService status history', () => {
       version: 1,
       installationStageTemplates: [],
       configuration: defaultPolicy,
+      stagePlans: [],
+      defaultStagePlanCode: null,
     });
 
     const result = await service.preview(
@@ -195,47 +294,8 @@ describe('FleetReadinessService status history', () => {
       tx as never,
     );
 
-    expect(result.vehicleImpact).toEqual([
-      {
-        fleetId: 'fleet-1',
-        vehicleNumber: null,
-        fleetCode: 'FLT-1',
-        chassisNumber: 'CHASSIS-1',
-        effects: [
-          'MOVE_TO_INSPECTION_PENDING',
-          'PRESERVE_ADMIN_ALLOCATION_BLOCK',
-          'CLEAR_READINESS_APPROVAL',
-          'INVALIDATE_APPROVED_PREPARATION',
-          'BLOCKED_BY_ALLOCATION_WORK',
-          'BLOCKED_BY_OPEN_PREPARATION',
-          'ACTIVE_ALLOCATION_UNCHANGED',
-        ],
-      },
-      {
-        fleetId: 'fleet-2',
-        vehicleNumber: 'EV-2',
-        fleetCode: 'FLT-2',
-        chassisNumber: 'CHASSIS-2',
-        effects: ['MOVE_TO_INSPECTION_PENDING', 'BLOCKED_BY_ALLOCATION_WORK'],
-      },
-      {
-        fleetId: 'fleet-3',
-        vehicleNumber: 'EV-3',
-        fleetCode: 'FLT-3',
-        chassisNumber: 'CHASSIS-3',
-        effects: ['ACTIVE_ALLOCATION_UNCHANGED'],
-      },
-      {
-        fleetId: 'fleet-4',
-        vehicleNumber: 'EV-4',
-        fleetCode: 'FLT-4',
-        chassisNumber: 'CHASSIS-4',
-        effects: [
-          'PRESERVE_ADMIN_ALLOCATION_BLOCK',
-          'INVALIDATE_APPROVED_PREPARATION',
-        ],
-      },
-    ]);
+    expect(result.vehicleImpact).toEqual([]);
+    expect(tx.fleet.findMany).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       currentMode: 'SIMPLE',
       proposedMode: 'PREPARATION_QC',
@@ -245,18 +305,6 @@ describe('FleetReadinessService status history', () => {
       activeAllocations: 1,
       blocked: true,
     });
-    expect(tx.fleet.findMany).toHaveBeenCalledTimes(1);
-    expect(tx.fleet.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { clientId: 'client-1' },
-        select: expect.objectContaining({
-          id: true,
-          fleetCode: true,
-          allocations: expect.any(Object),
-          preparations: expect.any(Object),
-        }),
-      }),
-    );
   });
 
   it('keeps preview counts and returns no vehicle impact for an unchanged mode', async () => {
@@ -271,6 +319,8 @@ describe('FleetReadinessService status history', () => {
       version: 1,
       installationStageTemplates: [],
       configuration: defaultPolicy,
+      stagePlans: [],
+      defaultStagePlanCode: null,
     });
 
     const result = await service.preview(

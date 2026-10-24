@@ -1700,6 +1700,8 @@ model Fleet {
   motorNumber        String?                            @db.VarChar(100)
   ownershipType      FleetOwnershipType                 @default(CLIENT_OWNED)
   status             FleetStatus                        @default(PENDING_ACTIVATION)
+  readinessWorkflow  FleetOperatingMode                 @default(SIMPLE)
+  readinessStagePlanCode String?                         @db.VarChar(80)
   allocationEnabled  Boolean                            @default(true)
   homeHubId          String?
   homeHub            Hub?                               @relation("FleetHomeHub", fields: [homeHubId], references: [id], onDelete: SetNull)

@@ -375,21 +375,11 @@ export function InstallationBoard({ refreshKey = 0 }: { refreshKey?: number }) {
         </p>
       )}
       <div className="client-review-counts">{summary.map((entry) => <span key={entry.status}><strong>{entry._count}</strong> {label(entry.status)}</span>)}</div>
-      <div className="client-filter-bar">
-        <label>
-          Search scooter
-          <input
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-              setCandidatePage(1);
-            }}
-          />
-        </label>
-        <label>
-          Hub
-          <select
+      <ClientDataTable rows={rows} loading={loading} getRowId={(row) => row.id} emptyMessage="No installation work found."
+        server={{ page, limit: 20, total, search, filterCount: [hub,stage,status].filter(Boolean).length, onReset: () => { setSearch(""); setHub(""); setStage(""); setStatus(""); setPage(1); setCandidatePage(1); }, onSearch: value => { setSearch(value); setPage(1); setCandidatePage(1); }, onPage: setPage }}
+        columns={[
+          { key: "scooter", label: "Scooter", value: (row) => row.preparation.fleet.vehicleNumber ?? row.preparation.fleet.fleetCode },
+          { key: "hub", label: "Hub", serverFilter: (id) => (<select id={id} aria-label="Filter by Hub"
             value={hub}
             onChange={(e) => {
               setHub(e.target.value);
@@ -403,11 +393,8 @@ export function InstallationBoard({ refreshKey = 0 }: { refreshKey?: number }) {
                 {h.name}
               </option>
             ))}
-          </select>
-        </label>
-        <label>
-          Stage
-          <select
+          </select>), value: (row) => row.preparation.hub.name },
+          { key: "stage", label: "Stage", serverFilter: (id) => (<select id={id} aria-label="Filter by Stage"
             value={stage}
             onChange={(e) => {
               setStage(e.target.value);
@@ -420,11 +407,8 @@ export function InstallationBoard({ refreshKey = 0 }: { refreshKey?: number }) {
                 {s.name}
               </option>
             ))}
-          </select>
-        </label>
-        <label>
-          Status
-          <select
+          </select>), value: (row) => row.definition.name },
+          { key: "status", label: "Status", serverFilter: (id) => (<select id={id} aria-label="Filter by Status"
             value={status}
             onChange={(e) => {
               setStatus(e.target.value);
@@ -442,16 +426,7 @@ export function InstallationBoard({ refreshKey = 0 }: { refreshKey?: number }) {
             ].map((s) => (
               <option key={s} value={s}>{label(s)}</option>
             ))}
-          </select>
-        </label>
-      </div>
-      <ClientDataTable rows={rows} loading={loading} searchable={false} getRowId={(row) => row.id} emptyMessage="No installation work found."
-        server={{ page, limit: 20, total, search, onSearch: setSearch, onPage: setPage }}
-        columns={[
-          { key: "scooter", label: "Scooter", value: (row) => row.preparation.fleet.vehicleNumber ?? row.preparation.fleet.fleetCode },
-          { key: "hub", label: "Hub", value: (row) => row.preparation.hub.name },
-          { key: "stage", label: "Stage", value: (row) => row.definition.name },
-          { key: "status", label: "Status", value: (row) => label(row.status), render: (row) => <span className={`status status-${row.status.toLowerCase()}`}>{label(row.status)}</span> },
+          </select>), value: (row) => label(row.status), render: (row) => <span className={`status status-${row.status.toLowerCase()}`}>{label(row.status)}</span> },
         ]} actions={(row) => <button type="button" className="secondary table-action" disabled={busy || loading} onClick={() => void run(() => open(row.id))}>Open</button>} />
       {policy?.operatingMode === "STAGED_PREPARATION_QC" && (
         <>

@@ -156,25 +156,21 @@ export default function KycAdministration() {
         </article>)}
     </section>}
     {authorized && tab === "verifications" && <section><h2>Verifications</h2>
-      <div className="client-filter-bar">
-        <label>Status <select value={status} onChange={(event) => { setStatus(event.target.value); setPage(0); }}>
-          <option value="">All</option>{["CREATED", "PROCESSING", "OTP_REQUIRED", "VERIFIED", "FAILED", "MANUAL_REVIEW"].map((value) => <option key={value}>{value}</option>)}
-        </select></label>
-        <label>Type <select value={type} onChange={(event) => { setType(event.target.value); setPage(0); }}>
-          <option value="">All</option>{["PAN_VERIFICATION", "AADHAAR_OTP", "BANK_ACCOUNT_VERIFICATION", "IFSC_VERIFICATION"].map((value) => <option key={value}>{value}</option>)}
-        </select></label>
-      </div>
-      <ClientDataTable rows={rows} loading={loading} pagination={false} searchable={false} sortable={false} filterable={false} getRowId={(row) => row.id} emptyMessage="No verifications match these filters." columns={[
+      <ClientDataTable rows={rows} loading={loading} pagination={false} searchable={false} sortable={false} resultCountSuffix="on this page" server={{page:page+1,limit:50,total:rows.length,search:"",onSearch:()=>{},onPage:()=>{},filterCount:[status,type].filter(Boolean).length,onReset:()=>{setStatus("");setType("");setPage(0);}}} getRowId={(row) => row.id} emptyMessage="No verifications match these filters." columns={[
         { key: "id", label: "Verification", value: (row) => row.id, render: (row) => <details><summary>{row.id.slice(0, 8)}</summary>{row.id}</details> },
         { key: "rider", label: "Rider", value: (row) => row.riderId },
-        { key: "type", label: "Type", value: (row) => row.verificationType.replaceAll("_", " ") },
-        { key: "status", label: "Status", value: (row) => row.status, render: (row) => <span className={`status status-${row.status.toLowerCase()}`}>{row.status.replaceAll("_", " ")}</span> },
+        { key: "type", label: "Type", serverFilter: (id) => (<select id={id} aria-label="Filter by Type" value={type} onChange={(event) => { setType(event.target.value); setPage(0); }}>
+          <option value="">All</option>{["PAN_VERIFICATION", "AADHAAR_OTP", "BANK_ACCOUNT_VERIFICATION", "IFSC_VERIFICATION"].map((value) => <option key={value}>{value}</option>)}
+        </select>), value: (row) => row.verificationType.replaceAll("_", " ") },
+        { key: "status", label: "Status", serverFilter: (id) => (<select id={id} aria-label="Filter by Status" value={status} onChange={(event) => { setStatus(event.target.value); setPage(0); }}>
+          <option value="">All</option>{["CREATED", "PROCESSING", "OTP_REQUIRED", "VERIFIED", "FAILED", "MANUAL_REVIEW"].map((value) => <option key={value}>{value}</option>)}
+        </select>), value: (row) => row.status, render: (row) => <span className={`status status-${row.status.toLowerCase()}`}>{row.status.replaceAll("_", " ")}</span> },
         { key: "provider", label: "Provider", value: (row) => row.finalProvider?.name ?? "—" },
         { key: "requested", label: "Requested", value: (row) => row.requestedAt, render: (row) => new Date(row.requestedAt).toLocaleString("en-IN") },
       ]} actions={(row) => <button type="button" className="secondary table-action" onClick={() => void openDetail(row.id)}>Details</button>} />
       <div className="sa-pagination" aria-label="Verification pagination">
-        <button type="button" disabled={loading || page === 0} onClick={() => setPage(page - 1)}>Previous</button>
-        <span>Page {page + 1}</span><button type="button" disabled={loading || rows.length < 50} onClick={() => setPage(page + 1)}>Next</button>
+        <button type="button" className="secondary" disabled={loading || page === 0} onClick={() => setPage(page - 1)}>Previous</button>
+        <span>Page {page + 1}</span><button type="button" className="secondary" disabled={loading || rows.length < 50} onClick={() => setPage(page + 1)}>Next</button>
       </div>
       {selected && <ClientFormDialog title="Provider verification details" wide error={error} onClose={() => setSelected(null)}><details><summary>Record identifier</summary>{selected.id}</details>
         <p>Rider: {selected.riderId} · {selected.verificationType} · {selected.status}</p>
