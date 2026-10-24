@@ -53,25 +53,11 @@ it never cancels, waives, or marks the debt paid. Fetch again on login/Home
 refresh and after returning from checkout. An uninstalled/offline app does not
 change debt treatment.
 
-## Pay using existing checkout
+## Pay through the common API
 
-`POST /rider-app/billing/invoices/:invoiceId/pay`
+Use `POST /api/v1/rider-app/payments/orders` with purpose SUBMISSION_PENALTY for consolidated full/partial payments, or purpose INVOICE with invoiceId/useWallet for one invoice. The latter preserves existing configured-provider wallet funding rules. No spendable-wallet deduction occurs just from imposing a penalty.
 
-Headers: `Idempotency-Key: penalty-payment-001` (8–120 safe characters).
-Body: `{"useWallet":true}` (or false for external checkout only).
-Wallet funding follows existing policy; this invoice uses the PENALTY category.
-No automatic spendable-wallet deduction is performed just for imposing a penalty.
-The automatic collection scheduler excludes these dedicated invoices, so the
-rider initiates payment through the dialog/checkout.
-
-If a balance remains, use the returned payment session with the configured
-provider. Then call
-`POST /rider-app/billing/collections/:collectionId/verify` or wait for the verified
-provider webhook. Never trust the client checkout success callback as proof of
-payment. Poll `GET /rider-app/billing/collections/:collectionId` and refresh the
-penalty detail. Reuse the idempotency key for retries of the same attempt.
-External checkout requires existing payment-provider configuration.
-`POST /rider-app/billing/payments/pay-outstanding` also includes these invoices.
+Verify/read using the returned paymentRequestId at the common orders endpoints. Server verification or a verified webhook is required for financial settlement. Dedicated penalty invoices remain excluded from the automatic collection scheduler. See [common payment API](common-payment-api.md).
 
 ## Fleet Manager status
 

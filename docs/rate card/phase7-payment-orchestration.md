@@ -24,10 +24,8 @@ Run the migration with the repository's normal Prisma deployment command before 
 
 Rider endpoints use the authenticated rider context, never an arbitrary rider ID:
 
-- `POST /rider-app/billing/invoices/:invoiceId/pay` starts checkout for current invoice outstanding.
-- `POST /rider-app/billing/payments/pay-outstanding` starts checkout for total current outstanding.
-- `POST /rider-app/billing/deposits/:depositId/pay` starts a deposit checkout.
-- `POST /rider-app/billing/collections/:collectionId/verify` checks provider status after handoff.
+- `POST /rider-app/payments/orders` creates checkout with purpose INVOICE, OUTSTANDING, SECURITY_DEPOSIT, SUBMISSION_PENALTY or DEPLOYMENT. See [common payment API](../common-payment-api.md).
+- `POST /rider-app/payments/orders/:paymentRequestId/verify` verifies the saved provider/purpose after handoff.
 - `GET /rider-app/billing/collections` lists attempts.
 - `GET /rider-app/payments/home`, `/history`, `/attempts/:id`, and `/refunds` supply payment screen data.
 - Existing `GET/POST /rider-app/payments/autopay` remains; the create request accepts `UPI_AUTOPAY` or `ENACH` when the selected package permits it. `POST /rider-app/payments/autopay/:mandateId/cancel` invokes provider cancellation.

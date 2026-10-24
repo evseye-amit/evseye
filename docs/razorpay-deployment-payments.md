@@ -20,33 +20,13 @@ Enable automatic capture in Razorpay. The backend waits for `captured`; an `auth
 
 ## Rider APIs
 
-Both routes require Rider authentication and use the authenticated client/user. No caller-supplied amount is accepted.
+Use the [common payment API](common-payment-api.md). Create with `POST /api/v1/rider-app/payments/orders` and `{"purpose":"DEPLOYMENT","allocationId":"<uuid>"}`. No caller-supplied amount is accepted. Verify through `POST /api/v1/rider-app/payments/orders/:paymentRequestId/verify` with Razorpay order/payment IDs and signature.
 
-`POST /api/v1/mobile-deployments/:allocationId/payment/razorpay/order`
+The common response identifies purpose/provider, returns a decimal `amount`, and puts SDK data in `checkout` with `amountPaise`. Keep the returned opaque paymentRequestId for verification/read calls. Detailed deployment state remains available from the existing allocation payment GET.
 
-No body. Returns:
+The current accepted commercial/deposit quote must match the saved deployment payment. Payment must be PENDING/REJECTED and workflow PAYMENT_PENDING. Paid, manually submitted and cancelled allocations cannot start another checkout. Amount must be at least INR 1; zero payments use the existing no-payment-required flow.
 
-```json
-{ "data": { "keyId": "rzp_test_...", "orderId": "order_...", "amount": 135000, "currency": "INR" } }
-```
-
-Amount is integer paise. The current commercial/deposit quote must still match the saved deployment payment. Payment must be PENDING/REJECTED and workflow PAYMENT_PENDING. Paid, manually submitted and cancelled allocations cannot start another checkout. Amount must be at least INR 1; zero payments use the existing no-payment-required flow.
-
-Orders are persisted before the provider call. Repeated requests reuse OPEN orders. A concurrent request while creation is in progress receives `RAZORPAY_ORDER_PROCESSING` (409); retry shortly. An ambiguous HTTP failure retains the attempt and recovers by its unique receipt; it never blindly creates a second order. If the provider still cannot confirm whether the order exists, return `RAZORPAY_ORDER_UNKNOWN` and reconcile with support. A definitive provider rejection marks the attempt FAILED, allowing a new attempt. Previous orders are retained for late captures.
-
-`POST /api/v1/mobile-deployments/:allocationId/payment/razorpay/verify`
-
-```json
-{
-  "razorpayOrderId": "order_...",
-  "razorpayPaymentId": "pay_...",
-  "razorpaySignature": "<64 hexadecimal characters>"
-}
-```
-
-The server verifies HMAC using the stored order ID, then fetches the payment from the configured Razorpay account. Order, amount and currency must match. The response uses the same `{data: payment}` structure and payment/receipt fields as the existing payment GET, plus `gateway` with order/payment IDs, status and review reason. Authorized payments return `AWAITING_GATEWAY_CONFIRMATION`; do not ask the Rider to pay again while waiting for capture.
-
-Checkout success must call this endpoint, not the manual payment submission endpoint. The existing `GET /api/v1/mobile-deployments/:allocationId/payment` then shows PAID after verification or webhook reconciliation. Existing manual submit/approve/reject/receipt APIs remain available for manual payments.
+Orders are persisted before contacting Razorpay and OPEN orders are reused. Concurrent or ambiguous creation is recovered by receipt without blindly sending a second create request. Captured payments settle automatically; authorized payments remain pending. Callback identity, signature, amount and currency are verified. Existing manual submit/approve/reject/receipt APIs remain available.
 
 ## Settlement and records
 

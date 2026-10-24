@@ -1,3 +1,5 @@
+import { CommonPaymentService } from './common-payment.service.js';
+import { RiderBillingService } from '../rider-billing/rider-billing.service.js';
 import { RazorpayDeploymentService } from './razorpay/razorpay-deployment.service.js';
 import { RazorpayPenaltyService } from './razorpay/razorpay-penalty.service.js';
 import { RazorpayProviderError } from './razorpay/razorpay.client.js';
@@ -485,6 +487,24 @@ describe.skipIf(!url)(
         await r.service.createOrder(f.client.id, f.user.id, { amount: '50' }),
       ).toEqual(order);
       expect(r.gateway.createOrder).toHaveBeenCalledTimes(1);
+    });
+    it('settles partial Razorpay and Cashfree penalty payments through the common API without duplicate accounting', async () => {
+      const f = await fixture(); const r = razorpay(f);
+      const api = new CommonPaymentService(db as never, new RiderBillingService(db as never), f.checkout, {} as never, r.service);
+      const created = await api.create(f.client.id, f.user.id, { purpose: 'SUBMISSION_PENALTY', amount: '500' });
+      expect(created).toMatchObject({ purpose: 'SUBMISSION_PENALTY', provider: 'RAZORPAY', status: 'PENDING', amount: '500.00' });
+      const callback = r.capture({ orderId: created.providerOrderId!, amount: 50000, currency: 'INR' });
+      await expect(api.detail('foreign-client', f.user.id, created.paymentRequestId!)).rejects.toThrow();
+      await expect(api.verify(f.client.id, f.user.id, created.paymentRequestId!, { ...callback, purpose: 'DEPLOYMENT' })).rejects.toThrow();
+      await Promise.all([api.verify(f.client.id, f.user.id, created.paymentRequestId!, callback), api.verify(f.client.id, f.user.id, created.paymentRequestId!, callback)]);
+      expect(await api.detail(f.client.id, f.user.id, created.paymentRequestId!)).toMatchObject({ status: 'SUCCEEDED', checkout: null });
+      const cashfree = await api.create(f.client.id, f.user.id, { purpose: 'SUBMISSION_PENALTY', provider: 'CASHFREE', amount: '200' }, randomUUID());
+      expect(cashfree).toMatchObject({ provider: 'MOCK', amount: '200.00', checkout: { paymentSessionId: 'test-session' } });
+      f.success(cashfree.providerOrderId!, '200');
+      expect(await api.verify(f.client.id, f.user.id, cashfree.paymentRequestId!, {})).toMatchObject({ status: 'SUCCEEDED', purpose: 'SUBMISSION_PENALTY' });
+      expect(await db.riderPayment.count({ where: { clientId: f.client.id } })).toBe(2);
+      expect(await db.walletTransaction.count({ where: { clientId: f.client.id, transactionType: 'PAYMENT' } })).toBe(2);
+      expect((await f.penalties.summary(f.client.id, f.rider.id)).defaultAmount).toBe('500.00');
     });
     it('makes one partial payment across penalties, preserves rent, and posts one receipt/ledger/wallet history entry', async () => {
       const f = await fixture();

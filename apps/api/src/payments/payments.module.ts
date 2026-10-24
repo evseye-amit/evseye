@@ -1,3 +1,6 @@
+import { AllocationsModule } from '../allocations/allocations.module.js';
+import { CommonPaymentController } from './common-payment.controller.js';
+import { CommonPaymentService } from './common-payment.service.js';
 import { RazorpayPenaltyModule } from './razorpay/razorpay-penalty.module.js';
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -45,8 +48,9 @@ import {
 } from './mandate.controller.js';
 
 @Module({
-  imports: [RazorpayPenaltyModule, AuthModule, RiderBillingModule, RiderRateCardsModule, WalletModule],
+  imports: [AllocationsModule, RazorpayPenaltyModule, AuthModule, RiderBillingModule, RiderRateCardsModule, WalletModule],
   controllers: [
+    CommonPaymentController,
     RiderMandateController,
     AutoPayOperationsController,
     PaymentWebhookController,
@@ -64,6 +68,7 @@ import {
     ProviderSettlementController,
   ],
   providers: [
+    CommonPaymentService,
     CashfreeHttpClient,
     CashfreePaymentProvider,
     MockPaymentProvider,
