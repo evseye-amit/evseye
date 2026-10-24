@@ -11,11 +11,12 @@ Supported request bodies:
 - Allocation/handover: `{"purpose":"DEPLOYMENT","allocationId":"<uuid>"}`. Razorpay collects the full accepted commercial/deposit quote. Caller amounts are rejected.
 - Consolidated penalties: `{"purpose":"SUBMISSION_PENALTY","amount":"500.00"}`. Defaults to Razorpay. Omit amount for the full outstanding penalty balance.
 - Cashfree consolidated penalties: `{"purpose":"SUBMISSION_PENALTY","provider":"CASHFREE","amount":"500.00"}`. Retains the existing scoped partial payment flow through the configured checkout adapter.
+- Razorpay rental invoice: `{"purpose":"INVOICE","provider":"RAZORPAY","invoiceId":"<uuid>","useWallet":true}`. Uses the saved rental invoice balance after eligible wallet settlement. Caller amounts are rejected.
 - Individual invoice: `{"purpose":"INVOICE","invoiceId":"<uuid>","useWallet":true}`. Uses the configured checkout provider after existing wallet settlement rules. Wallet use defaults to true.
 - Outstanding invoices: `{"purpose":"OUTSTANDING","amount":"500.00"}`. Uses the configured checkout provider and the existing ALL scope, including eligible penalty invoices. Omit amount for the full outstanding balance.
 - Deposit: `{"purpose":"SECURITY_DEPOSIT","depositId":"<uuid>"}`. Uses the configured checkout provider for the current required deposit shortfall.
 
-`Idempotency-Key` is required for configured-provider checkout: INVOICE, OUTSTANDING, SECURITY_DEPOSIT and explicit CASHFREE penalty checkout. Reuse it unchanged on retries. Razorpay retains existing durable order reuse, concurrent-tap protection and ambiguous-create recovery.
+`Idempotency-Key` is required for Razorpay rental invoice checkout and configured-provider checkout: INVOICE, OUTSTANDING, SECURITY_DEPOSIT and explicit CASHFREE penalty checkout. Reuse it unchanged on retries. Razorpay retains existing durable order reuse, concurrent-tap protection and ambiguous-create recovery.
 
 Partial amounts are decimal strings, up to two decimal places, from INR 1 to the selected outstanding balance. Unknown purposes, fields and unsupported provider combinations are rejected. DEPLOYMENT and SECURITY_DEPOSIT do not accept partial amounts. No caller-supplied Rider, currency or successful payment status is accepted.
 
@@ -82,3 +83,16 @@ No change to PAYMENT_PROVIDER is needed for Razorpay; it remains independent of 
 `GET /rider-app/submission-penalties` (including `status=ALL`), penalty detail, submission penalty requests and home pending penalty requests expose `paymentStatus` as **PAID** when the invoice has no remaining outstanding balance, otherwise **UNPAID**. Summary currency totals use the same rule. Partial payments and partial settlement credits remain UNPAID until fully settled; the amount fields retain the exact paid, credited and outstanding balances.
 
 The existing `status` field continues to describe the invoice lifecycle (for example, `PARTIALLY_PAID`). Gateway attempt states and payment-in-progress details are unchanged: a successful partial payment does not mean the entire penalty is paid. The `status=PENDING` list filter still selects outstanding penalties; its name and pagination contract are unchanged.
+
+
+## Razorpay rental invoices
+
+Use `GET /api/v1/rider-app/billing/invoices` and the existing invoice-detail API to obtain the rental invoice, billing period, accepted pricing snapshot, paid amount and outstanding balance. Creating a payment does not generate new rent charges, change the accepted rate-card version, or collect an allocation's upfront rent again. Only finalized, partially paid or overdue INR rental invoices with a remaining balance are eligible for this Razorpay route. Other invoice types retain their existing configured-provider path.
+
+The server locks the wallet, Rider and invoice while checking other in-flight payments and applying wallet funding using existing cash/reward eligibility rules. Security deposits are not used as rental funds. The external order covers the remaining invoice balance; `useWallet` defaults to true. The requested invoice and wallet preference are bound to the Idempotency-Key. Reusing that key for another invoice, provider or wallet preference is rejected. A wallet-only payment returns the existing WALLET success representation with no gateway order.
+
+Use the same common order-detail and verification endpoints described above. Verification requires the saved Razorpay order, valid callback signature and an authoritative captured payment of the exact amount/currency. The existing signed webhook inbox and reconciliation worker recover app-closed or uncertain payments. Unknown order creation is recovered by receipt without a second provider POST. Each verified payment posts one receipt, ledger credit and wallet accounting entry scoped to the original invoice. Late captures, duplicate captures and external refunds require review; surplus is not applied to another invoice.
+
+Razorpay invoice and AutoPay requests cannot collect the same outstanding obligation concurrently. Wallet settlement is blocked while a Razorpay rental order is in flight. Existing Cashfree, allocation, penalty and AutoPay routes remain available. `OUTSTANDING` continues to use the existing configured checkout adapter; this change does not add consolidated Razorpay rent payments. Invoice payments do not accept a partial amount; existing partial invoice balances can be paid in full. Automated Razorpay rental refunds are not introduced: these sources require support review.
+
+The shared collection records distinguish rental invoices with `collectionType=INVOICE_PAYMENT` and a `RENTAL_INVOICE` snapshot. Existing Razorpay order/capture tables retain their historical penalty names and are reused for durable collection processing; no database migration or seed change is required. Razorpay activation still uses the existing environment flags, allowlist and merchant credentials. Flutter integration is separate.

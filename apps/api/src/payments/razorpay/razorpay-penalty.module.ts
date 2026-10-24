@@ -1,3 +1,4 @@
+import { RazorpayInvoiceService } from './razorpay-invoice.service.js';
 import { RazorpayEventRouter } from './razorpay-event-router.service.js';
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../../auth/auth.module.js';
@@ -13,7 +14,16 @@ import { RazorpayPenaltyService } from './razorpay-penalty.service.js';
     WalletModule,
     SubmissionPenaltyModule,
   ],
-  providers: [RazorpayClient, RazorpayPenaltyService, RazorpayEventRouter],
-  exports: [RazorpayPenaltyService, RazorpayEventRouter],
+  providers: [
+    RazorpayClient,
+    RazorpayPenaltyService,
+    RazorpayEventRouter,
+    RazorpayInvoiceService,
+  ],
+  exports: [
+    RazorpayPenaltyService,
+    RazorpayEventRouter,
+    RazorpayInvoiceService,
+  ],
 })
 export class RazorpayPenaltyModule {}
