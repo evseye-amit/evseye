@@ -154,6 +154,11 @@ const environmentSchema = z.object({
   KYC_OPS_MAX_TECHNICAL_RETRIES: z.coerce.number().int().min(0).max(3).default(1),
   KYC_ANALYTICS_MIN_SAMPLE_SIZE: z.coerce.number().int().min(1).max(100000).default(30),
   KYC_ROUTING_DEADLINE_MS: z.coerce.number().int().min(1000).max(120000).default(30000),
+  RAZORPAY_ENABLED: z.enum(['true', 'false']).default('false'),
+  RAZORPAY_KEY_ID: z.string().optional(),
+  RAZORPAY_KEY_SECRET: z.string().optional(),
+  RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
+  RAZORPAY_CLIENT_IDS: z.string().default(''),
   PAYMENT_PROVIDER: z
     .enum(['disabled', 'cashfree', 'mock'])
     .default('disabled'),
@@ -379,6 +384,12 @@ export function validateEnvironment(
     }
     if (!result.data.DATABASE_URL)
       throw new Error('DATABASE_URL is required in production.');
+  }
+  if (result.data.RAZORPAY_ENABLED === 'true') {
+    if (!/^rzp_(test|live)_[A-Za-z0-9]+$/.test(result.data.RAZORPAY_KEY_ID ?? '') || !result.data.RAZORPAY_KEY_SECRET || !result.data.RAZORPAY_WEBHOOK_SECRET || !result.data.RAZORPAY_CLIENT_IDS.trim())
+      throw new Error('Razorpay requires API credentials, a webhook secret and an explicit client allowlist.');
+    for (const id of result.data.RAZORPAY_CLIENT_IDS.split(',')) if (!z.string().uuid().safeParse(id.trim()).success) throw new Error('RAZORPAY_CLIENT_IDS must contain client UUIDs.');
+    if (result.data.RAZORPAY_KEY_SECRET === result.data.RAZORPAY_WEBHOOK_SECRET) throw new Error('Use distinct Razorpay API and webhook secrets.');
   }
   if (result.data.PUSH_ENABLED && !result.data.FIREBASE_PROJECT_ID) throw new Error('FIREBASE_PROJECT_ID is required when PUSH_ENABLED=true.');
   return result.data;

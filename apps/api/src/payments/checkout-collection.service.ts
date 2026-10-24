@@ -1,3 +1,4 @@
+import { PENALTY_PAYMENT, parseOutstandingInput, readPenaltySnapshot, planPenaltyPayment } from './outstanding-payment.js';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   BadRequestException,
@@ -146,7 +147,7 @@ export class CheckoutCollectionService {
           where: {
             clientId,
             riderId,
-            OR: [{ invoiceId }, { collectionType: 'OUTSTANDING_PAYMENT' }],
+            OR: [{ invoiceId }, { collectionType: { in: ['OUTSTANDING_PAYMENT', PENALTY_PAYMENT] } }],
             status: { in: ['CREATING', 'PENDING', 'UNKNOWN'] },
           },
         });
@@ -224,7 +225,10 @@ export class CheckoutCollectionService {
     if (!created) return this.view(request);
     return this.startProviderCheckout(request, riderId);
   }
-  async payOutstanding(clientId: string, riderId: string, key: string) {
+  async payOutstanding(clientId: string, riderId: string, key: string, input?: unknown) {
+    const selection = parseOutstandingInput(input);
+    const isPenalty = selection.scope === 'SUBMISSION_PENALTY';
+    const collectionType = isPenalty ? PENALTY_PAYMENT : 'OUTSTANDING_PAYMENT';
     if (!/^[A-Za-z0-9:_-]{8,120}$/.test(key))
       throw new BadRequestException('Idempotency-Key is required.');
     const providerName = this.config.getOrThrow('PAYMENT_PROVIDER');
@@ -240,21 +244,26 @@ export class CheckoutCollectionService {
         if (previous) {
           if (
             previous.riderId !== riderId ||
-            previous.collectionType !== 'OUTSTANDING_PAYMENT'
+            previous.collectionType !== collectionType
           )
             throw new ConflictException(
               'Collection key belongs to another obligation.',
             );
+          const snapshot = previous.paymentSnapshot && typeof previous.paymentSnapshot === 'object' && !Array.isArray(previous.paymentSnapshot) ? previous.paymentSnapshot as Record<string, unknown> : {};
+          if ((snapshot.requestedAmount ?? null) !== selection.requestedAmount) throw new ConflictException('Idempotency-Key was used with a different payment amount.');
           return previous;
         }
+        if (isPenalty) await tx.$queryRaw`SELECT id FROM "Rider" WHERE id = ${riderId} AND "clientId" = ${clientId} FOR UPDATE`;
         const invoices = await tx.riderInvoice.findMany({
           where: {
             clientId,
             riderId,
             status: { in: [...openStatuses] },
             outstandingAmount: { gt: 0 },
+            ...(isPenalty ? { invoiceType: 'SUBMISSION_PENALTY' } : {}),
           },
           select: { id: true, currency: true, outstandingAmount: true },
+          orderBy: [{ dueDate: 'asc' }, { id: 'asc' }],
         });
         if (!invoices.length)
           throw new ConflictException('No outstanding invoices.');
@@ -281,16 +290,23 @@ export class CheckoutCollectionService {
           select: { id: true },
         });
         if (!rider) throw new NotFoundException('Rider not found.');
-        const amount = invoices.reduce(
+        const outstanding = invoices.reduce(
           (sum, invoice) => sum.plus(invoice.outstandingAmount),
           new Prisma.Decimal(0),
         );
+        const amount = selection.requestedAmount === null ? outstanding : new Prisma.Decimal(selection.requestedAmount);
+        if (isPenalty && amount.lt(1)) throw new BadRequestException('The minimum online penalty payment is INR 1.00.');
+        if (amount.gt(outstanding)) throw new BadRequestException('Payment amount cannot exceed the outstanding balance.');
+        const snapshot = { version: 1, scope: selection.scope, requestedAmount: selection.requestedAmount, outstandingBeforePayment: outstanding.toFixed(2), externalPaymentRequested: amount.toFixed(2),
+          ...(isPenalty ? { allocations: planPenaltyPayment(invoices, amount) } : {}),
+        };
         const orderId = `EVSEYE_PG_${randomUUID().replaceAll('-', '')}`;
         const result = await tx.paymentCollectionRequest.create({
           data: {
             clientId,
             riderId,
-            collectionType: 'OUTSTANDING_PAYMENT',
+            collectionType,
+            paymentSnapshot: snapshot,
             paymentNumber: paymentNumber(),
             method: 'UPI',
             provider: providerName.toUpperCase(),
@@ -317,7 +333,7 @@ export class CheckoutCollectionService {
             entityType: 'PaymentCollectionRequest',
             entityId: result.id,
             newData: {
-              invoiceIds: invoices.map((invoice) => invoice.id),
+              scope: selection.scope, invoiceIds: invoices.map((invoice) => invoice.id),
               amount: amount.toFixed(2),
             },
           },
@@ -579,7 +595,9 @@ export class CheckoutCollectionService {
         } });
         throw new ConflictException('PROVIDER_PAYMENT_MISMATCH');
       }
-      const wallet = request.invoiceId
+      const isPenalty = request.collectionType === PENALTY_PAYMENT;
+      const snapshot = isPenalty ? readPenaltySnapshot(request.paymentSnapshot, request.amount) : null;
+      const wallet = request.invoiceId || isPenalty
         ? await this.wallet.ensure(clientId, riderId, 'SYSTEM')
         : null;
       return this.view(
@@ -591,6 +609,7 @@ export class CheckoutCollectionService {
           });
           if (current.status === 'SUCCESS')
             return current;
+          if (isPenalty) await tx.$queryRaw`SELECT id FROM "Rider" WHERE id = ${riderId} AND "clientId" = ${clientId} FOR UPDATE`;
           let unappliedExternal = false;
           const depositTransaction = current.depositId
             ? await this.deposits.confirmProviderCollectionInTransaction(
@@ -622,6 +641,7 @@ export class CheckoutCollectionService {
                 sourceId: current.id,
                 invoiceId: current.invoiceId ?? undefined,
                 allocate: !current.depositId,
+                ...(snapshot ? { invoiceLimits: snapshot.allocations, invoiceType: 'SUBMISSION_PENALTY' } : {}),
               });
           if (wallet && current.invoiceId) {
             const accounts = await tx.walletAccount.findMany({ where: { clientId, walletId: wallet.id } });
@@ -699,6 +719,21 @@ export class CheckoutCollectionService {
                 unappliedExternal = receipt.unallocatedAmount.gt(0);
               }
             }
+          }
+          if (isPenalty && wallet && payment) {
+            const accounts = await tx.walletAccount.findMany({ where: { clientId, walletId: wallet.id } });
+            const clearing = accounts.find(account => account.accountType === 'CLEARING');
+            const providerClearing = accounts.find(account => account.accountType === 'PROVIDER_CLEARING');
+            if (!clearing || !providerClearing) throw new ConflictException('WALLET_ACCOUNT_NOT_FOUND');
+            const amount = current.amount.toFixed(2);
+            await this.wallet.postInTransaction(tx, {
+              clientId, walletId: wallet.id, actorId: 'SYSTEM', type: 'PAYMENT', amount, currency: current.currency,
+              description: `Verified consolidated penalty payment ${current.id}`,
+              idempotencyKey: `provider:penalty:${current.id}`, referenceType: 'PAYMENT_COLLECTION', referenceId: current.id,
+              entries: [{ accountId: clearing.id, entryType: 'DEBIT', amount }, { accountId: providerClearing.id, entryType: 'CREDIT', amount }],
+            });
+            const receipt = await tx.riderPayment.findUniqueOrThrow({ where: { id: payment.id } });
+            unappliedExternal = receipt.unallocatedAmount.gt(0);
           }
           const updated = await tx.paymentCollectionRequest.update({
             where: { id: current.id },

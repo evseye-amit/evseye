@@ -1,3 +1,4 @@
+import { parseOutstandingInput } from './outstanding-payment.js';
 import {
   BadRequestException,
   Body,
@@ -10,7 +11,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiHeader, ApiTags } from '@nestjs/swagger';
+import { ApiBody, ApiHeader, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import type { RawBodyRequest } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
@@ -64,13 +65,16 @@ export class RiderCheckoutController {
   }
   @Post('payments/pay-outstanding')
   @ApiHeader({ name: 'Idempotency-Key', required: true })
+  @ApiBody({ required: false, schema: { type: 'object', additionalProperties: false, properties: { scope: { type: 'string', enum: ['ALL', 'SUBMISSION_PENALTY'], default: 'ALL' }, amount: { type: 'string', example: '500.00', description: 'Optional partial payment in INR; omitted means full scoped outstanding.' } } } })
   async payOutstanding(
     @CurrentUser() user: AuthUser,
     @Headers('idempotency-key') key?: string,
+    @Body() body?: unknown,
   ) {
+    parseOutstandingInput(body);
     const { clientId, riderId } = await this.context(user);
     return {
-      data: await this.checkout.payOutstanding(clientId, riderId, key ?? ''),
+      data: await this.checkout.payOutstanding(clientId, riderId, key ?? '', body),
     };
   }
   @Post('deposits/:depositId/pay')

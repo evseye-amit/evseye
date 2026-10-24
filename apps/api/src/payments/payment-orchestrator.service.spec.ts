@@ -291,3 +291,15 @@ describe('invoice AutoPay collection', () => {
     expect(f.tx.riderLedgerEntry.create).not.toHaveBeenCalled();
   });
 });
+
+describe('consolidated penalty checkout overlap', () => {
+  it('does not schedule AutoPay while a consolidated penalty collection is pending', async () => {
+    const { service, tx, provider } = fixture();
+    tx.paymentCollectionRequest.findFirst.mockResolvedValue({ id: 'penalty-checkout' } as never);
+    await expect(service.collect(clientId, riderId, invoiceId, 'penalty-autopay-key', scheduledAt)).rejects.toThrow('checkout payment is already in progress');
+    expect(tx.paymentCollectionRequest.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
+      OR: [{ invoiceId }, { collectionType: { in: ['OUTSTANDING_PAYMENT', 'SUBMISSION_PENALTY_PAYMENT'] } }],
+    }) }));
+    expect(provider.createPayment).not.toHaveBeenCalled();
+  });
+});
