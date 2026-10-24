@@ -57,11 +57,38 @@ export class RiderAppService {
       const key = field.storageKey.slice('metadata.'.length);
       return [key, present(metadata[key]) ?? present(fallback[field.storageKey])];
     }));
+    const readAddress = (key: string) => present(metadata[key]) ?? present(fallback[`metadata.${key}`]) ?? read(key);
+    const current = {
+      address: readAddress('currentAddress') ?? read('address'),
+      addressLine1: readAddress('currentAddressLine1') ?? read('addressLine1'),
+      addressLine2: readAddress('currentAddressLine2') ?? read('addressLine2'),
+      city: readAddress('currentAddressCity') ?? read('city'),
+      state: readAddress('currentAddressState') ?? read('state'),
+      postalCode: readAddress('currentAddressPincode') ?? read('postalCode'),
+    };
+    const same = readAddress('sameAsCurrentAddress');
+    const sameAsCurrentAddress = same === true || same === 'true';
+    const permanent = sameAsCurrentAddress ? { ...current } : {
+      address: readAddress('permanentAddress'), addressLine1: readAddress('permanentAddressLine1'),
+      addressLine2: readAddress('permanentAddressLine2'), city: readAddress('permanentAddressCity'),
+      state: readAddress('permanentAddressState'), postalCode: readAddress('permanentAddressPincode'),
+    };
+    const rawDob = read('dateOfBirth');
+    const dob = rawDob instanceof Date ? rawDob.toISOString().slice(0, 10) : typeof rawDob === 'string' ? rawDob.slice(0, 10) : null;
+    const validDob = dob && /^\d{4}-\d{2}-\d{2}$/.test(dob) && Number.isFinite(Date.parse(dob)) && new Date(dob).toISOString().slice(0, 10) === dob ? dob : null;
+    const profilePhoto = await this.prisma.riderOnboardingDocument.findFirst({
+      where: { clientId, userId, supersededAt: null, status: { in: [RiderDocumentReviewStatus.PENDING, RiderDocumentReviewStatus.APPROVED] },
+        feature: { code: 'UPLOAD_PROFILE_PHOTO' },
+        photo: { clientId, entityType: PhotoEntityType.RIDER_ONBOARDING, status: PhotoStatus.COMPLETE, mimeType: { in: ['image/jpeg', 'image/png', 'image/webp'] } },
+      }, select: { photoId: true }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    });
+    const profilePhotoUrl = profilePhoto ? (await this.media.downloadUrl(clientId, profilePhoto.photoId)).url : null;
     return {
       userId: user.id, riderId: rider?.id ?? null,
       name: read('name') ?? (user.name === 'Pending Rider' ? null : user.name),
       mobile: read('mobile') ?? user.mobile,
-      riderCode: read('riderCode'), dateOfBirth: read('dateOfBirth'), gender: read('gender'),
+      profilePhotoUrl, addresses: { current, permanent, sameAsCurrentAddress },
+      riderCode: read('riderCode'), dateOfBirth: validDob, gender: read('gender'),
       address: read('address'), addressLine1: read('addressLine1'), addressLine2: read('addressLine2'),
       city: read('city'), state: read('state'), postalCode: read('postalCode'),
       emergencyContactName: read('emergencyContactName'), emergencyContactMobile: read('emergencyContactMobile'),
