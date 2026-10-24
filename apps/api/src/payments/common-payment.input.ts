@@ -22,6 +22,7 @@ export const paymentOrderInput = z.discriminatedUnion('purpose', [
   z
     .object({
       purpose: z.literal('INVOICE'),
+      provider: z.enum(['RAZORPAY', 'CASHFREE']).optional(),
       invoiceId: z.string().uuid(),
       useWallet: z.boolean().optional(),
     })

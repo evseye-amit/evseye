@@ -195,4 +195,13 @@ describe('exchange request errors', () => {
     db.vehicleExchangeRequest.findFirst.mockResolvedValueOnce({ ...exchange, status: 'APPROVED', oldAllocationId: 'allocation', submissionRequired: true } as never);
     await expect(service.startReturn(clientId, exchangeId, actorId)).rejects.toThrow('shared vehicle submission workflow');
   });
+  it('rechecks assigned hubs inside the replacement reservation transaction', async () => {
+    const f = fixture(); Object.assign(f.exchange, { returnInspectionId: 'inspection' });
+    const fleet = { findFirst: vi.fn().mockResolvedValue(null) };
+    Object.assign(f.tx, { $queryRaw: vi.fn().mockResolvedValue([]), fleet });
+    vi.mocked(f.service['pricing'].calculate).mockResolvedValue({ rateCard: { versionId: 'version' } } as never);
+    await expect(f.service.select(clientId, exchangeId, actorId, { vehicleId: replacementId, rentalPeriodType: 'WEEKLY' }, [hubId])).rejects.toMatchObject({ response: expect.objectContaining({ code: 'REPLACEMENT_NOT_AVAILABLE' }) });
+    expect(fleet.findFirst).toHaveBeenCalledWith({ where: { id: replacementId, clientId, status: 'AVAILABLE', deletedAt: null, currentHubId: { in: [hubId] } } });
+  });
+
 });

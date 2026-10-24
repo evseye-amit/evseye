@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
@@ -7,10 +15,20 @@ import { RolesGuard } from '../auth/guards/roles.guard.js';
 import { ClientContextService } from '../auth/client-context.service.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { CommercialOfferService } from '../rider-rate-cards/commercial-offer.service.js';
+import {
+  ExchangeHubGuard,
+  type ExchangeHubRequest,
+} from './exchange-hub.guard.js';
 import { VehicleExchangeService } from './vehicle-exchange.service.js';
 
+const exchangeStaff = [
+  UserRole.CLIENT_ADMIN,
+  UserRole.OPERATIONS_MANAGER,
+  UserRole.FLEET_MANAGER,
+];
+
 @Controller('vehicle-exchanges')
-@UseGuards(AccessTokenGuard, RolesGuard)
+@UseGuards(AccessTokenGuard, RolesGuard, ExchangeHubGuard)
 @Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
 export class VehicleExchangeController {
   constructor(
@@ -30,8 +48,15 @@ export class VehicleExchangeController {
       body,
     );
   }
-  @Get() list(@CurrentUser() user: AuthUser) {
-    return this.exchanges.list(this.context.requireClientId(user));
+  @Get() @Roles(...exchangeStaff) list(
+    @CurrentUser() user: AuthUser,
+    @Req() request?: ExchangeHubRequest,
+  ) {
+    return this.exchanges.list(
+      this.context.requireClientId(user),
+      undefined,
+      request?.exchangeHubFilter,
+    );
   }
   @Get('agreements/:agreementId/versions') history(
     @CurrentUser() user: AuthUser,
@@ -49,10 +74,13 @@ export class VehicleExchangeController {
       body,
     );
   }
-  @Get(':id') details(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+  @Get(':id') @Roles(...exchangeStaff) details(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
     return this.exchanges.details(this.context.requireClientId(user), id);
   }
-  @Post(':id/approve') approve(
+  @Post(':id/approve') @Roles(...exchangeStaff) approve(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
   ) {
@@ -62,7 +90,7 @@ export class VehicleExchangeController {
       user.id,
     );
   }
-  @Post(':id/reject') rejectRequest(
+  @Post(':id/reject') @Roles(...exchangeStaff) rejectRequest(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() body: unknown,
@@ -74,25 +102,27 @@ export class VehicleExchangeController {
       body,
     );
   }
-  @Post(':id/replacement') select(
+  @Post(':id/replacement') @Roles(...exchangeStaff) select(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() body: unknown,
+    @Req() request?: ExchangeHubRequest,
   ) {
     return this.exchanges.select(
       this.context.requireClientId(user),
       id,
       user.id,
       body,
+      request?.exchangeHubIds,
     );
   }
-  @Get(':id/preview') preview(
+  @Get(':id/preview') @Roles(...exchangeStaff) preview(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
   ) {
     return this.exchanges.preview(this.context.requireClientId(user), id);
   }
-  @Post(':id/offer') present(
+  @Post(':id/offer') @Roles(...exchangeStaff) present(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
   ) {
@@ -102,7 +132,7 @@ export class VehicleExchangeController {
       user.id,
     );
   }
-  @Post(':id/accept') accept(
+  @Post(':id/accept') @Roles(...exchangeStaff) accept(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() body: unknown,
@@ -116,7 +146,7 @@ export class VehicleExchangeController {
       true,
     );
   }
-  @Post(':id/reject-offer') reject(
+  @Post(':id/reject-offer') @Roles(...exchangeStaff) reject(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() body: unknown,
@@ -148,7 +178,7 @@ export class VehicleExchangeController {
       user.id,
     );
   }
-  @Post(':id/reconcile-deposits') reconcile(
+  @Post(':id/reconcile-deposits') @Roles(...exchangeStaff) reconcile(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
   ) {
@@ -158,7 +188,7 @@ export class VehicleExchangeController {
       user.id,
     );
   }
-  @Post(':id/handover') handover(
+  @Post(':id/handover') @Roles(...exchangeStaff) handover(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
   ) {
@@ -168,7 +198,7 @@ export class VehicleExchangeController {
       user.id,
     );
   }
-  @Post(':id/complete') complete(
+  @Post(':id/complete') @Roles(...exchangeStaff) complete(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
   ) {
@@ -178,7 +208,7 @@ export class VehicleExchangeController {
       user.id,
     );
   }
-  @Post(':id/cancel') cancel(
+  @Post(':id/cancel') @Roles(...exchangeStaff) cancel(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
   ) {

@@ -89,14 +89,16 @@ function fixture() {
     createOrder: vi.fn().mockResolvedValue({ orderId: 'order_test' }),
     verify: vi.fn().mockResolvedValue({}),
   };
+  const invoices = { payInvoice: vi.fn().mockResolvedValue({ collectionId: id }) };
   const service = new CommonPaymentService(
     db as never,
     billing as never,
     checkout as never,
     deployments as never,
     penalties as never,
+    invoices as never,
   );
-  return { c, order, db, billing, checkout, deployments, penalties, service };
+  return { c, order, db, billing, checkout, deployments, penalties, invoices, service };
 }
 describe('common payment purpose contract', () => {
   it.each([
@@ -104,7 +106,7 @@ describe('common payment purpose contract', () => {
     { purpose: 'DEPLOYMENT' },
     { purpose: 'SUBMISSION_PENALTY', invoiceId: id },
     { purpose: 'INVOICE', invoiceId: id, amount: '1' },
-    { purpose: 'INVOICE', invoiceId: id, provider: 'RAZORPAY' },
+    { purpose: 'INVOICE', invoiceId: id, provider: 'UNSUPPORTED' },
     { purpose: 'SECURITY_DEPOSIT', depositId: id, allocationId: id },
     { purpose: 'OUTSTANDING', amount: 5 },
     { purpose: 'OUTSTANDING', amount: '1.001' },
@@ -113,6 +115,17 @@ describe('common payment purpose contract', () => {
   ])('rejects unsupported purpose fields %j', (body) =>
     expect(() => parseOrderInput(body)).toThrow(),
   );
+  it('routes explicit Razorpay rental invoices without changing default and Cashfree routes', async () => {
+    const f = fixture();
+    f.c.collectionType = 'INVOICE_PAYMENT'; f.c.provider = 'RAZORPAY';
+    const body = { purpose: 'INVOICE', provider: 'RAZORPAY', invoiceId: id, useWallet: false };
+    expect(parseOrderInput(body)).toEqual(body);
+    await f.service.create('client', 'user', body, 'rental-key-1');
+    expect(f.invoices.payInvoice).toHaveBeenCalledWith('client', 'rider', id, 'rental-key-1', false, 'user');
+    expect(f.checkout.payInvoice).not.toHaveBeenCalled();
+    await f.service.create('client', 'user', { purpose: 'INVOICE', invoiceId: id }, 'cashfree-key-1');
+    expect(f.checkout.payInvoice).toHaveBeenCalledWith('client', 'rider', id, 'cashfree-key-1', true, 'user');
+  });
   it('rejects invalid IDs and caller-supplied verification purpose, amount and status', () => {
     expect(() => parsePaymentRequestId(id)).toThrow();
     expect(() =>

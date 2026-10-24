@@ -96,7 +96,13 @@ export class WalletBillingService {
     const initial = await this.prisma.riderInvoice.findFirst({ where: { clientId, id: invoiceId } });
     if (!initial) throw new NotFoundException('INVOICE_NOT_FOUND');
     const wallet = await this.wallet.ensure(clientId, initial.riderId, actorId);
-    return this.wallet.locked(wallet.id, async tx => {
+    return this.wallet.locked(wallet.id, tx => this.settleInTransaction(tx, clientId, invoiceId, actorId, key, wallet));
+  }
+  /** Caller must hold this wallet's row lock for the entire transaction. */
+  async settleInTransaction(tx: Tx, clientId: string, invoiceId: string, actorId: string, key: string, wallet: { id: string; currency: string }) {
+      // Serialize wallet use against the new external rental checkout reservation.
+      const pendingRazorpay = await tx.paymentCollectionRequest.findFirst({ where: { clientId, invoiceId, provider: 'RAZORPAY', collectionType: 'INVOICE_PAYMENT', status: { in: ['CREATING', 'PENDING', 'UNKNOWN'] } } });
+      if (pendingRazorpay) throw new ConflictException('PAYMENT_ALREADY_IN_PROGRESS');
       await tx.$queryRaw`SELECT id FROM "RiderInvoice" WHERE id = ${invoiceId} AND "clientId" = ${clientId} FOR UPDATE`;
       const invoice = await tx.riderInvoice.findFirst({ where: { clientId, id: invoiceId }, include: { lines: true } });
       if (!invoice) throw new NotFoundException('INVOICE_NOT_FOUND');
@@ -149,7 +155,6 @@ export class WalletBillingService {
       const updated = await tx.riderInvoice.update({ where: { id: invoice.id }, data: { paidAmount: invoice.paidAmount.plus(used), outstandingAmount: outstanding, status: outstanding.eq(0) ? 'PAID' : invoice.status === 'OVERDUE' ? 'OVERDUE' : 'PARTIALLY_PAID', paidAt: outstanding.eq(0) ? new Date() : null } });
       await tx.auditLog.create({ data: { clientId, actorId: actorId === 'SYSTEM' ? null : actorId, action: 'WALLET_INVOICE_SETTLED', entityType: 'RiderInvoice', entityId: invoice.id, newData: { amount: used.toFixed(2), outstanding: outstanding.toFixed(2) } } });
       return updated;
-    });
   }
   async voidUnpaidOneTime(clientId: string, invoiceId: string, actorId: string, reason: string) {
     if (!reason || reason.length > 500) throw new ConflictException('INVALID_VOID_REASON');
