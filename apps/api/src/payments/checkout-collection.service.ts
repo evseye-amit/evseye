@@ -1,4 +1,6 @@
-import { PENALTY_PAYMENT, parseOutstandingInput, readPenaltySnapshot, planPenaltyPayment } from './outstanding-payment.js';
+import { RazorpayPenaltyService } from './razorpay/razorpay-penalty.service.js';
+import { settlePenaltyPayment } from './penalty-payment-settlement.js';
+import { PENALTY_PAYMENT, parseOutstandingInput, planPenaltyPayment } from './outstanding-payment.js';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   BadRequestException,
@@ -36,6 +38,7 @@ export class CheckoutCollectionService {
     private readonly walletBilling: WalletBillingService,
     private readonly wallet: WalletService,
     private readonly walletDeposits: SecurityDepositService,
+    private readonly razorpayPenalties?: RazorpayPenaltyService,
   ) {}
   private async serializable<T>(
     fn: (tx: Prisma.TransactionClient) => Promise<T>,
@@ -120,6 +123,7 @@ export class CheckoutCollectionService {
     let request;
     try {
       request = await this.serializable(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "Rider" WHERE id = ${riderId} AND "clientId" = ${clientId} FOR UPDATE`;
         const invoice = await tx.riderInvoice.findFirst({
           where: { id: invoiceId, clientId, riderId },
         });
@@ -238,6 +242,7 @@ export class CheckoutCollectionService {
     let request: PaymentCollectionRequest;
     try {
       request = await this.serializable(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "Rider" WHERE id = ${riderId} AND "clientId" = ${clientId} FOR UPDATE`;
         const previous = await tx.paymentCollectionRequest.findUnique({
           where: { clientId_idempotencyKey: { clientId, idempotencyKey: key } },
         });
@@ -253,7 +258,6 @@ export class CheckoutCollectionService {
           if ((snapshot.requestedAmount ?? null) !== selection.requestedAmount) throw new ConflictException('Idempotency-Key was used with a different payment amount.');
           return previous;
         }
-        if (isPenalty) await tx.$queryRaw`SELECT id FROM "Rider" WHERE id = ${riderId} AND "clientId" = ${clientId} FOR UPDATE`;
         const invoices = await tx.riderInvoice.findMany({
           where: {
             clientId,
@@ -367,6 +371,7 @@ export class CheckoutCollectionService {
     let request: PaymentCollectionRequest;
     try {
       request = await this.serializable(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "Rider" WHERE id = ${riderId} AND "clientId" = ${clientId} FOR UPDATE`;
         const previous = await tx.paymentCollectionRequest.findUnique({
           where: { clientId_idempotencyKey: { clientId, idempotencyKey: key } },
         });
@@ -530,6 +535,11 @@ export class CheckoutCollectionService {
       where: { id: collectionId, clientId, riderId },
     });
     if (!request) throw new NotFoundException('Collection not found.');
+    if (request.provider === 'RAZORPAY') {
+      if (!this.razorpayPenalties) throw new ConflictException('Use the Razorpay penalty verify endpoint.');
+      await this.razorpayPenalties.reconcileCollection(clientId, riderId, request.id);
+      return this.view(await this.prisma.paymentCollectionRequest.findUniqueOrThrow({ where: { id: request.id } }));
+    }
     if (!request.providerOrderId)
       throw new ConflictException('Collection has no provider order.');
     const results = await this.provider.fetchCheckoutPayments(
@@ -595,9 +605,8 @@ export class CheckoutCollectionService {
         } });
         throw new ConflictException('PROVIDER_PAYMENT_MISMATCH');
       }
-      const isPenalty = request.collectionType === PENALTY_PAYMENT;
-      const snapshot = isPenalty ? readPenaltySnapshot(request.paymentSnapshot, request.amount) : null;
-      const wallet = request.invoiceId || isPenalty
+      if (request.collectionType === PENALTY_PAYMENT) return this.view(await settlePenaltyPayment(this.prisma, this.payments, this.wallet, request, confirmed.providerPaymentId));
+      const wallet = request.invoiceId
         ? await this.wallet.ensure(clientId, riderId, 'SYSTEM')
         : null;
       return this.view(
@@ -609,7 +618,6 @@ export class CheckoutCollectionService {
           });
           if (current.status === 'SUCCESS')
             return current;
-          if (isPenalty) await tx.$queryRaw`SELECT id FROM "Rider" WHERE id = ${riderId} AND "clientId" = ${clientId} FOR UPDATE`;
           let unappliedExternal = false;
           const depositTransaction = current.depositId
             ? await this.deposits.confirmProviderCollectionInTransaction(
@@ -641,7 +649,6 @@ export class CheckoutCollectionService {
                 sourceId: current.id,
                 invoiceId: current.invoiceId ?? undefined,
                 allocate: !current.depositId,
-                ...(snapshot ? { invoiceLimits: snapshot.allocations, invoiceType: 'SUBMISSION_PENALTY' } : {}),
               });
           if (wallet && current.invoiceId) {
             const accounts = await tx.walletAccount.findMany({ where: { clientId, walletId: wallet.id } });
@@ -719,21 +726,6 @@ export class CheckoutCollectionService {
                 unappliedExternal = receipt.unallocatedAmount.gt(0);
               }
             }
-          }
-          if (isPenalty && wallet && payment) {
-            const accounts = await tx.walletAccount.findMany({ where: { clientId, walletId: wallet.id } });
-            const clearing = accounts.find(account => account.accountType === 'CLEARING');
-            const providerClearing = accounts.find(account => account.accountType === 'PROVIDER_CLEARING');
-            if (!clearing || !providerClearing) throw new ConflictException('WALLET_ACCOUNT_NOT_FOUND');
-            const amount = current.amount.toFixed(2);
-            await this.wallet.postInTransaction(tx, {
-              clientId, walletId: wallet.id, actorId: 'SYSTEM', type: 'PAYMENT', amount, currency: current.currency,
-              description: `Verified consolidated penalty payment ${current.id}`,
-              idempotencyKey: `provider:penalty:${current.id}`, referenceType: 'PAYMENT_COLLECTION', referenceId: current.id,
-              entries: [{ accountId: clearing.id, entryType: 'DEBIT', amount }, { accountId: providerClearing.id, entryType: 'CREDIT', amount }],
-            });
-            const receipt = await tx.riderPayment.findUniqueOrThrow({ where: { id: payment.id } });
-            unappliedExternal = receipt.unallocatedAmount.gt(0);
           }
           const updated = await tx.paymentCollectionRequest.update({
             where: { id: current.id },
@@ -905,6 +897,8 @@ export class CheckoutCollectionService {
         method: true, provider: true, providerOrderId: true,
         providerPaymentId: true, riderPaymentId: true, depositTransactionId: true,
         paymentSnapshot: true, failureCode: true, createdAt: true, completedAt: true,
+        razorpayPenaltyOrder: { select: { id: true, status: true, providerOrderId: true,
+          captures: { select: { providerPaymentId: true, status: true, reason: true, createdAt: true }, orderBy: { createdAt: 'asc' } } } },
         attempts: { select: { sequence: true, status: true, providerStatus: true, createdAt: true, updatedAt: true }, orderBy: { sequence: 'asc' } },
       },
     });

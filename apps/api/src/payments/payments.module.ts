@@ -1,3 +1,4 @@
+import { RazorpayPenaltyModule } from './razorpay/razorpay-penalty.module.js';
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Environment } from '../config/environment.js';
@@ -44,7 +45,7 @@ import {
 } from './mandate.controller.js';
 
 @Module({
-  imports: [AuthModule, RiderBillingModule, RiderRateCardsModule, WalletModule],
+  imports: [RazorpayPenaltyModule, AuthModule, RiderBillingModule, RiderRateCardsModule, WalletModule],
   controllers: [
     RiderMandateController,
     AutoPayOperationsController,

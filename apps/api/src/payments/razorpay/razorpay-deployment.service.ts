@@ -1,3 +1,4 @@
+import { RazorpayPenaltyService } from './razorpay-penalty.service.js';
 import {
   BadRequestException,
   ConflictException,
@@ -58,6 +59,7 @@ export class RazorpayDeploymentService {
     private readonly db: PrismaService,
     private readonly gateway: RazorpayClient,
     private readonly commercial: DeploymentCommercialService,
+    private readonly penalties?: RazorpayPenaltyService,
   ) {}
 
   private async allocation(
@@ -557,6 +559,7 @@ export class RazorpayDeploymentService {
             order = await this.bindOrder(pending, remote);
           }
         }
+        if (!order && this.penalties) owned = await this.penalties.processEvent(event.id, entity.orderId, entity.paymentId);
         if (order) {
           owned = true;
           this.gateway.assertConfigured(order.clientId, order.keyId);
@@ -784,6 +787,7 @@ export class RazorpayDeploymentService {
           );
         }
       }
+      if (this.penalties) await this.penalties.reconcile();
       const refunds = await this.db.razorpayDeploymentCapture.findMany({
         where: {
           status: {
