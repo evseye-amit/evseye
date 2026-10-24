@@ -67,4 +67,14 @@ describe('Rider current deployment and Home', () => {
     expect(await service.riderCurrent('client-1', 'user-1')).toMatchObject({ allocation: { fleet: { frontPhoto: null } }, lastEarnings: null });
     expect(media.downloadUrl).not.toHaveBeenCalled();
   });
+  it('hides optional PDI items from both Rider response paths without altering the source', async () => {
+    const { service, allocation } = setup();
+    const checks = [{ code: 'BRAKES', label: 'Brakes', mandatory: true }, { code: 'ACCESSORY', label: 'Accessory', mandatory: false }];
+    Object.assign(allocation.mobileDeployment, { status: 'PDI_PENDING_RIDER', pdiChecklist: checks });
+    const result = await service.riderCurrent('client-1', 'user-1');
+    expect(result).toMatchObject({ workflow: { pdiChecklist: [checks[0]] }, allocation: { mobileDeployment: { pdiChecklist: [checks[0]] } } });
+    expect(JSON.stringify(result)).not.toContain('ACCESSORY');
+    expect(allocation.mobileDeployment).toMatchObject({ pdiChecklist: checks });
+  });
+
 });

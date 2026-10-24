@@ -22,15 +22,18 @@ import {
   prorateExchange,
 } from './exchange-math.js';
 
+import { exchangeErrorMessages } from './exchange-errors.js';
+
 const uuid = z.string().uuid();
-function fail(code: string): never {
-  throw new ConflictException({ code });
+function fail(code: keyof typeof exchangeErrorMessages): never {
+  throw new ConflictException({ code, message: exchangeErrorMessages[code] });
 }
 function parseInput<T>(schema: z.ZodType<T>, raw: unknown): T {
   const result = schema.safeParse(raw);
   if (!result.success)
     throw new BadRequestException({
       code: 'INVALID_EXCHANGE_INPUT',
+      message: exchangeErrorMessages.INVALID_EXCHANGE_INPUT,
       details: result.error.flatten(),
     });
   return result.data;
@@ -81,7 +84,7 @@ export class VehicleExchangeService {
       where: { id, clientId, ...(riderId ? { riderId } : {}) },
       include: { offers: { orderBy: { createdAt: 'desc' } }, agreement: true, vehicleSubmission: { include: { reports: { orderBy: { createdAt: 'asc' } } } } },
     });
-    if (!exchange) throw new NotFoundException({ code: 'EXCHANGE_NOT_FOUND' });
+    if (!exchange) throw new NotFoundException({ code: 'EXCHANGE_NOT_FOUND', message: exchangeErrorMessages.EXCHANGE_NOT_FOUND });
     return exchange;
   }
   details(clientId: string, id: string, riderId?: string) {
@@ -99,7 +102,7 @@ export class VehicleExchangeService {
       where: { clientId, id: agreementId, ...(riderId ? { riderId } : {}) },
     });
     if (!agreement)
-      throw new NotFoundException({ code: 'AGREEMENT_NOT_FOUND' });
+      throw new NotFoundException({ code: 'AGREEMENT_NOT_FOUND', message: exchangeErrorMessages.AGREEMENT_NOT_FOUND });
     return this.db.riderAgreementCommercialVersion.findMany({
       where: { clientId, agreementId },
       orderBy: { versionNumber: 'asc' },
@@ -217,7 +220,7 @@ export class VehicleExchangeService {
       },
     });
     if (!agreement)
-      throw new NotFoundException({ code: 'AGREEMENT_NOT_FOUND' });
+      throw new NotFoundException({ code: 'AGREEMENT_NOT_FOUND', message: exchangeErrorMessages.AGREEMENT_NOT_FOUND });
     // Safety replacements remain available while commercial exchanges are restricted.
     if (!['SAFETY_EXCHANGE', 'VEHICLE_BREAKDOWN', 'VEHICLE_UNSAFE'].includes(input.reasonCode)) {
       const restriction = await this.db.commercialRestriction.findFirst({ where: { clientId, riderId: agreement.riderId, code: 'BLOCK_VEHICLE_EXCHANGE', status: 'ACTIVE' } });

@@ -150,3 +150,49 @@ describe('collection exchange restriction', () => {
     expect(db.commercialRestriction.findFirst).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('exchange request errors', () => {
+  it.each([null, { exchangeAllowed: false, minimumDaysOnVehicle: 0 }])('returns a useful disabled message for policy %j', async (policy) => {
+    const { service, db, tx } = fixture();
+    db.clientExchangePolicy.findUnique.mockResolvedValueOnce(policy as never);
+    await expect(service.request(clientId, actorId, input, riderId)).rejects.toMatchObject({ status: 409, response: { code: 'EXCHANGE_DISABLED', message: 'Vehicle exchanges are not enabled for this client. Please contact support.' } });
+    expect(tx.vehicleExchangeRequest.create).not.toHaveBeenCalled();
+  });
+  it('keeps the active allocation requirement and provides an actionable message', async () => {
+    const { service, db } = fixture();
+    db.allocation.findFirst.mockResolvedValueOnce(null as never);
+    await expect(service.request(clientId, actorId, input, riderId)).rejects.toMatchObject({ status: 409, response: { code: 'ACTIVE_ALLOCATION_REQUIRED', message: expect.stringContaining('active scooter allocation') } });
+  });
+  it('keeps the minimum term restriction', async () => {
+    const { service, db } = fixture();
+    db.allocation.findFirst.mockResolvedValueOnce({ id: 'allocation', allocatedAt: new Date() });
+    await expect(service.request(clientId, actorId, input, riderId)).rejects.toMatchObject({ status: 409, response: { code: 'MINIMUM_DAYS_NOT_MET', message: expect.stringContaining('minimum required time') } });
+  });
+  it('keeps inactive agreements blocked', async () => {
+    const { service, agreement } = fixture();
+    agreement.status = 'ENDED';
+    await expect(service.request(clientId, actorId, input, riderId)).rejects.toMatchObject({ status: 409, response: { code: 'AGREEMENT_NOT_ACTIVE', message: expect.any(String) } });
+  });
+  it('returns useful validation errors without creating a request', async () => {
+    const { service, tx } = fixture();
+    await expect(service.request(clientId, actorId, { plannedHubId: 'invalid' }, riderId)).rejects.toMatchObject({ status: 400, response: { code: 'INVALID_EXCHANGE_INPUT', message: expect.any(String) } });
+    expect(tx.vehicleExchangeRequest.create).not.toHaveBeenCalled();
+  });
+  it('keeps the planned date mandatory and rejects unavailable hubs', async () => {
+    const { service, db } = fixture();
+    await expect(service.request(clientId, actorId, { agreementId }, riderId)).rejects.toThrow('Select a valid submission date.');
+    db.hub.findMany.mockResolvedValueOnce([]);
+    await expect(service.request(clientId, actorId, input, riderId)).rejects.toThrow('No active submission hub is available.');
+  });
+  it('keeps a competing return request blocked', async () => {
+    const { service, tx } = fixture();
+    tx.rentalTerminationRequest.findFirst.mockResolvedValueOnce({ id: 'return' } as never);
+    await expect(service.request(clientId, actorId, input, riderId)).rejects.toThrow('A vehicle return is already requested.');
+    expect(tx.vehicleExchangeRequest.create).not.toHaveBeenCalled();
+  });
+  it('still requires the shared submission workflow', async () => {
+    const { service, db, exchange } = fixture();
+    db.vehicleExchangeRequest.findFirst.mockResolvedValueOnce({ ...exchange, status: 'APPROVED', oldAllocationId: 'allocation', submissionRequired: true } as never);
+    await expect(service.startReturn(clientId, exchangeId, actorId)).rejects.toThrow('shared vehicle submission workflow');
+  });
+});
