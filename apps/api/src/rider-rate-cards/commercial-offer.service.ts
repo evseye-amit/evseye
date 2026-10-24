@@ -125,7 +125,7 @@ export class CommercialOfferService {
       ],
     );
     if (!client) throw new NotFoundException({ code: 'CLIENT_NOT_FOUND' });
-    if (!rider) throw new NotFoundException({ code: 'RIDER_NOT_FOUND' });
+    if (!rider) throw new NotFoundException({ code: 'RIDER_NOT_FOUND', message: 'Rider profile not found. Please contact support.' });
     if (!fleet) throw new NotFoundException({ code: 'VEHICLE_NOT_FOUND' });
     if (riderScoped && !fleet.allocations.length)
       throw new NotFoundException({ code: 'VEHICLE_NOT_FOUND' });
@@ -668,7 +668,7 @@ export class CommercialOfferService {
     const rider = await this.prisma.rider.findFirst({
       where: { clientId, userId, deletedAt: null },
     });
-    if (!rider) throw new NotFoundException({ code: 'RIDER_NOT_FOUND' });
+    if (!rider) throw new NotFoundException({ code: 'RIDER_NOT_FOUND', message: 'Rider profile not found. Please contact support.' });
     return rider.id;
   }
 

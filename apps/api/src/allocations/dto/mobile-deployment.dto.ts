@@ -9,7 +9,7 @@ export class PdiItemDto {
 export class SubmitPdiDto {
   @ValidateIf((_, value) => value !== undefined) @IsUUID() clientWorkPartnerId?: string;
   @ValidateIf((_, value) => value !== undefined) @IsString() @MaxLength(150) workPartnerName?: string;
-  @IsArray() @ArrayMinSize(1) @ValidateNested({ each: true }) @Type(() => PdiItemDto)
+  @IsArray() @ArrayMinSize(1) @ArrayUnique((item: PdiItemDto) => item.code) @ValidateNested({ each: true }) @Type(() => PdiItemDto)
   checklist!: PdiItemDto[];
 }
 export class RiderPdiItemDto {
