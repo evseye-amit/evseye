@@ -5,6 +5,7 @@ import { RiderAppController } from './rider-app.controller.js';
 function fixture(completed = false) {
   const prisma = {
     user: { findFirst: vi.fn().mockResolvedValue({ id: 'user', name: 'Pending Rider', mobile: '+919000000001' }) },
+    riderOnboardingDocument: { findFirst: vi.fn().mockResolvedValue(null) },
     rider: { findFirst: vi.fn().mockResolvedValue(null) },
     riderOnboardingProgress: { findFirst: vi.fn().mockResolvedValue({ values: { CUSTOM_NAME: 'Draft Name', ACCOUNT: '0012345678', SECRET: 'hidden' }, completedAt: completed ? new Date() : null }) },
   };
@@ -12,8 +13,9 @@ function fixture(completed = false) {
     fields: vi.fn().mockResolvedValue([{ fieldCode: 'CUSTOM_NAME', storageKey: 'name' }, { fieldCode: 'ACCOUNT', storageKey: 'metadata.bankAccountNumber' }]),
     forUser: vi.fn().mockResolvedValue({ kycStatus: 'PENDING', kycVerifiedAt: null }),
   };
-  const service = new RiderAppService(prisma as never, {} as never, {} as never, kyc as never);
-  return { service, prisma, kyc };
+  const media = { downloadUrl: vi.fn().mockResolvedValue({ url: 'https://storage.example/signed-profile' }) };
+  const service = new RiderAppService(prisma as never, {} as never, media as never, kyc as never);
+  return { service, prisma, kyc, media };
 }
 
 describe('Rider profile', () => {
@@ -52,5 +54,35 @@ describe('Rider profile', () => {
     await expect(controller.profile({ id: 'user', clientId: 'client', roles: ['RIDER'] })).resolves.toEqual({ data: { name: 'Rider' } });
     expect(service.profile).toHaveBeenCalledWith('client', 'user');
     await expect(controller.profile({ id: 'user', clientId: null, roles: ['RIDER'] })).rejects.toThrow('not associated');
+  });
+});
+
+
+describe('Rider profile photos, addresses and birth date', () => {
+  it('returns the saved birth date as a date only and structured addresses without leaking metadata', async () => {
+    const { service, prisma } = fixture(true);
+    prisma.rider.findFirst.mockResolvedValue({ dateOfBirth: new Date('2000-01-02T00:00:00Z'), address: 'Current full address', city: 'Delhi', metadata: { permanentAddress: 'Permanent full address', permanentAddressCity: 'Jaipur', permanentAddressPincode: '302001', secret: 'hidden' } } as never);
+    const result = await service.profile('client', 'user');
+    expect(result).toMatchObject({ dateOfBirth: '2000-01-02', profilePhotoUrl: null, addresses: { current: { address: 'Current full address', city: 'Delhi' }, permanent: { address: 'Permanent full address', city: 'Jaipur', postalCode: '302001' }, sameAsCurrentAddress: false } });
+    expect(JSON.stringify(result)).not.toContain('hidden');
+  });
+  it('uses configured draft address/date fields and copies current address only when explicitly selected', async () => {
+    const { service, prisma, kyc } = fixture();
+    kyc.fields.mockResolvedValue([{ fieldCode: 'MY_DOB', storageKey: 'dateOfBirth' }, { fieldCode: 'MY_ADDRESS', storageKey: 'metadata.currentAddress' }, { fieldCode: 'SAME', storageKey: 'metadata.sameAsCurrentAddress' }]);
+    prisma.riderOnboardingProgress.findFirst.mockResolvedValue({ values: { MY_DOB: '2001-05-06', MY_ADDRESS: 'Draft address', SAME: true }, completedAt: null } as never);
+    expect(await service.profile('client', 'user')).toMatchObject({ dateOfBirth: '2001-05-06', addresses: { current: { address: 'Draft address' }, permanent: { address: 'Draft address' }, sameAsCurrentAddress: true } });
+  });
+  it('signs only a current completed profile upload belonging to the authenticated Rider', async () => {
+    const { service, prisma, media } = fixture();
+    prisma.riderOnboardingDocument.findFirst.mockResolvedValue({ photoId: 'profile-photo' } as never);
+    expect(await service.profile('client', 'user')).toMatchObject({ profilePhotoUrl: 'https://storage.example/signed-profile' });
+    expect(prisma.riderOnboardingDocument.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ clientId: 'client', userId: 'user', supersededAt: null, status: { in: ['PENDING', 'APPROVED'] }, feature: { code: 'UPLOAD_PROFILE_PHOTO' }, photo: expect.objectContaining({ clientId: 'client', status: 'COMPLETE' }) }) }));
+    expect(media.downloadUrl).toHaveBeenCalledWith('client', 'profile-photo');
+  });
+  it('returns null when no usable photo exists and does not copy addresses for false', async () => {
+    const { service, prisma, media } = fixture(true);
+    prisma.rider.findFirst.mockResolvedValue({ metadata: { currentAddress: 'Current', sameAsCurrentAddress: 'false' } } as never);
+    expect(await service.profile('client', 'user')).toMatchObject({ profilePhotoUrl: null, dateOfBirth: null, addresses: { permanent: { address: null }, sameAsCurrentAddress: false } });
+    expect(media.downloadUrl).not.toHaveBeenCalled();
   });
 });
