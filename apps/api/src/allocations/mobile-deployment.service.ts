@@ -1,3 +1,4 @@
+import { pdiItems, riderPdiItems, riderPdiWorkflow } from './rider-pdi.js';
 import { allocationPaymentView } from './allocation-payment-view.js';
 import { pendingPenaltySummary } from '../submission-penalties/submission-penalty.service.js';
 import { WalletService } from '../wallet/wallet.service.js';
@@ -230,8 +231,8 @@ export class MobileDeploymentService {
     if (!allocation.rentalAgreementId && commercial?.offer?.status === 'PRESENTED') screen = 'PLAN_ACCEPTANCE';
     const frontPhoto = await this.frontInspectionPhoto(clientId, allocation.id);
     return {
-      screen, submissionPenalties, allocation: { ...allocation, fleet: { ...allocation.fleet, frontPhoto } },
-      workflow: allocation.mobileDeployment, payment, commercial,
+      screen, submissionPenalties, allocation: { ...allocation, mobileDeployment: riderPdiWorkflow(allocation.mobileDeployment), fleet: { ...allocation.fleet, frontPhoto } },
+      workflow: riderPdiWorkflow(allocation.mobileDeployment), payment, commercial,
       ...(screen === 'HOME' ? await this.riderHomeFinancials(clientId, userId) : { wallet: null, lastEarnings: null }),
     };
   }
@@ -405,6 +406,7 @@ export class MobileDeploymentService {
     await this.assertRiderAllocation(clientId, userId, allocationId);
     const { workflow } = await this.workflow(clientId, allocationId);
     if (workflow.status !== MobileDeploymentStatus.PDI_PENDING_RIDER) throw new BadRequestException('PDI is not awaiting Rider acceptance.');
+    if (!riderPdiItems(workflow.pdiChecklist).some(item => item.code === input.itemCode)) throw new BadRequestException('Voice remarks are only available for mandatory PDI items. Refresh the checklist.');
     const evidence = await this.allocationEvidence(clientId, allocationId);
     const dto: CreateUploadIntentDto = {
       entityType: PhotoEntityType.INSPECTION,
@@ -421,33 +423,37 @@ export class MobileDeploymentService {
     const { workflow } = await this.workflow(clientId, allocationId);
     if (workflow.status !== MobileDeploymentStatus.PDI_PENDING_RIDER) throw new BadRequestException('PDI is not awaiting Rider acceptance.');
     const evidence = await this.allocationEvidence(clientId, allocationId);
-    const photo = await this.prisma.photo.findFirst({ where: { id: photoId, clientId, entityType: PhotoEntityType.INSPECTION, entityId: evidence.inspection.id, photoType: { startsWith: 'PDI_VOICE_' } }, select: { id: true } });
-    if (!photo) throw new NotFoundException('PDI voice upload not found.');
+    const photo = await this.prisma.photo.findFirst({ where: { id: photoId, clientId, entityType: PhotoEntityType.INSPECTION, entityId: evidence.inspection.id, photoType: { startsWith: 'PDI_VOICE_' } }, select: { id: true, photoType: true } });
+    if (!photo || !riderPdiItems(workflow.pdiChecklist).some(item => photo.photoType === `PDI_VOICE_${item.code}`)) throw new NotFoundException('PDI voice upload not found for a mandatory checklist item.');
     return this.media.complete(clientId, photo.id);
   }
   async acceptPdi(clientId: string, userId: string, allocationId: string, items: Array<{ code: string; accepted: boolean; remarksText?: string; voiceMediaId?: string }>) {
     await this.assertRiderAllocation(clientId, userId, allocationId);
     const { workflow } = await this.workflow(clientId, allocationId);
     if (workflow.status !== MobileDeploymentStatus.PDI_PENDING_RIDER) throw new BadRequestException('PDI is not awaiting Rider acceptance.');
-    const checklist = Array.isArray(workflow.pdiChecklist) ? workflow.pdiChecklist as Array<{ code: string; mandatory: boolean }> : [];
-    if (!checklist.length) throw new BadRequestException('PDI checklist is unavailable.');
+    const fullChecklist = pdiItems(workflow.pdiChecklist);
+    if (!Array.isArray(workflow.pdiChecklist) || !fullChecklist.length || fullChecklist.length !== workflow.pdiChecklist.length || new Set(fullChecklist.map(item => item.code)).size !== fullChecklist.length) throw new BadRequestException('PDI checklist is unavailable. Ask your Fleet Manager to resubmit it.');
+    const checklist = riderPdiItems(workflow.pdiChecklist);
+    const allowedCodes = new Set(checklist.map(item => item.code));
+    if (new Set(items.map(item => item.code)).size !== items.length) throw new BadRequestException('Provide one acknowledgement per mandatory PDI item.');
+    if (items.some(item => !allowedCodes.has(item.code))) throw new BadRequestException('Only mandatory PDI items can be acknowledged. Refresh the checklist.');
     for (const item of checklist) {
-      const response = items.find((candidate) => candidate.code === item.code);
+      const response = items.find(candidate => candidate.code === item.code);
       if (!response) throw new BadRequestException(`PDI item ${item.code} has not been acknowledged.`);
-      if (!response.accepted && !response.remarksText && !response.voiceMediaId) throw new BadRequestException(`A text or voice remark is required for rejected PDI item ${item.code}.`);
+      if (!response.accepted && !response.remarksText?.trim() && !response.voiceMediaId) throw new BadRequestException(`A text or voice remark is required for rejected PDI item ${item.code}.`);
     }
-    const voiceMediaIds = [...new Set(items.flatMap((item) => item.voiceMediaId ? [item.voiceMediaId] : []))];
+    const voiceMediaIds = [...new Set(items.flatMap(item => item.voiceMediaId ? [item.voiceMediaId] : []))];
     if (voiceMediaIds.length) {
       const evidence = await this.allocationEvidence(clientId, allocationId);
-      const voiceNotes = await this.prisma.photo.count({ where: { id: { in: voiceMediaIds }, clientId, entityType: PhotoEntityType.INSPECTION, entityId: evidence.inspection.id, photoType: { startsWith: 'PDI_VOICE_' }, status: PhotoStatus.COMPLETE } });
-      if (voiceNotes !== voiceMediaIds.length) throw new BadRequestException('Each PDI voice remark must be a completed voice upload for this allocation.');
+      const voiceNotes = await this.prisma.photo.findMany({ where: { id: { in: voiceMediaIds }, clientId, entityType: PhotoEntityType.INSPECTION, entityId: evidence.inspection.id, status: PhotoStatus.COMPLETE }, select: { id: true, photoType: true } });
+      if (items.some(item => item.voiceMediaId && !voiceNotes.some(photo => photo.id === item.voiceMediaId && photo.photoType === `PDI_VOICE_${item.code}`))) throw new BadRequestException('Each PDI voice remark must be a completed voice upload for its mandatory item and this allocation.');
     }
     const policy = await this.trainingPolicy(clientId);
-    const acceptance = { riderPdiAcceptedAt: new Date(), riderPdiRemarksText: JSON.stringify(items), riderPdiVoicePhotoId: items.find((item) => item.voiceMediaId)?.voiceMediaId, pdiChecklist: items as never };
-    if (policy.included) return this.prisma.mobileDeploymentWorkflow.update({ where: { id: workflow.id }, data: { ...acceptance, status: MobileDeploymentStatus.TRAINING_PENDING } });
+    const acceptance = { riderPdiAcceptedAt: new Date(), riderPdiRemarksText: JSON.stringify(items), riderPdiVoicePhotoId: items.find((item) => item.voiceMediaId)?.voiceMediaId };
+    if (policy.included) return riderPdiWorkflow(await this.prisma.mobileDeploymentWorkflow.update({ where: { id: workflow.id }, data: { ...acceptance, status: MobileDeploymentStatus.TRAINING_PENDING } }));
     const deployed = await this.prisma.$transaction(tx => this.completeDeployment(tx, clientId, allocationId, workflow.id, acceptance));
     await this.referralAllocated(clientId, allocationId);
-    return deployed;
+    return riderPdiWorkflow(deployed);
   }
   async training(clientId: string, userId: string, allocationId: string, locale: ApiLocale = 'en') {
     await this.assertRiderAllocation(clientId, userId, allocationId);
@@ -473,12 +479,12 @@ export class MobileDeploymentService {
     if (!contents.some((content) => content.code === contentCode)) throw new BadRequestException('Training content is not available in the active package.');
     const viewed = Array.isArray(workflow.trainingViewedContentCodes) ? workflow.trainingViewedContentCodes.map(String) : [];
     const nextViewed = [...new Set([...viewed, contentCode])];
-    return this.prisma.mobileDeploymentWorkflow.update({ where: { id: workflow.id }, data: { trainingViewedContentCodes: nextViewed } });
+    return riderPdiWorkflow(await this.prisma.mobileDeploymentWorkflow.update({ where: { id: workflow.id }, data: { trainingViewedContentCodes: nextViewed } }));
   }
   async completeTraining(clientId: string, userId: string, allocationId: string) {
     await this.assertRiderAllocation(clientId, userId, allocationId);
     const { workflow } = await this.workflow(clientId, allocationId);
-    if (workflow.status === MobileDeploymentStatus.DEPLOYED) return workflow;
+    if (workflow.status === MobileDeploymentStatus.DEPLOYED) return riderPdiWorkflow(workflow);
     if (workflow.status !== MobileDeploymentStatus.TRAINING_PENDING && workflow.status !== MobileDeploymentStatus.DEVICE_PAIRING_PENDING) throw new BadRequestException('Training is not pending.');
     let trainingCompletedAt = workflow.trainingCompletedAt;
     // Existing pairing-pending workflows have already completed their training.
@@ -494,7 +500,7 @@ export class MobileDeploymentService {
       trainingCompletedAt,
     }));
     await this.referralAllocated(clientId, allocationId);
-    return deployed;
+    return riderPdiWorkflow(deployed);
   }
   async iotHealth(clientId: string, userId: string, allocationId: string) {
     await this.assertFleetManagerHub(clientId, userId, allocationId);
