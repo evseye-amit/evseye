@@ -1,3 +1,4 @@
+import { RazorpayEventRouter } from './razorpay-event-router.service.js';
 import { RazorpayPenaltyService } from './razorpay-penalty.service.js';
 import {
   BadRequestException,
@@ -39,6 +40,8 @@ const hook = z.object({
   event: z.string().max(100),
   payload: z
     .object({
+      order: z.object({ entity: z.object({ id: z.string() }) }).optional(),
+      token: z.object({ entity: z.object({ id: z.string() }) }).optional(),
       payment: z
         .object({
           entity: z.object({
@@ -60,6 +63,7 @@ export class RazorpayDeploymentService {
     private readonly gateway: RazorpayClient,
     private readonly commercial: DeploymentCommercialService,
     private readonly penalties?: RazorpayPenaltyService,
+    private readonly eventRouter?: RazorpayEventRouter,
   ) {}
 
   private async allocation(
@@ -502,9 +506,10 @@ export class RazorpayDeploymentService {
         eventKey: eventId,
         eventType: input.event,
         payloadHash: hash,
+        recurringPayload: { tokenId: (input.payload.token as { entity: { id: string } } | undefined)?.entity.id ?? null },
         deploymentPayload: {
           paymentId: input.payload.payment?.entity.id ?? null,
-          orderId: input.payload.payment?.entity.order_id ?? null,
+          orderId: input.payload.payment?.entity.order_id ?? input.payload.order?.entity.id ?? null,
         },
       },
     });
@@ -525,8 +530,13 @@ export class RazorpayDeploymentService {
     id: string;
     eventType: string;
     deploymentPayload: unknown;
+    recurringPayload?: unknown;
   }) {
     try {
+      if (await this.eventRouter?.process(event)) {
+        await this.db.paymentProviderEvent.update({ where: { id: event.id }, data: { status: 'PROCESSED', processedAt: new Date(), failureReason: null } });
+        return;
+      }
       const entity = z
         .object({
           paymentId: z.string().nullable(),

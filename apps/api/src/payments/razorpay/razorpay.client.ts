@@ -101,7 +101,7 @@ export class RazorpayClient {
       this.config.getOrThrow<string>('RAZORPAY_WEBHOOK_SECRET'),
     );
   }
-  private async request(
+  protected async request(
     path: string,
     method = 'GET',
     body?: unknown,

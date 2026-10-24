@@ -17,6 +17,7 @@ export function collectionDate(
   },
   invoice: { issuedAt: Date | null; dueDate: Date },
   now: Date,
+  minimumLeadHours = 24,
 ): Date {
   const day = invoice.dueDate.getTime();
   const desired =
@@ -45,7 +46,7 @@ export function collectionDate(
   let earliest = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + 1) - 330 * 60000);
   // The Cashfree subscription charge is submitted ahead of collection so its
   // own pre-debit notification can be delivered before the debit date.
-  if (earliest.getTime() < now.getTime() + 24 * 3600000)
+  while (earliest.getTime() < now.getTime() + minimumLeadHours * 3600000)
     earliest = new Date(earliest.getTime() + 86400000);
   return desired.getTime() > earliest.getTime() ? desired : earliest;
 }
@@ -263,7 +264,7 @@ export class AutoCollectionService {
             )
           : null;
         if (retryAfter && now < retryAfter) continue;
-        const at = collectionDate(policy, invoice, now);
+        let at = collectionDate(policy, invoice, now);
         if (at.getTime() - now.getTime() > 7 * 86400000) continue;
         const mandate = await this.prisma.paymentMandate.findFirst({
           where: { clientId: invoice.clientId, riderId: invoice.riderId, status: 'ACTIVE', autoDebitEnabled: true, currency: invoice.currency, expiresAt: { gt: at } },
@@ -273,6 +274,7 @@ export class AutoCollectionService {
           await this.actionRequired(invoice.clientId, invoice.riderId, invoice.id, 'MANDATE_NOT_ACTIVE');
           continue;
         }
+        if (mandate.provider === 'RAZORPAY') at = collectionDate(policy, invoice, now, 25);
         const key = `autopay:${invoice.id}:${transactions.length + 1}`;
         try {
           // The wallet service locks both wallet and invoice and calculates the

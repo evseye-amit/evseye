@@ -90,3 +90,15 @@ describe('client deployment configuration', () => {
     expect(() => validateEnvironment({ EMAIL_PROVIDER: 'msg91', MSG91_AUTH_KEY: 'test-key', MSG91_EMAIL_DOMAIN: 'mail.evseye.com', MSG91_EMAIL_FROM: 'no-reply@other.example', MSG91_WELCOME_TEMPLATE_ID: 'welcome_client_mail', CLIENT_LOGIN_URL: 'https://app.evseye.com/' })).toThrow('MSG91_EMAIL_FROM must use MSG91_EMAIL_DOMAIN');
   });
 });
+
+describe('independent AutoPay provider configuration', () => {
+  it('preserves the configured provider and disables Razorpay AutoPay by default', () => {
+    const settings = validateEnvironment({});
+    expect(settings.AUTOPAY_PROVIDER).toBe('configured');
+    expect(settings.RAZORPAY_AUTOPAY_ENABLED).toBe('false');
+    expect(() => validateEnvironment({ AUTOPAY_PROVIDER: 'razorpay' })).toThrow('AutoPay requires');
+  });
+  it('requires Cashfree credentials when it is selected only for AutoPay', () => {
+    expect(() => validateEnvironment({ PAYMENT_PROVIDER: 'disabled', AUTOPAY_PROVIDER: 'cashfree' })).toThrow('Cashfree configuration is missing');
+  });
+});

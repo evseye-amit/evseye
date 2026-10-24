@@ -23,7 +23,7 @@ export class AutoPayOperationsController {
       this.prisma.autoPayDunningCase.findMany({ where: { clientId, riderId, status: { not: 'RESOLVED' } }, orderBy: { updatedAt: 'desc' }, take: 20 }),
     ]);
     return { data: { enabled: profile?.autoPayEnabled ?? false, mandate: mandate && {
-      id: mandate.id, mandateNumber: mandate.mandateNumber, method: mandate.method,
+      id: mandate.id, mandateNumber: mandate.mandateNumber, provider: mandate.provider, method: mandate.method,
       status: mandate.status, autoDebitEnabled: mandate.autoDebitEnabled,
       maxAmount: mandate.maxAmount.toFixed(2), expiresAt: mandate.expiresAt,
     }, dunning } };
@@ -34,7 +34,7 @@ export class AutoPayOperationsController {
     const clientId = this.clients.requireClientId(user);
     const items = await this.prisma.paymentMandate.findMany({ where: { clientId }, orderBy: { createdAt: 'desc' }, take: 100 });
     return { data: items.map(item => ({ id: item.id, mandateNumber: item.mandateNumber, riderId: item.riderId,
-      method: item.method, status: item.status, autoDebitEnabled: item.autoDebitEnabled, expiresAt: item.expiresAt })) };
+      provider: item.provider, method: item.method, status: item.status, autoDebitEnabled: item.autoDebitEnabled, expiresAt: item.expiresAt })) };
   }
 
   @Get('debits')
@@ -42,7 +42,7 @@ export class AutoPayOperationsController {
     const clientId = this.clients.requireClientId(user);
     const items = await this.prisma.paymentTransaction.findMany({ where: { clientId }, orderBy: { createdAt: 'desc' }, take: 100 });
     return { data: items.map(item => ({ id: item.id, debitNumber: item.debitNumber, invoiceId: item.invoiceId,
-      riderId: item.riderId, amount: item.amount.toFixed(2), status: item.status,
+      riderId: item.riderId, provider: item.provider, gatewayPaymentId: item.gatewayPaymentId, amount: item.amount.toFixed(2), status: item.status,
       scheduledAt: item.scheduledAt, failureCode: item.failureCode })) };
   }
 

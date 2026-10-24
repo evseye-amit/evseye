@@ -12,7 +12,7 @@ import {
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { IsIn, IsOptional } from 'class-validator';
+import { IsEmail, IsIn, IsOptional, MaxLength } from 'class-validator';
 import type { RawBodyRequest } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { ClientContextService } from '../auth/client-context.service.js';
@@ -24,6 +24,7 @@ import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { MandateService } from './mandate.service.js';
 
 class CreateMandateDto {
+  @IsOptional() @IsEmail() @MaxLength(254) email?: string;
   @IsOptional() @IsIn(['UPI_AUTOPAY', 'ENACH']) method?:
     'UPI_AUTOPAY' | 'ENACH';
 }
@@ -60,7 +61,7 @@ export class RiderMandateController {
   })
   @ApiOperation({
     summary:
-      'Create a UPI AutoPay mandate and return its Cashfree checkout session',
+      'Create an AutoPay mandate and return provider-specific authorisation details',
   })
   async create(
     @CurrentUser() user: AuthUser,
@@ -73,6 +74,7 @@ export class RiderMandateController {
         user.id,
         key ?? '',
         dto?.method ?? 'UPI_AUTOPAY',
+        dto?.email,
       ),
     };
   }
@@ -129,7 +131,7 @@ export class RiderMandateController {
   @Post(':mandateId/verify')
   @ApiOperation({
     summary:
-      'Fetch Cashfree subscription status after authorization; only verified ACTIVE enables AutoPay',
+      'Fetch the saved provider mandate after authorisation; only verified ACTIVE enables AutoPay',
   })
   async verify(
     @CurrentUser() user: AuthUser,
