@@ -3,7 +3,10 @@ import { MediaService } from '../media/media.service.js';
 import { SubmissionPenaltyService } from '../submission-penalties/submission-penalty.service.js';
 import { RiderBillingService } from '../rider-billing/rider-billing.service.js';
 import { AllocationTeamLeadService } from './allocation-team-lead.service.js';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
+import { RazorpayDeploymentService } from '../payments/razorpay/razorpay-deployment.service.js';
+import { RazorpayProviderError } from '../payments/razorpay/razorpay.client.js';
+import type { RazorpayClient, RazorpayPayment } from '../payments/razorpay/razorpay.client.js';
 import { PrismaClient, UserRole } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { DeploymentCommercialService } from './deployment-commercial.service.js';
@@ -68,6 +71,170 @@ const billing = new RiderBillingEngineService(
 describe.skipIf(!url)(
   'allocation plan, payment, handover and return in PostgreSQL',
   () => {
+    async function razorpayFixture() {
+      const f = await fixture();
+      await f.select();
+      await mobile.requestFleet(f.client.id, f.manager.id, f.allocation.id);
+      const payment = await mobile.askPayment(f.client.id, f.manager.id, f.allocation.id);
+      const remotes: RazorpayPayment[] = [];
+      let remoteOrder: { id: string; amount: number; currency: string; receipt: string; status: string };
+      const gateway = {
+        enabled: true, keyId: 'rzp_test_fixture', assertConfigured: vi.fn(), verifyCheckout: vi.fn(), verifyWebhook: vi.fn(),
+        createOrder: vi.fn(async (amount: number, currency: string, receipt: string) => remoteOrder = { id: `order_${randomUUID().replaceAll('-', '')}`, amount, currency, receipt, status: 'created' }),
+        findOrders: vi.fn(async () => remoteOrder ? [remoteOrder] : []),
+        fetchOrder: vi.fn(async () => remoteOrder),
+        orderPayments: vi.fn(async (id: string) => remotes.filter(p => p.order_id === id)),
+        fetchPayment: vi.fn(async (id: string) => remotes.find(p => p.id === id)!),
+        findRefunds: vi.fn(async () => [] as Array<{ id: string; payment_id: string; amount: number; receipt: string; status: string }>),
+        fetchRefund: vi.fn(),
+        refund: vi.fn(async (id: string, amount: number, receipt: string) => ({ id: `rfnd_${randomUUID().replaceAll('-', '')}`, payment_id: id, amount, receipt, status: 'processed' })),
+      };
+      const service = new RazorpayDeploymentService(db as never, gateway as unknown as RazorpayClient, commercial);
+      const order = await service.createOrder(f.client.id, f.user.id, f.allocation.id);
+      const remote = { id: `pay_${randomUUID().replaceAll('-', '')}`, order_id: order.orderId, amount: order.amount, currency: order.currency, status: 'captured', captured: true, amount_refunded: 0 } as RazorpayPayment;
+      const input = { razorpayOrderId: order.orderId!, razorpayPaymentId: remote.id, razorpaySignature: 'a'.repeat(64) };
+      return { ...f, payment, gateway, remotes, service, order, remote, input };
+    }
+
+    it('Razorpay settles concurrent callbacks and webhooks once, including deposits and ledger', async () => {
+      const f = await razorpayFixture();
+      f.remotes.push(f.remote);
+      await Promise.all([
+        f.service.verify(f.client.id, f.user.id, f.allocation.id, f.input),
+        f.service.verify(f.client.id, f.user.id, f.allocation.id, f.input),
+        f.service.webhook(Buffer.from(JSON.stringify({ event: 'payment.captured', payload: { payment: { entity: { id: f.remote.id, order_id: f.order.orderId } } } })), 'signature', randomUUID()),
+      ]);
+      await f.service.reconcile();
+      expect(await db.deploymentPayment.findUnique({ where: { id: f.payment.id } })).toMatchObject({ status: 'PAID', provider: 'RAZORPAY', verifiedById: null });
+      expect(await db.mobileDeploymentWorkflow.findUnique({ where: { allocationId: f.allocation.id } })).toMatchObject({ status: 'PAYMENT_PAID' });
+      expect(await db.riderPayment.count({ where: { clientId: f.client.id } })).toBe(1);
+      expect(await db.riderLedgerEntry.count({ where: { clientId: f.client.id, entryType: 'PAYMENT' } })).toBe(1);
+      expect(await db.riderDepositTransaction.count({ where: { clientId: f.client.id, transactionType: 'COLLECTION' } })).toBe(1);
+      expect(await db.razorpayDeploymentCapture.count({ where: { providerPaymentId: f.remote.id } })).toBe(1);
+      expect(f.gateway.refund).not.toHaveBeenCalled();
+    }, 30000);
+    it('Razorpay reuses orders, waits for capture, rejects wrong owners and mismatched amounts', async () => {
+      const f = await razorpayFixture();
+      expect(await f.service.createOrder(f.client.id, f.user.id, f.allocation.id)).toEqual(f.order);
+      expect(f.gateway.createOrder).toHaveBeenCalledTimes(1);
+      await expect(f.service.createOrder(f.client.id, randomUUID(), f.allocation.id)).rejects.toThrow('not found');
+      await expect(f.service.verify(randomUUID(), f.user.id, f.allocation.id, f.input)).rejects.toThrow('not found');
+      f.remotes.push({ ...f.remote, status: 'authorized', captured: false });
+      expect(await f.service.verify(f.client.id, f.user.id, f.allocation.id, f.input)).toMatchObject({ status: 'PENDING', nextAction: 'AWAITING_GATEWAY_CONFIRMATION' });
+      f.remotes[0] = { ...f.remote, amount: 1 };
+      await expect(f.service.verify(f.client.id, f.user.id, f.allocation.id, f.input)).rejects.toThrow('does not match');
+      expect(await db.riderPayment.count({ where: { clientId: f.client.id } })).toBe(0);
+    }, 30000);
+    it('Razorpay records a late payment after manual approval and refunds it without duplicate credits', async () => {
+      const f = await razorpayFixture();
+      const reference = randomUUID();
+      await mobile.submitPaymentReference(f.client.id, f.user.id, f.allocation.id, 'CASH', reference);
+      await mobile.verifyPayment(f.client.id, f.manager.id, f.allocation.id);
+      f.remotes.push(f.remote);
+      await expect(f.service.verify(f.client.id, f.user.id, f.allocation.id, f.input)).rejects.toThrow('different payment');
+      await f.service.reconcileAllocation(f.client.id, f.allocation.id);
+      expect(await db.razorpayDeploymentCapture.findUnique({ where: { providerPaymentId: f.remote.id } })).toMatchObject({ status: 'REFUNDED', reason: 'DUPLICATE_PAYMENT' });
+      expect(await db.deploymentPayment.findUnique({ where: { id: f.payment.id } })).toMatchObject({ provider: 'CASH', providerReference: reference });
+      expect(await db.riderPayment.count({ where: { clientId: f.client.id } })).toBe(1);
+      expect(f.gateway.refund).toHaveBeenCalledTimes(1);
+    }, 30000);
+    it('Razorpay refunds a capture for a cancelled allocation without advancing the workflow', async () => {
+      const f = await razorpayFixture();
+      await db.allocation.update({ where: { id: f.allocation.id }, data: { status: 'CANCELLED' } });
+      f.remotes.push(f.remote);
+      expect(await f.service.verify(f.client.id, f.user.id, f.allocation.id, f.input)).toMatchObject({ status: 'PENDING', gateway: { status: 'REFUND_PENDING' } });
+      await f.service.reconcileAllocation(f.client.id, f.allocation.id);
+      expect(await db.riderPayment.count({ where: { clientId: f.client.id } })).toBe(0);
+      expect(await db.razorpayDeploymentCapture.findUnique({ where: { providerPaymentId: f.remote.id } })).toMatchObject({ status: 'REFUNDED' });
+    }, 30000);
+    it('Razorpay keeps captured money visible for review if the saved amount changes', async () => {
+      const f = await razorpayFixture();
+      await db.deploymentPayment.update({ where: { id: f.payment.id }, data: { amount: 9999 } });
+      f.remotes.push(f.remote);
+      expect(await f.service.verify(f.client.id, f.user.id, f.allocation.id, f.input)).toMatchObject({ status: 'PENDING', gateway: { status: 'REVIEW_REQUIRED', reason: 'PAYMENT_AMOUNT_CHANGED' } });
+      expect(await db.riderPayment.count({ where: { clientId: f.client.id } })).toBe(0);
+      await expect(f.service.createOrder(f.client.id, f.user.id, f.allocation.id)).rejects.toThrow('already received');
+    }, 30000);
+
+    it('Razorpay recovers an ambiguous order create using the saved receipt without another create', async () => {
+      const f = await razorpayFixture();
+      await db.razorpayDeploymentOrder.updateMany({ where: { deploymentPaymentId: f.payment.id }, data: { status: 'SUPERSEDED' } });
+      const create = f.gateway.createOrder.getMockImplementation()!;
+      f.gateway.createOrder.mockImplementationOnce(async (...args) => { await create(...args); throw new RazorpayProviderError(); });
+      await expect(f.service.createOrder(f.client.id, f.user.id, f.allocation.id)).rejects.toThrow('temporarily unavailable');
+      await db.razorpayDeploymentOrder.updateMany({ where: { deploymentPaymentId: f.payment.id, status: 'CREATING' }, data: { createdAt: new Date(Date.now() - 60000) } });
+      await expect(f.service.createOrder(f.client.id, f.user.id, f.allocation.id)).resolves.toMatchObject({ amount: f.order.amount });
+      expect(f.gateway.createOrder).toHaveBeenCalledTimes(2);
+      expect(f.gateway.findOrders).toHaveBeenCalledTimes(1);
+    }, 30000);
+    it('Razorpay retries a definitively rejected order without treating it as an ambiguous create', async () => {
+      const f = await razorpayFixture();
+      await db.razorpayDeploymentOrder.updateMany({ where: { deploymentPaymentId: f.payment.id }, data: { status: 'SUPERSEDED' } });
+      f.gateway.createOrder.mockRejectedValueOnce(new RazorpayProviderError(true));
+      await expect(f.service.createOrder(f.client.id, f.user.id, f.allocation.id)).rejects.toThrow('temporarily unavailable');
+      await expect(f.service.createOrder(f.client.id, f.user.id, f.allocation.id)).resolves.toMatchObject({ amount: f.order.amount });
+      expect(f.gateway.createOrder).toHaveBeenCalledTimes(3);
+    }, 30000);
+    it('Razorpay does not refund twice after an ambiguous refund HTTP response', async () => {
+      const f = await razorpayFixture();
+      await db.allocation.update({ where: { id: f.allocation.id }, data: { status: 'CANCELLED' } });
+      f.remotes.push(f.remote);
+      await f.service.verify(f.client.id, f.user.id, f.allocation.id, f.input);
+      const capture = await db.razorpayDeploymentCapture.findUniqueOrThrow({ where: { providerPaymentId: f.remote.id } });
+      const refund = { id: `rfnd_${randomUUID().replaceAll('-', '')}`, payment_id: f.remote.id, amount: f.remote.amount, receipt: capture.id, status: 'processed' };
+      f.gateway.refund.mockRejectedValueOnce(new RazorpayProviderError());
+      await expect(f.service.reconcileAllocation(f.client.id, f.allocation.id)).rejects.toThrow('temporarily unavailable');
+      f.gateway.findRefunds.mockResolvedValueOnce([refund]);
+      await f.service.reconcileAllocation(f.client.id, f.allocation.id);
+      expect(f.gateway.refund).toHaveBeenCalledTimes(1);
+      expect(await db.razorpayDeploymentCapture.findUnique({ where: { id: capture.id } })).toMatchObject({ status: 'REFUNDED', providerRefundId: refund.id });
+    }, 30000);
+    it('Razorpay durably deduplicates webhook events and rejects event ID content changes', async () => {
+      const f = await razorpayFixture();
+      const eventId = randomUUID();
+      const raw = Buffer.from(JSON.stringify({ event: 'payment.failed', payload: { payment: { entity: { id: f.remote.id, order_id: f.order.orderId } } } }));
+      await Promise.all([f.service.webhook(raw, 'signature', eventId), f.service.webhook(raw, 'signature', eventId)]);
+      expect(await db.paymentProviderEvent.count({ where: { provider: 'RAZORPAY', eventKey: eventId } })).toBe(1);
+      await expect(f.service.webhook(Buffer.from(JSON.stringify({ event: 'payment.failed', payload: {} })), 'signature', eventId)).rejects.toThrow('different content');
+    }, 30000);
+
+    it('Razorpay retries a durably stored failed webhook without any app callback', async () => {
+      const f = await razorpayFixture();
+      f.remotes.push(f.remote);
+      const eventId = randomUUID();
+      await f.service.webhook(Buffer.from(JSON.stringify({ event: 'payment.captured', payload: { payment: { entity: { id: f.remote.id, order_id: f.order.orderId } } } })), 'signature', eventId);
+      f.gateway.fetchPayment.mockRejectedValueOnce(new RazorpayProviderError());
+      await expect(f.service.reconcileAllocation(f.client.id, f.allocation.id)).rejects.toThrow('temporarily unavailable');
+      expect(await db.paymentProviderEvent.findUnique({ where: { provider_eventKey: { provider: 'RAZORPAY', eventKey: eventId } } })).toMatchObject({ status: 'FAILED' });
+      await f.service.reconcileAllocation(f.client.id, f.allocation.id);
+      expect(await db.paymentProviderEvent.findUnique({ where: { provider_eventKey: { provider: 'RAZORPAY', eventKey: eventId } } })).toMatchObject({ status: 'PROCESSED' });
+      expect(await db.deploymentPayment.findUnique({ where: { id: f.payment.id } })).toMatchObject({ status: 'PAID' });
+      const raw = Buffer.from(JSON.stringify({ event: 'payment.failed', payload: { payment: { entity: { id: f.remote.id, order_id: f.order.orderId } } } }));
+      await f.service.webhook(raw, 'signature', randomUUID());
+      await f.service.reconcileAllocation(f.client.id, f.allocation.id);
+      expect(await db.riderPayment.count({ where: { clientId: f.client.id } })).toBe(1);
+    }, 30000);
+    it('Razorpay flags cancellation after accounting for reversal instead of refunding spendable deposits', async () => {
+      const f = await razorpayFixture();
+      f.remotes.push(f.remote);
+      await f.service.verify(f.client.id, f.user.id, f.allocation.id, f.input);
+      await db.allocation.update({ where: { id: f.allocation.id }, data: { status: 'CANCELLED' } });
+      await f.service.reconcileAllocation(f.client.id, f.allocation.id);
+      expect(await db.razorpayDeploymentCapture.findUnique({ where: { providerPaymentId: f.remote.id } })).toMatchObject({ status: 'REVIEW_REQUIRED', reason: 'SETTLED_CANCELLATION_REQUIRES_REVERSAL' });
+      expect(f.gateway.refund).not.toHaveBeenCalled();
+    }, 30000);
+
+    it('Razorpay does not refund the same gateway payment already approved manually by staff', async () => {
+      const f = await razorpayFixture();
+      await mobile.submitPaymentReference(f.client.id, f.user.id, f.allocation.id, 'Razorpay', f.remote.id);
+      await mobile.verifyPayment(f.client.id, f.manager.id, f.allocation.id);
+      f.remotes.push(f.remote);
+      expect(await f.service.verify(f.client.id, f.user.id, f.allocation.id, f.input)).toMatchObject({ status: 'PAID', provider: 'RAZORPAY' });
+      expect(await db.razorpayDeploymentCapture.findUnique({ where: { providerPaymentId: f.remote.id } })).toMatchObject({ status: 'SETTLED' });
+      expect(await db.riderPayment.count({ where: { clientId: f.client.id } })).toBe(1);
+      expect(f.gateway.refund).not.toHaveBeenCalled();
+    }, 30000);
+
     async function fixture(zero = false) {
       const key = randomUUID();
       const client = await db.client.create({
@@ -512,7 +679,7 @@ describe.skipIf(!url)(
         speedType: 'SLOW_SPEED', ownershipType: 'CLIENT_OWNED', currentHubId: f.hub.id,
       });
       expect((await mobile.eligibleFleets(f.client.id, f.manager.id)).map(row => row.id)).not.toContain(scooter.id);
-      expect(await fleets.onboardingStatus(f.client.id, scooter.id)).toMatchObject({ ready: true, evidenceComplete: false, photosRequired: false });
+      expect(await fleets.onboardingStatus(f.client.id, scooter.id)).toMatchObject({ ready: true, evidenceComplete: true, photosRequired: false });
       await fleets.activate(f.client.id, scooter.id, f.manager.id);
       expect((await mobile.eligibleFleets(f.client.id, f.manager.id)).map(row => row.id)).toContain(scooter.id);
       expect(await db.photo.count({ where: { clientId: f.client.id, entityType: 'FLEET' } })).toBe(0);
