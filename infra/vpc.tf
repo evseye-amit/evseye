@@ -36,7 +36,7 @@ resource "aws_subnet" "public" {
   tags = { Name = "${local.name_prefix}-public-${local.azs[count.index]}" }
 }
 
-# ─── Private Subnets (ECS tasks) ──────────────────────────────────────────────
+# ─── Private Subnets (reserved for private workloads) ─────────────────────────
 
 resource "aws_subnet" "private" {
   count             = length(local.azs)
@@ -56,20 +56,6 @@ resource "aws_subnet" "db" {
   availability_zone = local.azs[count.index]
 
   tags = { Name = "${local.name_prefix}-db-${local.azs[count.index]}" }
-}
-
-# ─── NAT Gateway (single, in first public subnet — cost-optimised for staging) ─
-
-resource "aws_eip" "nat" {
-  domain = "vpc"
-  tags   = { Name = "${local.name_prefix}-nat-eip" }
-}
-
-resource "aws_nat_gateway" "main" {
-  allocation_id = aws_eip.nat.id
-  subnet_id     = aws_subnet.public[0].id
-  tags          = { Name = "${local.name_prefix}-nat-gw" }
-  depends_on    = [aws_internet_gateway.main]
 }
 
 # ─── Route Tables ─────────────────────────────────────────────────────────────
@@ -94,12 +80,6 @@ resource "aws_route_table_association" "public" {
 resource "aws_route_table" "private" {
   vpc_id = aws_vpc.main.id
   tags   = { Name = "${local.name_prefix}-private-rt" }
-}
-
-resource "aws_route" "private_nat" {
-  route_table_id         = aws_route_table.private.id
-  destination_cidr_block = "0.0.0.0/0"
-  nat_gateway_id         = aws_nat_gateway.main.id
 }
 
 resource "aws_route_table_association" "private" {

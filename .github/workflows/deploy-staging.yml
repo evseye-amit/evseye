@@ -101,6 +101,21 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Resolve public ECS subnets
+        id: network
+        run: |
+          subnets="$(aws ec2 describe-subnets \
+            --filters \
+              "Name=tag:Project,Values=evseye" \
+              "Name=tag:Environment,Values=staging" \
+              "Name=tag:Name,Values=evseye-staging-public-*" \
+            --query 'sort_by(Subnets, &AvailabilityZone)[].SubnetId' \
+            --output text | tr '\t' ',')"
+          test -n "$subnets"
+          IFS=',' read -r -a subnet_list <<< "$subnets"
+          test "${#subnet_list[@]}" -ge 2
+          echo "subnets=$subnets" >> "$GITHUB_OUTPUT"
+
       - name: Download current migration task definition
         run: |
           aws ecs describe-task-definition \
@@ -123,9 +138,9 @@ jobs:
           cluster: ${{ secrets.ECS_CLUSTER }}
           run-task: true
           run-task-launch-type: FARGATE
-          run-task-subnets: ${{ secrets.ECS_PRIVATE_SUBNETS }}
+          run-task-subnets: ${{ steps.network.outputs.subnets }}
           run-task-security-groups: ${{ secrets.ECS_TASK_SG }}
-          run-task-assign-public-IP: DISABLED
+          run-task-assign-public-IP: ENABLED
           wait-for-task-stopped: true
 
   # ─── Update ECS services ───────────────────────────────────────────────────
