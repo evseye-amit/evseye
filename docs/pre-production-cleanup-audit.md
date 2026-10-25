@@ -23,6 +23,22 @@ Three handlers are removed from the candidate inventory: `GET /client-branding/p
 
 `docs/openapi-operation-inventory.json` is the exact runtime method/path inventory generated from the current API build with `pnpm --filter @evs-eye/api openapi:routes`. Each of its 836 operations maps to a source controller class and file. The CSV remains a separate, heuristic triage aid for web and Flutter source matches. Its matcher found candidate source files for 590 declarations in web and 460 in Flutter, but this is not proof of usage. Comparing the inventories exposed a coverage gap: the CSV contains 838 rows and 774 unique method/path pairs, while 198 runtime operations have no exact CSV pair; this indicates that the static extractor does not consistently resolve decorator/class paths. The 136 CSV-only pairs also include stale/incorrect candidates, including the three removed routes. Do not use CSV no-match rows as evidence for deletion. Reconcile each runtime operation using its `operationId` and source file, then verify web/Flutter client wrappers, provider/worker/manual callers, and release scope. No operation currently lacks a controller source mapping. Treat unreviewed client matches as review queues, never automatic deletion candidates.
 
+### First-pass client no-match review
+
+This is a manual triage of source areas surfaced by the CSV, not a full operation-by-operation sign-off. No additional handler is safe to delete from this evidence alone.
+
+| Area | Source review | Disposition |
+|---|---|---|
+| Mobile deployment localization, IoT health, device pairing, and pairing bypass | No matching call was found in the web source or Flutter Dart files. The handlers are rider/fleet-manager actions in `MobileDeploymentController`. | Confirm whether pairing and device-health workflows are in the launch surface. If deferred, disable/gate them; do not remove until the fleet workflow owner confirms. |
+| Training-content management | Platform CRUD handlers have no direct web/Flutter wrapper match. The separate rider training flow is wired through `/mobile-deployments/:id/training`, `/training/viewed`, and `/training/complete`. | Keep the rider-facing flow. Confirm whether platform content management is intentionally manual or deferred before considering the CRUD handlers. |
+| Rider rate cards and commercial terms | No direct UI wrapper match was found for the management routes. Flutter's `CommercialApi` does call the separate `/mobile-deployments/:id/plans`, `/commercial-offer`, and `/rider-app/commercial-offers/:id/accept` routes. | Preserve the pricing/offer flow and shared services. Confirm the supported admin workflow for managing rate cards and terms; absence of an in-repo UI does not establish that management endpoints are dead. |
+| Collections and rider deposits | No direct web/Flutter wrapper match was found for the client-admin/operations-manager management routes. These handlers create and mutate financial cases, promises, deposits, deductions, refunds, and adjustments. | Keep pending launch-scope and finance-operations review. These are stateful financial workflows with audit/reconciliation implications. |
+| Payment reconciliation, provider settlement, and wallet reversal | No direct web/Flutter wrapper match was found. The routes are client-admin or super-admin finance/operations functions, including retries and ledger reversal. | Treat as manual/operational APIs; retain until the incident/reconciliation runbook and release owners say otherwise. |
+| Push-device registration | No matching registration/unregistration call was found in the checked web and Flutter sources. The API exposes token registration and removal separately from notification read APIs. | Confirm whether a different app runtime registers tokens or push is deferred; do not remove based only on these workspaces. |
+| Vehicle-exchange policy | No direct UI wrapper match was found for policy read/update. Flutter does contain the rider vehicle-exchange request flow. | Keep exchange functionality; verify whether policy configuration is performed manually or belongs in a launch admin UI. |
+
+The web and Flutter source checks above are read-only. Flutter remains reference-only and no Flutter code was changed.
+
 1. called by web;
 2. called by Flutter rider (reference only);
 3. called by Flutter fleet manager (reference only);
