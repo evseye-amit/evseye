@@ -74,13 +74,8 @@ export function ClientWorkflowSettings({ clientId, clientName }: { clientId: str
       const parsed: unknown = JSON.parse(configuration);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
         throw new Error("Configuration must be a JSON object.");
-      const feature = included.find((item) => item.featureId === featureId)?.feature as Row | undefined;
-      if (!enabled && feature?.code === "ACCEPT_APP_TERMS")
-        throw new Error("Legal consent is mandatory.");
-      if (!enabled && feature?.code === "SELECT_APP_LANGUAGE")
-        throw new Error("Language selection is controlled by the package.");
       setOverrides((current) => [...current.filter((item) => item.featureId !== featureId),
-        { featureId, enabled, configuration: parsed as Record<string, unknown> }]);
+      { featureId, enabled, configuration: parsed as Record<string, unknown> }]);
       setNotice("Override added to this draft. Create a version to review it.");
       setError("");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Invalid configuration."); }

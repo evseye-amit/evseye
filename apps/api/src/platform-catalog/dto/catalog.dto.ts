@@ -50,6 +50,7 @@ export class CreateVehicleCategoryDto {
   @IsOptional() @IsObject() translations?: Prisma.InputJsonObject;
   @IsOptional() @IsEnum(MasterRecordStatus) status?: MasterRecordStatus;
   @IsOptional() @IsInt() @Min(0) displayOrder?: number;
+
 }
 
 export class UpdateVehicleCategoryDto extends CreateVehicleCategoryDto {}
@@ -77,6 +78,7 @@ export class CreateVehicleTypeDto {
   @IsEnum(EnergyType) energyType!: EnergyType;
   @IsOptional() @IsEnum(VehicleUsageType) usageType?: VehicleUsageType;
   @IsOptional() @IsEnum(MasterRecordStatus) status?: MasterRecordStatus;
+
 }
 export class UpdateVehicleTypeDto extends CreateVehicleTypeDto {}
 

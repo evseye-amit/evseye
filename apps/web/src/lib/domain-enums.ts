@@ -3,6 +3,7 @@
  * Keep enum values here so both panels submit the exact API contract.
  */
 export const featureCategories: Array<[string, string]> = [
+  ["PRE_LOGIN", "Pre-Login"],
   ["LOGIN", "Login"],
   ["RIDER_ONBOARDING", "Rider Onboarding"],
   ["RIDER_VERIFICATION", "Rider Verification / KYC"],

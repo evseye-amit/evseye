@@ -10,25 +10,25 @@ const prisma = new PrismaClient();
 try {
   const steps = new Map();
   for (const step of [...featureStepSpecs.filter((item) => !item.parentCode), ...featureStepSpecs.filter((item) => item.parentCode)]) {
-    const { parentCode, ...data } = step;
+    const { code, parentCode, ...data } = step;
     const parentId = parentCode ? steps.get(parentCode)?.id : null;
     if (parentCode && !parentId) throw new Error(`Missing parent Feature Step ${parentCode}`);
     const saved = await prisma.featureStep.upsert({
-      where: { code: step.code },
-      create: { ...data, parentId },
-      update: { displayName: data.displayName, description: data.description,
-        translations: data.translations, displayOrder: data.displayOrder, parentId, isActive: true },
+      where: { code },
+      create: { code, ...data, parentId },
+      update: { ...data, parentId },
     });
-    steps.set(step.code, saved);
+    steps.set(code, saved);
   }
 
   for (const { featureStepCode, ...feature } of featureCatalog) {
     const featureStepId = featureStepCode ? steps.get(featureStepCode)?.id : null;
     if (featureStepCode && !featureStepId) throw new Error(`Missing Feature Step ${featureStepCode} for ${feature.code}`);
+    const existing = await prisma.feature.findUnique({ where: { code: feature.code }, select: { translations: true } });
     await prisma.feature.upsert({
       where: { code: feature.code },
       create: { ...feature, featureStepId },
-      update: { ...feature, featureStepId },
+      update: { ...feature, ...(existing?.translations ? { translations: existing.translations } : {}), featureStepId },
     });
   }
 

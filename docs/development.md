@@ -22,3 +22,39 @@ Run the checks relevant to a change before review. See the [release checklist](r
 ## Database changes
 
 Edit `apps/api/prisma/schema.prisma`, create and test a Prisma migration with `pnpm db:migrate`, and regenerate the client with `pnpm db:generate`. Deployment runs migrations as a separate job before API replicas roll out; see [deployment](deployment.md).
+
+## Faster local Docker rebuilds
+
+Each Dockerfile has its own build-context ignore file: API builds send only API
+inputs; web builds send only web inputs. The shared pnpm lockfile and workspace
+metadata remain necessary for reproducible installs. Each image installs only its
+own workspace's dependencies.
+
+BuildKit caches the pnpm stores and Next.js compilation cache. API dependency
+packaging is separate from application compilation; changing seeds or migrations
+does not recompile Nest, and changing API source does not reinstall dependencies.
+The API image retains Prisma tooling because Compose uses it for migration jobs.
+
+For ordinary code updates, build and restart only the changed service:
+
+```sh
+docker compose build api
+docker compose up -d --no-deps api
+# For web-only changes:
+docker compose build web
+docker compose up -d --no-deps web
+```
+
+After schema changes, apply migrations before restarting the API:
+
+```sh
+docker compose build api
+docker compose run --rm --no-deps migrate
+docker compose up -d --no-deps api
+```
+
+Run the seed job only when seed data needs applying. The initial full-stack setup
+still uses `docker compose up --build`. Avoid `--no-cache` for normal development;
+the first build after Dockerfile or dependency changes will take longer. For the
+fastest edit/reload loop, run the apps on the host with `pnpm dev:api` and
+`pnpm dev:web`, using the Docker database/cache services.

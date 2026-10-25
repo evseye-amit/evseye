@@ -7,7 +7,7 @@ export type LegalSeedDocument = {
   version: string;
   title: string;
   content: string;
-  acceptance?: Record<string, string>;
+  acceptance?: Record<string, string> | null;
   contentHash: string;
   effectiveAt: string;
   publishedAt: string | null;

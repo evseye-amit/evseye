@@ -469,8 +469,8 @@ async function request(
 
     throw new Error(
       body.error?.message ??
-        body.message ??
-        "Request failed. Please try again.",
+      body.message ??
+      "Request failed. Please try again.",
     );
   }
   return body.data;
@@ -2567,7 +2567,7 @@ export default function Home() {
               <form onSubmit={sendOtp} className="auth-form">
                 {!hostClient && <label>
                   {t("Company code")} *
-                 <span className="auth-input">
+                  <span className="auth-input">
                     <UiIcon name="building" />
                     <input
                       value={companyCode}
@@ -2580,7 +2580,7 @@ export default function Home() {
                 </label>}
                 <label>
                   {t(loginField(loginFlow, "CAPTURE_MOBILE_NUMBER")?.label ?? "Mobile number")} *
-                 <span className="auth-input">
+                  <span className="auth-input">
                     <UiIcon name="phone" />
                     <input
                       value={phone}

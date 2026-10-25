@@ -7,6 +7,8 @@ import {
 import { Transform } from 'class-transformer';
 import {
   ArrayNotEmpty,
+  ArrayContains,
+  ArrayUnique,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -23,6 +25,7 @@ import {
   ValidateIf,
 } from 'class-validator';
 import { INDIAN_MOBILE_INPUT_PATTERN } from '../../common/phone.js';
+import { languageCatalog } from '../../common/language-catalog.js';
 
 const phone = /^\+?[1-9]\d{7,14}$/;
 
@@ -41,6 +44,9 @@ class ActiveClientEditApprovalDto {
 export class CreateClientDraftDto {
   @IsString() @MaxLength(120) businessFleetName!: string;
   @IsString() @Matches(/^[a-z0-9-]+$/) @MaxLength(80) companyCode!: string;
+  @IsOptional() @IsArray() @ArrayNotEmpty() @ArrayContains(['en']) @ArrayUnique()
+  @IsIn(languageCatalog.map((language) => language.code), { each: true })
+  requestedLocales?: string[];
   @IsString() @MaxLength(180) legalEntityName!: string;
   @IsString() @MaxLength(60) businessType!: string;
   @IsString() @MaxLength(60) clientType!: string;
@@ -193,6 +199,9 @@ export class CreateClientDocumentUploadIntentDto extends ActiveClientEditApprova
 
 export class UpdateClientBusinessDetailsDto extends ActiveClientEditApprovalDto {
   @IsString() @MaxLength(120) businessFleetName!: string;
+  @IsOptional() @IsArray() @ArrayNotEmpty() @ArrayContains(['en']) @ArrayUnique()
+  @IsIn(languageCatalog.map((language) => language.code), { each: true })
+  requestedLocales?: string[];
   @IsString() @MaxLength(180) legalEntityName!: string;
   @IsString() @MaxLength(60) businessType!: string;
   @IsString() @MaxLength(60) clientType!: string;

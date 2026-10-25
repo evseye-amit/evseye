@@ -158,9 +158,12 @@ export class PlatformCatalogService {
     return this.serializeOem(oem);
   }
   async updateOem(id: string, dto: UpdateOemDto, actorId: string) {
-    await this.exists('oem', id);
+    const current = await this.prisma.oem.findUnique({ where: { id }, select: { code: true } });
+    if (!current) throw new NotFoundException('Record not found.');
+    if (dto.code !== current.code) throw new BadRequestException('OEM code cannot be changed after creation.');
+    const { code: _code, ...data } = dto;
     const oem = await this.updateWithAudit('OEM_UPDATED', 'OEM', id, actorId, () =>
-      this.prisma.oem.update({ where: { id }, data: dto }),
+      this.prisma.oem.update({ where: { id }, data }),
     );
     return this.serializeOem(oem);
   }
@@ -292,7 +295,10 @@ export class PlatformCatalogService {
     dto: UpdateVehicleCategoryDto,
     actorId: string,
   ) {
-    await this.exists('vehicleCategory', id);
+    const current = await this.prisma.vehicleCategory.findUnique({ where: { id }, select: { code: true } });
+    if (!current) throw new NotFoundException('Record not found.');
+    if (dto.code !== current.code) throw new BadRequestException('Vehicle Category code cannot be changed after creation.');
+    const { code: _code, ...data } = dto;
     return this.updateWithAudit(
       'VEHICLE_CATEGORY_UPDATED',
       'VehicleCategory',
@@ -301,7 +307,7 @@ export class PlatformCatalogService {
       () =>
         this.prisma.vehicleCategory.update({
           where: { id },
-          data: dto,
+          data,
         }),
     );
   }
@@ -389,7 +395,10 @@ export class PlatformCatalogService {
     dto: UpdateVehicleTypeDto,
     actorId: string,
   ) {
-    await this.exists('vehicleType', id);
+    const current = await this.prisma.vehicleType.findUnique({ where: { id }, select: { code: true } });
+    if (!current) throw new NotFoundException('Record not found.');
+    if (dto.code !== current.code) throw new BadRequestException('Vehicle Type code cannot be changed after creation.');
+    const { code: _code, ...data } = dto;
     await this.exists('vehicleCategory', dto.categoryId);
     return this.updateWithAudit(
       'VEHICLE_TYPE_UPDATED',
@@ -399,7 +408,7 @@ export class PlatformCatalogService {
       () =>
         this.prisma.vehicleType.update({
           where: { id },
-          data: dto,
+          data,
           include: { category: true },
         }),
     );
@@ -505,13 +514,14 @@ export class PlatformCatalogService {
     });
   }
   async createFeature(dto: CreateFeatureDto, actorId: string) {
-    const { configuration, featureStepId, ...data } = dto;
+    const { configuration, translations, featureStepId, ...data } = dto;
     if (featureStepId) await this.requireFeatureStep(featureStepId);
     const effectiveConfiguration = uploadFeatureConfiguration(dto.billingUnit, dto.code, configuration);
     return this.createWithAudit('FEATURE_CREATED', 'Feature', actorId, () =>
       this.prisma.feature.create({
         data: {
           ...data,
+          ...(translations ? { translations: translations as Prisma.InputJsonValue } : {}),
           ...(featureStepId ? { featureStepId } : {}),
           ...(effectiveConfiguration !== undefined
             ? { configuration: effectiveConfiguration as Prisma.InputJsonValue }
@@ -523,7 +533,7 @@ export class PlatformCatalogService {
   async updateFeature(id: string, dto: UpdateFeatureDto, actorId: string) {
     const existing = await this.prisma.feature.findUnique({ where: { id }, select: { configuration: true } });
     if (!existing) throw new NotFoundException('Feature not found.');
-    const { configuration, featureStepId, ...data } = dto;
+    const { configuration, translations, featureStepId, ...data } = dto;
     if (featureStepId) await this.requireFeatureStep(featureStepId);
     const currentConfiguration = existing.configuration && typeof existing.configuration === 'object' && !Array.isArray(existing.configuration)
       ? existing.configuration as Record<string, unknown>
@@ -534,6 +544,7 @@ export class PlatformCatalogService {
         where: { id },
         data: {
           ...data,
+          ...(translations ? { translations: translations as Prisma.InputJsonValue } : {}),
           ...(featureStepId !== undefined ? { featureStepId } : {}),
           ...(effectiveConfiguration !== undefined
             ? { configuration: effectiveConfiguration as Prisma.InputJsonValue }
