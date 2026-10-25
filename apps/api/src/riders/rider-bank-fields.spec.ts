@@ -202,6 +202,7 @@ describe('rider app bank step persistence', () => {
     const db = {
       riderOnboardingProgress: {
         findUnique: vi.fn().mockResolvedValue({
+          clientId: 'client',
           values: {},
           completedStepIds: [],
           skippedStepIds: [],
