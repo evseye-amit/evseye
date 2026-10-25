@@ -1,11 +1,35 @@
-import { writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { relative, resolve } from 'node:path';
 import { Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { createApplication } from '../dist/app.factory.js';
 import { completeSwaggerDocument, SWAGGER_TAGS } from '../dist/swagger.js';
 
 Logger.overrideLogger(false);
+
+async function findTypeScriptFiles(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const nested = await Promise.all(
+    entries.map((entry) => {
+      const path = resolve(directory, entry.name);
+      return entry.isDirectory()
+        ? findTypeScriptFiles(path)
+        : entry.isFile() && path.endsWith('.ts')
+          ? [path]
+          : [];
+    }),
+  );
+  return nested.flat();
+}
+
+const sourceRoot = resolve('src');
+const controllerFiles = new Map();
+for (const file of await findTypeScriptFiles(sourceRoot)) {
+  const source = await readFile(file, 'utf8');
+  for (const [, className] of source.matchAll(/export\s+class\s+(\w+)/g)) {
+    controllerFiles.set(className, `apps/api/${relative(process.cwd(), file)}`);
+  }
+}
 
 const app = await createApplication();
 
@@ -41,13 +65,27 @@ try {
         .filter(([method]) =>
           ['get', 'post', 'put', 'patch', 'delete'].includes(method),
         )
-        .map(([method, operation]) => ({
-          method: method.toUpperCase(),
-          path,
-          operationId: operation.operationId,
-          tags: operation.tags ?? [],
-          security: operation.security ?? [],
-        })),
+        .map(([method, operation]) => {
+          const operationId = operation.operationId;
+          const controllerClass = [...controllerFiles.keys()]
+            .sort((left, right) => right.length - left.length)
+            .find((name) => operationId?.startsWith(`${name}_`));
+          const controllerFile = controllerClass
+            ? controllerFiles.get(controllerClass)
+            : undefined;
+          if (!controllerFile) {
+            throw new Error(`Could not map OpenAPI operation to source: ${operationId}`);
+          }
+          return {
+            method: method.toUpperCase(),
+            path,
+            operationId,
+            controllerClass,
+            controllerFile,
+            tags: operation.tags ?? [],
+            security: operation.security ?? [],
+          };
+        }),
     )
     .sort((left, right) =>
       `${left.path} ${left.method}`.localeCompare(
