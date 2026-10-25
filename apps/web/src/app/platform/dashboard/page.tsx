@@ -505,7 +505,6 @@ export default function SuperAdminDashboard() {
   const revisionTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [pricing, setPricing] = useState<Item[]>([]);
   const [featureAddOns, setFeatureAddOns] = useState<Item[]>([]);
-  const [selectedClientId, setSelectedClientId] = useState("");
   const [oem, setOem] = useState(emptyOem);
   const [editingOemId, setEditingOemId] = useState<string | null>(null);
   const [showOemForm, setShowOemForm] = useState(false);
@@ -4627,16 +4626,6 @@ function ClientCommercialDirectory({
     },
   };
   const activeClients = clients.filter((client) => client.status === "ACTIVE");
-  const action = section === "pricing"
-    ? "Manage pricing"
-    : section === "addOns"
-      ? "Manage Add-Ons"
-      : section === "quotaPacks"
-        ? "Manage quota packs"
-        : section === "creditLots"
-          ? "View credit lots"
-          : "View ledger";
-
   return (
     <>
       <section className="sa-page-head">

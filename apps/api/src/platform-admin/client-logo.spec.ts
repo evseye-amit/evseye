@@ -26,12 +26,6 @@ describe('Client logos', () => {
     await expect(service.completeClientLogoUpload('client-1', { objectKey: 'clients/client-1/logo/11111111-1111-4111-8111-111111111111.png' }, 'admin')).rejects.toThrow('missing upload');
     expect(prisma.clientBusinessProfile.update).not.toHaveBeenCalled();
   });
-  it('allows branding without a supplied logo and exposes only display information', async () => {
-    const { service, prisma, storage } = setup();
-    prisma.client.findFirst.mockResolvedValue({ name: 'Example Fleet', businessProfile: { logoObjectKey: null } });
-    await expect(service.clientBranding('client-1')).resolves.toEqual({ name: 'Example Fleet', logoUrl: null });
-    expect(storage.createDownloadUrl).not.toHaveBeenCalled();
-  });
   it('saves the uploaded logo and returns its preview URL', async () => {
     const { service, prisma } = setup();
     const objectKey = 'clients/client-1/logo/11111111-1111-4111-8111-111111111111.png';

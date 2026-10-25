@@ -172,15 +172,6 @@ export class FleetsController {
       ),
     ].join('\n');
   }
-  @Get(':id/onboarding-status')
-  async onboardingStatus(@CurrentUser() u: AuthUser, @Param('id') id: string) {
-    return {
-      data: await this.fleets.onboardingStatus(
-        this.clients.requireClientId(u),
-        id,
-      ),
-    };
-  }
   @Get(':id') async get(@CurrentUser() u: AuthUser, @Param('id') id: string) {
     return { data: await this.fleets.get(this.clients.requireClientId(u), id) };
   }

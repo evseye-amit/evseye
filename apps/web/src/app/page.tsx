@@ -9,7 +9,6 @@ import {
   fleetOwnershipTypes,
   insuranceTypes,
   kycTypes,
-  riderStatuses,
   vehicleSpeedTypes,
 } from "../lib/domain-enums";
 
@@ -805,11 +804,6 @@ export default function Home() {
   const [iotEnabled, setIotEnabled] = useState<boolean | null>(null);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [items, setItems] = useState<RecordItem[]>([]);
-  const [availableFleets, setAvailableFleets] = useState<RecordItem[]>([]);
-  const [activeRiders, setActiveRiders] = useState<RecordItem[]>([]);
-  const [allocationFleetId, setAllocationFleetId] = useState("");
-  const [allocationRiderId, setAllocationRiderId] = useState("");
-  const [showAllocationForm, setShowAllocationForm] = useState(false);
   const [showRiderForm, setShowRiderForm] = useState(false);
   const [riderOnboardingConfiguration, setRiderOnboardingConfiguration] = useState<RiderOnboardingConfiguration | null>(null);
   const [riderValues, setRiderValues] = useState<Record<string, string>>({});
@@ -860,19 +854,6 @@ export default function Home() {
   const [riderDraft, setRiderDraft] = useState<Record<string, string>>({});
   const [evidenceFleet, setEvidenceFleet] = useState<{ id: string; name: string } | null>(null);
   const [fleetDetail, setFleetDetail] = useState<RecordItem | null>(null);
-  const [fleetOnboardingStatus, setFleetOnboardingStatus] =
-    useState<RecordItem | null>(null);
-  const [fleetPhotoRequirements, setFleetPhotoRequirements] = useState<
-    RecordItem[]
-  >([]);
-  const [uploadedFleetPhotoTypes, setUploadedFleetPhotoTypes] = useState<
-    string[]
-  >([]);
-  const [componentPhotoRequirements, setComponentPhotoRequirements] = useState<
-    Record<string, RecordItem[]>
-  >({});
-  const [uploadedComponentPhotoTypes, setUploadedComponentPhotoTypes] =
-    useState<Record<string, string[]>>({});
   const [iotDeviceNumber, setIotDeviceNumber] = useState("");
   const [iotDetails, setIotDetails] = useState({ imei: "", simNumber: "", iccid: "", provider: "", model: "", installedAt: "" });
   const [editingIotDeviceId, setEditingIotDeviceId] = useState("");
@@ -1026,7 +1007,6 @@ export default function Home() {
     const detailChanged = nextTab === "vehicle-preparation" && fleetId !== readinessFleetId;
     if (nextTab !== tab || detailChanged) { viewGeneration.current += 1; setItems([]); setConfiguredRequirements([]); setAllocationDetail(null); }
     if (nextTab === "dashboard") setExpandedClientNavGroups({});
-    setShowAllocationForm(false);
     setShowRiderForm(false);
     setShowFleetForm(false);
     setShowIotForm(false);
@@ -1039,7 +1019,6 @@ export default function Home() {
     setDeallocationId("");
     setRiderDetail(null);
     setFleetDetail(null);
-    setFleetOnboardingStatus(null);
     setEditingRider(false);
     setIngestSecret("");
     setNotice("");
@@ -1267,40 +1246,6 @@ export default function Home() {
       setError(cause instanceof Error ? cause.message : "Unable to preview document.");
     } finally {
       setPreviewLoadingId("");
-    }
-  }
-
-  async function openAllocationForm(fleetId?: string) {
-    setLoading(true);
-    setError("");
-    try {
-      const [fleets, riders] = await Promise.all([
-        request(
-          "/fleets?status=AVAILABLE&page=1&pageSize=100",
-          {},
-          token,
-        ) as Promise<{ items: RecordItem[] }>,
-        request(
-          "/riders?status=ACTIVE&page=1&pageSize=100",
-          {},
-          token,
-        ) as Promise<{ items: RecordItem[] }>,
-      ]);
-      setAvailableFleets(fleets.items);
-      setActiveRiders(riders.items);
-      if (fleetId && !fleets.items.some((fleet) => String(fleet.id) === fleetId)) {
-        throw new Error("This fleet is no longer available for allocation.");
-      }
-      setAllocationFleetId(fleetId ?? "");
-      setShowAllocationForm(true);
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Unable to load allocation options.",
-      );
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -1707,35 +1652,6 @@ export default function Home() {
     }
   }
 
-  async function addFleetComponent(
-    fleetId: string,
-    component: "batteries" | "controllers",
-    serialNumber: string,
-  ) {
-    if (!serialNumber) return;
-    setLoading(true);
-    setError("");
-    try {
-      await request(
-        `/fleets/${fleetId}/${component}`,
-        { method: "POST", body: JSON.stringify({ serialNumber }) },
-        token,
-      );
-      setNotice(
-        `${component === "batteries" ? "Battery" : "Controller"} added.`,
-      );
-      await openFleetDetail(fleetId);
-      setComponentForm(null);
-      setComponentSerial("");
-    } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Unable to add component.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
   async function saveComponent(fleetId: string, component: "batteries" | "controllers") {
     if (!componentSerial.trim()) return;
     setLoading(true); setError("");
@@ -1789,39 +1705,6 @@ export default function Home() {
         cause instanceof Error
           ? cause.message
           : "Unable to register IoT device.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function createAllocation(event: FormEvent) {
-    event.preventDefault();
-    setLoading(true);
-    setError("");
-    try {
-      const allocation = (await request(
-        "/allocations",
-        {
-          method: "POST",
-          headers: { "Idempotency-Key": crypto.randomUUID() },
-          body: JSON.stringify({
-            fleetId: allocationFleetId,
-            riderId: allocationRiderId,
-          }),
-        },
-        token,
-      )) as { id: string };
-      setShowAllocationForm(false);
-      setAllocationFleetId("");
-      setAllocationRiderId("");
-      setNotice(
-        `Allocation ${allocation.id.slice(0, 8)} created. Complete its pre-allocation inspection before activation.`,
-      );
-      await loadView("fleets");
-    } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Unable to create allocation.",
       );
     } finally {
       setLoading(false);
@@ -2087,85 +1970,16 @@ export default function Home() {
     setLoading(true);
     setError("");
     try {
-      const [fleet, currentState, onboardingStatus, photoRequirements, photos] =
-        await Promise.all([
+      const [fleet, currentState] = await Promise.all([
           request(`/fleets/${fleetId}`, {}, token) as Promise<RecordItem>,
           request(
             `/fleets/${fleetId}/current-state`,
             {},
             token,
           ) as Promise<RecordItem | null>,
-          request(
-            `/fleets/${fleetId}/onboarding-status`,
-            {},
-            token,
-          ) as Promise<RecordItem>,
-          request(
-            "/media/photo-requirements?entityType=FLEET",
-            {},
-            token,
-          ) as Promise<RecordItem[]>,
-          request(
-            `/media/photos?entityType=FLEET&entityId=${fleetId}`,
-            {},
-            token,
-          ) as Promise<RecordItem[]>,
         ]);
       setFleetDetail(fleet);
       setVehicleState(currentState);
-      setFleetOnboardingStatus(onboardingStatus);
-      setFleetPhotoRequirements(photoRequirements);
-      setUploadedFleetPhotoTypes(
-        photos
-          .filter((photo) => photo.status === "COMPLETE")
-          .map((photo) => String(photo.photoType)),
-      );
-      const [batteryRequirements, controllerRequirements] = await Promise.all([
-        request(
-          "/media/photo-requirements?entityType=BATTERY",
-          {},
-          token,
-        ) as Promise<RecordItem[]>,
-        request(
-          "/media/photo-requirements?entityType=CONTROLLER",
-          {},
-          token,
-        ) as Promise<RecordItem[]>,
-      ]);
-      setComponentPhotoRequirements({
-        BATTERY: batteryRequirements,
-        CONTROLLER: controllerRequirements,
-      });
-      const components = [
-        ...((fleet.batteries as RecordItem[]) ?? []).map((component) => ({
-          entityType: "BATTERY" as const,
-          id: String(component.id),
-        })),
-        ...((fleet.controllers as RecordItem[]) ?? []).map((component) => ({
-          entityType: "CONTROLLER" as const,
-          id: String(component.id),
-        })),
-      ];
-      const componentPhotos = await Promise.all(
-        components.map(async (component) => ({
-          key: `${component.entityType}:${component.id}`,
-          photos: (await request(
-            `/media/photos?entityType=${component.entityType}&entityId=${component.id}`,
-            {},
-            token,
-          )) as RecordItem[],
-        })),
-      );
-      setUploadedComponentPhotoTypes(
-        Object.fromEntries(
-          componentPhotos.map(({ key, photos: componentPhotoItems }) => [
-            key,
-            componentPhotoItems
-              .filter((photo) => photo.status === "COMPLETE")
-              .map((photo) => String(photo.photoType)),
-          ]),
-        ),
-      );
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -2175,16 +1989,6 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }
-
-  async function refreshFleetOnboardingStatus(fleetId: string) {
-    setFleetOnboardingStatus(
-      (await request(
-        `/fleets/${fleetId}/onboarding-status`,
-        {},
-        token,
-      )) as RecordItem,
-    );
   }
 
   async function deleteFleet(id: string) {
@@ -2276,131 +2080,6 @@ export default function Home() {
     await request(`/media/${intent.photo.id}/complete`, { method: 'POST' }, token);
   }
 
-  async function uploadFleetPhoto(
-    fleetId: string,
-    file: File | undefined,
-    photoType: string,
-  ) {
-    if (!file) return;
-    if (
-      !["image/jpeg", "image/png", "image/webp"].includes(file.type) ||
-      file.size > 5 * 1024 * 1024
-    ) {
-      setError("Choose a JPEG, PNG, or WebP image smaller than 5 MB.");
-      return;
-    }
-    setLoading(true);
-    setError("");
-    try {
-      const intent = (await request(
-        "/media/upload-intents",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            entityType: "FLEET",
-            entityId: fleetId,
-            photoType,
-            mimeType: file.type,
-            fileName: file.name,
-            sizeBytes: file.size,
-          }),
-        },
-        token,
-      )) as { photo: { id: string }; uploadUrl: string };
-      const result = await fetch(intent.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      if (!result.ok)
-        throw new Error("Object storage rejected the file upload.");
-      await request(
-        `/media/${intent.photo.id}/complete`,
-        { method: "POST" },
-        token,
-      );
-      setUploadedFleetPhotoTypes((current) =>
-        current.includes(photoType) ? current : [...current, photoType],
-      );
-      await refreshFleetOnboardingStatus(fleetId);
-      setNotice(`${photoType.replaceAll("_", " ")} photo uploaded.`);
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Unable to upload fleet photo.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function uploadComponentPhoto(
-    entityType: "BATTERY" | "CONTROLLER",
-    componentId: string,
-    file: File | undefined,
-    photoType: string,
-  ) {
-    if (!file) return;
-    if (
-      !["image/jpeg", "image/png", "image/webp"].includes(file.type) ||
-      file.size > 5 * 1024 * 1024
-    ) {
-      setError("Choose a JPEG, PNG, or WebP image smaller than 5 MB.");
-      return;
-    }
-    setLoading(true);
-    setError("");
-    try {
-      const intent = (await request(
-        "/media/upload-intents",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            entityType,
-            entityId: componentId,
-            photoType,
-            mimeType: file.type,
-            fileName: file.name,
-            sizeBytes: file.size,
-          }),
-        },
-        token,
-      )) as { photo: { id: string }; uploadUrl: string };
-      const result = await fetch(intent.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      if (!result.ok)
-        throw new Error("Object storage rejected the file upload.");
-      await request(
-        `/media/${intent.photo.id}/complete`,
-        { method: "POST" },
-        token,
-      );
-      const key = `${entityType}:${componentId}`;
-      setUploadedComponentPhotoTypes((current) => ({
-        ...current,
-        [key]: current[key]?.includes(photoType)
-          ? current[key]
-          : [...(current[key] ?? []), photoType],
-      }));
-      if (fleetDetail) {
-        await refreshFleetOnboardingStatus(String(fleetDetail.id));
-      }
-      setNotice(`${photoType.replaceAll("_", " ")} photo uploaded.`);
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Unable to upload component photo.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
   async function initiateDeallocation(allocation: RecordItem) {
     const allocationId = String(allocation.id);
     setLoading(true);
@@ -2425,30 +2104,6 @@ export default function Home() {
         cause instanceof Error
           ? cause.message
           : "Unable to start deallocation.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function deallocateFleet(fleet: RecordItem) {
-    const fleetId = String(fleet.id);
-    setLoading(true);
-    setError("");
-    try {
-      const result = (await request(
-        `/allocations?fleetId=${encodeURIComponent(fleetId)}&status=ACTIVE&page=1&pageSize=1`,
-        {},
-        token,
-      )) as { items: RecordItem[] };
-      const allocation = result.items[0];
-      if (!allocation) {
-        throw new Error("No active allocation was found for this fleet.");
-      }
-      await initiateDeallocation(allocation);
-    } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Unable to start de-allocation.",
       );
     } finally {
       setLoading(false);
@@ -2771,63 +2426,6 @@ export default function Home() {
               { key: "order", label: "Order", value: (row) => Number(row.sortOrder ?? 0) },
             ]} />
           </>
-        )}
-        {showAllocationForm && (
-          <ClientFormDialog title="Create allocation" busy={loading} error={error} onClose={() => setShowAllocationForm(false)} heading={<>Assign an available vehicle</>}>
-            <div>
-              <p className="eyebrow">ALLOCATION</p>
-
-              <p className="muted">
-                This reserves the fleet and creates its pre-allocation
-                inspection.
-              </p>
-            </div>
-            <form className="form-stack" onSubmit={createAllocation}>
-              <label>
-                Available fleet *
-                <select
-                  value={allocationFleetId}
-                  onChange={(e) => setAllocationFleetId(e.target.value)}
-                  required
-                >
-                  <option value="">Select fleet</option>
-                  {availableFleets.map((fleet) => (
-                    <option key={String(fleet.id)} value={String(fleet.id)}>
-                      {String(fleet.vehicleNumber)} ·{" "}
-                      {oemLabel(fleet.oem, "Vehicle")}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Active rider *
-                <select
-                  value={allocationRiderId}
-                  onChange={(e) => setAllocationRiderId(e.target.value)}
-                  required
-                >
-                  <option value="">Select rider</option>
-                  {activeRiders.map((rider) => (
-                    <option key={String(rider.id)} value={String(rider.id)}>
-                      {String(rider.name)} · {String(rider.mobile)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="form-actions">
-                <button type="submit" disabled={loading}>
-                  Create allocation
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => setShowAllocationForm(false)}
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </ClientFormDialog>
         )}
         {showRiderForm && (
           <ClientFormDialog title="Create rider" busy={loading} error={error} onClose={() => setShowRiderForm(false)} heading={<>Create rider</>}>

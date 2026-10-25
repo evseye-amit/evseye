@@ -2,13 +2,13 @@
 
 **Scope:** implementation and cleanup changes are limited to `apps/api` (NestJS/Prisma) and `apps/web` (Next.js). `apps/site` (static marketing site) is included only to confirm it has no API dependency. The separate Flutter workspace at `../rider_app` is **read-only reference material** used only to identify API calls and the request/response data sent by the mobile clients. No Flutter files will be changed as part of the cleanup.
 
-**Purpose:** reduce avoidable production risk before first launch and make early incidents easier to diagnose and fix. This is a static source audit, not a runtime, load, security-penetration, or live-data audit. No source code, migrations, or data were changed as part of this review.
+**Purpose:** reduce avoidable production risk before first launch and make early incidents easier to diagnose and fix. This is a static source audit, not a runtime, load, security-penetration, or live-data audit. A small, source-proven legacy API cleanup has been applied; no migrations or data were changed.
 
-**Action status (2026-10-25):** the first behavior-neutral backend cleanup batch removed lint-reported unused imports/locals and a redundant object spread. API lint and API/web typechecks pass. No API routes, Flutter files, schema models, or migrations have been removed.
+**Action status (2026-10-25):** behavior-neutral backend lint cleanup removed unused imports/locals and a redundant object spread. Two legacy branding routes/controller and the unused branding service method were removed; active branding endpoints remain. The client dashboard's unreachable manual allocation form, unused fleet/component photo handlers, and redundant fleet detail reads were removed. Their now-unreferenced `GET /fleets/:id/onboarding-status` HTTP route was removed; the service method remains because fleet activation uses it internally. Three unused Super Admin dashboard state/local variables were also removed. API lint, API typecheck, and web typecheck pass. A source-derived endpoint inventory is available in `docs/api-route-usage-inventory.csv`. No Flutter files, schema models, or migrations have been removed.
 
 ## Executive summary
 
-- There are **82 backend controller files** and about **472 declared handler methods** (rough source count). Every API removal decision should be made at handler level; a controller can contain a mixture of active and future functionality.
+- There are **81 active backend controller files** after removing the two-handler legacy branding controller. The source-derived inventory records **838 HTTP decorator occurrences before that removal** (836 remain); this is a raw count, not a count of unique runtime routes (decorator aliases/duplicate declarations can produce repeated operations). Every API removal decision should be made at handler level; a controller can contain a mixture of active and future functionality.
 - Frontend and Flutter clients call many different API areas. No entire backend module looked safely removable based on source reachability.
 - The marketing Site is static and has no API dependency; it is separate from the Next.js client/Super Admin application.
 - **One database cleanup candidate:** `FleetDocument` has a Prisma model and initial-migration DDL, but no application/client/seed references were found beyond its `Fleet.documents` relation. Remove only if that relation is also intentionally unused. This model can be removed cleanly before first production release, provided there is no required migration history baseline.
@@ -19,7 +19,9 @@
 
 ### API handlers
 
-**No handler is designated for deletion in this static pass.** Source call sites establish known usage but absence of a source call does not prove a handler is dead: there may be external webhooks, operational runbooks, bootstrap flows, future launch scope, or mobile releases not present in the two workspaces. Before launch, generate an exact `method + path + controller` inventory from Nest route metadata/OpenAPI and annotate each handler as:
+Three handlers are removed from the candidate inventory: `GET /client-branding/public` and authenticated `GET /client-branding` (legacy replacement routes), plus `GET /fleets/:id/onboarding-status` (its only callers were an unreachable legacy web fleet-photo flow; its service method remains internally used by fleet activation). Other handlers remain review-only because source absence does not prove they are dead: webhooks, operational runbooks, bootstrap flows, future launch scope, and internal callers may not appear as ordinary client references. Before launch, generate an exact `method + path + controller` inventory from Nest route metadata/OpenAPI and annotate each handler as:
+
+The current CSV is a triage aid: it records controller prefixes/decorator paths and source-file matches for web and Flutter, not exact OpenAPI routes. Its segment matcher found candidate source files for 590 route declarations in web and 460 in Flutter, with 114 declarations lacking a match in either client before review; those counts overlap and are not usage proof. Three removed rows are marked in the file. Remaining no-match rows include payment reconciliation, collections, deposits, rider commercial terms, and other likely manual/operational APIs. Treat those as review queues, never automatic deletion candidates.
 
 1. called by web;
 2. called by Flutter rider (reference only);
@@ -71,6 +73,8 @@ Do not delete Prisma migration directories that have been applied or used to bui
 ### Verified tooling issue
 
 - `pnpm lint` currently aborts in the web ESLint process with Node heap exhaustion at roughly 4 GB. Raising the heap to 8 GB did not produce diagnostics promptly in this environment, so that run was stopped. API lint and both typechecks pass. Before relying on the monorepo lint script in CI/release, scope ESLint to intended web source files, check ignored/generated directories, and/or configure a suitable CI heap; do not treat this as a clean web lint result.
+- Isolating the web lint issue showed `apps/web/src/app/client/page.tsx` (3,558 lines) also exhausts the same heap when linted alone. The 6,141-line Super Admin dashboard lints on its own; after removing three unused locals it reports only two `<img>` warnings for a blob preview and externally configured/signed logo URLs. Replacing those with optimized images would require safely constraining configurable storage hosts, so they remain intentional pending an image-host configuration decision. Decomposing the largest pages is a concrete maintainability/tooling priority.
+- The old fleet detail loader made 7 fixed API requests plus one photo-list request per battery/controller. The retained flow now loads only fleet detail and current state (2 requests); a separate active `FleetEvidenceDialog` owns evidence browsing and uploads. This removes redundant network work from fleet detail while preserving the current evidence workflow.
 
 ### Maintainability and launch hygiene
 

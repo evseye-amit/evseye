@@ -10,7 +10,7 @@ to later phases.
 
 Client bootstrap exposes `client.fleetOperatingMode`.
 
-`GET /api/v1/fleets/:id/onboarding-status` now returns:
+The earlier standalone `GET /api/v1/fleets/:id/onboarding-status` route has been removed because no current web or mobile client calls it. The API keeps the onboarding evidence calculation inside fleet activation. The response shape below is internal service data, not a public API contract:
 
 - `operatingMode`: the client's policy.
 - `photosRequired`: whether onboarding photos block activation.

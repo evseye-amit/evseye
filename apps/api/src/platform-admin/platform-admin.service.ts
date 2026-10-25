@@ -63,17 +63,6 @@ export class PlatformAdminService {
     private readonly commercial?: CommercialService,
   ) {}
 
-  async clientBranding(clientId?: string, companyCode?: string) {
-    if (!clientId && (!companyCode || !/^[a-z0-9-]{1,80}$/.test(companyCode))) return null;
-    const client = await this.prisma.client.findFirst({
-      where: { ...(clientId ? { id: clientId } : { companyCode }), isActive: true },
-      select: { name: true, branding: { select: { logoObjectKey: true } }, businessProfile: { select: { logoObjectKey: true } } },
-    });
-    if (!client) return null;
-    const logoKey = client.branding?.logoObjectKey ?? client.businessProfile?.logoObjectKey;
-    return { name: client.name, logoUrl: logoKey ? await this.storage.createDownloadUrl(logoKey) : null };
-  }
-
   async createClientLogoUpload(clientId: string, dto: ClientLogoUploadDto) {
     await this.requireEditableClient(clientId, dto.approvalEmailReference);
     const extensions: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
