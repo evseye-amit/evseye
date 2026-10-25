@@ -16,15 +16,12 @@ import {
   Max,
   MaxLength,
   Min,
-  ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
 import {
   FeatureBillingUnit,
   FeatureCategory,
   FeatureType,
   AllowanceResetPeriod,
-  BillingCycle,
   MasterRecordStatus,
   EnergyType,
   VehicleUsageType,

@@ -296,7 +296,7 @@ export class MobileDeploymentService {
   }
   async requestFleet(clientId: string, userId: string, allocationId: string) {
     await this.assertFleetManagerHub(clientId, userId, allocationId);
-    const { workflow, allocation } = await this.workflow(clientId, allocationId);
+    const { workflow } = await this.workflow(clientId, allocationId);
     if (workflow.status !== MobileDeploymentStatus.RIDER_WAITING) throw new BadRequestException('Fleet request is not available in the current state.');
     return this.prisma.mobileDeploymentWorkflow.update({ where: { id: workflow.id }, data: { status: MobileDeploymentStatus.FLEET_REQUESTED } });
   }
