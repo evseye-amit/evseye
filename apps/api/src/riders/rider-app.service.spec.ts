@@ -47,7 +47,7 @@ function createService() {
     user: { update: vi.fn().mockResolvedValue({}) },
   };
   const prisma = {
-    riderOnboardingProgress: { findUnique: vi.fn().mockResolvedValue({ completedStepIds: [], skippedStepIds: [], values: {} }) },
+    riderOnboardingProgress: { findUnique: vi.fn().mockResolvedValue({ clientId: 'client-1', completedStepIds: [], skippedStepIds: [], values: {} }) },
     riderOnboardingDocument: { findMany: vi.fn().mockResolvedValue([]) },
     $transaction: vi.fn(async (callback: (tx: typeof transaction) => Promise<unknown>) => callback(transaction)),
   };
@@ -241,6 +241,30 @@ describe('RiderAppService.saveStep', () => {
     });
     expect(transaction.user.update).toHaveBeenCalledWith({ where: { id: 'user-1' }, data: { name: 'Aman Singh' } });
     expect(transaction.rider.create).not.toHaveBeenCalled();
+    expect(transaction.riderOnboardingProgress.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ currentStepId: 'documents' }),
+    }));
+  });
+
+  it('clears the current step when the final onboarding step is saved', async () => {
+    const { service, transaction } = createService();
+    await service.saveStep('client-1', 'user-1', 'step-1', {
+      FULL_NAME: 'Aman Singh', MOBILE_NUMBER: '6573838383',
+    });
+    expect(transaction.riderOnboardingProgress.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ currentStepId: null }),
+    }));
+  });
+
+  it('does not accept onboarding progress owned by another client', async () => {
+    const { service, prisma } = createService();
+    prisma.riderOnboardingProgress.findUnique.mockResolvedValue({
+      clientId: 'other-client', completedStepIds: [], skippedStepIds: [], values: {},
+    } as never);
+    await expect(service.saveStep('client-1', 'user-1', 'step-1', {
+      FULL_NAME: 'Aman Singh', MOBILE_NUMBER: '6573838383',
+    })).rejects.toThrow('Rider onboarding has not been started.');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it('converts a date-only birth date before creating the rider', async () => {
