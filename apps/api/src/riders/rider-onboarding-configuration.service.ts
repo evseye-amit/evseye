@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { WorkflowResolverService } from '../workflow/workflow-resolver.service.js';
 import { translatedProperty, type ApiLocale } from '../common/locale.js';
 import { riderCatalogLabel } from './rider-field-locales.js';
+import { profileAddressFields } from './rider-profile-values.js';
 
 type JsonRecord = Record<string, unknown>;
 type RiderField = {
@@ -55,6 +56,17 @@ const asRecord = (value: unknown): JsonRecord =>
   value && typeof value === 'object' && !Array.isArray(value)
     ? (value as JsonRecord)
     : {};
+
+const structuredAddressStorageKeys = new Set(
+  Object.entries(profileAddressFields)
+    .filter(([fieldCode]) => /^(CURRENT_ADDRESS|PERMANENT_ADDRESS|SAME_AS_CURRENT_ADDRESS)/.test(fieldCode))
+    .map(([, storageKey]) => storageKey),
+);
+
+function riderStorageKey(storageKey: string) {
+  if (storageKey.startsWith('metadata.') || !structuredAddressStorageKeys.has(storageKey)) return storageKey;
+  return `metadata.${storageKey}`;
+}
 
 @Injectable()
 export class RiderOnboardingConfigurationService {
@@ -222,6 +234,7 @@ export class RiderOnboardingConfigurationService {
     const metadata = { ...asRecord(existingMetadata) };
     for (const field of inputFields) {
       if (mode === 'EDIT' && (!field.editable || field.readOnly || field.disabled)) continue;
+      const storageKey = riderStorageKey(field.storageKey);
       const supplied = values[field.fieldCode];
       if (field.fieldType === 'REFERENCE') {
         if (supplied === undefined && (mode === 'EDIT' || options.requireAll === false)) continue;
@@ -238,8 +251,8 @@ export class RiderOnboardingConfigurationService {
           if (!name || name.length > 120 || !relation || relation.length > 80 || !/^(?:\+?91|0)?[6-9]\d{9}$/.test(mobile)) throw new BadRequestException(`Reference ${index + 1} needs a valid name, mobile and relation.`);
           return { name, mobile: normalizeIndianMobile(mobile), relation };
         });
-        if (field.storageKey.startsWith('metadata.')) metadata[field.storageKey.slice('metadata.'.length)] = references;
-        else mapped[field.storageKey] = references;
+        if (storageKey.startsWith('metadata.')) metadata[storageKey.slice('metadata.'.length)] = references;
+        else mapped[storageKey] = references;
         continue;
       }
       const rawValue = supplied === undefined || supplied === null ? '' : String(supplied).trim();
@@ -250,10 +263,10 @@ export class RiderOnboardingConfigurationService {
       if (!value) continue;
       this.validateValue(field, value);
       const normalized = field.fieldType === 'MOBILE' ? normalizeIndianMobile(value) : value;
-      if (field.storageKey.startsWith('metadata.')) {
-        metadata[field.storageKey.slice('metadata.'.length)] = normalized;
+      if (storageKey.startsWith('metadata.')) {
+        metadata[storageKey.slice('metadata.'.length)] = normalized;
       } else {
-        mapped[field.storageKey] =
+        mapped[storageKey] =
           field.dataType === 'DATE' ? this.parseDate(field, normalized) : normalized;
       }
     }

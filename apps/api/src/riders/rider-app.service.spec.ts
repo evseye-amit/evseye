@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { RiderAppService } from './rider-app.service.js';
 import { RiderOnboardingConfigurationService } from './rider-onboarding-configuration.service.js';
+import { profileAddressFields } from './rider-profile-values.js';
 
 const kyc = { lockUser: vi.fn(), sync: vi.fn().mockResolvedValue({ kycStatus: 'NOT_STARTED', kycVerifiedAt: null }) };
 
@@ -254,6 +255,60 @@ describe('RiderAppService.saveStep', () => {
     expect(transaction.riderOnboardingProgress.update).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ currentStepId: null }),
     }));
+  });
+
+  it('stores configured current and permanent address fields in metadata when onboarding completes', async () => {
+    const { service, transaction, resolver } = createService();
+    const addressFields = Object.entries(profileAddressFields)
+      .filter(([fieldCode]) => /^(CURRENT_ADDRESS|PERMANENT_ADDRESS|SAME_AS_CURRENT_ADDRESS)/.test(fieldCode))
+      .map(([fieldCode, storageKey]) => ({
+        featureCode: `CAPTURE_${fieldCode}`,
+        fieldCode,
+        storageKey,
+        fieldType: 'TEXT',
+        dataType: 'STRING',
+        required: false,
+        isUpload: false,
+        editable: true,
+        readOnly: false,
+        disabled: false,
+        validation: {},
+        configuration: {},
+      }));
+    vi.spyOn(resolver, 'getEffectiveConfiguration').mockResolvedValue({
+      ...configuration,
+      onboarding: { ...configuration.onboarding, steps: [{
+        ...configuration.onboarding.steps[0],
+        fields: [...configuration.onboarding.steps[0].fields, ...addressFields],
+      }] },
+    } as never);
+
+    await service.saveStep('client-1', 'user-1', 'step-1', {
+      FULL_NAME: 'Aman Singh',
+      MOBILE_NUMBER: '6573838383',
+      CURRENT_ADDRESS: 'Current address',
+      CURRENT_ADDRESS_LINE1: 'Current line 1',
+      PERMANENT_ADDRESS: 'Permanent address',
+      PERMANENT_ADDRESS_LINE1: 'Permanent line 1',
+      SAME_AS_CURRENT_ADDRESS: 'false',
+    });
+
+    expect(transaction.rider.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      metadata: expect.objectContaining({
+        currentAddress: 'Current address',
+        currentAddressLine1: 'Current line 1',
+        permanentAddress: 'Permanent address',
+        permanentAddressLine1: 'Permanent line 1',
+        sameAsCurrentAddress: 'false',
+      }),
+    }) });
+    expect(transaction.rider.create).toHaveBeenCalledWith({ data: expect.not.objectContaining({
+      currentAddress: expect.anything(),
+      currentAddressLine1: expect.anything(),
+      permanentAddress: expect.anything(),
+      permanentAddressLine1: expect.anything(),
+      sameAsCurrentAddress: expect.anything(),
+    }) });
   });
 
   it('does not accept onboarding progress owned by another client', async () => {
