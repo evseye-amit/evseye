@@ -242,7 +242,7 @@ export class RiderAppService {
       values = { ...values, PAN_NUMBER: values.PAN_NUMBER.trim().toUpperCase() };
     }
     const current = await this.prisma.riderOnboardingProgress.findUnique({ where: { userId } });
-    if (!current) throw new BadRequestException('Rider onboarding has not been started.');
+    if (!current || current.clientId !== clientId) throw new BadRequestException('Rider onboarding has not been started.');
     // Attribution belongs to the authenticated Rider. It is deliberately not part of
     // the generic Rider field mapper because that mapper only persists profile data.
     const referralValue = !skip && allowed.has('REFERRAL_CODE') ? values.REFERRAL_CODE : null;
@@ -301,6 +301,7 @@ export class RiderAppService {
     const completed = new Set((current.completedStepIds as string[]) ?? []); const skipped = new Set((current.skippedStepIds as string[]) ?? []);
     if (skip) skipped.add(stepId);
     else completed.add(stepId);
+    const nextStep = effective.onboarding.steps.find((item) => !completed.has(item.stepId) && !skipped.has(item.stepId));
     const merged = { ...(current.values as Record<string, unknown>), ...values };
     const allFinished = effective.onboarding.steps.every((item) => completed.has(item.stepId) || skipped.has(item.stepId));
     const storedValues = allFinished
@@ -316,7 +317,7 @@ export class RiderAppService {
       : {};
     await this.prisma.$transaction(async (tx) => {
       await this.kyc.lockUser(tx, clientId, userId);
-      await tx.riderOnboardingProgress.update({ where: { userId }, data: { values: merged as Prisma.InputJsonValue, completedStepIds: [...completed], skippedStepIds: [...skipped], ...(allFinished ? { completedAt: new Date() } : {}) } });
+      await tx.riderOnboardingProgress.update({ where: { userId }, data: { currentStepId: nextStep?.stepId ?? null, values: merged as Prisma.InputJsonValue, completedStepIds: [...completed], skippedStepIds: [...skipped], ...(allFinished ? { completedAt: new Date() } : {}) } });
       // Keep the account name useful while the remaining onboarding steps are pending.
       const nameField = effective.onboarding.steps.flatMap((item) => item.fields).find((field) => field.storageKey === 'name');
       const enteredName = nameField ? merged[nameField.fieldCode] : undefined;
