@@ -1,6 +1,5 @@
 import { FleetManagerActionGuard, FleetActionResource } from '../auth/guards/fleet-manager-action.guard.js';
 import {
-  BadRequestException,
   Body,
   Controller,
   Get,
@@ -14,7 +13,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { PhotoEntityType, UserRole } from '@prisma/client';
+import { PhotoSubjectType, PhotoType, PhotoWorkflowType, UserRole } from '@prisma/client';
 import { AuditService } from '../audit/audit.service.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
@@ -79,12 +78,14 @@ export class MediaController {
   )
   async requirements(
     @CurrentUser() user: AuthUser,
-    @Query('entityType') entityType: PhotoEntityType,
+    @Query('workFlowType', new ParseEnumPipe(PhotoWorkflowType)) workFlowType: PhotoWorkflowType,
+    @Query('subjectType', new ParseEnumPipe(PhotoSubjectType)) subjectType: PhotoSubjectType,
   ) {
     return {
       data: await this.mediaService.requirements(
         this.clients.requireClientId(user),
-        entityType,
+        workFlowType,
+        subjectType,
       ),
     };
   }
@@ -97,38 +98,37 @@ export class MediaController {
   )
   async entityPhotos(
     @CurrentUser() user: AuthUser,
-    @Query('entityType', new ParseEnumPipe(PhotoEntityType))
-    entityType: PhotoEntityType,
+    @Query('workFlowType', new ParseEnumPipe(PhotoWorkflowType))
+    workFlowType: PhotoWorkflowType,
+    @Query('subjectType', new ParseEnumPipe(PhotoSubjectType)) subjectType: PhotoSubjectType,
     @Query('entityId', ParseUUIDPipe) entityId: string,
   ) {
     return {
       data: await this.mediaService.listEntityPhotos(
         this.clients.requireClientId(user),
-        entityType,
+        workFlowType,
+        subjectType,
         entityId,
         user,
       ),
     };
   }
 
-  @Put('photo-requirements/:entityType/:photoType')
+  @Put('photo-requirements/:workFlowType/:subjectType/:photoType')
   @Roles(UserRole.CLIENT_ADMIN)
   async upsertRequirement(
     @CurrentUser() user: AuthUser,
-    @Param('entityType', new ParseEnumPipe(PhotoEntityType))
-    entityType: PhotoEntityType,
-    @Param('photoType') photoType: string,
+    @Param('workFlowType', new ParseEnumPipe(PhotoWorkflowType))
+    workFlowType: PhotoWorkflowType,
+    @Param('subjectType', new ParseEnumPipe(PhotoSubjectType)) subjectType: PhotoSubjectType,
+    @Param('photoType', new ParseEnumPipe(PhotoType)) photoType: PhotoType,
     @Body() dto: UpsertPhotoRequirementDto,
   ) {
-    if (!/^[A-Z0-9_-]{1,80}$/.test(photoType)) {
-      throw new BadRequestException(
-        'Photo type must use uppercase letters, numbers, underscores, or hyphens.',
-      );
-    }
     return {
       data: await this.mediaService.upsertRequirement(
         this.clients.requireClientId(user),
-        entityType,
+        workFlowType,
+        subjectType,
         photoType,
         dto,
       ),
@@ -171,6 +171,8 @@ export class MediaController {
       entityId: photo.entityId,
       newData: {
         photoId: photo.id,
+        workFlowType: photo.workFlowType,
+        subjectType: photo.subjectType,
         photoType: photo.photoType,
         status: photo.status,
       },

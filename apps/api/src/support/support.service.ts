@@ -141,7 +141,7 @@ export class SupportService {
     const [ticket, photos] = await Promise.all([
       this.db.supportTicket.findUniqueOrThrow({ where: { id: row.id }, include: { rider: { select: { id: true, name: true, mobile: true } }, hub: { select: { id: true, name: true, code: true } },
         replies: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] } } }),
-      this.db.photo.findMany({ where: { clientId, entityType: 'SUPPORT_TICKET', entityId: row.id, status: 'COMPLETE' }, orderBy: { uploadedAt: 'asc' } }),
+      this.db.photo.findMany({ where: { clientId, entityType: 'SUPPORT_TICKET', workFlowType: 'SUPPORT', subjectType: 'SUPPORT_TICKET', entityId: row.id, status: 'COMPLETE' }, orderBy: { uploadedAt: 'asc' } }),
     ]);
     const authors = ticket.replies.length ? await this.db.user.findMany({
       where: { clientId, id: { in: [...new Set(ticket.replies.map((reply) => reply.authorId))] } },

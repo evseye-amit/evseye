@@ -17,6 +17,7 @@ import {
   ImportStatus,
   Prisma,
   PhotoEntityType,
+  PhotoSubjectType,
   PhotoStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -795,16 +796,19 @@ export class FleetsService {
     const entities = [
       {
         entityType: PhotoEntityType.FLEET,
+        subjectType: 'FLEET',
         entityId: fleet.id,
         label: fleet.vehicleNumber,
       },
       ...fleet.batteryHistory.map(({ battery }) => ({
         entityType: PhotoEntityType.BATTERY,
+        subjectType: 'BATTERY',
         entityId: battery.id,
         label: battery.serialNumber,
       })),
       ...fleet.controllerHistory.map(({ controller }) => ({
         entityType: PhotoEntityType.CONTROLLER,
+        subjectType: 'CONTROLLER',
         entityId: controller.id,
         label: controller.controllerNumber,
       })),
@@ -812,13 +816,14 @@ export class FleetsService {
         ? [
             {
               entityType: PhotoEntityType.IOT_DEVICE,
+              subjectType: 'IOT_DEVICE',
               entityId: fleet.iotDevice.id,
               label: fleet.iotDevice.deviceNumber,
             },
           ]
         : []),
     ];
-    const entityTypes = [
+    const subjects = [
       PhotoEntityType.FLEET,
       PhotoEntityType.BATTERY,
       PhotoEntityType.CONTROLLER,
@@ -826,13 +831,15 @@ export class FleetsService {
     ];
     const [requirements, completedPhotos] = await Promise.all([
       this.prisma.photoRequirement.findMany({
-        where: { clientId, entityType: { in: entityTypes }, isRequired: true },
-        select: { entityType: true, photoType: true },
+        where: { clientId, workFlowType: 'FLEET_MANAGEMENT', subjectType: { in: entities.map((entity) => entity.subjectType as PhotoSubjectType) }, isRequired: true },
+        select: { subjectType: true, photoType: true },
       }),
       this.prisma.photo.findMany({
         where: {
           clientId,
-          entityType: { in: entityTypes },
+          workFlowType: 'FLEET_MANAGEMENT',
+          subjectType: { in: subjects.map((value) => value) },
+          entityType: { in: [PhotoEntityType.FLEET, PhotoEntityType.BATTERY, PhotoEntityType.CONTROLLER, ...(fleet.iotDevice ? [PhotoEntityType.IOT_DEVICE] : [])] },
           entityId: { in: entities.map((entity) => entity.entityId) },
           status: PhotoStatus.COMPLETE,
         },
@@ -841,7 +848,7 @@ export class FleetsService {
     ]);
     const items = entities.map((entity) => {
       const requiredPhotoTypes = requirements
-        .filter((requirement) => requirement.entityType === entity.entityType)
+        .filter((requirement) => requirement.subjectType === entity.subjectType)
         .map((requirement) => requirement.photoType);
       const completedPhotoTypes = completedPhotos
         .filter(

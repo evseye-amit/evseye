@@ -43,7 +43,7 @@ function setup() {
   };
   const billing = { issueChargeInTransaction: vi.fn() };
   const allocations = { initiateDeallocationInTransaction: vi.fn() };
-  const service = new RideReturnsService(db as never, allocations as never, billing as never, {} as never);
+  const service = new RideReturnsService(db as never, allocations as never, billing as never);
   return { db, tx, allocations, billing, service };
 }
 
@@ -90,13 +90,13 @@ describe('RideReturnsService penalty revisions', () => {
       .mockResolvedValueOnce([draft]);
     tx.returnPenaltyPrice.findMany.mockResolvedValue([price]);
     tx.photo.findMany.mockResolvedValue([{ id: 'photo-1', photoType: 'DAMAGE' }]);
-    tx.returnPenaltyCase.update.mockResolvedValue({ ...penaltyCase, status: 'RIDER_APPROVAL_PENDING', totalAmount: price.amount, digest: 'frozen-digest' });
+    tx.returnPenaltyCase.update.mockResolvedValue({ ...penaltyCase, status: 'MANAGER_APPROVAL_PENDING', totalAmount: price.amount, digest: 'frozen-digest' });
 
     await service.submitPenalties('client-a', ops, request.id);
 
     expect(tx.returnPenaltyPrice.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ clientId: 'client-a', isActive: true }) }));
     expect(tx.returnPenaltyItem.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'item-1' }, data: expect.objectContaining({ priceCode: 'MIRROR', amount: D('125.50'), currency: 'INR' }) }));
-    expect(tx.returnPenaltyCase.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'RIDER_APPROVAL_PENDING', totalAmount: D('125.50'), currency: 'INR' }) }));
+    expect(tx.returnPenaltyCase.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'MANAGER_APPROVAL_PENDING', totalAmount: D('125.50'), currency: 'INR' }) }));
   });
 
   it('closes an empty submitted list as POSTED without OTP or billing', async () => {
@@ -116,11 +116,11 @@ describe('RideReturnsService penalty revisions', () => {
     expect(billing.issueChargeInTransaction).not.toHaveBeenCalled();
   });
 
-  it('posts only after the second approval inside the same transaction', async () => {
+  it('posts after manager approval inside the same transaction', async () => {
     const { db, tx, billing, service } = setup();
     const item = { id: 'item-1', caseId: 'case-1', revision: 1, position: 0, priceCode: 'MIRROR', category: 'DAMAGE', description: 'Mirror', amount: D('10.00'), currency: 'INR', details: 'deep scratch', evidencePhotoIds: ['photo-1'] };
     const digest = createHash('sha256').update(JSON.stringify({ caseId: 'case-1', revision: 1, items: [{ position: 0, priceCode: 'MIRROR', category: 'DAMAGE', description: 'Mirror', amount: '10.00', currency: 'INR', details: 'deep scratch', evidencePhotoIds: ['photo-1'] }], totalAmount: '10.00' })).digest('hex');
-    const waiting = { id: 'case-1', clientId: 'client-a', riderId: 'rider-1', currentRevision: 1, status: 'MANAGER_APPROVAL_PENDING', currency: 'INR', totalAmount: D('10.00'), digest, riderApprovedRevision: 1, adminOverrideRevision: null, managerApprovedRevision: null, postedChargeId: null };
+    const waiting = { id: 'case-1', clientId: 'client-a', riderId: 'rider-1', currentRevision: 1, status: 'MANAGER_APPROVAL_PENDING', currency: 'INR', totalAmount: D('10.00'), managerApprovedRevision: null, postedChargeId: null };
     const approved = { ...waiting, managerApprovedRevision: 1 };
     const posted = { ...approved, status: 'POSTED', postedChargeId: 'charge-1', postedRevision: 1 };
     db.rentalTerminationRequest.findFirst.mockResolvedValue({ id: request.id, plannedHubId: null, receivedHubId: null });

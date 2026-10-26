@@ -18,7 +18,7 @@ import { RiderDepositService } from '../rider-deposits/deposit.service.js';
 import { RideReturnsService } from '../ride-returns/ride-returns.service.js';
 import { VehicleExchangeService } from '../vehicle-exchanges/vehicle-exchange.service.js';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { PrismaClient } from '@prisma/client';
+import { PhotoType, PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { VehicleSubmissionService } from './submission.service.js';
 import { AllocationsService } from '../allocations/allocations.service.js';
@@ -236,7 +236,6 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
       prisma,
       allocations,
       new RiderBillingService(prisma),
-      auth,
     );
     const riderActor: AuthUser = {
       id: riderUser.id,
@@ -297,11 +296,11 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
         createdById: fm.id,
       },
     });
-    async function photo(photoType: string) {
+    async function photo(photoType: PhotoType) {
       return db.photo.create({
         data: {
           clientId: client.id,
-          entityType: 'INSPECTION',
+          workFlowType: 'SUBMISSION', subjectType: 'INSPECTION', entityType: 'INSPECTION',
           entityId: submission.inspectionId,
           photoType,
           objectKey: randomUUID(),
@@ -314,7 +313,7 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
       });
     }
     async function capture() {
-      return Promise.all(submission.requiredPhotoTypes.map(photo));
+      return Promise.all(submission.requiredPhotoTypes.map((photoType) => photo(photoType as PhotoType)));
     }
     function report(
       proof: string,
@@ -921,7 +920,7 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
     expect(await db.riderCharge.count({where:{clientId:f.client.id}})).toBe(1);
     await expect(service.cancelReport(f.client.id,f.actor,draft.id,'Undo financial charge')).rejects.toThrow('financial');
     await expect(service.updateReport(f.client.id,f.actor,draft.id,changed,edited.digest)).rejects.toThrow('draft');
-    const replacement=await db.photo.create({data:{clientId:f.client.id,entityType:'INSPECTION',entityId:f.submission.inspectionId,photoType:photos[0]!.photoType,objectKey:`test/${randomUUID()}`,mimeType:'image/jpeg',sizeBytes:10,uploadedById:f.actor.id}});
+    const replacement=await db.photo.create({data:{clientId:f.client.id,workFlowType:'SUBMISSION',subjectType:'INSPECTION',entityType:'INSPECTION',entityId:f.submission.inspectionId,photoType:photos[0]!.photoType,objectKey:`test/${randomUUID()}`,mimeType:'image/jpeg',sizeBytes:10,uploadedById:f.actor.id}});
     const media=new MediaService(prisma,{assertObjectExists:vi.fn().mockResolvedValue(undefined)} as never);await media.complete(f.client.id,replacement.id);expect((await db.photo.findUniqueOrThrow({where:{id:photos[0]!.id}})).status).toBe('COMPLETE');
     const repeat=await service.impose(f.client.id,f.actor,draft.id);expect(repeat.paymentRequest?.invoiceId).toBe(imposed.paymentRequest?.invoiceId);
     await spares.updateClient(f.client.id,adminActor,part.id,{expectedVersion:1,reason:'Future penalty update',penaltyAmount:'999',evidenceRequired:true});

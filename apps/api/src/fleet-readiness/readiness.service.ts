@@ -21,6 +21,7 @@ import {
   defaultStages,
   validateStages,
   modeSchema,
+  PHOTO_TYPE_VALUES,
   parse,
   policySchema,
   reasonSchema,
@@ -1009,6 +1010,8 @@ export class FleetReadinessService {
       where: {
         clientId,
         entityType: 'PREPARATION',
+        workFlowType: 'PREPARATION',
+        subjectType: 'PREPARATION',
         entityId: { in: p.revisions.map((r) => r.id) },
         status: 'COMPLETE',
       },
@@ -1148,7 +1151,7 @@ export class FleetReadinessService {
       z
         .object({
           revision: z.number().int().min(1),
-          photoType: z.string().min(1).max(100),
+          photoType: z.enum(PHOTO_TYPE_VALUES),
           mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
           fileName: z.string().min(1).max(255),
           sizeBytes: z
@@ -1190,6 +1193,8 @@ export class FleetReadinessService {
       return tx.photo.create({
         data: {
           clientId,
+          workFlowType: 'PREPARATION',
+          subjectType: 'PREPARATION',
           entityType: 'PREPARATION',
           entityId: revision.id,
           photoType: b.photoType,
@@ -1221,7 +1226,7 @@ export class FleetReadinessService {
       input,
     );
     const photo = await this.db.photo.findFirst({
-      where: { id: photoId, clientId, entityType: 'PREPARATION' },
+      where: { id: photoId, clientId, entityType: 'PREPARATION', workFlowType: 'PREPARATION', subjectType: 'PREPARATION' },
     });
     if (!photo) throw new NotFoundException('Preparation photo not found.');
     const owner = await this.db.fleetPreparation.findFirst({
@@ -1395,6 +1400,8 @@ export class FleetReadinessService {
         where: {
           clientId,
           entityType: 'PREPARATION',
+          workFlowType: 'PREPARATION',
+          subjectType: 'PREPARATION',
           entityId: revision.id,
           status: 'COMPLETE',
         },

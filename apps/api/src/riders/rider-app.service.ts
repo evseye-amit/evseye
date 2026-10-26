@@ -1,7 +1,7 @@
 import { profileBirthDate, profileAddressFields, recoverableProfileKeys } from './rider-profile-values.js';
 import { normalizeRiderBankValues, riderBankFields } from './rider-bank-fields.js';
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
-import { PhotoEntityType, PhotoStatus, Prisma, ReferralAttributionSource, RiderDocumentReviewStatus, UserRole } from '@prisma/client';
+import { PhotoEntityType, PhotoStatus, PhotoSubjectType, PhotoType, Prisma, ReferralAttributionSource, RiderDocumentReviewStatus, UserRole } from '@prisma/client';
 import { normalizeIndianMobile } from '../common/phone.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RiderOnboardingConfigurationService } from './rider-onboarding-configuration.service.js';
@@ -81,7 +81,7 @@ export class RiderAppService {
     const profilePhoto = await this.prisma.riderOnboardingDocument.findFirst({
       where: { clientId, userId, supersededAt: null, status: { in: [RiderDocumentReviewStatus.PENDING, RiderDocumentReviewStatus.APPROVED] },
         feature: { code: 'UPLOAD_PROFILE_PHOTO' },
-        photo: { clientId, entityType: PhotoEntityType.RIDER_ONBOARDING, status: PhotoStatus.COMPLETE, mimeType: { in: ['image/jpeg', 'image/png', 'image/webp'] } },
+      photo: { clientId, workFlowType: 'RIDER_ONBOARDING', entityType: PhotoEntityType.RIDER_ONBOARDING, status: PhotoStatus.COMPLETE, mimeType: { in: ['image/jpeg', 'image/png', 'image/webp'] } },
       }, select: { photoId: true }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
     const profilePhotoUrl = profilePhoto ? (await this.media.downloadUrl(clientId, profilePhoto.photoId)).url : null;
@@ -288,13 +288,28 @@ export class RiderAppService {
       }
     }
     if (!skip) {
-      const uploaded = await this.prisma.riderOnboardingDocument.findMany({ where: { clientId, userId, supersededAt: null }, select: { fieldCode: true, status: true } });
-      const uploads = new Map(uploaded.map((document) => [document.fieldCode, document.status]));
+      const uploaded = await this.prisma.riderOnboardingDocument.findMany({ where: { clientId, userId, supersededAt: null }, select: { fieldCode: true, status: true, photo: { select: { photoType: true } } } });
+      const uploads = new Map<string, Set<string>>();
+      for (const document of uploaded) {
+        const statuses = uploads.get(document.fieldCode) ?? new Set<string>();
+        statuses.add(`${document.photo.photoType}:${document.status}`);
+        uploads.set(document.fieldCode, statuses);
+      }
       for (const field of step.fields) {
         if (!field.required || !field.fieldCode) continue;
         if (field.isUpload) {
-          const status = uploads.get(field.fieldCode);
-          if (!status || status === RiderDocumentReviewStatus.REJECTED) throw new BadRequestException(`${field.fieldCode} must be uploaded before continuing.`);
+          const { photoTypes } = await this.uploadField(clientId, userId, field.fieldCode);
+          const requiredTypes = photoTypes.filter((slot) => slot.isRequired).map((slot) => slot.photoType);
+          const allowedTypes = photoTypes.map((slot) => slot.photoType);
+          const requiredConfigured = requiredTypes.length > 0;
+          const completedTypes = uploads.get(field.fieldCode) ?? new Set<string>();
+          const usable = (photoType: string) => [...completedTypes].some((entry) => entry.startsWith(`${photoType}:`) && !entry.endsWith(':REJECTED') && !entry.endsWith(':SUPERSEDED'));
+          const missingType = requiredConfigured
+            ? requiredTypes.find((photoType) => !usable(photoType))
+            : allowedTypes.length
+              ? allowedTypes.find((photoType) => !usable(photoType))
+              : !completedTypes.size ? 'DOCUMENT' : undefined;
+          if (missingType) throw new BadRequestException(`${field.fieldCode} requires ${missingType} upload before continuing.`);
         } else if (!values[field.fieldCode]) throw new BadRequestException(`${field.fieldCode} is required.`);
       }
     }
@@ -366,11 +381,20 @@ export class RiderAppService {
     if (!field?.isUpload) throw new BadRequestException(`${fieldCode} is not an upload field in the active package.`);
     const progress = await this.prisma.riderOnboardingProgress.findUnique({ where: { userId }, select: { id: true } });
     if (!progress) throw new BadRequestException('Rider onboarding has not been started.');
-    return { field, progressId: progress.id };
+    const subjectType = String(field.configuration.photoSubjectType ?? ({ AADHAR_PROOF_DOCUMENT: 'AADHAR', PAN_PROOF_DOCUMENT: 'PAN' } as Record<string, string>)[field.featureCode] ?? 'RIDER_DOCUMENT') as PhotoSubjectType;
+    const photoTypes = await this.prisma.photoRequirement.findMany({
+      where: { clientId, workFlowType: 'RIDER_ONBOARDING', subjectType, OR: [{ featureCode: field.featureCode }, { featureCode: null }] },
+      orderBy: [{ sortOrder: 'asc' }, { photoType: 'asc' }],
+      select: { photoType: true, isRequired: true },
+    });
+    return { field, progressId: progress.id, subjectType, photoTypes };
   }
 
-  async createDocumentUploadIntent(clientId: string, userId: string, input: { fieldCode: string; mimeType: 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf'; fileName: string; sizeBytes: number }) {
-    const { field, progressId } = await this.uploadField(clientId, userId, input.fieldCode);
+  async createDocumentUploadIntent(clientId: string, userId: string, input: { fieldCode: string; photoType?: PhotoType; mimeType: 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf'; fileName: string; sizeBytes: number }) {
+    const { field, progressId, subjectType, photoTypes } = await this.uploadField(clientId, userId, input.fieldCode);
+    const photoType = input.photoType ?? (photoTypes.length === 1 ? photoTypes[0]!.photoType : photoTypes.length > 1 ? undefined : PhotoType.DOCUMENT);
+    if (!photoType) throw new BadRequestException(`${field.label} requires selecting a photo side or type.`);
+    if (photoTypes.length && !photoTypes.some((slot) => slot.photoType === photoType)) throw new BadRequestException(`${photoType} is not an allowed photo type for ${field.label}.`);
     const uploadConfiguration = (field.configuration ?? {}) as Record<string, unknown>;
     const explicitMimeTypes = Array.isArray(uploadConfiguration.allowedMimeTypes)
       ? uploadConfiguration.allowedMimeTypes.filter((value): value is string => typeof value === 'string')
@@ -389,9 +413,11 @@ export class RiderAppService {
       throw new BadRequestException(`${field.label} exceeds the allowed file size.`);
     }
     const dto: CreateUploadIntentDto = {
+      workFlowType: 'RIDER_ONBOARDING',
+      subjectType,
       entityType: PhotoEntityType.RIDER_ONBOARDING,
       entityId: progressId,
-      photoType: `RIDER_DOCUMENT_${field.fieldCode}`,
+      photoType,
       mimeType: input.mimeType,
       fileName: input.fileName,
       sizeBytes: input.sizeBytes,
@@ -400,16 +426,27 @@ export class RiderAppService {
   }
 
   async completeDocumentUpload(clientId: string, userId: string, photoId: string) {
-    const photo = await this.prisma.photo.findFirst({ where: { id: photoId, clientId, uploadedById: userId, entityType: PhotoEntityType.RIDER_ONBOARDING, status: PhotoStatus.PENDING_UPLOAD }, select: { id: true, photoType: true } });
-    if (!photo?.photoType.startsWith('RIDER_DOCUMENT_')) throw new BadRequestException('Rider onboarding document upload not found.');
-    const fieldCode = photo.photoType.slice('RIDER_DOCUMENT_'.length);
-    const { field } = await this.uploadField(clientId, userId, fieldCode);
+    const photo = await this.prisma.photo.findFirst({ where: { id: photoId, clientId, uploadedById: userId, workFlowType: 'RIDER_ONBOARDING', entityType: PhotoEntityType.RIDER_ONBOARDING, status: PhotoStatus.PENDING_UPLOAD }, select: { id: true, photoType: true, subjectType: true } });
+    if (!photo) throw new BadRequestException('Rider onboarding document upload not found.');
+    const effective = await this.configuration.getEffectiveConfiguration(clientId);
+    const subjectRules = await this.prisma.photoRequirement.findMany({ where: { clientId, workFlowType: 'RIDER_ONBOARDING', subjectType: photo.subjectType }, select: { featureCode: true } });
+    const featureCodes = new Set(subjectRules.map((rule) => rule.featureCode).filter((code): code is string => Boolean(code)));
+    const field = effective.onboarding.steps.flatMap((step) => step.fields).find((item) =>
+      (featureCodes.has(item.featureCode) || item.configuration.photoSubjectType === photo.subjectType || item.featureCode === photo.subjectType) &&
+      item.isUpload && !item.disabled && item.configuration.enabled !== false,
+    );
+    if (!field?.isUpload) throw new BadRequestException('Rider onboarding document field is not active in the current package.');
+    const configuredTypes = await this.uploadField(clientId, userId, field.fieldCode);
+    if (configuredTypes.photoTypes.length && !configuredTypes.photoTypes.some((slot) => slot.photoType === photo.photoType)) {
+      throw new BadRequestException('This photo type is no longer allowed for the active onboarding package.');
+    }
+    const fieldCode = field.fieldCode;
     const completed = await this.media.complete(clientId, photoId);
     const fields = await this.kyc.fields(clientId);
     const document = await this.prisma.$transaction(async (tx) => {
       await this.kyc.lockUser(tx, clientId, userId);
       const rider = await tx.rider.findFirst({ where: { clientId, userId, deletedAt: null }, select: { id: true } });
-      await tx.riderOnboardingDocument.updateMany({ where: { clientId, userId, fieldCode, supersededAt: null }, data: { status: RiderDocumentReviewStatus.SUPERSEDED, supersededAt: new Date() } });
+      await tx.riderOnboardingDocument.updateMany({ where: { clientId, userId, fieldCode, supersededAt: null, photo: { photoType: completed.photoType } }, data: { status: RiderDocumentReviewStatus.SUPERSEDED, supersededAt: new Date() } });
       const document = await tx.riderOnboardingDocument.create({ data: { clientId, userId, riderId: rider?.id, featureId: field.featureId, fieldCode, photoId: completed.id } });
       await this.kyc.sync(tx, clientId, userId, fields);
       return document;

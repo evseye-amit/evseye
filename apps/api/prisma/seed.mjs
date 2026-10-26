@@ -96,10 +96,9 @@ async function main() {
 
   await Promise.all(
     oemCatalog.map(async (oem) => {
-      const saved = await prisma.oem.upsert({
+      const existing = await prisma.oem.findUnique({
         where: { code: oem.code },
-        create: oem,
-        update: oem,
+        select: { id: true },
       });
       const id = existing?.id ?? crypto.randomUUID();
       const logoObjectKey = await seedOemLogo(id, oem.code);
@@ -178,9 +177,13 @@ async function main() {
   // The complete commercial identity is used here instead of only feature + date,
   // which preserves inactive superseded prices alongside the current one.
   for (const { featureCode, effectiveFrom, effectiveTo, billingUnit, currency, isActive, ...pricing } of featurePricingCatalog) {
-    const feature = await prisma.feature.findUniqueOrThrow({
+    const feature = await prisma.feature.findUnique({
       where: { code: featureCode },
     });
+    if (!feature) {
+      console.warn(`Skipping pricing for missing catalog feature: ${featureCode}`);
+      continue;
+    }
     const effectiveDate = new Date(effectiveFrom);
     const expiryDate = effectiveTo ? new Date(effectiveTo) : null;
     const existing = await prisma.featurePricing.findFirst({

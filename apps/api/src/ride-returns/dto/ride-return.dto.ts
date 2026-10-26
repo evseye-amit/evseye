@@ -54,16 +54,7 @@ export class ReplaceReturnPenaltiesDto {
   items!: ReturnPenaltyItemDto[];
 }
 
-export class VerifyReturnPenaltyOtpDto {
-  @IsUUID() otpRequestId!: string;
-  @IsString() @Matches(/^\d{6}$/) code!: string;
-}
-
 export class DisputeReturnPenaltyDto {
-  @IsString() @MaxLength(500) reason!: string;
-}
-
-export class OverrideReturnPenaltyDto {
   @IsString() @MaxLength(500) reason!: string;
 }
 

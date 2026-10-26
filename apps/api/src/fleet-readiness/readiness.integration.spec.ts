@@ -213,7 +213,8 @@ describe.skipIf(!url)('Preparation + QC lifecycle in PostgreSQL', () => {
     await db.photoRequirement.create({
       data: {
         clientId: f.client.id,
-        entityType: 'INSPECTION',
+        workFlowType: 'ALLOTMENT',
+        subjectType: 'INSPECTION',
         photoType: 'FRONT',
       },
     });

@@ -421,9 +421,9 @@ describe.skipIf(!url)('Fleet Manager home in PostgreSQL', () => {
     const photo = await db.photo.create({
       data: {
         clientId,
-        entityType: 'RIDER_ONBOARDING',
+        workFlowType: 'RIDER_ONBOARDING', subjectType: 'RIDER_DOCUMENT', entityType: 'RIDER_ONBOARDING',
         entityId: progress.id,
-        photoType: 'PROOF',
+        photoType: 'DOCUMENT',
         objectKey: randomUUID(),
         mimeType: 'image/jpeg',
         sizeBytes: 100,
@@ -522,7 +522,7 @@ describe.skipIf(!url)('Fleet Manager home in PostgreSQL', () => {
             progress.id,
             actor(manager.id),
           )
-        ).map((p) => p.id),
+        ).map((p: { id: string }) => p.id),
       ).toContain(photo.id);
     }
     await expect(
@@ -620,7 +620,7 @@ describe.skipIf(!url)('Fleet Manager home in PostgreSQL', () => {
           progress.id,
           actor,
         )
-      ).map((p) => p.id),
+      ).map((p: { id: string }) => p.id),
     ).toContain(photo.id);
     const foreign = await fixture();
     const foreignRider = await foreign.rider(null);

@@ -85,13 +85,6 @@ type Tab =
   | "zones"
   | "reports"
   | "feature-usage";
-type PhotoRequirementEntityType =
-  | "RIDER"
-  | "FLEET"
-  | "BATTERY"
-  | "CONTROLLER"
-  | "IOT_DEVICE"
-  | "INSPECTION";
 type RecordItem = Record<string, unknown>;
 type RiderOnboardingField = { featureId: string; featureCode: string; fieldCode?: string; name: string; description?: string | null; billingUnit: string; sequence: number; configuration: { label: string; storageKey?: string; placeholder?: string; fieldType: string; required: boolean; readOnly: boolean; disabled: boolean; editable: boolean; importable: boolean; maxFiles?: number; allowedFileTypes?: string[]; allowedMimeTypes?: string[]; validation?: Record<string, unknown> } };
 type RiderOnboardingConfiguration = { package: { code: string; name: string }; onboarding: { steps: Array<{ stepId: string; stepCode: string; stepName: string; description?: string; sequence: number; fields: RiderOnboardingField[] }> } };
@@ -324,10 +317,19 @@ const PHOTO_EVIDENCE_TABS = new Set<Tab>([
   "rider-evidence",
 ]);
 
-function evidenceEntityType(tab: Tab): PhotoRequirementEntityType {
-  if (tab === "fleet-evidence") return "FLEET";
-  if (tab === "rider-evidence") return "RIDER";
-  return "INSPECTION";
+const PHOTO_TYPE_OPTIONS = [
+  "FRONT", "BACK", "LEFT", "RIGHT", "REAR", "BODY", "LABEL", "CHASSIS",
+  "DASHBOARD", "INSTALLATION", "EVIDENCE", "DOCUMENT", "PROFILE", "RECEIPT",
+  "RETURN_CHECKLIST", "DAMAGE", "DAMAGE_CLOSEUP", "VEHICLE_FRONT", "VEHICLE_LEFT",
+  "VEHICLE_RIGHT", "VEHICLE_REAR", "FLEET_FRONT", "FLEET_LEFT", "FLEET_RIGHT", "FLEET_BACK", "BATTERY_BODY", "BATTERY_LABEL", "CONTROLLER_BODY",
+  "CONTROLLER_LABEL", "IOT_BODY", "IOT_LABEL", "FLEET_WITH_RIDER", "RIDER_DECLARATION", "PDI_VOICE", "PAYMENT_RECEIPT", "PENALTY_DAMAGE", "OTHER",
+];
+
+function evidenceWorkflow(tab: Tab): { workFlowType: string; subjectType: string } {
+  if (tab === "fleet-evidence") return { workFlowType: "FLEET_MANAGEMENT", subjectType: "FLEET" };
+  if (tab === "rider-evidence") return { workFlowType: "RIDER_MANAGEMENT", subjectType: "PROFILE" };
+  if (tab === "deallocation-evidence") return { workFlowType: "SUBMISSION", subjectType: "INSPECTION" };
+  return { workFlowType: "ALLOTMENT", subjectType: "INSPECTION" };
 }
 
 function evidenceContext(tab: Tab) {
@@ -829,8 +831,7 @@ export default function Home() {
   const [configuredRequirements, setConfiguredRequirements] = useState<
     RecordItem[]
   >([]);
-  const [photoRequirementEntityType, setPhotoRequirementEntityType] =
-    useState<PhotoRequirementEntityType>("INSPECTION");
+  const [photoRequirementWorkflow, setPhotoRequirementWorkflow] = useState(evidenceWorkflow("allocation-evidence"));
   const [newRequirementType, setNewRequirementType] = useState("");
   const [newRequirementRequired, setNewRequirementRequired] = useState(true);
   const [uploadedPhotoTypes, setUploadedPhotoTypes] = useState<string[]>([]);
@@ -974,7 +975,8 @@ export default function Home() {
       } else if (nextTab === "locations") {
         setHubs((await viewRequest("/hubs", {}, token)) as RecordItem[]);
       } else if (PHOTO_EVIDENCE_TABS.has(nextTab)) {
-        setConfiguredRequirements(await viewRequest(`/media/photo-requirements?entityType=${evidenceEntityType(nextTab)}`, {}, token) as RecordItem[]);
+        const key = evidenceWorkflow(nextTab);
+        setConfiguredRequirements(await viewRequest(`/media/photo-requirements?workFlowType=${key.workFlowType}&subjectType=${key.subjectType}`, {}, token) as RecordItem[]);
       } else {
         const resource = nextTab === "audit" ? "/audit-logs" : `/${nextTab}`;
         const first = (await viewRequest(`${resource}?page=1&pageSize=100`, {}, token)) as { items: RecordItem[]; meta: { total: number } };
@@ -1025,7 +1027,7 @@ export default function Home() {
     setReadinessFleetId(nextTab === "vehicle-preparation" ? fleetId : "");
     setError("");
     if (PHOTO_EVIDENCE_TABS.has(nextTab)) {
-      setPhotoRequirementEntityType(evidenceEntityType(nextTab));
+      setPhotoRequirementWorkflow(evidenceWorkflow(nextTab));
     }
     setTab(nextTab);
     const url = new URL(window.location.href);
@@ -1607,7 +1609,7 @@ export default function Home() {
     setError("");
     try {
       const requirement = (await request(
-        `/media/photo-requirements/${photoRequirementEntityType}/${photoType}`,
+        `/media/photo-requirements/${photoRequirementWorkflow.workFlowType}/${photoRequirementWorkflow.subjectType}/${photoType}`,
         {
           method: "PUT",
           body: JSON.stringify({ isRequired, sortOrder }),
@@ -1731,7 +1733,7 @@ export default function Home() {
           photos: RecordItem[];
         }>,
         request(
-          "/media/photo-requirements?entityType=INSPECTION",
+          `/media/photo-requirements?workFlowType=${targetType === "POST_DEALLOCATION" ? "SUBMISSION" : "ALLOTMENT"}&subjectType=INSPECTION`,
           {},
           token,
         ) as Promise<RecordItem[]>,
@@ -1773,7 +1775,8 @@ export default function Home() {
         {
           method: "POST",
           body: JSON.stringify({
-            entityType: "INSPECTION",
+            workFlowType: inspectionType === "POST_DEALLOCATION" ? "SUBMISSION" : "ALLOTMENT",
+            subjectType: "INSPECTION",
             entityId: inspectionId,
             photoType,
             mimeType: file.type,
@@ -1877,7 +1880,7 @@ export default function Home() {
             token,
           ) as Promise<RecordItem | null>,
           request(
-            "/media/photo-requirements?entityType=INSPECTION",
+            "/media/photo-requirements?workFlowType=ALLOTMENT&subjectType=INSPECTION",
             {},
             token,
           ) as Promise<RecordItem[]>,
@@ -2035,7 +2038,8 @@ export default function Home() {
         {
           method: "POST",
           body: JSON.stringify({
-            entityType: "RIDER",
+            workFlowType: "RIDER_MANAGEMENT",
+            subjectType: "PROFILE",
             entityId: riderId,
             photoType: "PROFILE",
             mimeType: file.type,
@@ -2074,7 +2078,7 @@ export default function Home() {
       throw new Error('Choose a JPEG, PNG, WebP, or PDF file.');
     }
     if (file.size > 5 * 1024 * 1024) throw new Error('Each onboarding file must be 5 MB or smaller.');
-    const intent = await request('/media/upload-intents', { method: 'POST', body: JSON.stringify({ entityType: 'RIDER', entityId: riderId, photoType: featureCode, mimeType: file.type, fileName: file.name, sizeBytes: file.size }) }, token) as { photo: { id: string }; uploadUrl: string };
+    const intent = await request('/media/upload-intents', { method: 'POST', body: JSON.stringify({ workFlowType: 'RIDER_MANAGEMENT', subjectType: 'PROFILE', entityId: riderId, photoType: 'PROFILE', mimeType: file.type, fileName: file.name, sizeBytes: file.size }) }, token) as { photo: { id: string }; uploadUrl: string };
     const result = await fetch(intent.uploadUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
     if (!result.ok) throw new Error(`Object storage rejected ${file.name}.`);
     await request(`/media/${intent.photo.id}/complete`, { method: 'POST' }, token);
@@ -2418,7 +2422,7 @@ export default function Home() {
               <h2>{evidenceContext(tab).title}</h2>
               <p className="muted">{evidenceContext(tab).description}</p>
               {(tab === "allocation-evidence" || tab === "deallocation-evidence") && <p className="sa-bulk-help">Evidence is captured against the relevant inspection, so each allocation and de-allocation retains its own photos and audit history.</p>}
-              <button type="button" onClick={() => { setError(""); setShowPhotoTypeForm(true); }}>+ Add photo type</button>
+              <button type="button" onClick={() => { setError(""); setShowPhotoTypeForm(true); }}>+ Configure photo type</button>
             </section>
             <ClientDataTable rows={configuredRequirements} loading={loading} getRowId={(row) => String(row.id)} emptyMessage="No photo types configured." columns={[
               { key: "photoType", label: "Photo type", value: (row) => String(row.photoType).replaceAll("_", " ") },
@@ -2917,20 +2921,14 @@ export default function Home() {
                   <div className="form-actions"><button>{editingHubId ? "Save hub" : "Create hub"}</button><button type="button" className="secondary" onClick={() => { setEditingHubId(""); setNewHub(emptyHubForm()); setShowHubForm(false); }}>Cancel</button></div>
                 </form>
         </ClientFormDialog>}
-        {tab === "evidence" && showPhotoTypeForm && <ClientFormDialog title="Add photo type" busy={loading} error={error} onClose={() => setShowPhotoTypeForm(false)} heading={<>Add photo type</>}>
+        {tab === "evidence" && showPhotoTypeForm && <ClientFormDialog title="Configure photo type" busy={loading} error={error} onClose={() => setShowPhotoTypeForm(false)} heading={<>Configure photo type</>}>
               <form className="form-stack" onSubmit={addPhotoRequirement}>
                 <label>
-                  New photo type *
-                  <input
-                    value={newRequirementType}
-                    onChange={(event) =>
-                      setNewRequirementType(event.target.value.toUpperCase())
-                    }
-                    placeholder="e.g. DAMAGE_CLOSEUP"
-                    pattern="[A-Z0-9_-]{1,80}"
-                    maxLength={80}
-                    required
-                  />
+                  Photo type *
+                  <select required value={newRequirementType} onChange={(event) => setNewRequirementType(event.target.value)}>
+                    <option value="">Choose a supported photo type</option>
+                    {PHOTO_TYPE_OPTIONS.filter((option) => !configuredRequirements.some((row) => row.photoType === option)).map((option) => <option key={option} value={option}>{option.replaceAll("_", " ")}</option>)}
+                  </select>
                 </label>
                 <label>
                   <input
@@ -2942,7 +2940,7 @@ export default function Home() {
                   />{" "}
                   Required for completion
                 </label>
-                <div className="form-actions"><button disabled={loading}>Add photo type</button><button type="button" className="secondary" onClick={() => setShowPhotoTypeForm(false)}>Cancel</button></div>
+                <div className="form-actions"><button disabled={loading || !newRequirementType}>Add selected type</button><button type="button" className="secondary" onClick={() => setShowPhotoTypeForm(false)}>Cancel</button></div>
               </form></ClientFormDialog>}
         {evidenceFleet && <FleetEvidenceDialog key={evidenceFleet.id} fleet={evidenceFleet} request={(path, options) => request(path, options, token)} canEditRequirements={userRoles.includes("CLIENT_ADMIN")} onClose={() => setEvidenceFleet(null)} />}
         {fleetDetail && showDetailIotForm && <ClientFormDialog title="Register IoT device" busy={loading} error={error} onClose={() => setShowDetailIotForm(false)} heading={<>Register IoT device</>}><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void registerIotDevice(String(fleetDetail.id)); }}><label>Device number *<input required value={iotDeviceNumber} onChange={(event) => setIotDeviceNumber(event.target.value)} /></label><div className="form-actions"><button disabled={loading}>Register device</button><button type="button" className="secondary" onClick={() => setShowDetailIotForm(false)}>Cancel</button></div></form></ClientFormDialog>}

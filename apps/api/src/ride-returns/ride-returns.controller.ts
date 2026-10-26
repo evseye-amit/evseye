@@ -24,12 +24,10 @@ import {
   CreateRideReturnDto,
   DisputeReturnPenaltyDto,
   ListRideReturnsDto,
-  OverrideReturnPenaltyDto,
   ReceiveRideReturnDto,
   ReplaceReturnPenaltiesDto,
   ReturnPenaltyPriceDto,
   UpdateReturnPenaltyPriceDto,
-  VerifyReturnPenaltyOtpDto,
 } from './dto/ride-return.dto.js';
 import { RideReturnsService } from './ride-returns.service.js';
 
@@ -73,12 +71,6 @@ export class RideReturnsController {
   @Post(':id/penalties/submit')
   async submitPenalties(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return { data: await this.returns.submitPenalties(this.context.requireClientId(user), user, id) };
-  }
-
-  @Post(':id/penalties/override-rider-approval')
-  @Roles(UserRole.CLIENT_ADMIN)
-  async overridePenalties(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: OverrideReturnPenaltyDto) {
-    return { data: await this.returns.overridePenalties(this.context.requireClientId(user), user, id, dto) };
   }
 
   @Post(':id/penalties/approve')
@@ -140,16 +132,6 @@ export class RiderRideReturnsController {
   @Post(':id/cancel')
   async cancel(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return { data: await this.returns.cancel(this.context.requireClientId(user), user, id) };
-  }
-
-  @Post(':id/penalties/otp/request')
-  async requestOtp(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return { data: await this.returns.riderPenaltyOtpRequest(this.context.requireClientId(user), user, id) };
-  }
-
-  @Post(':id/penalties/otp/verify')
-  async verifyOtp(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: VerifyReturnPenaltyOtpDto) {
-    return { data: await this.returns.verifyRiderPenaltyOtp(this.context.requireClientId(user), user, id, dto.otpRequestId, dto.code) };
   }
 
   @Post(':id/penalties/dispute')

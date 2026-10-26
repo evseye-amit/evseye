@@ -159,6 +159,8 @@ export class FleetSearchService {
           where: {
             clientId,
             entityType: 'INSPECTION',
+            workFlowType: 'ALLOTMENT',
+            subjectType: 'INSPECTION',
             entityId: inspection.id,
             photoType: 'FRONT',
             status: 'COMPLETE',
@@ -171,6 +173,8 @@ export class FleetSearchService {
       where: {
         clientId,
         entityType: 'FLEET',
+        workFlowType: 'FLEET_MANAGEMENT',
+        subjectType: 'FLEET',
         entityId: id,
         photoType: 'FRONT',
         status: 'COMPLETE',

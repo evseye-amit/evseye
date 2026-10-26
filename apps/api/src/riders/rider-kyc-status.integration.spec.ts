@@ -92,9 +92,9 @@ describe.skipIf(!url)(
         db.photo.create({
           data: {
             clientId: client.id,
-            entityType: 'RIDER_ONBOARDING',
+            workFlowType: 'RIDER_ONBOARDING', subjectType: 'RIDER_DOCUMENT', entityType: 'RIDER_ONBOARDING',
             entityId: randomUUID(),
-            photoType: `RIDER_DOCUMENT_${code}`,
+            photoType: "DOCUMENT",
             objectKey: randomUUID(),
             mimeType: 'image/jpeg',
             sizeBytes: 100,

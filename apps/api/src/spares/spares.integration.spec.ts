@@ -316,7 +316,6 @@ describe.skipIf(!url)('Spares catalogue in PostgreSQL', () => {
       db as never,
       {} as never,
       {} as never,
-      {} as never,
     );
     const row = await returns.createPrice(f.client.id, f.actor.id, {
       code: code(),

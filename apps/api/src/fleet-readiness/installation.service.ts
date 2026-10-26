@@ -22,6 +22,7 @@ import {
   reasonSchema,
   resultSchema,
   stageDefinitionSchema,
+  PHOTO_TYPE_VALUES,
 } from './readiness-policy.js';
 const json = (v: unknown) =>
   JSON.parse(JSON.stringify(v)) as Prisma.InputJsonValue;
@@ -274,6 +275,8 @@ export class FleetInstallationService {
       where: {
         clientId,
         entityType: 'PREPARATION',
+        workFlowType: 'PREPARATION',
+        subjectType: 'INSTALLATION',
         entityId: this.entity(c.stage),
         status: 'COMPLETE',
       },
@@ -548,6 +551,8 @@ export class FleetInstallationService {
             where: {
               clientId,
               entityType: 'PREPARATION',
+              workFlowType: 'PREPARATION',
+              subjectType: 'INSTALLATION',
               entityId: this.entity(s),
               status: 'COMPLETE',
             },
@@ -883,7 +888,7 @@ export class FleetInstallationService {
       z
         .object({
           revision: z.number().int().min(1),
-          photoType: z.string().max(120),
+          photoType: z.enum(PHOTO_TYPE_VALUES),
           mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
           sizeBytes: z
             .number()
@@ -911,6 +916,8 @@ export class FleetInstallationService {
       return tx.photo.create({
         data: {
           clientId,
+          workFlowType: 'PREPARATION',
+          subjectType: 'INSTALLATION',
           entityType: 'PREPARATION',
           entityId: this.entity(c.stage),
           photoType: b.photoType,
@@ -948,6 +955,8 @@ export class FleetInstallationService {
         id: photoId,
         clientId,
         entityType: 'PREPARATION',
+        workFlowType: 'PREPARATION',
+        subjectType: 'INSTALLATION',
         entityId: this.entity(c.stage),
       },
     });
@@ -1008,6 +1017,8 @@ export class FleetInstallationService {
         clientId,
         id: photoId,
         entityType: 'PREPARATION',
+        workFlowType: 'PREPARATION',
+        subjectType: 'INSTALLATION',
         entityId: { in: entities },
         status: 'COMPLETE',
       },

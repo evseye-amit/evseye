@@ -31,6 +31,8 @@ export class InspectionsService {
       where: {
         clientId,
         entityType: PhotoEntityType.INSPECTION,
+        workFlowType: inspection.type === 'PRE_ALLOCATION' ? 'ALLOTMENT' : 'SUBMISSION',
+        subjectType: 'INSPECTION',
         entityId: inspectionId,
       },
       orderBy: { uploadedAt: 'asc' },
@@ -55,7 +57,8 @@ export class InspectionsService {
     const required = await this.prisma.photoRequirement.findMany({
       where: {
         clientId,
-        entityType: PhotoEntityType.INSPECTION,
+        workFlowType: inspection.type === 'PRE_ALLOCATION' ? 'ALLOTMENT' : 'SUBMISSION',
+        subjectType: 'INSPECTION',
         isRequired: true,
       },
     });
@@ -63,6 +66,8 @@ export class InspectionsService {
       where: {
         clientId,
         entityType: PhotoEntityType.INSPECTION,
+        workFlowType: inspection.type === 'PRE_ALLOCATION' ? 'ALLOTMENT' : 'SUBMISSION',
+        subjectType: 'INSPECTION',
         entityId: inspectionId,
         status: PhotoStatus.COMPLETE,
       },

@@ -7,7 +7,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PhotoEntityType, PhotoStatus, Prisma, UserRole } from '@prisma/client';
+import { PhotoEntityType, PhotoStatus, PhotoSubjectType, PhotoType, PhotoWorkflowType, Prisma, UserRole } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -16,6 +16,50 @@ import {
   STORAGE_PROVIDER,
   type StorageProvider,
 } from './storage/storage-provider.interface.js';
+
+const legacyWorkflow = (ownerType: PhotoEntityType): PhotoWorkflowType => {
+  if (([PhotoEntityType.FLEET, PhotoEntityType.BATTERY, PhotoEntityType.CONTROLLER, PhotoEntityType.IOT_DEVICE] as PhotoEntityType[]).includes(ownerType)) return PhotoWorkflowType.FLEET_MANAGEMENT;
+  if (ownerType === PhotoEntityType.PREPARATION) return PhotoWorkflowType.PREPARATION;
+  if (ownerType === PhotoEntityType.INSPECTION) return PhotoWorkflowType.ALLOTMENT;
+  if (ownerType === PhotoEntityType.RIDER) return PhotoWorkflowType.RIDER_MANAGEMENT;
+  if (ownerType === PhotoEntityType.RIDER_ONBOARDING) return PhotoWorkflowType.RIDER_ONBOARDING;
+  if (ownerType === PhotoEntityType.SUPPORT_TICKET) return PhotoWorkflowType.SUPPORT;
+  return PhotoWorkflowType.PAYMENT;
+};
+
+const legacySubject = (ownerType: PhotoEntityType): PhotoSubjectType => (ownerType === PhotoEntityType.RIDER ? PhotoSubjectType.PROFILE : ownerType === PhotoEntityType.RIDER_ONBOARDING ? PhotoSubjectType.RIDER_DOCUMENT : ownerType === PhotoEntityType.INSPECTION ? PhotoSubjectType.INSPECTION : ownerType === PhotoEntityType.PREPARATION ? PhotoSubjectType.PREPARATION : ownerType.startsWith('PAYMENT_') ? ownerType.slice('PAYMENT_'.length) as PhotoSubjectType : ownerType as unknown as PhotoSubjectType);
+
+const workflowSubjects: Record<PhotoWorkflowType, PhotoSubjectType[]> = {
+  FLEET_MANAGEMENT: [PhotoSubjectType.FLEET, PhotoSubjectType.BATTERY, PhotoSubjectType.CONTROLLER, PhotoSubjectType.IOT_DEVICE],
+  PREPARATION: [PhotoSubjectType.PREPARATION, PhotoSubjectType.INSTALLATION],
+  ALLOTMENT: [PhotoSubjectType.INSPECTION],
+  SUBMISSION: [PhotoSubjectType.INSPECTION],
+  RIDER_MANAGEMENT: [PhotoSubjectType.PROFILE],
+  RIDER_ONBOARDING: [PhotoSubjectType.RIDER_DOCUMENT, PhotoSubjectType.PAN, PhotoSubjectType.AADHAR],
+  SUPPORT: [PhotoSubjectType.SUPPORT_TICKET],
+  PAYMENT: [PhotoSubjectType.ONBOARDING_FEES, PhotoSubjectType.DEPLOYMENT, PhotoSubjectType.COLLECTION, PhotoSubjectType.AUTOPAY, PhotoSubjectType.RECEIVED],
+};
+
+const assertWorkflowSubject = (workflow: PhotoWorkflowType, subject: PhotoSubjectType) => {
+  if (!workflowSubjects[workflow].includes(subject)) throw new BadRequestException('Subject type is not supported by this workflow.');
+};
+
+const ownerFromWorkflow = (workflow: PhotoWorkflowType, subjectType: PhotoSubjectType | string): PhotoEntityType => {
+  if (workflow === PhotoWorkflowType.PREPARATION) return PhotoEntityType.PREPARATION;
+  if (workflow === PhotoWorkflowType.ALLOTMENT || workflow === PhotoWorkflowType.SUBMISSION) return PhotoEntityType.INSPECTION;
+  if (workflow === PhotoWorkflowType.RIDER_MANAGEMENT) return PhotoEntityType.RIDER;
+  if (workflow === PhotoWorkflowType.RIDER_ONBOARDING) return PhotoEntityType.RIDER_ONBOARDING;
+  if (workflow === PhotoWorkflowType.SUPPORT) return PhotoEntityType.SUPPORT_TICKET;
+  if (workflow === PhotoWorkflowType.PAYMENT) {
+    const owner = `PAYMENT_${subjectType}` as PhotoEntityType;
+    if (isPaymentPhoto(owner)) return owner;
+  }
+  if (workflow === PhotoWorkflowType.FLEET_MANAGEMENT) {
+    const owner = subjectType as PhotoEntityType;
+    if (([PhotoEntityType.FLEET, PhotoEntityType.BATTERY, PhotoEntityType.CONTROLLER, PhotoEntityType.IOT_DEVICE] as PhotoEntityType[]).includes(owner)) return owner;
+  }
+  throw new BadRequestException('Unsupported workflow and subject type combination.');
+};
 
 @Injectable()
 export class MediaService {
@@ -29,15 +73,22 @@ export class MediaService {
     uploadedById: string,
     dto: CreateUploadIntentDto,
   ) {
-    if (isPaymentPhoto(dto.entityType)) throw new ForbiddenException('Payment receipts use the payment transaction routes.');
-    if ((dto.entityType as string) === PhotoEntityType.SUPPORT_TICKET)
+    const workFlowType = dto.workFlowType ?? (dto.entityType ? legacyWorkflow(dto.entityType) : null);
+    const subjectType = dto.subjectType ?? (dto.entityType ? legacySubject(dto.entityType) : null);
+    if (!workFlowType || !subjectType) throw new BadRequestException('Workflow and subject types are required.');
+    const ownerType = dto.entityType ?? ownerFromWorkflow(workFlowType, subjectType);
+    assertWorkflowSubject(workFlowType, subjectType);
+    if (isPaymentPhoto(ownerType)) throw new ForbiddenException('Payment receipts use the payment transaction routes.');
+    if (ownerType === PhotoEntityType.SUPPORT_TICKET)
       throw new ForbiddenException(
         'Support attachments use the support ticket routes.',
       );
     return this.createUploadIntentForEntity(
       clientId,
       uploadedById,
-      dto.entityType,
+      workFlowType,
+      subjectType,
+      ownerType,
       dto.entityId,
       dto.photoType,
       dto,
@@ -48,7 +99,7 @@ export class MediaService {
     clientId: string,
     uploadedById: string,
     ticketId: string,
-    dto: Omit<CreateUploadIntentDto, 'entityType' | 'entityId'>,
+    dto: Omit<CreateUploadIntentDto, 'entityType' | 'workFlowType' | 'subjectType' | 'entityId'>,
   ) {
     const ticket = await this.prisma.supportTicket.findFirst({
       where: { id: ticketId, clientId },
@@ -58,6 +109,8 @@ export class MediaService {
     return this.createUploadIntentForEntity(
       clientId,
       uploadedById,
+      PhotoWorkflowType.SUPPORT,
+      'SUPPORT_TICKET',
       PhotoEntityType.SUPPORT_TICKET,
       ticketId,
       dto.photoType,
@@ -66,9 +119,9 @@ export class MediaService {
   }
 
   async createPaymentUploadIntent(clientId: string, actorId: string, entityType: PhotoEntityType, entityId: string,
-    dto: Omit<CreateUploadIntentDto, 'entityType' | 'entityId' | 'photoType'>) {
+    dto: Omit<CreateUploadIntentDto, 'entityType' | 'entityId' | 'photoType' | 'workFlowType' | 'subjectType'>) {
     if (!isPaymentPhoto(entityType)) throw new BadRequestException('Invalid payment media entity.');
-    return this.createUploadIntentForEntity(clientId, actorId, entityType, entityId, `RECEIPT_${randomUUID()}`, { ...dto, photoType: 'RECEIPT' });
+    return this.createUploadIntentForEntity(clientId, actorId, PhotoWorkflowType.PAYMENT, entityType.slice('PAYMENT_'.length) as PhotoSubjectType, entityType, entityId, PhotoType.RECEIPT, { ...dto, photoType: PhotoType.RECEIPT });
   }
 
   async completePayment(clientId: string, entityType: PhotoEntityType, entityId: string, photoId: string, uploaderId: string, db: Prisma.TransactionClient = this.prisma) {
@@ -108,18 +161,31 @@ export class MediaService {
   private async createUploadIntentForEntity(
     clientId: string,
     uploadedById: string,
+    workFlowType: PhotoWorkflowType,
+    subjectType: PhotoSubjectType,
     entityType: PhotoEntityType,
     entityId: string,
-    photoType: string,
-    dto: Omit<CreateUploadIntentDto, 'entityType' | 'entityId'>,
+    photoType: PhotoType,
+    dto: Omit<CreateUploadIntentDto, 'entityType' | 'workFlowType' | 'subjectType' | 'entityId'>,
   ) {
     await this.assertEntityOwnership(clientId, entityType, entityId);
+    assertWorkflowSubject(workFlowType, subjectType);
+    const configured = await this.prisma.photoRequirement.findMany({
+      where: { clientId, workFlowType, subjectType },
+      select: { photoType: true },
+    });
+    const requirementType = photoType;
+    if (configured.length && !configured.some((requirement) => requirement.photoType === requirementType)) {
+      throw new BadRequestException('Photo type is not configured for this workflow and subject.');
+    }
     this.assertExtensionMatchesMime(dto.fileName, dto.mimeType);
 
-    const objectKey = `clients/${clientId}/${entityType.toLowerCase()}/${entityId}/${randomUUID()}.${this.extensionFor(dto.mimeType)}`;
+    const objectKey = `clients/${clientId}/${workFlowType.toLowerCase()}/${entityId}/${randomUUID()}.${this.extensionFor(dto.mimeType)}`;
     const photo = await this.prisma.photo.create({
       data: {
         clientId,
+        workFlowType,
+        subjectType,
         entityType,
         entityId,
         photoType,
@@ -165,6 +231,8 @@ export class MediaService {
       category: string;
       label: string;
       date: Date | null;
+      workFlowType: PhotoWorkflowType;
+      subjectType: PhotoSubjectType;
       entityType: PhotoEntityType;
       entityId: string;
       prefix?: boolean;
@@ -175,6 +243,8 @@ export class MediaService {
         category: 'Fleet & components',
         label: 'Fleet onboarding',
         date: null,
+        workFlowType: PhotoWorkflowType.FLEET_MANAGEMENT,
+        subjectType: PhotoSubjectType.FLEET,
         entityType: PhotoEntityType.FLEET,
         entityId: fleetId,
       },
@@ -185,6 +255,8 @@ export class MediaService {
         category: 'Fleet & components',
         label: `Battery · ${entry.battery.serialNumber}`,
         date: entry.installedAt,
+        workFlowType: PhotoWorkflowType.FLEET_MANAGEMENT,
+        subjectType: PhotoSubjectType.BATTERY,
         entityType: PhotoEntityType.BATTERY,
         entityId: entry.batteryId,
       });
@@ -194,6 +266,8 @@ export class MediaService {
         category: 'Fleet & components',
         label: `Controller · ${entry.controller.controllerNumber}`,
         date: entry.installedAt,
+        workFlowType: PhotoWorkflowType.FLEET_MANAGEMENT,
+        subjectType: PhotoSubjectType.CONTROLLER,
         entityType: PhotoEntityType.CONTROLLER,
         entityId: entry.controllerId,
       });
@@ -203,6 +277,8 @@ export class MediaService {
         category: 'Fleet & components',
         label: 'IoT installation',
         date: null,
+        workFlowType: PhotoWorkflowType.FLEET_MANAGEMENT,
+        subjectType: PhotoSubjectType.IOT_DEVICE,
         entityType: PhotoEntityType.IOT_DEVICE,
         entityId: fleet.iotDevice.id,
       });
@@ -213,6 +289,8 @@ export class MediaService {
           inspection.type === 'PRE_ALLOCATION' ? 'Allocation' : 'Submission',
         label: `${inspection.type === 'PRE_ALLOCATION' ? 'Allocation' : 'Submission'} · ${inspection.allocationId}`,
         date: inspection.createdAt,
+        workFlowType: inspection.type === 'PRE_ALLOCATION' ? PhotoWorkflowType.ALLOTMENT : PhotoWorkflowType.SUBMISSION,
+        subjectType: PhotoSubjectType.INSPECTION,
         entityType: PhotoEntityType.INSPECTION,
         entityId: inspection.id,
       });
@@ -223,6 +301,8 @@ export class MediaService {
           category: 'Preparation & QC',
           label: `Preparation ${preparation.id} · revision ${revision.revision}`,
           date: revision.createdAt,
+          workFlowType: PhotoWorkflowType.PREPARATION,
+          subjectType: PhotoSubjectType.PREPARATION,
           entityType: PhotoEntityType.PREPARATION,
           entityId: revision.id,
         });
@@ -232,6 +312,8 @@ export class MediaService {
           category: 'Installation',
           label: `${stage.code} · ${preparation.id}`,
           date: preparation.createdAt,
+          workFlowType: PhotoWorkflowType.PREPARATION,
+          subjectType: PhotoSubjectType.INSTALLATION,
           entityType: PhotoEntityType.PREPARATION,
           entityId: `installation:${stage.id}:`,
           prefix: true,
@@ -244,6 +326,8 @@ export class MediaService {
       clientId,
       status: PhotoStatus.COMPLETE,
       OR: unique.map((group) => ({
+        workFlowType: group.workFlowType,
+        subjectType: group.subjectType,
         entityType: group.entityType,
         entityId: group.prefix
           ? { startsWith: group.entityId }
@@ -259,6 +343,8 @@ export class MediaService {
       where,
       select: {
         id: true,
+        workFlowType: true,
+        subjectType: true,
         entityType: true,
         entityId: true,
         photoType: true,
@@ -276,6 +362,8 @@ export class MediaService {
       photos: photos.filter(
         (photo) =>
           photo.entityType === group.entityType &&
+          photo.workFlowType === group.workFlowType &&
+          photo.subjectType === group.subjectType &&
           (group.prefix
             ? photo.entityId.startsWith(group.entityId)
             : photo.entityId === group.entityId),
@@ -308,69 +396,124 @@ export class MediaService {
     };
   }
 
-  async requirements(clientId: string, entityType: PhotoEntityType) {
-    if (entityType === PhotoEntityType.SUPPORT_TICKET)
-      throw new ForbiddenException(
-        'Support attachments use the support ticket routes.',
-      );
+  async requirements(clientId: string, workFlowType: PhotoWorkflowType | PhotoEntityType, subjectType?: string): Promise<Prisma.PhotoRequirementGetPayload<object>[]> {
+    if (!subjectType && (Object.values(PhotoEntityType) as string[]).includes(workFlowType as string)) {
+      const ownerType = workFlowType as PhotoEntityType;
+      const resolvedWorkflow = legacyWorkflow(ownerType);
+      const defaultSubject = legacySubject(ownerType);
+      if (ownerType === PhotoEntityType.SUPPORT_TICKET) throw new ForbiddenException('Support attachments use the support ticket routes.');
+      return this.requirements(clientId, resolvedWorkflow, subjectType ?? defaultSubject);
+    }
+    if (!subjectType) subjectType = workFlowType === PhotoWorkflowType.SUPPORT ? 'SUPPORT_TICKET' : workFlowType === PhotoWorkflowType.RIDER_ONBOARDING ? 'RIDER_DOCUMENT' : workFlowType === PhotoWorkflowType.RIDER_MANAGEMENT ? 'PROFILE' : workFlowType === PhotoWorkflowType.FLEET_MANAGEMENT ? 'FLEET' : 'INSPECTION';
+    assertWorkflowSubject(workFlowType as PhotoWorkflowType, subjectType as PhotoSubjectType);
+    if (workFlowType === PhotoWorkflowType.SUPPORT) throw new ForbiddenException('Support attachments use the support ticket routes.');
+    const resolvedWorkflow = workFlowType as PhotoWorkflowType;
     return this.prisma.photoRequirement.findMany({
-      where: { clientId, entityType },
+      where: { clientId, workFlowType: resolvedWorkflow, subjectType: subjectType as PhotoSubjectType },
       orderBy: [{ isRequired: 'desc' }, { photoType: 'asc' }],
     });
   }
 
+  async requirementsLegacy(clientId: string, ownerType: PhotoEntityType) {
+    if (ownerType === PhotoEntityType.SUPPORT_TICKET) throw new ForbiddenException('Support attachments use the support ticket routes.');
+    const workFlowType = legacyWorkflow(ownerType) as PhotoWorkflowType;
+    const subjectType = legacySubject(ownerType);
+    return this.requirements(clientId, workFlowType, subjectType);
+  }
+
   async listEntityPhotos(
     clientId: string,
-    entityType: PhotoEntityType,
-    entityId: string,
-    actor?: AuthUser,
-  ) {
-    if (isPaymentPhoto(entityType)) throw new ForbiddenException('Payment receipts use the payment transaction routes.');
-    if (entityType === PhotoEntityType.SUPPORT_TICKET)
+    workFlowType: PhotoWorkflowType | PhotoEntityType,
+    subjectTypeOrEntityId: string,
+    entityIdOrActor?: string | AuthUser,
+    maybeActor?: AuthUser,
+  ): Promise<Prisma.PhotoGetPayload<object>[]> {
+    if (typeof entityIdOrActor !== 'string' && (Object.values(PhotoEntityType) as string[]).includes(workFlowType as string)) {
+      const ownerType = workFlowType as PhotoEntityType;
+      const resolvedWorkflow = legacyWorkflow(ownerType) as PhotoWorkflowType;
+      const subjectType = legacySubject(ownerType);
+      const legacyActor = typeof entityIdOrActor === 'string' ? maybeActor : entityIdOrActor;
+      return this.listEntityPhotos(clientId, resolvedWorkflow, subjectType, subjectTypeOrEntityId, legacyActor);
+    }
+    const subjectType = typeof entityIdOrActor === 'string' || entityIdOrActor === undefined
+      ? subjectTypeOrEntityId
+      : workFlowType === PhotoWorkflowType.FLEET_MANAGEMENT ? 'FLEET' : workFlowType === PhotoWorkflowType.RIDER_MANAGEMENT ? 'PROFILE' : workFlowType === PhotoWorkflowType.RIDER_ONBOARDING ? 'RIDER_DOCUMENT' : 'INSPECTION';
+    const entityId = typeof entityIdOrActor === 'string' ? entityIdOrActor : subjectTypeOrEntityId;
+    const actor = typeof entityIdOrActor === 'string' ? maybeActor : entityIdOrActor;
+    const resolvedWorkflow = workFlowType as PhotoWorkflowType;
+    const ownerType = ownerFromWorkflow(resolvedWorkflow, subjectType);
+    if (isPaymentPhoto(ownerType)) throw new ForbiddenException('Payment receipts use the payment transaction routes.');
+    if (ownerType === PhotoEntityType.SUPPORT_TICKET)
       throw new ForbiddenException(
         'Support attachments use the support ticket routes.',
       );
-    await this.assertEntityOwnership(clientId, entityType, entityId);
+    await this.assertEntityOwnership(clientId, ownerType, entityId);
     await this.assertFleetManagerEntityAccess(
       clientId,
       actor,
-      entityType,
+      ownerType,
       entityId,
     );
     return this.prisma.photo.findMany({
-      where: { clientId, entityType, entityId },
+      where: { clientId, workFlowType: workFlowType as PhotoWorkflowType, subjectType: subjectType as PhotoSubjectType, entityType: ownerType, entityId },
       orderBy: { uploadedAt: 'asc' },
     });
   }
 
+  async listEntityPhotosLegacy(clientId: string, ownerType: PhotoEntityType, entityId: string, actor?: AuthUser) {
+    const workFlowType = legacyWorkflow(ownerType);
+    const subjectType = legacySubject(ownerType);
+    return this.listEntityPhotos(clientId, workFlowType, subjectType, entityId, actor);
+  }
+
   async upsertRequirement(
     clientId: string,
-    entityType: PhotoEntityType,
-    photoType: string,
-    input: { isRequired: boolean; sortOrder?: number },
-  ) {
-    if (entityType === PhotoEntityType.SUPPORT_TICKET)
-      throw new ForbiddenException(
-        'Support attachments use the support ticket routes.',
-      );
+    workFlowType: PhotoWorkflowType | PhotoEntityType,
+    subjectTypeOrPhotoType: string,
+    photoTypeOrInput: string | { isRequired: boolean; sortOrder?: number; featureCode?: string },
+    maybeInput?: { isRequired: boolean; sortOrder?: number; featureCode?: string },
+  ): Promise<Prisma.PhotoRequirementGetPayload<object>> {
+    if (typeof photoTypeOrInput !== 'string' && (Object.values(PhotoEntityType) as string[]).includes(workFlowType as string)) {
+      const ownerType = workFlowType as PhotoEntityType;
+      const resolvedWorkflow = legacyWorkflow(ownerType);
+      const subjectType = legacySubject(ownerType);
+      if (typeof photoTypeOrInput === 'string') return this.upsertRequirement(clientId, resolvedWorkflow, subjectType, subjectTypeOrPhotoType, maybeInput ?? { isRequired: true });
+      return this.upsertRequirement(clientId, resolvedWorkflow, subjectType, subjectTypeOrPhotoType, photoTypeOrInput);
+    }
+    const resolvedWorkflow = workFlowType as PhotoWorkflowType;
+    const subjectType = typeof photoTypeOrInput === 'string' ? subjectTypeOrPhotoType : resolvedWorkflow === PhotoWorkflowType.FLEET_MANAGEMENT ? 'FLEET' : resolvedWorkflow === PhotoWorkflowType.RIDER_MANAGEMENT ? 'PROFILE' : 'INSPECTION';
+    const photoType = typeof photoTypeOrInput === 'string' ? photoTypeOrInput : subjectTypeOrPhotoType;
+    const input = (typeof photoTypeOrInput === 'string' ? maybeInput : photoTypeOrInput)!;
+    if (resolvedWorkflow === PhotoWorkflowType.SUPPORT) throw new ForbiddenException('Support attachments use the support ticket routes.');
+    assertWorkflowSubject(resolvedWorkflow, subjectType as PhotoSubjectType);
     return this.prisma.photoRequirement.upsert({
       where: {
-        clientId_entityType_photoType: { clientId, entityType, photoType },
+        clientId_workFlowType_subjectType_photoType: { clientId, workFlowType: resolvedWorkflow, subjectType: subjectType as PhotoSubjectType, photoType: photoType as PhotoType },
       },
       create: {
         clientId,
-        entityType,
-        photoType,
+        workFlowType: resolvedWorkflow,
+        subjectType: subjectType as PhotoSubjectType,
+        photoType: photoType as PhotoType,
+        featureCode: input.featureCode ?? null,
         isRequired: input.isRequired,
         sortOrder: input.sortOrder ?? 0,
       },
       update: {
         isRequired: input.isRequired,
+        featureCode: input.featureCode ?? null,
         ...(input.sortOrder === undefined
           ? {}
           : { sortOrder: input.sortOrder }),
       },
     });
+  }
+
+  async upsertRequirementLegacy(clientId: string, ownerType: PhotoEntityType, photoType: string, input: { isRequired: boolean; sortOrder?: number; featureCode?: string }) {
+    if (ownerType === PhotoEntityType.SUPPORT_TICKET) throw new ForbiddenException('Support attachments use the support ticket routes.');
+    const workFlowType = legacyWorkflow(ownerType);
+    const subjectType = legacySubject(ownerType);
+    return this.upsertRequirement(clientId, workFlowType, subjectType, photoType, input);
   }
 
   async complete(clientId: string, photoId: string) {

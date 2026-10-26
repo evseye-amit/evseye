@@ -22,7 +22,6 @@ enum OtpPurpose {
   LOGIN
   HANDOVER_RIDER
   HANDOVER_OPERATOR
-  RETURN_PENALTY_APPROVAL
 }
 
 enum OtpStatus {
@@ -115,6 +114,78 @@ enum PhotoEntityType {
   PAYMENT_COLLECTION
   PAYMENT_AUTOPAY
   PAYMENT_RECEIVED
+}
+
+enum PhotoWorkflowType {
+  FLEET_MANAGEMENT
+  PREPARATION
+  ALLOTMENT
+  SUBMISSION
+  RIDER_MANAGEMENT
+  RIDER_ONBOARDING
+  SUPPORT
+  PAYMENT
+}
+
+enum PhotoSubjectType {
+  FLEET
+  BATTERY
+  CONTROLLER
+  IOT_DEVICE
+  PREPARATION
+  INSTALLATION
+  INSPECTION
+  PROFILE
+  RIDER_DOCUMENT
+  PAN
+  AADHAR
+  ONBOARDING_FEES
+  SUPPORT_TICKET
+  DEPLOYMENT
+  COLLECTION
+  AUTOPAY
+  RECEIVED
+  OTHER
+}
+
+enum PhotoType {
+  FRONT
+  BACK
+  LEFT
+  RIGHT
+  REAR
+  BODY
+  LABEL
+  CHASSIS
+  DASHBOARD
+  INSTALLATION
+  EVIDENCE
+  DOCUMENT
+  PROFILE
+  RECEIPT
+  RETURN_CHECKLIST
+  DAMAGE
+  DAMAGE_CLOSEUP
+  VEHICLE_FRONT
+  VEHICLE_LEFT
+  VEHICLE_RIGHT
+  VEHICLE_REAR
+  FLEET_FRONT
+  FLEET_LEFT
+  FLEET_RIGHT
+  FLEET_BACK
+  BATTERY_BODY
+  BATTERY_LABEL
+  CONTROLLER_BODY
+  CONTROLLER_LABEL
+  IOT_BODY
+  IOT_LABEL
+  FLEET_WITH_RIDER
+  RIDER_DECLARATION
+  PDI_VOICE
+  PAYMENT_RECEIPT
+  PENALTY_DAMAGE
+  OTHER
 }
 
 enum RiderDocumentReviewStatus {
@@ -3774,9 +3845,11 @@ model Photo {
   id                      String                   @id @default(uuid())
   clientId                String
   client                  Client                   @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  workFlowType            PhotoWorkflowType
+  subjectType             PhotoSubjectType
   entityType              PhotoEntityType
   entityId                String
-  photoType               String
+  photoType               PhotoType
   objectKey               String                   @unique
   mimeType                String
   sizeBytes               Int
@@ -3787,6 +3860,7 @@ model Photo {
   updatedAt               DateTime                 @updatedAt
   riderOnboardingDocument RiderOnboardingDocument?
 
+  @@index([clientId, workFlowType, subjectType, entityId])
   @@index([clientId, entityType, entityId])
   @@index([clientId, status])
 }
@@ -3820,15 +3894,17 @@ model RiderOnboardingDocument {
 model PhotoRequirement {
   id         String          @id @default(uuid())
   clientId   String
-  entityType PhotoEntityType
-  photoType  String
-  isRequired Boolean         @default(true)
-  sortOrder  Int             @default(0)
-  createdAt  DateTime        @default(now())
-  updatedAt  DateTime        @updatedAt
+  workFlowType PhotoWorkflowType
+  subjectType  PhotoSubjectType
+  photoType    PhotoType
+  featureCode  String?           @db.VarChar(100)
+  isRequired   Boolean           @default(true)
+  sortOrder    Int               @default(0)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
 
-  @@unique([clientId, entityType, photoType])
-  @@index([clientId, entityType, sortOrder])
+  @@unique([clientId, workFlowType, subjectType, photoType])
+  @@index([clientId, workFlowType, subjectType, sortOrder])
 }
 
 model Session {
@@ -4848,16 +4924,9 @@ model ReturnPenaltyCase {
   status                 String               @default("DRAFT") @db.VarChar(40)
   submittedAt            DateTime?
   submittedById          String?
-  riderApprovedRevision  Int?
-  riderApprovedAt        DateTime?
-  riderApprovalOtpRequestId String?
   riderDisputedRevision  Int?
   riderDisputedAt        DateTime?
   riderDisputeReason     String?              @db.VarChar(500)
-  adminOverrideRevision  Int?
-  adminOverrideAt        DateTime?
-  adminOverrideById      String?
-  adminOverrideReason    String?              @db.VarChar(500)
   managerApprovedRevision Int?
   managerApprovedAt      DateTime?
   managerApprovedById    String?

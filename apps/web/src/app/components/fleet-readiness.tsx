@@ -97,6 +97,7 @@ type Revision = {
   reviewedAt: string | null;
 };
 type Photo = { id: string; entityId: string; photoType: string };
+const PHOTO_TYPE_OPTIONS = ["FRONT", "BACK", "LEFT", "RIGHT", "REAR", "BODY", "LABEL", "CHASSIS", "DASHBOARD", "INSTALLATION", "EVIDENCE", "DOCUMENT", "PROFILE", "RECEIPT", "RETURN_CHECKLIST", "DAMAGE", "DAMAGE_CLOSEUP", "VEHICLE_FRONT", "VEHICLE_LEFT", "VEHICLE_RIGHT", "VEHICLE_REAR", "FLEET_FRONT", "FLEET_LEFT", "FLEET_RIGHT", "FLEET_BACK", "BATTERY_BODY", "BATTERY_LABEL", "CONTROLLER_BODY", "CONTROLLER_LABEL", "IOT_BODY", "IOT_LABEL", "FLEET_WITH_RIDER", "RIDER_DECLARATION", "PDI_VOICE", "PAYMENT_RECEIPT", "PENALTY_DAMAGE", "OTHER"];
 type Detail = Row & {
   stages: Array<{
     id: string;
@@ -776,19 +777,10 @@ function FleetReadinessManager({
             </button>
           </div>
           <label>
-            Required photos (comma separated; component photos are added
-            automatically)
-            <input
-              value={config.photoTypes.join(",")}
-              onChange={(e) =>
-                setConfig({
-                  photoTypes: e.target.value
-                    .toUpperCase()
-                    .split(",")
-                    .map((s) => s.trim()),
-                })
-              }
-            />
+            Required photos (component photos are added automatically)
+            <select multiple value={config.photoTypes} onChange={(e) => setConfig({ photoTypes: Array.from(e.target.selectedOptions, (option) => option.value) })}>
+              {PHOTO_TYPE_OPTIONS.map((photoType) => <option key={photoType} value={photoType}>{photoType.replaceAll("_", " ")}</option>)}
+            </select>
           </label>
           </fieldset>}
           <label>

@@ -1,6 +1,16 @@
 import { BadRequestException } from '@nestjs/common';
 import { z } from 'zod';
 
+export const PHOTO_TYPE_VALUES = [
+  'FRONT', 'BACK', 'LEFT', 'RIGHT', 'REAR', 'BODY', 'LABEL', 'CHASSIS',
+  'DASHBOARD', 'INSTALLATION', 'EVIDENCE', 'DOCUMENT', 'PROFILE', 'RECEIPT',
+  'RETURN_CHECKLIST', 'DAMAGE', 'DAMAGE_CLOSEUP', 'VEHICLE_FRONT', 'VEHICLE_LEFT',
+  'VEHICLE_RIGHT', 'VEHICLE_REAR', 'FLEET_FRONT', 'FLEET_LEFT', 'FLEET_RIGHT', 'FLEET_BACK', 'BATTERY_BODY', 'BATTERY_LABEL',
+  'CONTROLLER_BODY', 'CONTROLLER_LABEL', 'IOT_BODY', 'IOT_LABEL',
+  'FLEET_WITH_RIDER', 'RIDER_DECLARATION', 'PDI_VOICE', 'PAYMENT_RECEIPT', 'PENALTY_DAMAGE', 'OTHER',
+] as const;
+const photoTypeSchema = z.enum(PHOTO_TYPE_VALUES);
+
 export const items = [
   ['IDENTITY', 'Vehicle/chassis, model and hub match'],
   ['COMPONENTS', 'Installed components and serial numbers match'],
@@ -39,7 +49,7 @@ export const stageDefinitionSchema = z
       .min(1)
       .max(40),
     photoTypes: z
-      .array(z.string().regex(/^[A-Z0-9_]{1,60}$/))
+      .array(photoTypeSchema)
       .min(1)
       .max(20),
   })
@@ -70,7 +80,7 @@ export const defaultStages: StageDefinition[] = [
         allowNA: false,
       },
     ],
-    photoTypes: ['FRONT', 'CHASSIS'],
+    photoTypes: ['FRONT', 'CHASSIS'] as StageDefinition['photoTypes'],
   },
   ...(['BATTERY', 'CONTROLLER'] as const).map((component) => ({
     code: component,
@@ -91,7 +101,7 @@ export const defaultStages: StageDefinition[] = [
         allowNA: false,
       },
     ],
-    photoTypes: ['INSTALLATION', 'LABEL'],
+    photoTypes: ['INSTALLATION', 'LABEL'] as StageDefinition['photoTypes'],
   })),
 ];
 export function validateStages(stages: StageDefinition[]) {
@@ -163,7 +173,7 @@ export const policySchema = z
       .min(1)
       .max(80),
     photoTypes: z
-      .array(z.string().regex(/^[A-Z0-9_]{1,60}$/))
+      .array(photoTypeSchema)
       .min(1)
       .max(40),
   })
@@ -213,7 +223,7 @@ export const policySchema = z
           code: 'custom',
           message: `Required safety check cannot be removed: ${required.code}`,
         });
-    for (const photo of ['FRONT', 'REAR', 'LEFT', 'RIGHT', 'DASHBOARD'])
+    for (const photo of ['FRONT', 'REAR', 'LEFT', 'RIGHT', 'DASHBOARD'] as const)
       if (!value.photoTypes.includes(photo))
         ctx.addIssue({
           code: 'custom',
@@ -352,7 +362,19 @@ export const resultSchema = z.record(
     .strict(),
 );
 export function parse<T>(schema: z.ZodType<T>, value: unknown): T {
-  const result = schema.safeParse(value);
+  const allowedPhotoTypes = new Set<string>(PHOTO_TYPE_VALUES);
+  const normalize = (item: unknown): unknown => {
+    if (Array.isArray(item)) return item.map(normalize);
+    if (!item || typeof item !== 'object') return item;
+    return Object.fromEntries(Object.entries(item).map(([key, child]) => {
+      if (key === 'photoTypes' && Array.isArray(child)) {
+        const values = child.map((photoType) => typeof photoType === 'string' && allowedPhotoTypes.has(photoType) ? photoType : 'OTHER');
+        return [key, [...new Set(values)]];
+      }
+      return [key, normalize(child)];
+    }));
+  };
+  const result = schema.safeParse(normalize(value));
   if (!result.success)
     throw new BadRequestException({
       message: result.error.issues
