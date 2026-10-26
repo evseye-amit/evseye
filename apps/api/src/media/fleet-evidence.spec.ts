@@ -83,7 +83,7 @@ describe('Fleet evidence', () => {
     ]) {
       expect(Reflect.getMetadata(ROLES_KEY, handler)).toEqual([
         UserRole.CLIENT_ADMIN,
-        UserRole.OPERATIONS_MANAGER,
+        UserRole.FLEET_MANAGER,
       ]);
     }
   });

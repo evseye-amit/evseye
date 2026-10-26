@@ -61,7 +61,7 @@ describe('Dedicated Advisor and QC staff', () => {
     },
   );
 
-  it.each(['ADVISOR', 'QC_MANAGER', 'RFD_MANAGER'])(
+  it.each(['ADVISOR', 'QC_MANAGER'])(
     'blocks dedicated %s creation in Simple mode without changing any users',
     async (role) => {
       const { db, service } = fixture('SIMPLE');
@@ -90,7 +90,7 @@ describe('Dedicated Advisor and QC staff', () => {
     await expect(
       service.createStaff(
         'client-a',
-        { ...admin, roles: ['OPERATIONS_MANAGER'] },
+        { ...admin, roles: ['FLEET_MANAGER'] },
         { name: 'Staff', mobile: '+919000000001', role: 'ADVISOR' },
       ),
     ).rejects.toThrow('Client Admin permission');
@@ -108,7 +108,6 @@ describe('Dedicated Advisor and QC staff', () => {
           role: {
             in: expect.arrayContaining([
               'ADVISOR',
-              'RFD_MANAGER',
               'QC_MANAGER',
               'CLIENT_ADMIN',
               'FLEET_MANAGER',

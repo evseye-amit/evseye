@@ -13,7 +13,7 @@ beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-12T00:
 afterEach(() => vi.useRealTimers());
 
 const D = (value: string) => new Prisma.Decimal(value);
-const ops: AuthUser = { id: 'ops-1', clientId: 'client-a', roles: [UserRole.OPERATIONS_MANAGER] };
+const ops: AuthUser = { id: 'ops-1', clientId: 'client-a', roles: [UserRole.FLEET_MANAGER] };
 const riderUser: AuthUser = { id: 'rider-user-1', clientId: 'client-a', roles: [UserRole.RIDER] };
 
 function setup() {
@@ -766,7 +766,7 @@ describe('RideReturnsService legacy return adapter', () => {
 
     expect(receive).toHaveBeenCalledWith(
       'client-a',
-      { id: 'ops-1', clientId: 'client-a', roles: [UserRole.OPERATIONS_MANAGER] },
+      { id: 'ops-1', clientId: 'client-a', roles: [UserRole.FLEET_MANAGER] },
       'return-1',
       { receivedHubId: 'hub-received' },
     );

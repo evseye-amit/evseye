@@ -34,7 +34,7 @@ export class ExchangeHubGuard implements CanActivate {
       actor.roles.some(
         (role) =>
           role === UserRole.CLIENT_ADMIN ||
-          role === UserRole.OPERATIONS_MANAGER,
+          role === UserRole.FLEET_MANAGER,
       )
     )
       return true;

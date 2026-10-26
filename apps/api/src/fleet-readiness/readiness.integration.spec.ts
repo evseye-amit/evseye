@@ -54,7 +54,7 @@ describe.skipIf(!url)('Preparation + QC lifecycle in PostgreSQL', () => {
         data: { clientId: client.id, name: role, mobile, role },
       });
     const admin = await createUser('CLIENT_ADMIN', '+919000000001');
-    const rfd = await createUser('RFD_MANAGER', '+919000000002');
+    const rfd = await createUser('ADVISOR', '+919000000002');
     const qc = await createUser('QC_MANAGER', '+919000000003');
     const manager = await createUser('FLEET_MANAGER', '+919000000004');
     const secondQc = await createUser('QC_MANAGER', '+919000000005');

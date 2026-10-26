@@ -11,7 +11,7 @@ import { RiderWalletOperationsService } from './rider-wallet.service.js';
 
 @Controller('riders/:riderId/wallet')
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+@Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
 export class RiderWalletOperationsController {
   constructor(private readonly wallet: RiderWalletOperationsService, private readonly clients: ClientContextService) {}
   @Get()

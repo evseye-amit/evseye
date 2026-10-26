@@ -36,7 +36,6 @@ import { StartFleetTransferDto } from './dto/start-fleet-transfer.dto.js';
 @FleetActionResource('fleet')
 @Roles(
   UserRole.CLIENT_ADMIN,
-  UserRole.OPERATIONS_MANAGER,
   UserRole.FLEET_MANAGER,
 )
 export class FleetsController {

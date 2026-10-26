@@ -37,7 +37,7 @@ export class MediaController {
   ) {}
 
   @Get('fleets/:fleetId/evidence')
-  @Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+  @Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
   async fleetEvidence(
     @CurrentUser() user: AuthUser,
     @Param('fleetId', ParseUUIDPipe) fleetId: string,
@@ -51,7 +51,7 @@ export class MediaController {
   }
 
   @Get('fleets/:fleetId/evidence/:photoId/content')
-  @Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+  @Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
   @Header('Cache-Control', 'private, no-store')
   @Header('X-Content-Type-Options', 'nosniff')
   async fleetEvidenceContent(
@@ -74,7 +74,6 @@ export class MediaController {
   @Get('photo-requirements')
   @Roles(
     UserRole.CLIENT_ADMIN,
-    UserRole.OPERATIONS_MANAGER,
     UserRole.FLEET_MANAGER,
     UserRole.KYC_OPERATOR,
   )
@@ -93,7 +92,6 @@ export class MediaController {
   @Get('photos')
   @Roles(
     UserRole.CLIENT_ADMIN,
-    UserRole.OPERATIONS_MANAGER,
     UserRole.FLEET_MANAGER,
     UserRole.KYC_OPERATOR,
   )
@@ -140,7 +138,6 @@ export class MediaController {
   @Post('upload-intents')
   @Roles(
     UserRole.CLIENT_ADMIN,
-    UserRole.OPERATIONS_MANAGER,
     UserRole.FLEET_MANAGER,
     UserRole.KYC_OPERATOR,
   )
@@ -160,7 +157,6 @@ export class MediaController {
   @Post(':id/complete')
   @Roles(
     UserRole.CLIENT_ADMIN,
-    UserRole.OPERATIONS_MANAGER,
     UserRole.FLEET_MANAGER,
     UserRole.KYC_OPERATOR,
   )
@@ -187,7 +183,6 @@ export class MediaController {
   @Get(':id/download-url')
   @Roles(
     UserRole.CLIENT_ADMIN,
-    UserRole.OPERATIONS_MANAGER,
     UserRole.FLEET_MANAGER,
     UserRole.KYC_OPERATOR,
   )

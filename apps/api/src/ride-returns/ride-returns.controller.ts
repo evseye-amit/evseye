@@ -33,7 +33,7 @@ import {
 } from './dto/ride-return.dto.js';
 import { RideReturnsService } from './ride-returns.service.js';
 
-const clientRoles = [UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER, UserRole.FLEET_MANAGER];
+const clientRoles = [UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER];
 
 @Controller('client/ride-returns')
 @ApiTags('Client Operations · Ride Returns')

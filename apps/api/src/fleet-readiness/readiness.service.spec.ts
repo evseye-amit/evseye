@@ -158,7 +158,7 @@ describe('FleetReadinessService status history', () => {
     vi.spyOn(service, 'access').mockResolvedValue(undefined);
     vi.spyOn(service, 'event').mockResolvedValue(undefined);
 
-    await service.start('client-1', actor('rfd-1', 'RFD_MANAGER'), fleet.id);
+    await service.start('client-1', actor('rfd-1', 'ADVISOR'), fleet.id);
 
     expect(tx.fleet.update).toHaveBeenCalledWith({
       where: { id: fleet.id },

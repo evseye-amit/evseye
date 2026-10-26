@@ -512,7 +512,7 @@ export class MediaService {
       !actor.roles.some(
         (role) =>
           role === UserRole.CLIENT_ADMIN ||
-          role === UserRole.OPERATIONS_MANAGER ||
+          role === UserRole.FLEET_MANAGER ||
           role === UserRole.KYC_OPERATOR,
       ),
     );

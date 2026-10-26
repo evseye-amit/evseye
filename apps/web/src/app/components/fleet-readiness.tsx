@@ -227,7 +227,7 @@ function FleetReadinessManager({
   const staffView = view === "advisors" || view === "qc-managers";
   const staffRole = view === "qc-managers" ? "QC_MANAGER" : "ADVISOR";
   const staffTitle = view === "qc-managers" ? "QC Manager" : "Advisors";
-  const staffLabel = (role: string) => ["ADVISOR", "RFD_MANAGER"].includes(role) ? "Advisor" : role === "QC_MANAGER" ? "QC Manager" : label(role);
+  const staffLabel = (role: string) => ["ADVISOR"].includes(role) ? "Advisor" : role === "QC_MANAGER" ? "QC Manager" : label(role);
   const [showCreateStaff, setShowCreateStaff] = useState(false);
   const [context, setContext] = useState<Context | null>(null),
     [policy, setPolicy] = useState<Policy | null>(null);
@@ -492,7 +492,7 @@ function FleetReadinessManager({
       setImpact(null);
     }
   };
-  const staffUsers = staff?.users.filter((user) => view === "advisors" ? ["ADVISOR", "RFD_MANAGER"].includes(user.role) : user.role === "QC_MANAGER") ?? [];
+  const staffUsers = staff?.users.filter((user) => view === "advisors" ? ["ADVISOR"].includes(user.role) : user.role === "QC_MANAGER") ?? [];
   const selectStaff = (id: string) => requestNavigation(() => {
     setSelectedUser(id);
     setGrants(staff?.hubs.map((h) => staff.assignments.find((a) => a.userId === id && a.hubId === h.id) ?? {

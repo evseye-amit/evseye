@@ -19,7 +19,7 @@ import { RiderRateCardsService } from './rider-rate-cards.service.js';
 
 @Controller('rider-rate-cards')
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+@Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
 export class RiderRateCardsController {
   @Post('preview') preview(
     @CurrentUser() user: AuthUser,

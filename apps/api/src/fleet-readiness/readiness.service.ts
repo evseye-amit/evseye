@@ -34,10 +34,8 @@ type Tx = Prisma.TransactionClient;
 const closed = ['APPROVED', 'INVALIDATED', 'CANCELLED'];
 const actionableRoles = [
   'CLIENT_ADMIN',
-  'OPERATIONS_MANAGER',
   'FLEET_MANAGER',
   'ADVISOR',
-  'RFD_MANAGER',
   'QC_MANAGER',
 ];
 const json = (value: unknown) =>
@@ -71,7 +69,7 @@ export class FleetReadinessService {
   ) {}
   all(actor: AuthUser) {
     return actor.roles.some((role) =>
-      ['CLIENT_ADMIN', 'OPERATIONS_MANAGER'].includes(role),
+      ['CLIENT_ADMIN', 'FLEET_MANAGER'].includes(role),
     );
   }
   private admin(actor: AuthUser) {
@@ -438,7 +436,7 @@ export class FleetReadinessService {
         .object({
           name: z.string().trim().min(1).max(100),
           mobile: z.string().regex(/^\+91[6-9]\d{9}$/),
-          role: z.enum(['ADVISOR', 'RFD_MANAGER', 'QC_MANAGER']),
+          role: z.enum(['ADVISOR', 'QC_MANAGER']),
         })
         .strict(),
       input,
@@ -522,7 +520,7 @@ export class FleetReadinessService {
       });
       if (!user)
         throw new NotFoundException('Active operations user not found.');
-      if (['ADVISOR', 'RFD_MANAGER', 'QC_MANAGER'].includes(user.role)) {
+      if (['ADVISOR', 'QC_MANAGER'].includes(user.role)) {
         const client = await tx.client.findUniqueOrThrow({ where: { id: clientId }, select: { fleetOperatingMode: true } });
         if (client.fleetOperatingMode === 'SIMPLE') throw new ForbiddenException('Dedicated staff permissions are unavailable in Simple mode.');
       }

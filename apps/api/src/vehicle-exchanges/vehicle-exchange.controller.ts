@@ -23,13 +23,12 @@ import { VehicleExchangeService } from './vehicle-exchange.service.js';
 
 const exchangeStaff = [
   UserRole.CLIENT_ADMIN,
-  UserRole.OPERATIONS_MANAGER,
   UserRole.FLEET_MANAGER,
 ];
 
 @Controller('vehicle-exchanges')
 @UseGuards(AccessTokenGuard, RolesGuard, ExchangeHubGuard)
-@Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+@Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
 export class VehicleExchangeController {
   constructor(
     private readonly exchanges: VehicleExchangeService,

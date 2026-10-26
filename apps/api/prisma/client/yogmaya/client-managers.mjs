@@ -1,5 +1,5 @@
 // Source of truth: 2 Fleet Manager, Team Lead, and Cluster Manager records exported from the local development database on 2026-09-21.
-// Cluster Manager uses the OPERATIONS_MANAGER role in the current schema. Hub assignments are applied when the referenced client hub has been seeded.
+// Cluster Manager uses the FLEET_MANAGER role in the current schema. Hub assignments are applied when the referenced client hub has been seeded.
 
 export const clientManagerCatalog = [
   {

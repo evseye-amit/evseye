@@ -79,7 +79,7 @@ describe('Fleet Manager exchange access', () => {
         VehicleExchangeController.prototype[method] as never,
       );
       expect(guard.canActivate(ctx)).toBe(true);
-      for (const role of [UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER]) {
+      for (const role of [UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER]) {
         f.request.user.roles = [role];
         expect(guard.canActivate(ctx)).toBe(true);
       }
@@ -191,7 +191,7 @@ describe('Fleet Manager exchange access', () => {
     );
   });
   it('retains client-wide access for existing admin and operations roles', async () => {
-    for (const role of [UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER]) {
+    for (const role of [UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER]) {
       const f = fixture();
       f.request.user.roles = [UserRole.FLEET_MANAGER, role];
       expect(await f.guard.canActivate(context(f.request))).toBe(true);

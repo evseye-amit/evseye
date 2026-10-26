@@ -31,7 +31,7 @@ describe('InspectionsService', () => {
       service.complete('client-a', 'inspection-1', {
         id: 'operator-1',
         clientId: 'client-a',
-        roles: [UserRole.OPERATIONS_MANAGER],
+        roles: [UserRole.FLEET_MANAGER],
       }),
     ).rejects.toMatchObject({
       response: {
@@ -66,7 +66,7 @@ describe('InspectionsService', () => {
       service.complete('client-a', 'inspection-1', {
         id: 'operator-1',
         clientId: 'client-a',
-        roles: [UserRole.OPERATIONS_MANAGER],
+        roles: [UserRole.FLEET_MANAGER],
       }),
     ).rejects.toThrow('Inspection has already been completed.');
   });
@@ -94,7 +94,7 @@ describe('InspectionsService', () => {
         {
           id: 'operator-1',
           clientId: 'client-a',
-          roles: [UserRole.OPERATIONS_MANAGER],
+          roles: [UserRole.FLEET_MANAGER],
         },
         { safeForReuse: false } as never,
       ),
@@ -147,7 +147,7 @@ describe('InspectionsService', () => {
       service.complete('client-a', 'inspection-1', {
         id: 'operator-1',
         clientId: 'client-a',
-        roles: [UserRole.OPERATIONS_MANAGER],
+        roles: [UserRole.FLEET_MANAGER],
       }, {
         safeForReuse: true,
       }),

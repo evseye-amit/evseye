@@ -25,7 +25,7 @@ export class SupportService {
   private fleetScoped(user: AuthUser) {
     return (
       user.roles.includes(UserRole.FLEET_MANAGER) &&
-      !user.roles.some((role) => role === UserRole.CLIENT_ADMIN || role === UserRole.OPERATIONS_MANAGER)
+      !user.roles.some((role) => role === UserRole.CLIENT_ADMIN || role === UserRole.FLEET_MANAGER)
     );
   }
 

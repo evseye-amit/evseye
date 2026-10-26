@@ -24,7 +24,7 @@ function createService() {
         clientId: 'client-1',
         mobile: '+919999999999',
         name: 'Operations User',
-        role: UserRole.OPERATIONS_MANAGER,
+        role: UserRole.FLEET_MANAGER,
         isActive: true,
       }),
     },
@@ -229,7 +229,7 @@ describe('AuthService', () => {
         'client-1',
         '+919999999999',
         'allocation-1',
-        OtpPurpose.DEALLOCATION_RIDER,
+        OtpPurpose.HANDOVER_RIDER,
       ),
     ).rejects.toThrow('Please wait before requesting another OTP.');
 
@@ -238,7 +238,7 @@ describe('AuthService', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           context: { path: ['allocationId'], equals: 'allocation-1' },
-          purpose: OtpPurpose.DEALLOCATION_RIDER,
+          purpose: OtpPurpose.HANDOVER_RIDER,
         }),
       }),
     );
@@ -250,13 +250,13 @@ describe('AuthService', () => {
       'client-1',
       '+919999999999',
       'allocation-1',
-      OtpPurpose.DEALLOCATION_RIDER,
+      OtpPurpose.HANDOVER_RIDER,
     );
     const otpHash = prisma.otpRequest.create.mock.calls[0][0].data.otpHash;
     prisma.otpRequest.findFirst.mockResolvedValue({
       id: 'otp-1',
       clientId: 'client-1',
-      purpose: OtpPurpose.DEALLOCATION_RIDER,
+      purpose: OtpPurpose.HANDOVER_RIDER,
       phone: '+919999999999',
       otpHash,
       status: OtpStatus.PENDING,

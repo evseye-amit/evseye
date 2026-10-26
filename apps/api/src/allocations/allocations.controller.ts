@@ -26,7 +26,6 @@ import { VerifyDeallocationOtpDto } from './dto/verify-deallocation-otp.dto.js';
 @UseGuards(AccessTokenGuard, RolesGuard)
 @Roles(
   UserRole.CLIENT_ADMIN,
-  UserRole.OPERATIONS_MANAGER,
   UserRole.FLEET_MANAGER,
 )
 export class AllocationsController {
@@ -37,7 +36,7 @@ export class AllocationsController {
     private readonly clients: ClientContextService,
   ) {}
   private isHubScopedFleetManager(user: AuthUser) {
-    return user.roles.includes(UserRole.FLEET_MANAGER) && !user.roles.some((role) => role === UserRole.CLIENT_ADMIN || role === UserRole.OPERATIONS_MANAGER);
+    return user.roles.includes(UserRole.FLEET_MANAGER) && !user.roles.includes(UserRole.CLIENT_ADMIN);
   }
   @Get() async list(
     @CurrentUser() u: AuthUser,
@@ -136,8 +135,8 @@ export class AllocationsController {
         dto.phone,
         id,
         dto.party === 'RIDER'
-          ? OtpPurpose.DEALLOCATION_RIDER
-          : OtpPurpose.DEALLOCATION_OPERATOR,
+          ? OtpPurpose.HANDOVER_RIDER
+          : OtpPurpose.HANDOVER_OPERATOR,
       ),
     };
   }

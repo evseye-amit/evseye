@@ -37,7 +37,6 @@ export class RidersController {
   @Get()
   @Roles(
     UserRole.CLIENT_ADMIN,
-    UserRole.OPERATIONS_MANAGER,
     UserRole.FLEET_MANAGER,
     UserRole.KYC_OPERATOR,
   )
@@ -51,7 +50,7 @@ export class RidersController {
   }
 
   @Get('onboarding-configuration')
-  @Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+  @Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
   async onboardingConfiguration(@CurrentUser() user: AuthUser) {
     return {
       data: this.riderOnboardingConfiguration.toPublicConfiguration(
@@ -63,7 +62,7 @@ export class RidersController {
   }
 
   @Post()
-  @Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+  @Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
   async create(@CurrentUser() user: AuthUser, @Body() dto: CreateRiderDto) {
     const clientId = this.clientContext.requireClientId(user);
     const rider = await this.ridersService.create(clientId, dto);
@@ -78,7 +77,7 @@ export class RidersController {
     return { data: rider };
   }
   @Post('bulk')
-  @Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+  @Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
   async bulkCreate(@CurrentUser() user: AuthUser, @Body() dto: BulkRiderDto) {
     return {
       data: await this.ridersService.bulkCreate(
@@ -113,7 +112,6 @@ export class RidersController {
   @Get(':id')
   @Roles(
     UserRole.CLIENT_ADMIN,
-    UserRole.OPERATIONS_MANAGER,
     UserRole.FLEET_MANAGER,
     UserRole.KYC_OPERATOR,
   )
@@ -129,7 +127,7 @@ export class RidersController {
   @Patch(':id')
   @Roles(
     UserRole.CLIENT_ADMIN,
-    UserRole.OPERATIONS_MANAGER,
+    UserRole.FLEET_MANAGER,
     UserRole.KYC_OPERATOR,
   )
   async update(
@@ -153,7 +151,7 @@ export class RidersController {
     return { data: rider };
   }
   @Delete(':id')
-  @Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+  @Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
   async remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     const clientId = this.clientContext.requireClientId(user);
     const data = await this.ridersService.remove(clientId, id);

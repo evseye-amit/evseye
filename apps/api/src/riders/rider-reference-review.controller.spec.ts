@@ -14,7 +14,7 @@ describe('Rider reference review access', () => {
       const context = (role: UserRole) => ({ getHandler: () => RiderReferenceReviewController.prototype[handler],
         getClass: () => RiderReferenceReviewController,
         switchToHttp: () => ({ getRequest: () => ({ user: { roles: [role] } }) }) });
-      for (const role of [UserRole.FLEET_MANAGER, UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER, UserRole.KYC_OPERATOR])
+      for (const role of [UserRole.FLEET_MANAGER, UserRole.CLIENT_ADMIN, UserRole.KYC_OPERATOR])
         expect(guard.canActivate(context(role) as never)).toBe(true);
       expect(() => guard.canActivate(context(UserRole.RIDER) as never)).toThrow('You do not have permission');
     }

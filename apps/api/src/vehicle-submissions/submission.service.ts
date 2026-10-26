@@ -131,14 +131,14 @@ export class VehicleSubmissionService {
   ) {
     if (
       !actor.roles.some((role) =>
-        ['CLIENT_ADMIN', 'OPERATIONS_MANAGER', 'FLEET_MANAGER'].includes(role),
+        ['CLIENT_ADMIN', 'FLEET_MANAGER'].includes(role),
       )
     )
       throw new ForbiddenException('Staff access is required.');
     if (
       actor.roles.includes('FLEET_MANAGER') &&
       !actor.roles.some((role) =>
-        ['CLIENT_ADMIN', 'OPERATIONS_MANAGER'].includes(role),
+        ['CLIENT_ADMIN', 'FLEET_MANAGER'].includes(role),
       )
     ) {
       if (
@@ -190,14 +190,14 @@ export class VehicleSubmissionService {
   ) {
     if (
       !actor.roles.some((role) =>
-        ['CLIENT_ADMIN', 'OPERATIONS_MANAGER', 'FLEET_MANAGER'].includes(role),
+        ['CLIENT_ADMIN', 'FLEET_MANAGER'].includes(role),
       )
     )
       throw new ForbiddenException('Staff access is required.');
     const restricted =
       actor.roles.includes('FLEET_MANAGER') &&
       !actor.roles.some((role) =>
-        ['CLIENT_ADMIN', 'OPERATIONS_MANAGER'].includes(role),
+        ['CLIENT_ADMIN', 'FLEET_MANAGER'].includes(role),
       );
     const hubs = restricted
       ? await this.db.userHub.findMany({
@@ -1379,8 +1379,8 @@ export class VehicleSubmissionService {
             status: 'VERIFIED',
             purpose:
               party === 'RIDER'
-                ? 'VEHICLE_SUBMISSION_RIDER'
-                : 'VEHICLE_SUBMISSION_TEAM_LEAD',
+                ? 'HANDOVER_RIDER'
+                : 'HANDOVER_OPERATOR',
           },
         });
         const context = otp?.context as Record<string, unknown> | null;
@@ -1493,7 +1493,7 @@ export class VehicleSubmissionService {
         where: {
           clientId,
           purpose: {
-            in: ['VEHICLE_SUBMISSION_RIDER', 'VEHICLE_SUBMISSION_TEAM_LEAD'],
+            in: ['HANDOVER_RIDER', 'HANDOVER_OPERATOR'],
           },
           status: 'PENDING',
           context: { path: ['reportId'], equals: row.id },
@@ -1680,7 +1680,7 @@ export class VehicleSubmissionService {
           clientId,
           status: 'PENDING',
           purpose: {
-            in: ['VEHICLE_SUBMISSION_RIDER', 'VEHICLE_SUBMISSION_TEAM_LEAD'],
+            in: ['HANDOVER_RIDER', 'HANDOVER_OPERATOR'],
           },
           context: { path: ['reportId'], equals: reportId },
         },

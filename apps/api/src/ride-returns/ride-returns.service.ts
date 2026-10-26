@@ -131,7 +131,7 @@ export class RideReturnsService {
   private fleetScoped(user: AuthUser) {
     return (
       user.roles.includes(UserRole.FLEET_MANAGER) &&
-      !user.roles.some((role) => role === UserRole.CLIENT_ADMIN || role === UserRole.OPERATIONS_MANAGER)
+      !user.roles.includes(UserRole.CLIENT_ADMIN)
     );
   }
 
@@ -386,7 +386,7 @@ export class RideReturnsService {
     if (!allocation?.fleet.currentHubId) throw new ConflictException('RETURN_HUB_REQUIRED');
     return this.request(
       clientId,
-      { id: actorId, clientId, roles: [UserRole.OPERATIONS_MANAGER] },
+      { id: actorId, clientId, roles: [UserRole.FLEET_MANAGER] },
       {
         agreementId,
         riderId: agreement.riderId,
@@ -464,7 +464,7 @@ export class RideReturnsService {
     if (!receivedHubId) throw new ConflictException('RETURN_HUB_REQUIRED');
     return this.receive(
       clientId,
-      { id: actorId, clientId, roles: [UserRole.OPERATIONS_MANAGER] },
+      { id: actorId, clientId, roles: [UserRole.FLEET_MANAGER] },
       request.id,
       { receivedHubId },
     );
@@ -1029,8 +1029,8 @@ export class RideReturnsService {
   }
 
   async approvePenalties(clientId: string, actor: AuthUser, requestId: string) {
-    if (!actor.roles.some((role) => role === UserRole.FLEET_MANAGER || role === UserRole.OPERATIONS_MANAGER))
-      throw new ForbiddenException('Only a fleet or operations manager may approve penalties.');
+    if (!actor.roles.includes(UserRole.FLEET_MANAGER))
+      throw new ForbiddenException('Only a Fleet Manager may approve penalties.');
     await this.assertStaffReturnAccess(clientId, actor, requestId);
     return this.serializable(async (tx) => {
       const row = await tx.returnPenaltyCase.findFirst({ where: { clientId, terminationRequest: { id: requestId } } });

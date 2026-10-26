@@ -276,8 +276,8 @@ describe('deallocation completion safety gate', () => {
       },
       otpRequest: {
         findMany: vi.fn().mockResolvedValue([
-          { purpose: 'DEALLOCATION_RIDER', context: { allocationId: 'allocation-1' } },
-          { purpose: 'DEALLOCATION_OPERATOR', context: { allocationId: 'allocation-1' } },
+          { purpose: 'HANDOVER_RIDER', context: { allocationId: 'allocation-1' } },
+          { purpose: 'HANDOVER_OPERATOR', context: { allocationId: 'allocation-1' } },
         ]),
       },
       fleet: { update: vi.fn().mockResolvedValue({}) },

@@ -110,7 +110,7 @@ export class InspectionsService {
         actor.roles.includes(UserRole.FLEET_MANAGER) &&
         !actor.roles.some(
           (role) =>
-            role === UserRole.CLIENT_ADMIN || role === UserRole.OPERATIONS_MANAGER,
+            role === UserRole.CLIENT_ADMIN || role === UserRole.FLEET_MANAGER,
         )
       ) {
         const hubs = (

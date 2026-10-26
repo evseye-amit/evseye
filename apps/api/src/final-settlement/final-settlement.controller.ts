@@ -22,7 +22,7 @@ import { RideReturnsService } from '../ride-returns/ride-returns.service.js';
 
 @Controller('client/agreements/:agreementId')
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+@Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
 export class AgreementSettlementController {
   constructor(
     private readonly context: ClientContextService,
@@ -72,7 +72,7 @@ export class AgreementSettlementController {
 
 @Controller('client/settlements')
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+@Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
 export class FinalSettlementController {
   constructor(
     private readonly context: ClientContextService,
@@ -424,7 +424,7 @@ export class SettlementPolicyController {
 
 @Controller('client/riders/:riderId/financial-statement')
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+@Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
 export class OperationsFinancialStatementController {
   constructor(
     private readonly context: ClientContextService,

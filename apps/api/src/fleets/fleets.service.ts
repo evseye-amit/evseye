@@ -1293,7 +1293,7 @@ export class FleetsService {
         !actor.roles.some((role) =>
           [
             'CLIENT_ADMIN',
-            'OPERATIONS_MANAGER',
+            'FLEET_MANAGER',
           ].includes(role),
         )
       ) {

@@ -22,10 +22,8 @@ import { FleetReadinessService } from './readiness.service.js';
 @UseGuards(AccessTokenGuard, RolesGuard)
 @Roles(
   'CLIENT_ADMIN',
-  'OPERATIONS_MANAGER',
   'FLEET_MANAGER',
   'ADVISOR',
-  'RFD_MANAGER',
   'QC_MANAGER',
 )
 export class FleetReadinessController {

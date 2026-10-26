@@ -1354,7 +1354,7 @@ export class CollectionsService {
       where: {
         clientId,
         id: userId,
-        role: { in: ['CLIENT_ADMIN', 'OPERATIONS_MANAGER'] },
+        role: { in: ['CLIENT_ADMIN', 'FLEET_MANAGER'] },
         isActive: true,
         deletedAt: null,
       },
@@ -1717,7 +1717,7 @@ export class CollectionsService {
           id: input.assignedToId,
           isActive: true,
           deletedAt: null,
-          role: { in: ['CLIENT_ADMIN', 'OPERATIONS_MANAGER'] },
+          role: { in: ['CLIENT_ADMIN', 'FLEET_MANAGER'] },
         },
       });
       if (!assignee) fail('INVALID_COLLECTION_ASSIGNEE');

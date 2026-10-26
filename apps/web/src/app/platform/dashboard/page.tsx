@@ -4159,7 +4159,7 @@ function LegalDocumentsView({ token, refreshKey = 0 }: { token: string; refreshK
   }
 
   const kindOptions = ["TERMS_AND_CONDITIONS", "PRIVACY_POLICY", "PRIVACY_CONSENT"];
-  const roleOptions = ["RIDER", "FLEET_MANAGER", "TEAM_LEAD", "OPERATIONS_MANAGER", "CLIENT_ADMIN", "KYC_OPERATOR"];
+  const roleOptions = ["RIDER", "FLEET_MANAGER", "TEAM_LEAD", "ADVISOR", "QC_MANAGER", "CLIENT_ADMIN", "KYC_OPERATOR"];
   return (
     <section className="sa-legal-documents">
       <section className="sa-page-head">

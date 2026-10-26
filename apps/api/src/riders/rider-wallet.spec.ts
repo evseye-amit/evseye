@@ -9,7 +9,7 @@ import { RiderWalletTransactionsQueryDto } from './dto/rider-wallet.dto.js';
 
 describe('rider wallet read-only access', () => {
   it('limits access to financial staff and scopes both routes by authenticated client', async () => {
-    expect(Reflect.getMetadata(ROLES_KEY, RiderWalletOperationsController)).toEqual(['CLIENT_ADMIN', 'OPERATIONS_MANAGER']);
+    expect(Reflect.getMetadata(ROLES_KEY, RiderWalletOperationsController)).toEqual(['CLIENT_ADMIN', 'FLEET_MANAGER']);
     const balance = vi.fn(), transactions = vi.fn();
     const controller = new RiderWalletOperationsController({ balance, transactions } as never, { requireClientId: () => 'client-a' } as never);
     const actor = { id: 'admin', clientId: 'client-a', roles: ['CLIENT_ADMIN' as const] };

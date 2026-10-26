@@ -55,7 +55,7 @@ export class RiderCommercialTermsController {
 
 @Controller('rider-commercial-offers')
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+@Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
 export class RiderCommercialOffersController {
   constructor(
     private readonly lifecycle: CommercialLifecycleService,
@@ -219,7 +219,7 @@ export class RiderCommercialOffersAppController {
 
 @Controller('rider-rental-agreements')
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+@Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
 export class RiderRentalAgreementsController {
   constructor(
     private readonly lifecycle: CommercialLifecycleService,

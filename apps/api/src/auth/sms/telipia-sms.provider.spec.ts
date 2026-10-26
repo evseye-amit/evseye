@@ -43,7 +43,7 @@ describe('TelipiaSmsProvider', () => {
   it('requires a separate approved template for deallocation messages', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
-    await expect(provider().send({ phone: '9871675222', purpose: OtpPurpose.DEALLOCATION_RIDER, code: '123456' }))
+    await expect(provider().send({ phone: '9871675222', purpose: OtpPurpose.HANDOVER_RIDER, code: '123456' }))
       .rejects.toThrow('SMS delivery is not configured for this purpose');
     expect(fetchMock).not.toHaveBeenCalled();
   });

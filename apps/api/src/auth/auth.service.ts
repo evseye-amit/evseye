@@ -321,7 +321,7 @@ export class AuthService {
         clientId,
         status: OtpStatus.PENDING,
         purpose: {
-          in: [OtpPurpose.DEALLOCATION_RIDER, OtpPurpose.DEALLOCATION_OPERATOR],
+          in: [OtpPurpose.HANDOVER_RIDER, OtpPurpose.HANDOVER_OPERATOR],
         },
       },
     });
@@ -486,8 +486,8 @@ export class AuthService {
       );
     const purpose =
       party === "RIDER"
-        ? OtpPurpose.VEHICLE_SUBMISSION_RIDER
-        : OtpPurpose.VEHICLE_SUBMISSION_TEAM_LEAD;
+        ? OtpPurpose.HANDOVER_RIDER
+        : OtpPurpose.HANDOVER_OPERATOR;
     const recent = await this.prisma.otpRequest.findFirst({
       where: {
         clientId,
@@ -562,8 +562,8 @@ export class AuthService {
     const outcome = await this.serializable(async (tx) => {
       const purpose =
         expected.party === "RIDER"
-          ? OtpPurpose.VEHICLE_SUBMISSION_RIDER
-          : OtpPurpose.VEHICLE_SUBMISSION_TEAM_LEAD;
+          ? OtpPurpose.HANDOVER_RIDER
+          : OtpPurpose.HANDOVER_OPERATOR;
       const otp = await tx.otpRequest.findFirst({
         where: { id: requestId, clientId, purpose, status: "PENDING" },
       });

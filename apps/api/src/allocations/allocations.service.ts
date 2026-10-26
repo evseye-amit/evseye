@@ -376,7 +376,7 @@ export class AllocationsService {
         where: {
           clientId,
           status: 'VERIFIED',
-          purpose: { in: ['DEALLOCATION_RIDER', 'DEALLOCATION_OPERATOR'] },
+          purpose: { in: ['HANDOVER_RIDER', 'HANDOVER_OPERATOR'] },
         },
       });
       const purposes = new Set(
@@ -388,7 +388,7 @@ export class AllocationsService {
           )
           .map((otp) => otp.purpose),
       );
-      if (!purposes.has('DEALLOCATION_RIDER') || !purposes.has('DEALLOCATION_OPERATOR'))
+      if (!purposes.has('HANDOVER_RIDER') || !purposes.has('HANDOVER_OPERATOR'))
         throw new ConflictException('Both deallocation OTPs must be verified.');
     }
 

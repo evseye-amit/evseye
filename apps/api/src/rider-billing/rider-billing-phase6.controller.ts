@@ -63,7 +63,7 @@ class TaxRuleDto {
 
 @Controller('client/riders/:riderId/billing')
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+@Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
 export class RiderBillingPhase6Controller {
   constructor(private readonly clients: ClientContextService, private readonly prisma: PrismaService, private readonly engine: RiderBillingEngineService, private readonly payments: RiderPaymentsService, private readonly billing: RiderBillingService) {}
   @Get('reconciliation') async reconciliation(@CurrentUser() user: AuthUser, @Param('riderId') riderId: string) { return { data: await this.billing.reconcile(this.clients.requireClientId(user), riderId) }; }

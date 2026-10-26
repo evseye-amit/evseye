@@ -43,7 +43,7 @@ export class FleetManagerActionGuard implements CanActivate {
       ['GET', 'HEAD', 'OPTIONS'].includes(request.method) ||
       !actor?.roles.includes('FLEET_MANAGER') ||
       actor.roles.some(
-        (r) => r === 'CLIENT_ADMIN' || r === 'OPERATIONS_MANAGER',
+        (r) => r === 'CLIENT_ADMIN' || r === 'FLEET_MANAGER',
       )
     )
       return true;

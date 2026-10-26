@@ -12,7 +12,7 @@ import { RiderDocumentReviewService } from './rider-document-review.service.js';
 
 @Controller('rider-documents')
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER, UserRole.FLEET_MANAGER, UserRole.KYC_OPERATOR)
+@Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER, UserRole.KYC_OPERATOR)
 export class RiderDocumentReviewController {
   constructor(private readonly documents: RiderDocumentReviewService, private readonly clients: ClientContextService, private readonly audit: AuditService) {}
   @Get()

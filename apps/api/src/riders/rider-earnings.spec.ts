@@ -9,7 +9,7 @@ import { RiderEarningsQueryDto } from './dto/rider-earnings.dto.js';
 
 describe('rider earnings access and validation', () => {
   it('allows financial staff only and takes client scope from authentication', async () => {
-    expect(Reflect.getMetadata(ROLES_KEY, RiderEarningsController)).toEqual(['CLIENT_ADMIN', 'OPERATIONS_MANAGER']);
+    expect(Reflect.getMetadata(ROLES_KEY, RiderEarningsController)).toEqual(['CLIENT_ADMIN', 'FLEET_MANAGER']);
     const list = vi.fn().mockResolvedValue({ items: [] });
     const controller = new RiderEarningsController({ list } as never, { requireClientId: () => 'client-a' } as never);
     const query = new RiderEarningsQueryDto();

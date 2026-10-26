@@ -24,7 +24,6 @@ import { LocationsService } from './locations.service.js';
 @UseGuards(AccessTokenGuard, RolesGuard)
 @Roles(
   UserRole.CLIENT_ADMIN,
-  UserRole.OPERATIONS_MANAGER,
   UserRole.FLEET_MANAGER,
 )
 export class LocationsController {

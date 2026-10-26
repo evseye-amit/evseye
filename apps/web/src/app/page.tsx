@@ -772,9 +772,9 @@ function clientColumns(tab: Tab): ClientColumn<RecordItem>[] {
 }
 
 function canAccessTab(id: Tab, userRoles: string[]) {
-    if (userRoles.some(role => ["ADVISOR","RFD_MANAGER","QC_MANAGER"].includes(role))) return ["installation-board","vehicle-preparation","quality-check"].includes(id);
+    if (userRoles.some(role => ["ADVISOR","QC_MANAGER"].includes(role))) return ["installation-board","vehicle-preparation","quality-check"].includes(id);
     if (["audit","payment-transactions","spares-penalties","legal-documents","refer-and-earn","readiness-settings","work-partners"].includes(id)) return userRoles.includes("CLIENT_ADMIN");
-    if (["notifications","advisors","qc-managers"].includes(id)) return userRoles.some(role => ["CLIENT_ADMIN","OPERATIONS_MANAGER"].includes(role));
+    if (["notifications","advisors","qc-managers"].includes(id)) return userRoles.some(role => ["CLIENT_ADMIN","FLEET_MANAGER"].includes(role));
     return true;
 }
 
@@ -1057,7 +1057,7 @@ export default function Home() {
       const original = new URLSearchParams(window.location.search).get("tab") ?? "dashboard";
       const fleetId = new URLSearchParams(window.location.search).get("fleetId") ?? "";
       const requested = original === "readiness-staff" ? "advisors" : original;
-      const fallback: Tab = userRoles.some((role) => ["ADVISOR", "RFD_MANAGER"].includes(role)) ? "vehicle-preparation" : userRoles.includes("QC_MANAGER") ? "quality-check" : "dashboard";
+      const fallback: Tab = userRoles.some((role) => ["ADVISOR"].includes(role)) ? "vehicle-preparation" : userRoles.includes("QC_MANAGER") ? "quality-check" : "dashboard";
       if (!Object.hasOwn(CLIENT_TAB_TITLES, requested)) return { tab: fallback, fleetId: "", error: "This page does not exist. Choose a section from the menu." };
       if (!canAccessTab(requested as Tab, userRoles)) return { tab: fallback, fleetId: "", error: "You do not have access to the requested section." };
       return { tab: requested as Tab, fleetId: requested === "vehicle-preparation" ? fleetId : "", error: "" };
@@ -2388,7 +2388,7 @@ export default function Home() {
         {tab === "installation-board" && <InstallationBoard refreshKey={panelRefreshKey} />}
         {["vehicle-preparation","quality-check","readiness-settings","advisors","qc-managers"].includes(tab) && <FleetReadiness refreshKey={panelRefreshKey} key={`${tab}:${readinessFleetId}`} fleetId={tab === "vehicle-preparation" ? readinessFleetId : undefined} onBack={() => navigateTo("fleets")} onOpenPreparation={() => navigateTo("vehicle-preparation")} view={tab === "quality-check" ? "qc" : tab === "readiness-settings" ? "settings" : tab === "advisors" ? "advisors" : tab === "qc-managers" ? "qc-managers" : "preparation"} />}
         {tab === "support-tickets" && <SupportTickets refreshKey={panelRefreshKey} />}
-        {tab === "notifications" && userRoles.some((role) => ["CLIENT_ADMIN", "OPERATIONS_MANAGER"].includes(role)) && <ClientNotifications refreshKey={panelRefreshKey} />}
+        {tab === "notifications" && userRoles.some((role) => ["CLIENT_ADMIN", "FLEET_MANAGER"].includes(role)) && <ClientNotifications refreshKey={panelRefreshKey} />}
         {tab === "rider-document-review" && <section className="client-page-intro client-review-intro"><p className="muted">Open each uploaded document, then approve it or record a rejection reason.</p><div className="client-review-counts"><span><strong>{items.filter((item) => item.status === "PENDING").length}</strong> Pending</span><span><strong>{items.filter((item) => item.status === "APPROVED").length}</strong> Approved</span><span><strong>{items.filter((item) => item.status === "REJECTED").length}</strong> Rejected</span></div></section>}
         {(tab === "fleets" || tab === "riders" || tab === "batteries" || tab === "controllers" || tab === "iot-devices" || tab === "fleet-component-mapping") && <section className="sa-page-head client-page-head"><div className="sa-actions"><button className="secondary" onClick={() => openBulkImport(tab as ClientBulkTab)}>Bulk upload</button>{tab === "fleets" ? <button onClick={() => void openFleetForm()}>+ Add Fleet</button> : tab === "riders" ? <button onClick={() => void openRiderForm()}>+ Add Rider</button> : tab === "iot-devices" ? <button onClick={() => void openIotForm()}>+ Add IoT device</button> : tab === "fleet-component-mapping" ? <button onClick={() => void openMappingForm()}>+ Add mapping</button> : <button onClick={() => void openComponentForm(tab)}>+ Add {tab === "batteries" ? "Battery" : "Controller"}</button>}</div></section>}
         {tab === "iot-devices" && showIotForm && <ClientFormDialog title={editingIotDeviceId ? "Edit IoT device" : "Register IoT device"} busy={loading} error={error} onClose={() => setShowIotForm(false)} heading={<>{editingIotDeviceId ? "Edit IoT device" : "Register IoT device"}</>}><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void registerIotDevice(iotFleetId); }}>
@@ -2834,14 +2834,14 @@ export default function Home() {
                   const activeTransfer = item.activeTransfer as RecordItem | null | undefined;
                   const readiness = readinessCellModel(item);
                   const readinessAction = fleetReadinessAction(item);
-                  const canManageEvidence = userRoles.some((role) => role === "CLIENT_ADMIN" || role === "OPERATIONS_MANAGER");
+                  const canManageEvidence = userRoles.some((role) => role === "CLIENT_ADMIN" || role === "FLEET_MANAGER");
                   return <div className="fleet-row-actions">
                     <FleetReadinessStatus fleetId={fleetId} vehicleLabel={fleetName} readinessState={readiness.state} />
                     {readinessAction ? <button className="table-action" disabled={Boolean(fleetActionId)} onClick={() => readinessAction.kind === "activate" ? void runFleetLifecycleAction(item) : navigateTo("vehicle-preparation", fleetId)}>{fleetActionId === fleetId ? "Working…" : readinessAction.label}</button> : null}
                     <FleetMoreMenu fleetId={fleetId} fleetName={fleetName} status={status} currentHubId={String(item.currentHubId ?? "")} activeTransfer={activeTransfer} canManageEvidence={canManageEvidence} onTransferDone={() => void loadView("fleets")} onEvidence={canManageEvidence ? () => setEvidenceFleet({ id: fleetId, name: fleetName }) : undefined} onEdit={() => void openFleetForm(fleetId)} onDelete={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(fleetId) })} />
                   </div>;
                 }
-                  : tab === "riders" ? (item) => <><button className="secondary table-action" onClick={() => void openRiderDetail(String(item.id))}>View / Edit</button>{userRoles.some(role => role === "CLIENT_ADMIN" || role === "OPERATIONS_MANAGER") && <button className="secondary table-action" onClick={() => setWalletRider({ id: String(item.id), name: String(item.name), mobile: String(item.mobile) })}>Wallet</button>}<button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Rider?", description: "This rider will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Rider", onConfirm: () => deleteRider(String(item.id)) })}>Delete</button></>
+                  : tab === "riders" ? (item) => <><button className="secondary table-action" onClick={() => void openRiderDetail(String(item.id))}>View / Edit</button>{userRoles.some(role => role === "CLIENT_ADMIN" || role === "FLEET_MANAGER") && <button className="secondary table-action" onClick={() => setWalletRider({ id: String(item.id), name: String(item.name), mobile: String(item.mobile) })}>Wallet</button>}<button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Rider?", description: "This rider will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Rider", onConfirm: () => deleteRider(String(item.id)) })}>Delete</button></>
                   : tab === "iot-devices" ? (item) => <button className="secondary table-action" onClick={() => void openIotForm(item)}>Edit</button>
                   : tab === "batteries" || tab === "controllers" ? (item) => <button className="secondary table-action" onClick={() => void openExistingComponentForm(tab, item)}>Edit</button>
                   : tab === "fleet-component-mapping" ? (item) => <button className="secondary table-action" onClick={() => void openMappingForm(item)}>Edit</button>

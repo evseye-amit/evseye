@@ -21,7 +21,7 @@ import { CollectionsService } from './collections.service.js';
 
 @Controller('collections')
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+@Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
 export class CollectionsController {
   constructor(
     private readonly collections: CollectionsService,

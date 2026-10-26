@@ -17,7 +17,7 @@ function idempotencyKey(value?: string) {
 
 @Controller('client/riders/:riderId/billing')
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+@Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
 export class RiderBillingOperationsController {
   constructor(private readonly billing: RiderBillingService, private readonly clients: ClientContextService) {}
 
