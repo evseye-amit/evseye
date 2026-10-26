@@ -328,8 +328,8 @@ const PHOTO_TYPE_OPTIONS = [
 function evidenceWorkflow(tab: Tab): { workFlowType: string; subjectType: string } {
   if (tab === "fleet-evidence") return { workFlowType: "FLEET_INSPECTION", subjectType: "FLEET" };
   if (tab === "rider-evidence") return { workFlowType: "RIDER_ONBOARDING", subjectType: "PROFILE" };
-  if (tab === "deallocation-evidence") return { workFlowType: "FLEET_SUBMISSION", subjectType: "INSPECTION" };
-  return { workFlowType: "FLEET_ALLOTMENT", subjectType: "INSPECTION" };
+  if (tab === "deallocation-evidence") return { workFlowType: "FLEET_SUBMISSION", subjectType: "FLEET" };
+  return { workFlowType: "FLEET_ALLOTMENT", subjectType: "FLEET" };
 }
 
 function evidenceContext(tab: Tab) {
@@ -1733,7 +1733,7 @@ export default function Home() {
           photos: RecordItem[];
         }>,
         request(
-          `/media/photo-requirements?workFlowType=${targetType === "POST_DEALLOCATION" ? "FLEET_SUBMISSION" : "FLEET_ALLOTMENT"}&subjectType=INSPECTION`,
+          `/media/photo-requirements?workFlowType=${targetType === "POST_DEALLOCATION" ? "FLEET_SUBMISSION" : "FLEET_ALLOTMENT"}&subjectType=FLEET`,
           {},
           token,
         ) as Promise<RecordItem[]>,
@@ -1776,7 +1776,7 @@ export default function Home() {
           method: "POST",
           body: JSON.stringify({
             workFlowType: inspectionType === "POST_DEALLOCATION" ? "FLEET_SUBMISSION" : "FLEET_ALLOTMENT",
-            subjectType: "INSPECTION",
+            subjectType: "FLEET",
             entityId: inspectionId,
             photoType,
             mimeType: file.type,
@@ -1880,7 +1880,7 @@ export default function Home() {
             token,
           ) as Promise<RecordItem | null>,
           request(
-            "/media/photo-requirements?workFlowType=FLEET_ALLOTMENT&subjectType=INSPECTION",
+            "/media/photo-requirements?workFlowType=FLEET_ALLOTMENT&subjectType=FLEET",
             {},
             token,
           ) as Promise<RecordItem[]>,

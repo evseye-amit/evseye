@@ -1010,7 +1010,7 @@ export class FleetReadinessService {
       where: {
         clientId,
         workFlowType: 'FLEET_PREPARATION',
-        subjectType: 'PREPARATION',
+        subjectType: 'FLEET',
         entityId: { in: p.revisions.map((r) => r.id) },
         status: 'COMPLETE',
       },
@@ -1193,7 +1193,7 @@ export class FleetReadinessService {
         data: {
           clientId,
           workFlowType: 'FLEET_PREPARATION',
-          subjectType: 'PREPARATION',
+          subjectType: 'FLEET',
           entityId: revision.id,
           photoType: b.photoType,
           mimeType: b.mimeType,
@@ -1224,7 +1224,7 @@ export class FleetReadinessService {
       input,
     );
     const photo = await this.db.photo.findFirst({
-      where: { id: photoId, clientId, workFlowType: 'FLEET_PREPARATION', subjectType: 'PREPARATION' },
+      where: { id: photoId, clientId, workFlowType: 'FLEET_PREPARATION', subjectType: 'FLEET' },
     });
     if (!photo) throw new NotFoundException('Preparation photo not found.');
     const owner = await this.db.fleetPreparation.findFirst({
@@ -1280,7 +1280,7 @@ export class FleetReadinessService {
         where: {
           clientId,
           workFlowType: 'FLEET_PREPARATION',
-          subjectType: 'PREPARATION',
+          subjectType: 'FLEET',
           entityId: revision.id,
           photoType: photo.photoType,
           status: 'COMPLETE',
@@ -1399,7 +1399,7 @@ export class FleetReadinessService {
         where: {
           clientId,
           workFlowType: 'FLEET_PREPARATION',
-          subjectType: 'PREPARATION',
+          subjectType: 'FLEET',
           entityId: revision.id,
           status: 'COMPLETE',
         },
@@ -1513,7 +1513,7 @@ export class FleetReadinessService {
             where: {
               clientId,
               workFlowType: 'FLEET_PREPARATION',
-              subjectType: 'PREPARATION',
+              subjectType: 'FLEET',
               entityId: revision.id,
               uploadedById: actor.id,
             },
@@ -1593,7 +1593,7 @@ export class FleetReadinessService {
             where: {
               clientId,
               workFlowType: 'FLEET_PREPARATION',
-              subjectType: 'PREPARATION',
+              subjectType: 'FLEET',
               entityId: revision.id,
               id: { in: revision.photoIds },
               status: 'COMPLETE',

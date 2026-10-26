@@ -275,7 +275,7 @@ export class FleetInstallationService {
       where: {
         clientId,
         workFlowType: 'FLEET_PREPARATION',
-        subjectType: 'INSTALLATION',
+        subjectType: 'OTHER',
         entityId: this.entity(c.stage),
         status: 'COMPLETE',
       },
@@ -550,7 +550,7 @@ export class FleetInstallationService {
             where: {
               clientId,
               workFlowType: 'FLEET_PREPARATION',
-              subjectType: 'INSTALLATION',
+              subjectType: 'OTHER',
               entityId: this.entity(s),
               status: 'COMPLETE',
             },
@@ -915,7 +915,7 @@ export class FleetInstallationService {
         data: {
           clientId,
           workFlowType: 'FLEET_PREPARATION',
-          subjectType: 'INSTALLATION',
+          subjectType: 'OTHER',
           entityId: this.entity(c.stage),
           photoType: b.photoType,
           mimeType: b.mimeType,
@@ -952,7 +952,7 @@ export class FleetInstallationService {
         id: photoId,
         clientId,
         workFlowType: 'FLEET_PREPARATION',
-        subjectType: 'INSTALLATION',
+        subjectType: 'OTHER',
         entityId: this.entity(c.stage),
       },
     });
@@ -976,7 +976,7 @@ export class FleetInstallationService {
         where: {
           clientId,
           workFlowType: 'FLEET_PREPARATION',
-          subjectType: 'INSTALLATION',
+          subjectType: 'OTHER',
           entityId: this.entity(c.stage),
           photoType: photo.photoType,
           status: 'COMPLETE',
@@ -1014,7 +1014,7 @@ export class FleetInstallationService {
         clientId,
         id: photoId,
         workFlowType: 'FLEET_PREPARATION',
-        subjectType: 'INSTALLATION',
+        subjectType: 'OTHER',
         entityId: { in: entities },
         status: 'COMPLETE',
       },

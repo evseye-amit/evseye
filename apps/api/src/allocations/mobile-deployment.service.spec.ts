@@ -57,6 +57,7 @@ describe('MobileDeploymentService.fleetRequests', () => {
       where: {
         clientId: 'client-1',
         subjectType: 'FLEET',
+        workFlowType: 'FLEET_INSPECTION',
         entityId: { in: ['fleet-1', 'fleet-2'] },
         status: PhotoStatus.COMPLETE,
       },

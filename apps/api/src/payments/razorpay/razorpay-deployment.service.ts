@@ -305,7 +305,7 @@ export class RazorpayDeploymentService {
       where: {
         clientId,
         workFlowType: 'PAYMENT',
-        subjectType: 'DEPLOYMENT',
+        subjectType: 'OTHER',
         entityId: payment.id,
         status: 'COMPLETE',
       },

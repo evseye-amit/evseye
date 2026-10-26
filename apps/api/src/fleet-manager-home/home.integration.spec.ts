@@ -421,7 +421,7 @@ describe.skipIf(!url)('Fleet Manager home in PostgreSQL', () => {
     const photo = await db.photo.create({
       data: {
         clientId,
-        workFlowType: 'RIDER_ONBOARDING', subjectType: 'RIDER_DOCUMENT', entityType: 'RIDER_ONBOARDING',
+        workFlowType: 'RIDER_ONBOARDING', subjectType: 'DECLARATION', entityType: 'RIDER_ONBOARDING',
         entityId: progress.id,
         photoType: 'DOCUMENT',
         objectKey: randomUUID(),
@@ -519,6 +519,7 @@ describe.skipIf(!url)('Fleet Manager home in PostgreSQL', () => {
           await media.listEntityPhotos(
             f.clientId,
             'RIDER_ONBOARDING',
+            'DECLARATION',
             progress.id,
             actor(manager.id),
           )
@@ -617,6 +618,7 @@ describe.skipIf(!url)('Fleet Manager home in PostgreSQL', () => {
         await media.listEntityPhotos(
           f.clientId,
           'RIDER_ONBOARDING',
+          'DECLARATION',
           progress.id,
           actor,
         )

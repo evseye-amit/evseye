@@ -300,7 +300,7 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
       return db.photo.create({
         data: {
           clientId: client.id,
-          workFlowType: 'FLEET_SUBMISSION', subjectType: 'INSPECTION', entityId: submission.inspectionId,
+          workFlowType: 'FLEET_SUBMISSION', subjectType: 'FLEET', entityId: submission.inspectionId,
           photoType,
           objectKey: randomUUID(),
           mimeType: 'image/jpeg',
@@ -391,7 +391,7 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
   async function finalizedPenalty() {
     const f = await fixture();
     await f.capture();
-    const proof = await f.photo('PENALTY_DAMAGE');
+    const proof = await f.photo('OTHER');
     const report = await service.recordReport(f.client.id, f.actor, f.submission.id, f.report(proof.id, 'BASIC', true), 'penalty-payment-report');
     await service.impose(f.client.id, f.actor, report.id);
     const posted = await service.confirm(f.client.id, f.actor, report.id, { riderBypassReason: 'Recovery; rider unavailable', teamLeadBypassReason: 'Team lead notified of recovery' });
@@ -480,7 +480,7 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
   it('requires proof, binds both OTPs, posts the initial charge once, and completes mechanic checks', async () => {
     const f = await fixture();
     const cid = f.client.id;
-    const first = await f.photo('VEHICLE_FRONT');
+    const first = await f.photo('FRONT');
     await expect(
       service.recordReport(
         cid,
@@ -766,7 +766,7 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
     const f=await fixture();
     await db.client.update({where:{id:f.client.id},data:{fleetOperatingMode:'PREPARATION_QC'}});
     await db.fleet.update({where:{id:f.fleet.id},data:{allocationEnabled:false,allocationBlockedByAdmin:true}});
-    const proof=await f.photo('PENALTY_DAMAGE');
+    const proof=await f.photo('OTHER');
     await expect(service.recordReport(f.client.id,f.actor,f.submission.id,{...f.report(proof.id),items:[],checksComplete:true,fleetStatus:'AVAILABLE' as const},'qc-return')).rejects.toThrow('Capture all');
     const photos=await f.capture();
     const report=await service.recordReport(f.client.id,f.actor,f.submission.id,{...f.report(photos[0]!.id),items:[],checksComplete:true,fleetStatus:'AVAILABLE' as const},'qc-return');
@@ -919,7 +919,7 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
     expect(await db.riderCharge.count({where:{clientId:f.client.id}})).toBe(1);
     await expect(service.cancelReport(f.client.id,f.actor,draft.id,'Undo financial charge')).rejects.toThrow('financial');
     await expect(service.updateReport(f.client.id,f.actor,draft.id,changed,edited.digest)).rejects.toThrow('draft');
-    const replacement=await db.photo.create({data:{clientId:f.client.id,workFlowType:'FLEET_SUBMISSION',subjectType:'INSPECTION',entityId:f.submission.inspectionId,photoType:photos[0]!.photoType,objectKey:`test/${randomUUID()}`,mimeType:'image/jpeg',sizeBytes:10,uploadedById:f.actor.id}});
+    const replacement=await db.photo.create({data:{clientId:f.client.id,workFlowType:'FLEET_SUBMISSION',subjectType:'FLEET',entityId:f.submission.inspectionId,photoType:photos[0]!.photoType,objectKey:`test/${randomUUID()}`,mimeType:'image/jpeg',sizeBytes:10,uploadedById:f.actor.id}});
     const media=new MediaService(prisma,{assertObjectExists:vi.fn().mockResolvedValue(undefined)} as never);await media.complete(f.client.id,replacement.id);expect((await db.photo.findUniqueOrThrow({where:{id:photos[0]!.id}})).status).toBe('COMPLETE');
     const repeat=await service.impose(f.client.id,f.actor,draft.id);expect(repeat.paymentRequest?.invoiceId).toBe(imposed.paymentRequest?.invoiceId);
     await spares.updateClient(f.client.id,adminActor,part.id,{expectedVersion:1,reason:'Future penalty update',penaltyAmount:'999',evidenceRequired:true});

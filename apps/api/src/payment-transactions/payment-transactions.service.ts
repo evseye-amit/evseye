@@ -123,7 +123,7 @@ export class PaymentTransactionsService {
       return this.db.$transaction(async tx => {
         // Match the approval lock so receipt publication and review versions agree.
         await tx.$queryRaw`SELECT id FROM "Allocation" WHERE id=${row.allocationId} AND "clientId"=${clientId} FOR UPDATE`;
-        const before = await tx.photo.findFirst({ where: { id: photoId, clientId, workFlowType: 'PAYMENT', subjectType: 'DEPLOYMENT', entityId: id, uploadedById: actor.id } });
+        const before = await tx.photo.findFirst({ where: { id: photoId, clientId, workFlowType: 'PAYMENT', subjectType: 'OTHER', entityId: id, uploadedById: actor.id } });
         if (!before) throw new NotFoundException('Payment receipt not found.');
         const photo = await this.media.completePayment(clientId, 'DEPLOYMENT', id, photoId, actor.id, tx);
         if (before.status !== 'COMPLETE') {

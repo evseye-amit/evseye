@@ -355,7 +355,7 @@ describe.skipIf(!url)('maintenance fleet APIs in PostgreSQL', () => {
     const photo = await db.photo.create({
       data: {
         clientId: f.clientId,
-        workFlowType: 'FLEET_ALLOTMENT', subjectType: 'INSPECTION', entityId: inspection.id,
+        workFlowType: 'FLEET_ALLOTMENT', subjectType: 'FLEET', entityId: inspection.id,
         photoType: 'OTHER',
         objectKey: randomUUID(),
         mimeType: 'image/jpeg',

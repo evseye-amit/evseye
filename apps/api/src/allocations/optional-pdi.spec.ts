@@ -74,15 +74,15 @@ describe('optional PDI checks', () => {
   it('accepts voice remarks only for the matching item in the current inspection', async () => {
     const { service, prisma } = fixture();
     const items = [{ code: 'BRAKES', accepted: false, voiceMediaId: 'voice' }];
-    prisma.photo.findMany.mockResolvedValueOnce([{ id: 'voice', photoType: 'PDI_VOICE_ACCESSORY' }] as never);
+    prisma.photo.findMany.mockResolvedValueOnce([{ id: 'voice', photoType: 'FRONT' }] as never);
     await expect(service.acceptPdi('client', 'user', 'allocation', items)).rejects.toThrow('for its mandatory item');
-    prisma.photo.findMany.mockResolvedValueOnce([{ id: 'voice', photoType: 'PDI_VOICE_BRAKES' }] as never);
+    prisma.photo.findMany.mockResolvedValueOnce([{ id: 'voice', photoType: 'FACE' }] as never);
     await expect(service.acceptPdi('client', 'user', 'allocation', items)).resolves.toMatchObject({ status: 'TRAINING_PENDING' });
     expect(prisma.photo.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ clientId: 'client', entityId: 'inspection', status: 'COMPLETE' }) }));
   });
   it('blocks completing a voice upload for a hidden item', async () => {
     const { service, prisma, media } = fixture();
-    prisma.photo.findFirst.mockResolvedValueOnce({ id: 'voice', photoType: 'PDI_VOICE_ACCESSORY' } as never);
+    prisma.photo.findFirst.mockResolvedValueOnce(null as never);
     await expect(service.completePdiVoiceUpload('client', 'user', 'allocation', 'voice')).rejects.toThrow('mandatory checklist item');
     expect(media.complete).not.toHaveBeenCalled();
   });

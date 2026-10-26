@@ -214,7 +214,7 @@ describe.skipIf(!url)('Preparation + QC lifecycle in PostgreSQL', () => {
       data: {
         clientId: f.client.id,
         workFlowType: 'FLEET_ALLOTMENT',
-        subjectType: 'INSPECTION',
+        subjectType: 'FLEET',
         photoType: 'FRONT',
       },
     });
@@ -226,7 +226,7 @@ describe.skipIf(!url)('Preparation + QC lifecycle in PostgreSQL', () => {
     });
     expect(
       await db.photoRequirement.findFirst({
-        where: { clientId: f.client.id, subjectType: 'INSPECTION' },
+        where: { clientId: f.client.id, subjectType: 'FLEET' },
       }),
     ).toMatchObject({ isRequired: true });
     expect(
@@ -509,7 +509,7 @@ describe.skipIf(!url)('Preparation + QC lifecycle in PostgreSQL', () => {
         p.id,
         (
           await db.photo.findFirstOrThrow({
-            where: { clientId: f.client.id, workFlowType: 'FLEET_PREPARATION', subjectType: 'PREPARATION' },
+            where: { clientId: f.client.id, workFlowType: 'FLEET_PREPARATION', subjectType: 'FLEET' },
           })
         ).id,
       ),

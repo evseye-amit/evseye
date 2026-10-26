@@ -16,11 +16,11 @@ const categories = ["All", "Fleet & components", "Installation", "Preparation & 
 const photoTypes = ["FRONT", "BACK", "LEFT", "RIGHT", "REAR", "BODY", "LABEL", "CHASSIS", "DASHBOARD", "INSTALLATION", "EVIDENCE", "DOCUMENT", "PROFILE", "RECEIPT", "RETURN_CHECKLIST", "DAMAGE", "DAMAGE_CLOSEUP", "VEHICLE_FRONT", "VEHICLE_LEFT", "VEHICLE_RIGHT", "VEHICLE_REAR", "FLEET_FRONT", "FLEET_LEFT", "FLEET_RIGHT", "FLEET_BACK", "BATTERY_BODY", "BATTERY_LABEL", "CONTROLLER_BODY", "CONTROLLER_LABEL", "IOT_BODY", "IOT_LABEL", "FLEET_WITH_RIDER", "RIDER_DECLARATION", "PDI_VOICE", "PAYMENT_RECEIPT", "PENALTY_DAMAGE", "OTHER"];
 const subjects = [
   ["FLEET_INSPECTION", "FLEET", "Fleet"], ["FLEET_INSPECTION", "BATTERY", "Battery"],
-  ["FLEET_INSPECTION", "CONTROLLER", "Controller"], ["FLEET_INSPECTION", "IOT_DEVICE", "IoT"],
-  ["FLEET_PREPARATION", "PREPARATION", "Preparation"], ["FLEET_PREPARATION", "INSTALLATION", "Installation"],
-  ["FLEET_ALLOTMENT", "INSPECTION", "Allocation inspection"], ["FLEET_SUBMISSION", "INSPECTION", "Submission inspection"],
+  ["FLEET_INSPECTION", "CONTROLLER", "Controller"], ["FLEET_INSPECTION", "IOT_DEVICE", "IoT"], ["FLEET_INSPECTION", "MOTOR", "Motor"], ["FLEET_INSPECTION", "TYRE", "Tyre"], ["FLEET_INSPECTION", "DOCK", "Dock"],
+  ["FLEET_PREPARATION", "FLEET", "Preparation"], ["FLEET_PREPARATION", "OTHER", "Installation"],
+  ["FLEET_ALLOTMENT", "FLEET", "Allocation inspection"], ["FLEET_SUBMISSION", "FLEET", "Submission inspection"],
   ["RIDER_ONBOARDING", "PROFILE", "Rider profile"], ["RIDER_ONBOARDING", "PAN", "PAN"],
-  ["RIDER_ONBOARDING", "AADHAR", "Aadhaar"], ["PAYMENT", "ONBOARDING_FEES", "Onboarding fees"],
+  ["RIDER_ONBOARDING", "AADHAR", "Aadhaar"], ["RIDER_ONBOARDING", "DRIVING_LICENSE", "Driving license"], ["RIDER_ONBOARDING", "BANK", "Bank document"], ["RIDER_ONBOARDING", "DECLARATION", "Rider document"], ["PAYMENT", "ONBOARDING_FEES", "Onboarding fees"],
 ];
 
 function PhotoRequirements({ request, canEdit, onBusy }: { request: Request; canEdit: boolean; onBusy: (value: boolean) => void }) {

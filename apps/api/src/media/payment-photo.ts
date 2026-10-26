@@ -1,10 +1,10 @@
 import { PhotoSubjectType, PhotoWorkflowType } from '@prisma/client';
 
 export const paymentPhotoTypes = {
-  DEPLOYMENT: PhotoSubjectType.DEPLOYMENT,
+  DEPLOYMENT: PhotoSubjectType.OTHER,
   COLLECTION: PhotoSubjectType.COLLECTION,
   AUTOPAY: PhotoSubjectType.AUTOPAY,
-  RECEIVED: PhotoSubjectType.RECEIVED,
+  RECEIVED: PhotoSubjectType.OTHER,
 } as const;
 export type PaymentSource = keyof typeof paymentPhotoTypes;
 export const paymentPhotoSubject = (source: string): PhotoSubjectType | undefined => Object.hasOwn(paymentPhotoTypes, source) ? paymentPhotoTypes[source as PaymentSource] : undefined;

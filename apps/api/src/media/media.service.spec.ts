@@ -12,8 +12,8 @@ describe('MediaService photo requirements', () => {
   it('queries photo requirements by workflow, subject, and client', async () => {
     const findMany = vi.fn().mockResolvedValue([{ photoType: 'FRONT', isRequired: true }]);
     const service = new MediaService({ photoRequirement: { findMany } } as never, {} as never);
-    await expect(service.requirements('client-a', PhotoWorkflowType.FLEET_ALLOTMENT, PhotoSubjectType.INSPECTION)).resolves.toEqual([{ photoType: 'FRONT', isRequired: true }]);
-    expect(findMany).toHaveBeenCalledWith({ where: { clientId: 'client-a', workFlowType: PhotoWorkflowType.FLEET_ALLOTMENT, subjectType: PhotoSubjectType.INSPECTION }, orderBy: [{ isRequired: 'desc' }, { photoType: 'asc' }] });
+    await expect(service.requirements('client-a', PhotoWorkflowType.FLEET_ALLOTMENT, PhotoSubjectType.FLEET)).resolves.toEqual([{ photoType: 'FRONT', isRequired: true }]);
+    expect(findMany).toHaveBeenCalledWith({ where: { clientId: 'client-a', workFlowType: PhotoWorkflowType.FLEET_ALLOTMENT, subjectType: PhotoSubjectType.FLEET }, orderBy: [{ isRequired: 'desc' }, { photoType: 'asc' }] });
   });
 
   it('lists photos only after confirming entity ownership', async () => {
@@ -28,7 +28,7 @@ describe('MediaService fleet-manager rider scope', () => {
   const manager = { id: 'manager-1', clientId: 'client-a', roles: [UserRole.FLEET_MANAGER] };
   it('rejects downloads when the rider is outside assigned hubs', async () => {
     const photo = { id: 'p', workFlowType: PhotoWorkflowType.RIDER_ONBOARDING, subjectType: PhotoSubjectType.PROFILE, entityId: 'rider-1', status: 'COMPLETE', objectKey: 'photo.jpg' };
-    const service = new MediaService({ photo: { findFirst: vi.fn().mockResolvedValue(photo) }, $queryRaw: vi.fn().mockResolvedValue([]) } as never, { createDownloadUrl: vi.fn() } as never);
+    const service = new MediaService({ photo: { findFirst: vi.fn().mockResolvedValue(photo) }, userHub: { findMany: vi.fn().mockResolvedValue([{ hubId: 'hub-a' }]) }, $queryRaw: vi.fn().mockResolvedValue([]) } as never, { createDownloadUrl: vi.fn() } as never);
     await expect(service.downloadUrl('client-a', 'p', manager)).rejects.toThrow('Photo not found.');
   });
 });

@@ -443,25 +443,19 @@ export class VehicleSubmissionService {
         number: entry.controller.controllerNumber,
       }));
       const configured = await tx.photoRequirement.findMany({
-        where: { clientId, workFlowType: 'FLEET_SUBMISSION', subjectType: 'INSPECTION', isRequired: true },
+        where: { clientId, workFlowType: 'FLEET_SUBMISSION', subjectType: 'FLEET', isRequired: true },
         select: { photoType: true },
       });
       const requiredPhotoTypes = [
         ...new Set([
-          'VEHICLE_FRONT',
-          'VEHICLE_REAR',
-          'VEHICLE_LEFT',
-          'VEHICLE_RIGHT',
-          'RETURN_CHECKLIST',
-          ...(batteries.length
-            ? batteries.map((battery) => `BATTERY_${battery.id}`)
-            : ['BATTERY']),
-          ...(controllers.length
-            ? controllers.map((controller) => `CONTROLLER_${controller.id}`)
-            : ['CONTROLLER']),
-          ...(allocation.fleet.iotDeviceId
-            ? [`IOT_${allocation.fleet.iotDeviceId}`]
-            : []),
+          'FRONT',
+          'BACK',
+          'LEFT',
+          'RIGHT',
+          'OTHER',
+          ...(batteries.length ? ['BODY', 'LABEL'] : ['BODY']),
+          ...(controllers.length ? ['BODY', 'LABEL'] : ['BODY']),
+          ...(allocation.fleet.iotDeviceId ? ['OTHER'] : []),
           ...configured.map((entry) => entry.photoType),
         ]),
       ];
@@ -536,7 +530,7 @@ export class VehicleSubmissionService {
         where: {
           clientId,
           workFlowType: 'FLEET_SUBMISSION',
-          subjectType: 'INSPECTION',
+          subjectType: 'FLEET',
           entityId: row.inspectionId,
           status: 'COMPLETE',
         },
@@ -589,7 +583,7 @@ export class VehicleSubmissionService {
         id: photoId,
         clientId,
         workFlowType: 'FLEET_SUBMISSION',
-        subjectType: 'INSPECTION',
+        subjectType: 'FLEET',
         entityId: submission.inspectionId,
         status: 'COMPLETE',
       },
@@ -706,7 +700,7 @@ export class VehicleSubmissionService {
         where: {
           clientId,
           workFlowType: 'FLEET_SUBMISSION',
-          subjectType: 'INSPECTION',
+          subjectType: 'FLEET',
           entityId: submission.inspectionId,
           status: 'COMPLETE',
         },
@@ -809,7 +803,7 @@ export class VehicleSubmissionService {
           !evidencePhotoIds.some(
             (photo) =>
               photos.find((entry) => entry.id === photo)?.photoType ===
-              'RETURN_CHECKLIST',
+              'OTHER',
           )
         )
           throw new BadRequestException(

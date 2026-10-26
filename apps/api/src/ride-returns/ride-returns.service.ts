@@ -806,7 +806,7 @@ export class RideReturnsService {
     if (!items.length) return [] as const;
     const prices = await tx.returnPenaltyPrice.findMany({ where: { id: { in: items.map((item) => item.priceId) }, clientId } });
     const byId = new Map(prices.map((price) => [price.id, price]));
-    const photos = await tx.photo.findMany({ where: { clientId, workFlowType: 'FLEET_SUBMISSION', subjectType: 'INSPECTION', entityId: inspectionId, status: 'COMPLETE' }, select: { id: true, photoType: true } });
+    const photos = await tx.photo.findMany({ where: { clientId, workFlowType: 'FLEET_SUBMISSION', subjectType: 'FLEET', entityId: inspectionId, status: 'COMPLETE' }, select: { id: true, photoType: true } });
     const photoById = new Map(photos.map((photo) => [photo.id, photo]));
     return items.map((item, position) => {
       const price = byId.get(item.priceId);
@@ -819,7 +819,7 @@ export class RideReturnsService {
       const validPhotos = evidence.map((id) => photoById.get(id));
       if (validPhotos.some((photo) => !photo)) throw new BadRequestException('Penalty evidence must belong to the return inspection.');
       if (!evidence.length) throw new BadRequestException('Penalty evidence is required.');
-      if (price.category === 'MISSING_ITEM' && !validPhotos.some((photo) => photo?.photoType === 'RETURN_CHECKLIST'))
+      if (price.category === 'MISSING_ITEM' && !validPhotos.some((photo) => photo?.photoType === 'OTHER'))
         throw new BadRequestException('Missing-item penalties require a return checklist photo.');
       return { position, price, details, evidencePhotoIds: evidence };
     });
@@ -856,7 +856,7 @@ export class RideReturnsService {
       where: {
         clientId,
         workFlowType: 'FLEET_SUBMISSION',
-        subjectType: 'INSPECTION',
+        subjectType: 'FLEET',
         entityId: inspectionId,
         status: 'COMPLETE',
       },
@@ -874,7 +874,7 @@ export class RideReturnsService {
       const validPhotos = evidencePhotoIds.map((id) => photoById.get(id));
       if (!evidencePhotoIds.length || validPhotos.some((photo) => !photo))
         throw new BadRequestException('Penalty evidence must belong to the return inspection.');
-      if (price.category === 'MISSING_ITEM' && !validPhotos.some((photo) => photo?.photoType === 'RETURN_CHECKLIST'))
+      if (price.category === 'MISSING_ITEM' && !validPhotos.some((photo) => photo?.photoType === 'OTHER'))
         throw new BadRequestException('Missing-item penalties require a return checklist photo.');
       return { row: item, price, details, evidencePhotoIds };
     });

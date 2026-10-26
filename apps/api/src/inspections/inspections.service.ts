@@ -30,7 +30,7 @@ export class InspectionsService {
       where: {
         clientId,
         workFlowType: inspection.type === 'PRE_ALLOCATION' ? 'FLEET_ALLOTMENT' : 'FLEET_SUBMISSION',
-        subjectType: 'INSPECTION',
+        subjectType: 'FLEET',
         entityId: inspectionId,
       },
       orderBy: { uploadedAt: 'asc' },
@@ -56,7 +56,7 @@ export class InspectionsService {
       where: {
         clientId,
         workFlowType: inspection.type === 'PRE_ALLOCATION' ? 'FLEET_ALLOTMENT' : 'FLEET_SUBMISSION',
-        subjectType: 'INSPECTION',
+        subjectType: 'FLEET',
         isRequired: true,
       },
     });
@@ -64,7 +64,7 @@ export class InspectionsService {
       where: {
         clientId,
         workFlowType: inspection.type === 'PRE_ALLOCATION' ? 'FLEET_ALLOTMENT' : 'FLEET_SUBMISSION',
-        subjectType: 'INSPECTION',
+        subjectType: 'FLEET',
         entityId: inspectionId,
         status: PhotoStatus.COMPLETE,
       },

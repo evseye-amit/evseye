@@ -2,12 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { z } from 'zod';
 
 export const PHOTO_TYPE_VALUES = [
-  'FRONT', 'BACK', 'LEFT', 'RIGHT', 'REAR', 'BODY', 'LABEL', 'CHASSIS',
-  'DASHBOARD', 'INSTALLATION', 'EVIDENCE', 'DOCUMENT', 'PROFILE', 'RECEIPT',
-  'RETURN_CHECKLIST', 'DAMAGE', 'DAMAGE_CLOSEUP', 'VEHICLE_FRONT', 'VEHICLE_LEFT',
-  'VEHICLE_RIGHT', 'VEHICLE_REAR', 'FLEET_FRONT', 'FLEET_LEFT', 'FLEET_RIGHT', 'FLEET_BACK', 'BATTERY_BODY', 'BATTERY_LABEL',
-  'CONTROLLER_BODY', 'CONTROLLER_LABEL', 'IOT_BODY', 'IOT_LABEL',
-  'FLEET_WITH_RIDER', 'RIDER_DECLARATION', 'PDI_VOICE', 'PAYMENT_RECEIPT', 'PENALTY_DAMAGE', 'OTHER',
+  'FRONT', 'BACK', 'LEFT', 'RIGHT', 'BODY', 'LABEL', 'DOCUMENT', 'FACE', 'RECEIPT', 'OTHER',
 ] as const;
 const photoTypeSchema = z.enum(PHOTO_TYPE_VALUES);
 
@@ -80,7 +75,7 @@ export const defaultStages: StageDefinition[] = [
         allowNA: false,
       },
     ],
-    photoTypes: ['FRONT', 'CHASSIS'] as StageDefinition['photoTypes'],
+    photoTypes: ['FRONT', 'OTHER'] as StageDefinition['photoTypes'],
   },
   ...(['BATTERY', 'CONTROLLER'] as const).map((component) => ({
     code: component,
@@ -101,7 +96,7 @@ export const defaultStages: StageDefinition[] = [
         allowNA: false,
       },
     ],
-    photoTypes: ['INSTALLATION', 'LABEL'] as StageDefinition['photoTypes'],
+    photoTypes: ['BODY', 'LABEL'] as StageDefinition['photoTypes'],
   })),
 ];
 export function validateStages(stages: StageDefinition[]) {
@@ -223,7 +218,7 @@ export const policySchema = z
           code: 'custom',
           message: `Required safety check cannot be removed: ${required.code}`,
         });
-    for (const photo of ['FRONT', 'REAR', 'LEFT', 'RIGHT', 'DASHBOARD'] as const)
+    for (const photo of ['FRONT', 'BACK', 'LEFT', 'RIGHT'] as const)
       if (!value.photoTypes.includes(photo))
         ctx.addIssue({
           code: 'custom',
@@ -239,7 +234,7 @@ export const defaultPolicy: ReadinessPolicy = {
   requireController: true,
   iotRequired: false,
   items,
-  photoTypes: ['FRONT', 'REAR', 'LEFT', 'RIGHT', 'DASHBOARD'],
+  photoTypes: ['FRONT', 'BACK', 'LEFT', 'RIGHT'],
 };
 export function stagePlans(configuration: ReadinessPolicy): StagePlan[] {
   if (configuration.stagePlans.length) return configuration.stagePlans;
@@ -368,7 +363,21 @@ export function parse<T>(schema: z.ZodType<T>, value: unknown): T {
     if (!item || typeof item !== 'object') return item;
     return Object.fromEntries(Object.entries(item).map(([key, child]) => {
       if (key === 'photoTypes' && Array.isArray(child)) {
-        const values = child.map((photoType) => typeof photoType === 'string' && allowedPhotoTypes.has(photoType) ? photoType : 'OTHER');
+        const mapPhotoType = (photoType: unknown) => {
+          if (typeof photoType !== 'string') return 'OTHER';
+          if (allowedPhotoTypes.has(photoType)) return photoType;
+          if (photoType.includes('RECEIPT')) return 'RECEIPT';
+          if (photoType.includes('FRONT')) return 'FRONT';
+          if (photoType.includes('REAR') || photoType.includes('BACK')) return 'BACK';
+          if (photoType.includes('LEFT')) return 'LEFT';
+          if (photoType.includes('RIGHT')) return 'RIGHT';
+          if (photoType.includes('BODY') || photoType.includes('INSTALLATION')) return 'BODY';
+          if (photoType.includes('LABEL')) return 'LABEL';
+          if (photoType.includes('DOCUMENT') || photoType.includes('DECLARATION')) return 'DOCUMENT';
+          if (photoType.includes('DAMAGE') || photoType.includes('EVIDENCE') || photoType.includes('VOICE')) return 'OTHER';
+          return 'OTHER';
+        };
+        const values = child.map(mapPhotoType);
         return [key, [...new Set(values)]];
       }
       return [key, normalize(child)];

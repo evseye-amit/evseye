@@ -16,19 +16,19 @@ import {
   type StorageProvider,
 } from './storage/storage-provider.interface.js';
 
-const paymentSubjects = { DEPLOYMENT: PhotoSubjectType.DEPLOYMENT, COLLECTION: PhotoSubjectType.COLLECTION, AUTOPAY: PhotoSubjectType.AUTOPAY, RECEIVED: PhotoSubjectType.RECEIVED } as const;
+const paymentSubjects = { DEPLOYMENT: PhotoSubjectType.OTHER, COLLECTION: PhotoSubjectType.COLLECTION, AUTOPAY: PhotoSubjectType.AUTOPAY, RECEIVED: PhotoSubjectType.OTHER } as const;
 type PaymentSource = keyof typeof paymentSubjects;
 const paymentSubject = (source: PaymentSource) => paymentSubjects[source];
 const isPaymentSubject = (workflow: PhotoWorkflowType, subject: PhotoSubjectType) => workflow === PhotoWorkflowType.PAYMENT && Object.values(paymentSubjects).includes(subject as typeof paymentSubjects[PaymentSource]);
 
 const workflowSubjects: Record<PhotoWorkflowType, PhotoSubjectType[]> = {
-  FLEET_INSPECTION: [PhotoSubjectType.FLEET, PhotoSubjectType.BATTERY, PhotoSubjectType.CONTROLLER, PhotoSubjectType.IOT_DEVICE],
-  FLEET_PREPARATION: [PhotoSubjectType.PREPARATION, PhotoSubjectType.INSTALLATION],
-  FLEET_ALLOTMENT: [PhotoSubjectType.INSPECTION],
-  FLEET_SUBMISSION: [PhotoSubjectType.INSPECTION],
-  RIDER_ONBOARDING: [PhotoSubjectType.PROFILE, PhotoSubjectType.RIDER_DOCUMENT, PhotoSubjectType.PAN, PhotoSubjectType.AADHAR],
+  FLEET_INSPECTION: [PhotoSubjectType.FLEET, PhotoSubjectType.BATTERY, PhotoSubjectType.CONTROLLER, PhotoSubjectType.IOT_DEVICE, PhotoSubjectType.MOTOR, PhotoSubjectType.TYRE, PhotoSubjectType.DOCK],
+  FLEET_PREPARATION: [PhotoSubjectType.FLEET, PhotoSubjectType.OTHER],
+  FLEET_ALLOTMENT: [PhotoSubjectType.FLEET],
+  FLEET_SUBMISSION: [PhotoSubjectType.FLEET],
+  RIDER_ONBOARDING: [PhotoSubjectType.PROFILE, PhotoSubjectType.PAN, PhotoSubjectType.AADHAR, PhotoSubjectType.DRIVING_LICENSE, PhotoSubjectType.BANK, PhotoSubjectType.DECLARATION],
   SUPPORT: [PhotoSubjectType.SUPPORT_TICKET],
-  PAYMENT: [PhotoSubjectType.ONBOARDING_FEES, PhotoSubjectType.DEPLOYMENT, PhotoSubjectType.COLLECTION, PhotoSubjectType.AUTOPAY, PhotoSubjectType.RECEIVED],
+  PAYMENT: [PhotoSubjectType.ONBOARDING_FEES, PhotoSubjectType.OTHER, PhotoSubjectType.COLLECTION, PhotoSubjectType.AUTOPAY],
 };
 
 const assertWorkflowSubject = (workflow: PhotoWorkflowType, subject: PhotoSubjectType) => {
@@ -253,7 +253,7 @@ export class MediaService {
         label: `${inspection.type === 'PRE_ALLOCATION' ? 'Allocation' : 'Submission'} · ${inspection.allocationId}`,
         date: inspection.createdAt,
         workFlowType: inspection.type === 'PRE_ALLOCATION' ? PhotoWorkflowType.FLEET_ALLOTMENT : PhotoWorkflowType.FLEET_SUBMISSION,
-        subjectType: PhotoSubjectType.INSPECTION,
+        subjectType: PhotoSubjectType.FLEET,
         entityId: inspection.id,
       });
     for (const preparation of preparations) {
@@ -264,7 +264,7 @@ export class MediaService {
           label: `Preparation ${preparation.id} · revision ${revision.revision}`,
           date: revision.createdAt,
           workFlowType: PhotoWorkflowType.FLEET_PREPARATION,
-          subjectType: PhotoSubjectType.PREPARATION,
+          subjectType: PhotoSubjectType.FLEET,
           entityId: revision.id,
         });
       for (const stage of preparation.stages)
@@ -274,7 +274,7 @@ export class MediaService {
           label: `${stage.code} · ${preparation.id}`,
           date: preparation.createdAt,
           workFlowType: PhotoWorkflowType.FLEET_PREPARATION,
-          subjectType: PhotoSubjectType.INSTALLATION,
+          subjectType: PhotoSubjectType.OTHER,
           entityId: `installation:${stage.id}:`,
           prefix: true,
         });
@@ -417,10 +417,10 @@ export class MediaService {
     return this.prisma.$transaction(async (tx) => {
       // Retain evidence referenced by imposed reports when a newer photo replaces a slot.
       // The inspection lock also serializes replacement against penalty imposition.
-      if ((photo.subjectType === PhotoSubjectType.INSPECTION && (photo.workFlowType === PhotoWorkflowType.FLEET_ALLOTMENT || photo.workFlowType === PhotoWorkflowType.FLEET_SUBMISSION)))
+      if ((photo.subjectType === PhotoSubjectType.FLEET && (photo.workFlowType === PhotoWorkflowType.FLEET_ALLOTMENT || photo.workFlowType === PhotoWorkflowType.FLEET_SUBMISSION)))
         await tx.$queryRaw`SELECT id FROM "Inspection" WHERE id=${photo.entityId} AND "clientId"=${clientId} FOR UPDATE`;
       const reports =
-        (photo.subjectType === PhotoSubjectType.INSPECTION && (photo.workFlowType === PhotoWorkflowType.FLEET_ALLOTMENT || photo.workFlowType === PhotoWorkflowType.FLEET_SUBMISSION))
+        (photo.subjectType === PhotoSubjectType.FLEET && (photo.workFlowType === PhotoWorkflowType.FLEET_ALLOTMENT || photo.workFlowType === PhotoWorkflowType.FLEET_SUBMISSION))
           ? await tx.vehicleSubmissionReport.findMany({
               where: {
                 clientId,
@@ -514,12 +514,7 @@ export class MediaService {
   private fleetScoped(actor?: AuthUser) {
     return Boolean(
       actor?.roles.includes(UserRole.FLEET_MANAGER) &&
-      !actor.roles.some(
-        (role) =>
-          role === UserRole.CLIENT_ADMIN ||
-          role === UserRole.FLEET_MANAGER ||
-          role === UserRole.KYC_OPERATOR,
-      ),
+      !actor.roles.some((role) => role === UserRole.CLIENT_ADMIN || role === UserRole.KYC_OPERATOR),
     );
   }
 
@@ -529,7 +524,7 @@ export class MediaService {
     const visible = await fleetManagerVisibleSubjects(this.prisma, clientId, actor.id);
     const allowed = subject === PhotoSubjectType.PROFILE
       ? visible.riderIds.includes(entityId)
-      : await this.visibleOnboardingProgress(clientId, entityId, visible.userIds);
+      : (await this.visibleOnboardingProgress(clientId, entityId, visible.userIds)) || visible.riderIds.includes(entityId);
     if (!allowed) throw new NotFoundException('Media entity not found.');
   }
 
@@ -540,7 +535,7 @@ export class MediaService {
 
   private async assertFleetManagerPhotoAccess(clientId: string, actor: AuthUser | undefined, photo: { workFlowType: PhotoWorkflowType; subjectType: PhotoSubjectType; entityId: string; id: string }) {
     if (!actor || !this.fleetScoped(actor)) return;
-    if ((photo.workFlowType === PhotoWorkflowType.FLEET_ALLOTMENT || photo.workFlowType === PhotoWorkflowType.FLEET_SUBMISSION) && photo.subjectType === PhotoSubjectType.INSPECTION) {
+    if ((photo.workFlowType === PhotoWorkflowType.FLEET_ALLOTMENT || photo.workFlowType === PhotoWorkflowType.FLEET_SUBMISSION) && photo.subjectType === PhotoSubjectType.FLEET) {
       const hubs = await this.prisma.userHub.findMany({ where: { clientId, userId: actor.id, hub: { clientId, status: 'ACTIVE', deletedAt: null } }, select: { hubId: true } });
       const inspection = await this.prisma.inspection.findFirst({ where: { id: photo.entityId, clientId, allocation: { clientId, fleet: { clientId, deletedAt: null, currentHubId: { in: hubs.map((hub) => hub.hubId) } } } }, select: { id: true } });
       if (!inspection) throw new NotFoundException('Photo not found.');
@@ -554,10 +549,10 @@ export class MediaService {
     const where = { id: entityId, clientId };
     let exists = false;
     if (workflow === PhotoWorkflowType.PAYMENT) {
-      if (subject === PhotoSubjectType.DEPLOYMENT) exists = !!(await this.prisma.deploymentPayment.findFirst({ where }));
+      if (subject === PhotoSubjectType.OTHER) exists = !!(await this.prisma.deploymentPayment.findFirst({ where })) || !!(await this.prisma.riderPayment.findFirst({ where }));
       else if (subject === PhotoSubjectType.COLLECTION) exists = !!(await this.prisma.paymentCollectionRequest.findFirst({ where }));
       else if (subject === PhotoSubjectType.AUTOPAY) exists = !!(await this.prisma.paymentTransaction.findFirst({ where }));
-      else if (subject === PhotoSubjectType.RECEIVED || subject === PhotoSubjectType.ONBOARDING_FEES) exists = !!(await this.prisma.riderPayment.findFirst({ where }));
+      else if (subject === PhotoSubjectType.ONBOARDING_FEES) exists = !!(await this.prisma.riderPayment.findFirst({ where }));
     } else if (workflow === PhotoWorkflowType.RIDER_ONBOARDING && subject === PhotoSubjectType.PROFILE) exists = !!(await this.prisma.rider.findFirst({ where: { ...where, deletedAt: null } }));
     else if (workflow === PhotoWorkflowType.RIDER_ONBOARDING) exists = !!(await this.prisma.riderOnboardingProgress.findFirst({ where }));
     else if (workflow === PhotoWorkflowType.FLEET_INSPECTION) {
@@ -565,10 +560,11 @@ export class MediaService {
       else if (subject === PhotoSubjectType.BATTERY) exists = !!(await this.prisma.battery.findFirst({ where }));
       else if (subject === PhotoSubjectType.CONTROLLER) exists = !!(await this.prisma.controller.findFirst({ where }));
       else if (subject === PhotoSubjectType.IOT_DEVICE) exists = !!(await this.prisma.ioTDevice.findFirst({ where }));
-    } else if ((workflow === PhotoWorkflowType.FLEET_ALLOTMENT || workflow === PhotoWorkflowType.FLEET_SUBMISSION) && subject === PhotoSubjectType.INSPECTION) exists = !!(await this.prisma.inspection.findFirst({ where }));
+      else if (([PhotoSubjectType.MOTOR, PhotoSubjectType.TYRE, PhotoSubjectType.DOCK, PhotoSubjectType.CHASSIS, PhotoSubjectType.DASHBOARD] as PhotoSubjectType[]).includes(subject)) exists = !!(await this.prisma.fleet.findFirst({ where: { ...where, deletedAt: null } }));
+    } else if ((workflow === PhotoWorkflowType.FLEET_ALLOTMENT || workflow === PhotoWorkflowType.FLEET_SUBMISSION) && subject === PhotoSubjectType.FLEET) exists = !!(await this.prisma.inspection.findFirst({ where }));
     else if (workflow === PhotoWorkflowType.SUPPORT && subject === PhotoSubjectType.SUPPORT_TICKET) exists = !!(await this.prisma.supportTicket.findFirst({ where }));
-    else if (workflow === PhotoWorkflowType.FLEET_PREPARATION && subject === PhotoSubjectType.PREPARATION) exists = !!(await this.prisma.fleetPreparationRevision.findFirst({ where }));
-    else if (workflow === PhotoWorkflowType.FLEET_PREPARATION && subject === PhotoSubjectType.INSTALLATION) { const stageId = entityId.split(':')[1]; exists = !!stageId && !!(await this.prisma.fleetInstallationStage.findFirst({ where: { id: stageId, clientId } })); }
+    else if (workflow === PhotoWorkflowType.FLEET_PREPARATION && subject === PhotoSubjectType.FLEET) exists = !!(await this.prisma.fleetPreparationRevision.findFirst({ where }));
+    else if (workflow === PhotoWorkflowType.FLEET_PREPARATION && subject === PhotoSubjectType.OTHER) { const stageId = entityId.split(':')[1]; exists = !!stageId && !!(await this.prisma.fleetInstallationStage.findFirst({ where: { id: stageId, clientId } })); }
     if (!exists) throw new NotFoundException('Media entity not found.');
   }
 

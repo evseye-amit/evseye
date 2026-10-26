@@ -672,7 +672,7 @@ describe.skipIf(!url)(
       await expect(transactions.approve(f.client.id, f.riderActor, 'DEPLOYMENT', payment.id, 2)).rejects.toThrow();
       await expect(media.complete(f.client.id, upload.photo.id)).rejects.toThrow('payment transaction routes');
       await expect(media.downloadUrl(f.client.id, upload.photo.id)).rejects.toThrow('payment transaction routes');
-      await expect(media.listEntityPhotos(f.client.id, 'PAYMENT' as never, 'DEPLOYMENT', payment.id)).rejects.toThrow('payment transaction routes');
+      await expect(media.listEntityPhotos(f.client.id, 'PAYMENT' as never, 'OTHER', payment.id)).rejects.toThrow('payment transaction routes');
       expect((await transactions.download(f.client.id, f.actor, 'DEPLOYMENT', payment.id, upload.photo.id)).url).toContain('payment-receipts');
       const otherManager = await db.user.create({ data: { clientId: f.client.id, name: 'Other manager', mobile: '9876543277', role: 'FLEET_MANAGER' } });
       await expect(transactions.detail(f.client.id, { id: otherManager.id, clientId: f.client.id, roles: [UserRole.FLEET_MANAGER] }, 'DEPLOYMENT', payment.id)).rejects.toThrow('assigned hub');
@@ -760,10 +760,10 @@ describe.skipIf(!url)(
       expect(await db.photo.count({ where: { clientId: f.client.id, workFlowType: 'FLEET_INSPECTION', subjectType: 'FLEET' } })).toBe(0);
       await f.select();
       await f.pay(); // requestFleet must accept absent onboarding photos too.
-      await db.photoRequirement.create({ data: { clientId: f.client.id, workFlowType: 'FLEET_ALLOTMENT', subjectType: 'INSPECTION', photoType: 'FRONT', isRequired: true } });
+      await db.photoRequirement.create({ data: { clientId: f.client.id, workFlowType: 'FLEET_ALLOTMENT', subjectType: 'FLEET', photoType: 'FRONT', isRequired: true } });
       await expect(f.handover()).rejects.toThrow('Allocation evidence is incomplete.');
       const inspection = await db.inspection.findUniqueOrThrow({ where: { allocationId_type: { allocationId: f.allocation.id, type: 'PRE_ALLOCATION' } } });
-      await db.photo.create({ data: { clientId: f.client.id, workFlowType: 'FLEET_ALLOTMENT', subjectType: 'INSPECTION', entityId: inspection.id, photoType: 'FRONT', objectKey: randomUUID(), mimeType: 'image/jpeg', sizeBytes: 100, status: 'COMPLETE', uploadedById: f.manager.id } });
+      await db.photo.create({ data: { clientId: f.client.id, workFlowType: 'FLEET_ALLOTMENT', subjectType: 'FLEET', entityId: inspection.id, photoType: 'FRONT', objectKey: randomUUID(), mimeType: 'image/jpeg', sizeBytes: 100, status: 'COMPLETE', uploadedById: f.manager.id } });
       await f.handover();
       expect((await db.allocation.findUniqueOrThrow({ where: { id: f.allocation.id } })).status).toBe('ACTIVE');
     });

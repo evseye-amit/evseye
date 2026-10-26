@@ -121,7 +121,7 @@ export class FleetManagerActionGuard implements CanActivate {
         : body;
       if (entity?.workFlowType === 'FLEET_INSPECTION' && entity?.subjectType === 'FLEET') add(entity.entityId);
       else if (
-        (entity?.workFlowType === 'FLEET_ALLOTMENT' || entity?.workFlowType === 'FLEET_SUBMISSION') && entity?.subjectType === 'INSPECTION' &&
+        (entity?.workFlowType === 'FLEET_ALLOTMENT' || entity?.workFlowType === 'FLEET_SUBMISSION') && entity?.subjectType === 'FLEET' &&
         typeof entity.entityId === 'string'
       ) {
         const inspection = await this.db.inspection.findFirst({

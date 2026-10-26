@@ -41,7 +41,7 @@ describe('InspectionsService', () => {
     expect(prisma.photo.findMany).toHaveBeenCalledWith({
       where: {
         clientId: 'client-a',
-        subjectType: 'INSPECTION',
+        subjectType: 'FLEET',
         entityId: 'inspection-1',
         status: PhotoStatus.COMPLETE,
       },

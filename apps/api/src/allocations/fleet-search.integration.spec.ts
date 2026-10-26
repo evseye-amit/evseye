@@ -152,7 +152,7 @@ describe.skipIf(!url)(
           data: {
             clientId: client.id,
             entityId: inspection.id,
-            workFlowType: 'FLEET_ALLOTMENT', subjectType: 'INSPECTION', photoType: 'FRONT',
+            workFlowType: 'FLEET_ALLOTMENT', subjectType: 'FLEET', photoType: 'FRONT',
             objectKey: randomUUID(),
             mimeType: 'image/jpeg',
             sizeBytes: 100,
@@ -342,7 +342,7 @@ describe.skipIf(!url)(
             f.actor,
             MediaController,
             {},
-            { workFlowType: 'FLEET_ALLOTMENT', subjectType: 'INSPECTION', entityId: evidence.inspection.id },
+            { workFlowType: 'FLEET_ALLOTMENT', subjectType: 'FLEET', entityId: evidence.inspection.id },
             'POST',
           ),
           context(

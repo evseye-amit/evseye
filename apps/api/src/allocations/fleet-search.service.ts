@@ -159,7 +159,7 @@ export class FleetSearchService {
           where: {
             clientId,
             workFlowType: 'FLEET_ALLOTMENT',
-            subjectType: 'INSPECTION',
+            subjectType: 'FLEET',
             entityId: inspection.id,
             photoType: 'FRONT',
             status: 'COMPLETE',

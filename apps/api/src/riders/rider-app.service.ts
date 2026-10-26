@@ -81,7 +81,7 @@ export class RiderAppService {
     const profilePhoto = await this.prisma.riderOnboardingDocument.findFirst({
       where: { clientId, userId, supersededAt: null, status: { in: [RiderDocumentReviewStatus.PENDING, RiderDocumentReviewStatus.APPROVED] },
         feature: { code: 'UPLOAD_PROFILE_PHOTO' },
-      photo: { clientId, workFlowType: 'RIDER_ONBOARDING', subjectType: { in: [PhotoSubjectType.RIDER_DOCUMENT, PhotoSubjectType.PAN, PhotoSubjectType.AADHAR] }, status: PhotoStatus.COMPLETE, mimeType: { in: ['image/jpeg', 'image/png', 'image/webp'] } },
+      photo: { clientId, workFlowType: 'RIDER_ONBOARDING', subjectType: { in: [PhotoSubjectType.PROFILE, PhotoSubjectType.PAN, PhotoSubjectType.AADHAR, PhotoSubjectType.DRIVING_LICENSE, PhotoSubjectType.BANK, PhotoSubjectType.DECLARATION] }, status: PhotoStatus.COMPLETE, mimeType: { in: ['image/jpeg', 'image/png', 'image/webp'] } },
       }, select: { photoId: true }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
     const profilePhotoUrl = profilePhoto ? (await this.media.downloadUrl(clientId, profilePhoto.photoId)).url : null;
@@ -381,7 +381,7 @@ export class RiderAppService {
     if (!field?.isUpload) throw new BadRequestException(`${fieldCode} is not an upload field in the active package.`);
     const progress = await this.prisma.riderOnboardingProgress.findUnique({ where: { userId }, select: { id: true } });
     if (!progress) throw new BadRequestException('Rider onboarding has not been started.');
-    const subjectType = String(field.configuration.photoSubjectType ?? ({ AADHAR_PROOF_DOCUMENT: 'AADHAR', PAN_PROOF_DOCUMENT: 'PAN' } as Record<string, string>)[field.featureCode] ?? 'RIDER_DOCUMENT') as PhotoSubjectType;
+    const subjectType = String(field.configuration.photoSubjectType ?? ({ AADHAR_PROOF_DOCUMENT: 'AADHAR', PAN_PROOF_DOCUMENT: 'PAN' } as Record<string, string>)[field.featureCode] ?? 'DECLARATION') as PhotoSubjectType;
     const photoTypes = await this.prisma.photoRequirement.findMany({
       where: { clientId, workFlowType: 'RIDER_ONBOARDING', subjectType, OR: [{ featureCode: field.featureCode }, { featureCode: null }] },
       orderBy: [{ sortOrder: 'asc' }, { photoType: 'asc' }],
@@ -425,7 +425,7 @@ export class RiderAppService {
   }
 
   async completeDocumentUpload(clientId: string, userId: string, photoId: string) {
-    const photo = await this.prisma.photo.findFirst({ where: { id: photoId, clientId, uploadedById: userId, workFlowType: 'RIDER_ONBOARDING', subjectType: { in: [PhotoSubjectType.RIDER_DOCUMENT, PhotoSubjectType.PAN, PhotoSubjectType.AADHAR] }, status: PhotoStatus.PENDING_UPLOAD }, select: { id: true, photoType: true, subjectType: true } });
+    const photo = await this.prisma.photo.findFirst({ where: { id: photoId, clientId, uploadedById: userId, workFlowType: 'RIDER_ONBOARDING', subjectType: { in: [PhotoSubjectType.PROFILE, PhotoSubjectType.PAN, PhotoSubjectType.AADHAR, PhotoSubjectType.DRIVING_LICENSE, PhotoSubjectType.BANK, PhotoSubjectType.DECLARATION] }, status: PhotoStatus.PENDING_UPLOAD }, select: { id: true, photoType: true, subjectType: true } });
     if (!photo) throw new BadRequestException('Rider onboarding document upload not found.');
     const effective = await this.configuration.getEffectiveConfiguration(clientId);
     const subjectRules = await this.prisma.photoRequirement.findMany({ where: { clientId, workFlowType: 'RIDER_ONBOARDING', subjectType: photo.subjectType }, select: { featureCode: true } });
