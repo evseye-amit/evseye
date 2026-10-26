@@ -100,8 +100,6 @@ enum ImportStatus {
   FAIL
 }
 
-
-
 enum PhotoWorkflowType {
   FLEET_INSPECTION
   FLEET_PREPARATION
