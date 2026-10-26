@@ -1,14 +1,24 @@
--- Consolidated initial schema generated from schema.prisma.
--- Includes the database rules previously maintained in SQL migrations.
+-- Baseline generated from apps/api/prisma/schema.prisma.
+-- Existing databases must mark this migration applied; do not replay on populated databases.
+-- Database extensions required by the Prisma schema (PostGIS geography fields)
+CREATE SCHEMA IF NOT EXISTS tiger;
+CREATE SCHEMA IF NOT EXISTS topology;
 
-CREATE EXTENSION IF NOT EXISTS "btree_gist" WITH SCHEMA "public";
-CREATE EXTENSION IF NOT EXISTS "postgis" WITH SCHEMA "public";
+CREATE EXTENSION IF NOT EXISTS btree_gist WITH SCHEMA public;
+
+CREATE EXTENSION IF NOT EXISTS fuzzystrmatch WITH SCHEMA public;
+
+CREATE EXTENSION IF NOT EXISTS postgis WITH SCHEMA public;
+
+CREATE EXTENSION IF NOT EXISTS postgis_tiger_geocoder WITH SCHEMA tiger;
+
+CREATE EXTENSION IF NOT EXISTS postgis_topology WITH SCHEMA topology;
 
 -- CreateEnum
-CREATE TYPE "UserRole" AS ENUM ('SUPER_ADMIN', 'CLIENT_ADMIN', 'OPERATIONS_MANAGER', 'FLEET_MANAGER', 'TEAM_LEAD', 'KYC_OPERATOR', 'RIDER');
+CREATE TYPE "UserRole" AS ENUM ('ADVISOR', 'QC_MANAGER', 'SUPER_ADMIN', 'CLIENT_ADMIN', 'FLEET_MANAGER', 'TEAM_LEAD', 'KYC_OPERATOR', 'RIDER');
 
 -- CreateEnum
-CREATE TYPE "OtpPurpose" AS ENUM ('LOGIN', 'DEALLOCATION_RIDER', 'DEALLOCATION_OPERATOR', 'PHONE_VERIFICATION', 'RETURN_PENALTY_APPROVAL');
+CREATE TYPE "OtpPurpose" AS ENUM ('LOGIN', 'HANDOVER_RIDER', 'HANDOVER_OPERATOR');
 
 -- CreateEnum
 CREATE TYPE "OtpStatus" AS ENUM ('PENDING', 'VERIFIED', 'EXPIRED', 'FAILED', 'CANCELLED');
@@ -38,7 +48,13 @@ CREATE TYPE "ImportEntityType" AS ENUM ('HUB', 'FLEET_MANAGER', 'TEAM_LEADER', '
 CREATE TYPE "ImportStatus" AS ENUM ('PASS', 'PARTIAL_PASS', 'FAIL');
 
 -- CreateEnum
-CREATE TYPE "PhotoEntityType" AS ENUM ('RIDER', 'FLEET', 'BATTERY', 'CONTROLLER', 'IOT_DEVICE', 'INSPECTION', 'RIDER_ONBOARDING', 'SUPPORT_TICKET');
+CREATE TYPE "PhotoWorkflowType" AS ENUM ('FLEET_INSPECTION', 'FLEET_PREPARATION', 'FLEET_ALLOTMENT', 'FLEET_SUBMISSION', 'RIDER_ONBOARDING', 'SUPPORT', 'PAYMENT');
+
+-- CreateEnum
+CREATE TYPE "PhotoSubjectType" AS ENUM ('FLEET', 'BATTERY', 'CONTROLLER', 'IOT_DEVICE', 'MOTOR', 'TYRE', 'DOCK', 'CHASSIS', 'DASHBOARD', 'PROFILE', 'PAN', 'AADHAR', 'DRIVING_LICENSE', 'BANK', 'DECLARATION', 'ONBOARDING_FEES', 'SUPPORT_TICKET', 'COLLECTION', 'AUTOPAY', 'OTHER');
+
+-- CreateEnum
+CREATE TYPE "PhotoType" AS ENUM ('FRONT', 'BACK', 'LEFT', 'RIGHT', 'BODY', 'LABEL', 'DOCUMENT', 'FACE', 'RECEIPT', 'OTHER');
 
 -- CreateEnum
 CREATE TYPE "RiderDocumentReviewStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED', 'SUPERSEDED');
@@ -53,7 +69,7 @@ CREATE TYPE "KycType" AS ENUM ('AADHAAR', 'PAN', 'BANK_ACCOUNT');
 CREATE TYPE "KycStatus" AS ENUM ('NOT_STARTED', 'PENDING', 'VERIFIED', 'FAILED', 'RETRY_REQUIRED');
 
 -- CreateEnum
-CREATE TYPE "FleetStatus" AS ENUM ('IN_TRANSIT', 'AVAILABLE', 'RESERVED', 'ALLOCATION_IN_PROGRESS', 'ALLOCATED', 'IN_USE', 'DEALLOCATION_IN_PROGRESS', 'INSPECTION_PENDING', 'MAINTENANCE', 'OUT_OF_SERVICE');
+CREATE TYPE "FleetStatus" AS ENUM ('PENDING_ACTIVATION', 'IN_TRANSIT', 'AVAILABLE', 'RESERVED', 'ALLOCATION_IN_PROGRESS', 'ALLOCATED', 'IN_USE', 'DEALLOCATION_IN_PROGRESS', 'INSPECTION_PENDING', 'MAINTENANCE', 'BROKEN', 'AWAITING_PARTS', 'OUT_OF_SERVICE');
 
 -- CreateEnum
 CREATE TYPE "FleetOnboardingStatus" AS ENUM ('DRAFT', 'IN_PROGRESS', 'PENDING_REVIEW', 'ACTIVE', 'REJECTED', 'ARCHIVED');
@@ -104,7 +120,7 @@ CREATE TYPE "InspectionStatus" AS ENUM ('DRAFT', 'IN_PROGRESS', 'COMPLETED', 'RE
 CREATE TYPE "MobileDeploymentStatus" AS ENUM ('RIDER_WAITING', 'FLEET_REQUESTED', 'PAYMENT_PENDING', 'PAYMENT_PAID', 'PDI_PENDING_RIDER', 'TRAINING_PENDING', 'DEVICE_PAIRING_PENDING', 'DEPLOYED');
 
 -- CreateEnum
-CREATE TYPE "DeploymentPaymentStatus" AS ENUM ('PENDING', 'SUBMITTED', 'PAID', 'FAILED', 'CANCELLED');
+CREATE TYPE "DeploymentPaymentStatus" AS ENUM ('PENDING', 'REJECTED', 'SUBMITTED', 'PAID', 'FAILED', 'CANCELLED');
 
 -- CreateEnum
 CREATE TYPE "IoTEventType" AS ENUM ('LOCATION', 'HEARTBEAT', 'START', 'STOP');
@@ -281,6 +297,12 @@ CREATE TYPE "PaymentProviderEventStatus" AS ENUM ('RECEIVED', 'PROCESSED', 'IGNO
 CREATE TYPE "PaymentTransactionStatus" AS ENUM ('CREATING', 'PENDING', 'SUCCESS', 'FAILED', 'CANCELLED', 'UNKNOWN');
 
 -- CreateEnum
+CREATE TYPE "FleetOperatingMode" AS ENUM ('SIMPLE', 'ONBOARDING_EVIDENCE', 'PREPARATION_QC', 'STAGED_PREPARATION_QC');
+
+-- CreateEnum
+CREATE TYPE "WorkPartnerCategory" AS ENUM ('FOOD_DELIVERY', 'QUICK_COMMERCE', 'ECOMMERCE', 'PARCEL_LOGISTICS', 'ON_DEMAND_LOGISTICS', 'PHARMACY_HEALTHCARE', 'SPECIALTY_DELIVERY', 'OTHER');
+
+-- CreateEnum
 CREATE TYPE "KycVerificationType" AS ENUM ('PAN_VERIFICATION', 'AADHAAR_OTP', 'AADHAAR_OKYC', 'BANK_ACCOUNT_VERIFICATION', 'IFSC_VERIFICATION', 'PAN_AADHAAR_LINK', 'DIGILOCKER', 'NAME_MATCH', 'FACE_MATCH', 'LIVENESS');
 
 -- CreateEnum
@@ -391,12 +413,17 @@ CREATE TYPE "WalletDepositRefundStatus" AS ENUM ('REQUESTED', 'UNDER_REVIEW', 'A
 -- CreateEnum
 CREATE TYPE "WalletInvoiceAllocationKind" AS ENUM ('APPLY', 'REVERSAL');
 
+-- CreateEnum
+CREATE TYPE "RiderReferenceReviewStatus" AS ENUM ('APPROVED', 'REJECTED');
+
 -- CreateTable
 CREATE TABLE "Client" (
+    "fleetOperatingMode" "FleetOperatingMode" NOT NULL DEFAULT 'SIMPLE',
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "slug" TEXT NOT NULL,
     "companyCode" TEXT,
+    "requestedLocales" TEXT[] DEFAULT ARRAY['en']::TEXT[],
     "status" "ClientStatus" NOT NULL DEFAULT 'DRAFT',
     "isActive" BOOLEAN NOT NULL DEFAULT true,
     "depositActivationPolicy" "DepositActivationPolicyType" NOT NULL DEFAULT 'FULL_REQUIRED',
@@ -433,6 +460,42 @@ CREATE TABLE "Oem" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "Oem_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "WorkPartnerMaster" (
+    "logo" TEXT,
+    "category" "WorkPartnerCategory" NOT NULL DEFAULT 'OTHER',
+    "workType" TEXT,
+    "website" TEXT,
+    "id" TEXT NOT NULL,
+    "code" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "legalName" TEXT NOT NULL,
+    "status" "MasterRecordStatus" NOT NULL DEFAULT 'ACTIVE',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "WorkPartnerMaster_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "ClientWorkPartner" (
+    "logo" TEXT,
+    "category" "WorkPartnerCategory" NOT NULL DEFAULT 'OTHER',
+    "workType" TEXT,
+    "website" TEXT,
+    "id" TEXT NOT NULL,
+    "clientId" TEXT NOT NULL,
+    "sourceMasterId" TEXT,
+    "code" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "legalName" TEXT NOT NULL,
+    "status" "MasterRecordStatus" NOT NULL DEFAULT 'ACTIVE',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "ClientWorkPartner_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -1013,6 +1076,8 @@ CREATE TABLE "Hub" (
 
 -- CreateTable
 CREATE TABLE "Fleet" (
+    "allocationBlockedByAdmin" BOOLEAN NOT NULL DEFAULT false,
+    "readinessApprovedPreparationId" TEXT,
     "id" TEXT NOT NULL,
     "clientId" TEXT NOT NULL,
     "fleetCode" VARCHAR(50) NOT NULL,
@@ -1030,7 +1095,9 @@ CREATE TABLE "Fleet" (
     "manufacturingMonth" INTEGER,
     "motorNumber" VARCHAR(100),
     "ownershipType" "FleetOwnershipType" NOT NULL DEFAULT 'CLIENT_OWNED',
-    "status" "FleetStatus" NOT NULL DEFAULT 'IN_TRANSIT',
+    "status" "FleetStatus" NOT NULL DEFAULT 'PENDING_ACTIVATION',
+    "readinessWorkflow" "FleetOperatingMode" NOT NULL DEFAULT 'SIMPLE',
+    "readinessStagePlanCode" VARCHAR(80),
     "allocationEnabled" BOOLEAN NOT NULL DEFAULT true,
     "homeHubId" TEXT,
     "currentHubId" TEXT,
@@ -1302,6 +1369,8 @@ CREATE TABLE "Rider" (
     "emergencyContactName" VARCHAR(150),
     "emergencyContactMobile" VARCHAR(20),
     "status" "RiderStatus" NOT NULL DEFAULT 'ONBOARDING',
+    "kycStatus" "KycStatus" NOT NULL DEFAULT 'NOT_STARTED',
+    "kycVerifiedAt" TIMESTAMP(3),
     "joiningDate" DATE,
     "exitDate" DATE,
     "metadata" JSONB,
@@ -1322,6 +1391,19 @@ CREATE TABLE "PaymentMandate" (
     "requestKey" VARCHAR(120) NOT NULL,
     "provider" VARCHAR(30) NOT NULL DEFAULT 'CASHFREE',
     "providerMandateId" VARCHAR(250) NOT NULL,
+    "providerKeyId" VARCHAR(100),
+    "providerCustomerEmail" VARCHAR(254),
+    "providerCustomerId" VARCHAR(100),
+    "providerTokenId" VARCHAR(100),
+    "providerRegistrationId" VARCHAR(100),
+    "providerAuthorizationOrderId" VARCHAR(100),
+    "providerAuthorizationPaymentId" VARCHAR(100),
+    "authorizationUrl" VARCHAR(1000),
+    "providerFrequency" VARCHAR(30),
+    "providerTermsSnapshot" JSONB,
+    "providerCreateClaimedAt" TIMESTAMP(3),
+    "providerCancelRequestedAt" TIMESTAMP(3),
+    "providerCheckedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "authorizationSessionId" TEXT,
     "status" "PaymentMandateStatus" NOT NULL DEFAULT 'CREATING',
     "providerStatus" VARCHAR(80),
@@ -1354,6 +1436,9 @@ CREATE TABLE "PaymentMandateEvent" (
 
 -- CreateTable
 CREATE TABLE "PaymentProviderEvent" (
+    "deploymentPayload" JSONB,
+    "recurringPayload" JSONB,
+    "deploymentOrderId" TEXT,
     "id" TEXT NOT NULL,
     "provider" VARCHAR(30) NOT NULL,
     "eventKey" VARCHAR(128) NOT NULL,
@@ -1382,6 +1467,12 @@ CREATE TABLE "PaymentTransaction" (
     "requestKey" VARCHAR(120) NOT NULL,
     "provider" VARCHAR(30) NOT NULL DEFAULT 'CASHFREE',
     "providerPaymentId" VARCHAR(250) NOT NULL,
+    "providerKeyId" VARCHAR(100),
+    "providerOrderId" VARCHAR(100),
+    "gatewayPaymentId" VARCHAR(100),
+    "providerOrderClaimedAt" TIMESTAMP(3),
+    "providerDebitClaimedAt" TIMESTAMP(3),
+    "providerCheckedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "providerReference" VARCHAR(120),
     "failureCode" VARCHAR(80),
     "retryability" VARCHAR(20),
@@ -1669,6 +1760,7 @@ CREATE TABLE "RiderDepositRefundRequest" (
 
 -- CreateTable
 CREATE TABLE "RiderInvoice" (
+    "penaltyNotificationQueuedAt" TIMESTAMP(3),
     "id" TEXT NOT NULL,
     "clientId" TEXT NOT NULL,
     "riderId" TEXT NOT NULL,
@@ -2030,6 +2122,8 @@ CREATE TABLE "ImportJob" (
 
 -- CreateTable
 CREATE TABLE "Allocation" (
+    "commercialOfferId" TEXT,
+    "rentalAgreementId" TEXT,
     "id" TEXT NOT NULL,
     "clientId" TEXT NOT NULL,
     "fleetId" TEXT NOT NULL,
@@ -2050,6 +2144,7 @@ CREATE TABLE "MobileDeploymentWorkflow" (
     "id" TEXT NOT NULL,
     "clientId" TEXT NOT NULL,
     "allocationId" TEXT NOT NULL,
+    "clientWorkPartnerId" TEXT,
     "status" "MobileDeploymentStatus" NOT NULL DEFAULT 'RIDER_WAITING',
     "paymentBreakdown" JSONB,
     "paymentPaidAt" TIMESTAMP(3),
@@ -2082,6 +2177,10 @@ CREATE TABLE "DeploymentPayment" (
     "breakdown" JSONB NOT NULL,
     "provider" TEXT,
     "providerReference" TEXT,
+    "submissionVersion" INTEGER NOT NULL DEFAULT 0,
+    "rejectionReason" VARCHAR(1000),
+    "rejectedAt" TIMESTAMP(3),
+    "rejectedById" TEXT,
     "submittedAt" TIMESTAMP(3),
     "verifiedAt" TIMESTAMP(3),
     "verifiedById" TEXT,
@@ -2660,9 +2759,10 @@ CREATE TABLE "KycReconciliationResult" (
 CREATE TABLE "Photo" (
     "id" TEXT NOT NULL,
     "clientId" TEXT NOT NULL,
-    "entityType" "PhotoEntityType" NOT NULL,
+    "workFlowType" "PhotoWorkflowType" NOT NULL,
+    "subjectType" "PhotoSubjectType" NOT NULL,
     "entityId" TEXT NOT NULL,
-    "photoType" TEXT NOT NULL,
+    "photoType" "PhotoType" NOT NULL,
     "objectKey" TEXT NOT NULL,
     "mimeType" TEXT NOT NULL,
     "sizeBytes" INTEGER NOT NULL,
@@ -2699,8 +2799,10 @@ CREATE TABLE "RiderOnboardingDocument" (
 CREATE TABLE "PhotoRequirement" (
     "id" TEXT NOT NULL,
     "clientId" TEXT NOT NULL,
-    "entityType" "PhotoEntityType" NOT NULL,
-    "photoType" TEXT NOT NULL,
+    "workFlowType" "PhotoWorkflowType" NOT NULL,
+    "subjectType" "PhotoSubjectType" NOT NULL,
+    "photoType" "PhotoType" NOT NULL,
+    "featureCode" VARCHAR(100),
     "isRequired" BOOLEAN NOT NULL DEFAULT true,
     "sortOrder" INTEGER NOT NULL DEFAULT 0,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -3086,6 +3188,12 @@ CREATE TABLE "RateCardRentalRate" (
 
 -- CreateTable
 CREATE TABLE "RateCardFee" (
+    "selectionGroup" VARCHAR(80),
+    "city" VARCHAR(100),
+    "hubId" TEXT,
+    "minVehicleAgeMonths" INTEGER,
+    "maxVehicleAgeMonths" INTEGER,
+    "priority" INTEGER NOT NULL DEFAULT 0,
     "id" TEXT NOT NULL,
     "clientId" TEXT NOT NULL,
     "rateCardVersionId" TEXT NOT NULL,
@@ -3272,6 +3380,7 @@ CREATE TABLE "AppLegalDocument" (
     "version" VARCHAR(80) NOT NULL,
     "title" VARCHAR(200) NOT NULL,
     "content" TEXT NOT NULL,
+    "acceptance" JSONB,
     "contentHash" CHAR(64) NOT NULL,
     "effectiveAt" TIMESTAMP(3) NOT NULL,
     "publishedAt" TIMESTAMP(3),
@@ -3292,6 +3401,7 @@ CREATE TABLE "AppLegalTemplate" (
     "version" VARCHAR(80) NOT NULL,
     "title" VARCHAR(200) NOT NULL,
     "content" TEXT NOT NULL,
+    "acceptance" JSONB,
     "isActive" BOOLEAN NOT NULL DEFAULT true,
     "deletedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -3423,6 +3533,7 @@ CREATE TABLE "RiderRentalAgreement" (
 
 -- CreateTable
 CREATE TABLE "RentalTerminationRequest" (
+    "submissionRequired" BOOLEAN NOT NULL DEFAULT true,
     "id" TEXT NOT NULL,
     "clientId" TEXT NOT NULL,
     "riderId" TEXT NOT NULL,
@@ -3451,6 +3562,18 @@ CREATE TABLE "RentalTerminationRequest" (
 
 -- CreateTable
 CREATE TABLE "ReturnPenaltyPrice" (
+    "isSpare" BOOLEAN NOT NULL DEFAULT false,
+    "masterSpareId" TEXT,
+    "sourceVersion" INTEGER,
+    "name" VARCHAR(180),
+    "baseRate" DECIMAL(14,2),
+    "gstPercent" DECIMAL(5,2),
+    "hsnCode" VARCHAR(20),
+    "unit" VARCHAR(30) NOT NULL DEFAULT 'PIECE',
+    "vehicleTypeIds" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "configurationVersion" INTEGER NOT NULL DEFAULT 1,
+    "penaltyConfigured" BOOLEAN NOT NULL DEFAULT true,
+    "evidenceRequired" BOOLEAN NOT NULL DEFAULT true,
     "id" TEXT NOT NULL,
     "clientId" TEXT NOT NULL,
     "code" VARCHAR(60) NOT NULL,
@@ -3481,16 +3604,9 @@ CREATE TABLE "ReturnPenaltyCase" (
     "status" VARCHAR(40) NOT NULL DEFAULT 'DRAFT',
     "submittedAt" TIMESTAMP(3),
     "submittedById" TEXT,
-    "riderApprovedRevision" INTEGER,
-    "riderApprovedAt" TIMESTAMP(3),
-    "riderApprovalOtpRequestId" TEXT,
     "riderDisputedRevision" INTEGER,
     "riderDisputedAt" TIMESTAMP(3),
     "riderDisputeReason" VARCHAR(500),
-    "adminOverrideRevision" INTEGER,
-    "adminOverrideAt" TIMESTAMP(3),
-    "adminOverrideById" TEXT,
-    "adminOverrideReason" VARCHAR(500),
     "managerApprovedRevision" INTEGER,
     "managerApprovedAt" TIMESTAMP(3),
     "managerApprovedById" TEXT,
@@ -3805,6 +3921,9 @@ CREATE TABLE "RiderAgreementCommercialVersion" (
 
 -- CreateTable
 CREATE TABLE "VehicleExchangeRequest" (
+    "submissionRequired" BOOLEAN NOT NULL DEFAULT true,
+    "plannedHubId" TEXT,
+    "plannedReturnDate" TIMESTAMP(3),
     "id" TEXT NOT NULL,
     "clientId" TEXT NOT NULL,
     "agreementId" TEXT NOT NULL,
@@ -4408,6 +4527,426 @@ CREATE TABLE "RewardEvent" (
     CONSTRAINT "RewardEvent_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "RiderReferenceReview" (
+    "id" VARCHAR(64) NOT NULL,
+    "clientId" TEXT NOT NULL,
+    "ownerKey" VARCHAR(100) NOT NULL,
+    "name" VARCHAR(120) NOT NULL,
+    "mobile" VARCHAR(20) NOT NULL,
+    "relation" VARCHAR(80) NOT NULL,
+    "status" "RiderReferenceReviewStatus" NOT NULL,
+    "rejectionReason" VARCHAR(1000),
+    "reviewedById" TEXT NOT NULL,
+    "reviewedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "RiderReferenceReview_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "VehicleSubmission" (
+    "id" TEXT NOT NULL,
+    "clientId" TEXT NOT NULL,
+    "allocationId" TEXT NOT NULL,
+    "inspectionId" TEXT NOT NULL,
+    "returnRequestId" TEXT,
+    "exchangeRequestId" TEXT,
+    "riderId" TEXT NOT NULL,
+    "fleetId" TEXT NOT NULL,
+    "agreementId" TEXT NOT NULL,
+    "hubId" TEXT NOT NULL,
+    "status" VARCHAR(30) NOT NULL DEFAULT 'IN_PROGRESS',
+    "assetSnapshot" JSONB NOT NULL,
+    "requiredPhotoTypes" TEXT[],
+    "mechanicChecksComplete" BOOLEAN NOT NULL DEFAULT false,
+    "confirmedAt" TIMESTAMP(3),
+    "confirmedById" TEXT,
+    "createdById" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "VehicleSubmission_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "VehicleSubmissionReport" (
+    "id" TEXT NOT NULL,
+    "clientId" TEXT NOT NULL,
+    "submissionId" TEXT NOT NULL,
+    "requestKey" VARCHAR(120) NOT NULL,
+    "stage" VARCHAR(10) NOT NULL,
+    "mechanicName" VARCHAR(150) NOT NULL,
+    "summary" VARCHAR(4000) NOT NULL,
+    "fleetStatus" "FleetStatus",
+    "safeForReuse" BOOLEAN NOT NULL,
+    "unsafeReason" VARCHAR(500),
+    "checksComplete" BOOLEAN NOT NULL DEFAULT false,
+    "evidencePhotoIds" TEXT[],
+    "items" JSONB NOT NULL,
+    "totalAmount" DECIMAL(14,2) NOT NULL,
+    "currency" CHAR(3) NOT NULL,
+    "digest" CHAR(64) NOT NULL,
+    "status" VARCHAR(20) NOT NULL DEFAULT 'DRAFT',
+    "recordedById" TEXT NOT NULL,
+    "imposedById" TEXT,
+    "imposedAt" TIMESTAMP(3),
+    "riderOtpRequestId" TEXT,
+    "riderVerifiedUserId" TEXT,
+    "teamLeadOtpRequestId" TEXT,
+    "teamLeadVerifiedUserId" TEXT,
+    "riderBypassReason" VARCHAR(500),
+    "teamLeadBypassReason" VARCHAR(500),
+    "confirmedById" TEXT,
+    "confirmedAt" TIMESTAMP(3),
+    "postedChargeId" TEXT,
+    "cancelledById" TEXT,
+    "cancellationReason" VARCHAR(500),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "VehicleSubmissionReport_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PushDevice" (
+    "id" TEXT NOT NULL,
+    "clientId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "sessionId" TEXT NOT NULL,
+    "installationId" UUID NOT NULL,
+    "appCode" VARCHAR(30) NOT NULL,
+    "platform" VARCHAR(10) NOT NULL,
+    "token" TEXT NOT NULL,
+    "tokenHash" CHAR(64) NOT NULL,
+    "version" INTEGER NOT NULL DEFAULT 1,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "lastRegisteredAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "disabledReason" VARCHAR(100),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "PushDevice_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "NotificationMessage" (
+    "id" TEXT NOT NULL,
+    "clientId" TEXT NOT NULL,
+    "senderId" TEXT,
+    "title" VARCHAR(150) NOT NULL,
+    "body" VARCHAR(2000) NOT NULL,
+    "data" JSONB NOT NULL DEFAULT '{}',
+    "audience" VARCHAR(30) NOT NULL,
+    "audiencePhones" TEXT[],
+    "requestKey" VARCHAR(150) NOT NULL,
+    "requestDigest" CHAR(64) NOT NULL,
+    "source" VARCHAR(50) NOT NULL DEFAULT 'MANUAL',
+    "status" VARCHAR(40) NOT NULL DEFAULT 'QUEUED',
+    "totalUsers" INTEGER NOT NULL DEFAULT 0,
+    "pushExpiresAt" TIMESTAMP(3) NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "completedAt" TIMESTAMP(3),
+
+    CONSTRAINT "NotificationMessage_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "UserNotification" (
+    "id" TEXT NOT NULL,
+    "clientId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "messageId" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "readAt" TIMESTAMP(3),
+    "expandedAt" TIMESTAMP(3),
+    "noActiveDevice" BOOLEAN NOT NULL DEFAULT false,
+
+    CONSTRAINT "UserNotification_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PushDelivery" (
+    "id" TEXT NOT NULL,
+    "messageId" TEXT NOT NULL,
+    "userNotificationId" TEXT NOT NULL,
+    "deviceId" TEXT NOT NULL,
+    "deviceVersion" INTEGER NOT NULL,
+    "status" VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    "attempts" INTEGER NOT NULL DEFAULT 0,
+    "nextAttemptAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "firstAttemptAt" TIMESTAMP(3),
+    "leaseUntil" TIMESTAMP(3),
+    "claimId" TEXT,
+    "acceptedAt" TIMESTAMP(3),
+    "firebaseMessageId" TEXT,
+    "errorCode" VARCHAR(150),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "PushDelivery_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PushDispatchState" (
+    "id" TEXT NOT NULL,
+    "nextAllowedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "leaseUntil" TIMESTAMP(3),
+    "claimId" TEXT,
+
+    CONSTRAINT "PushDispatchState_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "FleetManagerHomeHistory" (
+    "id" BIGSERIAL NOT NULL,
+    "clientId" TEXT NOT NULL,
+    "entityType" VARCHAR(40) NOT NULL,
+    "entityId" TEXT NOT NULL,
+    "recordedAt" TIMESTAMPTZ(6) NOT NULL DEFAULT clock_timestamp(),
+    "data" JSONB,
+
+    CONSTRAINT "FleetManagerHomeHistory_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "FleetManagerHomeHistoryCoverage" (
+    "id" TEXT NOT NULL DEFAULT 'initial',
+    "availableFrom" TIMESTAMPTZ(6) NOT NULL,
+
+    CONSTRAINT "FleetManagerHomeHistoryCoverage_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PenaltyHandoverException" (
+    "id" TEXT NOT NULL,
+    "clientId" TEXT NOT NULL,
+    "riderId" TEXT NOT NULL,
+    "allocationId" TEXT NOT NULL,
+    "approvedById" TEXT NOT NULL,
+    "reason" VARCHAR(500) NOT NULL,
+    "debtDigest" CHAR(64) NOT NULL,
+    "debtSnapshot" JSONB NOT NULL,
+    "approvedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "usedAt" TIMESTAMP(3),
+
+    CONSTRAINT "PenaltyHandoverException_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "FleetReadinessPolicy" (
+    "id" TEXT NOT NULL,
+    "clientId" TEXT NOT NULL,
+    "version" INTEGER NOT NULL,
+    "configuration" JSONB NOT NULL,
+    "reason" VARCHAR(500) NOT NULL,
+    "createdById" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "FleetReadinessPolicy_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "FleetReadinessStaff" (
+    "id" TEXT NOT NULL,
+    "clientId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "hubId" TEXT NOT NULL,
+    "canPrepare" BOOLEAN NOT NULL DEFAULT false,
+    "canReview" BOOLEAN NOT NULL DEFAULT false,
+    "stageCodes" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "reviewStageCodes" TEXT[] DEFAULT ARRAY[]::TEXT[],
+
+    CONSTRAINT "FleetReadinessStaff_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "FleetPreparation" (
+    "id" TEXT NOT NULL,
+    "clientId" TEXT NOT NULL,
+    "fleetId" TEXT NOT NULL,
+    "hubId" TEXT NOT NULL,
+    "status" VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    "assignedToId" TEXT,
+    "currentRevision" INTEGER NOT NULL DEFAULT 1,
+    "policySnapshot" JSONB NOT NULL,
+    "invalidationReason" TEXT,
+    "createdById" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "FleetPreparation_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "FleetPreparationRevision" (
+    "id" TEXT NOT NULL,
+    "clientId" TEXT NOT NULL,
+    "preparationId" TEXT NOT NULL,
+    "revision" INTEGER NOT NULL,
+    "checklist" JSONB NOT NULL DEFAULT '{}',
+    "componentSnapshot" JSONB,
+    "photoIds" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "submittedById" TEXT,
+    "submittedAt" TIMESTAMP(3),
+    "reviewedById" TEXT,
+    "reviewedAt" TIMESTAMP(3),
+    "decision" TEXT,
+    "rejectionReason" TEXT,
+    "failedItems" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "FleetPreparationRevision_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "FleetPreparationEvent" (
+    "id" TEXT NOT NULL,
+    "clientId" TEXT NOT NULL,
+    "preparationId" TEXT NOT NULL,
+    "actorId" TEXT,
+    "action" TEXT NOT NULL,
+    "data" JSONB NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "FleetPreparationEvent_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "FleetInstallationStage" (
+    "id" TEXT NOT NULL,
+    "clientId" TEXT NOT NULL,
+    "preparationId" TEXT NOT NULL,
+    "code" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'WAITING',
+    "assignedToId" TEXT,
+    "revision" INTEGER NOT NULL DEFAULT 1,
+    "definition" JSONB NOT NULL,
+    "checklist" JSONB NOT NULL DEFAULT '{}',
+    "componentSnapshot" JSONB,
+    "submittedById" TEXT,
+    "submittedAt" TIMESTAMP(3),
+    "reviewedById" TEXT,
+    "reviewedAt" TIMESTAMP(3),
+    "reason" TEXT,
+    "failedItems" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "history" JSONB NOT NULL DEFAULT '[]',
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "FleetInstallationStage_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "SparePartMaster" (
+    "id" TEXT NOT NULL,
+    "code" VARCHAR(60) NOT NULL,
+    "name" VARCHAR(180) NOT NULL,
+    "baseRate" DECIMAL(14,2) NOT NULL,
+    "gstPercent" DECIMAL(5,2) NOT NULL,
+    "hsnCode" VARCHAR(20) NOT NULL,
+    "unit" VARCHAR(30) NOT NULL DEFAULT 'PIECE',
+    "vehicleTypeIds" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "version" INTEGER NOT NULL DEFAULT 1,
+    "createdById" TEXT NOT NULL,
+    "updatedById" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "SparePartMaster_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "SpareCatalogueRevision" (
+    "id" TEXT NOT NULL,
+    "masterSpareId" TEXT,
+    "priceId" TEXT,
+    "version" INTEGER NOT NULL,
+    "snapshot" JSONB NOT NULL,
+    "reason" VARCHAR(500) NOT NULL,
+    "actorId" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "SpareCatalogueRevision_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "RazorpayDeploymentOrder" (
+    "id" TEXT NOT NULL,
+    "clientId" TEXT NOT NULL,
+    "deploymentPaymentId" TEXT NOT NULL,
+    "keyId" TEXT NOT NULL,
+    "providerOrderId" TEXT,
+    "amountPaise" BIGINT NOT NULL,
+    "currency" CHAR(3) NOT NULL,
+    "status" VARCHAR(30) NOT NULL DEFAULT 'CREATING',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "checkedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "RazorpayDeploymentOrder_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "RazorpayDeploymentCapture" (
+    "id" TEXT NOT NULL,
+    "orderId" TEXT NOT NULL,
+    "providerPaymentId" TEXT NOT NULL,
+    "amountPaise" BIGINT NOT NULL,
+    "currency" CHAR(3) NOT NULL,
+    "status" VARCHAR(30) NOT NULL,
+    "reason" VARCHAR(150),
+    "providerRefundId" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "RazorpayDeploymentCapture_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "RazorpayPenaltyOrder" (
+    "id" TEXT NOT NULL,
+    "collectionId" TEXT NOT NULL,
+    "keyId" VARCHAR(100) NOT NULL,
+    "providerOrderId" VARCHAR(80),
+    "amountPaise" BIGINT NOT NULL,
+    "currency" CHAR(3) NOT NULL,
+    "status" VARCHAR(30) NOT NULL DEFAULT 'CREATING',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "checkedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "RazorpayPenaltyOrder_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "RazorpayPenaltyCapture" (
+    "id" TEXT NOT NULL,
+    "orderId" TEXT NOT NULL,
+    "providerPaymentId" VARCHAR(120) NOT NULL,
+    "amountPaise" BIGINT NOT NULL,
+    "currency" CHAR(3) NOT NULL,
+    "status" VARCHAR(30) NOT NULL,
+    "reason" VARCHAR(100),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "RazorpayPenaltyCapture_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "RazorpayAutoPayCapture" (
+    "id" TEXT NOT NULL,
+    "transactionId" TEXT NOT NULL,
+    "providerPaymentId" VARCHAR(120) NOT NULL,
+    "amountPaise" BIGINT NOT NULL,
+    "currency" CHAR(3) NOT NULL,
+    "status" VARCHAR(30) NOT NULL,
+    "reason" VARCHAR(100),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "RazorpayAutoPayCapture_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "Client_slug_key" ON "Client"("slug");
 
@@ -4419,6 +4958,21 @@ CREATE UNIQUE INDEX "Oem_code_key" ON "Oem"("code");
 
 -- CreateIndex
 CREATE INDEX "Oem_status_displayName_idx" ON "Oem"("status", "displayName");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "WorkPartnerMaster_code_key" ON "WorkPartnerMaster"("code");
+
+-- CreateIndex
+CREATE INDEX "WorkPartnerMaster_status_name_idx" ON "WorkPartnerMaster"("status", "name");
+
+-- CreateIndex
+CREATE INDEX "ClientWorkPartner_clientId_status_name_idx" ON "ClientWorkPartner"("clientId", "status", "name");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ClientWorkPartner_clientId_id_key" ON "ClientWorkPartner"("clientId", "id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ClientWorkPartner_clientId_code_key" ON "ClientWorkPartner"("clientId", "code");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "VehicleCategory_code_key" ON "VehicleCategory"("code");
@@ -4628,6 +5182,9 @@ CREATE INDEX "Fleet_clientId_allocationEnabled_idx" ON "Fleet"("clientId", "allo
 CREATE UNIQUE INDEX "Fleet_clientId_fleetCode_key" ON "Fleet"("clientId", "fleetCode");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "Fleet_clientId_id_key" ON "Fleet"("clientId", "id");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "Fleet_clientId_vehicleNumber_key" ON "Fleet"("clientId", "vehicleNumber");
 
 -- CreateIndex
@@ -4745,6 +5302,21 @@ CREATE UNIQUE INDEX "PaymentMandate_mandateNumber_key" ON "PaymentMandate"("mand
 CREATE UNIQUE INDEX "PaymentMandate_providerMandateId_key" ON "PaymentMandate"("providerMandateId");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "PaymentMandate_providerTokenId_key" ON "PaymentMandate"("providerTokenId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "PaymentMandate_providerRegistrationId_key" ON "PaymentMandate"("providerRegistrationId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "PaymentMandate_providerAuthorizationOrderId_key" ON "PaymentMandate"("providerAuthorizationOrderId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "PaymentMandate_providerAuthorizationPaymentId_key" ON "PaymentMandate"("providerAuthorizationPaymentId");
+
+-- CreateIndex
+CREATE INDEX "PaymentMandate_provider_providerCheckedAt_idx" ON "PaymentMandate"("provider", "providerCheckedAt");
+
+-- CreateIndex
 CREATE INDEX "PaymentMandate_clientId_riderId_status_idx" ON "PaymentMandate"("clientId", "riderId", "status");
 
 -- CreateIndex
@@ -4766,6 +5338,12 @@ CREATE UNIQUE INDEX "PaymentProviderEvent_provider_eventKey_key" ON "PaymentProv
 CREATE UNIQUE INDEX "PaymentTransaction_debitNumber_key" ON "PaymentTransaction"("debitNumber");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "PaymentTransaction_providerOrderId_key" ON "PaymentTransaction"("providerOrderId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "PaymentTransaction_gatewayPaymentId_key" ON "PaymentTransaction"("gatewayPaymentId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "PaymentTransaction_riderPaymentId_key" ON "PaymentTransaction"("riderPaymentId");
 
 -- CreateIndex
@@ -4776,6 +5354,9 @@ CREATE INDEX "PaymentTransaction_clientId_riderId_status_idx" ON "PaymentTransac
 
 -- CreateIndex
 CREATE INDEX "PaymentTransaction_clientId_mandateId_status_idx" ON "PaymentTransaction"("clientId", "mandateId", "status");
+
+-- CreateIndex
+CREATE INDEX "PaymentTransaction_provider_providerCheckedAt_idx" ON "PaymentTransaction"("provider", "providerCheckedAt");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "PaymentTransaction_clientId_id_key" ON "PaymentTransaction"("clientId", "id");
@@ -4919,6 +5500,9 @@ CREATE INDEX "RiderInvoice_clientId_riderId_createdAt_idx" ON "RiderInvoice"("cl
 CREATE INDEX "RiderInvoice_clientId_status_dueDate_idx" ON "RiderInvoice"("clientId", "status", "dueDate");
 
 -- CreateIndex
+CREATE INDEX "rider_invoice_penalty_notification_idx" ON "RiderInvoice"("invoiceType", "penaltyNotificationQueuedAt", "createdAt");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "RiderInvoice_clientId_id_key" ON "RiderInvoice"("clientId", "id");
 
 -- CreateIndex
@@ -5057,7 +5641,16 @@ CREATE INDEX "Allocation_clientId_fleetId_status_idx" ON "Allocation"("clientId"
 CREATE INDEX "Allocation_clientId_riderId_status_idx" ON "Allocation"("clientId", "riderId", "status");
 
 -- CreateIndex
+CREATE INDEX "Allocation_clientId_commercialOfferId_idx" ON "Allocation"("clientId", "commercialOfferId");
+
+-- CreateIndex
+CREATE INDEX "Allocation_clientId_rentalAgreementId_idx" ON "Allocation"("clientId", "rentalAgreementId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "Allocation_clientId_idempotencyKey_key" ON "Allocation"("clientId", "idempotencyKey");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Allocation_clientId_id_key" ON "Allocation"("clientId", "id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "MobileDeploymentWorkflow_allocationId_key" ON "MobileDeploymentWorkflow"("allocationId");
@@ -5073,6 +5666,9 @@ CREATE UNIQUE INDEX "DeploymentPayment_providerReference_key" ON "DeploymentPaym
 
 -- CreateIndex
 CREATE INDEX "DeploymentPayment_clientId_status_idx" ON "DeploymentPayment"("clientId", "status");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "DeploymentPayment_clientId_id_key" ON "DeploymentPayment"("clientId", "id");
 
 -- CreateIndex
 CREATE INDEX "Inspection_clientId_status_idx" ON "Inspection"("clientId", "status");
@@ -5279,7 +5875,7 @@ CREATE UNIQUE INDEX "KycReconciliationResult_workflowExecutionId_type_key" ON "K
 CREATE UNIQUE INDEX "Photo_objectKey_key" ON "Photo"("objectKey");
 
 -- CreateIndex
-CREATE INDEX "Photo_clientId_entityType_entityId_idx" ON "Photo"("clientId", "entityType", "entityId");
+CREATE INDEX "Photo_clientId_workFlowType_subjectType_entityId_idx" ON "Photo"("clientId", "workFlowType", "subjectType", "entityId");
 
 -- CreateIndex
 CREATE INDEX "Photo_clientId_status_idx" ON "Photo"("clientId", "status");
@@ -5297,10 +5893,10 @@ CREATE INDEX "RiderOnboardingDocument_clientId_riderId_status_idx" ON "RiderOnbo
 CREATE INDEX "RiderOnboardingDocument_clientId_status_createdAt_idx" ON "RiderOnboardingDocument"("clientId", "status", "createdAt");
 
 -- CreateIndex
-CREATE INDEX "PhotoRequirement_clientId_entityType_sortOrder_idx" ON "PhotoRequirement"("clientId", "entityType", "sortOrder");
+CREATE INDEX "PhotoRequirement_clientId_workFlowType_subjectType_sortOrde_idx" ON "PhotoRequirement"("clientId", "workFlowType", "subjectType", "sortOrder");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "PhotoRequirement_clientId_entityType_photoType_key" ON "PhotoRequirement"("clientId", "entityType", "photoType");
+CREATE UNIQUE INDEX "PhotoRequirement_clientId_workFlowType_subjectType_photoTyp_key" ON "PhotoRequirement"("clientId", "workFlowType", "subjectType", "photoType");
 
 -- CreateIndex
 CREATE INDEX "Session_userId_expiresAt_idx" ON "Session"("userId", "expiresAt");
@@ -5577,6 +6173,9 @@ CREATE UNIQUE INDEX "RentalTerminationRequest_clientId_agreementId_key" ON "Rent
 
 -- CreateIndex
 CREATE INDEX "ReturnPenaltyPrice_clientId_isActive_idx" ON "ReturnPenaltyPrice"("clientId", "isActive");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ReturnPenaltyPrice_clientId_masterSpareId_key" ON "ReturnPenaltyPrice"("clientId", "masterSpareId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "ReturnPenaltyPrice_clientId_code_key" ON "ReturnPenaltyPrice"("clientId", "code");
@@ -5932,8 +6531,188 @@ CREATE UNIQUE INDEX "RewardLotConsumption_lotId_transactionId_key" ON "RewardLot
 -- CreateIndex
 CREATE INDEX "RewardEvent_clientId_claimId_createdAt_idx" ON "RewardEvent"("clientId", "claimId", "createdAt");
 
+-- CreateIndex
+CREATE INDEX "RiderReferenceReview_clientId_ownerKey_idx" ON "RiderReferenceReview"("clientId", "ownerKey");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "VehicleSubmission_allocationId_key" ON "VehicleSubmission"("allocationId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "VehicleSubmission_inspectionId_key" ON "VehicleSubmission"("inspectionId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "VehicleSubmission_returnRequestId_key" ON "VehicleSubmission"("returnRequestId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "VehicleSubmission_exchangeRequestId_key" ON "VehicleSubmission"("exchangeRequestId");
+
+-- CreateIndex
+CREATE INDEX "VehicleSubmission_clientId_riderId_createdAt_idx" ON "VehicleSubmission"("clientId", "riderId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "VehicleSubmission_clientId_hubId_status_idx" ON "VehicleSubmission"("clientId", "hubId", "status");
+
+-- CreateIndex
+CREATE INDEX "VehicleSubmission_clientId_agreementId_idx" ON "VehicleSubmission"("clientId", "agreementId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "VehicleSubmissionReport_postedChargeId_key" ON "VehicleSubmissionReport"("postedChargeId");
+
+-- CreateIndex
+CREATE INDEX "VehicleSubmissionReport_clientId_submissionId_createdAt_idx" ON "VehicleSubmissionReport"("clientId", "submissionId", "createdAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "VehicleSubmissionReport_clientId_submissionId_requestKey_key" ON "VehicleSubmissionReport"("clientId", "submissionId", "requestKey");
+
+-- CreateIndex
+CREATE INDEX "PushDevice_clientId_userId_isActive_idx" ON "PushDevice"("clientId", "userId", "isActive");
+
+-- CreateIndex
+CREATE INDEX "PushDevice_sessionId_idx" ON "PushDevice"("sessionId");
+
+-- CreateIndex
+CREATE INDEX "PushDevice_tokenHash_idx" ON "PushDevice"("tokenHash");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "PushDevice_installationId_appCode_key" ON "PushDevice"("installationId", "appCode");
+
+-- CreateIndex
+CREATE INDEX "NotificationMessage_clientId_createdAt_id_idx" ON "NotificationMessage"("clientId", "createdAt", "id");
+
+-- CreateIndex
+CREATE INDEX "NotificationMessage_status_createdAt_idx" ON "NotificationMessage"("status", "createdAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "NotificationMessage_clientId_requestKey_key" ON "NotificationMessage"("clientId", "requestKey");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "NotificationMessage_clientId_id_key" ON "NotificationMessage"("clientId", "id");
+
+-- CreateIndex
+CREATE INDEX "UserNotification_clientId_userId_createdAt_id_idx" ON "UserNotification"("clientId", "userId", "createdAt", "id");
+
+-- CreateIndex
+CREATE INDEX "UserNotification_clientId_userId_readAt_idx" ON "UserNotification"("clientId", "userId", "readAt");
+
+-- CreateIndex
+CREATE INDEX "UserNotification_expandedAt_createdAt_idx" ON "UserNotification"("expandedAt", "createdAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "UserNotification_messageId_userId_key" ON "UserNotification"("messageId", "userId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "UserNotification_id_messageId_key" ON "UserNotification"("id", "messageId");
+
+-- CreateIndex
+CREATE INDEX "PushDelivery_status_nextAttemptAt_leaseUntil_idx" ON "PushDelivery"("status", "nextAttemptAt", "leaseUntil");
+
+-- CreateIndex
+CREATE INDEX "PushDelivery_messageId_status_idx" ON "PushDelivery"("messageId", "status");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "PushDelivery_userNotificationId_deviceId_key" ON "PushDelivery"("userNotificationId", "deviceId");
+
+-- CreateIndex
+CREATE INDEX "fm_home_history_lookup" ON "FleetManagerHomeHistory"("clientId", "entityType", "entityId", "recordedAt", "id");
+
+-- CreateIndex
+CREATE INDEX "PenaltyHandoverException_clientId_riderId_approvedAt_idx" ON "PenaltyHandoverException"("clientId", "riderId", "approvedAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "PenaltyHandoverException_clientId_allocationId_debtDigest_key" ON "PenaltyHandoverException"("clientId", "allocationId", "debtDigest");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "FleetReadinessPolicy_clientId_version_key" ON "FleetReadinessPolicy"("clientId", "version");
+
+-- CreateIndex
+CREATE INDEX "FleetReadinessStaff_clientId_hubId_idx" ON "FleetReadinessStaff"("clientId", "hubId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "FleetReadinessStaff_clientId_userId_hubId_key" ON "FleetReadinessStaff"("clientId", "userId", "hubId");
+
+-- CreateIndex
+CREATE INDEX "FleetPreparation_clientId_hubId_status_idx" ON "FleetPreparation"("clientId", "hubId", "status");
+
+-- CreateIndex
+CREATE INDEX "FleetPreparation_clientId_fleetId_createdAt_idx" ON "FleetPreparation"("clientId", "fleetId", "createdAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "FleetPreparation_clientId_id_key" ON "FleetPreparation"("clientId", "id");
+
+-- CreateIndex
+CREATE INDEX "FleetPreparationRevision_clientId_preparationId_idx" ON "FleetPreparationRevision"("clientId", "preparationId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "FleetPreparationRevision_preparationId_revision_key" ON "FleetPreparationRevision"("preparationId", "revision");
+
+-- CreateIndex
+CREATE INDEX "FleetPreparationEvent_clientId_preparationId_createdAt_idx" ON "FleetPreparationEvent"("clientId", "preparationId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "FleetInstallationStage_clientId_status_idx" ON "FleetInstallationStage"("clientId", "status");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "FleetInstallationStage_preparationId_code_key" ON "FleetInstallationStage"("preparationId", "code");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "SparePartMaster_code_key" ON "SparePartMaster"("code");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "SpareCatalogueRevision_masterSpareId_version_key" ON "SpareCatalogueRevision"("masterSpareId", "version");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "SpareCatalogueRevision_priceId_version_key" ON "SpareCatalogueRevision"("priceId", "version");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "RazorpayDeploymentOrder_providerOrderId_key" ON "RazorpayDeploymentOrder"("providerOrderId");
+
+-- CreateIndex
+CREATE INDEX "RazorpayDeploymentOrder_deploymentPaymentId_createdAt_idx" ON "RazorpayDeploymentOrder"("deploymentPaymentId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "RazorpayDeploymentOrder_status_checkedAt_idx" ON "RazorpayDeploymentOrder"("status", "checkedAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "RazorpayDeploymentCapture_providerPaymentId_key" ON "RazorpayDeploymentCapture"("providerPaymentId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "RazorpayDeploymentCapture_providerRefundId_key" ON "RazorpayDeploymentCapture"("providerRefundId");
+
+-- CreateIndex
+CREATE INDEX "RazorpayDeploymentCapture_status_updatedAt_idx" ON "RazorpayDeploymentCapture"("status", "updatedAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "RazorpayPenaltyOrder_collectionId_key" ON "RazorpayPenaltyOrder"("collectionId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "RazorpayPenaltyOrder_providerOrderId_key" ON "RazorpayPenaltyOrder"("providerOrderId");
+
+-- CreateIndex
+CREATE INDEX "RazorpayPenaltyOrder_status_checkedAt_idx" ON "RazorpayPenaltyOrder"("status", "checkedAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "RazorpayPenaltyCapture_providerPaymentId_key" ON "RazorpayPenaltyCapture"("providerPaymentId");
+
+-- CreateIndex
+CREATE INDEX "RazorpayPenaltyCapture_status_createdAt_idx" ON "RazorpayPenaltyCapture"("status", "createdAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "RazorpayAutoPayCapture_providerPaymentId_key" ON "RazorpayAutoPayCapture"("providerPaymentId");
+
+-- CreateIndex
+CREATE INDEX "RazorpayAutoPayCapture_transactionId_createdAt_idx" ON "RazorpayAutoPayCapture"("transactionId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "RazorpayAutoPayCapture_status_createdAt_idx" ON "RazorpayAutoPayCapture"("status", "createdAt");
+
 -- AddForeignKey
 ALTER TABLE "ClientSettlementPolicy" ADD CONSTRAINT "ClientSettlementPolicy_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ClientWorkPartner" ADD CONSTRAINT "ClientWorkPartner_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ClientWorkPartner" ADD CONSTRAINT "ClientWorkPartner_sourceMasterId_fkey" FOREIGN KEY ("sourceMasterId") REFERENCES "WorkPartnerMaster"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "VehicleType" ADD CONSTRAINT "VehicleType_categoryId_fkey" FOREIGN KEY ("categoryId") REFERENCES "VehicleCategory"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -6170,6 +6949,9 @@ ALTER TABLE "PaymentMandateEvent" ADD CONSTRAINT "PaymentMandateEvent_clientId_f
 ALTER TABLE "PaymentMandateEvent" ADD CONSTRAINT "PaymentMandateEvent_clientId_mandateId_fkey" FOREIGN KEY ("clientId", "mandateId") REFERENCES "PaymentMandate"("clientId", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "PaymentProviderEvent" ADD CONSTRAINT "PaymentProviderEvent_deploymentOrderId_fkey" FOREIGN KEY ("deploymentOrderId") REFERENCES "RazorpayDeploymentOrder"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "PaymentProviderEvent" ADD CONSTRAINT "PaymentProviderEvent_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -6365,6 +7147,12 @@ ALTER TABLE "ClientOnboardingStepRecord" ADD CONSTRAINT "ClientOnboardingStepRec
 ALTER TABLE "ImportJob" ADD CONSTRAINT "ImportJob_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "Allocation" ADD CONSTRAINT "Allocation_clientId_commercialOfferId_fkey" FOREIGN KEY ("clientId", "commercialOfferId") REFERENCES "RiderCommercialOffer"("clientId", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Allocation" ADD CONSTRAINT "Allocation_clientId_rentalAgreementId_fkey" FOREIGN KEY ("clientId", "rentalAgreementId") REFERENCES "RiderRentalAgreement"("clientId", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "Allocation" ADD CONSTRAINT "Allocation_fleetId_fkey" FOREIGN KEY ("fleetId") REFERENCES "Fleet"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -6372,6 +7160,9 @@ ALTER TABLE "Allocation" ADD CONSTRAINT "Allocation_riderId_fkey" FOREIGN KEY ("
 
 -- AddForeignKey
 ALTER TABLE "MobileDeploymentWorkflow" ADD CONSTRAINT "MobileDeploymentWorkflow_allocationId_fkey" FOREIGN KEY ("allocationId") REFERENCES "Allocation"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "MobileDeploymentWorkflow" ADD CONSTRAINT "MobileDeploymentWorkflow_clientId_clientWorkPartnerId_fkey" FOREIGN KEY ("clientId", "clientWorkPartnerId") REFERENCES "ClientWorkPartner"("clientId", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "DeploymentPayment" ADD CONSTRAINT "DeploymentPayment_workflowId_fkey" FOREIGN KEY ("workflowId") REFERENCES "MobileDeploymentWorkflow"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -6668,6 +7459,9 @@ ALTER TABLE "RentalTerminationRequest" ADD CONSTRAINT "RentalTerminationRequest_
 ALTER TABLE "RentalTerminationRequest" ADD CONSTRAINT "RentalTerminationRequest_receivedHubId_fkey" FOREIGN KEY ("receivedHubId") REFERENCES "Hub"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "ReturnPenaltyPrice" ADD CONSTRAINT "ReturnPenaltyPrice_masterSpareId_fkey" FOREIGN KEY ("masterSpareId") REFERENCES "SparePartMaster"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "ReturnPenaltyPrice" ADD CONSTRAINT "ReturnPenaltyPrice_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -6877,572 +7671,119 @@ ALTER TABLE "RewardLotConsumption" ADD CONSTRAINT "RewardLotConsumption_clientId
 -- AddForeignKey
 ALTER TABLE "RewardEvent" ADD CONSTRAINT "RewardEvent_clientId_claimId_fkey" FOREIGN KEY ("clientId", "claimId") REFERENCES "RewardClaim"("clientId", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
--- Database rules preserved from the previous migration chain.
-CREATE OR REPLACE FUNCTION public.collection_audit_event()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  INSERT INTO "AuditLog" ("clientId", "actorId", "action", "entityType", "entityId", "newData")
-  VALUES (NEW."clientId", NEW."actorId", NEW."eventType", 'RiderCollectionCase', NEW."caseId", NEW."details");
-  RETURN NEW;
-END;
-$function$
-;
+-- AddForeignKey
+ALTER TABLE "RiderReferenceReview" ADD CONSTRAINT "RiderReferenceReview_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
-CREATE OR REPLACE FUNCTION public.collection_enqueue_invoice_change()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  INSERT INTO "CollectionEvaluationQueue" ("id", "clientId", "riderId", "requestedAt")
-  VALUES (gen_random_uuid()::text, NEW."clientId", NEW."riderId", CURRENT_TIMESTAMP)
-  ON CONFLICT ("clientId", "riderId") DO UPDATE SET "requestedAt" = CURRENT_TIMESTAMP;
-  RETURN NEW;
-END;
-$function$
-;
+-- AddForeignKey
+ALTER TABLE "RiderReferenceReview" ADD CONSTRAINT "RiderReferenceReview_clientId_reviewedById_fkey" FOREIGN KEY ("clientId", "reviewedById") REFERENCES "User"("clientId", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
-CREATE OR REPLACE FUNCTION public.kyc_guard_used_definition()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-DECLARE definition_id TEXT;
-BEGIN
-    IF TG_TABLE_NAME = 'KycWorkflowDefinition' THEN
-        definition_id := OLD."id";
-    ELSIF TG_OP = 'INSERT' THEN
-        definition_id := NEW."workflowDefinitionId";
-    ELSE
-        definition_id := OLD."workflowDefinitionId";
-    END IF;
-    IF definition_id IS NOT NULL AND EXISTS (SELECT 1 FROM "KycWorkflowExecution" WHERE "workflowDefinitionId" = definition_id) THEN
-        RAISE EXCEPTION 'KYC_WORKFLOW_DEFINITION_VERSION_IN_USE' USING ERRCODE = '23514';
-    END IF;
-    IF TG_OP = 'UPDATE' AND TG_TABLE_NAME <> 'KycWorkflowDefinition' THEN
-        IF NEW."workflowDefinitionId" IS DISTINCT FROM OLD."workflowDefinitionId"
-           AND EXISTS (SELECT 1 FROM "KycWorkflowExecution" WHERE "workflowDefinitionId" = NEW."workflowDefinitionId") THEN
-            RAISE EXCEPTION 'KYC_WORKFLOW_DEFINITION_VERSION_IN_USE' USING ERRCODE = '23514';
-        END IF;
-    END IF;
-    IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
-    RETURN NEW;
-END;
-$function$
-;
+-- AddForeignKey
+ALTER TABLE "VehicleSubmission" ADD CONSTRAINT "VehicleSubmission_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
-CREATE OR REPLACE FUNCTION public.kyc_guard_used_routing_policy()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-DECLARE policy_id TEXT;
-BEGIN
-  IF TG_TABLE_NAME = 'KycRoutingPolicy' THEN
-    policy_id := OLD."id";
-  ELSIF TG_OP = 'INSERT' THEN
-    policy_id := NEW."routingPolicyId";
-  ELSE
-    policy_id := OLD."routingPolicyId";
-  END IF;
-  IF EXISTS (SELECT 1 FROM "KycRoutingDecision" WHERE "routingPolicyId" = policy_id) THEN
-    RAISE EXCEPTION 'KYC_ROUTING_POLICY_VERSION_IN_USE' USING ERRCODE = '23514';
-  END IF;
-  IF TG_OP = 'UPDATE' AND TG_TABLE_NAME = 'KycRoutingProvider' THEN
-    IF NEW."routingPolicyId" IS DISTINCT FROM OLD."routingPolicyId" AND
-       EXISTS (SELECT 1 FROM "KycRoutingDecision" WHERE "routingPolicyId" = NEW."routingPolicyId") THEN
-      RAISE EXCEPTION 'KYC_ROUTING_POLICY_VERSION_IN_USE' USING ERRCODE = '23514';
-    END IF;
-  END IF;
-  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
-  RETURN NEW;
-END;
-$function$
-;
+-- AddForeignKey
+ALTER TABLE "VehicleSubmission" ADD CONSTRAINT "VehicleSubmission_allocationId_fkey" FOREIGN KEY ("allocationId") REFERENCES "Allocation"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
-CREATE OR REPLACE FUNCTION public.protect_rider_agreement_terms()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  IF NEW."pricingSnapshot" IS DISTINCT FROM OLD."pricingSnapshot" OR
-     NEW."clientId" IS DISTINCT FROM OLD."clientId" OR
-     NEW."commercialOfferId" IS DISTINCT FROM OLD."commercialOfferId" OR
-     NEW."riderId" IS DISTINCT FROM OLD."riderId" OR
-     NEW."vehicleId" IS DISTINCT FROM OLD."vehicleId" OR
-     NEW."hubId" IS DISTINCT FROM OLD."hubId" OR
-     NEW."rateCardId" IS DISTINCT FROM OLD."rateCardId" OR
-     NEW."rentalPeriodType" IS DISTINCT FROM OLD."rentalPeriodType" OR
-     NEW."durationValue" IS DISTINCT FROM OLD."durationValue" OR
-     NEW."durationUnit" IS DISTINCT FROM OLD."durationUnit" OR
-     NEW."batteryPlanId" IS DISTINCT FROM OLD."batteryPlanId" OR
-     NEW."currency" IS DISTINCT FROM OLD."currency" OR
-     NEW."pricingSnapshotSchemaVersion" IS DISTINCT FROM OLD."pricingSnapshotSchemaVersion" OR
-     NEW."pricingHash" IS DISTINCT FROM OLD."pricingHash" OR
-     NEW."termsTitle" IS DISTINCT FROM OLD."termsTitle" OR
-    NEW."termsSnapshot" IS DISTINCT FROM OLD."termsSnapshot" OR
-     NEW."termsHash" IS DISTINCT FROM OLD."termsHash" OR
-     NEW."termsVersion" IS DISTINCT FROM OLD."termsVersion" OR
-     NEW."finalRecurringAmount" IS DISTINCT FROM OLD."finalRecurringAmount" OR
-     NEW."upfrontAmount" IS DISTINCT FROM OLD."upfrontAmount" OR
-     NEW."refundableAmount" IS DISTINCT FROM OLD."refundableAmount" OR
-     NEW."rateCardVersionId" IS DISTINCT FROM OLD."rateCardVersionId"
-  THEN RAISE EXCEPTION 'Agreement commercial terms are immutable; create an amendment'; END IF;
-  RETURN NEW;
-END $function$
-;
+-- AddForeignKey
+ALTER TABLE "VehicleSubmission" ADD CONSTRAINT "VehicleSubmission_inspectionId_fkey" FOREIGN KEY ("inspectionId") REFERENCES "Inspection"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
-CREATE OR REPLACE FUNCTION public.protect_rider_offer_terms()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  IF OLD."status" <> 'CALCULATED' AND (
-    NEW."clientId" IS DISTINCT FROM OLD."clientId" OR
-    NEW."riderId" IS DISTINCT FROM OLD."riderId" OR
-    NEW."vehicleId" IS DISTINCT FROM OLD."vehicleId" OR
-    NEW."hubId" IS DISTINCT FROM OLD."hubId" OR
-    NEW."rateCardId" IS DISTINCT FROM OLD."rateCardId" OR
-    NEW."rentalPeriodType" IS DISTINCT FROM OLD."rentalPeriodType" OR
-    NEW."durationValue" IS DISTINCT FROM OLD."durationValue" OR
-    NEW."durationUnit" IS DISTINCT FROM OLD."durationUnit" OR
-    NEW."batteryPlanId" IS DISTINCT FROM OLD."batteryPlanId" OR
-    NEW."effectiveDate" IS DISTINCT FROM OLD."effectiveDate" OR
-    NEW."currency" IS DISTINCT FROM OLD."currency" OR
-    NEW."expiresAt" IS DISTINCT FROM OLD."expiresAt" OR
-    NEW."selectionHash" IS DISTINCT FROM OLD."selectionHash" OR
-    NEW."pricingSnapshot" IS DISTINCT FROM OLD."pricingSnapshot" OR
-    NEW."pricingSnapshotSchemaVersion" IS DISTINCT FROM OLD."pricingSnapshotSchemaVersion" OR
-    NEW."calculationHash" IS DISTINCT FROM OLD."calculationHash" OR
-    NEW."termsTitle" IS DISTINCT FROM OLD."termsTitle" OR
-    NEW."termsSnapshot" IS DISTINCT FROM OLD."termsSnapshot" OR
-    NEW."termsHash" IS DISTINCT FROM OLD."termsHash" OR
-    NEW."termsVersion" IS DISTINCT FROM OLD."termsVersion" OR
-    NEW."finalRecurringAmount" IS DISTINCT FROM OLD."finalRecurringAmount" OR
-    NEW."upfrontAmount" IS DISTINCT FROM OLD."upfrontAmount" OR
-    NEW."refundableAmount" IS DISTINCT FROM OLD."refundableAmount" OR
-    NEW."rateCardVersionId" IS DISTINCT FROM OLD."rateCardVersionId"
-  ) THEN RAISE EXCEPTION 'Presented offer commercial terms are immutable'; END IF;
-  RETURN NEW;
-END $function$
-;
+-- AddForeignKey
+ALTER TABLE "VehicleSubmission" ADD CONSTRAINT "VehicleSubmission_returnRequestId_fkey" FOREIGN KEY ("returnRequestId") REFERENCES "RentalTerminationRequest"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
-CREATE OR REPLACE FUNCTION public.reject_commercial_version_mutation()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  IF NEW."pricingSnapshot" IS DISTINCT FROM OLD."pricingSnapshot" OR
-     NEW."pricingHash" IS DISTINCT FROM OLD."pricingHash" OR
-     NEW."termsVersion" IS DISTINCT FROM OLD."termsVersion" OR
-     NEW."termsHash" IS DISTINCT FROM OLD."termsHash" OR
-     NEW."termsSnapshot" IS DISTINCT FROM OLD."termsSnapshot" OR
-     NEW."termsTitle" IS DISTINCT FROM OLD."termsTitle" OR
-     NEW."vehicleId" IS DISTINCT FROM OLD."vehicleId" OR
-     NEW."rateCardVersionId" IS DISTINCT FROM OLD."rateCardVersionId" OR
-     NEW."recurringAmount" IS DISTINCT FROM OLD."recurringAmount" THEN
-    RAISE EXCEPTION 'COMMERCIAL_VERSION_IMMUTABLE';
-  END IF;
-  RETURN NEW;
-END;
-$function$
-;
+-- AddForeignKey
+ALTER TABLE "VehicleSubmission" ADD CONSTRAINT "VehicleSubmission_exchangeRequestId_fkey" FOREIGN KEY ("exchangeRequestId") REFERENCES "VehicleExchangeRequest"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
-CREATE OR REPLACE FUNCTION public.reject_exchange_amendment_mutation()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  IF NEW."previousPricingHash" IS DISTINCT FROM OLD."previousPricingHash" OR
-     NEW."proposedPricingHash" IS DISTINCT FROM OLD."proposedPricingHash" OR
-     NEW."proposedPricingSnapshot" IS DISTINCT FROM OLD."proposedPricingSnapshot" OR
-     NEW."commercialDifference" IS DISTINCT FROM OLD."commercialDifference" OR
-     NEW."previousVehicleId" IS DISTINCT FROM OLD."previousVehicleId" OR
-     NEW."replacementVehicleId" IS DISTINCT FROM OLD."replacementVehicleId" THEN
-    RAISE EXCEPTION 'EXCHANGE_AMENDMENT_IMMUTABLE';
-  END IF;
-  RETURN NEW;
-END;
-$function$
-;
+-- AddForeignKey
+ALTER TABLE "VehicleSubmissionReport" ADD CONSTRAINT "VehicleSubmissionReport_submissionId_fkey" FOREIGN KEY ("submissionId") REFERENCES "VehicleSubmission"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
-CREATE OR REPLACE FUNCTION public.reject_exchange_offer_mutation()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  IF NEW."pricingSnapshot" IS DISTINCT FROM OLD."pricingSnapshot" OR
-     NEW."pricingHash" IS DISTINCT FROM OLD."pricingHash" OR
-     NEW."commercialDifference" IS DISTINCT FROM OLD."commercialDifference" OR
-     NEW."offerHash" IS DISTINCT FROM OLD."offerHash" OR
-     NEW."termsSnapshot" IS DISTINCT FROM OLD."termsSnapshot" OR
-     NEW."termsTitle" IS DISTINCT FROM OLD."termsTitle" OR
-     NEW."termsHash" IS DISTINCT FROM OLD."termsHash" OR
-     NEW."termsVersion" IS DISTINCT FROM OLD."termsVersion" THEN
-    RAISE EXCEPTION 'EXCHANGE_OFFER_IMMUTABLE';
-  END IF;
-  RETURN NEW;
-END;
-$function$
-;
+-- AddForeignKey
+ALTER TABLE "VehicleSubmissionReport" ADD CONSTRAINT "VehicleSubmissionReport_postedChargeId_fkey" FOREIGN KEY ("postedChargeId") REFERENCES "RiderCharge"("id") ON DELETE RESTRICT ON UPDATE NO ACTION;
 
-CREATE OR REPLACE FUNCTION public.rider_deposit_obligation_immutable()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-DECLARE
-  posted_balance DECIMAL(14,2);
-  posted_funding DECIMAL(14,2);
-BEGIN
-  IF NEW."clientId" IS DISTINCT FROM OLD."clientId" OR
-     NEW."riderId" IS DISTINCT FROM OLD."riderId" OR
-     NEW."agreementId" IS DISTINCT FROM OLD."agreementId" OR
-     NEW."vehicleId" IS DISTINCT FROM OLD."vehicleId" OR
-     NEW."obligationKey" IS DISTINCT FROM OLD."obligationKey" OR
-     NEW."depositType" IS DISTINCT FROM OLD."depositType" OR
-     NEW."code" IS DISTINCT FROM OLD."code" OR
-     NEW."currency" IS DISTINCT FROM OLD."currency" OR
-     NEW."originalRequiredAmount" IS DISTINCT FROM OLD."originalRequiredAmount" OR
-     NEW."waiverAmount" IS DISTINCT FROM OLD."waiverAmount" OR
-     NEW."requiredAmount" IS DISTINCT FROM OLD."requiredAmount" OR
-     NEW."snapshotLine" IS DISTINCT FROM OLD."snapshotLine" OR
-     NEW."sourceType" IS DISTINCT FROM OLD."sourceType" OR
-     NEW."sourceId" IS DISTINCT FROM OLD."sourceId"
-  THEN RAISE EXCEPTION 'Accepted deposit obligation is immutable'; END IF;
-  SELECT COALESCE(SUM("balanceDelta"), 0), COALESCE(SUM("fundingDelta"), 0)
-    INTO posted_balance, posted_funding
-    FROM "RiderDepositTransaction" WHERE "depositId" = NEW."id";
-  IF NEW."availableAmount" IS DISTINCT FROM posted_balance OR
-     NEW."fundedAmount" IS DISTINCT FROM posted_funding
-  THEN RAISE EXCEPTION 'Deposit materialized balances must reconcile to transactions'; END IF;
-  RETURN NEW;
-END $function$
-;
+-- AddForeignKey
+ALTER TABLE "PushDevice" ADD CONSTRAINT "PushDevice_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
-CREATE OR REPLACE FUNCTION public.rider_deposit_transaction_immutable()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  RAISE EXCEPTION 'Deposit transactions are immutable; post a reversal';
-END $function$
-;
+-- AddForeignKey
+ALTER TABLE "PushDevice" ADD CONSTRAINT "PushDevice_clientId_userId_fkey" FOREIGN KEY ("clientId", "userId") REFERENCES "User"("clientId", "id") ON DELETE CASCADE ON UPDATE CASCADE;
 
-CREATE OR REPLACE FUNCTION public.rider_invoice_line_guard()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-DECLARE prior_status "RiderInvoiceStatus";
-DECLARE target_status "RiderInvoiceStatus";
-BEGIN
-  IF TG_OP IN ('UPDATE', 'DELETE') THEN
-    SELECT "status" INTO prior_status FROM "RiderInvoice" WHERE "id" = OLD."invoiceId";
-    IF prior_status <> 'DRAFT' THEN RAISE EXCEPTION 'Finalized invoice lines are immutable'; END IF;
-  END IF;
-  IF TG_OP IN ('INSERT', 'UPDATE') THEN
-    SELECT "status" INTO target_status FROM "RiderInvoice" WHERE "id" = NEW."invoiceId";
-    IF target_status <> 'DRAFT' THEN RAISE EXCEPTION 'Finalized invoice lines are immutable'; END IF;
-  END IF;
-  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
-  RETURN NEW;
-END;
-$function$
-;
+-- AddForeignKey
+ALTER TABLE "PushDevice" ADD CONSTRAINT "PushDevice_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
-CREATE OR REPLACE FUNCTION public.rider_invoice_no_delete()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  IF OLD."status" <> 'DRAFT' THEN RAISE EXCEPTION 'Finalized invoices cannot be deleted'; END IF;
-  RETURN OLD;
-END;
-$function$
-;
+-- AddForeignKey
+ALTER TABLE "NotificationMessage" ADD CONSTRAINT "NotificationMessage_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
-CREATE OR REPLACE FUNCTION public.rider_invoice_snapshot_guard()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  IF OLD."status" <> 'DRAFT' AND (
-    NEW."clientId", NEW."riderId", NEW."invoiceNumber", NEW."billingPeriodStart",
-    NEW."billingPeriodEnd", NEW."subtotal", NEW."creditAmount", NEW."adjustmentAmount",
-    NEW."taxAmount", NEW."totalAmount", NEW."currency", NEW."agreementId",
-    NEW."billingPeriodId", NEW."taxSnapshot", NEW."dueDate", NEW."issuedAt"
-  ) IS DISTINCT FROM (
-    OLD."clientId", OLD."riderId", OLD."invoiceNumber", OLD."billingPeriodStart",
-    OLD."billingPeriodEnd", OLD."subtotal", OLD."creditAmount", OLD."adjustmentAmount",
-    OLD."taxAmount", OLD."totalAmount", OLD."currency", OLD."agreementId",
-    OLD."billingPeriodId", OLD."taxSnapshot", OLD."dueDate", OLD."issuedAt"
-  ) THEN
-    RAISE EXCEPTION 'Issued invoice financial snapshot is immutable';
-  END IF;
-  RETURN NEW;
-END;
-$function$
-;
+-- AddForeignKey
+ALTER TABLE "NotificationMessage" ADD CONSTRAINT "NotificationMessage_senderId_fkey" FOREIGN KEY ("senderId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
-CREATE OR REPLACE FUNCTION public.rider_ledger_immutable()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  RAISE EXCEPTION 'Rider ledger entries are immutable; post a compensating entry';
-END;
-$function$
-;
+-- AddForeignKey
+ALTER TABLE "UserNotification" ADD CONSTRAINT "UserNotification_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
-CREATE OR REPLACE FUNCTION public.rider_payment_allocation_guard()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  IF TG_OP = 'DELETE' THEN
-    RAISE EXCEPTION 'Payment allocations are append-only';
-  END IF;
-  IF (NEW."clientId", NEW."riderId", NEW."paymentId", NEW."invoiceId", NEW."amount", NEW."createdAt", NEW."createdById") IS DISTINCT FROM
-     (OLD."clientId", OLD."riderId", OLD."paymentId", OLD."invoiceId", OLD."amount", OLD."createdAt", OLD."createdById")
-     OR OLD."reversedAt" IS NOT NULL THEN
-    RAISE EXCEPTION 'Payment allocations may only be reversed once';
-  END IF;
-  IF NEW."reversedAt" IS NULL OR NEW."reversalReason" IS NULL OR btrim(NEW."reversalReason") = '' THEN
-    RAISE EXCEPTION 'Allocation reversal needs timestamp and reason';
-  END IF;
-  RETURN NEW;
-END;
-$function$
-;
+-- AddForeignKey
+ALTER TABLE "UserNotification" ADD CONSTRAINT "UserNotification_clientId_userId_fkey" FOREIGN KEY ("clientId", "userId") REFERENCES "User"("clientId", "id") ON DELETE CASCADE ON UPDATE CASCADE;
 
-CREATE OR REPLACE FUNCTION public.rider_payment_guard()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  IF TG_OP = 'DELETE' THEN RAISE EXCEPTION 'Recorded payments are immutable'; END IF;
-  IF (NEW."clientId", NEW."riderId", NEW."amount", NEW."currency", NEW."method", NEW."externalReference", NEW."idempotencyKey", NEW."receivedAt", NEW."createdById", NEW."createdAt") IS DISTINCT FROM
-     (OLD."clientId", OLD."riderId", OLD."amount", OLD."currency", OLD."method", OLD."externalReference", OLD."idempotencyKey", OLD."receivedAt", OLD."createdById", OLD."createdAt") THEN
-    RAISE EXCEPTION 'Recorded payment financial details are immutable';
-  END IF;
-  RETURN NEW;
-END;
-$function$
-;
+-- AddForeignKey
+ALTER TABLE "UserNotification" ADD CONSTRAINT "UserNotification_clientId_messageId_fkey" FOREIGN KEY ("clientId", "messageId") REFERENCES "NotificationMessage"("clientId", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
-CREATE OR REPLACE FUNCTION public.sync_hub_location()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  IF NEW."latitude" BETWEEN -90 AND 90 AND NEW."longitude" BETWEEN -180 AND 180 THEN
-    NEW."location" := ST_SetSRID(ST_MakePoint(NEW."longitude"::double precision, NEW."latitude"::double precision),4326)::geography;
-  ELSE
-    NEW."location" := NULL;
-  END IF;
-  RETURN NEW;
-END $function$
-;
+-- AddForeignKey
+ALTER TABLE "PushDelivery" ADD CONSTRAINT "PushDelivery_messageId_fkey" FOREIGN KEY ("messageId") REFERENCES "NotificationMessage"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
-CREATE OR REPLACE FUNCTION public.wallet_invoice_line_immutable()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  IF EXISTS (SELECT 1 FROM "RiderInvoice" WHERE "id" = OLD."invoiceId" AND "status" <> 'DRAFT') THEN
-    RAISE EXCEPTION 'Issued invoice lines are immutable';
-  END IF;
-  RETURN OLD;
-END;
-$function$
-;
+-- AddForeignKey
+ALTER TABLE "PushDelivery" ADD CONSTRAINT "PushDelivery_userNotificationId_messageId_fkey" FOREIGN KEY ("userNotificationId", "messageId") REFERENCES "UserNotification"("id", "messageId") ON DELETE CASCADE ON UPDATE CASCADE;
 
-CREATE OR REPLACE FUNCTION public.wallet_invoice_terms_immutable()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  IF OLD."status" <> 'DRAFT' AND (
-    NEW."invoiceType" IS DISTINCT FROM OLD."invoiceType" OR
-    NEW."sourceKey" IS DISTINCT FROM OLD."sourceKey" OR
-    NEW."pricingSnapshot" IS DISTINCT FROM OLD."pricingSnapshot" OR
-    NEW."subtotal" IS DISTINCT FROM OLD."subtotal" OR
-    NEW."creditAmount" IS DISTINCT FROM OLD."creditAmount" OR
-    NEW."taxAmount" IS DISTINCT FROM OLD."taxAmount" OR
-    NEW."totalAmount" IS DISTINCT FROM OLD."totalAmount" OR
-    NEW."billingPeriodStart" IS DISTINCT FROM OLD."billingPeriodStart" OR
-    NEW."billingPeriodEnd" IS DISTINCT FROM OLD."billingPeriodEnd"
-  ) THEN RAISE EXCEPTION 'Issued invoice pricing is immutable'; END IF;
-  RETURN NEW;
-END;
-$function$
-;
+-- AddForeignKey
+ALTER TABLE "PushDelivery" ADD CONSTRAINT "PushDelivery_deviceId_fkey" FOREIGN KEY ("deviceId") REFERENCES "PushDevice"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
-CREATE OR REPLACE FUNCTION public.wallet_ledger_immutable()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  RAISE EXCEPTION 'Wallet ledger entries are immutable';
-END;
-$function$
-;
-ALTER TABLE public."AttendancePeriod" ADD CONSTRAINT "AttendancePeriod_checkOutAt_check" CHECK ("checkOutAt" IS NULL OR "checkOutAt" > "checkInAt");
-ALTER TABLE public."AutoPayDunningCase" ADD CONSTRAINT "AutoPayDunningCase_failedAttempts_check" CHECK ("failedAttempts" >= 0);
-ALTER TABLE public."Client" ADD CONSTRAINT "deposit_activation_threshold_valid" CHECK (("depositActivationPolicy" = ANY (ARRAY['MINIMUM_PERCENTAGE'::"DepositActivationPolicyType", 'MINIMUM_AMOUNT'::"DepositActivationPolicyType"])) AND "depositActivationThreshold" IS NOT NULL AND "depositActivationThreshold" >= 0::numeric AND ("depositActivationPolicy" <> 'MINIMUM_PERCENTAGE'::"DepositActivationPolicyType" OR "depositActivationThreshold" <= 100::numeric) OR ("depositActivationPolicy" <> ALL (ARRAY['MINIMUM_PERCENTAGE'::"DepositActivationPolicyType", 'MINIMUM_AMOUNT'::"DepositActivationPolicyType"])) AND "depositActivationThreshold" IS NULL);
-ALTER TABLE public."CollectionAction" ADD CONSTRAINT "CollectionAction_client_case_fkey" FOREIGN KEY ("clientId", "caseId") REFERENCES "RiderCollectionCase"("clientId", id) ON DELETE RESTRICT;
-ALTER TABLE public."CollectionCaseInvoice" ADD CONSTRAINT "CollectionCaseInvoice_client_case_fkey" FOREIGN KEY ("clientId", "caseId") REFERENCES "RiderCollectionCase"("clientId", id) ON DELETE RESTRICT;
-ALTER TABLE public."CollectionCaseInvoice" ADD CONSTRAINT "CollectionCaseInvoice_client_invoice_fkey" FOREIGN KEY ("clientId", "invoiceId") REFERENCES "RiderInvoice"("clientId", id) ON DELETE RESTRICT;
-ALTER TABLE public."CollectionCaseNote" ADD CONSTRAINT "CollectionCaseNote_client_case_fkey" FOREIGN KEY ("clientId", "caseId") REFERENCES "RiderCollectionCase"("clientId", id) ON DELETE RESTRICT;
-ALTER TABLE public."CollectionDispute" ADD CONSTRAINT "CollectionDispute_client_case_fkey" FOREIGN KEY ("clientId", "caseId") REFERENCES "RiderCollectionCase"("clientId", id) ON DELETE RESTRICT;
-ALTER TABLE public."CollectionEvaluationQueue" ADD CONSTRAINT "CollectionEvaluationQueue_client_rider_fkey" FOREIGN KEY ("clientId", "riderId") REFERENCES "Rider"("clientId", id) ON DELETE RESTRICT;
-ALTER TABLE public."CollectionEvent" ADD CONSTRAINT "CollectionEvent_client_case_fkey" FOREIGN KEY ("clientId", "caseId") REFERENCES "RiderCollectionCase"("clientId", id) ON DELETE RESTRICT;
-ALTER TABLE public."CollectionPolicyStage" ADD CONSTRAINT "CollectionPolicyStage_client_policy_fkey" FOREIGN KEY ("clientId", "policyVersionId") REFERENCES "CollectionPolicyVersion"("clientId", id) ON DELETE RESTRICT;
-ALTER TABLE public."CollectionPolicyVersion" ADD CONSTRAINT "CollectionPolicyVersion_client_policy_fkey" FOREIGN KEY ("clientId", "policyId") REFERENCES "CollectionPolicy"("clientId", id) ON DELETE RESTRICT;
-ALTER TABLE public."CollectionTask" ADD CONSTRAINT "CollectionTask_client_case_fkey" FOREIGN KEY ("clientId", "caseId") REFERENCES "RiderCollectionCase"("clientId", id) ON DELETE RESTRICT;
-ALTER TABLE public."CollectionWaiver" ADD CONSTRAINT "CollectionWaiver_client_case_fkey" FOREIGN KEY ("clientId", "caseId") REFERENCES "RiderCollectionCase"("clientId", id) ON DELETE RESTRICT;
-ALTER TABLE public."CommercialRestriction" ADD CONSTRAINT "CommercialRestriction_client_case_fkey" FOREIGN KEY ("clientId", "caseId") REFERENCES "RiderCollectionCase"("clientId", id) ON DELETE RESTRICT;
-ALTER TABLE public."CommercialRestriction" ADD CONSTRAINT "CommercialRestriction_client_rider_fkey" FOREIGN KEY ("clientId", "riderId") REFERENCES "Rider"("clientId", id) ON DELETE RESTRICT;
-ALTER TABLE public."FeatureUsageConsumption" ADD CONSTRAINT "FeatureUsageConsumption_nonnegative_prices" CHECK (("basePrice" IS NULL OR "basePrice" >= 0::numeric) AND (discount IS NULL OR discount >= 0::numeric) AND ("effectivePrice" IS NULL OR "effectivePrice" >= 0::numeric));
-ALTER TABLE public."FeatureUsageConsumption" ADD CONSTRAINT "FeatureUsageConsumption_positive_quantity" CHECK (quantity > 0::numeric);
-ALTER TABLE public."KycClientPolicy" ADD CONSTRAINT "KycClientPolicy_valid_dates" CHECK ("effectiveUntil" IS NULL OR "effectiveUntil" > "effectiveFrom");
-ALTER TABLE public."KycClientPolicy" ADD CONSTRAINT "KycClientPolicy_validity_days" CHECK ("validityDays" IS NULL OR "validityDays" >= 1 AND "validityDays" <= 3650);
-ALTER TABLE public."KycIntelligentRoutingPolicy" ADD CONSTRAINT "KycIntelligentRoutingPolicy_failure_guardrail_check" CHECK ("maxTechnicalFailurePercent" IS NULL OR "maxTechnicalFailurePercent" >= 0::numeric AND "maxTechnicalFailurePercent" <= 100::numeric);
-ALTER TABLE public."KycIntelligentRoutingPolicy" ADD CONSTRAINT "KycIntelligentRoutingPolicy_freshness_check" CHECK ("maxSnapshotAgeMinutes" >= 1);
-ALTER TABLE public."KycIntelligentRoutingPolicy" ADD CONSTRAINT "KycIntelligentRoutingPolicy_latency_guardrail_check" CHECK ("maxP95LatencyMs" IS NULL OR "maxP95LatencyMs" > 0);
-ALTER TABLE public."KycIntelligentRoutingPolicy" ADD CONSTRAINT "KycIntelligentRoutingPolicy_latency_target_check" CHECK ("latencyTargetMs" > 0);
-ALTER TABLE public."KycIntelligentRoutingPolicy" ADD CONSTRAINT "KycIntelligentRoutingPolicy_mode_check" CHECK (mode::text = ANY (ARRAY['STATIC'::character varying, 'RULE_BASED'::character varying, 'SCORED'::character varying, 'SHADOW'::character varying]::text[]));
-ALTER TABLE public."KycIntelligentRoutingPolicy" ADD CONSTRAINT "KycIntelligentRoutingPolicy_rollout_check" CHECK ("rolloutPercent" >= 0 AND "rolloutPercent" <= 100);
-ALTER TABLE public."KycIntelligentRoutingPolicy" ADD CONSTRAINT "KycIntelligentRoutingPolicy_samples_check" CHECK ("minimumSampleSize" >= 1);
-ALTER TABLE public."KycIntelligentRoutingPolicy" ADD CONSTRAINT "KycIntelligentRoutingPolicy_status_check" CHECK (status::text = ANY (ARRAY['DRAFT'::character varying, 'ACTIVE'::character varying, 'PAUSED'::character varying, 'RETIRED'::character varying]::text[]));
-ALTER TABLE public."KycIntelligentRoutingPolicy" ADD CONSTRAINT "KycIntelligentRoutingPolicy_unknown_cost_check" CHECK ("unknownCostBehavior"::text = ANY (ARRAY['NEUTRAL'::character varying, 'EXCLUDE'::character varying]::text[]));
-ALTER TABLE public."KycIntelligentRoutingPolicy" ADD CONSTRAINT "KycIntelligentRoutingPolicy_window_check" CHECK ("observationWindowMinutes" >= 15 AND "observationWindowMinutes" <= 10080);
-ALTER TABLE public."KycRoutingPolicy" ADD CONSTRAINT "KycRoutingPolicy_bounded_attempts" CHECK ("maxAttempts" >= 1 AND "maxAttempts" <= 5 AND "maxProvidersPerVerification" >= 1 AND "maxProvidersPerVerification" <= 5);
-ALTER TABLE public."KycRoutingProvider" ADD CONSTRAINT "KycRoutingProvider_valid_configuration" CHECK (priority > 0 AND (weight IS NULL OR weight > 0) AND ("hedgeDelayMs" IS NULL OR "hedgeDelayMs" >= 0) AND ("timeoutMs" IS NULL OR "timeoutMs" >= 1000) AND ("maxAttempts" IS NULL OR "maxAttempts" >= 1 AND "maxAttempts" <= 5));
-ALTER TABLE public."PaymentAttempt" ADD CONSTRAINT "PaymentAttempt_one_collection_owner" CHECK (("transactionId" IS NOT NULL) <> ("collectionRequestId" IS NOT NULL));
-ALTER TABLE public."PaymentCollectionPolicy" ADD CONSTRAINT "PaymentCollectionPolicy_valid_attempts" CHECK ("maximumAttempts" >= 1 AND "maximumAttempts" <= 10 AND "beforeDueDays" >= 0 AND "beforeDueDays" <= 30);
-ALTER TABLE public."PaymentCollectionPolicy" ADD CONSTRAINT "PaymentCollectionPolicy_valid_custom_time" CHECK ("collectionHourIst" >= 0 AND "collectionHourIst" <= 23 AND "collectionMinuteIst" >= 0 AND "collectionMinuteIst" <= 59);
-ALTER TABLE public."PaymentCollectionRequest" ADD CONSTRAINT "PaymentCollectionRequest_positive_amount" CHECK (amount > 0::numeric);
-ALTER TABLE public."PaymentRefund" ADD CONSTRAINT "PaymentRefund_positive_amount" CHECK (amount > 0::numeric);
-ALTER TABLE public."PaymentRefund" ADD CONSTRAINT "PaymentRefund_treatment_check" CHECK (treatment::text = ANY (ARRAY['UNALLOCATED_RETURN'::character varying, 'PAYMENT_REVERSAL'::character varying]::text[]));
-ALTER TABLE public."PromiseToPay" ADD CONSTRAINT "PromiseToPay_client_case_fkey" FOREIGN KEY ("clientId", "caseId") REFERENCES "RiderCollectionCase"("clientId", id) ON DELETE RESTRICT;
-ALTER TABLE public."PromiseToPay" ADD CONSTRAINT "PromiseToPay_client_rider_fkey" FOREIGN KEY ("clientId", "riderId") REFERENCES "Rider"("clientId", id) ON DELETE RESTRICT;
-ALTER TABLE public."PromiseToPay" ADD CONSTRAINT "PromiseToPay_positive_amount" CHECK ("promisedAmount" > 0::numeric);
-ALTER TABLE public."ProviderPaymentObservation" ADD CONSTRAINT "ProviderPaymentObservation_positive_amount" CHECK (amount IS NULL OR amount > 0::numeric);
-ALTER TABLE public."ProviderSettlement" ADD CONSTRAINT "ProviderSettlement_nonnegative_check" CHECK ("grossAmount" >= 0::numeric AND "refundAmount" >= 0::numeric AND "feeAmount" >= 0::numeric AND "taxAmount" >= 0::numeric AND "netAmount" >= 0::numeric);
-ALTER TABLE public."ProviderSettlementItem" ADD CONSTRAINT "ProviderSettlementItem_positive_amount_check" CHECK (amount > 0::numeric);
-ALTER TABLE public."RateCardAdjustment" ADD CONSTRAINT "adjustment_age_valid" CHECK (("minVehicleAgeMonths" IS NULL OR "minVehicleAgeMonths" >= 0) AND ("maxVehicleAgeMonths" IS NULL OR "maxVehicleAgeMonths" >= "minVehicleAgeMonths") AND ("effectiveTo" IS NULL OR "effectiveFrom" IS NULL OR "effectiveFrom" < "effectiveTo"));
-ALTER TABLE public."RateCardAdjustment" ADD CONSTRAINT "adjustment_discount_cap_valid" CHECK ("maximumDiscount" IS NULL OR "maximumDiscount" >= 0::numeric);
-ALTER TABLE public."RateCardAdjustment" ADD CONSTRAINT "adjustment_target_valid" CHECK (target = 'RENTAL'::"RiderAdjustmentTarget" AND "targetDepositCode" IS NULL OR target = 'DEPOSIT'::"RiderAdjustmentTarget" AND "targetDepositCode" IS NOT NULL);
-ALTER TABLE public."RateCardAdjustment" ADD CONSTRAINT "adjustment_value_valid" CHECK ("calculationType" = 'FIXED_AMOUNT'::"RiderAdjustmentCalculationType" AND amount IS NOT NULL AND percentage IS NULL OR "calculationType" = 'PERCENTAGE'::"RiderAdjustmentCalculationType" AND percentage IS NOT NULL AND amount IS NULL AND percentage >= '-100'::integer::numeric AND percentage <= 100::numeric);
-ALTER TABLE public."RateCardDeposit" ADD CONSTRAINT "deposit_amount_nonnegative" CHECK (amount >= 0::numeric);
-ALTER TABLE public."RateCardDeposit" ADD CONSTRAINT "deposit_waiver_valid" CHECK ("waiverAmount" >= 0::numeric AND "waiverAmount" <= amount);
-ALTER TABLE public."RateCardFee" ADD CONSTRAINT "fee_amount_nonnegative" CHECK (amount >= 0::numeric AND ("taxRate" IS NULL OR "taxRate" >= 0::numeric AND "taxRate" <= 100::numeric));
-ALTER TABLE public."RateCardRentalRate" ADD CONSTRAINT "rental_amount_nonnegative" CHECK (amount >= 0::numeric AND ("extraKmRate" IS NULL OR "extraKmRate" >= 0::numeric));
-ALTER TABLE public."RateCardRentalRate" ADD CONSTRAINT "rental_tax_configuration_valid" CHECK ((NOT taxable OR "taxRate" IS NOT NULL) AND ("taxRate" IS NULL OR "taxRate" >= 0::numeric AND "taxRate" <= 100::numeric));
-ALTER TABLE public."ReturnPenaltyCase" ADD CONSTRAINT "ReturnPenaltyCase_currentRevision_check" CHECK ("currentRevision" >= 0);
-ALTER TABLE public."ReturnPenaltyCase" ADD CONSTRAINT "ReturnPenaltyCase_totalAmount_check" CHECK ("totalAmount" >= 0::numeric);
-ALTER TABLE public."ReturnPenaltyItem" ADD CONSTRAINT "ReturnPenaltyItem_amount_check" CHECK (amount > 0::numeric);
-ALTER TABLE public."ReturnPenaltyItem" ADD CONSTRAINT "ReturnPenaltyItem_category_check" CHECK (category::text = ANY (ARRAY['DAMAGE'::character varying, 'MISSING_ITEM'::character varying]::text[]));
-ALTER TABLE public."ReturnPenaltyItem" ADD CONSTRAINT "ReturnPenaltyItem_position_check" CHECK ("position" >= 0);
-ALTER TABLE public."ReturnPenaltyItem" ADD CONSTRAINT "ReturnPenaltyItem_revision_check" CHECK (revision > 0);
-ALTER TABLE public."ReturnPenaltyPrice" ADD CONSTRAINT "ReturnPenaltyPrice_amount_check" CHECK (amount > 0::numeric);
-ALTER TABLE public."ReturnPenaltyPrice" ADD CONSTRAINT "ReturnPenaltyPrice_category_check" CHECK (category::text = ANY (ARRAY['DAMAGE'::character varying, 'MISSING_ITEM'::character varying]::text[]));
-ALTER TABLE public."RewardClaim" ADD CONSTRAINT "RewardClaim_amount_check" CHECK ("calculatedAmount" > 0::numeric AND "creditedAmount" >= 0::numeric AND "unrecoveredAmount" >= 0::numeric);
-ALTER TABLE public."RewardLot" ADD CONSTRAINT "RewardLot_amount_check" CHECK ("originalAmount" > 0::numeric AND "remainingAmount" >= 0::numeric AND "remainingAmount" <= "originalAmount");
-ALTER TABLE public."RewardLotConsumption" ADD CONSTRAINT "RewardLotConsumption_amount_check" CHECK (amount > 0::numeric);
-ALTER TABLE public."RewardProgram" ADD CONSTRAINT "RewardProgram_budget_check" CHECK ("totalBudget" IS NULL OR "totalBudget" >= 0::numeric);
-ALTER TABLE public."RewardProgram" ADD CONSTRAINT "RewardProgram_dates_check" CHECK ("validUntil" IS NULL OR "validUntil" >= "validFrom");
-ALTER TABLE public."RewardRule" ADD CONSTRAINT "RewardRule_expiry_choice_check" CHECK ("expiryAt" IS NULL OR "expiryDays" IS NULL);
-ALTER TABLE public."RewardRule" ADD CONSTRAINT "RewardRule_value_check" CHECK ("rewardValue" > 0::numeric AND ("expiryDays" IS NULL OR "expiryDays" > 0) AND ("monthlyCountCap" IS NULL OR "monthlyCountCap" > 0) AND ("monthlyAmountCap" IS NULL OR "monthlyAmountCap" > 0::numeric));
-ALTER TABLE public."RiderBatteryPlan" ADD CONSTRAINT "battery_plan_amount_nonnegative" CHECK (amount >= 0::numeric AND ("taxRate" IS NULL OR "taxRate" >= 0::numeric AND "taxRate" <= 100::numeric));
-ALTER TABLE public."RiderBillingPeriod" ADD CONSTRAINT "RiderBillingPeriod_no_overlap" EXCLUDE USING gist ("agreementId" WITH =, tsrange("periodStart", "periodEnd", '[)'::text) WITH &&);
-ALTER TABLE public."RiderBillingPeriod" ADD CONSTRAINT "RiderBillingPeriod_rider_fkey" FOREIGN KEY ("clientId", "riderId") REFERENCES "Rider"("clientId", id) ON DELETE RESTRICT;
-ALTER TABLE public."RiderBillingPeriod" ADD CONSTRAINT "RiderBillingPeriod_valid_range" CHECK ("periodStart" < "periodEnd");
-ALTER TABLE public."RiderBillingSchedule" ADD CONSTRAINT "RiderBillingSchedule_rider_fkey" FOREIGN KEY ("clientId", "riderId") REFERENCES "Rider"("clientId", id) ON DELETE RESTRICT;
-ALTER TABLE public."RiderBillingSchedule" ADD CONSTRAINT "RiderBillingSchedule_valid_policy" CHECK ((frequency::text = ANY (ARRAY['DAILY'::character varying, 'WEEKLY'::character varying, 'FORTNIGHTLY'::character varying, 'MONTHLY'::character varying, 'CUSTOM'::character varying]::text[])) AND ("billingMode"::text = ANY (ARRAY['PREPAID'::character varying, 'POSTPAID'::character varying]::text[])) AND (frequency::text <> 'CUSTOM'::text OR "customDays" >= 1 AND "customDays" <= 366));
-ALTER TABLE public."RiderCharge" ADD CONSTRAINT "RiderCharge_positive_amount" CHECK (quantity > 0::numeric AND "unitAmount" >= 0::numeric AND amount > 0::numeric);
-ALTER TABLE public."RiderCollectionCase" ADD CONSTRAINT "RiderCollectionCase_active_rider_matches" CHECK ("activeRiderId" IS NULL OR "activeRiderId" = "riderId");
-ALTER TABLE public."RiderCollectionCase" ADD CONSTRAINT "RiderCollectionCase_client_policy_fkey" FOREIGN KEY ("clientId", "policyVersionId") REFERENCES "CollectionPolicyVersion"("clientId", id) ON DELETE RESTRICT;
-ALTER TABLE public."RiderCollectionCase" ADD CONSTRAINT "RiderCollectionCase_client_rider_fkey" FOREIGN KEY ("clientId", "riderId") REFERENCES "Rider"("clientId", id) ON DELETE RESTRICT;
-ALTER TABLE public."RiderCommercialOffer" ADD CONSTRAINT "offer_amounts_nonnegative" CHECK ("finalRecurringAmount" >= 0::numeric AND "upfrontAmount" >= 0::numeric AND "refundableAmount" >= 0::numeric AND "expiresAt" > "createdAt");
-ALTER TABLE public."RiderCredit" ADD CONSTRAINT "RiderCredit_valid_balance" CHECK (amount > 0::numeric AND "remainingAmount" >= 0::numeric AND "remainingAmount" <= amount);
-ALTER TABLE public."RiderDeposit" ADD CONSTRAINT "deposit_nonnegative" CHECK ("originalRequiredAmount" >= 0::numeric AND "waiverAmount" >= 0::numeric AND "requiredAmount" >= 0::numeric AND "fundedAmount" >= 0::numeric AND "availableAmount" >= 0::numeric);
-ALTER TABLE public."RiderDepositRefundRequest" ADD CONSTRAINT "deposit_refund_request_amount_positive" CHECK (amount > 0::numeric);
-ALTER TABLE public."RiderDepositTransaction" ADD CONSTRAINT "deposit_transaction_amount_positive" CHECK (amount > 0::numeric AND "balanceBefore" >= 0::numeric AND "balanceAfter" >= 0::numeric AND "balanceAfter" = ("balanceBefore" + "balanceDelta"));
-ALTER TABLE public."RiderInvoice" ADD CONSTRAINT "RiderInvoice_valid_money" CHECK (subtotal >= 0::numeric AND "creditAmount" >= 0::numeric AND "taxAmount" >= 0::numeric AND "totalAmount" >= 0::numeric AND "paidAmount" >= 0::numeric AND "outstandingAmount" >= 0::numeric AND "appliedSettlementCreditAmount" >= 0::numeric AND "totalAmount" = (subtotal - "creditAmount" + "adjustmentAmount" + "taxAmount") AND "totalAmount" = ("paidAmount" + "outstandingAmount" + "appliedSettlementCreditAmount"));
-ALTER TABLE public."RiderInvoice" ADD CONSTRAINT "RiderInvoice_valid_period" CHECK ("billingPeriodEnd" > "billingPeriodStart");
-ALTER TABLE public."RiderInvoice" ADD CONSTRAINT "wallet_invoice_amounts_nonnegative" CHECK ("totalAmount" >= 0::numeric AND "paidAmount" >= 0::numeric AND "outstandingAmount" >= 0::numeric AND "outstandingAmount" <= "totalAmount" AND "billingPeriodEnd" >= "billingPeriodStart");
-ALTER TABLE public."RiderInvoiceLine" ADD CONSTRAINT "RiderInvoiceLine_positive_amount" CHECK (amount > 0::numeric);
-ALTER TABLE public."RiderLedgerEntry" ADD CONSTRAINT "RiderLedgerEntry_one_sided" CHECK ("debitAmount" > 0::numeric AND "creditAmount" = 0::numeric OR "creditAmount" > 0::numeric AND "debitAmount" = 0::numeric);
-ALTER TABLE public."RiderPayment" ADD CONSTRAINT "RiderPayment_refund_balanced" CHECK ("refundedAmount" >= 0::numeric AND "refundedAmount" <= amount AND "unallocatedAmount" >= 0::numeric AND ("unallocatedAmount" + "refundedAmount") <= amount);
-ALTER TABLE public."RiderPayment" ADD CONSTRAINT "RiderPayment_valid_money" CHECK (amount > 0::numeric AND "unallocatedAmount" >= 0::numeric AND "unallocatedAmount" <= amount);
-ALTER TABLE public."RiderPaymentAllocation" ADD CONSTRAINT "RiderPaymentAllocation_positive_amount" CHECK (amount > 0::numeric);
-ALTER TABLE public."RiderPromotion" ADD CONSTRAINT "promotion_configuration_valid" CHECK ("calculationType" = 'FIXED_AMOUNT'::"RiderAdjustmentCalculationType" AND amount IS NOT NULL AND amount >= 0::numeric AND percentage IS NULL OR "calculationType" = 'PERCENTAGE'::"RiderAdjustmentCalculationType" AND percentage IS NOT NULL AND percentage >= 0::numeric AND percentage <= 100::numeric AND amount IS NULL);
-ALTER TABLE public."RiderPromotion" ADD CONSTRAINT "promotion_limits_valid" CHECK (("maximumDiscount" IS NULL OR "maximumDiscount" >= 0::numeric) AND ("maxUsage" IS NULL OR "maxUsage" > 0) AND ("perRiderUsageLimit" IS NULL OR "perRiderUsageLimit" > 0));
-ALTER TABLE public."RiderPromotion" ADD CONSTRAINT "promotion_period_valid" CHECK ("validTo" IS NULL OR "validFrom" < "validTo");
-ALTER TABLE public."RiderRateCard" ADD CONSTRAINT "offer_validity_positive" CHECK ("offerValidityMinutes" >= 1 AND "offerValidityMinutes" <= 10080);
-ALTER TABLE public."RiderRateCardVersion" ADD CONSTRAINT "no_overlapping_active_rate_card_versions" EXCLUDE USING gist ("clientId" WITH =, "rateCardId" WITH =, daterange("effectiveFrom", "effectiveTo", '[)'::text) WITH &&) WHERE (status = 'ACTIVE'::"RiderRateCardStatus");
-ALTER TABLE public."RiderRateCardVersion" ADD CONSTRAINT "rate_card_version_period_valid" CHECK ("effectiveTo" IS NULL OR "effectiveFrom" < "effectiveTo");
-ALTER TABLE public."RiderRentalAgreement" ADD CONSTRAINT "agreement_amounts_nonnegative" CHECK ("finalRecurringAmount" >= 0::numeric AND "upfrontAmount" >= 0::numeric AND "refundableAmount" >= 0::numeric AND ("endDate" IS NULL OR "startDate" IS NULL OR "endDate" > "startDate"));
-ALTER TABLE public."RiderTaxRule" ADD CONSTRAINT "RiderTaxRule_no_overlap" EXCLUDE USING gist ("clientId" WITH =, "chargeType" WITH =, tsrange("effectiveFrom", "effectiveTo", '[)'::text) WITH &&);
-ALTER TABLE public."RiderTaxRule" ADD CONSTRAINT "RiderTaxRule_valid_rates" CHECK ("cgstRate" >= 0::numeric AND "cgstRate" <= 100::numeric AND "sgstRate" >= 0::numeric AND "sgstRate" <= 100::numeric AND "igstRate" >= 0::numeric AND "igstRate" <= 100::numeric AND ("igstRate" = 0::numeric OR "cgstRate" = 0::numeric AND "sgstRate" = 0::numeric) AND ("effectiveTo" IS NULL OR "effectiveTo" > "effectiveFrom"));
-ALTER TABLE public."SupportTicket" ADD CONSTRAINT "SupportTicket_status_check" CHECK (status::text = ANY (ARRAY['OPEN'::character varying, 'IN_PROGRESS'::character varying, 'RESOLVED'::character varying]::text[]));
-ALTER TABLE public."VehicleCommercialGradeAssignment" ADD CONSTRAINT "no_overlapping_vehicle_grade_periods" EXCLUDE USING gist ("clientId" WITH =, "fleetId" WITH =, daterange("effectiveFrom", "effectiveTo", '[)'::text) WITH &&);
-ALTER TABLE public."VehicleCommercialGradeAssignment" ADD CONSTRAINT "vehicle_grade_period_valid" CHECK ("effectiveTo" IS NULL OR "effectiveFrom" < "effectiveTo");
-ALTER TABLE public."WalletDepositRefundRequest" ADD CONSTRAINT "wallet_deposit_refund_positive" CHECK (amount > 0::numeric);
-ALTER TABLE public."WalletHold" ADD CONSTRAINT "wallet_hold_capture_range" CHECK ("capturedAmount" >= 0::numeric AND "capturedAmount" <= amount);
-ALTER TABLE public."WalletHold" ADD CONSTRAINT "wallet_hold_positive" CHECK (amount > 0::numeric);
-ALTER TABLE public."WalletInvoiceAllocation" ADD CONSTRAINT "wallet_invoice_allocation_positive" CHECK (amount > 0::numeric);
-ALTER TABLE public."WalletLedgerEntry" ADD CONSTRAINT "wallet_ledger_positive" CHECK (amount > 0::numeric);
-ALTER TABLE public."WalletPolicy" ADD CONSTRAINT "wallet_policy_amounts_valid" CHECK ("negativeBalanceLimit" >= 0::numeric AND "minimumCashBalance" >= 0::numeric AND "maxRewardUsagePercent" >= 0::numeric AND "maxRewardUsagePercent" <= 100::numeric);
-ALTER TABLE public."WalletSecurityDeposit" ADD CONSTRAINT "wallet_security_deposit_required_nonnegative" CHECK ("requiredAmount" >= 0::numeric);
-ALTER TABLE public."WalletTransaction" ADD CONSTRAINT "wallet_transaction_positive" CHECK (amount > 0::numeric);
-CREATE UNIQUE INDEX "AppLegalDocument_global_version_key" ON public."AppLegalDocument" USING btree ("appCode", role, kind, locale, version) WHERE ("clientId" IS NULL);
-CREATE UNIQUE INDEX "AttendancePeriod_userId_open_key" ON public."AttendancePeriod" USING btree ("userId") WHERE ("checkOutAt" IS NULL);
-CREATE INDEX "ClientSubscription_packageRevisionId_idx" ON public."ClientSubscription" USING btree ("packageRevisionId");
-CREATE UNIQUE INDEX "CollectionPolicy_one_active_per_client" ON public."CollectionPolicy" USING btree ("clientId") WHERE (status = 'ACTIVE'::text);
-CREATE INDEX idx_hub_location ON public."Hub" USING gist (location);
-CREATE UNIQUE INDEX "KycClientPolicy_one_active_per_type" ON public."KycClientPolicy" USING btree ("clientId", "verificationType") WHERE (status = 'ACTIVE'::text);
-CREATE UNIQUE INDEX "KycIntelligentRoutingPolicy_global_code_version_key" ON public."KycIntelligentRoutingPolicy" USING btree (code, version) WHERE ("clientId" IS NULL);
-CREATE UNIQUE INDEX "KycRoutingPolicy_global_version" ON public."KycRoutingPolicy" USING btree (code, version) WHERE ("clientId" IS NULL);
-CREATE UNIQUE INDEX "KycWorkflowDefinition_global_version" ON public."KycWorkflowDefinition" USING btree (code, version) WHERE ("clientId" IS NULL);
-CREATE UNIQUE INDEX "KycWorkflowExecution_one_active_rider" ON public."KycWorkflowExecution" USING btree ("clientId", "riderId") WHERE (status = ANY (ARRAY['CREATED'::"KycWorkflowStatus", 'IN_PROGRESS'::"KycWorkflowStatus", 'ACTION_REQUIRED'::"KycWorkflowStatus", 'WAITING'::"KycWorkflowStatus", 'RECONCILING'::"KycWorkflowStatus", 'DECISION_PENDING'::"KycWorkflowStatus"]));
-CREATE UNIQUE INDEX "PaymentCollectionRequest_active_deposit_key" ON public."PaymentCollectionRequest" USING btree ("clientId", "depositId") WHERE (("depositId" IS NOT NULL) AND ((status)::text = ANY ((ARRAY['CREATING'::character varying, 'PENDING'::character varying, 'UNKNOWN'::character varying])::text[])));
-CREATE UNIQUE INDEX "PaymentCollectionRequest_active_invoice_key" ON public."PaymentCollectionRequest" USING btree ("clientId", "invoiceId") WHERE (("invoiceId" IS NOT NULL) AND ((status)::text = ANY ((ARRAY['CREATING'::character varying, 'PENDING'::character varying, 'UNKNOWN'::character varying])::text[])));
-CREATE UNIQUE INDEX "PaymentCollectionRequest_active_outstanding_key" ON public."PaymentCollectionRequest" USING btree ("clientId", "riderId") WHERE ((("collectionType")::text = 'OUTSTANDING_PAYMENT'::text) AND ((status)::text = ANY ((ARRAY['CREATING'::character varying, 'PENDING'::character varying, 'UNKNOWN'::character varying])::text[])));
-CREATE UNIQUE INDEX "PaymentMandate_one_open_per_rider" ON public."PaymentMandate" USING btree ("clientId", "riderId") WHERE (status = ANY (ARRAY['CREATING'::"PaymentMandateStatus", 'CREATED'::"PaymentMandateStatus", 'AUTHORIZATION_PENDING'::"PaymentMandateStatus", 'ACTIVE'::"PaymentMandateStatus", 'PAUSED'::"PaymentMandateStatus", 'UNKNOWN'::"PaymentMandateStatus"]));
-CREATE UNIQUE INDEX "PaymentTransaction_active_invoice_key" ON public."PaymentTransaction" USING btree ("clientId", "invoiceId") WHERE (status = ANY (ARRAY['CREATING'::"PaymentTransactionStatus", 'PENDING'::"PaymentTransactionStatus", 'UNKNOWN'::"PaymentTransactionStatus", 'SUCCESS'::"PaymentTransactionStatus"]));
-CREATE UNIQUE INDEX one_active_rider_terms_per_client ON public."RiderCommercialTerms" USING btree ("clientId") WHERE (status = 'ACTIVE'::"RiderCommercialTermsStatus");
-CREATE UNIQUE INDEX rider_invoice_rental_period_unique ON public."RiderInvoice" USING btree ("clientId", "riderId", "billingPeriodStart", "billingPeriodEnd") WHERE (("invoiceType")::text = 'RENTAL'::text);
-CREATE UNIQUE INDEX one_default_rider_rate_card_per_client ON public."RiderRateCard" USING btree ("clientId") WHERE (("isDefault" = true) AND (status <> 'INACTIVE'::"RiderRateCardStatus"));
-CREATE UNIQUE INDEX one_live_agreement_per_rider ON public."RiderRentalAgreement" USING btree ("clientId", "riderId") WHERE (status = ANY (ARRAY['PENDING_ACTIVATION'::"RiderRentalAgreementStatus", 'ACTIVE'::"RiderRentalAgreementStatus", 'SUSPENDED'::"RiderRentalAgreementStatus", 'TERMINATION_PENDING'::"RiderRentalAgreementStatus"]));
-CREATE UNIQUE INDEX one_live_agreement_per_vehicle ON public."RiderRentalAgreement" USING btree ("clientId", "currentVehicleId") WHERE (status = ANY (ARRAY['PENDING_ACTIVATION'::"RiderRentalAgreementStatus", 'ACTIVE'::"RiderRentalAgreementStatus", 'SUSPENDED'::"RiderRentalAgreementStatus", 'TERMINATION_PENDING'::"RiderRentalAgreementStatus"]));
-CREATE UNIQUE INDEX "User_client_normalized_mobile_key" ON public."User" USING btree ("clientId", "right"(regexp_replace(mobile, '[^0-9]'::text, ''::text, 'g'::text), 10)) WHERE (("deletedAt" IS NULL) AND ("clientId" IS NOT NULL));
-CREATE UNIQUE INDEX one_active_exchange_per_agreement ON public."VehicleExchangeRequest" USING btree ("clientId", "agreementId") WHERE (status = ANY (ARRAY['REQUESTED'::"VehicleExchangeStatus", 'APPROVED'::"VehicleExchangeStatus", 'REPLACEMENT_SELECTED'::"VehicleExchangeStatus", 'OFFER_PRESENTED'::"VehicleExchangeStatus", 'ACCEPTED'::"VehicleExchangeStatus", 'RETURN_PENDING'::"VehicleExchangeStatus", 'DEPOSIT_PENDING'::"VehicleExchangeStatus", 'HANDOVER_PENDING'::"VehicleExchangeStatus"]));
-CREATE UNIQUE INDEX one_replacement_hold_per_vehicle ON public."VehicleExchangeRequest" USING btree ("clientId", "replacementVehicleId") WHERE (("replacementVehicleId" IS NOT NULL) AND (status = ANY (ARRAY['REPLACEMENT_SELECTED'::"VehicleExchangeStatus", 'OFFER_PRESENTED'::"VehicleExchangeStatus", 'ACCEPTED'::"VehicleExchangeStatus", 'RETURN_PENDING'::"VehicleExchangeStatus", 'DEPOSIT_PENDING'::"VehicleExchangeStatus", 'HANDOVER_PENDING'::"VehicleExchangeStatus"])));
-CREATE UNIQUE INDEX wallet_one_current_policy_per_client ON public."WalletPolicy" USING btree ("clientId") WHERE ("effectiveUntil" IS NULL);
-CREATE UNIQUE INDEX wallet_single_full_reversal ON public."WalletTransaction" USING btree ("parentTransactionId") WHERE ("transactionType" = 'REVERSAL'::"WalletTransactionType");
-CREATE TRIGGER collection_event_audit AFTER INSERT ON "CollectionEvent" FOR EACH ROW EXECUTE FUNCTION collection_audit_event();
-CREATE TRIGGER hub_location_sync BEFORE INSERT OR UPDATE OF latitude, longitude ON "Hub" FOR EACH ROW EXECUTE FUNCTION sync_hub_location();
-CREATE TRIGGER kyc_rule_immutable BEFORE INSERT OR DELETE OR UPDATE ON "KycDecisionRule" FOR EACH ROW EXECUTE FUNCTION kyc_guard_used_definition();
-CREATE TRIGGER kyc_routing_policy_immutable BEFORE DELETE OR UPDATE ON "KycRoutingPolicy" FOR EACH ROW EXECUTE FUNCTION kyc_guard_used_routing_policy();
-CREATE TRIGGER kyc_routing_provider_immutable BEFORE INSERT OR DELETE OR UPDATE ON "KycRoutingProvider" FOR EACH ROW EXECUTE FUNCTION kyc_guard_used_routing_policy();
-CREATE TRIGGER kyc_definition_immutable BEFORE DELETE OR UPDATE ON "KycWorkflowDefinition" FOR EACH ROW EXECUTE FUNCTION kyc_guard_used_definition();
-CREATE TRIGGER kyc_step_immutable BEFORE INSERT OR DELETE OR UPDATE ON "KycWorkflowStep" FOR EACH ROW EXECUTE FUNCTION kyc_guard_used_definition();
-CREATE TRIGGER commercial_version_immutable BEFORE UPDATE ON "RiderAgreementCommercialVersion" FOR EACH ROW EXECUTE FUNCTION reject_commercial_version_mutation();
-CREATE TRIGGER protect_rider_offer_terms_trigger BEFORE UPDATE ON "RiderCommercialOffer" FOR EACH ROW EXECUTE FUNCTION protect_rider_offer_terms();
-CREATE TRIGGER rider_deposit_obligation_immutable_trigger BEFORE UPDATE ON "RiderDeposit" FOR EACH ROW EXECUTE FUNCTION rider_deposit_obligation_immutable();
-CREATE TRIGGER rider_deposit_transaction_immutable_trigger BEFORE DELETE OR UPDATE ON "RiderDepositTransaction" FOR EACH ROW EXECUTE FUNCTION rider_deposit_transaction_immutable();
-CREATE TRIGGER collection_invoice_changed AFTER INSERT OR UPDATE OF "outstandingAmount", status, "dueDate" ON "RiderInvoice" FOR EACH ROW EXECUTE FUNCTION collection_enqueue_invoice_change();
-CREATE TRIGGER rider_invoice_preserve_history BEFORE DELETE ON "RiderInvoice" FOR EACH ROW EXECUTE FUNCTION rider_invoice_no_delete();
-CREATE TRIGGER rider_invoice_snapshot_immutable BEFORE UPDATE ON "RiderInvoice" FOR EACH ROW EXECUTE FUNCTION rider_invoice_snapshot_guard();
-CREATE TRIGGER wallet_invoice_terms_no_update BEFORE UPDATE ON "RiderInvoice" FOR EACH ROW EXECUTE FUNCTION wallet_invoice_terms_immutable();
-CREATE TRIGGER rider_invoice_line_immutable BEFORE INSERT OR DELETE OR UPDATE ON "RiderInvoiceLine" FOR EACH ROW EXECUTE FUNCTION rider_invoice_line_guard();
-CREATE TRIGGER wallet_invoice_line_no_change BEFORE DELETE OR UPDATE ON "RiderInvoiceLine" FOR EACH ROW EXECUTE FUNCTION wallet_invoice_line_immutable();
-CREATE TRIGGER rider_ledger_no_update BEFORE DELETE OR UPDATE ON "RiderLedgerEntry" FOR EACH ROW EXECUTE FUNCTION rider_ledger_immutable();
-CREATE TRIGGER rider_payment_immutable BEFORE DELETE OR UPDATE ON "RiderPayment" FOR EACH ROW EXECUTE FUNCTION rider_payment_guard();
-CREATE TRIGGER rider_payment_allocation_immutable BEFORE DELETE OR UPDATE ON "RiderPaymentAllocation" FOR EACH ROW EXECUTE FUNCTION rider_payment_allocation_guard();
-CREATE TRIGGER protect_rider_agreement_terms_trigger BEFORE UPDATE ON "RiderRentalAgreement" FOR EACH ROW EXECUTE FUNCTION protect_rider_agreement_terms();
-CREATE TRIGGER exchange_amendment_immutable BEFORE UPDATE ON "RiderRentalAgreementAmendment" FOR EACH ROW WHEN (old."exchangeRequestId" IS NOT NULL) EXECUTE FUNCTION reject_exchange_amendment_mutation();
-CREATE TRIGGER exchange_offer_immutable BEFORE UPDATE ON "VehicleExchangeOffer" FOR EACH ROW EXECUTE FUNCTION reject_exchange_offer_mutation();
-CREATE TRIGGER wallet_invoice_allocation_no_change BEFORE DELETE OR UPDATE ON "WalletInvoiceAllocation" FOR EACH ROW EXECUTE FUNCTION wallet_ledger_immutable();
-CREATE TRIGGER wallet_ledger_no_update BEFORE DELETE OR UPDATE ON "WalletLedgerEntry" FOR EACH ROW EXECUTE FUNCTION wallet_ledger_immutable();
+-- AddForeignKey
+ALTER TABLE "PenaltyHandoverException" ADD CONSTRAINT "PenaltyHandoverException_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PenaltyHandoverException" ADD CONSTRAINT "PenaltyHandoverException_clientId_riderId_fkey" FOREIGN KEY ("clientId", "riderId") REFERENCES "Rider"("clientId", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PenaltyHandoverException" ADD CONSTRAINT "PenaltyHandoverException_clientId_allocationId_fkey" FOREIGN KEY ("clientId", "allocationId") REFERENCES "Allocation"("clientId", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PenaltyHandoverException" ADD CONSTRAINT "PenaltyHandoverException_clientId_approvedById_fkey" FOREIGN KEY ("clientId", "approvedById") REFERENCES "User"("clientId", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "FleetReadinessPolicy" ADD CONSTRAINT "FleetReadinessPolicy_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "FleetReadinessStaff" ADD CONSTRAINT "FleetReadinessStaff_clientId_userId_fkey" FOREIGN KEY ("clientId", "userId") REFERENCES "User"("clientId", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "FleetReadinessStaff" ADD CONSTRAINT "FleetReadinessStaff_hubId_fkey" FOREIGN KEY ("hubId") REFERENCES "Hub"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "FleetPreparation" ADD CONSTRAINT "FleetPreparation_clientId_fleetId_fkey" FOREIGN KEY ("clientId", "fleetId") REFERENCES "Fleet"("clientId", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "FleetPreparation" ADD CONSTRAINT "FleetPreparation_hubId_fkey" FOREIGN KEY ("hubId") REFERENCES "Hub"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "FleetPreparationRevision" ADD CONSTRAINT "FleetPreparationRevision_clientId_preparationId_fkey" FOREIGN KEY ("clientId", "preparationId") REFERENCES "FleetPreparation"("clientId", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "FleetPreparationEvent" ADD CONSTRAINT "FleetPreparationEvent_clientId_preparationId_fkey" FOREIGN KEY ("clientId", "preparationId") REFERENCES "FleetPreparation"("clientId", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "FleetInstallationStage" ADD CONSTRAINT "FleetInstallationStage_clientId_preparationId_fkey" FOREIGN KEY ("clientId", "preparationId") REFERENCES "FleetPreparation"("clientId", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SpareCatalogueRevision" ADD CONSTRAINT "SpareCatalogueRevision_masterSpareId_fkey" FOREIGN KEY ("masterSpareId") REFERENCES "SparePartMaster"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SpareCatalogueRevision" ADD CONSTRAINT "SpareCatalogueRevision_priceId_fkey" FOREIGN KEY ("priceId") REFERENCES "ReturnPenaltyPrice"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "RazorpayDeploymentOrder" ADD CONSTRAINT "RazorpayDeploymentOrder_clientId_deploymentPaymentId_fkey" FOREIGN KEY ("clientId", "deploymentPaymentId") REFERENCES "DeploymentPayment"("clientId", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "RazorpayDeploymentCapture" ADD CONSTRAINT "RazorpayDeploymentCapture_orderId_fkey" FOREIGN KEY ("orderId") REFERENCES "RazorpayDeploymentOrder"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "RazorpayPenaltyOrder" ADD CONSTRAINT "RazorpayPenaltyOrder_collectionId_fkey" FOREIGN KEY ("collectionId") REFERENCES "PaymentCollectionRequest"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "RazorpayPenaltyCapture" ADD CONSTRAINT "RazorpayPenaltyCapture_orderId_fkey" FOREIGN KEY ("orderId") REFERENCES "RazorpayPenaltyOrder"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "RazorpayAutoPayCapture" ADD CONSTRAINT "RazorpayAutoPayCapture_transactionId_fkey" FOREIGN KEY ("transactionId") REFERENCES "PaymentTransaction"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
