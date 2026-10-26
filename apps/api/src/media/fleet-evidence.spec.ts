@@ -53,14 +53,14 @@ function fixture() {
     },
     photo: {
       findMany: vi.fn().mockResolvedValue([
-        { id: 'one', entityType: 'INSPECTION', entityId: 'inspection-a' },
-        { id: 'two', entityType: 'INSPECTION', entityId: 'inspection-b' },
+        { id: 'one', workFlowType: 'FLEET_ALLOTMENT', subjectType: 'INSPECTION', entityId: 'inspection-a' },
+        { id: 'two', workFlowType: 'FLEET_SUBMISSION', subjectType: 'INSPECTION', entityId: 'inspection-b' },
         {
           id: 'three',
-          entityType: 'PREPARATION',
+          workFlowType: 'FLEET_PREPARATION', subjectType: 'INSTALLATION',
           entityId: 'installation:stage:1',
         },
-        { id: 'four', entityType: 'PREPARATION', entityId: 'revision-1' },
+        { id: 'four', workFlowType: 'FLEET_PREPARATION', subjectType: 'PREPARATION', entityId: 'revision-1' },
       ]),
       findFirst: vi.fn().mockResolvedValue(null),
     },
@@ -140,7 +140,7 @@ describe('Fleet evidence', () => {
         clientId: 'client-a',
         status: 'COMPLETE',
         OR: expect.arrayContaining([
-          { entityType: 'INSPECTION', entityId: 'inspection-a' },
+          { workFlowType: 'FLEET_ALLOTMENT', subjectType: 'INSPECTION', entityId: 'inspection-a' },
         ]),
       },
     });

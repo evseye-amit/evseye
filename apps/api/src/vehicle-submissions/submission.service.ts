@@ -443,7 +443,7 @@ export class VehicleSubmissionService {
         number: entry.controller.controllerNumber,
       }));
       const configured = await tx.photoRequirement.findMany({
-        where: { clientId, workFlowType: 'SUBMISSION', subjectType: 'INSPECTION', isRequired: true },
+        where: { clientId, workFlowType: 'FLEET_SUBMISSION', subjectType: 'INSPECTION', isRequired: true },
         select: { photoType: true },
       });
       const requiredPhotoTypes = [
@@ -535,8 +535,7 @@ export class VehicleSubmissionService {
       this.db.photo.findMany({
         where: {
           clientId,
-          entityType: 'INSPECTION',
-          workFlowType: 'SUBMISSION',
+          workFlowType: 'FLEET_SUBMISSION',
           subjectType: 'INSPECTION',
           entityId: row.inspectionId,
           status: 'COMPLETE',
@@ -589,8 +588,7 @@ export class VehicleSubmissionService {
       where: {
         id: photoId,
         clientId,
-        entityType: 'INSPECTION',
-        workFlowType: 'SUBMISSION',
+        workFlowType: 'FLEET_SUBMISSION',
         subjectType: 'INSPECTION',
         entityId: submission.inspectionId,
         status: 'COMPLETE',
@@ -707,8 +705,7 @@ export class VehicleSubmissionService {
       const photos = await tx.photo.findMany({
         where: {
           clientId,
-          entityType: 'INSPECTION',
-          workFlowType: 'SUBMISSION',
+          workFlowType: 'FLEET_SUBMISSION',
           subjectType: 'INSPECTION',
           entityId: submission.inspectionId,
           status: 'COMPLETE',
@@ -1048,7 +1045,6 @@ export class VehicleSubmissionService {
     const evidence = await tx.photo.count({
       where: {
         clientId,
-        entityType: 'INSPECTION',
         entityId: submission.inspectionId,
         status: 'COMPLETE',
         id: { in: evidenceIds },

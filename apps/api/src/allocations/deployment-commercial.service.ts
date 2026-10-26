@@ -737,7 +737,7 @@ export class DeploymentCommercialService {
       if (p.status === 'REJECTED' && p.rejectionReason === reason) return p;
       if (p.status !== 'SUBMITTED' || w.status !== 'PAYMENT_PENDING')
         throw new ConflictException('Only a submitted payment awaiting verification can be rejected.');
-      const photos = await tx.photo.findMany({ where: { clientId, entityType: 'PAYMENT_DEPLOYMENT', entityId: p.id, status: 'COMPLETE' }, select: { id: true } });
+      const photos = await tx.photo.findMany({ where: { clientId, workFlowType: 'PAYMENT', subjectType: 'DEPLOYMENT', entityId: p.id, status: 'COMPLETE' }, select: { id: true } });
       const rejected = await tx.deploymentPayment.update({ where: { id: p.id }, data: { status: 'REJECTED', rejectionReason: reason, rejectedById: actorId, rejectedAt: new Date() } });
       await tx.auditLog.create({ data: { clientId, actorId, action: 'PAYMENT_REJECTED', entityType: 'DeploymentPayment', entityId: p.id,
         newData: { reason, submissionVersion: p.submissionVersion, provider: p.provider, providerReference: p.providerReference, receiptPhotoIds: photos.map(x => x.id) } } });

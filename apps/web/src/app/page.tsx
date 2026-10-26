@@ -326,10 +326,10 @@ const PHOTO_TYPE_OPTIONS = [
 ];
 
 function evidenceWorkflow(tab: Tab): { workFlowType: string; subjectType: string } {
-  if (tab === "fleet-evidence") return { workFlowType: "FLEET_MANAGEMENT", subjectType: "FLEET" };
-  if (tab === "rider-evidence") return { workFlowType: "RIDER_MANAGEMENT", subjectType: "PROFILE" };
-  if (tab === "deallocation-evidence") return { workFlowType: "SUBMISSION", subjectType: "INSPECTION" };
-  return { workFlowType: "ALLOTMENT", subjectType: "INSPECTION" };
+  if (tab === "fleet-evidence") return { workFlowType: "FLEET_INSPECTION", subjectType: "FLEET" };
+  if (tab === "rider-evidence") return { workFlowType: "RIDER_ONBOARDING", subjectType: "PROFILE" };
+  if (tab === "deallocation-evidence") return { workFlowType: "FLEET_SUBMISSION", subjectType: "INSPECTION" };
+  return { workFlowType: "FLEET_ALLOTMENT", subjectType: "INSPECTION" };
 }
 
 function evidenceContext(tab: Tab) {
@@ -1733,7 +1733,7 @@ export default function Home() {
           photos: RecordItem[];
         }>,
         request(
-          `/media/photo-requirements?workFlowType=${targetType === "POST_DEALLOCATION" ? "SUBMISSION" : "ALLOTMENT"}&subjectType=INSPECTION`,
+          `/media/photo-requirements?workFlowType=${targetType === "POST_DEALLOCATION" ? "FLEET_SUBMISSION" : "FLEET_ALLOTMENT"}&subjectType=INSPECTION`,
           {},
           token,
         ) as Promise<RecordItem[]>,
@@ -1775,7 +1775,7 @@ export default function Home() {
         {
           method: "POST",
           body: JSON.stringify({
-            workFlowType: inspectionType === "POST_DEALLOCATION" ? "SUBMISSION" : "ALLOTMENT",
+            workFlowType: inspectionType === "POST_DEALLOCATION" ? "FLEET_SUBMISSION" : "FLEET_ALLOTMENT",
             subjectType: "INSPECTION",
             entityId: inspectionId,
             photoType,
@@ -1880,7 +1880,7 @@ export default function Home() {
             token,
           ) as Promise<RecordItem | null>,
           request(
-            "/media/photo-requirements?workFlowType=ALLOTMENT&subjectType=INSPECTION",
+            "/media/photo-requirements?workFlowType=FLEET_ALLOTMENT&subjectType=INSPECTION",
             {},
             token,
           ) as Promise<RecordItem[]>,
@@ -2038,7 +2038,7 @@ export default function Home() {
         {
           method: "POST",
           body: JSON.stringify({
-            workFlowType: "RIDER_MANAGEMENT",
+            workFlowType: "RIDER_ONBOARDING",
             subjectType: "PROFILE",
             entityId: riderId,
             photoType: "PROFILE",
@@ -2078,7 +2078,7 @@ export default function Home() {
       throw new Error('Choose a JPEG, PNG, WebP, or PDF file.');
     }
     if (file.size > 5 * 1024 * 1024) throw new Error('Each onboarding file must be 5 MB or smaller.');
-    const intent = await request('/media/upload-intents', { method: 'POST', body: JSON.stringify({ workFlowType: 'RIDER_MANAGEMENT', subjectType: 'PROFILE', entityId: riderId, photoType: 'PROFILE', mimeType: file.type, fileName: file.name, sizeBytes: file.size }) }, token) as { photo: { id: string }; uploadUrl: string };
+    const intent = await request('/media/upload-intents', { method: 'POST', body: JSON.stringify({ workFlowType: 'RIDER_ONBOARDING', subjectType: 'PROFILE', entityId: riderId, photoType: 'PROFILE', mimeType: file.type, fileName: file.name, sizeBytes: file.size }) }, token) as { photo: { id: string }; uploadUrl: string };
     const result = await fetch(intent.uploadUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
     if (!result.ok) throw new Error(`Object storage rejected ${file.name}.`);
     await request(`/media/${intent.photo.id}/complete`, { method: 'POST' }, token);

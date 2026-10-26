@@ -167,8 +167,8 @@ export class MediaController {
       clientId,
       actorId: user.id,
       action: 'PHOTO_UPLOADED',
-      entityType: photo.entityType,
-      entityId: photo.entityId,
+      entityType: 'Photo',
+      entityId: photo.id,
       newData: {
         photoId: photo.id,
         workFlowType: photo.workFlowType,

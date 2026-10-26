@@ -52,7 +52,7 @@ export class InspectionsController {
       clientId,
       actorId: user.id,
       action: 'INSPECTION_COMPLETED',
-      entityType: 'INSPECTION',
+      entityType: 'Inspection',
       entityId: inspectionId,
       newData: {
         allocationId: inspection.allocationId,

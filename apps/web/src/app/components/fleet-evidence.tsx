@@ -15,16 +15,16 @@ const label = (value: string) => value.replaceAll("_", " ");
 const categories = ["All", "Fleet & components", "Installation", "Preparation & QC", "Allocation", "Submission"];
 const photoTypes = ["FRONT", "BACK", "LEFT", "RIGHT", "REAR", "BODY", "LABEL", "CHASSIS", "DASHBOARD", "INSTALLATION", "EVIDENCE", "DOCUMENT", "PROFILE", "RECEIPT", "RETURN_CHECKLIST", "DAMAGE", "DAMAGE_CLOSEUP", "VEHICLE_FRONT", "VEHICLE_LEFT", "VEHICLE_RIGHT", "VEHICLE_REAR", "FLEET_FRONT", "FLEET_LEFT", "FLEET_RIGHT", "FLEET_BACK", "BATTERY_BODY", "BATTERY_LABEL", "CONTROLLER_BODY", "CONTROLLER_LABEL", "IOT_BODY", "IOT_LABEL", "FLEET_WITH_RIDER", "RIDER_DECLARATION", "PDI_VOICE", "PAYMENT_RECEIPT", "PENALTY_DAMAGE", "OTHER"];
 const subjects = [
-  ["FLEET_MANAGEMENT", "FLEET", "Fleet"], ["FLEET_MANAGEMENT", "BATTERY", "Battery"],
-  ["FLEET_MANAGEMENT", "CONTROLLER", "Controller"], ["FLEET_MANAGEMENT", "IOT_DEVICE", "IoT"],
-  ["PREPARATION", "PREPARATION", "Preparation"], ["PREPARATION", "INSTALLATION", "Installation"],
-  ["ALLOTMENT", "INSPECTION", "Allocation inspection"], ["SUBMISSION", "INSPECTION", "Submission inspection"],
-  ["RIDER_MANAGEMENT", "PROFILE", "Rider profile"], ["RIDER_ONBOARDING", "PAN", "PAN"],
+  ["FLEET_INSPECTION", "FLEET", "Fleet"], ["FLEET_INSPECTION", "BATTERY", "Battery"],
+  ["FLEET_INSPECTION", "CONTROLLER", "Controller"], ["FLEET_INSPECTION", "IOT_DEVICE", "IoT"],
+  ["FLEET_PREPARATION", "PREPARATION", "Preparation"], ["FLEET_PREPARATION", "INSTALLATION", "Installation"],
+  ["FLEET_ALLOTMENT", "INSPECTION", "Allocation inspection"], ["FLEET_SUBMISSION", "INSPECTION", "Submission inspection"],
+  ["RIDER_ONBOARDING", "PROFILE", "Rider profile"], ["RIDER_ONBOARDING", "PAN", "PAN"],
   ["RIDER_ONBOARDING", "AADHAR", "Aadhaar"], ["PAYMENT", "ONBOARDING_FEES", "Onboarding fees"],
 ];
 
 function PhotoRequirements({ request, canEdit, onBusy }: { request: Request; canEdit: boolean; onBusy: (value: boolean) => void }) {
-  const [subjectKey, setSubjectKey] = useState("FLEET_MANAGEMENT:FLEET");
+  const [subjectKey, setSubjectKey] = useState("FLEET_INSPECTION:FLEET");
   const [workFlowType, subjectType] = subjectKey.split(":");
   const [rows, setRows] = useState<Requirement[]>([]);
   const [loading, setLoading] = useState(true), [saving, setSaving] = useState(false), [error, setError] = useState("");

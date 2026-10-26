@@ -806,7 +806,7 @@ export class RideReturnsService {
     if (!items.length) return [] as const;
     const prices = await tx.returnPenaltyPrice.findMany({ where: { id: { in: items.map((item) => item.priceId) }, clientId } });
     const byId = new Map(prices.map((price) => [price.id, price]));
-    const photos = await tx.photo.findMany({ where: { clientId, entityType: 'INSPECTION', workFlowType: 'SUBMISSION', subjectType: 'INSPECTION', entityId: inspectionId, status: 'COMPLETE' }, select: { id: true, photoType: true } });
+    const photos = await tx.photo.findMany({ where: { clientId, workFlowType: 'FLEET_SUBMISSION', subjectType: 'INSPECTION', entityId: inspectionId, status: 'COMPLETE' }, select: { id: true, photoType: true } });
     const photoById = new Map(photos.map((photo) => [photo.id, photo]));
     return items.map((item, position) => {
       const price = byId.get(item.priceId);
@@ -855,8 +855,7 @@ export class RideReturnsService {
     const photos = await tx.photo.findMany({
       where: {
         clientId,
-        entityType: 'INSPECTION',
-        workFlowType: 'SUBMISSION',
+        workFlowType: 'FLEET_SUBMISSION',
         subjectType: 'INSPECTION',
         entityId: inspectionId,
         status: 'COMPLETE',

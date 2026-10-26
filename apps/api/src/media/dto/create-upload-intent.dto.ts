@@ -9,7 +9,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { PhotoEntityType, PhotoSubjectType, PhotoType, PhotoWorkflowType } from '@prisma/client';
+import { PhotoSubjectType, PhotoType, PhotoWorkflowType } from '@prisma/client';
 
 export class CreateUploadIntentDto {
   @IsOptional() @IsEnum(PhotoWorkflowType)
@@ -17,10 +17,6 @@ export class CreateUploadIntentDto {
 
   @IsOptional() @IsEnum(PhotoSubjectType)
   subjectType?: PhotoSubjectType;
-
-  // Transitional owner discriminator retained for existing clients.
-  @IsOptional() @IsEnum(PhotoEntityType)
-  entityType?: PhotoEntityType;
 
   @IsUUID()
   entityId!: string;

@@ -100,28 +100,13 @@ enum ImportStatus {
   FAIL
 }
 
-enum PhotoEntityType {
-  PREPARATION
-  RIDER
-  FLEET
-  BATTERY
-  CONTROLLER
-  IOT_DEVICE
-  INSPECTION
-  RIDER_ONBOARDING
-  SUPPORT_TICKET
-  PAYMENT_DEPLOYMENT
-  PAYMENT_COLLECTION
-  PAYMENT_AUTOPAY
-  PAYMENT_RECEIVED
-}
+
 
 enum PhotoWorkflowType {
-  FLEET_MANAGEMENT
-  PREPARATION
-  ALLOTMENT
-  SUBMISSION
-  RIDER_MANAGEMENT
+  FLEET_INSPECTION
+  FLEET_PREPARATION
+  FLEET_ALLOTMENT
+  FLEET_SUBMISSION
   RIDER_ONBOARDING
   SUPPORT
   PAYMENT
@@ -3847,7 +3832,6 @@ model Photo {
   client                  Client                   @relation(fields: [clientId], references: [id], onDelete: Restrict)
   workFlowType            PhotoWorkflowType
   subjectType             PhotoSubjectType
-  entityType              PhotoEntityType
   entityId                String
   photoType               PhotoType
   objectKey               String                   @unique
@@ -3861,7 +3845,6 @@ model Photo {
   riderOnboardingDocument RiderOnboardingDocument?
 
   @@index([clientId, workFlowType, subjectType, entityId])
-  @@index([clientId, entityType, entityId])
   @@index([clientId, status])
 }
 

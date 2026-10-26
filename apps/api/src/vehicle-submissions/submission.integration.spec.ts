@@ -300,8 +300,7 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
       return db.photo.create({
         data: {
           clientId: client.id,
-          workFlowType: 'SUBMISSION', subjectType: 'INSPECTION', entityType: 'INSPECTION',
-          entityId: submission.inspectionId,
+          workFlowType: 'FLEET_SUBMISSION', subjectType: 'INSPECTION', entityId: submission.inspectionId,
           photoType,
           objectKey: randomUUID(),
           mimeType: 'image/jpeg',
@@ -920,7 +919,7 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
     expect(await db.riderCharge.count({where:{clientId:f.client.id}})).toBe(1);
     await expect(service.cancelReport(f.client.id,f.actor,draft.id,'Undo financial charge')).rejects.toThrow('financial');
     await expect(service.updateReport(f.client.id,f.actor,draft.id,changed,edited.digest)).rejects.toThrow('draft');
-    const replacement=await db.photo.create({data:{clientId:f.client.id,workFlowType:'SUBMISSION',subjectType:'INSPECTION',entityType:'INSPECTION',entityId:f.submission.inspectionId,photoType:photos[0]!.photoType,objectKey:`test/${randomUUID()}`,mimeType:'image/jpeg',sizeBytes:10,uploadedById:f.actor.id}});
+    const replacement=await db.photo.create({data:{clientId:f.client.id,workFlowType:'FLEET_SUBMISSION',subjectType:'INSPECTION',entityId:f.submission.inspectionId,photoType:photos[0]!.photoType,objectKey:`test/${randomUUID()}`,mimeType:'image/jpeg',sizeBytes:10,uploadedById:f.actor.id}});
     const media=new MediaService(prisma,{assertObjectExists:vi.fn().mockResolvedValue(undefined)} as never);await media.complete(f.client.id,replacement.id);expect((await db.photo.findUniqueOrThrow({where:{id:photos[0]!.id}})).status).toBe('COMPLETE');
     const repeat=await service.impose(f.client.id,f.actor,draft.id);expect(repeat.paymentRequest?.invoiceId).toBe(imposed.paymentRequest?.invoiceId);
     await spares.updateClient(f.client.id,adminActor,part.id,{expectedVersion:1,reason:'Future penalty update',penaltyAmount:'999',evidenceRequired:true});

@@ -274,8 +274,7 @@ export class FleetInstallationService {
     const photos = await this.db.photo.findMany({
       where: {
         clientId,
-        entityType: 'PREPARATION',
-        workFlowType: 'PREPARATION',
+        workFlowType: 'FLEET_PREPARATION',
         subjectType: 'INSTALLATION',
         entityId: this.entity(c.stage),
         status: 'COMPLETE',
@@ -550,8 +549,7 @@ export class FleetInstallationService {
           const photos = await tx.photo.findMany({
             where: {
               clientId,
-              entityType: 'PREPARATION',
-              workFlowType: 'PREPARATION',
+              workFlowType: 'FLEET_PREPARATION',
               subjectType: 'INSTALLATION',
               entityId: this.entity(s),
               status: 'COMPLETE',
@@ -916,9 +914,8 @@ export class FleetInstallationService {
       return tx.photo.create({
         data: {
           clientId,
-          workFlowType: 'PREPARATION',
+          workFlowType: 'FLEET_PREPARATION',
           subjectType: 'INSTALLATION',
-          entityType: 'PREPARATION',
           entityId: this.entity(c.stage),
           photoType: b.photoType,
           mimeType: b.mimeType,
@@ -954,8 +951,7 @@ export class FleetInstallationService {
       where: {
         id: photoId,
         clientId,
-        entityType: 'PREPARATION',
-        workFlowType: 'PREPARATION',
+        workFlowType: 'FLEET_PREPARATION',
         subjectType: 'INSTALLATION',
         entityId: this.entity(c.stage),
       },
@@ -979,8 +975,9 @@ export class FleetInstallationService {
       await tx.photo.updateMany({
         where: {
           clientId,
+          workFlowType: 'FLEET_PREPARATION',
+          subjectType: 'INSTALLATION',
           entityId: this.entity(c.stage),
-          entityType: 'PREPARATION',
           photoType: photo.photoType,
           status: 'COMPLETE',
         },
@@ -1016,8 +1013,7 @@ export class FleetInstallationService {
       where: {
         clientId,
         id: photoId,
-        entityType: 'PREPARATION',
-        workFlowType: 'PREPARATION',
+        workFlowType: 'FLEET_PREPARATION',
         subjectType: 'INSTALLATION',
         entityId: { in: entities },
         status: 'COMPLETE',

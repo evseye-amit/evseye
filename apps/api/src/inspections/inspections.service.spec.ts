@@ -1,7 +1,6 @@
 import {
   AllocationStatus,
   InspectionStatus,
-  PhotoEntityType,
   PhotoStatus,
   UserRole,
 } from '@prisma/client';
@@ -42,7 +41,7 @@ describe('InspectionsService', () => {
     expect(prisma.photo.findMany).toHaveBeenCalledWith({
       where: {
         clientId: 'client-a',
-        entityType: PhotoEntityType.INSPECTION,
+        subjectType: 'INSPECTION',
         entityId: 'inspection-1',
         status: PhotoStatus.COMPLETE,
       },

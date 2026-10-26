@@ -7,7 +7,6 @@ import {
 import {
   AllocationStatus,
   InspectionStatus,
-  PhotoEntityType,
   PhotoStatus,
   UserRole,
 } from '@prisma/client';
@@ -30,8 +29,7 @@ export class InspectionsService {
     const photos = await this.prisma.photo.findMany({
       where: {
         clientId,
-        entityType: PhotoEntityType.INSPECTION,
-        workFlowType: inspection.type === 'PRE_ALLOCATION' ? 'ALLOTMENT' : 'SUBMISSION',
+        workFlowType: inspection.type === 'PRE_ALLOCATION' ? 'FLEET_ALLOTMENT' : 'FLEET_SUBMISSION',
         subjectType: 'INSPECTION',
         entityId: inspectionId,
       },
@@ -57,7 +55,7 @@ export class InspectionsService {
     const required = await this.prisma.photoRequirement.findMany({
       where: {
         clientId,
-        workFlowType: inspection.type === 'PRE_ALLOCATION' ? 'ALLOTMENT' : 'SUBMISSION',
+        workFlowType: inspection.type === 'PRE_ALLOCATION' ? 'FLEET_ALLOTMENT' : 'FLEET_SUBMISSION',
         subjectType: 'INSPECTION',
         isRequired: true,
       },
@@ -65,8 +63,7 @@ export class InspectionsService {
     const complete = await this.prisma.photo.findMany({
       where: {
         clientId,
-        entityType: PhotoEntityType.INSPECTION,
-        workFlowType: inspection.type === 'PRE_ALLOCATION' ? 'ALLOTMENT' : 'SUBMISSION',
+        workFlowType: inspection.type === 'PRE_ALLOCATION' ? 'FLEET_ALLOTMENT' : 'FLEET_SUBMISSION',
         subjectType: 'INSPECTION',
         entityId: inspectionId,
         status: PhotoStatus.COMPLETE,

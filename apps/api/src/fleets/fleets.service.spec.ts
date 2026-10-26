@@ -1,7 +1,6 @@
 import {
   FleetOnboardingStatus,
   FleetStatus,
-  PhotoEntityType,
   PhotoStatus,
 } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
@@ -450,7 +449,7 @@ describe('FleetsService onboarding evidence', () => {
     const prisma = {
       client: { findUniqueOrThrow: vi.fn().mockResolvedValue({ fleetOperatingMode: 'SIMPLE' }) },
       fleet: { findFirst: vi.fn().mockResolvedValue({ ...fleet, batteryHistory: [], controllerHistory: [], iotDevice: null }) },
-      photoRequirement: { createMany: vi.fn(), findMany: vi.fn().mockResolvedValue([{ entityType: PhotoEntityType.FLEET, photoType: 'FRONT' }]) },
+      photoRequirement: { createMany: vi.fn(), findMany: vi.fn().mockResolvedValue([{ subjectType: 'FLEET', photoType: 'FRONT' }]) },
       photo: { findMany: vi.fn().mockResolvedValue([]) },
       $transaction: vi.fn(async (fn: (value: typeof tx) => unknown) => fn(tx)),
     };
@@ -552,15 +551,15 @@ describe('FleetsService onboarding evidence', () => {
       photoRequirement: {
         createMany: vi.fn().mockResolvedValue({ count: 11 }),
         findMany: vi.fn().mockResolvedValue([
-          { entityType: PhotoEntityType.FLEET, photoType: 'FRONT' },
-          { entityType: PhotoEntityType.FLEET, photoType: 'REAR' },
-          { entityType: PhotoEntityType.BATTERY, photoType: 'LABEL' },
+          { subjectType: 'FLEET', photoType: 'FRONT' },
+          { subjectType: 'FLEET', photoType: 'REAR' },
+          { subjectType: 'BATTERY', photoType: 'LABEL' },
           {
-            entityType: PhotoEntityType.IOT_DEVICE,
+            subjectType: 'IOT_DEVICE',
             photoType: 'INSTALLATION',
           },
           {
-            entityType: PhotoEntityType.IOT_DEVICE,
+            subjectType: 'IOT_DEVICE',
             photoType: 'SERIAL_LABEL',
           },
         ]),
@@ -568,17 +567,17 @@ describe('FleetsService onboarding evidence', () => {
       photo: {
         findMany: vi.fn().mockResolvedValue([
           {
-            entityType: PhotoEntityType.FLEET,
+            subjectType: 'FLEET',
             entityId: 'fleet-1',
             photoType: 'FRONT',
           },
           {
-            entityType: PhotoEntityType.BATTERY,
+            subjectType: 'BATTERY',
             entityId: 'battery-1',
             photoType: 'LABEL',
           },
           {
-            entityType: PhotoEntityType.IOT_DEVICE,
+            subjectType: 'IOT_DEVICE',
             entityId: 'iot-1',
             photoType: 'INSTALLATION',
           },
@@ -597,7 +596,7 @@ describe('FleetsService onboarding evidence', () => {
       ready: true,
       items: [
         {
-          entityType: PhotoEntityType.FLEET,
+          subjectType: 'FLEET',
           entityId: 'fleet-1',
           label: 'EV-001',
           requiredPhotoTypes: ['FRONT', 'REAR'],
@@ -606,7 +605,7 @@ describe('FleetsService onboarding evidence', () => {
           ready: false,
         },
         {
-          entityType: PhotoEntityType.BATTERY,
+          subjectType: 'BATTERY',
           entityId: 'battery-1',
           label: 'BAT-001',
           requiredPhotoTypes: ['LABEL'],
@@ -615,7 +614,7 @@ describe('FleetsService onboarding evidence', () => {
           ready: true,
         },
         {
-          entityType: PhotoEntityType.IOT_DEVICE,
+          subjectType: 'IOT_DEVICE',
           entityId: 'iot-1',
           label: 'IOT-001',
           requiredPhotoTypes: ['INSTALLATION', 'SERIAL_LABEL'],

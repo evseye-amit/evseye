@@ -16,7 +16,6 @@ import {
   ImportEntityType,
   ImportStatus,
   Prisma,
-  PhotoEntityType,
   PhotoSubjectType,
   PhotoStatus,
 } from '@prisma/client';
@@ -795,19 +794,16 @@ export class FleetsService {
         : client.fleetOperatingMode);
     const entities = [
       {
-        entityType: PhotoEntityType.FLEET,
         subjectType: 'FLEET',
         entityId: fleet.id,
         label: fleet.vehicleNumber,
       },
       ...fleet.batteryHistory.map(({ battery }) => ({
-        entityType: PhotoEntityType.BATTERY,
         subjectType: 'BATTERY',
         entityId: battery.id,
         label: battery.serialNumber,
       })),
       ...fleet.controllerHistory.map(({ controller }) => ({
-        entityType: PhotoEntityType.CONTROLLER,
         subjectType: 'CONTROLLER',
         entityId: controller.id,
         label: controller.controllerNumber,
@@ -815,8 +811,7 @@ export class FleetsService {
       ...(fleet.iotDevice
         ? [
             {
-              entityType: PhotoEntityType.IOT_DEVICE,
-              subjectType: 'IOT_DEVICE',
+                    subjectType: 'IOT_DEVICE',
               entityId: fleet.iotDevice.id,
               label: fleet.iotDevice.deviceNumber,
             },
@@ -824,26 +819,26 @@ export class FleetsService {
         : []),
     ];
     const subjects = [
-      PhotoEntityType.FLEET,
-      PhotoEntityType.BATTERY,
-      PhotoEntityType.CONTROLLER,
-      ...(fleet.iotDevice ? [PhotoEntityType.IOT_DEVICE] : []),
+      PhotoSubjectType.FLEET,
+      PhotoSubjectType.BATTERY,
+      PhotoSubjectType.CONTROLLER,
+      ...(fleet.iotDevice ? [PhotoSubjectType.IOT_DEVICE] : []),
     ];
     const [requirements, completedPhotos] = await Promise.all([
       this.prisma.photoRequirement.findMany({
-        where: { clientId, workFlowType: 'FLEET_MANAGEMENT', subjectType: { in: entities.map((entity) => entity.subjectType as PhotoSubjectType) }, isRequired: true },
+        where: { clientId, workFlowType: 'FLEET_INSPECTION', subjectType: { in: entities.map((entity) => entity.subjectType as PhotoSubjectType) }, isRequired: true },
         select: { subjectType: true, photoType: true },
       }),
       this.prisma.photo.findMany({
         where: {
           clientId,
-          workFlowType: 'FLEET_MANAGEMENT',
+          workFlowType: 'FLEET_INSPECTION',
           subjectType: { in: subjects.map((value) => value) },
-          entityType: { in: [PhotoEntityType.FLEET, PhotoEntityType.BATTERY, PhotoEntityType.CONTROLLER, ...(fleet.iotDevice ? [PhotoEntityType.IOT_DEVICE] : [])] },
+
           entityId: { in: entities.map((entity) => entity.entityId) },
           status: PhotoStatus.COMPLETE,
         },
-        select: { entityType: true, entityId: true, photoType: true },
+        select: { subjectType: true, entityId: true, photoType: true },
       }),
     ]);
     const items = entities.map((entity) => {
@@ -853,7 +848,7 @@ export class FleetsService {
       const completedPhotoTypes = completedPhotos
         .filter(
           (photo) =>
-            photo.entityType === entity.entityType &&
+            photo.subjectType === entity.subjectType &&
             photo.entityId === entity.entityId,
         )
         .map((photo) => photo.photoType);

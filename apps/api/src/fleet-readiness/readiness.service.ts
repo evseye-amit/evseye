@@ -1009,8 +1009,7 @@ export class FleetReadinessService {
     const photos = await this.db.photo.findMany({
       where: {
         clientId,
-        entityType: 'PREPARATION',
-        workFlowType: 'PREPARATION',
+        workFlowType: 'FLEET_PREPARATION',
         subjectType: 'PREPARATION',
         entityId: { in: p.revisions.map((r) => r.id) },
         status: 'COMPLETE',
@@ -1193,9 +1192,8 @@ export class FleetReadinessService {
       return tx.photo.create({
         data: {
           clientId,
-          workFlowType: 'PREPARATION',
+          workFlowType: 'FLEET_PREPARATION',
           subjectType: 'PREPARATION',
-          entityType: 'PREPARATION',
           entityId: revision.id,
           photoType: b.photoType,
           mimeType: b.mimeType,
@@ -1226,7 +1224,7 @@ export class FleetReadinessService {
       input,
     );
     const photo = await this.db.photo.findFirst({
-      where: { id: photoId, clientId, entityType: 'PREPARATION', workFlowType: 'PREPARATION', subjectType: 'PREPARATION' },
+      where: { id: photoId, clientId, workFlowType: 'FLEET_PREPARATION', subjectType: 'PREPARATION' },
     });
     if (!photo) throw new NotFoundException('Preparation photo not found.');
     const owner = await this.db.fleetPreparation.findFirst({
@@ -1281,8 +1279,9 @@ export class FleetReadinessService {
       await tx.photo.updateMany({
         where: {
           clientId,
+          workFlowType: 'FLEET_PREPARATION',
+          subjectType: 'PREPARATION',
           entityId: revision.id,
-          entityType: 'PREPARATION',
           photoType: photo.photoType,
           status: 'COMPLETE',
         },
@@ -1399,8 +1398,7 @@ export class FleetReadinessService {
       const photos = await tx.photo.findMany({
         where: {
           clientId,
-          entityType: 'PREPARATION',
-          workFlowType: 'PREPARATION',
+          workFlowType: 'FLEET_PREPARATION',
           subjectType: 'PREPARATION',
           entityId: revision.id,
           status: 'COMPLETE',
@@ -1514,7 +1512,8 @@ export class FleetReadinessService {
           (await tx.photo.count({
             where: {
               clientId,
-              entityType: 'PREPARATION',
+              workFlowType: 'FLEET_PREPARATION',
+              subjectType: 'PREPARATION',
               entityId: revision.id,
               uploadedById: actor.id,
             },
@@ -1593,7 +1592,8 @@ export class FleetReadinessService {
           (await tx.photo.count({
             where: {
               clientId,
-              entityType: 'PREPARATION',
+              workFlowType: 'FLEET_PREPARATION',
+              subjectType: 'PREPARATION',
               entityId: revision.id,
               id: { in: revision.photoIds },
               status: 'COMPLETE',

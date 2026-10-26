@@ -35,7 +35,6 @@ describe('InspectionsController audit trail', () => {
       clientId: 'client-a',
       actorId: 'operator-1',
       action: 'INSPECTION_COMPLETED',
-      entityType: 'INSPECTION',
       entityId: 'inspection-1',
       newData: {
         allocationId: 'allocation-1',

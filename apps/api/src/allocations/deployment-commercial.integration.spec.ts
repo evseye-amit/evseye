@@ -757,13 +757,13 @@ describe.skipIf(!url)(
       expect(await fleets.onboardingStatus(f.client.id, scooter.id)).toMatchObject({ ready: true, evidenceComplete: true, photosRequired: false });
       await fleets.activate(f.client.id, scooter.id, f.manager.id);
       expect((await mobile.eligibleFleets(f.client.id, f.manager.id)).map(row => row.id)).toContain(scooter.id);
-      expect(await db.photo.count({ where: { clientId: f.client.id, entityType: 'FLEET' } })).toBe(0);
+      expect(await db.photo.count({ where: { clientId: f.client.id, workFlowType: 'FLEET_INSPECTION', subjectType: 'FLEET' } })).toBe(0);
       await f.select();
       await f.pay(); // requestFleet must accept absent onboarding photos too.
-      await db.photoRequirement.create({ data: { clientId: f.client.id, workFlowType: 'ALLOTMENT', subjectType: 'INSPECTION', photoType: 'FRONT', isRequired: true } });
+      await db.photoRequirement.create({ data: { clientId: f.client.id, workFlowType: 'FLEET_ALLOTMENT', subjectType: 'INSPECTION', photoType: 'FRONT', isRequired: true } });
       await expect(f.handover()).rejects.toThrow('Allocation evidence is incomplete.');
       const inspection = await db.inspection.findUniqueOrThrow({ where: { allocationId_type: { allocationId: f.allocation.id, type: 'PRE_ALLOCATION' } } });
-      await db.photo.create({ data: { clientId: f.client.id, workFlowType: 'ALLOTMENT', subjectType: 'INSPECTION', entityType: 'INSPECTION', entityId: inspection.id, photoType: 'FRONT', objectKey: randomUUID(), mimeType: 'image/jpeg', sizeBytes: 100, status: 'COMPLETE', uploadedById: f.manager.id } });
+      await db.photo.create({ data: { clientId: f.client.id, workFlowType: 'FLEET_ALLOTMENT', subjectType: 'INSPECTION', entityId: inspection.id, photoType: 'FRONT', objectKey: randomUUID(), mimeType: 'image/jpeg', sizeBytes: 100, status: 'COMPLETE', uploadedById: f.manager.id } });
       await f.handover();
       expect((await db.allocation.findUniqueOrThrow({ where: { id: f.allocation.id } })).status).toBe('ACTIVE');
     });

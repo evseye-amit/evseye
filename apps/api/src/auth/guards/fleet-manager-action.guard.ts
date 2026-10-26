@@ -116,12 +116,12 @@ export class FleetManagerActionGuard implements CanActivate {
       const entity = params.id
         ? await this.db.photo.findFirst({
             where: { id: params.id, clientId },
-            select: { entityId: true, entityType: true },
+            select: { entityId: true, workFlowType: true, subjectType: true },
           })
         : body;
-      if (entity?.entityType === 'FLEET') add(entity.entityId);
+      if (entity?.workFlowType === 'FLEET_INSPECTION' && entity?.subjectType === 'FLEET') add(entity.entityId);
       else if (
-        entity?.entityType === 'INSPECTION' &&
+        (entity?.workFlowType === 'FLEET_ALLOTMENT' || entity?.workFlowType === 'FLEET_SUBMISSION') && entity?.subjectType === 'INSPECTION' &&
         typeof entity.entityId === 'string'
       ) {
         const inspection = await this.db.inspection.findFirst({
@@ -132,18 +132,16 @@ export class FleetManagerActionGuard implements CanActivate {
       } else if (
         entity &&
         typeof entity.entityId === 'string' &&
-        ['BATTERY', 'CONTROLLER', 'IOT_DEVICE'].includes(
-          String(entity.entityType),
-        )
+        entity.workFlowType === 'FLEET_INSPECTION' && ['BATTERY', 'CONTROLLER', 'IOT_DEVICE'].includes(String(entity.subjectType))
       ) {
         const link: Prisma.FleetWhereInput =
-          entity.entityType === 'BATTERY'
+          entity.subjectType === 'BATTERY'
             ? {
                 batteryHistory: {
                   some: { batteryId: entity.entityId, removedAt: null },
                 },
               }
-            : entity.entityType === 'CONTROLLER'
+            : entity.subjectType === 'CONTROLLER'
               ? {
                   controllerHistory: {
                     some: { controllerId: entity.entityId, removedAt: null },

@@ -1,7 +1,7 @@
 import { profileBirthDate, profileAddressFields, recoverableProfileKeys } from './rider-profile-values.js';
 import { normalizeRiderBankValues, riderBankFields } from './rider-bank-fields.js';
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
-import { PhotoEntityType, PhotoStatus, PhotoSubjectType, PhotoType, Prisma, ReferralAttributionSource, RiderDocumentReviewStatus, UserRole } from '@prisma/client';
+import { PhotoStatus, PhotoSubjectType, PhotoType, Prisma, ReferralAttributionSource, RiderDocumentReviewStatus, UserRole } from '@prisma/client';
 import { normalizeIndianMobile } from '../common/phone.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RiderOnboardingConfigurationService } from './rider-onboarding-configuration.service.js';
@@ -81,7 +81,7 @@ export class RiderAppService {
     const profilePhoto = await this.prisma.riderOnboardingDocument.findFirst({
       where: { clientId, userId, supersededAt: null, status: { in: [RiderDocumentReviewStatus.PENDING, RiderDocumentReviewStatus.APPROVED] },
         feature: { code: 'UPLOAD_PROFILE_PHOTO' },
-      photo: { clientId, workFlowType: 'RIDER_ONBOARDING', entityType: PhotoEntityType.RIDER_ONBOARDING, status: PhotoStatus.COMPLETE, mimeType: { in: ['image/jpeg', 'image/png', 'image/webp'] } },
+      photo: { clientId, workFlowType: 'RIDER_ONBOARDING', subjectType: { in: [PhotoSubjectType.RIDER_DOCUMENT, PhotoSubjectType.PAN, PhotoSubjectType.AADHAR] }, status: PhotoStatus.COMPLETE, mimeType: { in: ['image/jpeg', 'image/png', 'image/webp'] } },
       }, select: { photoId: true }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
     const profilePhotoUrl = profilePhoto ? (await this.media.downloadUrl(clientId, profilePhoto.photoId)).url : null;
@@ -415,7 +415,6 @@ export class RiderAppService {
     const dto: CreateUploadIntentDto = {
       workFlowType: 'RIDER_ONBOARDING',
       subjectType,
-      entityType: PhotoEntityType.RIDER_ONBOARDING,
       entityId: progressId,
       photoType,
       mimeType: input.mimeType,
@@ -426,7 +425,7 @@ export class RiderAppService {
   }
 
   async completeDocumentUpload(clientId: string, userId: string, photoId: string) {
-    const photo = await this.prisma.photo.findFirst({ where: { id: photoId, clientId, uploadedById: userId, workFlowType: 'RIDER_ONBOARDING', entityType: PhotoEntityType.RIDER_ONBOARDING, status: PhotoStatus.PENDING_UPLOAD }, select: { id: true, photoType: true, subjectType: true } });
+    const photo = await this.prisma.photo.findFirst({ where: { id: photoId, clientId, uploadedById: userId, workFlowType: 'RIDER_ONBOARDING', subjectType: { in: [PhotoSubjectType.RIDER_DOCUMENT, PhotoSubjectType.PAN, PhotoSubjectType.AADHAR] }, status: PhotoStatus.PENDING_UPLOAD }, select: { id: true, photoType: true, subjectType: true } });
     if (!photo) throw new BadRequestException('Rider onboarding document upload not found.');
     const effective = await this.configuration.getEffectiveConfiguration(clientId);
     const subjectRules = await this.prisma.photoRequirement.findMany({ where: { clientId, workFlowType: 'RIDER_ONBOARDING', subjectType: photo.subjectType }, select: { featureCode: true } });

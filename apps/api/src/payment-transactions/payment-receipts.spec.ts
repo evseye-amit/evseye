@@ -14,7 +14,7 @@ describe('payment receipt validation and integrity', () => {
     expect(await validate(plainToInstance(PaymentReceiptUploadDto, { fileName: 'receipt.jpg', mimeType: 'image/jpeg', sizeBytes: 6*1024*1024 }))).not.toHaveLength(0);
     expect(await validate(plainToInstance(RejectPaymentDto, { reason: '  Funds not received  ', expectedVersion: 1 }))).toHaveLength(0);
   });
-  const photo = { id: 'photo', clientId: 'client', entityType: 'PAYMENT_DEPLOYMENT', entityId: 'payment', uploadedById: 'rider', mimeType: 'image/jpeg', sizeBytes: 100, status: 'PENDING_UPLOAD', objectKey: 'original.jpg' };
+  const photo = { id: 'photo', clientId: 'client', workFlowType: 'PAYMENT', subjectType: 'DEPLOYMENT', entityId: 'payment', uploadedById: 'rider', mimeType: 'image/jpeg', sizeBytes: 100, status: 'PENDING_UPLOAD', objectKey: 'original.jpg' };
   it('rejects a different uploader, transaction or source before touching storage', async () => {
     const storage = { assertObjectExists: vi.fn() };
     const db = { photo: { findFirst: vi.fn().mockResolvedValue(photo) } };
@@ -44,7 +44,7 @@ describe('payment receipt validation and integrity', () => {
 });
 
 describe('private receipt content delivery', () => {
-  const photo = { id: 'photo', clientId: 'client', entityType: 'PAYMENT_DEPLOYMENT', entityId: 'payment', mimeType: 'image/png', sizeBytes: 100, status: 'COMPLETE', objectKey: 'sealed.png' };
+  const photo = { id: 'photo', clientId: 'client', workFlowType: 'PAYMENT', subjectType: 'DEPLOYMENT', entityId: 'payment', mimeType: 'image/png', sizeBytes: 100, status: 'COMPLETE', objectKey: 'sealed.png' };
   it('requires a completed receipt from the same client, payment and source before reading bytes', async () => {
     const db = { photo: { findFirst: vi.fn().mockResolvedValue(photo) } };
     const storage = { readObject: vi.fn().mockResolvedValue(Buffer.from('png')) };

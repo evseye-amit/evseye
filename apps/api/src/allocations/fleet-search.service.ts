@@ -158,8 +158,7 @@ export class FleetSearchService {
       ? await this.db.photo.findFirst({
           where: {
             clientId,
-            entityType: 'INSPECTION',
-            workFlowType: 'ALLOTMENT',
+            workFlowType: 'FLEET_ALLOTMENT',
             subjectType: 'INSPECTION',
             entityId: inspection.id,
             photoType: 'FRONT',
@@ -172,8 +171,8 @@ export class FleetSearchService {
     photo ??= await this.db.photo.findFirst({
       where: {
         clientId,
-        entityType: 'FLEET',
-        workFlowType: 'FLEET_MANAGEMENT',
+
+        workFlowType: 'FLEET_INSPECTION',
         subjectType: 'FLEET',
         entityId: id,
         photoType: 'FRONT',

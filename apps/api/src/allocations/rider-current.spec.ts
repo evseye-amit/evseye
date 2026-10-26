@@ -30,7 +30,7 @@ describe('Rider current deployment and Home', () => {
     expect(result).toMatchObject({ screen: 'HOME', allocation: { fleet: { id: 'fleet-1', frontPhoto: { id: 'front-1', url: 'https://storage.test/front-signed', expiresAt: expect.any(String) } } }, wallet: { availableBalance: '100.00' }, lastEarnings: { amount: '50.00' } });
     expect('wallet' in result ? result.wallet : undefined).not.toHaveProperty('accounts');
     expect(prisma.inspection.findFirst).toHaveBeenCalledWith({ where: { clientId: 'client-1', allocationId: 'allocation-1', type: 'PRE_ALLOCATION' }, select: { id: true } });
-    expect(prisma.photo.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { clientId: 'client-1', entityType: 'INSPECTION', entityId: 'inspection-1', photoType: 'FRONT', status: 'COMPLETE' } }));
+    expect(prisma.photo.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { clientId: 'client-1', entityId: 'inspection-1', photoType: 'FRONT', status: 'COMPLETE' } }));
     expect(media.downloadUrl).toHaveBeenCalledWith('client-1', 'front-1');
   });
   it('shows Home after return without old scooter, workflow or payment details', async () => {

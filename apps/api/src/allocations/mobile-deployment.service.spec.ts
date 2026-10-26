@@ -1,5 +1,5 @@
 import { ValidationPipe } from '@nestjs/common';
-import { PhotoEntityType, PhotoStatus } from '@prisma/client';
+import { PhotoStatus } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
 import { SubmitPdiDto } from './dto/mobile-deployment.dto.js';
 import { MobileDeploymentService } from './mobile-deployment.service.js';
@@ -56,7 +56,7 @@ describe('MobileDeploymentService.fleetRequests', () => {
     expect(prisma.photo.findMany).toHaveBeenCalledWith({
       where: {
         clientId: 'client-1',
-        entityType: PhotoEntityType.FLEET,
+        subjectType: 'FLEET',
         entityId: { in: ['fleet-1', 'fleet-2'] },
         status: PhotoStatus.COMPLETE,
       },

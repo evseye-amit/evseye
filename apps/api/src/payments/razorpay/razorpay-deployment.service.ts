@@ -304,7 +304,8 @@ export class RazorpayDeploymentService {
     const receipts = await this.db.photo.findMany({
       where: {
         clientId,
-        entityType: 'PAYMENT_DEPLOYMENT',
+        workFlowType: 'PAYMENT',
+        subjectType: 'DEPLOYMENT',
         entityId: payment.id,
         status: 'COMPLETE',
       },
