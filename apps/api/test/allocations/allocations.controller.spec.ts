@@ -12,7 +12,6 @@ describe('AllocationsController audit trail', () => {
     const audit = { record: vi.fn().mockResolvedValue({ id: 'audit-1' }) };
     const controller = new AllocationsController(
       allocations as never,
-      {} as never,
       audit as never,
       { requireClientId: vi.fn().mockReturnValue('client-a') } as never,
     );

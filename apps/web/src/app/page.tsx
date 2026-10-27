@@ -839,6 +839,7 @@ export default function Home() {
     Record<string, number>
   >({});
   const [requiredInspectionPhotos, setRequiredInspectionPhotos] = useState(0);
+  // Kept only for legacy state reset compatibility; allocation/deallocation actions are unavailable in web UI.
   const [deallocationId, setDeallocationId] = useState("");
   const [riderPhone, setRiderPhone] = useState("");
   const [operatorPhone, setOperatorPhone] = useState("");
@@ -1018,7 +1019,6 @@ export default function Home() {
     setShowHubForm(false);
     setBulkImportTab(null);
     setInspectionId("");
-    setDeallocationId("");
     setRiderDetail(null);
     setFleetDetail(null);
     setEditingRider(false);
@@ -2540,77 +2540,6 @@ export default function Home() {
                 Complete inspection
               </button>
               <button className="secondary" onClick={() => setInspectionId("")}>
-                Close
-              </button>
-            </div>
-          </section>
-        )}
-        {deallocationId && (
-          <section className="action-card">
-            <div>
-              <p className="eyebrow">DEALLOCATION SECURITY</p>
-              <h2>Verify rider and operator</h2>
-              <p className="muted">
-                Both separately delivered OTPs are required before completion.
-              </p>
-            </div>
-            {(["RIDER", "OPERATOR"] as const).map((party) => (
-              <div className="otp-row" key={party}>
-                <label>
-                  {party === "RIDER" ? "Rider mobile" : "Operator mobile"}
-                  <input
-                    value={party === "RIDER" ? riderPhone : operatorPhone}
-                    onChange={(event) =>
-                      party === "RIDER"
-                        ? setRiderPhone(event.target.value)
-                        : setOperatorPhone(event.target.value)
-                    }
-                  />
-                </label>
-                {!otpRequests[party] ? (
-                  <button
-                    disabled={loading}
-                    onClick={() => void requestDeallocationOtp(party)}
-                  >
-                    Send OTP
-                  </button>
-                ) : verifiedParties.includes(party) ? (
-                  <span className="status">Verified</span>
-                ) : (
-                  <>
-                    <input
-                      className="otp-code"
-                      value={otpCodes[party] ?? ""}
-                      onChange={(event) =>
-                        setOtpCodes((current) => ({
-                          ...current,
-                          [party]: event.target.value,
-                        }))
-                      }
-                      placeholder="6-digit OTP"
-                      maxLength={6}
-                    />
-                    <button
-                      disabled={loading}
-                      onClick={() => void verifyDeallocationOtp(party)}
-                    >
-                      Verify
-                    </button>
-                  </>
-                )}
-              </div>
-            ))}
-            <div className="form-actions">
-              <button
-                disabled={loading || verifiedParties.length !== 2}
-                onClick={() => void completeDeallocation()}
-              >
-                Complete deallocation
-              </button>
-              <button
-                className="secondary"
-                onClick={() => setDeallocationId("")}
-              >
                 Close
               </button>
             </div>

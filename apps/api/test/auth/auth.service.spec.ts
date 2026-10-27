@@ -41,7 +41,11 @@ function createService() {
     allocation: {
       findFirst: vi.fn().mockResolvedValue({ id: 'allocation-1' }),
     },
-    session: { create: vi.fn().mockResolvedValue({}), updateMany: vi.fn(), findFirst: vi.fn() },
+    session: {
+      create: vi.fn().mockResolvedValue({}),
+      updateMany: vi.fn(),
+      findFirst: vi.fn(),
+    },
   };
   const jwt = {
     verifyAsync: vi.fn(),
@@ -51,7 +55,10 @@ function createService() {
       .mockResolvedValueOnce('refresh-token'),
   };
   const sms = { send: vi.fn().mockResolvedValue(undefined) };
-  const smsQuota = { reserve: vi.fn().mockResolvedValue([]), refund: vi.fn().mockResolvedValue(undefined) };
+  const smsQuota = {
+    reserve: vi.fn().mockResolvedValue([]),
+    refund: vi.fn().mockResolvedValue(undefined),
+  };
   const loginFlow = {
     resolve: vi.fn().mockResolvedValue({ methods: ['SMS_OTP'] }),
     roleAllowed: vi.fn().mockReturnValue(true),
@@ -80,63 +87,136 @@ function createService() {
 describe('AuthService', () => {
   it('binds a client OTP to the requesting app', async () => {
     const { service, prisma, loginFlow } = createService();
-    await service.requestLoginOtp('+919999999999', 'demo-client', '127.0.0.1', undefined, 'CLIENT_PANEL');
-    expect(loginFlow.resolve).toHaveBeenCalledWith('demo-client', 'CLIENT_PANEL');
-    expect(prisma.otpRequest.create.mock.calls[0][0].data.context).toEqual({ loginAppCode: 'CLIENT_PANEL', method: 'SMS_OTP' });
+    await service.requestLoginOtp(
+      '+919999999999',
+      'demo-client',
+      '127.0.0.1',
+      undefined,
+      'CLIENT_PANEL',
+    );
+    expect(loginFlow.resolve).toHaveBeenCalledWith(
+      'demo-client',
+      'CLIENT_PANEL',
+    );
+    expect(prisma.otpRequest.create.mock.calls[0][0].data.context).toEqual({
+      loginAppCode: 'CLIENT_PANEL',
+      method: 'SMS_OTP',
+    });
   });
 
   it('does not send a client OTP to a role outside the requesting app', async () => {
     const { service, prisma, loginFlow, sms } = createService();
     loginFlow.roleAllowed.mockReturnValue(false);
-    await service.requestLoginOtp('+919999999999', 'demo-client', undefined, undefined, 'RIDER_APP');
+    await service.requestLoginOtp(
+      '+919999999999',
+      'demo-client',
+      undefined,
+      undefined,
+      'RIDER_APP',
+    );
     expect(prisma.otpRequest.create).not.toHaveBeenCalled();
     expect(sms.send).not.toHaveBeenCalled();
   });
 
   it('rejects verification from a different app than the OTP request', async () => {
     const { service, prisma, sms } = createService();
-    await service.requestLoginOtp('+919999999999', 'demo-client', undefined, undefined, 'CLIENT_PANEL');
+    await service.requestLoginOtp(
+      '+919999999999',
+      'demo-client',
+      undefined,
+      undefined,
+      'CLIENT_PANEL',
+    );
     const code = sms.send.mock.calls[0][0].code;
     const created = prisma.otpRequest.create.mock.calls[0][0].data;
     prisma.otpRequest.findUnique.mockResolvedValue({
-      id: 'otp-1', clientId: 'client-1', purpose: OtpPurpose.LOGIN,
-      phone: '+919999999999', otpHash: created.otpHash, context: created.context,
-      status: OtpStatus.PENDING, attempts: 0, maxAttempts: 5,
+      id: 'otp-1',
+      clientId: 'client-1',
+      purpose: OtpPurpose.LOGIN,
+      phone: '+919999999999',
+      otpHash: created.otpHash,
+      context: created.context,
+      status: OtpStatus.PENDING,
+      attempts: 0,
+      maxAttempts: 5,
       expiresAt: new Date(Date.now() + 60_000),
     });
-    await expect(service.verifyLoginOtp('otp-1', code, undefined, 'RIDER_APP'))
-      .rejects.toThrow('Login is unavailable for this application');
+    await expect(
+      service.verifyLoginOtp('otp-1', code, undefined, 'RIDER_APP'),
+    ).rejects.toThrow('Login is unavailable for this application');
   });
 
   it('rejects a refresh already consumed by a concurrent request', async () => {
     const { service, prisma, jwt } = createService();
-    jwt.verifyAsync.mockResolvedValue({ typ: 'refresh', id: 'user-1', sid: 'session-1', clientId: 'client-1' });
-    prisma.session.findFirst.mockResolvedValue({ id: 'session-1', refreshTokenHash: createHmac('sha256', configValues.OTP_HASH_SECRET).update('refresh-token').digest('hex') });
+    jwt.verifyAsync.mockResolvedValue({
+      typ: 'refresh',
+      id: 'user-1',
+      sid: 'session-1',
+      clientId: 'client-1',
+    });
+    prisma.session.findFirst.mockResolvedValue({
+      id: 'session-1',
+      refreshTokenHash: createHmac('sha256', configValues.OTP_HASH_SECRET)
+        .update('refresh-token')
+        .digest('hex'),
+    });
     prisma.session.updateMany.mockResolvedValue({ count: 0 });
-    await expect(service.refresh('refresh-token', 'client-1')).rejects.toThrow('already been used');
+    await expect(service.refresh('refresh-token', 'client-1')).rejects.toThrow(
+      'already been used',
+    );
     expect(prisma.session.create).not.toHaveBeenCalled();
   });
   it('unregisters only devices belonging to the logged out session', async () => {
     const { service, prisma, jwt } = createService();
-    jwt.verifyAsync.mockResolvedValue({ typ: 'refresh', id: 'user-1', sid: 'session-1', clientId: 'client-1' });
+    jwt.verifyAsync.mockResolvedValue({
+      typ: 'refresh',
+      id: 'user-1',
+      sid: 'session-1',
+      clientId: 'client-1',
+    });
     await service.revokeSession('refresh-token', 'client-1');
-    expect(prisma.pushDevice.updateMany).toHaveBeenCalledWith({ where: { userId: 'user-1', sessionId: 'session-1', isActive: true }, data: { isActive: false, disabledReason: 'LOGGED_OUT' } });
+    expect(prisma.pushDevice.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1', sessionId: 'session-1', isActive: true },
+      data: { isActive: false, disabledReason: 'LOGGED_OUT' },
+    });
   });
 
   it('moves device registrations to the rotated login session', async () => {
     const { service, prisma, jwt } = createService();
-    jwt.verifyAsync.mockResolvedValue({ typ: 'refresh', id: 'user-1', sid: 'session-1', clientId: 'client-1' });
-    prisma.session.findFirst.mockResolvedValue({ id: 'session-1', refreshTokenHash: createHmac('sha256', configValues.OTP_HASH_SECRET).update('refresh-token').digest('hex') });
+    jwt.verifyAsync.mockResolvedValue({
+      typ: 'refresh',
+      id: 'user-1',
+      sid: 'session-1',
+      clientId: 'client-1',
+    });
+    prisma.session.findFirst.mockResolvedValue({
+      id: 'session-1',
+      refreshTokenHash: createHmac('sha256', configValues.OTP_HASH_SECRET)
+        .update('refresh-token')
+        .digest('hex'),
+    });
     prisma.session.updateMany.mockResolvedValue({ count: 1 });
     await service.refresh('refresh-token', 'client-1');
-    expect(prisma.pushDevice.updateMany).toHaveBeenCalledWith({ where: { userId: 'user-1', sessionId: 'session-1', isActive: true }, data: { sessionId: expect.any(String) } });
-    expect(prisma.pushDevice.updateMany.mock.calls[0]![0].data.sessionId).not.toBe('session-1');
+    expect(prisma.pushDevice.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1', sessionId: 'session-1', isActive: true },
+      data: { sessionId: expect.any(String) },
+    });
+    expect(
+      prisma.pushDevice.updateMany.mock.calls[0]![0].data.sessionId,
+    ).not.toBe('session-1');
   });
 
   it('rejects logout from another client host without revoking the session', async () => {
     const { service, prisma, jwt } = createService();
-    jwt.verifyAsync.mockResolvedValue({ typ: 'refresh', id: 'user-1', sid: 'session-1', clientId: 'client-1' });
-    await expect(service.revokeSession('refresh-token', 'other-client')).rejects.toThrow('Invalid refresh token');
+    jwt.verifyAsync.mockResolvedValue({
+      typ: 'refresh',
+      id: 'user-1',
+      sid: 'session-1',
+      clientId: 'client-1',
+    });
+    await expect(
+      service.revokeSession('refresh-token', 'other-client'),
+    ).rejects.toThrow('Invalid refresh token');
     expect(prisma.session.updateMany).not.toHaveBeenCalled();
   });
 
@@ -156,9 +236,18 @@ describe('AuthService', () => {
   it('marks an OTP failed when SMS delivery fails so a retry is possible', async () => {
     const { service, prisma, sms } = createService();
     sms.send.mockRejectedValue(new Error('gateway failure with secrets'));
-    await expect(service.requestLoginOtp('+919999999999', 'demo-client')).rejects.toThrow('SMS delivery is temporarily unavailable');
-    expect(prisma.otpRequest.update).toHaveBeenCalledWith({ where: { id: 'otp-1' }, data: { status: OtpStatus.FAILED } });
-    expect(prisma.otpRequest.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: OtpStatus.PENDING }) }));
+    await expect(
+      service.requestLoginOtp('+919999999999', 'demo-client'),
+    ).rejects.toThrow('SMS delivery is temporarily unavailable');
+    expect(prisma.otpRequest.update).toHaveBeenCalledWith({
+      where: { id: 'otp-1' },
+      data: { status: OtpStatus.FAILED },
+    });
+    expect(prisma.otpRequest.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ status: OtpStatus.PENDING }),
+      }),
+    );
   });
 
   it('allows platform OTP requests only for a clientless Super Admin account', async () => {
@@ -219,63 +308,6 @@ describe('AuthService', () => {
       'OTP has already been used',
     );
   });
-
-  it('rate limits deallocation OTP resend requests per allocation and party', async () => {
-    const { service, prisma } = createService();
-    prisma.otpRequest.findFirst.mockResolvedValue({ id: 'recent-otp' });
-
-    await expect(
-      service.requestDeallocationOtp(
-        'client-1',
-        '+919999999999',
-        'allocation-1',
-        OtpPurpose.HANDOVER_RIDER,
-      ),
-    ).rejects.toThrow('Please wait before requesting another OTP.');
-
-    expect(prisma.otpRequest.create).not.toHaveBeenCalled();
-    expect(prisma.otpRequest.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          context: { path: ['allocationId'], equals: 'allocation-1' },
-          purpose: OtpPurpose.HANDOVER_RIDER,
-        }),
-      }),
-    );
-  });
-
-  it('records failed deallocation OTP attempts and locks the request at its limit', async () => {
-    const { service, prisma, sms } = createService();
-    await service.requestDeallocationOtp(
-      'client-1',
-      '+919999999999',
-      'allocation-1',
-      OtpPurpose.HANDOVER_RIDER,
-    );
-    const otpHash = prisma.otpRequest.create.mock.calls[0][0].data.otpHash;
-    prisma.otpRequest.findFirst.mockResolvedValue({
-      id: 'otp-1',
-      clientId: 'client-1',
-      purpose: OtpPurpose.HANDOVER_RIDER,
-      phone: '+919999999999',
-      otpHash,
-      status: OtpStatus.PENDING,
-      attempts: 4,
-      maxAttempts: 5,
-      expiresAt: new Date(Date.now() + 60_000),
-    });
-
-    await expect(
-      service.verifyDeallocationOtp('client-1', 'otp-1', '000000'),
-    ).rejects.toThrow('Invalid deallocation OTP.');
-
-    expect(prisma.otpRequest.update).toHaveBeenCalledWith({
-      where: { id: 'otp-1' },
-      data: { attempts: 5, status: OtpStatus.FAILED },
-    });
-    expect(sms.send).toHaveBeenCalledOnce();
-  });
-
 });
 
 describe('Client host login binding', () => {

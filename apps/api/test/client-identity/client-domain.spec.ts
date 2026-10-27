@@ -80,4 +80,57 @@ describe('Super Admin domain changes', () => {
     });
     expect(tx.clientDomain.delete).not.toHaveBeenCalled();
   });
+
+  it('verifies a custom domain only when its DNS token matches', async () => {
+    const { controller, prisma, tx } = setup();
+    prisma.clientDomain.findFirst.mockResolvedValue({
+      id: 'domain',
+      clientId: 'acme',
+      type: 'CUSTOM_DOMAIN',
+      hostname: 'fleet.customer.com',
+      verificationToken: 'token-123',
+    });
+    vi.spyOn(
+      (
+        controller as never as {
+          dns: { resolveTxt: (host: string) => Promise<string[][]> };
+        }
+      ).dns,
+      'resolveTxt',
+    ).mockResolvedValue([['evseye-verification=token-123']]);
+
+    await controller.verify('acme', 'domain', actor);
+
+    expect(tx.clientDomain.update).toHaveBeenCalledWith({
+      where: { id: 'domain', clientId: 'acme' },
+      data: { isVerified: true },
+    });
+    expect(tx.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ action: 'CLIENT_DOMAIN_VERIFIED' }),
+    });
+  });
+
+  it('rejects custom-domain verification when its DNS token is absent', async () => {
+    const { controller, prisma, tx } = setup();
+    prisma.clientDomain.findFirst.mockResolvedValue({
+      id: 'domain',
+      clientId: 'acme',
+      type: 'CUSTOM_DOMAIN',
+      hostname: 'fleet.customer.com',
+      verificationToken: 'token-123',
+    });
+    vi.spyOn(
+      (
+        controller as never as {
+          dns: { resolveTxt: (host: string) => Promise<string[][]> };
+        }
+      ).dns,
+      'resolveTxt',
+    ).mockResolvedValue([['evseye-verification=wrong-token']]);
+
+    await expect(controller.verify('acme', 'domain', actor)).rejects.toThrow(
+      'DNS ownership verification',
+    );
+    expect(tx.clientDomain.update).not.toHaveBeenCalled();
+  });
 });

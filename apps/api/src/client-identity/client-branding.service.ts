@@ -40,7 +40,14 @@ export class ClientBrandingService {
       },
       select: {
         name: true,
-        branding: { select: { logoObjectKey: true, faviconObjectKey: true, supportEmail: true, supportPhone: true } },
+        branding: {
+          select: {
+            logoObjectKey: true,
+            faviconObjectKey: true,
+            supportEmail: true,
+            supportPhone: true,
+          },
+        },
         businessProfile: { select: { logoObjectKey: true } },
       },
     });
@@ -105,7 +112,9 @@ export class ClientBrandingService {
       )
     )
       throw new BadRequestException('Invalid branding object.');
-    await this.storage.assertObjectExists(dto.objectKey, { maxBytes: 2 * 1024 * 1024 });
+    await this.storage.assertObjectExists(dto.objectKey, {
+      maxBytes: 2 * 1024 * 1024,
+    });
     const update =
       dto.kind === 'logo'
         ? { logoObjectKey: dto.objectKey }

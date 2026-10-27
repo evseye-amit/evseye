@@ -8,13 +8,14 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { OtpPurpose, OtpStatus, Prisma, UserRole, type User } from '@prisma/client';
 import {
-  createHmac,
-  randomInt,
-  randomUUID,
-  timingSafeEqual,
-} from 'node:crypto';
+  OtpPurpose,
+  OtpStatus,
+  Prisma,
+  UserRole,
+  type User,
+} from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import type { Environment } from '../config/environment.js';
 import { indianMobileVariants } from '../common/phone.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -25,6 +26,7 @@ import {
   SMS_PROVIDER,
   type SmsProvider,
 } from './sms/sms-provider.interface.js';
+import { OtpSecurity } from './otp-security.js';
 
 interface RefreshPayload extends AuthUser {
   sid: string;
@@ -40,9 +42,15 @@ export class AuthService {
     @Inject(SMS_PROVIDER) private readonly smsProvider: SmsProvider,
     private readonly smsQuota: SmsQuotaService,
     private readonly loginFlow: LoginFlowService,
-  ) {}
+  ) {
+    this.otpSecurity = new OtpSecurity(config);
+  }
 
-  private async serializable<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  private readonly otpSecurity: OtpSecurity;
+
+  private async serializable<T>(
+    fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
     for (let attempt = 0; ; attempt++) {
       try {
         return await this.prisma.$transaction(fn, {
@@ -50,7 +58,12 @@ export class AuthService {
           timeout: 10000,
         });
       } catch (error) {
-        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034' && attempt < 3) continue;
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2034' &&
+          attempt < 3
+        )
+          continue;
         throw error;
       }
     }
@@ -70,27 +83,32 @@ export class AuthService {
             companyCode,
             isActive: true,
             status: {
-              in: [
-                'CREATED',
-                'PENDING_APPROVAL',
-                'ACTIVE',
-                'REJECTED',
-              ],
+              in: ['CREATED', 'PENDING_APPROVAL', 'ACTIVE', 'REJECTED'],
             },
           },
           select: { id: true },
         })
       : null;
 
-    if ((companyCode && !client) || (expectedClientId && client?.id !== expectedClientId)) {
-      return { otpRequestId: randomUUID(), expiresAt: new Date(Date.now() + this.config.getOrThrow('OTP_TTL_SECONDS') * 1000) };
+    if (
+      (companyCode && !client) ||
+      (expectedClientId && client?.id !== expectedClientId)
+    ) {
+      return {
+        otpRequestId: randomUUID(),
+        expiresAt: this.otpSecurity.expiresAt(),
+      };
     }
 
-    const appCode = client ? requestedAppCode ?? 'CLIENT_PANEL' : undefined;
+    const appCode = client ? (requestedAppCode ?? 'CLIENT_PANEL') : undefined;
     if (client && appCode) await this.loginFlow.resolve(companyCode!, appCode);
     const user = await this.prisma.user.findFirst({
       where: client
-        ? { clientId: client.id, mobile: { in: mobileCandidates }, isActive: true }
+        ? {
+            clientId: client.id,
+            mobile: { in: mobileCandidates },
+            isActive: true,
+          }
         : {
             clientId: null,
             mobile: { in: mobileCandidates },
@@ -100,8 +118,15 @@ export class AuthService {
       select: { id: true, mobile: true, role: true },
     });
 
-    if (!user || (client && !this.loginFlow.roleAllowed(appCode as LoginAppCode, user.role))) {
-      return { otpRequestId: randomUUID(), expiresAt: new Date(Date.now() + this.config.getOrThrow('OTP_TTL_SECONDS') * 1000) };
+    if (
+      !user ||
+      (client &&
+        !this.loginFlow.roleAllowed(appCode as LoginAppCode, user.role))
+    ) {
+      return {
+        otpRequestId: randomUUID(),
+        expiresAt: this.otpSecurity.expiresAt(),
+      };
     }
     // Use the stored representation for OTP audit and dispatch. This supports
     // existing records saved as +91XXXXXXXXXX, 0XXXXXXXXXX, or XXXXXXXXXX.
@@ -124,23 +149,26 @@ export class AuthService {
 
     if (recent) {
       // Use the same accepted shape for unknown accounts and cooldown requests.
-      return { otpRequestId: randomUUID(), expiresAt: new Date(Date.now() + this.config.getOrThrow('OTP_TTL_SECONDS') * 1000) };
+      return {
+        otpRequestId: randomUUID(),
+        expiresAt: this.otpSecurity.expiresAt(),
+      };
     }
 
-    const code = this.generateOtpCode();
-    const expiresAt = new Date(
-      Date.now() + this.config.getOrThrow('OTP_TTL_SECONDS') * 1000,
-    );
+    const code = this.otpSecurity.generateCode();
+    const expiresAt = this.otpSecurity.expiresAt();
     const otpRequest = await this.prisma.otpRequest.create({
       data: {
         clientId: client?.id,
         purpose: OtpPurpose.LOGIN,
         phone,
-        otpHash: this.hashSecret(code),
+        otpHash: this.otpSecurity.hash(code),
         expiresAt,
         maxAttempts: this.config.getOrThrow('OTP_MAX_ATTEMPTS'),
         requestedIp,
-        ...(appCode ? { context: { loginAppCode: appCode, method: 'SMS_OTP' } } : {}),
+        ...(appCode
+          ? { context: { loginAppCode: appCode, method: 'SMS_OTP' } }
+          : {}),
       },
       select: { id: true, expiresAt: true },
     });
@@ -159,13 +187,20 @@ export class AuthService {
         data: { status: OtpStatus.FAILED },
       });
       if (error instanceof HttpException) throw error;
-      throw new ServiceUnavailableException('SMS delivery is temporarily unavailable.');
+      throw new ServiceUnavailableException(
+        'SMS delivery is temporarily unavailable.',
+      );
     }
 
     return { otpRequestId: otpRequest.id, expiresAt: otpRequest.expiresAt };
   }
 
-  async verifyLoginOtp(otpRequestId: string, code: string, expectedClientId?: string, requestedAppCode?: string) {
+  async verifyLoginOtp(
+    otpRequestId: string,
+    code: string,
+    expectedClientId?: string,
+    requestedAppCode?: string,
+  ) {
     const otp = await this.prisma.otpRequest.findUnique({
       where: { id: otpRequestId },
     });
@@ -178,12 +213,22 @@ export class AuthService {
       throw new UnauthorizedException('Invalid OTP request.');
     }
 
-    const boundAppCode = otp.context && typeof otp.context === 'object' && !Array.isArray(otp.context)
-      ? (otp.context as Record<string, unknown>).loginAppCode : undefined;
-    if (otp.clientId && boundAppCode &&
-      (typeof boundAppCode !== 'string' || !this.loginFlow.isAppCode(boundAppCode) ||
-        (requestedAppCode && requestedAppCode !== boundAppCode))) {
-      throw new UnauthorizedException('Login is unavailable for this application.');
+    const boundAppCode =
+      otp.context &&
+      typeof otp.context === 'object' &&
+      !Array.isArray(otp.context)
+        ? (otp.context as Record<string, unknown>).loginAppCode
+        : undefined;
+    if (
+      otp.clientId &&
+      boundAppCode &&
+      (typeof boundAppCode !== 'string' ||
+        !this.loginFlow.isAppCode(boundAppCode) ||
+        (requestedAppCode && requestedAppCode !== boundAppCode))
+    ) {
+      throw new UnauthorizedException(
+        'Login is unavailable for this application.',
+      );
     }
 
     if (otp.expiresAt <= new Date()) {
@@ -194,7 +239,7 @@ export class AuthService {
       throw new UnauthorizedException('OTP has expired.');
     }
 
-    if (!this.verifySecret(code, otp.otpHash)) {
+    if (!this.otpSecurity.verify(code, otp.otpHash)) {
       const attempts = otp.attempts + 1;
       await this.prisma.otpRequest.update({
         where: { id: otp.id },
@@ -230,144 +275,35 @@ export class AuthService {
     }
 
     if (otp.clientId && boundAppCode) {
-      if (!this.loginFlow.roleAllowed(boundAppCode as LoginAppCode, user.role)) {
-        throw new UnauthorizedException('Login is unavailable for this application.');
+      if (
+        !this.loginFlow.roleAllowed(boundAppCode as LoginAppCode, user.role)
+      ) {
+        throw new UnauthorizedException(
+          'Login is unavailable for this application.',
+        );
       }
     }
 
     return this.issueTokens(user);
   }
 
-  async requestDeallocationOtp(
-    clientId: string,
-    phone: string,
-    allocationId: string,
-    purpose: OtpPurpose,
-  ) {
-    const allocation = await this.prisma.allocation.findFirst({
-      where: { id: allocationId, clientId, status: 'DEALLOCATION_INITIATED' },
-      select: { id: true },
-    });
-    if (!allocation)
-      throw new UnauthorizedException('Deallocation is not active.');
-
-    const cooldownAt = new Date(
-      Date.now() - this.config.getOrThrow('OTP_RESEND_COOLDOWN_SECONDS') * 1000,
-    );
-    const recent = await this.prisma.otpRequest.findFirst({
-      where: {
-        clientId,
-        phone,
-        purpose,
-        status: OtpStatus.PENDING,
-        createdAt: { gte: cooldownAt },
-        context: { path: ['allocationId'], equals: allocationId },
-      },
-      select: { id: true },
-    });
-    if (recent) {
-      throw new HttpException('Please wait before requesting another OTP.', HttpStatus.TOO_MANY_REQUESTS);
-    }
-
-    const code = this.generateOtpCode();
-    const expiresAt = new Date(
-      Date.now() + this.config.getOrThrow('OTP_TTL_SECONDS') * 1000,
-    );
-    const otp = await this.prisma.otpRequest.create({
-      data: {
-        clientId,
-        purpose,
-        phone,
-        otpHash: this.hashSecret(code),
-        expiresAt,
-        maxAttempts: this.config.getOrThrow('OTP_MAX_ATTEMPTS'),
-        context: { allocationId },
-      },
-      select: { id: true, expiresAt: true },
-    });
-    try {
-      await this.smsProvider.send({
-        phone,
-        purpose,
-        code,
-      });
-    } catch {
-      await this.prisma.otpRequest.update({
-        where: { id: otp.id },
-        data: { status: OtpStatus.FAILED },
-      });
-      throw new ServiceUnavailableException('SMS delivery is temporarily unavailable.');
-    }
-    return { otpRequestId: otp.id, expiresAt: otp.expiresAt };
-  }
-
-  async verifyDeallocationOtp(
-    clientId: string,
-    otpRequestId: string,
-    code: string,
-  ) {
-    const otp = await this.prisma.otpRequest.findFirst({
-      where: {
-        id: otpRequestId,
-        clientId,
-        status: OtpStatus.PENDING,
-        purpose: {
-          in: [OtpPurpose.HANDOVER_RIDER, OtpPurpose.HANDOVER_OPERATOR],
-        },
-      },
-    });
-    if (!otp) {
-      throw new UnauthorizedException('Invalid deallocation OTP request.');
-    }
-
-    if (otp.expiresAt <= new Date()) {
-      await this.prisma.otpRequest.update({
-        where: { id: otp.id },
-        data: { status: OtpStatus.EXPIRED },
-      });
-      throw new UnauthorizedException('Deallocation OTP has expired.');
-    }
-
-    if (!this.verifySecret(code, otp.otpHash)) {
-      const attempts = otp.attempts + 1;
-      await this.prisma.otpRequest.update({
-        where: { id: otp.id },
-        data: {
-          attempts,
-          status:
-            attempts >= otp.maxAttempts ? OtpStatus.FAILED : OtpStatus.PENDING,
-        },
-      });
-      throw new UnauthorizedException('Invalid deallocation OTP.');
-    }
-
-    const updated = await this.prisma.otpRequest.updateMany({
-      where: { id: otp.id, status: OtpStatus.PENDING },
-      data: { status: OtpStatus.VERIFIED, verifiedAt: new Date() },
-    });
-    if (updated.count !== 1) {
-      throw new UnauthorizedException('OTP has already been used.');
-    }
-    return { verified: true };
-  }
-
   async requestVehicleSubmissionOtp(
     clientId: string,
     reportId: string,
     digest: string,
-    party: "RIDER" | "TEAM_LEAD",
+    party: 'RIDER' | 'TEAM_LEAD',
     recipientId: string,
     phone: string,
   ) {
     const report = await this.prisma.vehicleSubmissionReport.findFirst({
-      where: { id: reportId, clientId, status: "SUBMITTED", digest },
+      where: { id: reportId, clientId, status: 'SUBMITTED', digest },
     });
     if (!report)
       throw new UnauthorizedException(
-        "Submission report is no longer current.",
+        'Submission report is no longer current.',
       );
     const purpose =
-      party === "RIDER"
+      party === 'RIDER'
         ? OtpPurpose.HANDOVER_RIDER
         : OtpPurpose.HANDOVER_OPERATOR;
     const recent = await this.prisma.otpRequest.findFirst({
@@ -375,11 +311,11 @@ export class AuthService {
         clientId,
         phone,
         purpose,
-        status: "PENDING",
+        status: 'PENDING',
         createdAt: {
           gte: new Date(
             Date.now() -
-              this.config.getOrThrow<number>("OTP_RESEND_COOLDOWN_SECONDS") *
+              this.config.getOrThrow<number>('OTP_RESEND_COOLDOWN_SECONDS') *
                 1000,
           ),
         },
@@ -387,29 +323,27 @@ export class AuthService {
     });
     if (recent)
       throw new HttpException(
-        "Please wait before requesting another OTP.",
+        'Please wait before requesting another OTP.',
         HttpStatus.TOO_MANY_REQUESTS,
       );
     await this.prisma.otpRequest.updateMany({
       where: {
         clientId,
         purpose,
-        status: "PENDING",
-        context: { path: ["reportId"], equals: reportId },
+        status: 'PENDING',
+        context: { path: ['reportId'], equals: reportId },
       },
-      data: { status: "CANCELLED" },
+      data: { status: 'CANCELLED' },
     });
-    const code = this.generateOtpCode();
+    const code = this.otpSecurity.generateCode();
     const otp = await this.prisma.otpRequest.create({
       data: {
         clientId,
         purpose,
         phone,
-        otpHash: this.hashSecret(code),
-        expiresAt: new Date(
-          Date.now() + this.config.getOrThrow<number>("OTP_TTL_SECONDS") * 1000,
-        ),
-        maxAttempts: this.config.getOrThrow<number>("OTP_MAX_ATTEMPTS"),
+        otpHash: this.otpSecurity.hash(code),
+        expiresAt: this.otpSecurity.expiresAt(),
+        maxAttempts: this.config.getOrThrow<number>('OTP_MAX_ATTEMPTS'),
         context: { reportId, digest, party, recipientId },
       },
       select: { id: true, expiresAt: true },
@@ -419,10 +353,10 @@ export class AuthService {
     } catch {
       await this.prisma.otpRequest.update({
         where: { id: otp.id },
-        data: { status: "FAILED" },
+        data: { status: 'FAILED' },
       });
       throw new ServiceUnavailableException(
-        "SMS delivery is temporarily unavailable.",
+        'SMS delivery is temporarily unavailable.',
       );
     }
     return { otpRequestId: otp.id, expiresAt: otp.expiresAt };
@@ -435,7 +369,7 @@ export class AuthService {
     expected: {
       reportId: string;
       digest: string;
-      party: "RIDER" | "TEAM_LEAD";
+      party: 'RIDER' | 'TEAM_LEAD';
       recipientId: string;
       phone: string;
     },
@@ -443,13 +377,13 @@ export class AuthService {
   ) {
     const outcome = await this.serializable(async (tx) => {
       const purpose =
-        expected.party === "RIDER"
+        expected.party === 'RIDER'
           ? OtpPurpose.HANDOVER_RIDER
           : OtpPurpose.HANDOVER_OPERATOR;
       const otp = await tx.otpRequest.findFirst({
-        where: { id: requestId, clientId, purpose, status: "PENDING" },
+        where: { id: requestId, clientId, purpose, status: 'PENDING' },
       });
-      if (!otp) return "MISSING";
+      if (!otp) return 'MISSING';
       const context = otp.context as Record<string, unknown> | null;
       if (
         !context ||
@@ -459,43 +393,43 @@ export class AuthService {
         context.recipientId !== expected.recipientId ||
         otp.phone !== expected.phone
       )
-        return "STALE";
+        return 'STALE';
       if (otp.expiresAt <= new Date()) {
         await tx.otpRequest.update({
           where: { id: otp.id },
-          data: { status: "EXPIRED" },
+          data: { status: 'EXPIRED' },
         });
-        return "EXPIRED";
+        return 'EXPIRED';
       }
-      if (!this.verifySecret(code, otp.otpHash)) {
+      if (!this.otpSecurity.verify(code, otp.otpHash)) {
         const attempts = otp.attempts + 1;
         await tx.otpRequest.update({
           where: { id: otp.id },
           data: {
             attempts,
-            status: attempts >= otp.maxAttempts ? "FAILED" : "PENDING",
+            status: attempts >= otp.maxAttempts ? 'FAILED' : 'PENDING',
           },
         });
-        return "INVALID";
+        return 'INVALID';
       }
       const report = await tx.vehicleSubmissionReport.findFirst({
         where: {
           id: expected.reportId,
           clientId,
-          status: "SUBMITTED",
+          status: 'SUBMITTED',
           digest: expected.digest,
         },
       });
-      if (!report) return "STALE";
+      if (!report) return 'STALE';
       const consumed = await tx.otpRequest.updateMany({
-        where: { id: otp.id, status: "PENDING" },
-        data: { status: "VERIFIED", verifiedAt: new Date() },
+        where: { id: otp.id, status: 'PENDING' },
+        data: { status: 'VERIFIED', verifiedAt: new Date() },
       });
-      if (consumed.count !== 1) return "USED";
+      if (consumed.count !== 1) return 'USED';
       await tx.vehicleSubmissionReport.update({
         where: { id: report.id },
         data:
-          expected.party === "RIDER"
+          expected.party === 'RIDER'
             ? {
                 riderOtpRequestId: otp.id,
                 riderVerifiedUserId: expected.recipientId,
@@ -509,8 +443,8 @@ export class AuthService {
         data: {
           clientId,
           actorId,
-          action: "VEHICLE_SUBMISSION_OTP_VERIFIED",
-          entityType: "VehicleSubmission",
+          action: 'VEHICLE_SUBMISSION_OTP_VERIFIED',
+          entityType: 'VehicleSubmission',
           entityId: report.submissionId,
           newData: {
             reportId: report.id,
@@ -519,15 +453,15 @@ export class AuthService {
           },
         },
       });
-      return "VERIFIED";
+      return 'VERIFIED';
     });
-    if (outcome !== "VERIFIED")
+    if (outcome !== 'VERIFIED')
       throw new UnauthorizedException(
-        outcome === "INVALID"
-          ? "Invalid submission OTP."
-          : outcome === "EXPIRED"
-            ? "Submission OTP has expired."
-            : "Submission OTP is unavailable or no longer current.",
+        outcome === 'INVALID'
+          ? 'Invalid submission OTP.'
+          : outcome === 'EXPIRED'
+            ? 'Submission OTP has expired.'
+            : 'Submission OTP is unavailable or no longer current.',
       );
     return {
       verified: true,
@@ -548,7 +482,11 @@ export class AuthService {
       throw new UnauthorizedException('Invalid or expired refresh token.');
     }
 
-    if (payload.typ !== 'refresh' || !payload.sid || (expectedClientId && payload.clientId !== expectedClientId)) {
+    if (
+      payload.typ !== 'refresh' ||
+      !payload.sid ||
+      (expectedClientId && payload.clientId !== expectedClientId)
+    ) {
       throw new UnauthorizedException('Invalid refresh token.');
     }
 
@@ -562,7 +500,7 @@ export class AuthService {
     });
     if (
       !session ||
-      !this.verifySecret(refreshToken, session.refreshTokenHash)
+      !this.otpSecurity.verify(refreshToken, session.refreshTokenHash)
     ) {
       throw new UnauthorizedException('Refresh session is unavailable.');
     }
@@ -571,43 +509,61 @@ export class AuthService {
       where: { id: session.id, revokedAt: null, expiresAt: { gt: new Date() } },
       data: { revokedAt: new Date() },
     });
-    if (consumed.count !== 1) throw new UnauthorizedException('Refresh session has already been used.');
+    if (consumed.count !== 1)
+      throw new UnauthorizedException('Refresh session has already been used.');
     const user = await this.prisma.user.findFirst({
       where: { id: payload.id, isActive: true },
     });
-    if (!user || user.clientId !== (payload.clientId ?? null) || (expectedClientId && user.clientId !== expectedClientId)) {
+    if (
+      !user ||
+      user.clientId !== (payload.clientId ?? null) ||
+      (expectedClientId && user.clientId !== expectedClientId)
+    ) {
       throw new UnauthorizedException('Account is unavailable.');
     }
 
     return this.issueTokens(user, session.id);
   }
 
-  private generateOtpCode(): string {
-    return this.config.getOrThrow('NODE_ENV') === 'development' && this.config.getOrThrow('SMS_PROVIDER') === 'console'
-      ? '123456'
-      : randomInt(100_000, 1_000_000).toString();
-  }
-
-  async revokeSession(refreshToken: string, expectedClientId?: string): Promise<void> {
+  async revokeSession(
+    refreshToken: string,
+    expectedClientId?: string,
+  ): Promise<void> {
     const payload = await this.jwtService.verifyAsync<RefreshPayload>(
       refreshToken,
       {
         secret: this.config.getOrThrow('JWT_REFRESH_SECRET'),
       },
     );
-    if (expectedClientId && payload.clientId !== expectedClientId) throw new UnauthorizedException('Invalid refresh token.');
+    if (expectedClientId && payload.clientId !== expectedClientId)
+      throw new UnauthorizedException('Invalid refresh token.');
     if (payload.typ === 'refresh' && payload.sid && payload.id) {
       await this.prisma.session.updateMany({
         where: { id: payload.sid, userId: payload.id, revokedAt: null },
         data: { revokedAt: new Date() },
       });
-      await this.prisma.pushDevice.updateMany({ where: { userId: payload.id, sessionId: payload.sid, isActive: true }, data: { isActive: false, disabledReason: 'LOGGED_OUT' } });
+      await this.prisma.pushDevice.updateMany({
+        where: { userId: payload.id, sessionId: payload.sid, isActive: true },
+        data: { isActive: false, disabledReason: 'LOGGED_OUT' },
+      });
     }
   }
 
   private async issueTokens(user: User, previousSessionId?: string) {
-    if (user.deletedAt) throw new UnauthorizedException('Account is unavailable.');
-    if (user.clientId && !await this.prisma.client.findFirst({ where: { id: user.clientId, isActive: true, status: { notIn: ['DRAFT', 'SUSPENDED'] } }, select: { id: true } })) throw new UnauthorizedException('Account is unavailable.');
+    if (user.deletedAt)
+      throw new UnauthorizedException('Account is unavailable.');
+    if (
+      user.clientId &&
+      !(await this.prisma.client.findFirst({
+        where: {
+          id: user.clientId,
+          isActive: true,
+          status: { notIn: ['DRAFT', 'SUSPENDED'] },
+        },
+        select: { id: true },
+      }))
+    )
+      throw new UnauthorizedException('Account is unavailable.');
     const authUser: AuthUser = {
       id: user.id,
       clientId: user.clientId,
@@ -632,31 +588,22 @@ export class AuthService {
       data: {
         id: sessionId,
         userId: user.id,
-        refreshTokenHash: this.hashSecret(refreshToken),
+        refreshTokenHash: this.otpSecurity.hash(refreshToken),
         expiresAt: this.futureDate(this.config.getOrThrow('JWT_REFRESH_TTL')),
       },
     });
 
-    if (previousSessionId) await this.prisma.pushDevice.updateMany({
-      where: { userId: user.id, sessionId: previousSessionId, isActive: true },
-      data: { sessionId },
-    });
+    if (previousSessionId)
+      await this.prisma.pushDevice.updateMany({
+        where: {
+          userId: user.id,
+          sessionId: previousSessionId,
+          isActive: true,
+        },
+        data: { sessionId },
+      });
 
     return { accessToken, refreshToken, tokenType: 'Bearer' as const };
-  }
-
-  private hashSecret(value: string): string {
-    return createHmac('sha256', this.config.getOrThrow('OTP_HASH_SECRET'))
-      .update(value)
-      .digest('hex');
-  }
-
-  private verifySecret(value: string, hash: string): boolean {
-    const expected = Buffer.from(hash, 'hex');
-    const actual = Buffer.from(this.hashSecret(value), 'hex');
-    return (
-      expected.length === actual.length && timingSafeEqual(expected, actual)
-    );
   }
 
   private futureDate(ttl: string): Date {
