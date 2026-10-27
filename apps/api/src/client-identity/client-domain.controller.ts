@@ -14,7 +14,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
-import { CreateClientDomainDto } from './branding.dto.js';
+import { CreateClientDomainDto } from './client-domain.dto.js';
 import { ClientResolverService } from './client-resolver.service.js';
 import { normalizeHostname, validClientSlug } from './hostname.js';
 import { Resolver } from 'node:dns/promises';

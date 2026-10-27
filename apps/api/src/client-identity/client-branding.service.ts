@@ -20,11 +20,6 @@ import type {
 export const DEFAULT_BRANDING: PublicClientContext['branding'] = {
   logoUrl: null,
   faviconUrl: null,
-  primaryColor: '#176b4c',
-  secondaryColor: '#e4f2e9',
-  accentColor: '#27865f',
-  loginTitle: 'Welcome back',
-  loginSubtitle: 'Sign in to your EV fleet workspace.',
   supportEmail: null,
   supportPhone: null,
 };
@@ -45,7 +40,7 @@ export class ClientBrandingService {
       },
       select: {
         name: true,
-        branding: true,
+        branding: { select: { logoObjectKey: true, faviconObjectKey: true, supportEmail: true, supportPhone: true } },
         businessProfile: { select: { logoObjectKey: true } },
       },
     });
@@ -59,11 +54,6 @@ export class ClientBrandingService {
         faviconUrl: b?.faviconObjectKey
           ? await this.storage.createDownloadUrl(b.faviconObjectKey)
           : null,
-        primaryColor: b?.primaryColor ?? DEFAULT_BRANDING.primaryColor,
-        secondaryColor: b?.secondaryColor ?? DEFAULT_BRANDING.secondaryColor,
-        accentColor: b?.accentColor ?? DEFAULT_BRANDING.accentColor,
-        loginTitle: b?.loginTitle ?? DEFAULT_BRANDING.loginTitle,
-        loginSubtitle: b?.loginSubtitle ?? DEFAULT_BRANDING.loginSubtitle,
         supportEmail: b?.supportEmail ?? null,
         supportPhone: b?.supportPhone ?? null,
       },

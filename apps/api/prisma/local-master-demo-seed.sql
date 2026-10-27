@@ -7829,8 +7829,8 @@ COPY public."ClientBillingProfile" (id, "clientId", "billingContactName", "billi
 \.
 
 DELETE FROM public."ClientBranding";
-COPY public."ClientBranding" (id, "clientId", "logoObjectKey", "faviconObjectKey", "primaryColor", "secondaryColor", "accentColor", "loginTitle", "loginSubtitle", "supportEmail", "supportPhone", "createdAt", "updatedAt") FROM STDIN WITH CSV;
-081f1456-0dc7-49ff-acf5-ed93fc5dd93f,274978aa-19e9-4802-8791-05abe6244d9b,clients/d2f2a2b6-f6d1-4054-a786-d80fb2060b77/logo/8c6f77bc-ba09-425e-ba0f-43e1231f9f4e.jpg,,#176b4c,#e4f2e9,#27865f,Welcome back,Sign in to your EV fleet workspace.,,,2026-10-15 19:55:32.698,2026-10-15 20:06:39.156
+COPY public."ClientBranding" (id, "clientId", "logoObjectKey", "faviconObjectKey", "supportEmail", "supportPhone", "createdAt", "updatedAt") FROM STDIN WITH CSV;
+081f1456-0dc7-49ff-acf5-ed93fc5dd93f,274978aa-19e9-4802-8791-05abe6244d9b,clients/d2f2a2b6-f6d1-4054-a786-d80fb2060b77/logo/8c6f77bc-ba09-425e-ba0f-43e1231f9f4e.jpg,,,,2026-10-15 19:55:32.698,2026-10-15 20:06:39.156
 \.
 
 DELETE FROM public."ClientBusinessProfile";

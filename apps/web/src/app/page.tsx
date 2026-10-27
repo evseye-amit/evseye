@@ -2214,11 +2214,11 @@ export default function Home() {
             <div className="language-login-row"><LanguageSwitcher /></div>
             <ClientBrand companyCode={companyCode} landing />
             <p className="eyebrow">{t("SECURE OPERATIONS ACCESS")}</p>
-            <h2>{otpRequestId ? t("Verify your number") : t(appearance.branding.loginTitle)}</h2>
+            <h2>{otpRequestId ? t("Verify your number") : t("Welcome back")}</h2>
             <p className="muted">
               {otpRequestId
                 ? `${t("Enter the six-digit code sent to")} ${phone}.`
-                : t(appearance.branding.loginSubtitle)}
+                : t("Sign in to your EV fleet workspace.")}
             </p>
             {appearance.branding.supportEmail && <p><a href={`mailto:${appearance.branding.supportEmail}`}>{t("Contact support")}</a></p>}
             {appearance.branding.supportPhone && <p>{t("Support")}: {appearance.branding.supportPhone}</p>}

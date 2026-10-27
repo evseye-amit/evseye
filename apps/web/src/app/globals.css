@@ -4214,7 +4214,16 @@ body:has(.sa-dialog[open]) {
   }
 }
 
-.client-theme-root { min-height: 100vh; }
+.client-theme-root {
+  min-height: 100vh;
+  --green: #176b4c;
+  --green-dark: #176b4c;
+  --client-primary: #176b4c;
+  --client-on-primary: #ffffff;
+  --client-secondary: #e4f2e9;
+  --client-on-secondary: #000000;
+  --client-accent: #27865f;
+}
 .client-theme-root .client-login .auth-submit,
 .client-theme-root .client-operations-shell .sa-actions > button:not(.secondary):not(.danger),
 .client-theme-root .client-operations-shell .form-actions > button:not(.secondary):not(.danger) { background-color: var(--client-primary); color: var(--client-on-primary); }

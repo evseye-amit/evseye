@@ -4,7 +4,6 @@ import {
   useContext,
   useEffect,
   useState,
-  type CSSProperties,
   type ReactNode,
 } from "react";
 import {
@@ -46,31 +45,11 @@ export function ClientProvider({
       if (existing) document.head.appendChild(existing);
     };
   }, [b.faviconUrl]);
-  const safeColor = (value: string, fallback: string) =>
-    /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
-  const primary = safeColor(b.primaryColor, "#176b4c");
-  const foregroundFor = (color: string) => {
-    const channels = color.slice(1).match(/../g)!.map((part) => {
-      const c = parseInt(part, 16) / 255;
-      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-    });
-    return channels[0] * .2126 + channels[1] * .7152 + channels[2] * .0722 > .179 ? "#000000" : "#ffffff";
-  };
-  const secondary = safeColor(b.secondaryColor, "#e4f2e9");
-  const style = {
-    "--green": primary,
-    "--green-dark": primary,
-    "--client-primary": primary,
-    "--client-on-primary": foregroundFor(primary),
-    "--client-secondary": secondary,
-    "--client-on-secondary": foregroundFor(secondary),
-    "--client-accent": safeColor(b.accentColor, "#27865f"),
-  } as CSSProperties;
   return (
     <ClientAppearanceContext.Provider
       value={{ appearance, hostClient: Boolean(initial.client), setAppearance }}
     >
-      <div className="client-theme-root" style={style}>
+      <div className="client-theme-root">
         {children}
       </div>
     </ClientAppearanceContext.Provider>

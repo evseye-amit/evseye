@@ -27,7 +27,7 @@ export class PublicClientController {
   constructor(
     private readonly resolver: ClientResolverService,
     private readonly branding: ClientBrandingService,
-  ) {}
+  ) { }
   @Get('client-context')
   @Header('Cache-Control', 'no-store')
   async context(@Req() request: FastifyRequest) {
@@ -44,7 +44,7 @@ export class ClientBrandingController {
   constructor(
     private readonly branding: ClientBrandingService,
     private readonly clients: ClientContextService,
-  ) {}
+  ) { }
   @Get('context')
   @Header('Cache-Control', 'no-store')
   async context(@CurrentUser() user: AuthUser) {

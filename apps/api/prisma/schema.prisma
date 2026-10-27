@@ -3957,11 +3957,6 @@ model ClientBranding {
   client           Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   logoObjectKey    String?
   faviconObjectKey String?
-  primaryColor     String   @default("#176b4c")
-  secondaryColor   String   @default("#e4f2e9")
-  accentColor      String   @default("#27865f")
-  loginTitle       String   @default("Welcome back")
-  loginSubtitle    String   @default("Sign in to your EV fleet workspace.")
   supportEmail     String?
   supportPhone     String?
   createdAt        DateTime @default(now())
