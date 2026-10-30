@@ -90,36 +90,6 @@
     ]
   },
   {
-    "method": "POST",
-    "path": "/api/v1/allocations/{id}/deallocation/otp/request",
-    "operationId": "AllocationsController_otp",
-    "controllerClass": "AllocationsController",
-    "controllerFile": "apps/api/src/allocations/allocations.controller.ts",
-    "tags": [
-      "Client Operations · Allocation"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
-    "method": "POST",
-    "path": "/api/v1/allocations/{id}/deallocation/otp/verify",
-    "operationId": "AllocationsController_verifyOtp",
-    "controllerClass": "AllocationsController",
-    "controllerFile": "apps/api/src/allocations/allocations.controller.ts",
-    "tags": [
-      "Client Operations · Allocation"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
     "method": "GET",
     "path": "/api/v1/app/notifications",
     "operationId": "AppNotificationController_inbox",
@@ -465,21 +435,6 @@
   },
   {
     "method": "POST",
-    "path": "/api/v1/client/agreements/{agreementId}/return",
-    "operationId": "AgreementSettlementController_recordReturn",
-    "controllerClass": "AgreementSettlementController",
-    "controllerFile": "apps/api/src/final-settlement/final-settlement.controller.ts",
-    "tags": [
-      "Client Management · Onboarding"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
-    "method": "POST",
     "path": "/api/v1/client/agreements/{agreementId}/settlement",
     "operationId": "AgreementSettlementController_create",
     "controllerClass": "AgreementSettlementController",
@@ -497,21 +452,6 @@
     "method": "GET",
     "path": "/api/v1/client/agreements/{agreementId}/settlement/preview",
     "operationId": "AgreementSettlementController_preview",
-    "controllerClass": "AgreementSettlementController",
-    "controllerFile": "apps/api/src/final-settlement/final-settlement.controller.ts",
-    "tags": [
-      "Client Management · Onboarding"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
-    "method": "POST",
-    "path": "/api/v1/client/agreements/{agreementId}/termination",
-    "operationId": "AgreementSettlementController_termination",
     "controllerClass": "AgreementSettlementController",
     "controllerFile": "apps/api/src/final-settlement/final-settlement.controller.ts",
     "tags": [
@@ -1844,36 +1784,6 @@
     ]
   },
   {
-    "method": "POST",
-    "path": "/api/v1/client/return-penalty-prices",
-    "operationId": "ReturnPenaltyPriceController_create",
-    "controllerClass": "ReturnPenaltyPriceController",
-    "controllerFile": "apps/api/src/ride-returns/ride-returns.controller.ts",
-    "tags": [
-      "Client Operations · Ride Returns"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
-    "method": "PATCH",
-    "path": "/api/v1/client/return-penalty-prices/{id}",
-    "operationId": "ReturnPenaltyPriceController_update",
-    "controllerClass": "ReturnPenaltyPriceController",
-    "controllerFile": "apps/api/src/ride-returns/ride-returns.controller.ts",
-    "tags": [
-      "Client Operations · Ride Returns"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
     "method": "GET",
     "path": "/api/v1/client/rewards/claims",
     "operationId": "ClientRewardController_claims",
@@ -2069,114 +1979,9 @@
     ]
   },
   {
-    "method": "GET",
-    "path": "/api/v1/client/ride-returns",
-    "operationId": "RideReturnsController_list",
-    "controllerClass": "RideReturnsController",
-    "controllerFile": "apps/api/src/ride-returns/ride-returns.controller.ts",
-    "tags": [
-      "Client Operations · Ride Returns"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
     "method": "POST",
     "path": "/api/v1/client/ride-returns",
     "operationId": "RideReturnsController_create",
-    "controllerClass": "RideReturnsController",
-    "controllerFile": "apps/api/src/ride-returns/ride-returns.controller.ts",
-    "tags": [
-      "Client Operations · Ride Returns"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
-    "method": "GET",
-    "path": "/api/v1/client/ride-returns/{id}",
-    "operationId": "RideReturnsController_get",
-    "controllerClass": "RideReturnsController",
-    "controllerFile": "apps/api/src/ride-returns/ride-returns.controller.ts",
-    "tags": [
-      "Client Operations · Ride Returns"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
-    "method": "PUT",
-    "path": "/api/v1/client/ride-returns/{id}/penalties",
-    "operationId": "RideReturnsController_replacePenalties",
-    "controllerClass": "RideReturnsController",
-    "controllerFile": "apps/api/src/ride-returns/ride-returns.controller.ts",
-    "tags": [
-      "Client Operations · Ride Returns"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
-    "method": "POST",
-    "path": "/api/v1/client/ride-returns/{id}/penalties/approve",
-    "operationId": "RideReturnsController_approvePenalties",
-    "controllerClass": "RideReturnsController",
-    "controllerFile": "apps/api/src/ride-returns/ride-returns.controller.ts",
-    "tags": [
-      "Client Operations · Ride Returns"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
-    "method": "POST",
-    "path": "/api/v1/client/ride-returns/{id}/penalties/override-rider-approval",
-    "operationId": "RideReturnsController_overridePenalties",
-    "controllerClass": "RideReturnsController",
-    "controllerFile": "apps/api/src/ride-returns/ride-returns.controller.ts",
-    "tags": [
-      "Client Operations · Ride Returns"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
-    "method": "POST",
-    "path": "/api/v1/client/ride-returns/{id}/penalties/submit",
-    "operationId": "RideReturnsController_submitPenalties",
-    "controllerClass": "RideReturnsController",
-    "controllerFile": "apps/api/src/ride-returns/ride-returns.controller.ts",
-    "tags": [
-      "Client Operations · Ride Returns"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
-    "method": "POST",
-    "path": "/api/v1/client/ride-returns/{id}/receive",
-    "operationId": "RideReturnsController_receive",
     "controllerClass": "RideReturnsController",
     "controllerFile": "apps/api/src/ride-returns/ride-returns.controller.ts",
     "tags": [
@@ -5715,7 +5520,7 @@
   },
   {
     "method": "PUT",
-    "path": "/api/v1/media/photo-requirements/{entityType}/{photoType}",
+    "path": "/api/v1/media/photo-requirements/{workFlowType}/{subjectType}/{photoType}",
     "operationId": "MediaController_upsertRequirement",
     "controllerClass": "MediaController",
     "controllerFile": "apps/api/src/media/media.controller.ts",
@@ -8806,9 +8611,9 @@
   {
     "method": "GET",
     "path": "/api/v1/public/client-context",
-    "operationId": "PublicClientController_context",
-    "controllerClass": "PublicClientController",
-    "controllerFile": "apps/api/src/client-identity/client-branding.controller.ts",
+    "operationId": "PublicClientContextController_context",
+    "controllerClass": "PublicClientContextController",
+    "controllerFile": "apps/api/src/client-identity/public-client-context.controller.ts",
     "tags": [
       "Client Management · Domains & Branding"
     ],
@@ -9800,51 +9605,6 @@
     "method": "POST",
     "path": "/api/v1/rider-app/ride-returns/{id}/cancel",
     "operationId": "RiderRideReturnsController_cancel",
-    "controllerClass": "RiderRideReturnsController",
-    "controllerFile": "apps/api/src/ride-returns/ride-returns.controller.ts",
-    "tags": [
-      "Rider App"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
-    "method": "POST",
-    "path": "/api/v1/rider-app/ride-returns/{id}/penalties/dispute",
-    "operationId": "RiderRideReturnsController_dispute",
-    "controllerClass": "RiderRideReturnsController",
-    "controllerFile": "apps/api/src/ride-returns/ride-returns.controller.ts",
-    "tags": [
-      "Rider App"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
-    "method": "POST",
-    "path": "/api/v1/rider-app/ride-returns/{id}/penalties/otp/request",
-    "operationId": "RiderRideReturnsController_requestOtp",
-    "controllerClass": "RiderRideReturnsController",
-    "controllerFile": "apps/api/src/ride-returns/ride-returns.controller.ts",
-    "tags": [
-      "Rider App"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
-    "method": "POST",
-    "path": "/api/v1/rider-app/ride-returns/{id}/penalties/otp/verify",
-    "operationId": "RiderRideReturnsController_verifyOtp",
     "controllerClass": "RiderRideReturnsController",
     "controllerFile": "apps/api/src/ride-returns/ride-returns.controller.ts",
     "tags": [

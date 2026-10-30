@@ -65,11 +65,7 @@ const mobile = new MobileDeploymentService(
   {} as never,
   commercial,
 );
-const returns = new RideReturnsService(
-  db as never,
-  allocations,
-  {} as never,
-);
+const returns = new RideReturnsService(db as never);
 const billing = new RiderBillingEngineService(
   db as never,
   new RiderPaymentsService(db as never),

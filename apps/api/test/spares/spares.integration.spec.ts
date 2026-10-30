@@ -1,7 +1,6 @@
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
-import { RideReturnsService } from '../../src/ride-returns/ride-returns.service.js';
 import { SparesService } from '../../src/spares/spares.service.js';
 import { copyActiveSpareMasters } from '../../src/spares/spares-copy.js';
 import { PlatformAdminService } from '../../src/platform-admin/platform-admin.service.js';
@@ -309,43 +308,6 @@ describe.skipIf(!url)('Spares catalogue in PostgreSQL', () => {
     expect(all.data.every((p) => p.version === 1 && p.evidenceRequired)).toBe(
       true,
     );
-  });
-  it('keeps operational penalty APIs versioned and prevents them from editing spare copies', async () => {
-    const f = await fixture();
-    const returns = new RideReturnsService(
-      db as never,
-      {} as never,
-      {} as never,
-    );
-    const row = await returns.createPrice(f.client.id, f.actor.id, {
-      code: code(),
-      category: 'DAMAGE',
-      description: 'Operational fee',
-      amount: '25.00',
-      currency: 'INR',
-    });
-    const updated = await returns.updatePrice(f.client.id, f.actor.id, row.id, {
-      amount: '30.00',
-    });
-    expect(updated.configurationVersion).toBe(2);
-    expect(updated.amount.toFixed(2)).toBe('30.00');
-    expect(await service.history(f.actor, row.id, f.client.id)).toHaveLength(2);
-    const spare = await service.createClientSpare(f.client.id, f.actor, {
-      code: code(),
-      ...metadata,
-    });
-    await expect(
-      returns.updatePrice(f.client.id, f.actor.id, spare.id, { amount: '999' }),
-    ).rejects.toThrow('Spares & Penalties');
-    await expect(
-      returns.createPrice(f.client.id, f.actor.id, {
-        code: spare.code,
-        category: 'DAMAGE',
-        description: 'Shadow spare',
-        amount: '5',
-        currency: 'INR',
-      }),
-    ).rejects.toThrow('already used');
   });
   it('bulk imports master spares with row failures, durable history and duplicate protection', async () => {
     const root = await db.user.create({ data: { role: 'SUPER_ADMIN', name: 'Import admin', mobile: '+919000000099' } });
