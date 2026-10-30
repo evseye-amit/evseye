@@ -4,7 +4,6 @@ import { RiderBillingModule } from '../rider-billing/rider-billing.module.js';
 import { RiderRateCardsModule } from '../rider-rate-cards/rider-rate-cards.module.js';
 import { PaymentsModule } from '../payments/payments.module.js';
 import { FinalSettlementService } from './final-settlement.service.js';
-import { RideReturnsModule } from '../ride-returns/ride-returns.module.js';
 import {
   AgreementSettlementController,
   FinalSettlementController,
@@ -19,7 +18,6 @@ import {
     RiderBillingModule,
     RiderRateCardsModule,
     PaymentsModule,
-    RideReturnsModule,
   ],
   providers: [FinalSettlementService],
   controllers: [

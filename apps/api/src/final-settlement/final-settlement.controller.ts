@@ -18,7 +18,6 @@ import { ClientContextService } from '../auth/client-context.service.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { RiderBillingService } from '../rider-billing/rider-billing.service.js';
 import { FinalSettlementService } from './final-settlement.service.js';
-import { RideReturnsService } from '../ride-returns/ride-returns.service.js';
 
 @Controller('client/agreements/:agreementId')
 @UseGuards(AccessTokenGuard, RolesGuard)
@@ -27,7 +26,6 @@ export class AgreementSettlementController {
   constructor(
     private readonly context: ClientContextService,
     private readonly service: FinalSettlementService,
-    private readonly returns: RideReturnsService,
   ) {}
   @Get('settlement/preview') preview(
     @CurrentUser() u: AuthUser,
@@ -35,29 +33,6 @@ export class AgreementSettlementController {
   ) {
     return this.service
       .preview(this.context.requireClientId(u), id)
-      .then((data) => ({ data }));
-  }
-  @Post('termination') termination(
-    @CurrentUser() u: AuthUser,
-    @Param('agreementId') id: string,
-    @Headers('idempotency-key') key: string,
-    @Body()
-    body: {
-      requestedTerminationDate: string;
-      reasonCode: string;
-      reasonText?: string;
-    },
-  ) {
-    return this.returns
-      .legacyRequest(this.context.requireClientId(u), id, u.id, key, body)
-      .then((data) => ({ data }));
-  }
-  @Post('return') recordReturn(
-    @CurrentUser() u: AuthUser,
-    @Param('agreementId') id: string,
-  ) {
-    return this.returns
-      .legacyReceive(this.context.requireClientId(u), id, u.id)
       .then((data) => ({ data }));
   }
   @Post('settlement') create(

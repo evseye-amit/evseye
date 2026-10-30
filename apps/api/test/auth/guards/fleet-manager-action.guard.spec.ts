@@ -5,7 +5,6 @@ import type { ExecutionContext } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { FleetManagerActionGuard } from '../../../src/auth/guards/fleet-manager-action.guard.js';
 import { ClientContextService } from '../../../src/auth/client-context.service.js';
-import { RideReturnsController } from '../../../src/ride-returns/ride-returns.controller.js';
 import { VehicleSubmissionController } from '../../../src/vehicle-submissions/submission.controller.js';
 
 function setup() {
@@ -42,7 +41,7 @@ function setup() {
   };
 }
 function context(
-  controller: typeof RideReturnsController | typeof VehicleSubmissionController,
+  controller: typeof VehicleSubmissionController,
   handler: Function,
 ) {
   return {
@@ -60,11 +59,6 @@ function context(
 }
 describe('Return and submission actions require the scooter current hub', () => {
   it.each([
-    [
-      'return receipt',
-      RideReturnsController,
-      RideReturnsController.prototype.receive,
-    ],
     [
       'return intake',
       VehicleSubmissionController,

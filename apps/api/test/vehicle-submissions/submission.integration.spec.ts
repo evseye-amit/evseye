@@ -232,11 +232,7 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
       },
     });
     await db.allocation.update({ where: { id: allocation.id }, data: { commercialOfferId: offer.id, rentalAgreementId: agreement.id } });
-    const returns = new RideReturnsService(
-      prisma,
-      allocations,
-      new RiderBillingService(prisma),
-    );
+    const returns = new RideReturnsService(prisma);
     const riderActor: AuthUser = {
       id: riderUser.id,
       clientId: client.id,
@@ -273,12 +269,6 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
       clientId: client.id,
       roles: ['FLEET_MANAGER'],
     };
-    if (source === 'RETURN')
-      await expect(
-        returns.receive(client.id, actor, request.id, {
-          receivedHubId: hub.id,
-        }),
-      ).rejects.toThrow('submission workflow');
     const submission = await service.start(
       client.id,
       actor,
