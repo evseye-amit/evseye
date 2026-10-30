@@ -44,6 +44,7 @@ describe('InspectionsService', () => {
         subjectType: 'FLEET',
         entityId: 'inspection-1',
         status: PhotoStatus.COMPLETE,
+        workFlowType: 'FLEET_SUBMISSION',
       },
       select: { photoType: true },
     });
@@ -118,8 +119,9 @@ describe('InspectionsService', () => {
       rentalTerminationRequest: {
         findFirst: vi.fn().mockResolvedValue({ id: 'return-1' }),
       },
-      allocation: { update: vi.fn() },
+      allocation: { update: vi.fn(), findFirst: vi.fn().mockResolvedValue({ id: 'allocation-1' }) },
       fleet: { update: vi.fn() },
+      userHub: { findMany: vi.fn().mockResolvedValue([{ hubId: 'hub-a' }]) },
     };
     const prisma = {
       inspection: {
