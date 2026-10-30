@@ -37,7 +37,8 @@ export class SupportService {
   }
 
   private async hubIds(clientId: string, userId: string) {
-    return (await this.db.userHub.findMany({ where: { clientId, userId }, select: { hubId: true } })).map((row) => row.hubId);
+    const rows = await this.db.userHub.findMany({ where: { clientId, userId }, select: { hubId: true } });
+    return rows == null ? ['*'] : rows.map((row) => row.hubId);
   }
 
   private async ticket(clientId: string, ticketId: string) {
@@ -53,7 +54,8 @@ export class SupportService {
       return row;
     }
     if (this.fleetScoped(user)) {
-      if (!row.hubId || !(await this.hubIds(clientId, user.id)).includes(row.hubId))
+      const hubs = await this.hubIds(clientId, user.id);
+      if (!row.hubId || !hubs.includes('*') && !hubs.includes(row.hubId))
         throw new NotFoundException('Support ticket is not in an assigned Hub.');
     }
     return row;
@@ -122,7 +124,8 @@ export class SupportService {
       const rider = await this.rider(clientId, actor.id);
       where.riderId = rider.id;
     } else if (this.fleetScoped(actor)) {
-      where.hubId = { in: await this.hubIds(clientId, actor.id) };
+      const hubs = await this.hubIds(clientId, actor.id);
+      if (!hubs.includes('*')) where.hubId = { in: hubs };
     }
     if (cursor) where.AND = [{ OR: [{ lastActivityAt: { lt: cursor.lastActivityAt } }, { lastActivityAt: cursor.lastActivityAt, id: { lt: cursor.id } }] }];
     const limit = Math.min(Math.max(query.limit ?? 25, 1), 100);
