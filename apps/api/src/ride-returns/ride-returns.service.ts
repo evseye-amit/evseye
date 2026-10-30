@@ -241,7 +241,7 @@ export class RideReturnsService {
             existingByKey.plannedHubId !== input.plannedHubId
           )
             fail('RETURN_ALREADY_REQUESTED');
-          if (source === 'STAFF' && this.fleetScoped(actor)) {
+          if (source === 'STAFF' && this.fleetScoped(actor) && existingByKey.status !== 'RETURNED') {
             const allocation = await tx.allocation.findFirst({
               where: { id: existingByKey.allocationId ?? '', clientId, riderId: rider.id },
               include: { fleet: { select: { currentHubId: true } } },

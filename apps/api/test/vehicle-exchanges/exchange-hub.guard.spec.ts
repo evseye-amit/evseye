@@ -191,9 +191,9 @@ describe('Fleet Manager exchange access', () => {
     );
   });
   it('retains client-wide access for existing admin and operations roles', async () => {
-    for (const role of [UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER]) {
+    for (const role of [UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER]) {
       const f = fixture();
-      f.request.user.roles = [UserRole.FLEET_MANAGER, role];
+      f.request.user.roles = [role];
       expect(await f.guard.canActivate(context(f.request))).toBe(true);
       expect(f.db.userHub.findMany).not.toHaveBeenCalled();
     }
