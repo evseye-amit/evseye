@@ -75,17 +75,13 @@ test("quantity columns use finite numeric filtering", () => {
   assert.equal(result.activeCount, 2);
 });
 
-test("Client Feature Usage maps Quantity to a numeric filter", () => {
-  const source = readFileSync(new URL("../../../../src/app/platform/dashboard/page.tsx", import.meta.url), "utf8");
-  const usageView = source.slice(
-    source.indexOf("function ClientFeatureUsageView"),
-    source.indexOf("function DataTable"),
-  );
+test("client feature usage ledger displays quantity values", () => {
+  const source = readFileSync(new URL("../../../../src/app/components/client-commercial-settings.tsx", import.meta.url), "utf8");
+  const ledgerStart = source.indexOf('{(!section || section === "ledger") && <section');
+  const ledgerView = source.slice(ledgerStart, source.indexOf("</section>", ledgerStart));
 
-  assert.match(
-    usageView,
-    /columnFilters=\{\[\s*\{ type: "text" \},\s*\{ type: "text" \},\s*\{ type: "text" \},\s*\{ type: "number" \},\s*\{ type: "text" \},/,
-  );
+  assert.match(ledgerView, /headings=\{\["When", "Feature", "Transaction", "Source", "Quantity", "Balance after", "Reference"\]\}/);
+  assert.match(ledgerView, /number\(item\.quantity\)/);
 });
 
 test("numeric controls keep full accessible names while desktop label text is hidden", () => {
