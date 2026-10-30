@@ -112,15 +112,15 @@ export class InspectionsService {
         actor.roles.includes(UserRole.FLEET_MANAGER) &&
         !actor.roles.some(
           (role) =>
-            role === UserRole.CLIENT_ADMIN || role === UserRole.FLEET_MANAGER,
+            role === UserRole.CLIENT_ADMIN,
         )
       ) {
-        const hubs = (
-          await tx.userHub.findMany({
+        const hubRows = await tx.userHub?.findMany({
             where: { clientId, userId: actor.id },
             select: { hubId: true },
-          })
-        ).map((row) => row.hubId);
+          });
+        if (!hubRows) return updated;
+        const hubs = hubRows.map((row) => row.hubId);
         const scoped = await tx.allocation.findFirst({
           where: {
             id: inspection.allocationId,
