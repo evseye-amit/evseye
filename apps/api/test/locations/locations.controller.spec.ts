@@ -11,7 +11,8 @@ describe('LocationsController authorization', () => {
       UserRole.FLEET_MANAGER,
     ]);
     for (const method of ['createHub', 'updateHub', 'deleteHub', 'bulkHubs']) {
-      expect(Reflect.getMetadata(ROLES_KEY, (LocationsController.prototype as Record<string, unknown>)[method])).toEqual([
+      const handler = (LocationsController.prototype as unknown as Record<string, object>)[method];
+      expect(Reflect.getMetadata(ROLES_KEY, handler)).toEqual([
         UserRole.CLIENT_ADMIN,
       ]);
     }
