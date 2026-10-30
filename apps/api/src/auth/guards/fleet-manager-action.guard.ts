@@ -42,9 +42,7 @@ export class FleetManagerActionGuard implements CanActivate {
     if (
       ['GET', 'HEAD', 'OPTIONS'].includes(request.method) ||
       !actor?.roles.includes('FLEET_MANAGER') ||
-      actor.roles.some(
-        (r) => r === 'CLIENT_ADMIN' || r === 'FLEET_MANAGER',
-      )
+      actor.roles.includes('CLIENT_ADMIN')
     )
       return true;
     const clientId = this.clients.requireClientId(actor);

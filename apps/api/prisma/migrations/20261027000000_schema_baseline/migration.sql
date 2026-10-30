@@ -2837,6 +2837,10 @@ CREATE TABLE "AttendancePeriod" (
     CONSTRAINT "AttendancePeriod_pkey" PRIMARY KEY ("id")
 );
 
+ALTER TABLE "AttendancePeriod"
+  ADD CONSTRAINT "AttendancePeriod_checkOutAt_checkInAt_check"
+  CHECK ("checkOutAt" IS NULL OR "checkOutAt" > "checkInAt");
+
 -- CreateTable
 CREATE TABLE "AuditLog" (
     "id" BIGSERIAL NOT NULL,

@@ -79,6 +79,7 @@ describe('RideReturnsService request reason boundary', () => {
     };
     context.db.rider.findFirst.mockResolvedValue({ id: 'rider-1', status: 'ACTIVE' });
     context.db.hub.findFirst.mockResolvedValue({ id: 'hub-1' });
+    context.tx.allocation.findFirst.mockResolvedValue({ fleet: { currentHubId: 'hub-1' } });
     context.tx.riderRentalAgreement.findMany.mockResolvedValue([{
       id: 'agreement-1',
       riderId: 'rider-1',
