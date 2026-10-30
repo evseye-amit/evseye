@@ -94,7 +94,7 @@ export class ClientOnboardingService {
     }
     const progress = await this.progress(clientId);
     const now = new Date();
-    const record = await this.prisma.clientOnboardingStepRecord.update({
+    await this.prisma.clientOnboardingStepRecord.update({
       where: { progressId_step: { progressId: progress.id, step } },
       data: {
         status,

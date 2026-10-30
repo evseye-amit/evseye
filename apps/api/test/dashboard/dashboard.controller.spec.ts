@@ -1,0 +1,28 @@
+import { describe, expect, it, vi } from 'vitest';
+import { DashboardController } from '../../src/dashboard/dashboard.controller.js';
+
+describe('DashboardController', () => {
+  it('resolves the service result before wrapping it in the API response', async () => {
+    const summary = {
+      fleet: { AVAILABLE: 1 },
+      riders: { ACTIVE: 1 },
+      kyc: { PENDING: 1 },
+      operations: {
+        allocationsToday: 0,
+        deallocationsToday: 0,
+        activeAllocations: 0,
+      },
+      iot: { online: 0, offline: 0 },
+    };
+    const dashboard = { summary: vi.fn().mockResolvedValue(summary) };
+    const clients = { requireClientId: vi.fn().mockReturnValue('client-1') };
+    const controller = new DashboardController(
+      dashboard as never,
+      clients as never,
+    );
+
+    await expect(
+      controller.summary({ id: 'user-1', clientId: 'client-1', roles: [] }),
+    ).resolves.toEqual({ data: summary });
+  });
+});

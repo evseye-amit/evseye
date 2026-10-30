@@ -1,4 +1,4 @@
-import { IsBoolean, IsInt, IsOptional, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class UpsertPhotoRequirementDto {
   @IsBoolean()
@@ -8,4 +8,9 @@ export class UpsertPhotoRequirementDto {
   @IsInt()
   @Min(0)
   sortOrder?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  featureCode?: string;
 }

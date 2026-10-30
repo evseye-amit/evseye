@@ -1,0 +1,548 @@
+import { ValidationPipe } from '@nestjs/common';
+import { PhotoStatus } from '@prisma/client';
+import { describe, expect, it, vi } from 'vitest';
+import { SubmitPdiDto } from '../../src/allocations/dto/mobile-deployment.dto.js';
+import { MobileDeploymentService } from '../../src/allocations/mobile-deployment.service.js';
+
+describe('MobileDeploymentService.fleetRequests', () => {
+  it('loads completed fleet evidence from Photo without including a nonexistent Fleet relation', async () => {
+    const requests = [
+      {
+        id: 'allocation-1',
+        fleetId: 'fleet-1',
+        fleet: { id: 'fleet-1', iotDevice: null },
+      },
+      {
+        id: 'allocation-2',
+        fleetId: 'fleet-2',
+        fleet: { id: 'fleet-2', iotDevice: null },
+      },
+    ];
+    const photos = [
+      { id: 'photo-2', entityId: 'fleet-2', photoType: 'FRONT' },
+      { id: 'photo-1', entityId: 'fleet-1', photoType: 'REAR' },
+    ];
+    const prisma = {
+      userHub: { findMany: vi.fn().mockResolvedValue([{ hubId: 'hub-1' }]) },
+      allocation: { findMany: vi.fn().mockResolvedValue(requests) },
+      photo: { findMany: vi.fn().mockResolvedValue(photos) },
+    };
+    const service = new MobileDeploymentService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { activateInTransaction: vi.fn() } as never,
+    );
+
+    const result = await service.fleetRequests('client-1', 'manager-1');
+
+    expect(prisma.allocation.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: {
+          rider: true,
+          fleet: { include: {
+            iotDevice: true,
+            batteryHistory: {
+              where: { removedAt: null, battery: { clientId: 'client-1' } },
+              orderBy: { installedAt: 'asc' },
+              select: { battery: { select: { batteryType: true, serialNumber: true } } },
+            },
+          } },
+          mobileDeployment: true,
+        },
+      }),
+    );
+    expect(prisma.photo.findMany).toHaveBeenCalledWith({
+      where: {
+        clientId: 'client-1',
+        subjectType: 'FLEET',
+        workFlowType: 'FLEET_INSPECTION',
+        entityId: { in: ['fleet-1', 'fleet-2'] },
+        status: PhotoStatus.COMPLETE,
+      },
+      orderBy: { uploadedAt: 'asc' },
+    });
+    expect(
+      result.map((request) => request.fleet.photos.map((photo) => photo.id)),
+    ).toEqual([['photo-1'], ['photo-2']]);
+  });
+});
+
+describe('MobileDeploymentService.requestFleet', () => {
+  it.each([null, { lastHeartbeatAt: null }, { lastHeartbeatAt: new Date(0) }])(
+    'allows deployment with missing or stale IoT: %j',
+    async (iotDevice) => {
+      const prisma = {
+        client: { findUniqueOrThrow: vi.fn().mockResolvedValue({ fleetOperatingMode: 'SIMPLE' }) },
+        userHub: { findMany: vi.fn().mockResolvedValue([{ hubId: 'hub-1' }]) },
+        allocation: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'allocation-1',
+            fleetId: 'fleet-1',
+            fleet: { iotDevice },
+          }),
+        },
+        mobileDeploymentWorkflow: {
+          upsert: vi
+            .fn()
+            .mockResolvedValue({ id: 'workflow-1', status: 'RIDER_WAITING' }),
+          update: vi
+            .fn()
+            .mockResolvedValue({ id: 'workflow-1', status: 'FLEET_REQUESTED' }),
+        },
+        photoRequirement: { findMany: vi.fn().mockResolvedValue([{ photoType: 'FRONT' }]) },
+        photo: { findMany: vi.fn().mockResolvedValue([]) },
+      };
+      const service = new MobileDeploymentService(
+        prisma as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        { activateInTransaction: vi.fn() } as never,
+      );
+      await expect(
+        service.requestFleet('client-1', 'manager-1', 'allocation-1'),
+      ).resolves.toMatchObject({ status: 'FLEET_REQUESTED' });
+      expect(prisma.photoRequirement.findMany).not.toHaveBeenCalled();
+      prisma.client.findUniqueOrThrow.mockResolvedValue({ fleetOperatingMode: 'ONBOARDING_EVIDENCE' });
+      await expect(service.requestFleet('client-1', 'manager-1', 'allocation-1')).resolves.toMatchObject({ status: 'FLEET_REQUESTED' });
+    },
+  );
+});
+
+describe('mobile PDI submission', () => {
+  it('advances the allocation together with the completed inspection and rider workflow', async () => {
+    const tx = {
+      inspection: { update: vi.fn().mockResolvedValue({}) },
+      allocation: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      clientWorkPartner: { findMany: vi.fn().mockResolvedValue([]) },
+      mobileDeploymentWorkflow: { update: vi.fn().mockResolvedValue({ status: 'PDI_PENDING_RIDER' }) },
+    };
+    const prisma = {
+      userHub: { findMany: vi.fn().mockResolvedValue([{ hubId: 'hub-1' }]) },
+      allocation: { findFirst: vi.fn().mockResolvedValue({ id: 'allocation-1' }) },
+      mobileDeploymentWorkflow: { upsert: vi.fn().mockResolvedValue({ id: 'workflow-1', status: 'PAYMENT_PAID' }) },
+      clientWorkPartner: { findMany: vi.fn().mockResolvedValue([]) },
+      inspection: { findFirst: vi.fn().mockResolvedValue({ id: 'inspection-1' }) },
+      photoRequirement: { findMany: vi.fn().mockResolvedValue([]) },
+      photo: { findMany: vi.fn().mockResolvedValue([]) },
+      $transaction: vi.fn().mockImplementation(fn => fn(tx)),
+    };
+    const service = new MobileDeploymentService(prisma as never, {} as never, {} as never, {} as never, { activateInTransaction: vi.fn() } as never);
+    await expect(service.submitPdi('client-1', 'manager-1', 'allocation-1', 'Partner', [{ code: 'FRONT', mandatory: true }]))
+      .resolves.toMatchObject({ status: 'PDI_PENDING_RIDER' });
+    expect(tx.inspection.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'COMPLETED' }) }));
+    expect(tx.allocation.updateMany).toHaveBeenCalledWith({
+      where: { id: 'allocation-1', clientId: 'client-1', status: 'INSPECTION_PENDING' },
+      data: { status: 'OTP_PENDING' },
+    });
+  });
+
+  function pdiFixture(partners: Array<{ id: string; clientId: string; name: string; status: string }>) {
+    const tx = {
+      inspection: { update: vi.fn().mockResolvedValue({}) },
+      allocation: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      clientWorkPartner: {
+        findUnique: vi.fn(),
+        findMany: vi.fn().mockResolvedValue(partners),
+      },
+      mobileDeploymentWorkflow: { update: vi.fn().mockResolvedValue({ status: 'PDI_PENDING_RIDER' }) },
+    };
+    const prisma = {
+      userHub: { findMany: vi.fn().mockResolvedValue([{ hubId: 'hub-1' }]) },
+      allocation: { findFirst: vi.fn().mockResolvedValue({ id: 'allocation-1' }) },
+      mobileDeploymentWorkflow: { upsert: vi.fn().mockResolvedValue({ id: 'workflow-1', status: 'PAYMENT_PAID' }) },
+      clientWorkPartner: { findMany: vi.fn().mockResolvedValue(partners) },
+      inspection: { findFirst: vi.fn().mockResolvedValue({ id: 'inspection-1' }) },
+      photoRequirement: { findMany: vi.fn().mockResolvedValue([]) },
+      photo: { findMany: vi.fn().mockResolvedValue([]) },
+      $transaction: vi.fn().mockImplementation((fn) => fn(tx)),
+    };
+    return {
+      prisma,
+      tx,
+      service: new MobileDeploymentService(prisma as never, {} as never, {} as never, {} as never, { activateInTransaction: vi.fn() } as never),
+    };
+  }
+
+  it('uses an active own partner id as the authoritative link and snapshots its current name', async () => {
+    const partner = { id: 'partner-1', clientId: 'client-1', name: 'Current Partner', status: 'ACTIVE' };
+    const { service, tx } = pdiFixture([]);
+    tx.clientWorkPartner.findUnique.mockResolvedValue(partner);
+
+    await service.submitPdi('client-1', 'manager-1', 'allocation-1', 'Ignored legacy name', [], 'partner-1');
+
+    expect(tx.mobileDeploymentWorkflow.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ clientWorkPartnerId: 'partner-1', workPartnerName: 'Current Partner' }),
+    }));
+  });
+
+  it('rejects inactive or cross-client partner ids before changing the PDI transaction', async () => {
+    const inactive = pdiFixture([]);
+    inactive.tx.clientWorkPartner.findUnique.mockResolvedValue({ id: 'partner-1', clientId: 'client-1', name: 'Old', status: 'INACTIVE' });
+    await expect(inactive.service.submitPdi('client-1', 'manager-1', 'allocation-1', undefined, [], 'partner-1'))
+      .rejects.toThrow('Select an active work partner.');
+    expect(inactive.tx.inspection.update).not.toHaveBeenCalled();
+
+    const crossClient = pdiFixture([]);
+    crossClient.tx.clientWorkPartner.findUnique.mockResolvedValue({ id: 'partner-2', clientId: 'client-2', name: 'Other', status: 'ACTIVE' });
+    await expect(crossClient.service.submitPdi('client-1', 'manager-1', 'allocation-1', undefined, [], 'partner-2'))
+      .rejects.toThrow('Work partner not found.');
+    expect(crossClient.tx.inspection.update).not.toHaveBeenCalled();
+  });
+
+  it('resolves a configured legacy name case-insensitively and rejects unmatched or ambiguous names', async () => {
+    const partner = { id: 'partner-1', clientId: 'client-1', name: 'Configured Partner', status: 'ACTIVE' };
+    const configured = pdiFixture([partner]);
+    await configured.service.submitPdi('client-1', 'manager-1', 'allocation-1', ' configured partner ', []);
+    expect(configured.tx.mobileDeploymentWorkflow.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ clientWorkPartnerId: 'partner-1', workPartnerName: 'Configured Partner' }),
+    }));
+
+    const unmatched = pdiFixture([partner]);
+    await expect(unmatched.service.submitPdi('client-1', 'manager-1', 'allocation-1', 'Unknown', []))
+      .rejects.toThrow('Work Partner name must match exactly one client work partner.');
+
+    const ambiguous = pdiFixture([partner, { ...partner, id: 'partner-2' }]);
+    await expect(ambiguous.service.submitPdi('client-1', 'manager-1', 'allocation-1', 'Configured Partner', []))
+      .rejects.toThrow('Work Partner name must match exactly one client work partner.');
+  });
+
+  it('rejects one inactive legacy-name match before changing the PDI transaction', async () => {
+    const inactive = pdiFixture([
+      { id: 'partner-inactive', clientId: 'client-1', name: 'Inactive Partner', status: 'INACTIVE' },
+    ]);
+
+    await expect(
+      inactive.service.submitPdi('client-1', 'manager-1', 'allocation-1', ' inactive partner ', []),
+    ).rejects.toThrow('Select an active work partner.');
+    expect(inactive.tx.inspection.update).not.toHaveBeenCalled();
+    expect(inactive.tx.allocation.updateMany).not.toHaveBeenCalled();
+    expect(inactive.tx.mobileDeploymentWorkflow.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('SubmitPdiDto boundary', () => {
+  it('rejects explicit null partner ids instead of treating them as omitted', async () => {
+    const pipe = new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true });
+    await expect(
+      pipe.transform(
+        {
+          clientWorkPartnerId: null,
+          workPartnerName: 'Legacy Partner',
+          checklist: [{ code: 'FRONT', label: 'Front', mandatory: true }],
+        },
+        { type: 'body', metatype: SubmitPdiDto },
+      ),
+    ).rejects.toThrow();
+  });
+});
+
+describe('deployment without IoT pairing', () => {
+  function fixture(status = 'TRAINING_PENDING', viewed = ['SAFETY']) {
+    const workflow = {
+      id: 'workflow-1',
+      status,
+      trainingViewedContentCodes: viewed,
+      trainingCompletedAt:
+        status === 'DEVICE_PAIRING_PENDING' ? new Date('2026-10-01') : null,
+    };
+    const tx = {
+      $queryRaw: vi.fn(),
+      allocation: {
+        findFirst: vi.fn().mockResolvedValue({ fleetId: 'fleet-1', status: 'OTP_PENDING' }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      fleet: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      inspection: { findFirst: vi.fn().mockResolvedValue({ id: 'inspection-1' }) },
+      mobileDeploymentWorkflow: {
+        update: vi
+          .fn()
+          .mockImplementation(({ data }) => ({ ...workflow, ...data })),
+      },
+    };
+    const prisma = {
+      rider: { findFirst: vi.fn().mockResolvedValue({ id: 'rider-1' }) },
+      inspection: { findFirst: vi.fn().mockResolvedValue(null) },
+      riderInvoice: { groupBy: vi.fn().mockResolvedValue([]), findMany: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0) },
+      walletTransaction: { findFirst: vi.fn().mockResolvedValue(null) },
+      userHub: { findMany: vi.fn().mockResolvedValue([{ hubId: 'hub-1' }]) },
+      allocation: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'allocation-1',
+          fleet: { iotDevice: null },
+        }),
+      },
+      mobileDeploymentWorkflow: {
+        upsert: vi.fn().mockResolvedValue(workflow),
+        update: tx.mobileDeploymentWorkflow.update,
+      },
+      clientSubscription: {
+        findFirst: vi.fn().mockResolvedValue({
+          package: {
+            features: [
+              {
+                feature: {
+                  trainingContents: [{ code: 'SAFETY', isMandatory: true }],
+                },
+              },
+            ],
+          },
+        }),
+      },
+      $transaction: vi.fn().mockImplementation((fn) => fn(tx)),
+    };
+    const service = new MobileDeploymentService(
+      prisma as never, {} as never, {} as never, {} as never,
+      { activateInTransaction: vi.fn() } as never,
+    );
+    Object.assign(service, { wallet: {
+      riderWallet: vi.fn().mockResolvedValue({ id: 'wallet-1', status: 'ACTIVE' }),
+      balance: vi.fn().mockResolvedValue({ currency: 'INR', availableBalance: '100.00', accounts: [] }),
+    } });
+    return { prisma, tx, workflow, service };
+  }
+  it('activates allocation and fleet immediately after mandatory training', async () => {
+    const { service, tx } = fixture();
+    await expect(
+      service.completeTraining('client-1', 'rider-user', 'allocation-1'),
+    ).resolves.toMatchObject({
+      status: 'DEPLOYED',
+      trainingCompletedAt: expect.any(Date),
+    });
+    expect(tx.allocation.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { status: 'ACTIVE', allocatedAt: expect.any(Date) },
+      }),
+    );
+    expect(tx.fleet.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { status: 'ALLOCATED' } }),
+    );
+  });
+  it('still blocks deployment before mandatory training is viewed', async () => {
+    const { service, prisma } = fixture('TRAINING_PENDING', []);
+    await expect(
+      service.completeTraining('client-1', 'rider-user', 'allocation-1'),
+    ).rejects.toThrow('Complete mandatory training');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+  it('allows old pairing-pending allocations to finish without a mapped device', async () => {
+    const { service, prisma, workflow } = fixture('DEVICE_PAIRING_PENDING');
+    await expect(
+      service.pair('client-1', 'rider-user', 'allocation-1', ''),
+    ).resolves.toMatchObject({
+      status: 'DEPLOYED',
+      trainingCompletedAt: workflow.trainingCompletedAt,
+    });
+    expect(prisma.clientSubscription.findFirst).not.toHaveBeenCalled();
+  });
+  it('does not activate an already deployed allocation twice', async () => {
+    const { service, prisma } = fixture('DEPLOYED');
+    await expect(
+      service.completeTraining('client-1', 'rider-user', 'allocation-1'),
+    ).resolves.toMatchObject({ status: 'DEPLOYED' });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+  it('directs older pairing-pending workflows to training completion', async () => {
+    const { service, prisma, workflow } = fixture('DEVICE_PAIRING_PENDING');
+    prisma.allocation.findFirst.mockResolvedValue({
+      id: 'allocation-1',
+      fleet: { iotDevice: null },
+      mobileDeployment: workflow,
+    } as never);
+    Object.assign(prisma, {
+      deploymentPayment: { findUnique: vi.fn().mockResolvedValue(null) },
+    });
+    await expect(
+      service.riderCurrent('client-1', 'rider-user'),
+    ).resolves.toMatchObject({ screen: 'TRAINING' });
+  });
+  it('keeps legacy fleet-manager completion available without IoT health', async () => {
+    const { service } = fixture('DEVICE_PAIRING_PENDING');
+    await expect(
+      service.bypassPairing(
+        'client-1',
+        'manager-1',
+        'allocation-1',
+        'Client does not use IoT',
+      ),
+    ).resolves.toMatchObject({ status: 'DEPLOYED' });
+  });
+  function packageWithoutTraining(
+    prisma: ReturnType<typeof fixture>['prisma'],
+  ) {
+    prisma.clientSubscription.findFirst.mockResolvedValue({
+      package: { features: [] },
+    });
+  }
+  it('finishes a stuck training workflow when the package excludes training without recording fake training completion', async () => {
+    const { service, prisma, tx } = fixture('TRAINING_PENDING', []);
+    packageWithoutTraining(prisma);
+    await expect(
+      service.completeTraining('client-1', 'rider-user', 'allocation-1'),
+    ).resolves.toMatchObject({ status: 'DEPLOYED', trainingCompletedAt: null });
+    expect(tx.allocation.updateMany).toHaveBeenCalled();
+  });
+  it.each([
+    { contents: [] },
+    { contents: [{ code: 'OPTIONAL', isMandatory: false }] },
+  ])(
+    'allows training completion with no mandatory content: %j',
+    async ({ contents }) => {
+      const { service, prisma } = fixture('TRAINING_PENDING', []);
+      prisma.clientSubscription.findFirst.mockResolvedValue({
+        package: { features: [{ feature: { trainingContents: contents } }] },
+      });
+      await expect(
+        service.completeTraining('client-1', 'rider-user', 'allocation-1'),
+      ).resolves.toMatchObject({
+        status: 'DEPLOYED',
+        trainingCompletedAt: expect.any(Date),
+      });
+    },
+  );
+  it('skips training atomically after PDI acceptance when it is excluded from the package', async () => {
+    const { service, prisma, workflow } = fixture('PDI_PENDING_RIDER', []);
+    Object.assign(workflow, {
+      pdiChecklist: [{ code: 'FRONT', mandatory: true }],
+    });
+    packageWithoutTraining(prisma);
+    await expect(
+      service.acceptPdi('client-1', 'rider-user', 'allocation-1', [
+        { code: 'FRONT', accepted: true },
+      ]),
+    ).resolves.toMatchObject({
+      status: 'DEPLOYED',
+      riderPdiAcceptedAt: expect.any(Date),
+      trainingCompletedAt: null,
+    });
+    expect(prisma.$transaction).toHaveBeenCalled();
+  });
+  it.each([true, false])('handles legacy inspection-pending PDI acceptance only with completed inspection: %s', async (completed) => {
+    const { service, prisma, tx, workflow } = fixture('PDI_PENDING_RIDER', []);
+    Object.assign(workflow, { pdiChecklist: [{ code: 'FRONT', mandatory: true }] });
+    packageWithoutTraining(prisma);
+    tx.allocation.findFirst.mockResolvedValue({ fleetId: 'fleet-1', status: 'INSPECTION_PENDING' });
+    tx.inspection.findFirst.mockResolvedValue(completed ? { id: 'inspection-1' } : null as never);
+    const result = service.acceptPdi('client-1', 'rider-user', 'allocation-1', [{ code: 'FRONT', accepted: true }]);
+    if (completed) {
+      await expect(result).resolves.toMatchObject({ status: 'DEPLOYED' });
+      expect(tx.allocation.updateMany).toHaveBeenCalledWith({
+        where: { id: 'allocation-1', clientId: 'client-1', status: 'INSPECTION_PENDING' },
+        data: { status: 'ACTIVE', allocatedAt: expect.any(Date) },
+      });
+    } else {
+      await expect(result).rejects.toThrow('Complete PDI first');
+      expect(tx.fleet.updateMany).not.toHaveBeenCalled();
+      expect(tx.allocation.updateMany).not.toHaveBeenCalled();
+    }
+  });
+  it('keeps training as a package-included step after accepting PDI', async () => {
+    const { service, prisma, workflow } = fixture('PDI_PENDING_RIDER', []);
+    Object.assign(workflow, {
+      pdiChecklist: [{ code: 'FRONT', mandatory: true }],
+    });
+    await expect(
+      service.acceptPdi('client-1', 'rider-user', 'allocation-1', [
+        { code: 'FRONT', accepted: true },
+      ]),
+    ).resolves.toMatchObject({
+      status: 'TRAINING_PENDING',
+      riderPdiAcceptedAt: expect.any(Date),
+    });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+  it('preserves PDI and allocation readiness checks when skipping training', async () => {
+    const { service, prisma, tx, workflow } = fixture('PDI_PENDING_RIDER', []);
+    Object.assign(workflow, {
+      pdiChecklist: [{ code: 'FRONT', mandatory: true }],
+    });
+    packageWithoutTraining(prisma);
+    await expect(
+      service.acceptPdi('client-1', 'rider-user', 'allocation-1', []),
+    ).rejects.toThrow('acknowledged');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    tx.allocation.findFirst.mockResolvedValue(null as never);
+    await expect(
+      service.acceptPdi('client-1', 'rider-user', 'allocation-1', [
+        { code: 'FRONT', accepted: true },
+      ]),
+    ).rejects.toThrow('not ready for deployment');
+    expect(tx.fleet.updateMany).not.toHaveBeenCalled();
+  });
+  it('does not treat a missing active subscription as training excluded', async () => {
+    const { service, prisma } = fixture('TRAINING_PENDING', []);
+    prisma.clientSubscription.findFirst.mockResolvedValue(null as never);
+    await expect(
+      service.completeTraining('client-1', 'rider-user', 'allocation-1'),
+    ).rejects.toThrow('No active package');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+  it('recovers an old excluded-training workflow on the rider current screen', async () => {
+    const { service, prisma, workflow } = fixture('TRAINING_PENDING', []);
+    packageWithoutTraining(prisma);
+    const initial = {
+      id: 'allocation-1',
+      fleet: { iotDevice: null },
+      mobileDeployment: workflow,
+    };
+    prisma.allocation.findFirst
+      .mockResolvedValueOnce(initial as never)
+      .mockResolvedValueOnce({ id: 'allocation-1' } as never)
+      .mockResolvedValueOnce({
+        id: 'allocation-1',
+        fleet: { iotDevice: null },
+      } as never)
+      .mockResolvedValueOnce({
+        ...initial,
+        mobileDeployment: { ...workflow, status: 'DEPLOYED' },
+        status: 'ACTIVE',
+      } as never);
+    Object.assign(prisma, {
+      deploymentPayment: { findUnique: vi.fn().mockResolvedValue(null) },
+    });
+    await expect(
+      service.riderCurrent('client-1', 'rider-user'),
+    ).resolves.toMatchObject({
+      screen: 'HOME',
+      workflow: { status: 'DEPLOYED' },
+      allocation: { status: 'ACTIVE' },
+    });
+  });
+});
+
+
+describe('MobileDeploymentService available fleet safety', () => {
+  function setup() {
+    const prisma = {
+      userHub: { findMany: vi.fn().mockResolvedValue([{ hubId: 'hub-1' }]) },
+      fleet: { findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn().mockResolvedValue(null) },
+    };
+    const allocations = { initiate: vi.fn() };
+    const service = new MobileDeploymentService(prisma as never, allocations as never, {} as never, {} as never, {} as never);
+    return { prisma, allocations, service };
+  }
+  it('excludes unfinished allocations even when fleet status is AVAILABLE', async () => {
+    const { prisma, service } = setup();
+    await service.eligibleFleets('client-1', 'manager-1');
+    expect(prisma.fleet.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
+      clientId: 'client-1', currentHubId: { in: ['hub-1'] }, status: 'AVAILABLE',
+      allocations: { none: { status: { notIn: ['COMPLETED', 'CANCELLED'] } } },
+    }) }));
+  });
+  it('returns an empty list without assigned hubs', async () => {
+    const { prisma, service } = setup();
+    prisma.userHub.findMany.mockResolvedValue([]);
+    await expect(service.eligibleFleets('client-1', 'manager-1')).resolves.toEqual([]);
+    expect(prisma.fleet.findMany).not.toHaveBeenCalled();
+  });
+  it('rejects direct allocation requests for unavailable scooters', async () => {
+    const { prisma, allocations, service } = setup();
+    await expect(service.allocateFleet('client-1', 'manager-1', 'rider-1', 'fleet-1')).rejects.toThrow('An allocatable Fleet was not found');
+    expect(prisma.fleet.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
+      allocations: { none: { status: { notIn: ['COMPLETED', 'CANCELLED'] } } },
+    }) }));
+    expect(allocations.initiate).not.toHaveBeenCalled();
+  });
+});

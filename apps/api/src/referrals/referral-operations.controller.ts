@@ -16,7 +16,7 @@ import { ReferralFraudService } from './referral-fraud.service.js';
 
 @Controller('client/referrals')
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+@Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
 export class ReferralOperationsController {
   constructor(
     private readonly clients: ClientContextService,

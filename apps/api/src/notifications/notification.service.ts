@@ -72,7 +72,7 @@ export class NotificationService {
   private assertStaff(actor: AuthUser) {
     if (
       !actor.roles.some((role) =>
-        ['CLIENT_ADMIN', 'OPERATIONS_MANAGER'].includes(role),
+        ['CLIENT_ADMIN', 'FLEET_MANAGER'].includes(role),
       )
     )
       throw new ForbiddenException(

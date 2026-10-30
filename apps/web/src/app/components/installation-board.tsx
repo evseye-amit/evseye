@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { sessionFetch } from "../../lib/session-fetch";
 import { ClientDataTable } from "./client-data-table";
 import { ClientFormDialog } from "./client-form-dialog";
+const PHOTO_TYPE_OPTIONS = ["FRONT", "BACK", "LEFT", "RIGHT", "REAR", "BODY", "LABEL", "CHASSIS", "DASHBOARD", "INSTALLATION", "EVIDENCE", "DOCUMENT", "PROFILE", "RECEIPT", "RETURN_CHECKLIST", "DAMAGE", "DAMAGE_CLOSEUP", "VEHICLE_FRONT", "VEHICLE_LEFT", "VEHICLE_RIGHT", "VEHICLE_REAR", "FLEET_FRONT", "FLEET_LEFT", "FLEET_RIGHT", "FLEET_BACK", "BATTERY_BODY", "BATTERY_LABEL", "CONTROLLER_BODY", "CONTROLLER_LABEL", "IOT_BODY", "IOT_LABEL", "FLEET_WITH_RIDER", "RIDER_DECLARATION", "PDI_VOICE", "PAYMENT_RECEIPT", "PENALTY_DAMAGE", "OTHER"];
 export type InstallationDefinition = {
   code: string;
   name: string;
@@ -1031,18 +1032,10 @@ export function InstallationStageSettings({
             Add check
           </button>
           <label>
-            Photo slots (comma separated codes)
-            <input
-              value={s.photoTypes.join(",")}
-              onChange={(e) =>
-                update(index, {
-                  photoTypes: e.target.value
-                    .toUpperCase()
-                    .split(",")
-                    .map((v) => v.trim()),
-                })
-              }
-            />
+            Photo slots
+            <select multiple value={s.photoTypes} onChange={(e) => update(index, { photoTypes: Array.from(e.target.selectedOptions, (option) => option.value) })}>
+              {PHOTO_TYPE_OPTIONS.map((photoType) => <option key={photoType} value={photoType}>{photoType.replaceAll("_", " ")}</option>)}
+            </select>
           </label>
           <button
             type="button"

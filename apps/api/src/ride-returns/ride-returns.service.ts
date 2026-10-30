@@ -17,14 +17,12 @@ import {
 } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
-import { AuthService } from '../auth/auth.service.js';
 import { AllocationsService } from '../allocations/allocations.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RiderBillingService } from '../rider-billing/rider-billing.service.js';
 import type {
   CreateRideReturnDto,
   DisputeReturnPenaltyDto,
-  OverrideReturnPenaltyDto,
   ReceiveRideReturnDto,
   ReplaceReturnPenaltiesDto,
   ReturnPenaltyPriceDto,
@@ -85,7 +83,6 @@ export class RideReturnsService {
     private readonly db: PrismaService,
     private readonly allocations: AllocationsService,
     private readonly billing: RiderBillingService,
-    private readonly auth: AuthService,
   ) {}
 
   private async serializable<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
@@ -131,7 +128,7 @@ export class RideReturnsService {
   private fleetScoped(user: AuthUser) {
     return (
       user.roles.includes(UserRole.FLEET_MANAGER) &&
-      !user.roles.some((role) => role === UserRole.CLIENT_ADMIN || role === UserRole.OPERATIONS_MANAGER)
+      !user.roles.includes(UserRole.CLIENT_ADMIN)
     );
   }
 
@@ -386,7 +383,7 @@ export class RideReturnsService {
     if (!allocation?.fleet.currentHubId) throw new ConflictException('RETURN_HUB_REQUIRED');
     return this.request(
       clientId,
-      { id: actorId, clientId, roles: [UserRole.OPERATIONS_MANAGER] },
+      { id: actorId, clientId, roles: [UserRole.FLEET_MANAGER] },
       {
         agreementId,
         riderId: agreement.riderId,
@@ -464,7 +461,7 @@ export class RideReturnsService {
     if (!receivedHubId) throw new ConflictException('RETURN_HUB_REQUIRED');
     return this.receive(
       clientId,
-      { id: actorId, clientId, roles: [UserRole.OPERATIONS_MANAGER] },
+      { id: actorId, clientId, roles: [UserRole.FLEET_MANAGER] },
       request.id,
       { receivedHubId },
     );
@@ -809,7 +806,7 @@ export class RideReturnsService {
     if (!items.length) return [] as const;
     const prices = await tx.returnPenaltyPrice.findMany({ where: { id: { in: items.map((item) => item.priceId) }, clientId } });
     const byId = new Map(prices.map((price) => [price.id, price]));
-    const photos = await tx.photo.findMany({ where: { clientId, entityType: 'INSPECTION', entityId: inspectionId, status: 'COMPLETE' }, select: { id: true, photoType: true } });
+    const photos = await tx.photo.findMany({ where: { clientId, workFlowType: 'FLEET_SUBMISSION', subjectType: 'FLEET', entityId: inspectionId, status: 'COMPLETE' }, select: { id: true, photoType: true } });
     const photoById = new Map(photos.map((photo) => [photo.id, photo]));
     return items.map((item, position) => {
       const price = byId.get(item.priceId);
@@ -822,7 +819,7 @@ export class RideReturnsService {
       const validPhotos = evidence.map((id) => photoById.get(id));
       if (validPhotos.some((photo) => !photo)) throw new BadRequestException('Penalty evidence must belong to the return inspection.');
       if (!evidence.length) throw new BadRequestException('Penalty evidence is required.');
-      if (price.category === 'MISSING_ITEM' && !validPhotos.some((photo) => photo?.photoType === 'RETURN_CHECKLIST'))
+      if (price.category === 'MISSING_ITEM' && !validPhotos.some((photo) => photo?.photoType === 'OTHER'))
         throw new BadRequestException('Missing-item penalties require a return checklist photo.');
       return { position, price, details, evidencePhotoIds: evidence };
     });
@@ -858,7 +855,8 @@ export class RideReturnsService {
     const photos = await tx.photo.findMany({
       where: {
         clientId,
-        entityType: 'INSPECTION',
+        workFlowType: 'FLEET_SUBMISSION',
+        subjectType: 'FLEET',
         entityId: inspectionId,
         status: 'COMPLETE',
       },
@@ -876,7 +874,7 @@ export class RideReturnsService {
       const validPhotos = evidencePhotoIds.map((id) => photoById.get(id));
       if (!evidencePhotoIds.length || validPhotos.some((photo) => !photo))
         throw new BadRequestException('Penalty evidence must belong to the return inspection.');
-      if (price.category === 'MISSING_ITEM' && !validPhotos.some((photo) => photo?.photoType === 'RETURN_CHECKLIST'))
+      if (price.category === 'MISSING_ITEM' && !validPhotos.some((photo) => photo?.photoType === 'OTHER'))
         throw new BadRequestException('Missing-item penalties require a return checklist photo.');
       return { row: item, price, details, evidencePhotoIds };
     });
@@ -932,8 +930,7 @@ export class RideReturnsService {
       const drafts = await this.validateDraftPenaltyItems(tx, clientId, inspection.id, input.items);
       const revision = penaltyCase.currentRevision + 1;
       await tx.returnPenaltyItem.createMany({ data: drafts.map((item) => ({ clientId, caseId: penaltyCase!.id, revision, position: item.position, priceListItemId: item.price.id, details: item.details, evidencePhotoIds: item.evidencePhotoIds, createdById: user.id })) });
-      const updated = await tx.returnPenaltyCase.update({ where: { id: penaltyCase.id }, data: { currentRevision: revision, digest: null, totalAmount: 0, status: 'DRAFT', submittedAt: null, submittedById: null, riderApprovedRevision: null, riderApprovedAt: null, riderApprovalOtpRequestId: null, riderDisputedRevision: null, riderDisputedAt: null, riderDisputeReason: null, adminOverrideRevision: null, adminOverrideAt: null, adminOverrideById: null, adminOverrideReason: null, managerApprovedRevision: null, managerApprovedAt: null, managerApprovedById: null, postedRevision: null, postedChargeId: null, postedAt: null } });
-      await tx.otpRequest.updateMany({ where: { clientId, purpose: 'RETURN_PENALTY_APPROVAL', status: 'PENDING', context: { path: ['caseId'], equals: penaltyCase.id } }, data: { status: 'CANCELLED' } });
+      const updated = await tx.returnPenaltyCase.update({ where: { id: penaltyCase.id }, data: { currentRevision: revision, digest: null, totalAmount: 0, status: 'DRAFT', submittedAt: null, submittedById: null, riderDisputedRevision: null, riderDisputedAt: null, riderDisputeReason: null, managerApprovedRevision: null, managerApprovedAt: null, managerApprovedById: null, postedRevision: null, postedChargeId: null, postedAt: null } });
       await this.audit(tx, clientId, user.id, 'RETURN_PENALTIES_REPLACED', 'ReturnPenaltyCase', updated.id, { revision, itemCount: drafts.length });
       return { ...updated, items: await tx.returnPenaltyItem.findMany({ where: { caseId: updated.id, revision }, orderBy: { position: 'asc' } }) };
     });
@@ -958,42 +955,13 @@ export class RideReturnsService {
       const snapshot = await this.snapshotSubmittedItems(tx, clientId, penaltyCase.id, inspection.id, revision);
       const submittedAt = new Date();
       if (!snapshot.items.length) {
-        const updated = await tx.returnPenaltyCase.update({ where: { id: penaltyCase.id }, data: { currentRevision: revision, status: 'POSTED', digest: null, totalAmount: 0, submittedAt, submittedById: user.id, riderApprovedRevision: null, riderApprovedAt: null, riderApprovalOtpRequestId: null, riderDisputedRevision: null, riderDisputedAt: null, riderDisputeReason: null, adminOverrideRevision: null, adminOverrideAt: null, adminOverrideById: null, adminOverrideReason: null, managerApprovedRevision: null, managerApprovedAt: null, managerApprovedById: null, postedRevision: revision, postedChargeId: null, postedAt: submittedAt } });
+        const updated = await tx.returnPenaltyCase.update({ where: { id: penaltyCase.id }, data: { currentRevision: revision, status: 'POSTED', digest: null, totalAmount: 0, submittedAt, submittedById: user.id, riderDisputedRevision: null, riderDisputedAt: null, riderDisputeReason: null, managerApprovedRevision: null, managerApprovedAt: null, managerApprovedById: null, postedRevision: revision, postedChargeId: null, postedAt: submittedAt } });
         await this.audit(tx, clientId, user.id, 'RETURN_PENALTIES_POSTED', 'ReturnPenaltyCase', updated.id, { revision, totalAmount: '0.00', chargeId: null });
         return updated;
       }
-      const updated = await tx.returnPenaltyCase.update({ where: { id: penaltyCase.id }, data: { currentRevision: revision, status: 'RIDER_APPROVAL_PENDING', digest: snapshot.digest, totalAmount: snapshot.total, currency: snapshot.currency!, submittedAt, submittedById: user.id, riderApprovedRevision: null, riderApprovedAt: null, riderApprovalOtpRequestId: null, riderDisputedRevision: null, riderDisputedAt: null, riderDisputeReason: null, adminOverrideRevision: null, adminOverrideAt: null, adminOverrideById: null, adminOverrideReason: null, managerApprovedRevision: null, managerApprovedAt: null, managerApprovedById: null, postedRevision: null, postedChargeId: null, postedAt: null } });
+      const updated = await tx.returnPenaltyCase.update({ where: { id: penaltyCase.id }, data: { currentRevision: revision, status: 'MANAGER_APPROVAL_PENDING', digest: snapshot.digest, totalAmount: snapshot.total, currency: snapshot.currency!, submittedAt, submittedById: user.id, riderDisputedRevision: null, riderDisputedAt: null, riderDisputeReason: null, managerApprovedRevision: null, managerApprovedAt: null, managerApprovedById: null, postedRevision: null, postedChargeId: null, postedAt: null } });
       await this.audit(tx, clientId, user.id, 'RETURN_PENALTIES_SUBMITTED', 'ReturnPenaltyCase', updated.id, { revision, totalAmount: money(snapshot.total), digest: snapshot.digest! });
       return updated;
-    });
-  }
-
-  async riderPenaltyOtpRequest(clientId: string, actor: AuthUser, requestId: string) {
-    const rider = await this.riderForUser(clientId, actor.id);
-    const penaltyCase = await this.db.returnPenaltyCase.findFirst({ where: { terminationRequestId: requestId, clientId, riderId: rider.id } });
-    if (!penaltyCase || penaltyCase.status !== 'RIDER_APPROVAL_PENDING' || !penaltyCase.digest)
-      throw new ConflictException('RIDER_APPROVAL_NOT_PENDING');
-    return this.auth.requestReturnPenaltyOtp(clientId, penaltyCase.id, rider.id, {
-      revision: penaltyCase.currentRevision,
-      digest: penaltyCase.digest,
-      totalAmount: money(penaltyCase.totalAmount),
-      currency: penaltyCase.currency,
-    });
-  }
-
-  async verifyRiderPenaltyOtp(clientId: string, actor: AuthUser, requestId: string, otpRequestId: string, code: string) {
-    const rider = await this.riderForUser(clientId, actor.id);
-    const penaltyCase = await this.db.returnPenaltyCase.findFirst({ where: { terminationRequestId: requestId, clientId, riderId: rider.id } });
-    if (!penaltyCase || !penaltyCase.digest) throw new NotFoundException('Penalty case not found.');
-    return this.auth.verifyReturnPenaltyOtp(clientId, otpRequestId, code, {
-      caseId: penaltyCase.id,
-      riderId: rider.id,
-      revision: penaltyCase.currentRevision,
-      digest: penaltyCase.digest,
-      totalAmount: money(penaltyCase.totalAmount),
-      currency: penaltyCase.currency,
-    }, async (tx) => {
-      await this.postIfFullyApproved(tx, clientId, null, penaltyCase.id);
     });
   }
 
@@ -1003,40 +971,24 @@ export class RideReturnsService {
     return this.serializable(async (tx) => {
       const row = await tx.returnPenaltyCase.findFirst({ where: { clientId, riderId: rider.id, terminationRequest: { id: requestId } } });
       if (!row) throw new NotFoundException('Penalty case not found.');
-      if (!['RIDER_APPROVAL_PENDING', 'MANAGER_APPROVAL_PENDING'].includes(row.status)) fail('PENALTY_NOT_DISPUTABLE');
-      const changed = await tx.returnPenaltyCase.updateMany({ where: { id: row.id, clientId, riderId: rider.id, currentRevision: row.currentRevision, status: row.status }, data: { status: 'RIDER_DISPUTED', riderApprovedRevision: null, riderApprovedAt: null, riderApprovalOtpRequestId: null, riderDisputedRevision: row.currentRevision, riderDisputedAt: new Date(), riderDisputeReason: input.reason.trim(), adminOverrideRevision: null, adminOverrideAt: null, adminOverrideById: null, adminOverrideReason: null } });
+      if (row.status !== 'MANAGER_APPROVAL_PENDING') fail('PENALTY_NOT_DISPUTABLE');
+      const changed = await tx.returnPenaltyCase.updateMany({ where: { id: row.id, clientId, riderId: rider.id, currentRevision: row.currentRevision, status: row.status }, data: { status: 'RIDER_DISPUTED', riderDisputedRevision: row.currentRevision, riderDisputedAt: new Date(), riderDisputeReason: input.reason.trim() } });
       if (!changed.count) fail('PENALTY_STATE_CHANGED');
       const updated = await tx.returnPenaltyCase.findUniqueOrThrow({ where: { id: row.id } });
-      await tx.otpRequest.updateMany({ where: { clientId, purpose: 'RETURN_PENALTY_APPROVAL', status: 'PENDING', context: { path: ['caseId'], equals: row.id } }, data: { status: 'CANCELLED' } });
       await this.audit(tx, clientId, actor.id, 'RETURN_PENALTIES_DISPUTED', 'ReturnPenaltyCase', updated.id, { reason: input.reason.trim(), revision: updated.currentRevision });
       return updated;
     });
   }
 
-  async overridePenalties(clientId: string, actor: AuthUser, requestId: string, input: OverrideReturnPenaltyDto) {
-    if (!actor.roles.includes(UserRole.CLIENT_ADMIN)) throw new ForbiddenException('Only a client admin may override rider approval.');
-    if (!input.reason.trim()) throw new BadRequestException('Override reason is required.');
-    return this.serializable(async (tx) => {
-      const row = await tx.returnPenaltyCase.findFirst({ where: { clientId, terminationRequest: { id: requestId } } });
-      if (!row) throw new NotFoundException('Penalty case not found.');
-      if (!['RIDER_APPROVAL_PENDING', 'RIDER_DISPUTED'].includes(row.status)) fail('PENALTY_OVERRIDE_NOT_ALLOWED');
-      const updated = await tx.returnPenaltyCase.updateMany({ where: { id: row.id, clientId, currentRevision: row.currentRevision, status: row.status }, data: { status: 'MANAGER_APPROVAL_PENDING', adminOverrideRevision: row.currentRevision, adminOverrideAt: new Date(), adminOverrideById: actor.id, adminOverrideReason: input.reason.trim() } });
-      if (!updated.count) fail('PENALTY_STATE_CHANGED');
-      await tx.otpRequest.updateMany({ where: { clientId, purpose: 'RETURN_PENALTY_APPROVAL', status: 'PENDING', context: { path: ['caseId'], equals: row.id } }, data: { status: 'CANCELLED' } });
-      await this.audit(tx, clientId, actor.id, 'RETURN_PENALTIES_OVERRIDDEN', 'ReturnPenaltyCase', row.id, { reason: input.reason.trim(), revision: row.currentRevision });
-      return this.postIfFullyApproved(tx, clientId, actor.id, row.id);
-    });
-  }
-
   async approvePenalties(clientId: string, actor: AuthUser, requestId: string) {
-    if (!actor.roles.some((role) => role === UserRole.FLEET_MANAGER || role === UserRole.OPERATIONS_MANAGER))
-      throw new ForbiddenException('Only a fleet or operations manager may approve penalties.');
+    if (!actor.roles.includes(UserRole.FLEET_MANAGER))
+      throw new ForbiddenException('Only a Fleet Manager may approve penalties.');
     await this.assertStaffReturnAccess(clientId, actor, requestId);
     return this.serializable(async (tx) => {
       const row = await tx.returnPenaltyCase.findFirst({ where: { clientId, terminationRequest: { id: requestId } } });
       if (!row) throw new NotFoundException('Penalty case not found.');
       if (row.status === 'POSTED') return row;
-      if (!['RIDER_APPROVAL_PENDING', 'MANAGER_APPROVAL_PENDING', 'RIDER_DISPUTED'].includes(row.status)) fail('PENALTY_MANAGER_APPROVAL_REQUIRED');
+      if (!['MANAGER_APPROVAL_PENDING', 'RIDER_DISPUTED'].includes(row.status)) fail('PENALTY_MANAGER_APPROVAL_REQUIRED');
       if (row.managerApprovedRevision !== row.currentRevision) {
         const updated = await tx.returnPenaltyCase.updateMany({ where: { id: row.id, clientId, currentRevision: row.currentRevision, status: row.status }, data: { managerApprovedRevision: row.currentRevision, managerApprovedAt: new Date(), managerApprovedById: actor.id } });
         if (!updated.count) fail('PENALTY_STATE_CHANGED');
@@ -1050,9 +1002,7 @@ export class RideReturnsService {
     const row = await tx.returnPenaltyCase.findFirst({ where: { id: caseId, clientId } });
     if (!row) throw new NotFoundException('Penalty case not found.');
     if (row.status === 'POSTED') return row;
-    const riderApproval = row.riderApprovedRevision === row.currentRevision;
-    const adminOverride = row.adminOverrideRevision === row.currentRevision;
-    if (row.managerApprovedRevision !== row.currentRevision || (!riderApproval && !adminOverride))
+    if (row.managerApprovedRevision !== row.currentRevision)
       return row;
     if (!row.digest || row.currentRevision <= 0) fail('PENALTY_REVISION_NOT_SUBMITTED');
     const items = await tx.returnPenaltyItem.findMany({ where: { caseId: row.id, revision: row.currentRevision }, orderBy: { position: 'asc' } });
@@ -1076,7 +1026,7 @@ export class RideReturnsService {
     });
     const changed = await tx.returnPenaltyCase.updateMany({ where: { id: row.id, clientId, currentRevision: row.currentRevision, postedChargeId: null, status: { not: 'POSTED' } }, data: { status: 'POSTED', postedRevision: row.currentRevision, postedChargeId: charge.id, postedAt: new Date() } });
     if (!changed.count) return tx.returnPenaltyCase.findUniqueOrThrow({ where: { id: row.id } });
-    await this.audit(tx, clientId, actorId ?? row.managerApprovedById ?? row.adminOverrideById ?? row.riderId, 'RETURN_PENALTIES_POSTED', 'ReturnPenaltyCase', row.id, { revision: row.currentRevision, chargeId: charge.id, amount: money(row.totalAmount) });
+    await this.audit(tx, clientId, actorId ?? row.managerApprovedById ?? row.riderId, 'RETURN_PENALTIES_POSTED', 'ReturnPenaltyCase', row.id, { revision: row.currentRevision, chargeId: charge.id, amount: money(row.totalAmount) });
     return tx.returnPenaltyCase.findUniqueOrThrow({ where: { id: row.id } });
   }
 }

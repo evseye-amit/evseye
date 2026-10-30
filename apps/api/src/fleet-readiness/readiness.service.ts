@@ -21,6 +21,7 @@ import {
   defaultStages,
   validateStages,
   modeSchema,
+  PHOTO_TYPE_VALUES,
   parse,
   policySchema,
   reasonSchema,
@@ -34,10 +35,8 @@ type Tx = Prisma.TransactionClient;
 const closed = ['APPROVED', 'INVALIDATED', 'CANCELLED'];
 const actionableRoles = [
   'CLIENT_ADMIN',
-  'OPERATIONS_MANAGER',
   'FLEET_MANAGER',
   'ADVISOR',
-  'RFD_MANAGER',
   'QC_MANAGER',
 ];
 const json = (value: unknown) =>
@@ -71,7 +70,7 @@ export class FleetReadinessService {
   ) {}
   all(actor: AuthUser) {
     return actor.roles.some((role) =>
-      ['CLIENT_ADMIN', 'OPERATIONS_MANAGER'].includes(role),
+      ['CLIENT_ADMIN', 'FLEET_MANAGER'].includes(role),
     );
   }
   private admin(actor: AuthUser) {
@@ -438,7 +437,7 @@ export class FleetReadinessService {
         .object({
           name: z.string().trim().min(1).max(100),
           mobile: z.string().regex(/^\+91[6-9]\d{9}$/),
-          role: z.enum(['ADVISOR', 'RFD_MANAGER', 'QC_MANAGER']),
+          role: z.enum(['ADVISOR', 'QC_MANAGER']),
         })
         .strict(),
       input,
@@ -522,7 +521,7 @@ export class FleetReadinessService {
       });
       if (!user)
         throw new NotFoundException('Active operations user not found.');
-      if (['ADVISOR', 'RFD_MANAGER', 'QC_MANAGER'].includes(user.role)) {
+      if (['ADVISOR', 'QC_MANAGER'].includes(user.role)) {
         const client = await tx.client.findUniqueOrThrow({ where: { id: clientId }, select: { fleetOperatingMode: true } });
         if (client.fleetOperatingMode === 'SIMPLE') throw new ForbiddenException('Dedicated staff permissions are unavailable in Simple mode.');
       }
@@ -1010,7 +1009,8 @@ export class FleetReadinessService {
     const photos = await this.db.photo.findMany({
       where: {
         clientId,
-        entityType: 'PREPARATION',
+        workFlowType: 'FLEET_PREPARATION',
+        subjectType: 'FLEET',
         entityId: { in: p.revisions.map((r) => r.id) },
         status: 'COMPLETE',
       },
@@ -1150,7 +1150,7 @@ export class FleetReadinessService {
       z
         .object({
           revision: z.number().int().min(1),
-          photoType: z.string().min(1).max(100),
+          photoType: z.enum(PHOTO_TYPE_VALUES),
           mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
           fileName: z.string().min(1).max(255),
           sizeBytes: z
@@ -1192,7 +1192,8 @@ export class FleetReadinessService {
       return tx.photo.create({
         data: {
           clientId,
-          entityType: 'PREPARATION',
+          workFlowType: 'FLEET_PREPARATION',
+          subjectType: 'FLEET',
           entityId: revision.id,
           photoType: b.photoType,
           mimeType: b.mimeType,
@@ -1223,7 +1224,7 @@ export class FleetReadinessService {
       input,
     );
     const photo = await this.db.photo.findFirst({
-      where: { id: photoId, clientId, entityType: 'PREPARATION' },
+      where: { id: photoId, clientId, workFlowType: 'FLEET_PREPARATION', subjectType: 'FLEET' },
     });
     if (!photo) throw new NotFoundException('Preparation photo not found.');
     const owner = await this.db.fleetPreparation.findFirst({
@@ -1278,8 +1279,9 @@ export class FleetReadinessService {
       await tx.photo.updateMany({
         where: {
           clientId,
+          workFlowType: 'FLEET_PREPARATION',
+          subjectType: 'FLEET',
           entityId: revision.id,
-          entityType: 'PREPARATION',
           photoType: photo.photoType,
           status: 'COMPLETE',
         },
@@ -1396,7 +1398,8 @@ export class FleetReadinessService {
       const photos = await tx.photo.findMany({
         where: {
           clientId,
-          entityType: 'PREPARATION',
+          workFlowType: 'FLEET_PREPARATION',
+          subjectType: 'FLEET',
           entityId: revision.id,
           status: 'COMPLETE',
         },
@@ -1509,7 +1512,8 @@ export class FleetReadinessService {
           (await tx.photo.count({
             where: {
               clientId,
-              entityType: 'PREPARATION',
+              workFlowType: 'FLEET_PREPARATION',
+              subjectType: 'FLEET',
               entityId: revision.id,
               uploadedById: actor.id,
             },
@@ -1588,7 +1592,8 @@ export class FleetReadinessService {
           (await tx.photo.count({
             where: {
               clientId,
-              entityType: 'PREPARATION',
+              workFlowType: 'FLEET_PREPARATION',
+              subjectType: 'FLEET',
               entityId: revision.id,
               id: { in: revision.photoIds },
               status: 'COMPLETE',

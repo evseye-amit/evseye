@@ -308,7 +308,7 @@ export class CatalogRevisionService {
     };
     const client = await this.prisma.client.findUniqueOrThrow({ where: { id: subscription.clientId },
       select: { requestedLocales: true } });
-    for (const [appCode, role] of [['RIDER', 'RIDER'], ['FLEET_MANAGER', 'FLEET_MANAGER']] as const) {
+    for (const [appCode, role] of [['RIDER', 'RIDER'], ['FLEET_MANAGER']] as const) {
       const language = featureConfig('SELECT_APP_LANGUAGE', appCode);
       const consent = packageFeatures.some((part) =>
         featureConfig(part.feature.code, appCode)?.kind === 'PRIVACY_CONSENT');

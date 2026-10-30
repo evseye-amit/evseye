@@ -111,11 +111,6 @@ export const clientCatalog = [
     "branding": {
       "logoObjectKey": "clients/d2f2a2b6-f6d1-4054-a786-d80fb2060b77/logo/8c6f77bc-ba09-425e-ba0f-43e1231f9f4e.jpg",
       "faviconObjectKey": null,
-      "primaryColor": "#176b4c",
-      "secondaryColor": "#e4f2e9",
-      "accentColor": "#27865f",
-      "loginTitle": "Welcome back",
-      "loginSubtitle": "Sign in to your EV fleet workspace.",
       "supportEmail": null,
       "supportPhone": null
     },

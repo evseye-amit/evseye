@@ -41,7 +41,7 @@ import {
   UserRole.TEAM_LEAD,
   UserRole.KYC_OPERATOR,
   UserRole.CLIENT_ADMIN,
-  UserRole.OPERATIONS_MANAGER,
+  UserRole.FLEET_MANAGER,
 )
 export class AppNotificationController {
   constructor(
@@ -126,7 +126,7 @@ export class AppNotificationController {
 @ApiTags('Client Notifications')
 @ApiBearerAuth()
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+@Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
 export class ClientNotificationController {
   constructor(
     private readonly notifications: NotificationService,

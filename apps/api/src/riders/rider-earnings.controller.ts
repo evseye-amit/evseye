@@ -11,7 +11,7 @@ import { RiderEarningsService } from './rider-earnings.service.js';
 
 @Controller('riders/:riderId/earnings')
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+@Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
 export class RiderEarningsController {
   constructor(private readonly earnings: RiderEarningsService, private readonly clients: ClientContextService) {}
   @Get()

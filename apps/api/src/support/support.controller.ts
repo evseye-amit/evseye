@@ -10,7 +10,7 @@ import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { CreateSupportReplyDto, CreateSupportTicketDto, ListSupportTicketsDto, SupportAttachmentIntentDto, UpdateSupportStatusDto } from './dto/support.dto.js';
 import { SupportService } from './support.service.js';
 
-const staffRoles = [UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER, UserRole.FLEET_MANAGER];
+const staffRoles = [UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER];
 
 @Controller('client/support/tickets')
 @ApiTags('Client Operations · Support')

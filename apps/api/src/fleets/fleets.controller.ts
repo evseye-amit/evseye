@@ -36,7 +36,6 @@ import { StartFleetTransferDto } from './dto/start-fleet-transfer.dto.js';
 @FleetActionResource('fleet')
 @Roles(
   UserRole.CLIENT_ADMIN,
-  UserRole.OPERATIONS_MANAGER,
   UserRole.FLEET_MANAGER,
 )
 export class FleetsController {
@@ -171,15 +170,6 @@ export class FleetsController {
           .join(','),
       ),
     ].join('\n');
-  }
-  @Get(':id/onboarding-status')
-  async onboardingStatus(@CurrentUser() u: AuthUser, @Param('id') id: string) {
-    return {
-      data: await this.fleets.onboardingStatus(
-        this.clients.requireClientId(u),
-        id,
-      ),
-    };
   }
   @Get(':id') async get(@CurrentUser() u: AuthUser, @Param('id') id: string) {
     return { data: await this.fleets.get(this.clients.requireClientId(u), id) };

@@ -9,11 +9,9 @@ datasource db {
 
 enum UserRole {
   ADVISOR
-  RFD_MANAGER
   QC_MANAGER
   SUPER_ADMIN
   CLIENT_ADMIN
-  OPERATIONS_MANAGER
   FLEET_MANAGER
   TEAM_LEAD
   KYC_OPERATOR
@@ -22,12 +20,8 @@ enum UserRole {
 
 enum OtpPurpose {
   LOGIN
-  DEALLOCATION_RIDER
-  DEALLOCATION_OPERATOR
-  PHONE_VERIFICATION
-  RETURN_PENALTY_APPROVAL
-  VEHICLE_SUBMISSION_RIDER
-  VEHICLE_SUBMISSION_TEAM_LEAD
+  HANDOVER_RIDER
+  HANDOVER_OPERATOR
 }
 
 enum OtpStatus {
@@ -106,20 +100,50 @@ enum ImportStatus {
   FAIL
 }
 
-enum PhotoEntityType {
-  PREPARATION
-  RIDER
+enum PhotoWorkflowType {
+  FLEET_INSPECTION
+  FLEET_PREPARATION
+  FLEET_ALLOTMENT
+  FLEET_SUBMISSION
+  RIDER_ONBOARDING
+  SUPPORT
+  PAYMENT
+}
+
+enum PhotoSubjectType {
   FLEET
   BATTERY
   CONTROLLER
   IOT_DEVICE
-  INSPECTION
-  RIDER_ONBOARDING
+  MOTOR
+  TYRE
+  DOCK
+  CHASSIS
+  DASHBOARD
+  PROFILE
+  PAN
+  AADHAR
+  DRIVING_LICENSE
+  BANK
+  DECLARATION
+  ONBOARDING_FEES
   SUPPORT_TICKET
-  PAYMENT_DEPLOYMENT
-  PAYMENT_COLLECTION
-  PAYMENT_AUTOPAY
-  PAYMENT_RECEIVED
+  COLLECTION
+  AUTOPAY
+  OTHER
+}
+
+enum PhotoType {
+  FRONT
+  BACK
+  LEFT
+  RIGHT
+  BODY
+  LABEL
+  DOCUMENT
+  FACE
+  RECEIPT
+  OTHER
 }
 
 enum RiderDocumentReviewStatus {
@@ -3779,9 +3803,10 @@ model Photo {
   id                      String                   @id @default(uuid())
   clientId                String
   client                  Client                   @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  entityType              PhotoEntityType
+  workFlowType            PhotoWorkflowType
+  subjectType             PhotoSubjectType
   entityId                String
-  photoType               String
+  photoType               PhotoType
   objectKey               String                   @unique
   mimeType                String
   sizeBytes               Int
@@ -3792,7 +3817,7 @@ model Photo {
   updatedAt               DateTime                 @updatedAt
   riderOnboardingDocument RiderOnboardingDocument?
 
-  @@index([clientId, entityType, entityId])
+  @@index([clientId, workFlowType, subjectType, entityId])
   @@index([clientId, status])
 }
 
@@ -3825,15 +3850,17 @@ model RiderOnboardingDocument {
 model PhotoRequirement {
   id         String          @id @default(uuid())
   clientId   String
-  entityType PhotoEntityType
-  photoType  String
-  isRequired Boolean         @default(true)
-  sortOrder  Int             @default(0)
-  createdAt  DateTime        @default(now())
-  updatedAt  DateTime        @updatedAt
+  workFlowType PhotoWorkflowType
+  subjectType  PhotoSubjectType
+  photoType    PhotoType
+  featureCode  String?           @db.VarChar(100)
+  isRequired   Boolean           @default(true)
+  sortOrder    Int               @default(0)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
 
-  @@unique([clientId, entityType, photoType])
-  @@index([clientId, entityType, sortOrder])
+  @@unique([clientId, workFlowType, subjectType, photoType])
+  @@index([clientId, workFlowType, subjectType, sortOrder])
 }
 
 model Session {
@@ -3930,11 +3957,6 @@ model ClientBranding {
   client           Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   logoObjectKey    String?
   faviconObjectKey String?
-  primaryColor     String   @default("#176b4c")
-  secondaryColor   String   @default("#e4f2e9")
-  accentColor      String   @default("#27865f")
-  loginTitle       String   @default("Welcome back")
-  loginSubtitle    String   @default("Sign in to your EV fleet workspace.")
   supportEmail     String?
   supportPhone     String?
   createdAt        DateTime @default(now())
@@ -4853,16 +4875,9 @@ model ReturnPenaltyCase {
   status                 String               @default("DRAFT") @db.VarChar(40)
   submittedAt            DateTime?
   submittedById          String?
-  riderApprovedRevision  Int?
-  riderApprovedAt        DateTime?
-  riderApprovalOtpRequestId String?
   riderDisputedRevision  Int?
   riderDisputedAt        DateTime?
   riderDisputeReason     String?              @db.VarChar(500)
-  adminOverrideRevision  Int?
-  adminOverrideAt        DateTime?
-  adminOverrideById      String?
-  adminOverrideReason    String?              @db.VarChar(500)
   managerApprovedRevision Int?
   managerApprovedAt      DateTime?
   managerApprovedById    String?

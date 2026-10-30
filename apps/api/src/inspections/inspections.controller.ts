@@ -16,7 +16,6 @@ import { CompleteInspectionDto } from './dto/complete-inspection.dto.js';
 @FleetActionResource('inspection')
 @Roles(
   UserRole.CLIENT_ADMIN,
-  UserRole.OPERATIONS_MANAGER,
   UserRole.FLEET_MANAGER,
 )
 export class InspectionsController {
@@ -53,7 +52,7 @@ export class InspectionsController {
       clientId,
       actorId: user.id,
       action: 'INSPECTION_COMPLETED',
-      entityType: 'INSPECTION',
+      entityType: 'Inspection',
       entityId: inspectionId,
       newData: {
         allocationId: inspection.allocationId,

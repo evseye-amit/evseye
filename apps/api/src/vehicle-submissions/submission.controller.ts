@@ -38,7 +38,6 @@ import {
 
 const staff = [
   UserRole.CLIENT_ADMIN,
-  UserRole.OPERATIONS_MANAGER,
   UserRole.FLEET_MANAGER,
 ];
 class SubmissionOptionsDto {

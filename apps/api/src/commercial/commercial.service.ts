@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { BillingCycle, FeatureUsageTransactionType, Prisma, PricingAdjustmentScope, PricingAdjustmentType } from '@prisma/client';
+import { BillingCycle, Prisma, PricingAdjustmentScope, PricingAdjustmentType } from '@prisma/client';
 import { AuditService } from '../audit/audit.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AdjustmentDto, ConsumeFeatureDto, FeatureAddOnDto, PackageChangeDto, PurchaseAddOnDto, QuoteDto, SubscriptionDto, UpdateFeatureAddOnDto, VehicleCountDto, VehicleTierDto } from './dto/commercial.dto.js';
@@ -76,7 +76,7 @@ export class CommercialService {
   async setAddOnActive(id: string, isActive: boolean, actorId: string) { const current = await this.prisma.featureAddOn.findUnique({ where: { id } }); if (!current) throw new NotFoundException('Feature add-on not found.'); const row = await this.prisma.featureAddOn.update({ where: { id }, data: { isActive } }); await this.audit.record({ actorId, action: isActive ? 'FEATURE_ADDON_ACTIVATED' : 'FEATURE_ADDON_DEACTIVATED', entityType: 'FeatureAddOn', entityId: id }); return row; }
   async listAddOns(featureId?: string) {
     return this.prisma.featureAddOn.findMany({
-      where: { ...(featureId ? { featureId } : {}) },
+      where: featureId ? { featureId } : {},
       include: { feature: true },
       orderBy: { code: 'asc' },
     });

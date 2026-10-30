@@ -238,7 +238,8 @@ export class FleetManagerMaintenanceService {
                 clientId,
                 id: { in: photoIds },
                 status: 'COMPLETE',
-                entityType: 'INSPECTION',
+                workFlowType: 'FLEET_SUBMISSION',
+                subjectType: 'FLEET',
                 entityId: {
                   in: visibleReports.map(
                     (report) => report.submission.inspectionId,
@@ -247,7 +248,7 @@ export class FleetManagerMaintenanceService {
               },
               select: {
                 id: true,
-                entityType: true,
+
                 entityId: true,
                 photoType: true,
                 mimeType: true,

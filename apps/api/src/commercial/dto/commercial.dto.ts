@@ -1,6 +1,5 @@
-import { Type } from 'class-transformer';
 import { IsBoolean, IsDateString, IsEnum, IsInt, IsNumber, IsObject, IsOptional, IsString, Max, Min } from 'class-validator';
-import { BillingCycle, FeatureUsageTransactionType, PricingAdjustmentScope, PricingAdjustmentType, PricingTierMode } from '@prisma/client';
+import { BillingCycle, PricingAdjustmentScope, PricingAdjustmentType, PricingTierMode } from '@prisma/client';
 
 export class VehicleTierDto {
   @IsInt() @Min(1) minVehicles!: number;

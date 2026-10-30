@@ -505,7 +505,6 @@ export default function SuperAdminDashboard() {
   const revisionTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [pricing, setPricing] = useState<Item[]>([]);
   const [featureAddOns, setFeatureAddOns] = useState<Item[]>([]);
-  const [selectedClientId, setSelectedClientId] = useState("");
   const [oem, setOem] = useState(emptyOem);
   const [editingOemId, setEditingOemId] = useState<string | null>(null);
   const [showOemForm, setShowOemForm] = useState(false);
@@ -4160,7 +4159,7 @@ function LegalDocumentsView({ token, refreshKey = 0 }: { token: string; refreshK
   }
 
   const kindOptions = ["TERMS_AND_CONDITIONS", "PRIVACY_POLICY", "PRIVACY_CONSENT"];
-  const roleOptions = ["RIDER", "FLEET_MANAGER", "TEAM_LEAD", "OPERATIONS_MANAGER", "CLIENT_ADMIN", "KYC_OPERATOR"];
+  const roleOptions = ["RIDER", "FLEET_MANAGER", "TEAM_LEAD", "ADVISOR", "QC_MANAGER", "CLIENT_ADMIN", "KYC_OPERATOR"];
   return (
     <section className="sa-legal-documents">
       <section className="sa-page-head">
@@ -4627,16 +4626,6 @@ function ClientCommercialDirectory({
     },
   };
   const activeClients = clients.filter((client) => client.status === "ACTIVE");
-  const action = section === "pricing"
-    ? "Manage pricing"
-    : section === "addOns"
-      ? "Manage Add-Ons"
-      : section === "quotaPacks"
-        ? "Manage quota packs"
-        : section === "creditLots"
-          ? "View credit lots"
-          : "View ledger";
-
   return (
     <>
       <section className="sa-page-head">

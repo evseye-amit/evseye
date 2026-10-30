@@ -22,6 +22,7 @@ import {
   reasonSchema,
   resultSchema,
   stageDefinitionSchema,
+  PHOTO_TYPE_VALUES,
 } from './readiness-policy.js';
 const json = (v: unknown) =>
   JSON.parse(JSON.stringify(v)) as Prisma.InputJsonValue;
@@ -273,7 +274,8 @@ export class FleetInstallationService {
     const photos = await this.db.photo.findMany({
       where: {
         clientId,
-        entityType: 'PREPARATION',
+        workFlowType: 'FLEET_PREPARATION',
+        subjectType: 'OTHER',
         entityId: this.entity(c.stage),
         status: 'COMPLETE',
       },
@@ -547,7 +549,8 @@ export class FleetInstallationService {
           const photos = await tx.photo.findMany({
             where: {
               clientId,
-              entityType: 'PREPARATION',
+              workFlowType: 'FLEET_PREPARATION',
+              subjectType: 'OTHER',
               entityId: this.entity(s),
               status: 'COMPLETE',
             },
@@ -883,7 +886,7 @@ export class FleetInstallationService {
       z
         .object({
           revision: z.number().int().min(1),
-          photoType: z.string().max(120),
+          photoType: z.enum(PHOTO_TYPE_VALUES),
           mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
           sizeBytes: z
             .number()
@@ -911,7 +914,8 @@ export class FleetInstallationService {
       return tx.photo.create({
         data: {
           clientId,
-          entityType: 'PREPARATION',
+          workFlowType: 'FLEET_PREPARATION',
+          subjectType: 'OTHER',
           entityId: this.entity(c.stage),
           photoType: b.photoType,
           mimeType: b.mimeType,
@@ -947,7 +951,8 @@ export class FleetInstallationService {
       where: {
         id: photoId,
         clientId,
-        entityType: 'PREPARATION',
+        workFlowType: 'FLEET_PREPARATION',
+        subjectType: 'OTHER',
         entityId: this.entity(c.stage),
       },
     });
@@ -970,8 +975,9 @@ export class FleetInstallationService {
       await tx.photo.updateMany({
         where: {
           clientId,
+          workFlowType: 'FLEET_PREPARATION',
+          subjectType: 'OTHER',
           entityId: this.entity(c.stage),
-          entityType: 'PREPARATION',
           photoType: photo.photoType,
           status: 'COMPLETE',
         },
@@ -1007,7 +1013,8 @@ export class FleetInstallationService {
       where: {
         clientId,
         id: photoId,
-        entityType: 'PREPARATION',
+        workFlowType: 'FLEET_PREPARATION',
+        subjectType: 'OTHER',
         entityId: { in: entities },
         status: 'COMPLETE',
       },

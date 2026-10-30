@@ -6,7 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { DeploymentCommercialService } from './deployment-commercial.service.js';
 import { pendingRiderIdsQuery } from '../fleet-manager-home/home-metrics.js';
 import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
-import { AllocationStatus, ClientSubscriptionStatus, DeploymentPaymentStatus, FleetStatus, InspectionStatus, InspectionType, MobileDeploymentStatus, PhotoEntityType, PhotoStatus, Prisma, RiderStatus } from '@prisma/client';
+import { AllocationStatus, ClientSubscriptionStatus, DeploymentPaymentStatus, FleetStatus, InspectionStatus, InspectionType, MobileDeploymentStatus, PhotoStatus, Prisma, RiderStatus } from '@prisma/client';
 import { STORAGE_PROVIDER, type StorageProvider } from '../media/storage/storage-provider.interface.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { translatedProperty, type ApiLocale } from '../common/locale.js';
@@ -42,7 +42,7 @@ export class MobileDeploymentService {
     });
     if (!inspection) return null;
     const photo = await this.prisma.photo.findFirst({
-      where: { clientId, entityType: PhotoEntityType.INSPECTION, entityId: inspection.id, photoType: 'FRONT', status: PhotoStatus.COMPLETE },
+      where: { clientId, workFlowType: 'FLEET_ALLOTMENT', subjectType: 'FLEET', entityId: inspection.id, photoType: 'FRONT', status: PhotoStatus.COMPLETE },
       orderBy: [{ uploadedAt: 'desc' }, { id: 'desc' }],
       select: { id: true },
     });
@@ -124,8 +124,8 @@ export class MobileDeploymentService {
     });
     if (!inspection) throw new NotFoundException('Allocation evidence record not found.');
     const [requirements, photos] = await Promise.all([
-      this.prisma.photoRequirement.findMany({ where: { clientId, entityType: PhotoEntityType.INSPECTION }, orderBy: [{ sortOrder: 'asc' }, { photoType: 'asc' }] }),
-      this.prisma.photo.findMany({ where: { clientId, entityType: PhotoEntityType.INSPECTION, entityId: inspection.id }, orderBy: { uploadedAt: 'asc' } }),
+      this.prisma.photoRequirement.findMany({ where: { clientId, workFlowType: 'FLEET_ALLOTMENT', subjectType: 'FLEET' }, orderBy: [{ sortOrder: 'asc' }, { photoType: 'asc' }] }),
+      this.prisma.photo.findMany({ where: { clientId, workFlowType: 'FLEET_ALLOTMENT', subjectType: 'FLEET', entityId: inspection.id }, orderBy: { uploadedAt: 'asc' } }),
     ]);
     const completed = new Set(photos.filter((photo) => photo.status === PhotoStatus.COMPLETE).map((photo) => photo.photoType));
     const missingPhotoTypes = requirements.filter((requirement) => requirement.isRequired && !completed.has(requirement.photoType)).map((requirement) => requirement.photoType);
@@ -187,7 +187,9 @@ export class MobileDeploymentService {
     const photos = await this.prisma.photo.findMany({
       where: {
         clientId,
-        entityType: PhotoEntityType.FLEET,
+
+        workFlowType: 'FLEET_INSPECTION',
+        subjectType: 'FLEET',
         entityId: { in: [...new Set(requests.map((request) => request.fleetId))] },
         status: PhotoStatus.COMPLETE,
       },
@@ -296,7 +298,7 @@ export class MobileDeploymentService {
   }
   async requestFleet(clientId: string, userId: string, allocationId: string) {
     await this.assertFleetManagerHub(clientId, userId, allocationId);
-    const { workflow, allocation } = await this.workflow(clientId, allocationId);
+    const { workflow } = await this.workflow(clientId, allocationId);
     if (workflow.status !== MobileDeploymentStatus.RIDER_WAITING) throw new BadRequestException('Fleet request is not available in the current state.');
     return this.prisma.mobileDeploymentWorkflow.update({ where: { id: workflow.id }, data: { status: MobileDeploymentStatus.FLEET_REQUESTED } });
   }
@@ -309,7 +311,7 @@ export class MobileDeploymentService {
     const { workflow } = await this.workflow(clientId, allocationId);
     const payment = await this.prisma.deploymentPayment.findUnique({ where: { workflowId: workflow.id } });
     if (!payment) throw new NotFoundException('Payment request not found.');
-    const receipts = await this.prisma.photo.findMany({ where: { clientId, entityType: 'PAYMENT_DEPLOYMENT', entityId: payment.id, status: 'COMPLETE' },
+    const receipts = await this.prisma.photo.findMany({ where: { clientId, workFlowType: 'PAYMENT', subjectType: 'OTHER', entityId: payment.id, status: 'COMPLETE' },
       select: { id: true, mimeType: true, sizeBytes: true, uploadedAt: true }, orderBy: { createdAt: 'asc' } });
     return { ...allocationPaymentView(payment, workflow.status), receipts };
   }
@@ -325,7 +327,7 @@ export class MobileDeploymentService {
         if (!provider || !providerReference) throw new BadRequestException('Payment provider and reference are required.');
         if (receiptPhotoIds.length > 20 || new Set(receiptPhotoIds).size !== receiptPhotoIds.length)
           throw new BadRequestException('Provide up to 20 unique receipt photo IDs.');
-        const receipts = await tx.photo.findMany({ where: { clientId, entityType: 'PAYMENT_DEPLOYMENT', entityId: payment.id, status: 'COMPLETE', uploadedById: userId },
+        const receipts = await tx.photo.findMany({ where: { clientId, workFlowType: 'PAYMENT', subjectType: 'OTHER', entityId: payment.id, status: 'COMPLETE', uploadedById: userId },
           select: { id: true, mimeType: true, sizeBytes: true, uploadedAt: true }, orderBy: { createdAt: 'asc' } });
         if (receiptPhotoIds.some(id => !receipts.some(photo => photo.id === id)))
           throw new BadRequestException('Each receipt must be a completed upload for this payment.');
@@ -409,9 +411,10 @@ export class MobileDeploymentService {
     if (!riderPdiItems(workflow.pdiChecklist).some(item => item.code === input.itemCode)) throw new BadRequestException('Voice remarks are only available for mandatory PDI items. Refresh the checklist.');
     const evidence = await this.allocationEvidence(clientId, allocationId);
     const dto: CreateUploadIntentDto = {
-      entityType: PhotoEntityType.INSPECTION,
+      workFlowType: 'FLEET_ALLOTMENT',
+      subjectType: 'FLEET',
       entityId: evidence.inspection.id,
-      photoType: `PDI_VOICE_${input.itemCode}`,
+      photoType: 'FACE',
       mimeType: input.mimeType as CreateUploadIntentDto['mimeType'],
       fileName: input.fileName,
       sizeBytes: input.sizeBytes,
@@ -423,8 +426,8 @@ export class MobileDeploymentService {
     const { workflow } = await this.workflow(clientId, allocationId);
     if (workflow.status !== MobileDeploymentStatus.PDI_PENDING_RIDER) throw new BadRequestException('PDI is not awaiting Rider acceptance.');
     const evidence = await this.allocationEvidence(clientId, allocationId);
-    const photo = await this.prisma.photo.findFirst({ where: { id: photoId, clientId, entityType: PhotoEntityType.INSPECTION, entityId: evidence.inspection.id, photoType: { startsWith: 'PDI_VOICE_' } }, select: { id: true, photoType: true } });
-    if (!photo || !riderPdiItems(workflow.pdiChecklist).some(item => photo.photoType === `PDI_VOICE_${item.code}`)) throw new NotFoundException('PDI voice upload not found for a mandatory checklist item.');
+    const photo = await this.prisma.photo.findFirst({ where: { id: photoId, clientId, workFlowType: 'FLEET_ALLOTMENT', subjectType: 'FLEET', entityId: evidence.inspection.id, photoType: 'FACE' }, select: { id: true, photoType: true } });
+    if (!photo || !riderPdiItems(workflow.pdiChecklist).length) throw new NotFoundException('PDI voice upload not found for a mandatory checklist item.');
     return this.media.complete(clientId, photo.id);
   }
   async acceptPdi(clientId: string, userId: string, allocationId: string, items: Array<{ code: string; accepted: boolean; remarksText?: string; voiceMediaId?: string }>) {
@@ -445,8 +448,8 @@ export class MobileDeploymentService {
     const voiceMediaIds = [...new Set(items.flatMap(item => item.voiceMediaId ? [item.voiceMediaId] : []))];
     if (voiceMediaIds.length) {
       const evidence = await this.allocationEvidence(clientId, allocationId);
-      const voiceNotes = await this.prisma.photo.findMany({ where: { id: { in: voiceMediaIds }, clientId, entityType: PhotoEntityType.INSPECTION, entityId: evidence.inspection.id, status: PhotoStatus.COMPLETE }, select: { id: true, photoType: true } });
-      if (items.some(item => item.voiceMediaId && !voiceNotes.some(photo => photo.id === item.voiceMediaId && photo.photoType === `PDI_VOICE_${item.code}`))) throw new BadRequestException('Each PDI voice remark must be a completed voice upload for its mandatory item and this allocation.');
+      const voiceNotes = await this.prisma.photo.findMany({ where: { id: { in: voiceMediaIds }, clientId, workFlowType: 'FLEET_ALLOTMENT', subjectType: 'FLEET', entityId: evidence.inspection.id, status: PhotoStatus.COMPLETE }, select: { id: true, photoType: true } });
+      if (items.some(item => item.voiceMediaId && !voiceNotes.some(photo => photo.id === item.voiceMediaId && photo.photoType === 'FACE'))) throw new BadRequestException('Each PDI voice remark must be a completed voice upload for its mandatory item and this allocation.');
     }
     const policy = await this.trainingPolicy(clientId);
     const acceptance = { riderPdiAcceptedAt: new Date(), riderPdiRemarksText: JSON.stringify(items), riderPdiVoicePhotoId: items.find((item) => item.voiceMediaId)?.voiceMediaId };

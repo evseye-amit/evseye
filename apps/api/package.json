@@ -8,6 +8,7 @@
   "type": "module",
   "scripts": {
     "build": "prisma generate && nest build",
+    "openapi:routes": "prisma generate && nest build && node scripts/export-openapi-routes.mjs ../../docs/openapi-operation-inventory.json",
     "deploy": "nest deploy",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",

@@ -71,7 +71,6 @@ export const batterySlots = ["PRIMARY", "SECONDARY", "AUXILIARY"];
 export const batteryTypes = ["FIXED_SINGLE", "FIXED_DOUBLE", "SWAP_IF", "SWAP_BS", "SWAP_MOVING", "SWAP_OTHER"];
 export const hubTypes = ["OPERATIONS", "PARKING", "CHARGING", "BATTERY_SWAP", "MAINTENANCE", "WAREHOUSE", "DELIVERY", "MIXED"];
 export const hubStatuses = ["ACTIVE", "INACTIVE", "TEMPORARILY_CLOSED", "UNDER_MAINTENANCE", "FULL"];
-export const photoEntityTypes = ["RIDER", "FLEET", "BATTERY", "CONTROLLER", "IOT_DEVICE", "INSPECTION"];
 export const riderStatuses = ["ONBOARDING", "ACTIVE", "INACTIVE", "BLOCKED", "EXITED"];
 export const kycTypes = ["AADHAAR", "PAN", "BANK_ACCOUNT"] as const;
 
@@ -81,15 +80,6 @@ export function enumOptionLabel(value: string) {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
-}
-
-export function photoEntityTypeLabel(value: string) {
-  const labels: Record<string, string> = {
-    RIDER: "Rider profile",
-    FLEET: "Fleet onboarding",
-    INSPECTION: "Allocation inspection",
-  };
-  return labels[value] ?? enumOptionLabel(value);
 }
 
 export const workPartnerCategories = [

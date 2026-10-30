@@ -68,8 +68,8 @@ export class PaymentTransactionsService {
       this.db.$queryRaw<TransactionRow[]>(Prisma.sql`SELECT t.*, r.name "riderName", r.mobile ${base} ORDER BY ${order} ${direction} NULLS LAST,t.source,t.id LIMIT ${q.limit} OFFSET ${(q.page-1)*q.limit}`),
       this.db.$queryRaw<{ total: bigint }[]>(Prisma.sql`SELECT COUNT(*) total ${base}`),
     ]);
-    const photos = items.length ? await this.db.photo.groupBy({ by: ['entityType', 'entityId'], where: { clientId, status: 'COMPLETE', OR: items.map(x => ({ entityType: paymentPhotoTypes[x.source], entityId: x.id })) }, _count: true }) : [];
-    return { items: items.map(x => ({ ...x, receiptCount: photos.find(p => p.entityType === paymentPhotoTypes[x.source] && p.entityId === x.id)?._count ?? 0,
+    const photos = items.length ? await this.db.photo.groupBy({ by: ['subjectType', 'entityId'], where: { clientId, workFlowType: 'PAYMENT', status: 'COMPLETE', OR: items.map(x => ({ subjectType: paymentPhotoTypes[x.source], entityId: x.id })) }, _count: true }) : [];
+    return { items: items.map(x => ({ ...x, receiptCount: photos.find(p => p.subjectType === paymentPhotoTypes[x.source] && p.entityId === x.id)?._count ?? 0,
       canReview: actor.roles.includes(UserRole.CLIENT_ADMIN) && x.source === 'DEPLOYMENT' && x.status === 'SUBMITTED' })), total: Number(count[0].total), page: q.page, limit: q.limit };
   }
 
@@ -87,7 +87,7 @@ export class PaymentTransactionsService {
         if (!await this.db.allocation.findFirst({ where: { clientId, id: row.allocationId!, fleet: { currentHubId: { in: hubs.map(x => x.hubId) } } }, select: { id: true } })) throw new NotFoundException('Payment transaction not found in an assigned hub.');
       } else throw new ForbiddenException();
     }
-    const receipts = await this.db.photo.findMany({ where: { clientId, entityType: paymentPhotoTypes[source], entityId: id, status: 'COMPLETE' },
+    const receipts = await this.db.photo.findMany({ where: { clientId, workFlowType: 'PAYMENT', subjectType: paymentPhotoTypes[source], entityId: id, status: 'COMPLETE' },
       select: { id: true, mimeType: true, sizeBytes: true, uploadedAt: true, uploadedById: true }, orderBy: { createdAt: 'asc' } });
     const history = source === 'DEPLOYMENT' ? await this.db.auditLog.findMany({ where: { clientId, entityType: 'DeploymentPayment', entityId: id,
       action: { in: ['PAYMENT_SUBMITTED', 'PAYMENT_REJECTED', 'PAYMENT_APPROVED', 'RAZORPAY_PAYMENT_RECONCILED', 'RAZORPAY_REFUND_RECONCILED'] } }, select: { id: true, action: true, actorId: true, newData: true, createdAt: true }, orderBy: { createdAt: 'asc' } }) : [];
@@ -113,7 +113,7 @@ export class PaymentTransactionsService {
     if (!actor.roles.includes(UserRole.RIDER)) throw new ForbiddenException('Only the rider can upload their receipt.');
     const row = await this.detail(clientId, actor, source, id);
     if (row.riderId !== await this.riderForUser(clientId, actor.id)) throw new NotFoundException('Payment transaction not found.');
-    return this.media.createPaymentUploadIntent(clientId, actor.id, paymentPhotoTypes[row.source], id, dto);
+    return this.media.createPaymentUploadIntent(clientId, actor.id, row.source, id, dto);
   }
   async complete(clientId: string, actor: AuthUser, source: string, id: string, photoId: string) {
     if (!actor.roles.includes(UserRole.RIDER)) throw new ForbiddenException();
@@ -123,9 +123,9 @@ export class PaymentTransactionsService {
       return this.db.$transaction(async tx => {
         // Match the approval lock so receipt publication and review versions agree.
         await tx.$queryRaw`SELECT id FROM "Allocation" WHERE id=${row.allocationId} AND "clientId"=${clientId} FOR UPDATE`;
-        const before = await tx.photo.findFirst({ where: { id: photoId, clientId, entityType: 'PAYMENT_DEPLOYMENT', entityId: id, uploadedById: actor.id } });
+        const before = await tx.photo.findFirst({ where: { id: photoId, clientId, workFlowType: 'PAYMENT', subjectType: 'OTHER', entityId: id, uploadedById: actor.id } });
         if (!before) throw new NotFoundException('Payment receipt not found.');
-        const photo = await this.media.completePayment(clientId, 'PAYMENT_DEPLOYMENT', id, photoId, actor.id, tx);
+        const photo = await this.media.completePayment(clientId, 'DEPLOYMENT', id, photoId, actor.id, tx);
         if (before.status !== 'COMPLETE') {
           await tx.deploymentPayment.updateMany({ where: { id, clientId, status: 'SUBMITTED' }, data: { submissionVersion: { increment: 1 } } });
           await tx.auditLog.create({ data: { clientId, actorId: actor.id, action: 'PAYMENT_RECEIPT_UPLOADED', entityType: 'Photo', entityId: photo.id,
@@ -134,17 +134,17 @@ export class PaymentTransactionsService {
         return { id: photo.id, status: photo.status, uploadedAt: photo.uploadedAt };
       }, { timeout: 30000 });
     }
-    const photo = await this.media.completePayment(clientId, paymentPhotoTypes[row.source], id, photoId, actor.id);
+    const photo = await this.media.completePayment(clientId, row.source, id, photoId, actor.id);
     await this.db.auditLog.create({ data: { clientId, actorId: actor.id, action: 'PAYMENT_RECEIPT_UPLOADED', entityType: 'Photo', entityId: photo.id,
       newData: { source: row.source, paymentId: id } } });
     return { id: photo.id, status: photo.status, uploadedAt: photo.uploadedAt };
   }
   async receiptContent(clientId: string, actor: AuthUser, source: string, id: string, photoId: string) {
     const row = await this.detail(clientId, actor, source, id);
-    return this.media.paymentContent(clientId, paymentPhotoTypes[row.source], id, photoId);
+    return this.media.paymentContent(clientId, row.source, id, photoId);
   }
   async download(clientId: string, actor: AuthUser, source: string, id: string, photoId: string) {
     const row = await this.detail(clientId, actor, source, id);
-    return this.media.paymentDownloadUrl(clientId, paymentPhotoTypes[row.source], id, photoId);
+    return this.media.paymentDownloadUrl(clientId, row.source, id, photoId);
   }
 }

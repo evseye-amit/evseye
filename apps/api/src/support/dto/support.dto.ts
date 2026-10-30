@@ -1,4 +1,5 @@
 import { Type } from 'class-transformer';
+import { PhotoType } from '@prisma/client';
 import {
   IsIn,
   IsInt,
@@ -31,7 +32,7 @@ export class UpdateSupportStatusDto {
 }
 
 export class SupportAttachmentIntentDto {
-  @IsString() @MaxLength(80) photoType!: string;
+  @IsIn(Object.values(PhotoType)) photoType!: PhotoType;
   @IsString() @IsIn(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']) mimeType!: 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf';
   @IsString() @MaxLength(255) fileName!: string;
   @IsInt() @Min(1) @Max(5 * 1024 * 1024) sizeBytes!: number;

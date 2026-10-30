@@ -7,7 +7,6 @@ import {
 import {
   AllocationStatus,
   InspectionStatus,
-  PhotoEntityType,
   PhotoStatus,
   UserRole,
 } from '@prisma/client';
@@ -30,7 +29,8 @@ export class InspectionsService {
     const photos = await this.prisma.photo.findMany({
       where: {
         clientId,
-        entityType: PhotoEntityType.INSPECTION,
+        workFlowType: inspection.type === 'PRE_ALLOCATION' ? 'FLEET_ALLOTMENT' : 'FLEET_SUBMISSION',
+        subjectType: 'FLEET',
         entityId: inspectionId,
       },
       orderBy: { uploadedAt: 'asc' },
@@ -55,14 +55,16 @@ export class InspectionsService {
     const required = await this.prisma.photoRequirement.findMany({
       where: {
         clientId,
-        entityType: PhotoEntityType.INSPECTION,
+        workFlowType: inspection.type === 'PRE_ALLOCATION' ? 'FLEET_ALLOTMENT' : 'FLEET_SUBMISSION',
+        subjectType: 'FLEET',
         isRequired: true,
       },
     });
     const complete = await this.prisma.photo.findMany({
       where: {
         clientId,
-        entityType: PhotoEntityType.INSPECTION,
+        workFlowType: inspection.type === 'PRE_ALLOCATION' ? 'FLEET_ALLOTMENT' : 'FLEET_SUBMISSION',
+        subjectType: 'FLEET',
         entityId: inspectionId,
         status: PhotoStatus.COMPLETE,
       },
@@ -110,7 +112,7 @@ export class InspectionsService {
         actor.roles.includes(UserRole.FLEET_MANAGER) &&
         !actor.roles.some(
           (role) =>
-            role === UserRole.CLIENT_ADMIN || role === UserRole.OPERATIONS_MANAGER,
+            role === UserRole.CLIENT_ADMIN || role === UserRole.FLEET_MANAGER,
         )
       ) {
         const hubs = (

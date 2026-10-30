@@ -12,7 +12,7 @@ import { RiderReferenceReviewService } from './rider-reference-review.service.js
 
 @Controller()
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER, UserRole.FLEET_MANAGER, UserRole.KYC_OPERATOR)
+@Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER, UserRole.KYC_OPERATOR)
 export class RiderReferenceReviewController {
   constructor(private readonly references: RiderReferenceReviewService, private readonly clients: ClientContextService, private readonly audit: AuditService) {}
 

@@ -131,14 +131,14 @@ export class VehicleSubmissionService {
   ) {
     if (
       !actor.roles.some((role) =>
-        ['CLIENT_ADMIN', 'OPERATIONS_MANAGER', 'FLEET_MANAGER'].includes(role),
+        ['CLIENT_ADMIN', 'FLEET_MANAGER'].includes(role),
       )
     )
       throw new ForbiddenException('Staff access is required.');
     if (
       actor.roles.includes('FLEET_MANAGER') &&
       !actor.roles.some((role) =>
-        ['CLIENT_ADMIN', 'OPERATIONS_MANAGER'].includes(role),
+        ['CLIENT_ADMIN', 'FLEET_MANAGER'].includes(role),
       )
     ) {
       if (
@@ -190,14 +190,14 @@ export class VehicleSubmissionService {
   ) {
     if (
       !actor.roles.some((role) =>
-        ['CLIENT_ADMIN', 'OPERATIONS_MANAGER', 'FLEET_MANAGER'].includes(role),
+        ['CLIENT_ADMIN', 'FLEET_MANAGER'].includes(role),
       )
     )
       throw new ForbiddenException('Staff access is required.');
     const restricted =
       actor.roles.includes('FLEET_MANAGER') &&
       !actor.roles.some((role) =>
-        ['CLIENT_ADMIN', 'OPERATIONS_MANAGER'].includes(role),
+        ['CLIENT_ADMIN', 'FLEET_MANAGER'].includes(role),
       );
     const hubs = restricted
       ? await this.db.userHub.findMany({
@@ -443,25 +443,19 @@ export class VehicleSubmissionService {
         number: entry.controller.controllerNumber,
       }));
       const configured = await tx.photoRequirement.findMany({
-        where: { clientId, entityType: 'INSPECTION', isRequired: true },
+        where: { clientId, workFlowType: 'FLEET_SUBMISSION', subjectType: 'FLEET', isRequired: true },
         select: { photoType: true },
       });
       const requiredPhotoTypes = [
         ...new Set([
-          'VEHICLE_FRONT',
-          'VEHICLE_REAR',
-          'VEHICLE_LEFT',
-          'VEHICLE_RIGHT',
-          'RETURN_CHECKLIST',
-          ...(batteries.length
-            ? batteries.map((battery) => `BATTERY_${battery.id}`)
-            : ['BATTERY']),
-          ...(controllers.length
-            ? controllers.map((controller) => `CONTROLLER_${controller.id}`)
-            : ['CONTROLLER']),
-          ...(allocation.fleet.iotDeviceId
-            ? [`IOT_${allocation.fleet.iotDeviceId}`]
-            : []),
+          'FRONT',
+          'BACK',
+          'LEFT',
+          'RIGHT',
+          'OTHER',
+          ...(batteries.length ? ['BODY', 'LABEL'] : ['BODY']),
+          ...(controllers.length ? ['BODY', 'LABEL'] : ['BODY']),
+          ...(allocation.fleet.iotDeviceId ? ['OTHER'] : []),
           ...configured.map((entry) => entry.photoType),
         ]),
       ];
@@ -535,7 +529,8 @@ export class VehicleSubmissionService {
       this.db.photo.findMany({
         where: {
           clientId,
-          entityType: 'INSPECTION',
+          workFlowType: 'FLEET_SUBMISSION',
+          subjectType: 'FLEET',
           entityId: row.inspectionId,
           status: 'COMPLETE',
         },
@@ -587,7 +582,8 @@ export class VehicleSubmissionService {
       where: {
         id: photoId,
         clientId,
-        entityType: 'INSPECTION',
+        workFlowType: 'FLEET_SUBMISSION',
+        subjectType: 'FLEET',
         entityId: submission.inspectionId,
         status: 'COMPLETE',
       },
@@ -703,7 +699,8 @@ export class VehicleSubmissionService {
       const photos = await tx.photo.findMany({
         where: {
           clientId,
-          entityType: 'INSPECTION',
+          workFlowType: 'FLEET_SUBMISSION',
+          subjectType: 'FLEET',
           entityId: submission.inspectionId,
           status: 'COMPLETE',
         },
@@ -806,7 +803,7 @@ export class VehicleSubmissionService {
           !evidencePhotoIds.some(
             (photo) =>
               photos.find((entry) => entry.id === photo)?.photoType ===
-              'RETURN_CHECKLIST',
+              'OTHER',
           )
         )
           throw new BadRequestException(
@@ -1042,7 +1039,6 @@ export class VehicleSubmissionService {
     const evidence = await tx.photo.count({
       where: {
         clientId,
-        entityType: 'INSPECTION',
         entityId: submission.inspectionId,
         status: 'COMPLETE',
         id: { in: evidenceIds },
@@ -1379,8 +1375,8 @@ export class VehicleSubmissionService {
             status: 'VERIFIED',
             purpose:
               party === 'RIDER'
-                ? 'VEHICLE_SUBMISSION_RIDER'
-                : 'VEHICLE_SUBMISSION_TEAM_LEAD',
+                ? 'HANDOVER_RIDER'
+                : 'HANDOVER_OPERATOR',
           },
         });
         const context = otp?.context as Record<string, unknown> | null;
@@ -1493,7 +1489,7 @@ export class VehicleSubmissionService {
         where: {
           clientId,
           purpose: {
-            in: ['VEHICLE_SUBMISSION_RIDER', 'VEHICLE_SUBMISSION_TEAM_LEAD'],
+            in: ['HANDOVER_RIDER', 'HANDOVER_OPERATOR'],
           },
           status: 'PENDING',
           context: { path: ['reportId'], equals: row.id },
@@ -1680,7 +1676,7 @@ export class VehicleSubmissionService {
           clientId,
           status: 'PENDING',
           purpose: {
-            in: ['VEHICLE_SUBMISSION_RIDER', 'VEHICLE_SUBMISSION_TEAM_LEAD'],
+            in: ['HANDOVER_RIDER', 'HANDOVER_OPERATOR'],
           },
           context: { path: ['reportId'], equals: reportId },
         },

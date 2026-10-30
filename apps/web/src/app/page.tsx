@@ -9,7 +9,6 @@ import {
   fleetOwnershipTypes,
   insuranceTypes,
   kycTypes,
-  riderStatuses,
   vehicleSpeedTypes,
 } from "../lib/domain-enums";
 
@@ -86,13 +85,6 @@ type Tab =
   | "zones"
   | "reports"
   | "feature-usage";
-type PhotoRequirementEntityType =
-  | "RIDER"
-  | "FLEET"
-  | "BATTERY"
-  | "CONTROLLER"
-  | "IOT_DEVICE"
-  | "INSPECTION";
 type RecordItem = Record<string, unknown>;
 type RiderOnboardingField = { featureId: string; featureCode: string; fieldCode?: string; name: string; description?: string | null; billingUnit: string; sequence: number; configuration: { label: string; storageKey?: string; placeholder?: string; fieldType: string; required: boolean; readOnly: boolean; disabled: boolean; editable: boolean; importable: boolean; maxFiles?: number; allowedFileTypes?: string[]; allowedMimeTypes?: string[]; validation?: Record<string, unknown> } };
 type RiderOnboardingConfiguration = { package: { code: string; name: string }; onboarding: { steps: Array<{ stepId: string; stepCode: string; stepName: string; description?: string; sequence: number; fields: RiderOnboardingField[] }> } };
@@ -325,10 +317,19 @@ const PHOTO_EVIDENCE_TABS = new Set<Tab>([
   "rider-evidence",
 ]);
 
-function evidenceEntityType(tab: Tab): PhotoRequirementEntityType {
-  if (tab === "fleet-evidence") return "FLEET";
-  if (tab === "rider-evidence") return "RIDER";
-  return "INSPECTION";
+const PHOTO_TYPE_OPTIONS = [
+  "FRONT", "BACK", "LEFT", "RIGHT", "REAR", "BODY", "LABEL", "CHASSIS",
+  "DASHBOARD", "INSTALLATION", "EVIDENCE", "DOCUMENT", "PROFILE", "RECEIPT",
+  "RETURN_CHECKLIST", "DAMAGE", "DAMAGE_CLOSEUP", "VEHICLE_FRONT", "VEHICLE_LEFT",
+  "VEHICLE_RIGHT", "VEHICLE_REAR", "FLEET_FRONT", "FLEET_LEFT", "FLEET_RIGHT", "FLEET_BACK", "BATTERY_BODY", "BATTERY_LABEL", "CONTROLLER_BODY",
+  "CONTROLLER_LABEL", "IOT_BODY", "IOT_LABEL", "FLEET_WITH_RIDER", "RIDER_DECLARATION", "PDI_VOICE", "PAYMENT_RECEIPT", "PENALTY_DAMAGE", "OTHER",
+];
+
+function evidenceWorkflow(tab: Tab): { workFlowType: string; subjectType: string } {
+  if (tab === "fleet-evidence") return { workFlowType: "FLEET_INSPECTION", subjectType: "FLEET" };
+  if (tab === "rider-evidence") return { workFlowType: "RIDER_ONBOARDING", subjectType: "PROFILE" };
+  if (tab === "deallocation-evidence") return { workFlowType: "FLEET_SUBMISSION", subjectType: "FLEET" };
+  return { workFlowType: "FLEET_ALLOTMENT", subjectType: "FLEET" };
 }
 
 function evidenceContext(tab: Tab) {
@@ -773,9 +774,9 @@ function clientColumns(tab: Tab): ClientColumn<RecordItem>[] {
 }
 
 function canAccessTab(id: Tab, userRoles: string[]) {
-    if (userRoles.some(role => ["ADVISOR","RFD_MANAGER","QC_MANAGER"].includes(role))) return ["installation-board","vehicle-preparation","quality-check"].includes(id);
+    if (userRoles.some(role => ["ADVISOR","QC_MANAGER"].includes(role))) return ["installation-board","vehicle-preparation","quality-check"].includes(id);
     if (["audit","payment-transactions","spares-penalties","legal-documents","refer-and-earn","readiness-settings","work-partners"].includes(id)) return userRoles.includes("CLIENT_ADMIN");
-    if (["notifications","advisors","qc-managers"].includes(id)) return userRoles.some(role => ["CLIENT_ADMIN","OPERATIONS_MANAGER"].includes(role));
+    if (["notifications","advisors","qc-managers"].includes(id)) return userRoles.some(role => ["CLIENT_ADMIN","FLEET_MANAGER"].includes(role));
     return true;
 }
 
@@ -805,11 +806,6 @@ export default function Home() {
   const [iotEnabled, setIotEnabled] = useState<boolean | null>(null);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [items, setItems] = useState<RecordItem[]>([]);
-  const [availableFleets, setAvailableFleets] = useState<RecordItem[]>([]);
-  const [activeRiders, setActiveRiders] = useState<RecordItem[]>([]);
-  const [allocationFleetId, setAllocationFleetId] = useState("");
-  const [allocationRiderId, setAllocationRiderId] = useState("");
-  const [showAllocationForm, setShowAllocationForm] = useState(false);
   const [showRiderForm, setShowRiderForm] = useState(false);
   const [riderOnboardingConfiguration, setRiderOnboardingConfiguration] = useState<RiderOnboardingConfiguration | null>(null);
   const [riderValues, setRiderValues] = useState<Record<string, string>>({});
@@ -835,8 +831,7 @@ export default function Home() {
   const [configuredRequirements, setConfiguredRequirements] = useState<
     RecordItem[]
   >([]);
-  const [photoRequirementEntityType, setPhotoRequirementEntityType] =
-    useState<PhotoRequirementEntityType>("INSPECTION");
+  const [photoRequirementWorkflow, setPhotoRequirementWorkflow] = useState(evidenceWorkflow("allocation-evidence"));
   const [newRequirementType, setNewRequirementType] = useState("");
   const [newRequirementRequired, setNewRequirementRequired] = useState(true);
   const [uploadedPhotoTypes, setUploadedPhotoTypes] = useState<string[]>([]);
@@ -844,6 +839,7 @@ export default function Home() {
     Record<string, number>
   >({});
   const [requiredInspectionPhotos, setRequiredInspectionPhotos] = useState(0);
+  // Kept only for legacy state reset compatibility; allocation/deallocation actions are unavailable in web UI.
   const [deallocationId, setDeallocationId] = useState("");
   const [riderPhone, setRiderPhone] = useState("");
   const [operatorPhone, setOperatorPhone] = useState("");
@@ -860,19 +856,6 @@ export default function Home() {
   const [riderDraft, setRiderDraft] = useState<Record<string, string>>({});
   const [evidenceFleet, setEvidenceFleet] = useState<{ id: string; name: string } | null>(null);
   const [fleetDetail, setFleetDetail] = useState<RecordItem | null>(null);
-  const [fleetOnboardingStatus, setFleetOnboardingStatus] =
-    useState<RecordItem | null>(null);
-  const [fleetPhotoRequirements, setFleetPhotoRequirements] = useState<
-    RecordItem[]
-  >([]);
-  const [uploadedFleetPhotoTypes, setUploadedFleetPhotoTypes] = useState<
-    string[]
-  >([]);
-  const [componentPhotoRequirements, setComponentPhotoRequirements] = useState<
-    Record<string, RecordItem[]>
-  >({});
-  const [uploadedComponentPhotoTypes, setUploadedComponentPhotoTypes] =
-    useState<Record<string, string[]>>({});
   const [iotDeviceNumber, setIotDeviceNumber] = useState("");
   const [iotDetails, setIotDetails] = useState({ imei: "", simNumber: "", iccid: "", provider: "", model: "", installedAt: "" });
   const [editingIotDeviceId, setEditingIotDeviceId] = useState("");
@@ -993,7 +976,8 @@ export default function Home() {
       } else if (nextTab === "locations") {
         setHubs((await viewRequest("/hubs", {}, token)) as RecordItem[]);
       } else if (PHOTO_EVIDENCE_TABS.has(nextTab)) {
-        setConfiguredRequirements(await viewRequest(`/media/photo-requirements?entityType=${evidenceEntityType(nextTab)}`, {}, token) as RecordItem[]);
+        const key = evidenceWorkflow(nextTab);
+        setConfiguredRequirements(await viewRequest(`/media/photo-requirements?workFlowType=${key.workFlowType}&subjectType=${key.subjectType}`, {}, token) as RecordItem[]);
       } else {
         const resource = nextTab === "audit" ? "/audit-logs" : `/${nextTab}`;
         const first = (await viewRequest(`${resource}?page=1&pageSize=100`, {}, token)) as { items: RecordItem[]; meta: { total: number } };
@@ -1026,7 +1010,6 @@ export default function Home() {
     const detailChanged = nextTab === "vehicle-preparation" && fleetId !== readinessFleetId;
     if (nextTab !== tab || detailChanged) { viewGeneration.current += 1; setItems([]); setConfiguredRequirements([]); setAllocationDetail(null); }
     if (nextTab === "dashboard") setExpandedClientNavGroups({});
-    setShowAllocationForm(false);
     setShowRiderForm(false);
     setShowFleetForm(false);
     setShowIotForm(false);
@@ -1036,17 +1019,15 @@ export default function Home() {
     setShowHubForm(false);
     setBulkImportTab(null);
     setInspectionId("");
-    setDeallocationId("");
     setRiderDetail(null);
     setFleetDetail(null);
-    setFleetOnboardingStatus(null);
     setEditingRider(false);
     setIngestSecret("");
     setNotice("");
     setReadinessFleetId(nextTab === "vehicle-preparation" ? fleetId : "");
     setError("");
     if (PHOTO_EVIDENCE_TABS.has(nextTab)) {
-      setPhotoRequirementEntityType(evidenceEntityType(nextTab));
+      setPhotoRequirementWorkflow(evidenceWorkflow(nextTab));
     }
     setTab(nextTab);
     const url = new URL(window.location.href);
@@ -1078,7 +1059,7 @@ export default function Home() {
       const original = new URLSearchParams(window.location.search).get("tab") ?? "dashboard";
       const fleetId = new URLSearchParams(window.location.search).get("fleetId") ?? "";
       const requested = original === "readiness-staff" ? "advisors" : original;
-      const fallback: Tab = userRoles.some((role) => ["ADVISOR", "RFD_MANAGER"].includes(role)) ? "vehicle-preparation" : userRoles.includes("QC_MANAGER") ? "quality-check" : "dashboard";
+      const fallback: Tab = userRoles.some((role) => ["ADVISOR"].includes(role)) ? "vehicle-preparation" : userRoles.includes("QC_MANAGER") ? "quality-check" : "dashboard";
       if (!Object.hasOwn(CLIENT_TAB_TITLES, requested)) return { tab: fallback, fleetId: "", error: "This page does not exist. Choose a section from the menu." };
       if (!canAccessTab(requested as Tab, userRoles)) return { tab: fallback, fleetId: "", error: "You do not have access to the requested section." };
       return { tab: requested as Tab, fleetId: requested === "vehicle-preparation" ? fleetId : "", error: "" };
@@ -1267,40 +1248,6 @@ export default function Home() {
       setError(cause instanceof Error ? cause.message : "Unable to preview document.");
     } finally {
       setPreviewLoadingId("");
-    }
-  }
-
-  async function openAllocationForm(fleetId?: string) {
-    setLoading(true);
-    setError("");
-    try {
-      const [fleets, riders] = await Promise.all([
-        request(
-          "/fleets?status=AVAILABLE&page=1&pageSize=100",
-          {},
-          token,
-        ) as Promise<{ items: RecordItem[] }>,
-        request(
-          "/riders?status=ACTIVE&page=1&pageSize=100",
-          {},
-          token,
-        ) as Promise<{ items: RecordItem[] }>,
-      ]);
-      setAvailableFleets(fleets.items);
-      setActiveRiders(riders.items);
-      if (fleetId && !fleets.items.some((fleet) => String(fleet.id) === fleetId)) {
-        throw new Error("This fleet is no longer available for allocation.");
-      }
-      setAllocationFleetId(fleetId ?? "");
-      setShowAllocationForm(true);
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Unable to load allocation options.",
-      );
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -1662,7 +1609,7 @@ export default function Home() {
     setError("");
     try {
       const requirement = (await request(
-        `/media/photo-requirements/${photoRequirementEntityType}/${photoType}`,
+        `/media/photo-requirements/${photoRequirementWorkflow.workFlowType}/${photoRequirementWorkflow.subjectType}/${photoType}`,
         {
           method: "PUT",
           body: JSON.stringify({ isRequired, sortOrder }),
@@ -1704,35 +1651,6 @@ export default function Home() {
       setNewRequirementType("");
       setNewRequirementRequired(true);
       setShowPhotoTypeForm(false);
-    }
-  }
-
-  async function addFleetComponent(
-    fleetId: string,
-    component: "batteries" | "controllers",
-    serialNumber: string,
-  ) {
-    if (!serialNumber) return;
-    setLoading(true);
-    setError("");
-    try {
-      await request(
-        `/fleets/${fleetId}/${component}`,
-        { method: "POST", body: JSON.stringify({ serialNumber }) },
-        token,
-      );
-      setNotice(
-        `${component === "batteries" ? "Battery" : "Controller"} added.`,
-      );
-      await openFleetDetail(fleetId);
-      setComponentForm(null);
-      setComponentSerial("");
-    } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Unable to add component.",
-      );
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -1795,39 +1713,6 @@ export default function Home() {
     }
   }
 
-  async function createAllocation(event: FormEvent) {
-    event.preventDefault();
-    setLoading(true);
-    setError("");
-    try {
-      const allocation = (await request(
-        "/allocations",
-        {
-          method: "POST",
-          headers: { "Idempotency-Key": crypto.randomUUID() },
-          body: JSON.stringify({
-            fleetId: allocationFleetId,
-            riderId: allocationRiderId,
-          }),
-        },
-        token,
-      )) as { id: string };
-      setShowAllocationForm(false);
-      setAllocationFleetId("");
-      setAllocationRiderId("");
-      setNotice(
-        `Allocation ${allocation.id.slice(0, 8)} created. Complete its pre-allocation inspection before activation.`,
-      );
-      await loadView("fleets");
-    } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Unable to create allocation.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
   async function openInspection(allocation: RecordItem) {
     const targetType =
       allocation.status === "DEALLOCATION_INITIATED"
@@ -1848,7 +1733,7 @@ export default function Home() {
           photos: RecordItem[];
         }>,
         request(
-          "/media/photo-requirements?entityType=INSPECTION",
+          `/media/photo-requirements?workFlowType=${targetType === "POST_DEALLOCATION" ? "FLEET_SUBMISSION" : "FLEET_ALLOTMENT"}&subjectType=FLEET`,
           {},
           token,
         ) as Promise<RecordItem[]>,
@@ -1890,7 +1775,8 @@ export default function Home() {
         {
           method: "POST",
           body: JSON.stringify({
-            entityType: "INSPECTION",
+            workFlowType: inspectionType === "POST_DEALLOCATION" ? "FLEET_SUBMISSION" : "FLEET_ALLOTMENT",
+            subjectType: "FLEET",
             entityId: inspectionId,
             photoType,
             mimeType: file.type,
@@ -1994,7 +1880,7 @@ export default function Home() {
             token,
           ) as Promise<RecordItem | null>,
           request(
-            "/media/photo-requirements?entityType=INSPECTION",
+            "/media/photo-requirements?workFlowType=FLEET_ALLOTMENT&subjectType=FLEET",
             {},
             token,
           ) as Promise<RecordItem[]>,
@@ -2087,85 +1973,16 @@ export default function Home() {
     setLoading(true);
     setError("");
     try {
-      const [fleet, currentState, onboardingStatus, photoRequirements, photos] =
-        await Promise.all([
+      const [fleet, currentState] = await Promise.all([
           request(`/fleets/${fleetId}`, {}, token) as Promise<RecordItem>,
           request(
             `/fleets/${fleetId}/current-state`,
             {},
             token,
           ) as Promise<RecordItem | null>,
-          request(
-            `/fleets/${fleetId}/onboarding-status`,
-            {},
-            token,
-          ) as Promise<RecordItem>,
-          request(
-            "/media/photo-requirements?entityType=FLEET",
-            {},
-            token,
-          ) as Promise<RecordItem[]>,
-          request(
-            `/media/photos?entityType=FLEET&entityId=${fleetId}`,
-            {},
-            token,
-          ) as Promise<RecordItem[]>,
         ]);
       setFleetDetail(fleet);
       setVehicleState(currentState);
-      setFleetOnboardingStatus(onboardingStatus);
-      setFleetPhotoRequirements(photoRequirements);
-      setUploadedFleetPhotoTypes(
-        photos
-          .filter((photo) => photo.status === "COMPLETE")
-          .map((photo) => String(photo.photoType)),
-      );
-      const [batteryRequirements, controllerRequirements] = await Promise.all([
-        request(
-          "/media/photo-requirements?entityType=BATTERY",
-          {},
-          token,
-        ) as Promise<RecordItem[]>,
-        request(
-          "/media/photo-requirements?entityType=CONTROLLER",
-          {},
-          token,
-        ) as Promise<RecordItem[]>,
-      ]);
-      setComponentPhotoRequirements({
-        BATTERY: batteryRequirements,
-        CONTROLLER: controllerRequirements,
-      });
-      const components = [
-        ...((fleet.batteries as RecordItem[]) ?? []).map((component) => ({
-          entityType: "BATTERY" as const,
-          id: String(component.id),
-        })),
-        ...((fleet.controllers as RecordItem[]) ?? []).map((component) => ({
-          entityType: "CONTROLLER" as const,
-          id: String(component.id),
-        })),
-      ];
-      const componentPhotos = await Promise.all(
-        components.map(async (component) => ({
-          key: `${component.entityType}:${component.id}`,
-          photos: (await request(
-            `/media/photos?entityType=${component.entityType}&entityId=${component.id}`,
-            {},
-            token,
-          )) as RecordItem[],
-        })),
-      );
-      setUploadedComponentPhotoTypes(
-        Object.fromEntries(
-          componentPhotos.map(({ key, photos: componentPhotoItems }) => [
-            key,
-            componentPhotoItems
-              .filter((photo) => photo.status === "COMPLETE")
-              .map((photo) => String(photo.photoType)),
-          ]),
-        ),
-      );
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -2175,16 +1992,6 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }
-
-  async function refreshFleetOnboardingStatus(fleetId: string) {
-    setFleetOnboardingStatus(
-      (await request(
-        `/fleets/${fleetId}/onboarding-status`,
-        {},
-        token,
-      )) as RecordItem,
-    );
   }
 
   async function deleteFleet(id: string) {
@@ -2231,7 +2038,8 @@ export default function Home() {
         {
           method: "POST",
           body: JSON.stringify({
-            entityType: "RIDER",
+            workFlowType: "RIDER_ONBOARDING",
+            subjectType: "PROFILE",
             entityId: riderId,
             photoType: "PROFILE",
             mimeType: file.type,
@@ -2270,135 +2078,10 @@ export default function Home() {
       throw new Error('Choose a JPEG, PNG, WebP, or PDF file.');
     }
     if (file.size > 5 * 1024 * 1024) throw new Error('Each onboarding file must be 5 MB or smaller.');
-    const intent = await request('/media/upload-intents', { method: 'POST', body: JSON.stringify({ entityType: 'RIDER', entityId: riderId, photoType: featureCode, mimeType: file.type, fileName: file.name, sizeBytes: file.size }) }, token) as { photo: { id: string }; uploadUrl: string };
+    const intent = await request('/media/upload-intents', { method: 'POST', body: JSON.stringify({ workFlowType: 'RIDER_ONBOARDING', subjectType: 'PROFILE', entityId: riderId, photoType: 'PROFILE', mimeType: file.type, fileName: file.name, sizeBytes: file.size }) }, token) as { photo: { id: string }; uploadUrl: string };
     const result = await fetch(intent.uploadUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
     if (!result.ok) throw new Error(`Object storage rejected ${file.name}.`);
     await request(`/media/${intent.photo.id}/complete`, { method: 'POST' }, token);
-  }
-
-  async function uploadFleetPhoto(
-    fleetId: string,
-    file: File | undefined,
-    photoType: string,
-  ) {
-    if (!file) return;
-    if (
-      !["image/jpeg", "image/png", "image/webp"].includes(file.type) ||
-      file.size > 5 * 1024 * 1024
-    ) {
-      setError("Choose a JPEG, PNG, or WebP image smaller than 5 MB.");
-      return;
-    }
-    setLoading(true);
-    setError("");
-    try {
-      const intent = (await request(
-        "/media/upload-intents",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            entityType: "FLEET",
-            entityId: fleetId,
-            photoType,
-            mimeType: file.type,
-            fileName: file.name,
-            sizeBytes: file.size,
-          }),
-        },
-        token,
-      )) as { photo: { id: string }; uploadUrl: string };
-      const result = await fetch(intent.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      if (!result.ok)
-        throw new Error("Object storage rejected the file upload.");
-      await request(
-        `/media/${intent.photo.id}/complete`,
-        { method: "POST" },
-        token,
-      );
-      setUploadedFleetPhotoTypes((current) =>
-        current.includes(photoType) ? current : [...current, photoType],
-      );
-      await refreshFleetOnboardingStatus(fleetId);
-      setNotice(`${photoType.replaceAll("_", " ")} photo uploaded.`);
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Unable to upload fleet photo.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function uploadComponentPhoto(
-    entityType: "BATTERY" | "CONTROLLER",
-    componentId: string,
-    file: File | undefined,
-    photoType: string,
-  ) {
-    if (!file) return;
-    if (
-      !["image/jpeg", "image/png", "image/webp"].includes(file.type) ||
-      file.size > 5 * 1024 * 1024
-    ) {
-      setError("Choose a JPEG, PNG, or WebP image smaller than 5 MB.");
-      return;
-    }
-    setLoading(true);
-    setError("");
-    try {
-      const intent = (await request(
-        "/media/upload-intents",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            entityType,
-            entityId: componentId,
-            photoType,
-            mimeType: file.type,
-            fileName: file.name,
-            sizeBytes: file.size,
-          }),
-        },
-        token,
-      )) as { photo: { id: string }; uploadUrl: string };
-      const result = await fetch(intent.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      if (!result.ok)
-        throw new Error("Object storage rejected the file upload.");
-      await request(
-        `/media/${intent.photo.id}/complete`,
-        { method: "POST" },
-        token,
-      );
-      const key = `${entityType}:${componentId}`;
-      setUploadedComponentPhotoTypes((current) => ({
-        ...current,
-        [key]: current[key]?.includes(photoType)
-          ? current[key]
-          : [...(current[key] ?? []), photoType],
-      }));
-      if (fleetDetail) {
-        await refreshFleetOnboardingStatus(String(fleetDetail.id));
-      }
-      setNotice(`${photoType.replaceAll("_", " ")} photo uploaded.`);
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Unable to upload component photo.",
-      );
-    } finally {
-      setLoading(false);
-    }
   }
 
   async function initiateDeallocation(allocation: RecordItem) {
@@ -2425,30 +2108,6 @@ export default function Home() {
         cause instanceof Error
           ? cause.message
           : "Unable to start deallocation.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function deallocateFleet(fleet: RecordItem) {
-    const fleetId = String(fleet.id);
-    setLoading(true);
-    setError("");
-    try {
-      const result = (await request(
-        `/allocations?fleetId=${encodeURIComponent(fleetId)}&status=ACTIVE&page=1&pageSize=1`,
-        {},
-        token,
-      )) as { items: RecordItem[] };
-      const allocation = result.items[0];
-      if (!allocation) {
-        throw new Error("No active allocation was found for this fleet.");
-      }
-      await initiateDeallocation(allocation);
-    } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Unable to start de-allocation.",
       );
     } finally {
       setLoading(false);
@@ -2555,11 +2214,11 @@ export default function Home() {
             <div className="language-login-row"><LanguageSwitcher /></div>
             <ClientBrand companyCode={companyCode} landing />
             <p className="eyebrow">{t("SECURE OPERATIONS ACCESS")}</p>
-            <h2>{otpRequestId ? t("Verify your number") : t(appearance.branding.loginTitle)}</h2>
+            <h2>{otpRequestId ? t("Verify your number") : t("Welcome back")}</h2>
             <p className="muted">
               {otpRequestId
                 ? `${t("Enter the six-digit code sent to")} ${phone}.`
-                : t(appearance.branding.loginSubtitle)}
+                : t("Sign in to your EV fleet workspace.")}
             </p>
             {appearance.branding.supportEmail && <p><a href={`mailto:${appearance.branding.supportEmail}`}>{t("Contact support")}</a></p>}
             {appearance.branding.supportPhone && <p>{t("Support")}: {appearance.branding.supportPhone}</p>}
@@ -2733,7 +2392,7 @@ export default function Home() {
         {tab === "installation-board" && <InstallationBoard refreshKey={panelRefreshKey} />}
         {["vehicle-preparation","quality-check","readiness-settings","advisors","qc-managers"].includes(tab) && <FleetReadiness refreshKey={panelRefreshKey} key={`${tab}:${readinessFleetId}`} fleetId={tab === "vehicle-preparation" ? readinessFleetId : undefined} onBack={() => navigateTo("fleets")} onOpenPreparation={() => navigateTo("vehicle-preparation")} view={tab === "quality-check" ? "qc" : tab === "readiness-settings" ? "settings" : tab === "advisors" ? "advisors" : tab === "qc-managers" ? "qc-managers" : "preparation"} />}
         {tab === "support-tickets" && <SupportTickets refreshKey={panelRefreshKey} />}
-        {tab === "notifications" && userRoles.some((role) => ["CLIENT_ADMIN", "OPERATIONS_MANAGER"].includes(role)) && <ClientNotifications refreshKey={panelRefreshKey} />}
+        {tab === "notifications" && userRoles.some((role) => ["CLIENT_ADMIN", "FLEET_MANAGER"].includes(role)) && <ClientNotifications refreshKey={panelRefreshKey} />}
         {tab === "rider-document-review" && <section className="client-page-intro client-review-intro"><p className="muted">Open each uploaded document, then approve it or record a rejection reason.</p><div className="client-review-counts"><span><strong>{items.filter((item) => item.status === "PENDING").length}</strong> Pending</span><span><strong>{items.filter((item) => item.status === "APPROVED").length}</strong> Approved</span><span><strong>{items.filter((item) => item.status === "REJECTED").length}</strong> Rejected</span></div></section>}
         {(tab === "fleets" || tab === "riders" || tab === "batteries" || tab === "controllers" || tab === "iot-devices" || tab === "fleet-component-mapping") && <section className="sa-page-head client-page-head"><div className="sa-actions"><button className="secondary" onClick={() => openBulkImport(tab as ClientBulkTab)}>Bulk upload</button>{tab === "fleets" ? <button onClick={() => void openFleetForm()}>+ Add Fleet</button> : tab === "riders" ? <button onClick={() => void openRiderForm()}>+ Add Rider</button> : tab === "iot-devices" ? <button onClick={() => void openIotForm()}>+ Add IoT device</button> : tab === "fleet-component-mapping" ? <button onClick={() => void openMappingForm()}>+ Add mapping</button> : <button onClick={() => void openComponentForm(tab)}>+ Add {tab === "batteries" ? "Battery" : "Controller"}</button>}</div></section>}
         {tab === "iot-devices" && showIotForm && <ClientFormDialog title={editingIotDeviceId ? "Edit IoT device" : "Register IoT device"} busy={loading} error={error} onClose={() => setShowIotForm(false)} heading={<>{editingIotDeviceId ? "Edit IoT device" : "Register IoT device"}</>}><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void registerIotDevice(iotFleetId); }}>
@@ -2763,7 +2422,7 @@ export default function Home() {
               <h2>{evidenceContext(tab).title}</h2>
               <p className="muted">{evidenceContext(tab).description}</p>
               {(tab === "allocation-evidence" || tab === "deallocation-evidence") && <p className="sa-bulk-help">Evidence is captured against the relevant inspection, so each allocation and de-allocation retains its own photos and audit history.</p>}
-              <button type="button" onClick={() => { setError(""); setShowPhotoTypeForm(true); }}>+ Add photo type</button>
+              <button type="button" onClick={() => { setError(""); setShowPhotoTypeForm(true); }}>+ Configure photo type</button>
             </section>
             <ClientDataTable rows={configuredRequirements} loading={loading} getRowId={(row) => String(row.id)} emptyMessage="No photo types configured." columns={[
               { key: "photoType", label: "Photo type", value: (row) => String(row.photoType).replaceAll("_", " ") },
@@ -2771,63 +2430,6 @@ export default function Home() {
               { key: "order", label: "Order", value: (row) => Number(row.sortOrder ?? 0) },
             ]} />
           </>
-        )}
-        {showAllocationForm && (
-          <ClientFormDialog title="Create allocation" busy={loading} error={error} onClose={() => setShowAllocationForm(false)} heading={<>Assign an available vehicle</>}>
-            <div>
-              <p className="eyebrow">ALLOCATION</p>
-
-              <p className="muted">
-                This reserves the fleet and creates its pre-allocation
-                inspection.
-              </p>
-            </div>
-            <form className="form-stack" onSubmit={createAllocation}>
-              <label>
-                Available fleet *
-                <select
-                  value={allocationFleetId}
-                  onChange={(e) => setAllocationFleetId(e.target.value)}
-                  required
-                >
-                  <option value="">Select fleet</option>
-                  {availableFleets.map((fleet) => (
-                    <option key={String(fleet.id)} value={String(fleet.id)}>
-                      {String(fleet.vehicleNumber)} ·{" "}
-                      {oemLabel(fleet.oem, "Vehicle")}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Active rider *
-                <select
-                  value={allocationRiderId}
-                  onChange={(e) => setAllocationRiderId(e.target.value)}
-                  required
-                >
-                  <option value="">Select rider</option>
-                  {activeRiders.map((rider) => (
-                    <option key={String(rider.id)} value={String(rider.id)}>
-                      {String(rider.name)} · {String(rider.mobile)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="form-actions">
-                <button type="submit" disabled={loading}>
-                  Create allocation
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => setShowAllocationForm(false)}
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </ClientFormDialog>
         )}
         {showRiderForm && (
           <ClientFormDialog title="Create rider" busy={loading} error={error} onClose={() => setShowRiderForm(false)} heading={<>Create rider</>}>
@@ -2938,77 +2540,6 @@ export default function Home() {
                 Complete inspection
               </button>
               <button className="secondary" onClick={() => setInspectionId("")}>
-                Close
-              </button>
-            </div>
-          </section>
-        )}
-        {deallocationId && (
-          <section className="action-card">
-            <div>
-              <p className="eyebrow">DEALLOCATION SECURITY</p>
-              <h2>Verify rider and operator</h2>
-              <p className="muted">
-                Both separately delivered OTPs are required before completion.
-              </p>
-            </div>
-            {(["RIDER", "OPERATOR"] as const).map((party) => (
-              <div className="otp-row" key={party}>
-                <label>
-                  {party === "RIDER" ? "Rider mobile" : "Operator mobile"}
-                  <input
-                    value={party === "RIDER" ? riderPhone : operatorPhone}
-                    onChange={(event) =>
-                      party === "RIDER"
-                        ? setRiderPhone(event.target.value)
-                        : setOperatorPhone(event.target.value)
-                    }
-                  />
-                </label>
-                {!otpRequests[party] ? (
-                  <button
-                    disabled={loading}
-                    onClick={() => void requestDeallocationOtp(party)}
-                  >
-                    Send OTP
-                  </button>
-                ) : verifiedParties.includes(party) ? (
-                  <span className="status">Verified</span>
-                ) : (
-                  <>
-                    <input
-                      className="otp-code"
-                      value={otpCodes[party] ?? ""}
-                      onChange={(event) =>
-                        setOtpCodes((current) => ({
-                          ...current,
-                          [party]: event.target.value,
-                        }))
-                      }
-                      placeholder="6-digit OTP"
-                      maxLength={6}
-                    />
-                    <button
-                      disabled={loading}
-                      onClick={() => void verifyDeallocationOtp(party)}
-                    >
-                      Verify
-                    </button>
-                  </>
-                )}
-              </div>
-            ))}
-            <div className="form-actions">
-              <button
-                disabled={loading || verifiedParties.length !== 2}
-                onClick={() => void completeDeallocation()}
-              >
-                Complete deallocation
-              </button>
-              <button
-                className="secondary"
-                onClick={() => setDeallocationId("")}
-              >
                 Close
               </button>
             </div>
@@ -3236,14 +2767,14 @@ export default function Home() {
                   const activeTransfer = item.activeTransfer as RecordItem | null | undefined;
                   const readiness = readinessCellModel(item);
                   const readinessAction = fleetReadinessAction(item);
-                  const canManageEvidence = userRoles.some((role) => role === "CLIENT_ADMIN" || role === "OPERATIONS_MANAGER");
+                  const canManageEvidence = userRoles.some((role) => role === "CLIENT_ADMIN" || role === "FLEET_MANAGER");
                   return <div className="fleet-row-actions">
                     <FleetReadinessStatus fleetId={fleetId} vehicleLabel={fleetName} readinessState={readiness.state} />
                     {readinessAction ? <button className="table-action" disabled={Boolean(fleetActionId)} onClick={() => readinessAction.kind === "activate" ? void runFleetLifecycleAction(item) : navigateTo("vehicle-preparation", fleetId)}>{fleetActionId === fleetId ? "Working…" : readinessAction.label}</button> : null}
                     <FleetMoreMenu fleetId={fleetId} fleetName={fleetName} status={status} currentHubId={String(item.currentHubId ?? "")} activeTransfer={activeTransfer} canManageEvidence={canManageEvidence} onTransferDone={() => void loadView("fleets")} onEvidence={canManageEvidence ? () => setEvidenceFleet({ id: fleetId, name: fleetName }) : undefined} onEdit={() => void openFleetForm(fleetId)} onDelete={() => setDeleteConfirmation({ title: "Delete Fleet?", description: "This fleet will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Fleet", onConfirm: () => deleteFleet(fleetId) })} />
                   </div>;
                 }
-                  : tab === "riders" ? (item) => <><button className="secondary table-action" onClick={() => void openRiderDetail(String(item.id))}>View / Edit</button>{userRoles.some(role => role === "CLIENT_ADMIN" || role === "OPERATIONS_MANAGER") && <button className="secondary table-action" onClick={() => setWalletRider({ id: String(item.id), name: String(item.name), mobile: String(item.mobile) })}>Wallet</button>}<button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Rider?", description: "This rider will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Rider", onConfirm: () => deleteRider(String(item.id)) })}>Delete</button></>
+                  : tab === "riders" ? (item) => <><button className="secondary table-action" onClick={() => void openRiderDetail(String(item.id))}>View / Edit</button>{userRoles.some(role => role === "CLIENT_ADMIN" || role === "FLEET_MANAGER") && <button className="secondary table-action" onClick={() => setWalletRider({ id: String(item.id), name: String(item.name), mobile: String(item.mobile) })}>Wallet</button>}<button className="danger table-action" onClick={() => setDeleteConfirmation({ title: "Delete Rider?", description: "This rider will be removed from the active list. Active allocations prevent deletion; existing history is retained.", confirmLabel: "Delete Rider", onConfirm: () => deleteRider(String(item.id)) })}>Delete</button></>
                   : tab === "iot-devices" ? (item) => <button className="secondary table-action" onClick={() => void openIotForm(item)}>Edit</button>
                   : tab === "batteries" || tab === "controllers" ? (item) => <button className="secondary table-action" onClick={() => void openExistingComponentForm(tab, item)}>Edit</button>
                   : tab === "fleet-component-mapping" ? (item) => <button className="secondary table-action" onClick={() => void openMappingForm(item)}>Edit</button>
@@ -3319,20 +2850,14 @@ export default function Home() {
                   <div className="form-actions"><button>{editingHubId ? "Save hub" : "Create hub"}</button><button type="button" className="secondary" onClick={() => { setEditingHubId(""); setNewHub(emptyHubForm()); setShowHubForm(false); }}>Cancel</button></div>
                 </form>
         </ClientFormDialog>}
-        {tab === "evidence" && showPhotoTypeForm && <ClientFormDialog title="Add photo type" busy={loading} error={error} onClose={() => setShowPhotoTypeForm(false)} heading={<>Add photo type</>}>
+        {tab === "evidence" && showPhotoTypeForm && <ClientFormDialog title="Configure photo type" busy={loading} error={error} onClose={() => setShowPhotoTypeForm(false)} heading={<>Configure photo type</>}>
               <form className="form-stack" onSubmit={addPhotoRequirement}>
                 <label>
-                  New photo type *
-                  <input
-                    value={newRequirementType}
-                    onChange={(event) =>
-                      setNewRequirementType(event.target.value.toUpperCase())
-                    }
-                    placeholder="e.g. DAMAGE_CLOSEUP"
-                    pattern="[A-Z0-9_-]{1,80}"
-                    maxLength={80}
-                    required
-                  />
+                  Photo type *
+                  <select required value={newRequirementType} onChange={(event) => setNewRequirementType(event.target.value)}>
+                    <option value="">Choose a supported photo type</option>
+                    {PHOTO_TYPE_OPTIONS.filter((option) => !configuredRequirements.some((row) => row.photoType === option)).map((option) => <option key={option} value={option}>{option.replaceAll("_", " ")}</option>)}
+                  </select>
                 </label>
                 <label>
                   <input
@@ -3344,7 +2869,7 @@ export default function Home() {
                   />{" "}
                   Required for completion
                 </label>
-                <div className="form-actions"><button disabled={loading}>Add photo type</button><button type="button" className="secondary" onClick={() => setShowPhotoTypeForm(false)}>Cancel</button></div>
+                <div className="form-actions"><button disabled={loading || !newRequirementType}>Add selected type</button><button type="button" className="secondary" onClick={() => setShowPhotoTypeForm(false)}>Cancel</button></div>
               </form></ClientFormDialog>}
         {evidenceFleet && <FleetEvidenceDialog key={evidenceFleet.id} fleet={evidenceFleet} request={(path, options) => request(path, options, token)} canEditRequirements={userRoles.includes("CLIENT_ADMIN")} onClose={() => setEvidenceFleet(null)} />}
         {fleetDetail && showDetailIotForm && <ClientFormDialog title="Register IoT device" busy={loading} error={error} onClose={() => setShowDetailIotForm(false)} heading={<>Register IoT device</>}><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void registerIotDevice(String(fleetDetail.id)); }}><label>Device number *<input required value={iotDeviceNumber} onChange={(event) => setIotDeviceNumber(event.target.value)} /></label><div className="form-actions"><button disabled={loading}>Register device</button><button type="button" className="secondary" onClick={() => setShowDetailIotForm(false)}>Cancel</button></div></form></ClientFormDialog>}

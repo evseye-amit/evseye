@@ -140,7 +140,7 @@ export class SubmissionPenaltyService {
     id: string,
   ) {
     const admin = actor.roles.some(
-      (r) => r === 'CLIENT_ADMIN' || r === 'OPERATIONS_MANAGER',
+      (r) => r === 'CLIENT_ADMIN' || r === 'FLEET_MANAGER',
     );
     const hubs = admin
       ? []
@@ -307,7 +307,7 @@ export class SubmissionPenaltyService {
     submissionId: string,
   ) {
     const admin = actor.roles.some(
-      (r) => r === 'CLIENT_ADMIN' || r === 'OPERATIONS_MANAGER',
+      (r) => r === 'CLIENT_ADMIN' || r === 'FLEET_MANAGER',
     );
     const hubs = admin
       ? []

@@ -8,15 +8,24 @@ import { markFormsSaved } from "./unsaved-changes";
 import { ClientDataTable } from "./client-data-table";
 
 type Request = (path: string, options?: RequestInit) => Promise<unknown>;
-type Photo = { id: string; photoType: string; entityId: string; mimeType: string; uploadedAt: string | null; createdAt: string };
+type Photo = { id: string; workFlowType: string; subjectType: string; photoType: string; entityId: string; mimeType: string; uploadedAt: string | null; createdAt: string };
 type Group = { id: string; category: string; label: string; date: string | null; photos: Photo[] };
 type Requirement = { id: string; photoType: string; isRequired: boolean; sortOrder: number };
 const label = (value: string) => value.replaceAll("_", " ");
 const categories = ["All", "Fleet & components", "Installation", "Preparation & QC", "Allocation", "Submission"];
-const entities = [["FLEET", "Fleet"], ["BATTERY", "Battery"], ["CONTROLLER", "Controller"], ["IOT_DEVICE", "IoT"], ["INSPECTION", "Allocation & submission"], ["RIDER", "Rider"]];
+const photoTypes = ["FRONT", "BACK", "LEFT", "RIGHT", "REAR", "BODY", "LABEL", "CHASSIS", "DASHBOARD", "INSTALLATION", "EVIDENCE", "DOCUMENT", "PROFILE", "RECEIPT", "RETURN_CHECKLIST", "DAMAGE", "DAMAGE_CLOSEUP", "VEHICLE_FRONT", "VEHICLE_LEFT", "VEHICLE_RIGHT", "VEHICLE_REAR", "FLEET_FRONT", "FLEET_LEFT", "FLEET_RIGHT", "FLEET_BACK", "BATTERY_BODY", "BATTERY_LABEL", "CONTROLLER_BODY", "CONTROLLER_LABEL", "IOT_BODY", "IOT_LABEL", "FLEET_WITH_RIDER", "RIDER_DECLARATION", "PDI_VOICE", "PAYMENT_RECEIPT", "PENALTY_DAMAGE", "OTHER"];
+const subjects = [
+  ["FLEET_INSPECTION", "FLEET", "Fleet"], ["FLEET_INSPECTION", "BATTERY", "Battery"],
+  ["FLEET_INSPECTION", "CONTROLLER", "Controller"], ["FLEET_INSPECTION", "IOT_DEVICE", "IoT"], ["FLEET_INSPECTION", "MOTOR", "Motor"], ["FLEET_INSPECTION", "TYRE", "Tyre"], ["FLEET_INSPECTION", "DOCK", "Dock"],
+  ["FLEET_PREPARATION", "FLEET", "Preparation"], ["FLEET_PREPARATION", "OTHER", "Installation"],
+  ["FLEET_ALLOTMENT", "FLEET", "Allocation inspection"], ["FLEET_SUBMISSION", "FLEET", "Submission inspection"],
+  ["RIDER_ONBOARDING", "PROFILE", "Rider profile"], ["RIDER_ONBOARDING", "PAN", "PAN"],
+  ["RIDER_ONBOARDING", "AADHAR", "Aadhaar"], ["RIDER_ONBOARDING", "DRIVING_LICENSE", "Driving license"], ["RIDER_ONBOARDING", "BANK", "Bank document"], ["RIDER_ONBOARDING", "DECLARATION", "Rider document"], ["PAYMENT", "ONBOARDING_FEES", "Onboarding fees"],
+];
 
 function PhotoRequirements({ request, canEdit, onBusy }: { request: Request; canEdit: boolean; onBusy: (value: boolean) => void }) {
-  const [entity, setEntity] = useState("FLEET");
+  const [subjectKey, setSubjectKey] = useState("FLEET_INSPECTION:FLEET");
+  const [workFlowType, subjectType] = subjectKey.split(":");
   const [rows, setRows] = useState<Requirement[]>([]);
   const [loading, setLoading] = useState(true), [saving, setSaving] = useState(false), [error, setError] = useState("");
   const [type, setType] = useState(""), [required, setRequired] = useState(true);
@@ -24,13 +33,13 @@ function PhotoRequirements({ request, canEdit, onBusy }: { request: Request; can
   useEffect(() => { ref.current = request; }, [request]);
   useEffect(() => {
     let active = true;
-    void ref.current(`/media/photo-requirements?entityType=${entity}`).then(data => { if (active) setRows(data as Requirement[]); }).catch(cause => { if (active) setError(cause instanceof Error ? cause.message : "Unable to load requirements."); }).finally(() => { if (active) setLoading(false); });
+    void ref.current(`/media/photo-requirements?workFlowType=${workFlowType}&subjectType=${subjectType}`).then(data => { if (active) setRows(data as Requirement[]); }).catch(cause => { if (active) setError(cause instanceof Error ? cause.message : "Unable to load requirements."); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [entity]);
+  }, [workFlowType, subjectType]);
   async function save(photoType: string, isRequired: boolean, sortOrder: number) {
     setSaving(true); onBusy(true); setError("");
     try {
-      const row = await request(`/media/photo-requirements/${entity}/${photoType}`, { method: "PUT", body: JSON.stringify({ isRequired, sortOrder }) }) as Requirement;
+      const row = await request(`/media/photo-requirements/${workFlowType}/${subjectType}/${photoType}`, { method: "PUT", body: JSON.stringify({ isRequired, sortOrder }) }) as Requirement;
       setRows(current => current.some(item => item.photoType === photoType) ? current.map(item => item.photoType === photoType ? row : item) : [...current, row]);
       setType(""); setRequired(true); markFormsSaved();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save requirement."); }
@@ -38,7 +47,7 @@ function PhotoRequirements({ request, canEdit, onBusy }: { request: Request; can
   }
   return <>
     <p className="muted">These are client-wide photo requirements, shared by all scooters. Allocation and submission use the existing inspection requirements. Operating mode and workflow checks remain unchanged.</p>
-    <label>Photo requirements for<select value={entity} disabled={saving} onChange={event => { setLoading(true); setRows([]); setError(""); setType(""); setEntity(event.target.value); }}>{entities.map(([value, name]) => <option key={value} value={value}>{name}</option>)}</select></label>
+    <label>Photo requirements for<select value={subjectKey} disabled={saving} onChange={event => { setLoading(true); setRows([]); setError(""); setType(""); setSubjectKey(event.target.value); }}>{subjects.map(([workflow, subject, name]) => <option key={`${workflow}:${subject}`} value={`${workflow}:${subject}`}>{name} · {label(workflow)}</option>)}</select></label>
     {error && <p className="error" role="alert">{error}</p>}
     <ClientDataTable rows={rows} loading={loading} getRowId={row => row.id} emptyMessage="No photo types configured." columns={[
       { key: "type", label: "Photo type", value: row => label(row.photoType) },
@@ -46,10 +55,10 @@ function PhotoRequirements({ request, canEdit, onBusy }: { request: Request; can
       { key: "order", label: "Order", value: row => row.sortOrder },
     ]} />
     {canEdit && <form className="form-stack" onSubmit={event => { event.preventDefault(); void save(type.trim().toUpperCase(), required, rows.length); }}>
-      <h3>Add photo type</h3>
-      <label>Photo type<input required value={type} onChange={event => setType(event.target.value.toUpperCase())} pattern="[A-Z0-9_-]{1,80}" maxLength={80} placeholder="e.g. DAMAGE_CLOSEUP" disabled={saving || loading} /></label>
+      <h3>Configure photo type</h3>
+      <label>Photo type<select required value={type} onChange={event => setType(event.target.value)} disabled={saving || loading}><option value="">Choose a supported photo type</option>{photoTypes.filter(value => !rows.some(row => row.photoType === value)).map(value => <option key={value} value={value}>{label(value)}</option>)}</select></label>
       <label><input type="checkbox" checked={required} onChange={event => setRequired(event.target.checked)} disabled={saving || loading} /> Required for completion</label>
-      <div className="form-actions"><button disabled={saving || loading || !type.trim()}>Add photo type</button></div>
+      <div className="form-actions"><button disabled={saving || loading || !type}>Add selected type</button></div>
     </form>}
   </>;
 }

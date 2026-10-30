@@ -1,6 +1,11 @@
 import { BadRequestException } from '@nestjs/common';
 import { z } from 'zod';
 
+export const PHOTO_TYPE_VALUES = [
+  'FRONT', 'BACK', 'LEFT', 'RIGHT', 'BODY', 'LABEL', 'DOCUMENT', 'FACE', 'RECEIPT', 'OTHER',
+] as const;
+const photoTypeSchema = z.enum(PHOTO_TYPE_VALUES);
+
 export const items = [
   ['IDENTITY', 'Vehicle/chassis, model and hub match'],
   ['COMPONENTS', 'Installed components and serial numbers match'],
@@ -39,7 +44,7 @@ export const stageDefinitionSchema = z
       .min(1)
       .max(40),
     photoTypes: z
-      .array(z.string().regex(/^[A-Z0-9_]{1,60}$/))
+      .array(photoTypeSchema)
       .min(1)
       .max(20),
   })
@@ -70,7 +75,7 @@ export const defaultStages: StageDefinition[] = [
         allowNA: false,
       },
     ],
-    photoTypes: ['FRONT', 'CHASSIS'],
+    photoTypes: ['FRONT', 'OTHER'] as StageDefinition['photoTypes'],
   },
   ...(['BATTERY', 'CONTROLLER'] as const).map((component) => ({
     code: component,
@@ -91,7 +96,7 @@ export const defaultStages: StageDefinition[] = [
         allowNA: false,
       },
     ],
-    photoTypes: ['INSTALLATION', 'LABEL'],
+    photoTypes: ['BODY', 'LABEL'] as StageDefinition['photoTypes'],
   })),
 ];
 export function validateStages(stages: StageDefinition[]) {
@@ -163,7 +168,7 @@ export const policySchema = z
       .min(1)
       .max(80),
     photoTypes: z
-      .array(z.string().regex(/^[A-Z0-9_]{1,60}$/))
+      .array(photoTypeSchema)
       .min(1)
       .max(40),
   })
@@ -213,7 +218,7 @@ export const policySchema = z
           code: 'custom',
           message: `Required safety check cannot be removed: ${required.code}`,
         });
-    for (const photo of ['FRONT', 'REAR', 'LEFT', 'RIGHT', 'DASHBOARD'])
+    for (const photo of ['FRONT', 'BACK', 'LEFT', 'RIGHT'] as const)
       if (!value.photoTypes.includes(photo))
         ctx.addIssue({
           code: 'custom',
@@ -229,7 +234,7 @@ export const defaultPolicy: ReadinessPolicy = {
   requireController: true,
   iotRequired: false,
   items,
-  photoTypes: ['FRONT', 'REAR', 'LEFT', 'RIGHT', 'DASHBOARD'],
+  photoTypes: ['FRONT', 'BACK', 'LEFT', 'RIGHT'],
 };
 export function stagePlans(configuration: ReadinessPolicy): StagePlan[] {
   if (configuration.stagePlans.length) return configuration.stagePlans;
@@ -352,7 +357,33 @@ export const resultSchema = z.record(
     .strict(),
 );
 export function parse<T>(schema: z.ZodType<T>, value: unknown): T {
-  const result = schema.safeParse(value);
+  const allowedPhotoTypes = new Set<string>(PHOTO_TYPE_VALUES);
+  const normalize = (item: unknown): unknown => {
+    if (Array.isArray(item)) return item.map(normalize);
+    if (!item || typeof item !== 'object') return item;
+    return Object.fromEntries(Object.entries(item).map(([key, child]) => {
+      if (key === 'photoTypes' && Array.isArray(child)) {
+        const mapPhotoType = (photoType: unknown) => {
+          if (typeof photoType !== 'string') return 'OTHER';
+          if (allowedPhotoTypes.has(photoType)) return photoType;
+          if (photoType.includes('RECEIPT')) return 'RECEIPT';
+          if (photoType.includes('FRONT')) return 'FRONT';
+          if (photoType.includes('REAR') || photoType.includes('BACK')) return 'BACK';
+          if (photoType.includes('LEFT')) return 'LEFT';
+          if (photoType.includes('RIGHT')) return 'RIGHT';
+          if (photoType.includes('BODY') || photoType.includes('INSTALLATION')) return 'BODY';
+          if (photoType.includes('LABEL')) return 'LABEL';
+          if (photoType.includes('DOCUMENT') || photoType.includes('DECLARATION')) return 'DOCUMENT';
+          if (photoType.includes('DAMAGE') || photoType.includes('EVIDENCE') || photoType.includes('VOICE')) return 'OTHER';
+          return 'OTHER';
+        };
+        const values = child.map(mapPhotoType);
+        return [key, [...new Set(values)]];
+      }
+      return [key, normalize(child)];
+    }));
+  };
+  const result = schema.safeParse(normalize(value));
   if (!result.success)
     throw new BadRequestException({
       message: result.error.issues

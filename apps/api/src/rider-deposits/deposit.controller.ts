@@ -19,7 +19,7 @@ import { RiderDepositService } from './deposit.service.js';
 
 @Controller('rider-deposits')
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+@Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
 export class RiderDepositsController {
   constructor(
     private readonly deposits: RiderDepositService,
@@ -189,7 +189,7 @@ export class RiderDepositPolicyController {
 
 @Controller('rider-rental-agreements')
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+@Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
 export class AgreementDepositsController {
   constructor(
     private readonly deposits: RiderDepositService,
@@ -230,7 +230,7 @@ export class AgreementDepositsController {
 
 @Controller('riders')
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(UserRole.CLIENT_ADMIN, UserRole.OPERATIONS_MANAGER)
+@Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
 export class RiderDepositAdminQueriesController {
   constructor(
     private readonly deposits: RiderDepositService,
