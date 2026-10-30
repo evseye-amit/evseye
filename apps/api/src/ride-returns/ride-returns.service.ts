@@ -350,7 +350,7 @@ export class RideReturnsService {
     }
     const rows = await this.db.rentalTerminationRequest.findMany({
       where,
-      include: { returnPenaltyCase: { include: { items: true } }, vehicleSubmission: true },
+      include: { vehicleSubmission: true },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
       take: limit + 1,
     });
@@ -374,7 +374,7 @@ export class RideReturnsService {
     const rider = await this.riderForUser(clientId, actor.id);
     const row = await this.db.rentalTerminationRequest.findFirst({
       where: { id: requestId, clientId, riderId: rider.id },
-      include: { returnPenaltyCase: { include: { items: true } }, vehicleSubmission: true },
+      include: { vehicleSubmission: true },
     });
     if (!row) throw new NotFoundException('Return not found.');
     return row;

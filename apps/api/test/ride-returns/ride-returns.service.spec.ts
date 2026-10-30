@@ -21,10 +21,6 @@ function setup() {
     rentalTerminationRequest: { findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
     allocation: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn(), findUniqueOrThrow: vi.fn() },
     fleet: { update: vi.fn() },
-    returnPenaltyCase: { findUnique: vi.fn(), findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
-    returnPenaltyItem: { findMany: vi.fn(), update: vi.fn(), createMany: vi.fn() },
-    returnPenaltyPrice: { findMany: vi.fn() },
-    photo: { findMany: vi.fn() },
     otpRequest: { updateMany: vi.fn() },
     auditLog: { create: vi.fn() },
   };
@@ -32,7 +28,7 @@ function setup() {
     riderRentalAgreement: { findFirst: vi.fn() },
     rider: { findFirst: vi.fn() },
     allocation: { findFirst: vi.fn() },
-    rentalTerminationRequest: { findFirst: vi.fn() },
+    rentalTerminationRequest: { findFirst: vi.fn(), findMany: vi.fn() },
     hub: { findFirst: vi.fn() },
     userHub: { findMany: vi.fn().mockResolvedValue([{ hubId: 'hub-1' }]) },
     $transaction: vi.fn((fn: (client: typeof tx) => Promise<unknown>) => fn(tx)),
@@ -40,6 +36,29 @@ function setup() {
   const service = new RideReturnsService(db as never);
   return { db, tx, service };
 }
+
+describe('RideReturnsService rider response shape', () => {
+  it('returns submission details without legacy direct-penalty relations', async () => {
+    const context = setup();
+    const row = { id: 'return-1' };
+    context.db.rider.findFirst.mockResolvedValue({ id: 'rider-1', status: 'ACTIVE' });
+    context.db.rentalTerminationRequest.findMany.mockResolvedValue([]);
+    context.db.rentalTerminationRequest.findFirst.mockResolvedValue(row);
+
+    await context.service.riderList('client-a', riderUser, {});
+    await context.service.riderGet('client-a', riderUser, row.id);
+
+    expect(context.db.rentalTerminationRequest.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ include: { vehicleSubmission: true } }),
+    );
+    expect(context.db.rentalTerminationRequest.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: row.id, clientId: 'client-a', riderId: 'rider-1' },
+        include: { vehicleSubmission: true },
+      }),
+    );
+  });
+});
 
 describe('RideReturnsService request reason boundary', () => {
   const input = (reasonCode: unknown) => ({
