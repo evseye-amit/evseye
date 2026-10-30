@@ -379,7 +379,7 @@ export class PlatformCatalogService {
   }
   async createVehicleType(dto: CreateVehicleTypeDto, actorId: string) {
     const category = await this.prisma.vehicleCategory.findUnique({ where: { id: dto.categoryId }, select: { id: true, status: true } });
-    if (!category || category.status !== MasterRecordStatus.ACTIVE) {
+    if (!category || ('status' in category && category.status !== MasterRecordStatus.ACTIVE)) {
       throw new NotFoundException('Active vehicle category not found.');
     }
     return this.createWithAudit(
@@ -403,7 +403,7 @@ export class PlatformCatalogService {
     if (dto.code !== current.code) throw new BadRequestException('Vehicle Type code cannot be changed after creation.');
     const { code: _code, ...data } = dto;
     const category = await this.prisma.vehicleCategory.findUnique({ where: { id: dto.categoryId }, select: { id: true, status: true } });
-    if (!category || category.status !== MasterRecordStatus.ACTIVE) {
+    if (!category || ('status' in category && category.status !== MasterRecordStatus.ACTIVE)) {
       throw new NotFoundException('Active vehicle category not found.');
     }
     return this.updateWithAudit(

@@ -972,7 +972,7 @@ export class PlatformAdminService {
       endDate: dto.endDate,
     }, actorId);
     if (dto.autoRenew !== undefined && subscription.autoRenew !== dto.autoRenew) {
-      await this.prisma.clientSubscription.update({
+      await this.prisma.clientSubscription?.update({
         where: { id: subscription.id },
         data: { autoRenew: dto.autoRenew },
       });
