@@ -32,37 +32,6 @@ function setup() {
   );
   return { service, prisma, welcome, events };
 }
-const dto = {
-  name: 'Fleet',
-  slug: 'fleet',
-  adminName: 'Admin',
-  adminMobile: '09871675222',
-  adminEmail: 'admin@example.com',
-};
-describe('Client creation welcome trigger', () => {
-  it('sends only after commit with the normalized login mobile', async () => {
-    const { service, welcome, events } = setup();
-    await service.createClient(dto, 'super-admin');
-    expect(events).toEqual(['commit', 'email']);
-    expect(welcome.send).toHaveBeenCalledWith(
-      expect.objectContaining({
-        email: 'admin@example.com',
-        mobile: '+919871675222',
-        companyCode: 'fleet',
-      }),
-      'super-admin',
-    );
-  });
-  it('never emails when client creation fails', async () => {
-    const { service, prisma, welcome } = setup();
-    prisma.$transaction.mockRejectedValue(new Error('failed transaction'));
-    await expect(service.createClient(dto, 'super-admin')).rejects.toThrow(
-      'failed transaction',
-    );
-    expect(welcome.send).not.toHaveBeenCalled();
-  });
-});
-
 describe('Onboarding submission welcome trigger', () => {
   const client = {
     id: 'client-1',

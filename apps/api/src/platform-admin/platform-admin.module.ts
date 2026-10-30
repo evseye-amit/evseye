@@ -6,9 +6,10 @@ import { MediaModule } from '../media/media.module.js';
 import { PlatformAdminController } from './platform-admin.controller.js';
 import { PlatformAdminService } from './platform-admin.service.js';
 import { CommercialModule } from '../commercial/commercial.module.js';
+import { ClientOnboardingModule } from '../client-onboarding/client-onboarding.module.js';
 
 @Module({
-  imports: [AuthModule, AuditModule, MediaModule, CommercialModule, EmailModule],
+  imports: [AuthModule, AuditModule, MediaModule, CommercialModule, EmailModule, ClientOnboardingModule],
   controllers: [PlatformAdminController],
   providers: [PlatformAdminService],
 })

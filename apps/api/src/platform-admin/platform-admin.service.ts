@@ -37,7 +37,6 @@ import type {
   UpdateClientFeaturePricingDto,
 } from './dto/client-feature-pricing.dto.js';
 import type { CreateFeatureUsageDto } from './dto/feature-usage.dto.js';
-import type { CreateClientDto } from './dto/create-client.dto.js';
 import type {
   CreateClientDocumentUploadIntentDto,
   CreateClientDraftDto,
@@ -52,6 +51,8 @@ import {
   STORAGE_PROVIDER,
   type StorageProvider,
 } from '../media/storage/storage-provider.interface.js';
+import { ClientOnboardingReadinessService } from '../client-onboarding/client-onboarding-readiness.service.js';
+import type { RejectClientDto } from './dto/reject-client.dto.js';
 
 @Injectable()
 export class PlatformAdminService {
@@ -61,6 +62,7 @@ export class PlatformAdminService {
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
     private readonly welcome: ClientWelcomeService,
     private readonly commercial?: CommercialService,
+    private readonly readiness?: ClientOnboardingReadinessService,
   ) {}
 
   async createClientLogoUpload(clientId: string, dto: ClientLogoUploadDto) {
@@ -681,51 +683,6 @@ export class PlatformAdminService {
     });
   }
 
-  async createClient(dto: CreateClientDto, actorId: string) {
-    if (!validClientSlug(dto.slug)) throw new BadRequestException('Use a URL-safe client slug that is not reserved.');
-    try {
-      const client = await this.prisma.$transaction(async (tx) => {
-        const created = await tx.client.create({
-          data: {
-            name: dto.name,
-            slug: dto.slug,
-            companyCode: dto.slug,
-            status: ClientStatus.ACTIVE,
-          },
-        });
-        await tx.user.create({
-          data: {
-            clientId: created.id,
-            name: dto.adminName,
-            mobile: normalizeIndianMobile(dto.adminMobile),
-            role: UserRole.CLIENT_ADMIN,
-          },
-        });
-        await copyActiveSpareMasters(tx, created.id, actorId);
-        await copyLegalTemplatesToClient(tx, created, dto.legalEntityName?.trim() || '[CLIENT_REVIEW_REQUIRED: legal company name]');
-        return created;
-      });
-      await this.audit.record({
-        actorId,
-        action: 'PLATFORM_CLIENT_CREATED',
-        entityType: 'Client',
-        entityId: client.id,
-        newData: { name: client.name, slug: client.slug },
-      });
-      const welcomeEmail = await this.welcome.send({
-        clientId: client.id, clientName: dto.adminName, companyName: client.name,
-        companyCode: client.companyCode ?? client.slug, mobile: normalizeIndianMobile(dto.adminMobile), email: dto.adminEmail,
-      }, actorId);
-      return { ...client, welcomeEmail };
-    } catch (error) {
-      if (this.unique(error))
-        throw new ConflictException(
-          'Client slug or administrator mobile already exists.',
-        );
-      throw error;
-    }
-  }
-
   async createClientDraft(dto: CreateClientDraftDto, actorId: string) {
     if (!validClientSlug(dto.companyCode)) throw new BadRequestException('Use a URL-safe company code that is not reserved.');
     try {
@@ -836,6 +793,16 @@ export class PlatformAdminService {
         },
       }),
     ]);
+    await this.prisma.clientOnboardingRejection.create({
+      data: {
+        clientId,
+        section: dto.section ?? 'GENERAL',
+        reasonCode: dto.reasonCode ?? 'GENERAL_REVIEW_REQUIRED',
+        reason: dto.reason.trim(),
+        blocking: true,
+        createdById: actorId,
+      },
+    });
     await this.audit.record({
       actorId,
       action: 'CLIENT_BUSINESS_DETAILS_UPDATED',
@@ -1004,6 +971,12 @@ export class PlatformAdminService {
       startDate: dto.startDate,
       endDate: dto.endDate,
     }, actorId);
+    if (dto.autoRenew !== undefined && subscription.autoRenew !== dto.autoRenew) {
+      await this.prisma.clientSubscription.update({
+        where: { id: subscription.id },
+        data: { autoRenew: dto.autoRenew },
+      });
+    }
     const client = await this.prisma.client.findUniqueOrThrow({ where: { id: clientId },
       select: { requestedLocales: true } });
     const revision = await this.prisma.packageRevision.findUniqueOrThrow({
@@ -1099,6 +1072,7 @@ export class PlatformAdminService {
         termsAcceptedAt: now,
         privacyAcceptedAt: now,
         dataProcessingConsentAt: now,
+        submittedAt: now,
         kycConsentAt: dto.kycConsent ? now : undefined,
         marketingConsentAt: dto.marketingConsent ? now : undefined,
       },
@@ -1108,6 +1082,7 @@ export class PlatformAdminService {
         termsAcceptedAt: now,
         privacyAcceptedAt: now,
         dataProcessingConsentAt: now,
+        submittedAt: now,
         kycConsentAt: dto.kycConsent ? now : undefined,
         marketingConsentAt: dto.marketingConsent ? now : undefined,
       },
@@ -1294,6 +1269,15 @@ export class PlatformAdminService {
       action: 'CLIENT_CREATED',
       entityType: 'Client',
       entityId: clientId,
+      newData: {
+        submissionType: 'PLATFORM_ONBOARDING',
+        businessProfile: Boolean(client.businessProfile),
+        operationsProfile: Boolean(client.operationsProfile),
+        billingProfile: Boolean(client.billingProfile),
+        agreement: Boolean(client.agreement),
+        subscriptionCount: client.subscriptions.length,
+        uploadedDocumentTypes: client.documents.filter((document) => document.uploadedAt).map((document) => document.documentType),
+      },
     });
     const welcomeEmail = await this.welcome.send({
       clientId, clientName: admin.name, companyName: client.name,
@@ -1309,6 +1293,10 @@ export class PlatformAdminService {
     if (!client) throw new NotFoundException('Client not found.');
     if (client.status !== ClientStatus.PENDING_APPROVAL)
       throw new BadRequestException('Only a pending client can be approved.');
+    if (this.readiness) {
+      const issues = await this.readiness.activation(clientId);
+      if (issues.length) throw new UnprocessableEntityException({ code: 'CLIENT_NOT_READY_FOR_ACTIVATION', issues });
+    }
     await this.prisma.$transaction([
       this.prisma.client.update({
         where: { id: clientId },
@@ -1328,12 +1316,13 @@ export class PlatformAdminService {
       action: 'CLIENT_APPROVED',
       entityType: 'Client',
       entityId: clientId,
+      newData: { transition: 'PENDING_APPROVAL_TO_ACTIVE', approvedAt: new Date().toISOString() },
     });
     return this.clientDetail(clientId);
   }
 
-  async rejectClient(clientId: string, reason: string, actorId: string) {
-    if (!reason.trim())
+  async rejectClient(clientId: string, dto: RejectClientDto, actorId: string) {
+    if (!dto.reason.trim())
       throw new BadRequestException('A rejection reason is required.');
     const client = await this.prisma.client.findUnique({
       where: { id: clientId },
@@ -1357,7 +1346,7 @@ export class PlatformAdminService {
         data: {
           rejectedAt: new Date(),
           rejectedById: actorId,
-          rejectionReason: reason,
+          rejectionReason: dto.reason.trim(),
         },
       }),
     ]);
@@ -1366,7 +1355,13 @@ export class PlatformAdminService {
       action: 'CLIENT_REJECTED',
       entityType: 'Client',
       entityId: clientId,
-      newData: { reason },
+      newData: {
+        transition: 'PENDING_APPROVAL_TO_REJECTED',
+        reason: dto.reason.trim(),
+        section: dto.section ?? 'GENERAL',
+        reasonCode: dto.reasonCode ?? 'GENERAL_REVIEW_REQUIRED',
+        resolved: false,
+      },
     });
     return this.clientDetail(clientId);
   }

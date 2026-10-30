@@ -64,15 +64,6 @@ describe.skipIf(!url)('Spares catalogue in PostgreSQL', () => {
       {} as never,
       { send: vi.fn().mockResolvedValue({ status: 'SKIPPED' }) } as never,
     );
-    const direct = await admin.createClient(
-      {
-        name: 'New fleet operator',
-        slug: `spares-${randomUUID()}`,
-        adminName: 'Admin',
-        adminMobile: '+919112223334',
-      },
-      platform.id,
-    );
     const draft = await admin.createClientDraft(
       {
         businessFleetName: 'Draft operator',
@@ -87,7 +78,7 @@ describe.skipIf(!url)('Spares catalogue in PostgreSQL', () => {
       },
       platform.id,
     );
-    for (const client of [direct, draft]) {
+    for (const client of [draft]) {
       const copy = await db.returnPenaltyPrice.findUniqueOrThrow({
         where: {
           clientId_masterSpareId: {

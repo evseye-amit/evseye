@@ -34,6 +34,7 @@ type Bootstrap = {
     status: string;
     rejectionReason?: string | null;
     rejectedAt?: string | null;
+    rejection?: { section?: string; reasonCode?: string; reason?: string; resolved?: boolean; rejectedAt?: string } | null;
   };
   route: "ONBOARDING" | "WAITING" | "SUSPENDED" | "DASHBOARD";
   progress: { currentStep: string; steps: { step: string; status: string }[] };
@@ -222,9 +223,10 @@ export default function ClientHome() {
           <section className="client-rejection-note" role="status">
             <strong>{t("Changes requested by EVs Eye")}</strong>
             <p>
-              {data.client.rejectionReason ||
+              {data.client.rejection?.reason || data.client.rejectionReason ||
                 "Please review and correct the requested onboarding information, then resubmit it for approval."}
             </p>
+            {data.client.rejection?.section && data.client.rejection.section !== "GENERAL" ? <p className="muted">Requested correction: {data.client.rejection.section.replaceAll("_", " ")}{data.client.rejection.reasonCode ? ` (${data.client.rejection.reasonCode})` : ""}</p> : null}
             <div className="client-rejection-actions">
               <span>Open the relevant setup section to make corrections:</span>
               <button type="button" onClick={() => setSelectedStep("HUBS")}>
