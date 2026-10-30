@@ -51,13 +51,13 @@ export class ClientOnboardingReadinessService {
     if (!client.billingProfile) issues.push({ code: 'BILLING_PROFILE_REQUIRED', message: 'Billing profile is incomplete.' });
     if (!client.agreement || !client.agreement.termsAcceptedAt || !client.agreement.privacyAcceptedAt || !client.agreement.dataProcessingConsentAt)
       issues.push({ code: 'AGREEMENT_REQUIRED', message: 'Required agreement consents are incomplete.' });
-    if (!client.subscriptions.some((subscription) => ['ACTIVE', 'PENDING'].includes(subscription.status)))
+    if (!client.subscriptions.some((subscription) => subscription.status === 'ACTIVE'))
       issues.push({ code: 'SUBSCRIPTION_REQUIRED', message: 'An active client subscription is required.' });
     if (!client.contacts.some((contact) => contact.role === 'PRIMARY')) issues.push({ code: 'PRIMARY_CONTACT_REQUIRED', message: 'Primary contact is required.' });
     if (!client.contacts.some((contact) => contact.role === 'ACCOUNT_ADMIN')) issues.push({ code: 'ACCOUNT_ADMIN_REQUIRED', message: 'Account Admin contact is required.' });
     if (!client.addresses.some((address) => address.type === 'REGISTERED')) issues.push({ code: 'REGISTERED_ADDRESS_REQUIRED', message: 'Registered address is required.' });
     if (!client.addresses.some((address) => address.type === 'BILLING')) issues.push({ code: 'BILLING_ADDRESS_REQUIRED', message: 'Billing address is required.' });
-    const pan = client.documents.find((document) => document.documentType === ClientDocumentType.PAN_CARD && document.uploadedAt && document.verificationStatus !== 'REJECTED');
+    const pan = client.documents.find((document) => document.documentType === ClientDocumentType.PAN_CARD && document.uploadedAt && document.verificationStatus === 'VERIFIED');
     if (!pan) issues.push({ code: 'PAN_REQUIRED', message: 'A valid uploaded PAN document is required.' });
     return issues;
   }

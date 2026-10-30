@@ -80,8 +80,9 @@ export class AuthService {
     const client = companyCode
       ? await this.prisma.client.findFirst({
           where: {
-            companyCode,
+            OR: [{ companyCode }, { slug: companyCode }],
             isActive: true,
+            deletedAt: null,
             status: {
               in: ['CREATED', 'PENDING_APPROVAL', 'ACTIVE', 'REJECTED'],
             },
@@ -108,6 +109,7 @@ export class AuthService {
             clientId: client.id,
             mobile: { in: mobileCandidates },
             isActive: true,
+            deletedAt: null,
           }
         : {
             clientId: null,
@@ -262,12 +264,13 @@ export class AuthService {
 
     const user = await this.prisma.user.findFirst({
       where: otp.clientId
-        ? { clientId: otp.clientId, mobile: otp.phone, isActive: true }
+        ? { clientId: otp.clientId, mobile: otp.phone, isActive: true, deletedAt: null }
         : {
             clientId: null,
             mobile: otp.phone,
             role: UserRole.SUPER_ADMIN,
             isActive: true,
+            deletedAt: null,
           },
     });
     if (!user) {
@@ -512,7 +515,7 @@ export class AuthService {
     if (consumed.count !== 1)
       throw new UnauthorizedException('Refresh session has already been used.');
     const user = await this.prisma.user.findFirst({
-      where: { id: payload.id, isActive: true },
+      where: { id: payload.id, isActive: true, deletedAt: null },
     });
     if (
       !user ||

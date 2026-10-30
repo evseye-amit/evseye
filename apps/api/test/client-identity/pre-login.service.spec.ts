@@ -65,4 +65,12 @@ describe('PreLoginService conditional screens', () => {
     await expect(service.publicBootstrap('yogmaya', 'RIDER', UserRole.FLEET_MANAGER)).rejects.toThrow('Application role');
     await expect(service.publicBootstrap('yogmaya', 'RIDER', UserRole.RIDER, 'other')).rejects.toThrow('Workspace unavailable');
   });
+  it.each([
+    ['TEAM_LEADER', UserRole.TEAM_LEAD],
+    ['CLIENT_PANEL', UserRole.CLIENT_ADMIN],
+    ['CLIENT_PANEL', UserRole.QC_MANAGER],
+  ] as const)('accepts supported %s/%s combinations', async (appCode, role) => {
+    const { service } = fixture();
+    await expect(service.publicBootstrap('yogmaya', appCode, role)).resolves.toMatchObject({ appCode, role });
+  });
 });

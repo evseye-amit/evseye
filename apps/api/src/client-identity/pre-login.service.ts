@@ -43,12 +43,13 @@ export class PreLoginService {
     role: UserRole,
     hostClientId?: string,
   ) {
-    if (
-      !(
-        (appCode === 'RIDER' && role === 'RIDER') ||
-        (appCode === 'FLEET_MANAGER' && role === 'FLEET_MANAGER')
-      )
-    )
+    const allowed =
+      (appCode === 'RIDER' && role === 'RIDER') ||
+      (appCode === 'FLEET_MANAGER' && role === 'FLEET_MANAGER') ||
+      (appCode === 'TEAM_LEADER' && role === 'TEAM_LEAD') ||
+      (appCode === 'CLIENT_PANEL' &&
+        ['CLIENT_ADMIN', 'FLEET_MANAGER', 'TEAM_LEAD', 'KYC_OPERATOR', 'ADVISOR', 'QC_MANAGER'].includes(role));
+    if (!allowed)
       throw new NotFoundException('Application role is unavailable.');
     const client = await this.clientForCode(companyCode, hostClientId);
     const resolved = await this.workflows.resolve(

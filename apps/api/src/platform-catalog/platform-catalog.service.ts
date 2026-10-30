@@ -169,10 +169,10 @@ export class PlatformCatalogService {
   }
   async deleteOem(id: string, actorId: string) {
     await this.exists('oem', id);
-    await this.prisma.oem.delete({ where: { id } });
+    await this.prisma.oem.update({ where: { id }, data: { status: MasterRecordStatus.INACTIVE } });
     await this.audit.record({
       actorId,
-      action: 'OEM_DELETED',
+      action: 'OEM_DEACTIVATED',
       entityType: 'OEM',
       entityId: id,
     });
@@ -313,10 +313,10 @@ export class PlatformCatalogService {
   }
   async deleteVehicleCategory(id: string, actorId: string) {
     await this.exists('vehicleCategory', id);
-    await this.prisma.vehicleCategory.delete({ where: { id } });
+    await this.prisma.vehicleCategory.update({ where: { id }, data: { status: MasterRecordStatus.INACTIVE } });
     await this.audit.record({
       actorId,
-      action: 'VEHICLE_CATEGORY_DELETED',
+      action: 'VEHICLE_CATEGORY_DEACTIVATED',
       entityType: 'VehicleCategory',
       entityId: id,
     });
@@ -378,7 +378,10 @@ export class PlatformCatalogService {
     });
   }
   async createVehicleType(dto: CreateVehicleTypeDto, actorId: string) {
-    await this.exists('vehicleCategory', dto.categoryId);
+    const category = await this.prisma.vehicleCategory.findUnique({ where: { id: dto.categoryId }, select: { id: true, status: true } });
+    if (!category || category.status !== MasterRecordStatus.ACTIVE) {
+      throw new NotFoundException('Active vehicle category not found.');
+    }
     return this.createWithAudit(
       'VEHICLE_TYPE_CREATED',
       'VehicleType',
@@ -399,7 +402,10 @@ export class PlatformCatalogService {
     if (!current) throw new NotFoundException('Record not found.');
     if (dto.code !== current.code) throw new BadRequestException('Vehicle Type code cannot be changed after creation.');
     const { code: _code, ...data } = dto;
-    await this.exists('vehicleCategory', dto.categoryId);
+    const category = await this.prisma.vehicleCategory.findUnique({ where: { id: dto.categoryId }, select: { id: true, status: true } });
+    if (!category || category.status !== MasterRecordStatus.ACTIVE) {
+      throw new NotFoundException('Active vehicle category not found.');
+    }
     return this.updateWithAudit(
       'VEHICLE_TYPE_UPDATED',
       'VehicleType',
@@ -415,10 +421,10 @@ export class PlatformCatalogService {
   }
   async deleteVehicleType(id: string, actorId: string) {
     await this.exists('vehicleType', id);
-    await this.prisma.vehicleType.delete({ where: { id } });
+    await this.prisma.vehicleType.update({ where: { id }, data: { status: MasterRecordStatus.INACTIVE } });
     await this.audit.record({
       actorId,
-      action: 'VEHICLE_TYPE_DELETED',
+      action: 'VEHICLE_TYPE_DEACTIVATED',
       entityType: 'VehicleType',
       entityId: id,
     });

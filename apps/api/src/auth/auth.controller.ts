@@ -22,6 +22,7 @@ import { AccessTokenGuard } from './guards/access-token.guard.js';
 import type { AuthUser } from './interfaces/auth-user.interface.js';
 import { LoginFlowService } from './login-flow.service.js';
 import { requestLocale } from '../common/locale.js';
+import { Throttle } from '@nestjs/throttler';
 
 @Controller('auth')
 @ApiHeader({ name: 'Accept-Language', required: false, description: 'Response language: en-IN, hi-IN, te-IN, or kn-IN. Defaults to English.' })
@@ -46,6 +47,7 @@ export class AuthController {
 
   @Header('Cache-Control', 'no-store')
   @Post('otp/request')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @HttpCode(202)
   async requestLoginOtp(
     @Body() dto: RequestLoginOtpDto,
@@ -65,6 +67,7 @@ export class AuthController {
 
   @Header('Cache-Control', 'no-store')
   @Post('otp/verify')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   async verifyLoginOtp(
     @Body() dto: VerifyOtpDto,
     @Req() request: FastifyRequest,

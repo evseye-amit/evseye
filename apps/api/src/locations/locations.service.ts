@@ -24,8 +24,9 @@ export class LocationsService {
   }
   async createHub(clientId: string, dto: CreateHubDto) {
     await this.assertParent(clientId, dto.parentHubId);
+    const data = { ...dto, code: dto.code.trim().toUpperCase(), clientId };
     try {
-      const hub = await this.prisma.hub.create({ data: { ...dto, clientId } });
+      const hub = await this.prisma.hub.create({ data });
       await this.completeOnboardingStep(clientId);
       return hub;
     } catch (error) {
@@ -87,7 +88,7 @@ export class LocationsService {
           where: { clientId },
           select: { code: true },
         })
-      ).map((hub) => hub.code),
+      ).map((hub) => hub.code.trim().toUpperCase()),
     );
     const seen = new Set<string>();
     const valid: CreateHubDto[] = [];

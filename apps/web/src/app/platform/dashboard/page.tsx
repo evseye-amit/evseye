@@ -1073,10 +1073,10 @@ export default function SuperAdminDashboard() {
     try {
       const text = await file.text();
       const lines = text.split(/\r?\n/).filter((line) => line.trim());
-      const headers = lines
-        .shift()
-        ?.split(",")
-        .map((header) => header.trim().toLowerCase());
+      const headerLine = lines.shift();
+      const headers = headerLine
+        ? parseCsvLine(headerLine).map((header) => header.trim().toLowerCase())
+        : undefined;
       const expected = [
         "oem_code",
         "oem_name",
@@ -1148,10 +1148,10 @@ export default function SuperAdminDashboard() {
       const lines = (await file.text())
         .split(/\r?\n/)
         .filter((line) => line.trim());
-      const headers = lines
-        .shift()
-        ?.split(",")
-        .map((header) => header.trim().toLowerCase());
+      const headerLine = lines.shift();
+      const headers = headerLine
+        ? parseCsvLine(headerLine).map((header) => header.trim().toLowerCase())
+        : undefined;
       if (
         !headers ||
         headers.length !== expectedHeaders.length ||
@@ -1401,10 +1401,10 @@ export default function SuperAdminDashboard() {
       const lines = (await file.text())
         .split(/\r?\n/)
         .filter((line) => line.trim());
-      const headers = lines
-        .shift()
-        ?.split(",")
-        .map((header) => header.trim().toLowerCase());
+      const headerLine = lines.shift();
+      const headers = headerLine
+        ? parseCsvLine(headerLine).map((header) => header.trim().toLowerCase())
+        : undefined;
       const expected = [
         "feature_code",
         "feature_name",

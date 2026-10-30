@@ -31,7 +31,7 @@ export class ClientOnboardingService {
   constructor(private readonly prisma: PrismaService, private readonly readiness?: ClientOnboardingReadinessService, private readonly audit?: AuditService) {}
 
   async bootstrap(clientId: string) {
-    const [client, progress, rejection, corrections] = await Promise.all([
+    const [client, progress] = await Promise.all([
       this.prisma.client.findUniqueOrThrow({
         where: { id: clientId },
         select: {
@@ -50,16 +50,6 @@ export class ClientOnboardingService {
         },
       }),
       this.progress(clientId),
-      this.prisma.auditLog.findFirst({
-        where: { clientId, action: 'CLIENT_REJECTED', entityType: 'Client' },
-        orderBy: { createdAt: 'desc' },
-        select: { newData: true, createdAt: true },
-      }),
-      this.prisma.auditLog.findMany({
-        where: { clientId, action: 'CLIENT_ONBOARDING_CORRECTION_SAVED', entityType: 'ClientOnboardingCorrection' },
-        orderBy: { createdAt: 'desc' },
-        select: { createdAt: true, newData: true },
-      }),
     ]);
     const rejectionItems = await this.prisma.clientOnboardingRejection.findMany({
       where: { clientId, blocking: true },
@@ -72,8 +62,6 @@ export class ClientOnboardingService {
         rejectedAt: client.agreement?.rejectedAt ?? null,
         rejection: rejectionItems.length
           ? { items: rejectionItems, resolved: rejectionItems.every((item) => Boolean(item.resolvedAt)) }
-          : rejection
-            ? { ...(rejection.newData as Record<string, unknown>), rejectedAt: rejection.createdAt, resolved: this.rejectionResolved(rejection, corrections) }
           : null,
         agreement: undefined,
       },
@@ -92,6 +80,22 @@ export class ClientOnboardingService {
       update: {},
       include: { steps: { orderBy: { createdAt: 'asc' } } },
     });
+    const existing = new Set(progress.steps.map((item) => item.step));
+    const missing = steps.filter((step) => !existing.has(step));
+    if (missing.length) {
+      await this.prisma.clientOnboardingStepRecord.createMany({
+        data: missing.map((step) => ({ clientId, progressId: progress.id, step })),
+        skipDuplicates: true,
+      });
+      const repaired = await this.prisma.clientOnboardingProgress.findUniqueOrThrow({
+        where: { id: progress.id },
+        include: { steps: { orderBy: { createdAt: 'asc' } } },
+      });
+      return {
+        ...repaired,
+        steps: steps.map((step) => repaired.steps.find((item) => item.step === step)!).filter(Boolean),
+      };
+    }
     return {
       ...progress,
       steps: steps.map(
@@ -106,7 +110,7 @@ export class ClientOnboardingService {
     step: ClientOnboardingStep,
     status: ClientOnboardingStepStatus,
   ) {
-    await this.assertEditable(clientId);
+    const clientStatus = await this.assertEditable(clientId);
     if (
       status === ClientOnboardingStepStatus.SKIPPED &&
       !optionalSteps.has(step as 'TEAM_LEADERS' | 'RIDERS')
@@ -116,6 +120,14 @@ export class ClientOnboardingService {
     const progress = await this.progress(clientId);
     const current = progress.steps.find((item) => item.step === step);
     if (!current) throw new BadRequestException('Unknown onboarding step.');
+    const movingBackward =
+      current.status === ClientOnboardingStepStatus.COMPLETED &&
+      status !== ClientOnboardingStepStatus.COMPLETED;
+    if (movingBackward && clientStatus !== ClientStatus.REJECTED) {
+      throw new BadRequestException(
+        'Completed onboarding steps can only be changed while correcting a rejected submission.',
+      );
+    }
     if (status === ClientOnboardingStepStatus.COMPLETED) {
       const index = steps.indexOf(step);
       const blocked = steps.slice(0, index).some((requiredStep) => {
@@ -161,18 +173,6 @@ export class ClientOnboardingService {
     await this.assertEditable(clientId);
     const issues = this.readiness ? await this.readiness.operational(clientId) : [];
     if (issues.length) throw new BadRequestException({ code: 'ONBOARDING_NOT_READY', issues });
-    const rejection = await this.prisma.auditLog.findFirst({
-      where: { clientId, action: 'CLIENT_REJECTED', entityType: 'Client' },
-      orderBy: { createdAt: 'desc' },
-      select: { createdAt: true },
-    });
-    if (rejection) {
-      const corrections = await this.prisma.auditLog.findMany({
-        where: { clientId, action: 'CLIENT_ONBOARDING_CORRECTION_SAVED', entityType: 'ClientOnboardingCorrection', createdAt: { gt: rejection.createdAt } },
-        select: { newData: true },
-      });
-      if (!corrections.length) throw new BadRequestException('Resolve the requested onboarding corrections before resubmitting.');
-    }
     const openRejections = await this.prisma.clientOnboardingRejection.count({ where: { clientId, blocking: true, resolvedAt: null } });
     if (openRejections) throw new BadRequestException('Resolve all requested onboarding corrections before resubmitting.');
     const progress = await this.progress(clientId);
@@ -241,10 +241,10 @@ export class ClientOnboardingService {
       this.prisma.fleet.count({ where: { clientId, deletedAt: null } }),
       this.prisma.rider.count({ where: { clientId, deletedAt: null } }),
       this.prisma.user.count({
-        where: { clientId, role: UserRole.FLEET_MANAGER, isActive: true },
+        where: { clientId, role: UserRole.FLEET_MANAGER, isActive: true, deletedAt: null },
       }),
       this.prisma.user.count({
-        where: { clientId, role: UserRole.TEAM_LEAD, isActive: true },
+        where: { clientId, role: UserRole.TEAM_LEAD, isActive: true, deletedAt: null },
       }),
       this.prisma.allocation.count({
         where: {
@@ -286,7 +286,7 @@ export class ClientOnboardingService {
     };
   }
 
-  private async assertEditable(clientId: string) {
+  private async assertEditable(clientId: string): Promise<ClientStatus> {
     const client = await this.prisma.client.findUniqueOrThrow({
       where: { id: clientId },
       select: { status: true },
@@ -298,6 +298,7 @@ export class ClientOnboardingService {
       throw new ForbiddenException(
         'Onboarding is read-only while the client workspace is under review or inactive.',
       );
+    return client.status;
   }
 
   private nextStep(
@@ -326,17 +327,6 @@ export class ClientOnboardingService {
       return 'ONBOARDING';
     if (status === ClientStatus.PENDING_APPROVAL) return 'WAITING';
     return 'SUSPENDED';
-  }
-
-  private rejectionResolved(
-    rejection: { newData: unknown },
-    corrections: Array<{ newData: unknown }>,
-  ) {
-    const data = (rejection.newData ?? {}) as { section?: string };
-    if (!data.section || data.section === 'GENERAL') return corrections.length > 0;
-    return corrections.some((correction) =>
-      (correction.newData as { section?: string } | null)?.section === data.section,
-    );
   }
 
   private sectionForStep(step: ClientOnboardingStep) {

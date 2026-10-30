@@ -65,4 +65,18 @@ describe('ClientOnboardingReadinessService', () => {
       'REGISTERED_ADDRESS_REQUIRED', 'BILLING_ADDRESS_REQUIRED', 'PAN_REQUIRED',
     ]));
   });
+
+  it('requires PAN verification before activation', async () => {
+    const { service } = setup({
+      client: { findUnique: vi.fn().mockResolvedValue({
+        businessProfile: {}, operationsProfile: {}, billingProfile: {},
+        contacts: [{ role: 'PRIMARY' }, { role: 'ACCOUNT_ADMIN' }],
+        addresses: [{ type: 'REGISTERED' }, { type: 'BILLING' }],
+        agreement: { termsAcceptedAt: new Date(), privacyAcceptedAt: new Date(), dataProcessingConsentAt: new Date() },
+        subscriptions: [{ status: 'ACTIVE' }],
+        documents: [{ documentType: 'PAN_CARD', uploadedAt: new Date(), verificationStatus: 'PENDING' }],
+      }) },
+    });
+    expect((await service.activation('client-1')).map((issue) => issue.code)).toContain('PAN_REQUIRED');
+  });
 });
