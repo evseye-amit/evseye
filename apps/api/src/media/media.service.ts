@@ -406,10 +406,15 @@ export class MediaService {
     clientId: string,
     photo: Awaited<ReturnType<MediaService['getPhoto']>>,
   ) {
+    if (photo.status === PhotoStatus.COMPLETE) {
+      return photo;
+    }
     if (photo.status !== PhotoStatus.PENDING_UPLOAD) {
       throw new BadRequestException('Photo is not awaiting upload completion.');
     }
-    await this.storage.assertObjectExists(photo.objectKey);
+    await this.storage.assertObjectExists(photo.objectKey, { maxBytes: photo.sizeBytes });
+    const header = await this.storage.readObject(photo.objectKey, Math.min(photo.sizeBytes, 16));
+    this.assertFileSignature(photo.mimeType, header);
     // A new upload for a completed slot is a replacement, rather than another
     // active image for the same fleet/component photo type. Keeping prior
     // objects as DELETED retains an audit trail without letting stale evidence
@@ -461,6 +466,18 @@ export class MediaService {
         data: { status: PhotoStatus.COMPLETE, uploadedAt: new Date() },
       });
     });
+  }
+
+  private assertFileSignature(mimeType: string, bytes: Uint8Array) {
+    const ascii = (offset: number, length: number) => String.fromCharCode(...bytes.slice(offset, offset + length));
+    const valid = mimeType === 'image/jpeg'
+      ? bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+      : mimeType === 'image/png'
+        ? bytes.length >= 8 && bytes.slice(0, 8).every((value, index) => value === [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a][index])
+        : mimeType === 'image/webp'
+          ? bytes.length >= 12 && ascii(0, 4) === 'RIFF' && ascii(8, 4) === 'WEBP'
+          : mimeType === 'application/pdf' && ascii(0, 5) === '%PDF-';
+    if (!valid) throw new BadRequestException('Uploaded file content does not match its declared type.');
   }
 
   async downloadUrl(clientId: string, photoId: string, actor?: AuthUser) {

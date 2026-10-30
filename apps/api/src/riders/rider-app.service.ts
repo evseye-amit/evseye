@@ -13,21 +13,27 @@ import { ReferralQualificationService } from '../referrals/referral-qualificatio
 import { homeDates } from '../fleet-manager-home/home-metrics.js';
 import { parseSnapshot } from '../rider-rate-cards/commercial-snapshot.js';
 import { RiderKycStatusService } from './rider-kyc-status.service.js';
+import { IfscBankService } from '../banks/banks.service.js';
+import { AuditService } from '../audit/audit.service.js';
 
 @Injectable()
 export class RiderAppService {
   private readonly logger = new Logger(RiderAppService.name);
-  constructor(private readonly prisma: PrismaService, private readonly configuration: RiderOnboardingConfigurationService, private readonly media: MediaService, private readonly kyc: RiderKycStatusService, @Optional() private readonly referrals?: ReferralService, @Optional() private readonly referralQualification?: ReferralQualificationService) {}
+  constructor(private readonly prisma: PrismaService, private readonly configuration: RiderOnboardingConfigurationService, private readonly media: MediaService, private readonly kyc: RiderKycStatusService, @Optional() private readonly referrals?: ReferralService, @Optional() private readonly referralQualification?: ReferralQualificationService, @Optional() private readonly banks?: IfscBankService, @Optional() private readonly audit?: AuditService) {}
 
   async enroll(companyCode: string, phone: string) {
-    const client = await this.prisma.client.findFirst({ where: { companyCode, isActive: true, status: 'ACTIVE' }, select: { id: true } });
+    const client = await this.prisma.client.findFirst({ where: { OR: [{ companyCode }, { slug: companyCode }], isActive: true, status: 'ACTIVE' }, select: { id: true } });
     if (!client) throw new BadRequestException('Client workspace is unavailable.');
-    const mobile = normalizeIndianMobile(phone);
-    const existing = await this.prisma.user.findFirst({ where: { clientId: client.id, mobile } });
-    if (existing && existing.role !== UserRole.RIDER) throw new ConflictException('This mobile number is already assigned to another role.');
-    const user = existing ?? await this.prisma.user.create({ data: { clientId: client.id, mobile, name: 'Pending Rider', role: UserRole.RIDER } });
     const configuration = await this.configuration.getEffectiveConfiguration(client.id);
-    await this.prisma.riderOnboardingProgress.upsert({ where: { userId: user.id }, create: { clientId: client.id, userId: user.id, packageId: configuration.package.id, currentStepId: configuration.onboarding.steps[0]?.stepId }, update: {} });
+    if (!configuration.onboarding.steps.length) throw new BadRequestException('Rider onboarding is not configured for this workspace.');
+    const mobile = normalizeIndianMobile(phone);
+    const user = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.user.findFirst({ where: { clientId: client.id, mobile, isActive: true, deletedAt: null } });
+      if (existing && existing.role !== UserRole.RIDER) throw new ConflictException('This mobile number is already assigned to another role.');
+      const enrolled = existing ?? await tx.user.create({ data: { clientId: client.id, mobile, name: 'Pending Rider', role: UserRole.RIDER } });
+      await tx.riderOnboardingProgress.upsert({ where: { userId: enrolled.id }, create: { clientId: client.id, userId: enrolled.id, packageId: configuration.package.id, currentStepId: configuration.onboarding.steps[0]?.stepId }, update: {} });
+      return enrolled;
+    });
     return { clientId: client.id, userId: user.id, phone: mobile };
   }
 
@@ -81,7 +87,7 @@ export class RiderAppService {
     const profilePhoto = await this.prisma.riderOnboardingDocument.findFirst({
       where: { clientId, userId, supersededAt: null, status: { in: [RiderDocumentReviewStatus.PENDING, RiderDocumentReviewStatus.APPROVED] },
         feature: { code: 'UPLOAD_PROFILE_PHOTO' },
-      photo: { clientId, workFlowType: 'RIDER_ONBOARDING', subjectType: { in: [PhotoSubjectType.PROFILE, PhotoSubjectType.PAN, PhotoSubjectType.AADHAR, PhotoSubjectType.DRIVING_LICENSE, PhotoSubjectType.BANK, PhotoSubjectType.DECLARATION] }, status: PhotoStatus.COMPLETE, mimeType: { in: ['image/jpeg', 'image/png', 'image/webp'] } },
+      photo: { clientId, workFlowType: 'RIDER_ONBOARDING', status: PhotoStatus.COMPLETE, mimeType: { in: ['image/jpeg', 'image/png', 'image/webp'] } },
       }, select: { photoId: true }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
     const profilePhotoUrl = profilePhoto ? (await this.media.downloadUrl(clientId, profilePhoto.photoId)).url : null;
@@ -101,7 +107,10 @@ export class RiderAppService {
 
   async onboarding(clientId: string, userId: string, locale: ApiLocale = 'en') {
     const configuration = await this.configuration.getEffectiveConfiguration(clientId);
-    const progress = await this.prisma.riderOnboardingProgress.upsert({ where: { userId }, create: { clientId, userId, packageId: configuration.package.id, currentStepId: configuration.onboarding.steps[0]?.stepId }, update: { packageId: configuration.package.id } });
+    const progress = await this.prisma.riderOnboardingProgress.upsert({ where: { userId }, create: { clientId, userId, packageId: configuration.package.id, currentStepId: configuration.onboarding.steps[0]?.stepId }, update: {} });
+    if (progress.packageId && progress.packageId !== configuration.package.id && !progress.completedAt) {
+      throw new ConflictException('The rider onboarding package changed. Please restart onboarding before continuing.');
+    }
     const completed = new Set((progress.completedStepIds as string[]) ?? []);
     const skipped = new Set((progress.skippedStepIds as string[]) ?? []);
     const documents = await this.prisma.riderOnboardingDocument.findMany({
@@ -238,11 +247,34 @@ export class RiderAppService {
     if (skip && step.fields.some(field => field.featureCode === 'CAPTURE_BANK_ACCOUNT' && field.required && !field.disabled))
       throw new BadRequestException('Bank account and IFSC details are required before continuing.');
     if (!skip) values = normalizeRiderBankValues(values, allowed);
+    const ifsc = values.IFSC_CODE;
+    if (!skip && typeof ifsc === 'string' && ifsc.trim() && this.banks) {
+      await this.banks.lookup(ifsc);
+    }
     if (allowed.has('PAN_NUMBER') && typeof values.PAN_NUMBER === 'string') {
       values = { ...values, PAN_NUMBER: values.PAN_NUMBER.trim().toUpperCase() };
     }
     const current = await this.prisma.riderOnboardingProgress.findUnique({ where: { userId } });
     if (!current || current.clientId !== clientId) throw new BadRequestException('Rider onboarding has not been started.');
+    if (current.packageId && current.packageId !== effective.package.id && !current.completedAt) {
+      throw new ConflictException('The rider onboarding package changed. Please restart onboarding before continuing.');
+    }
+    if (current.completedAt) {
+      const rejected = await this.prisma.riderOnboardingDocument.count({
+        where: { clientId, userId, supersededAt: null, status: RiderDocumentReviewStatus.REJECTED },
+      });
+      if (!rejected) throw new ConflictException('Rider onboarding is already complete.');
+    }
+    const completed = new Set((current.completedStepIds as string[]) ?? []);
+    const skipped = new Set((current.skippedStepIds as string[]) ?? []);
+    const stepIndex = effective.onboarding.steps.findIndex((item) => item.stepId === stepId);
+    const previousIncomplete = effective.onboarding.steps.slice(0, stepIndex).find((item) =>
+      !completed.has(item.stepId) && !skipped.has(item.stepId) && item.fields.some((field) => field.required && !field.disabled),
+    );
+    if (previousIncomplete) throw new BadRequestException('Complete the previous required onboarding step first.');
+    if (skip && step.fields.some((field) => field.required && !field.disabled)) {
+      throw new BadRequestException('This onboarding step cannot be skipped because it contains required fields.');
+    }
     // Attribution belongs to the authenticated Rider. It is deliberately not part of
     // the generic Rider field mapper because that mapper only persists profile data.
     const referralValue = !skip && allowed.has('REFERRAL_CODE') ? values.REFERRAL_CODE : null;
@@ -313,12 +345,12 @@ export class RiderAppService {
         } else if (!values[field.fieldCode]) throw new BadRequestException(`${field.fieldCode} is required.`);
       }
     }
-    const completed = new Set((current.completedStepIds as string[]) ?? []); const skipped = new Set((current.skippedStepIds as string[]) ?? []);
     if (skip) skipped.add(stepId);
     else completed.add(stepId);
     const nextStep = effective.onboarding.steps.find((item) => !completed.has(item.stepId) && !skipped.has(item.stepId));
     const merged = { ...(current.values as Record<string, unknown>), ...values };
     const allFinished = effective.onboarding.steps.every((item) => completed.has(item.stepId) || skipped.has(item.stepId));
+    const requiresDocumentReview = effective.onboarding.steps.some((item) => item.fields.some((field) => field.isUpload && !field.disabled));
     const storedValues = allFinished
       ? Object.fromEntries(
           effective.onboarding.steps
@@ -328,7 +360,7 @@ export class RiderAppService {
         )
       : {};
     const riderValues = allFinished
-      ? (await this.configuration.validateAndMapValues(clientId, storedValues, 'CREATE', {}, { requireAll: false })).data
+      ? (await this.configuration.validateAndMapValues(clientId, storedValues, 'CREATE', {}, { requireAll: true })).data
       : {};
     await this.prisma.$transaction(async (tx) => {
       await this.kyc.lockUser(tx, clientId, userId);
@@ -345,7 +377,7 @@ export class RiderAppService {
           ...riderValues,
           clientId,
           userId,
-          status: 'ACTIVE',
+          status: requiresDocumentReview ? 'ONBOARDING' : 'ACTIVE',
           name: String(riderValues.name ?? 'Rider'),
           mobile: String(riderValues.mobile ?? ''),
         };
@@ -363,6 +395,16 @@ export class RiderAppService {
       }
       if (allFinished) await this.kyc.sync(tx, clientId, userId, effective.onboarding.steps.flatMap(step => step.fields));
     });
+    if (allFinished) {
+      await this.audit?.record({
+        clientId,
+        actorId: userId,
+        action: 'RIDER_ONBOARDING_SUBMITTED',
+        entityType: 'RiderOnboardingSubmission',
+        entityId: userId,
+        newData: { packageId: effective.package.id, packageCode: effective.package.code, submittedAt: new Date().toISOString(), values: storedValues, completedStepIds: [...completed], skippedStepIds: [...skipped] },
+      });
+    }
     if (allFinished && this.referrals && this.referralQualification) {
       const rider = await this.prisma.rider.findUnique({ where: { userId }, select: { id: true } });
       if (rider) {
@@ -421,11 +463,18 @@ export class RiderAppService {
       fileName: input.fileName,
       sizeBytes: input.sizeBytes,
     };
-    return this.media.createUploadIntent(clientId, userId, dto);
+    const intent = await this.media.createUploadIntent(clientId, userId, dto);
+    return {
+      ...intent,
+      photoRequirements: photoTypes.map((slot) => ({
+        photoType: slot.photoType,
+        isRequired: slot.isRequired,
+      })),
+    };
   }
 
   async completeDocumentUpload(clientId: string, userId: string, photoId: string) {
-    const photo = await this.prisma.photo.findFirst({ where: { id: photoId, clientId, uploadedById: userId, workFlowType: 'RIDER_ONBOARDING', subjectType: { in: [PhotoSubjectType.PROFILE, PhotoSubjectType.PAN, PhotoSubjectType.AADHAR, PhotoSubjectType.DRIVING_LICENSE, PhotoSubjectType.BANK, PhotoSubjectType.DECLARATION] }, status: PhotoStatus.PENDING_UPLOAD }, select: { id: true, photoType: true, subjectType: true } });
+    const photo = await this.prisma.photo.findFirst({ where: { id: photoId, clientId, uploadedById: userId, workFlowType: 'RIDER_ONBOARDING', status: { in: [PhotoStatus.PENDING_UPLOAD, PhotoStatus.COMPLETE] } }, select: { id: true, photoType: true, subjectType: true, status: true } });
     if (!photo) throw new BadRequestException('Rider onboarding document upload not found.');
     const effective = await this.configuration.getEffectiveConfiguration(clientId);
     const subjectRules = await this.prisma.photoRequirement.findMany({ where: { clientId, workFlowType: 'RIDER_ONBOARDING', subjectType: photo.subjectType }, select: { featureCode: true } });
@@ -440,6 +489,10 @@ export class RiderAppService {
       throw new BadRequestException('This photo type is no longer allowed for the active onboarding package.');
     }
     const fieldCode = field.fieldCode;
+    if (photo.status === PhotoStatus.COMPLETE) {
+      const existing = await this.prisma.riderOnboardingDocument.findFirst({ where: { clientId, userId, photoId }, orderBy: { createdAt: 'desc' } });
+      if (existing) return { photo, document: existing };
+    }
     const completed = await this.media.complete(clientId, photoId);
     const fields = await this.kyc.fields(clientId);
     const document = await this.prisma.$transaction(async (tx) => {

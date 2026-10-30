@@ -7,5 +7,6 @@ import { IfscBankService } from './banks.service.js';
   imports: [AuthModule],
   controllers: [IfscBankController],
   providers: [IfscBankService],
+  exports: [IfscBankService],
 })
 export class BanksModule {}

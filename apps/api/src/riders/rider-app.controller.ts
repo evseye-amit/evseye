@@ -1,4 +1,5 @@
 import { Body, Controller, ForbiddenException, Get, Headers, Param, Post, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { UserRole } from '@prisma/client';
 import { ApiHeader, ApiOperation } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
@@ -17,6 +18,7 @@ export class RiderAppController {
   constructor(private readonly riderApp: RiderAppService) {}
 
   @Post('enroll')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   async enroll(@Body() dto: RiderAppEnrollDto) { return { data: await this.riderApp.enroll(dto.companyCode, dto.phone) }; }
 
   @Get('profile')
@@ -44,23 +46,25 @@ export class RiderAppController {
   @UseGuards(AccessTokenGuard, RolesGuard)
   @Roles(UserRole.RIDER)
   async onboarding(@CurrentUser() user: AuthUser, @Headers('accept-language') language?: string) {
-    if (!user.clientId) throw new Error('Rider is not associated with a client.');
+    if (!user.clientId) throw new ForbiddenException('Rider is not associated with a client.');
     return { data: await this.riderApp.onboarding(user.clientId, user.id, requestLocale(language)) };
   }
 
   @Post('onboarding/documents/upload-intent')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   @UseGuards(AccessTokenGuard, RolesGuard)
   @Roles(UserRole.RIDER)
   async documentUploadIntent(@CurrentUser() user: AuthUser, @Body() dto: RiderDocumentUploadIntentDto) {
-    if (!user.clientId) throw new Error('Rider is not associated with a client.');
+    if (!user.clientId) throw new ForbiddenException('Rider is not associated with a client.');
     return { data: await this.riderApp.createDocumentUploadIntent(user.clientId, user.id, dto) };
   }
 
   @Post('onboarding/documents/:photoId/complete')
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @UseGuards(AccessTokenGuard, RolesGuard)
   @Roles(UserRole.RIDER)
   async completeDocumentUpload(@CurrentUser() user: AuthUser, @Param('photoId') photoId: string) {
-    if (!user.clientId) throw new Error('Rider is not associated with a client.');
+    if (!user.clientId) throw new ForbiddenException('Rider is not associated with a client.');
     return { data: await this.riderApp.completeDocumentUpload(user.clientId, user.id, photoId) };
   }
 
@@ -68,7 +72,7 @@ export class RiderAppController {
   @UseGuards(AccessTokenGuard, RolesGuard)
   @Roles(UserRole.RIDER)
   async save(@CurrentUser() user: AuthUser, @Body() dto: SaveRiderAppStepDto, @Headers('accept-language') language?: string) {
-    if (!user.clientId) throw new Error('Rider is not associated with a client.');
+    if (!user.clientId) throw new ForbiddenException('Rider is not associated with a client.');
     return { data: await this.riderApp.saveStep(user.clientId, user.id, dto.stepId, dto.values, false, requestLocale(language)) };
   }
 
@@ -76,7 +80,7 @@ export class RiderAppController {
   @UseGuards(AccessTokenGuard, RolesGuard)
   @Roles(UserRole.RIDER)
   async skip(@CurrentUser() user: AuthUser, @Body() dto: SaveRiderAppStepDto, @Headers('accept-language') language?: string) {
-    if (!user.clientId) throw new Error('Rider is not associated with a client.');
+    if (!user.clientId) throw new ForbiddenException('Rider is not associated with a client.');
     return { data: await this.riderApp.saveStep(user.clientId, user.id, dto.stepId, dto.values, true, requestLocale(language)) };
   }
 }
