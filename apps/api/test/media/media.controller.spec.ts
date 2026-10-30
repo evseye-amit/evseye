@@ -30,12 +30,14 @@ describe('MediaController audit trail', () => {
       clientId: 'client-a',
       actorId: 'operator-1',
       action: 'PHOTO_UPLOADED',
-      entityType: 'FLEET',
-      entityId: 'fleet-1',
+      entityType: 'Photo',
+      entityId: 'photo-1',
       newData: {
         photoId: 'photo-1',
         photoType: 'FRONT',
         status: 'COMPLETE',
+        workFlowType: undefined,
+        subjectType: undefined,
       },
     });
   });

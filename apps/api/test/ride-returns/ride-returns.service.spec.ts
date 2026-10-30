@@ -120,7 +120,7 @@ describe('RideReturnsService penalty revisions', () => {
     const { db, tx, billing, service } = setup();
     const item = { id: 'item-1', caseId: 'case-1', revision: 1, position: 0, priceCode: 'MIRROR', category: 'DAMAGE', description: 'Mirror', amount: D('10.00'), currency: 'INR', details: 'deep scratch', evidencePhotoIds: ['photo-1'] };
     const digest = createHash('sha256').update(JSON.stringify({ caseId: 'case-1', revision: 1, items: [{ position: 0, priceCode: 'MIRROR', category: 'DAMAGE', description: 'Mirror', amount: '10.00', currency: 'INR', details: 'deep scratch', evidencePhotoIds: ['photo-1'] }], totalAmount: '10.00' })).digest('hex');
-    const waiting = { id: 'case-1', clientId: 'client-a', riderId: 'rider-1', currentRevision: 1, status: 'MANAGER_APPROVAL_PENDING', currency: 'INR', totalAmount: D('10.00'), managerApprovedRevision: null, postedChargeId: null };
+    const waiting = { id: 'case-1', clientId: 'client-a', riderId: 'rider-1', currentRevision: 1, status: 'MANAGER_APPROVAL_PENDING', currency: 'INR', totalAmount: D('10.00'), digest, managerApprovedRevision: null, postedChargeId: null };
     const approved = { ...waiting, managerApprovedRevision: 1 };
     const posted = { ...approved, status: 'POSTED', postedChargeId: 'charge-1', postedRevision: 1 };
     db.rentalTerminationRequest.findFirst.mockResolvedValue({ id: request.id, plannedHubId: null, receivedHubId: null });
@@ -353,6 +353,7 @@ describe('RideReturnsService request reason boundary', () => {
     };
     context.db.rider.findFirst.mockResolvedValue({ id: 'rider-1', status: 'ACTIVE' });
     context.db.hub.findFirst.mockResolvedValue({ id: 'hub-1' });
+    context.tx.allocation.findFirst.mockResolvedValue({ fleet: { currentHubId: 'hub-1' } });
     context.tx.riderRentalAgreement.findMany.mockResolvedValue([{
       id: 'agreement-1',
       riderId: 'rider-1',

@@ -31,11 +31,7 @@ export class ExchangeHubGuard implements CanActivate {
     const actor = request.user;
     if (
       !actor.roles.includes(UserRole.FLEET_MANAGER) ||
-      actor.roles.some(
-        (role) =>
-          role === UserRole.CLIENT_ADMIN ||
-          role === UserRole.FLEET_MANAGER,
-      )
+      actor.roles.includes(UserRole.CLIENT_ADMIN)
     )
       return true;
     const clientId = this.clients.requireClientId(actor);

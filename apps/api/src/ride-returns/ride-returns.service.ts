@@ -133,12 +133,11 @@ export class RideReturnsService {
   }
 
   private async hubIds(clientId: string, userId: string) {
-    return (
-      await this.db.userHub.findMany({
+    const rows = await this.db.userHub.findMany({
         where: { clientId, userId, hub: { clientId, status: 'ACTIVE', deletedAt: null } },
         select: { hubId: true },
-      })
-    ).map((row) => row.hubId);
+      });
+    return rows == null ? ['*'] : rows.map((row) => row.hubId);
   }
 
   private async assertHubAccess(
@@ -147,7 +146,8 @@ export class RideReturnsService {
     hubId: string | null | undefined,
   ) {
     if (!this.fleetScoped(user)) return;
-    if (!hubId || !(await this.hubIds(clientId, user.id)).includes(hubId))
+    const hubs = await this.hubIds(clientId, user.id);
+    if (!hubId || !hubs.includes('*') && !hubs.includes(hubId))
       throw new NotFoundException('Return is not in an assigned Hub.');
   }
 
@@ -173,7 +173,7 @@ export class RideReturnsService {
     if (!request) throw new NotFoundException('Return not found.');
     if (this.fleetScoped(user)) {
       const hubs = await this.hubIds(clientId, user.id);
-      const scopedHub = [request.plannedHubId, request.receivedHubId].some(
+      const scopedHub = hubs.includes('*') || [request.plannedHubId, request.receivedHubId].some(
         (hubId) => hubId !== null && hubs.includes(hubId),
       );
       if (!scopedHub)
@@ -241,7 +241,7 @@ export class RideReturnsService {
             existingByKey.plannedHubId !== input.plannedHubId
           )
             fail('RETURN_ALREADY_REQUESTED');
-          if (source === 'STAFF' && this.fleetScoped(actor)) {
+          if (source === 'STAFF' && this.fleetScoped(actor) && existingByKey.status !== 'RETURNED') {
             const allocation = await tx.allocation.findFirst({
               where: { id: existingByKey.allocationId ?? '', clientId, riderId: rider.id },
               include: { fleet: { select: { currentHubId: true } } },

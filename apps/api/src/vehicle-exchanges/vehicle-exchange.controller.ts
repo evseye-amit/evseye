@@ -34,7 +34,7 @@ export class VehicleExchangeController {
     private readonly exchanges: VehicleExchangeService,
     private readonly context: ClientContextService,
   ) {}
-  @Get('policy') policy(@CurrentUser() user: AuthUser) {
+  @Get('policy') @Roles(UserRole.CLIENT_ADMIN) policy(@CurrentUser() user: AuthUser) {
     return this.exchanges.policy(this.context.requireClientId(user));
   }
   @Post('policy') @Roles(UserRole.CLIENT_ADMIN) setPolicy(
@@ -57,7 +57,7 @@ export class VehicleExchangeController {
       request?.exchangeHubFilter,
     );
   }
-  @Get('agreements/:agreementId/versions') history(
+  @Get('agreements/:agreementId/versions') @Roles(UserRole.CLIENT_ADMIN) history(
     @CurrentUser() user: AuthUser,
     @Param('agreementId') agreementId: string,
   ) {
@@ -66,7 +66,7 @@ export class VehicleExchangeController {
       agreementId,
     );
   }
-  @Post() request(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+  @Post() @Roles(UserRole.CLIENT_ADMIN) request(@CurrentUser() user: AuthUser, @Body() body: unknown) {
     return this.exchanges.request(
       this.context.requireClientId(user),
       user.id,
@@ -157,7 +157,7 @@ export class VehicleExchangeController {
       body,
     );
   }
-  @Post(':id/return') startReturn(
+  @Post(':id/return') @Roles(UserRole.CLIENT_ADMIN) startReturn(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
   ) {
@@ -167,7 +167,7 @@ export class VehicleExchangeController {
       user.id,
     );
   }
-  @Post(':id/confirm-return') confirmReturn(
+  @Post(':id/confirm-return') @Roles(UserRole.CLIENT_ADMIN) confirmReturn(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
   ) {

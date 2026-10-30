@@ -190,13 +190,11 @@ describe('Fleet Manager exchange access', () => {
       'replacement scooter',
     );
   });
-  it('retains client-wide access for existing admin and operations roles', async () => {
-    for (const role of [UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER]) {
-      const f = fixture();
-      f.request.user.roles = [UserRole.FLEET_MANAGER, role];
-      expect(await f.guard.canActivate(context(f.request))).toBe(true);
-      expect(f.db.userHub.findMany).not.toHaveBeenCalled();
-    }
+  it('retains client-wide access for client admins', async () => {
+    const f = fixture();
+    f.request.user.roles = [UserRole.FLEET_MANAGER, UserRole.CLIENT_ADMIN];
+    expect(await f.guard.canActivate(context(f.request))).toBe(true);
+    expect(f.db.userHub.findMany).not.toHaveBeenCalled();
   });
   it('passes the scoped filter and hub IDs into list and replacement reservation handlers', async () => {
     const f = fixture();
