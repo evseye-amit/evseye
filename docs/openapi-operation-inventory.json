@@ -6074,21 +6074,6 @@
     ]
   },
   {
-    "method": "POST",
-    "path": "/api/v1/platform/clients",
-    "operationId": "PlatformAdminController_createClient",
-    "controllerClass": "PlatformAdminController",
-    "controllerFile": "apps/api/src/platform-admin/platform-admin.controller.ts",
-    "tags": [
-      "Client Management · Onboarding"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
     "method": "GET",
     "path": "/api/v1/platform/clients/{clientId}",
     "operationId": "PlatformAdminController_clientDetail",

@@ -295,6 +295,15 @@ export class RiderOnboardingConfigurationService {
     if (options.length && !options.map(String).includes(value)) {
       throw new BadRequestException(`${field.fieldCode} value is not allowed.`);
     }
+    const ageRule = field.configuration.minAge ?? field.configuration.minimumAge ?? field.validation.minAge ?? field.validation.minimumAge;
+    const minAge = Number(ageRule ?? 0);
+    if (field.dataType === 'DATE' && Number.isFinite(minAge) && minAge > 0) {
+      const birth = this.parseDate(field, value);
+      const now = new Date();
+      let age = now.getUTCFullYear() - birth.getUTCFullYear();
+      if (now.getUTCMonth() < birth.getUTCMonth() || (now.getUTCMonth() === birth.getUTCMonth() && now.getUTCDate() < birth.getUTCDate())) age -= 1;
+      if (age < minAge) throw new BadRequestException(`${field.fieldCode} does not meet the minimum age requirement.`);
+    }
   }
 
   private parseDate(field: RiderField, value: string): Date {

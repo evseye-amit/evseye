@@ -4,6 +4,7 @@ import { ClientResolverService } from './client-resolver.service.js';
 import { PreLoginQuery } from './pre-login.dto.js';
 import { PreLoginService } from './pre-login.service.js';
 import { languageCatalog } from '../common/language-catalog.js';
+import { Throttle } from '@nestjs/throttler';
 
 @Controller('public/app')
 export class PublicPreLoginController {
@@ -13,12 +14,15 @@ export class PublicPreLoginController {
   ) {}
 
   @Get('languages')
+  @Header('Cache-Control', 'no-store')
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   languages() {
     return { data: languageCatalog };
   }
 
   @Get('bootstrap')
   @Header('Cache-Control', 'no-store')
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   async bootstrap(
     @Query() query: PreLoginQuery,
     @Req() request: FastifyRequest,

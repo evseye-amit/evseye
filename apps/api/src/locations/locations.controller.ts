@@ -36,6 +36,7 @@ export class LocationsController {
       data: await this.locations.listHubs(this.clients.requireClientId(user)),
     };
   }
+  @Roles(UserRole.CLIENT_ADMIN)
   @Post('hubs') async createHub(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateHubDto,
@@ -47,6 +48,7 @@ export class LocationsController {
       ),
     };
   }
+  @Roles(UserRole.CLIENT_ADMIN)
   @Patch('hubs/:id') async updateHub(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -60,12 +62,14 @@ export class LocationsController {
       ),
     };
   }
+  @Roles(UserRole.CLIENT_ADMIN)
   @Delete('hubs/:id') async deleteHub(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
   ) {
     return { data: await this.locations.deleteHub(this.clients.requireClientId(user), id) };
   }
+  @Roles(UserRole.CLIENT_ADMIN)
   @Post('hubs/bulk') async bulkHubs(
     @CurrentUser() user: AuthUser,
     @Body() dto: BulkHubDto,

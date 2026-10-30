@@ -27,6 +27,22 @@ const API_URL =
 const ACCESS_TOKEN_KEY = "evs-eye-session-present";
 const REFRESH_TOKEN_KEY = "evs-eye-session-refreshable";
 
+function parseCsvLine(line: string) {
+  const values: string[] = [];
+  let value = "";
+  let quoted = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    if (character === '"') {
+      if (quoted && line[index + 1] === '"') { value += '"'; index += 1; }
+      else quoted = !quoted;
+    } else if (character === "," && !quoted) { values.push(value.trim()); value = ""; }
+    else value += character;
+  }
+  values.push(value.trim());
+  return values;
+}
+
 type Bootstrap = {
   client: {
     name: string;
@@ -34,6 +50,7 @@ type Bootstrap = {
     status: string;
     rejectionReason?: string | null;
     rejectedAt?: string | null;
+    rejection?: { section?: string; reasonCode?: string; reason?: string; resolved?: boolean; rejectedAt?: string } | null;
   };
   route: "ONBOARDING" | "WAITING" | "SUSPENDED" | "DASHBOARD";
   progress: { currentStep: string; steps: { step: string; status: string }[] };
@@ -222,9 +239,10 @@ export default function ClientHome() {
           <section className="client-rejection-note" role="status">
             <strong>{t("Changes requested by EVs Eye")}</strong>
             <p>
-              {data.client.rejectionReason ||
+              {data.client.rejection?.reason || data.client.rejectionReason ||
                 "Please review and correct the requested onboarding information, then resubmit it for approval."}
             </p>
+            {data.client.rejection?.section && data.client.rejection.section !== "GENERAL" ? <p className="muted">Requested correction: {data.client.rejection.section.replaceAll("_", " ")}{data.client.rejection.reasonCode ? ` (${data.client.rejection.reasonCode})` : ""}</p> : null}
             <div className="client-rejection-actions">
               <span>Open the relevant setup section to make corrections:</span>
               <button type="button" onClick={() => setSelectedStep("HUBS")}>
@@ -387,14 +405,11 @@ function RiderSetup({ onSaved }: { onSaved: () => void }) {
         .split(/\r?\n/)
         .filter(Boolean);
       const [header, ...body] = lines;
-      const columns = header.split(",").map((value) => value.trim());
+      const columns = parseCsvLine(header);
       setRows(
         body.map((line) =>
           Object.fromEntries(
-            columns.map((column, index) => [
-              column,
-              line.split(",")[index]?.trim() ?? "",
-            ]),
+            columns.map((column, index) => [column, parseCsvLine(line)[index] ?? ""]),
           ),
         ),
       );
@@ -2145,13 +2160,13 @@ function TeamLeaderSetup({ onSaved }: { onSaved: () => void }) {
         .split(/\r?\n/)
         .filter(Boolean);
       const [header, ...body] = lines;
-      const columns = header.split(",").map((value) => value.trim());
+      const columns = parseCsvLine(header);
       setRows(
         body.map((line) =>
           Object.fromEntries(
             columns.map((column, index) => [
               column,
-              line.split(",")[index]?.trim() ?? "",
+              parseCsvLine(line)[index] ?? "",
             ]),
           ),
         ),
@@ -2489,13 +2504,13 @@ function FleetManagerSetup({ onSaved }: { onSaved: () => void }) {
         .split(/\r?\n/)
         .filter(Boolean);
       const [header, ...body] = lines;
-      const columns = header.split(",").map((value) => value.trim());
+      const columns = parseCsvLine(header);
       setRows(
         body.map((line) =>
           Object.fromEntries(
             columns.map((column, index) => [
               column,
-              line.split(",")[index]?.trim() ?? "",
+              parseCsvLine(line)[index] ?? "",
             ]),
           ),
         ),
@@ -2917,13 +2932,13 @@ function HubSetup({ onSaved }: { onSaved: () => void }) {
         .split(/\r?\n/)
         .filter(Boolean);
       const [header, ...body] = lines;
-      const columns = header.split(",").map((value) => value.trim());
+      const columns = parseCsvLine(header);
       setRows(
         body.map((line) =>
           Object.fromEntries(
             columns.map((column, index) => [
               column,
-              line.split(",")[index]?.trim() ?? "",
+              parseCsvLine(line)[index] ?? "",
             ]),
           ),
         ),

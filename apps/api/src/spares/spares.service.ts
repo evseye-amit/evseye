@@ -116,7 +116,7 @@ export class SparesService {
   private async types(tx: Prisma.TransactionClient, ids: string[]) {
     if (
       new Set(ids).size !== ids.length ||
-      (await tx.vehicleType.count({ where: { id: { in: ids } } })) !==
+      (await tx.vehicleType.count({ where: { id: { in: ids }, status: 'ACTIVE' } })) !==
         ids.length
     )
       throw new BadRequestException('Select valid, distinct vehicle types.');

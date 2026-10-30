@@ -146,6 +146,10 @@ export class RiderDocumentReviewService {
       if (updated.count !== 1) throw new BadRequestException('Only pending documents can be reviewed.');
       const document = await tx.riderOnboardingDocument.findUniqueOrThrow({ where: { id } });
       const kyc = await this.kyc.sync(tx, clientId, pending.userId, fields);
+      await tx.rider?.updateMany({
+        where: { clientId, userId: pending.userId, deletedAt: null },
+        data: { status: kyc.kycStatus === 'VERIFIED' ? 'ACTIVE' : 'ONBOARDING' },
+      });
       return { ...document, ...kyc };
     });
   }

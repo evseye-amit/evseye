@@ -227,6 +227,37 @@ describe('RiderAppService.home', () => {
   });
 });
 
+describe('RiderAppService onboarding step guards', () => {
+  it('rejects skipping a step that contains required fields', async () => {
+    const { service } = createService();
+    await expect(service.saveStep('client-1', 'user-1', 'step-1', {}, true)).rejects.toThrow('cannot be skipped');
+  });
+
+  it('rejects completing a later step before prior required steps', async () => {
+    const { service, resolver } = createService();
+    vi.spyOn(resolver, 'getEffectiveConfiguration').mockResolvedValue({
+      ...configuration,
+      onboarding: {
+        ...configuration.onboarding,
+        steps: [
+          ...configuration.onboarding.steps,
+          { ...configuration.onboarding.steps[0], stepId: 'step-2', stepCode: 'BANK', sequence: 2 },
+        ],
+      },
+    } as never);
+    await expect(service.saveStep('client-1', 'user-1', 'step-2', { FULL_NAME: 'Rider', MOBILE_NUMBER: '9000000001' })).rejects.toThrow('previous required onboarding step');
+  });
+
+  it('rejects saving against a changed onboarding package', async () => {
+    const { service, prisma } = createService();
+    prisma.riderOnboardingProgress.findUnique.mockResolvedValue({
+      clientId: 'client-1', packageId: 'old-package', completedAt: null,
+      completedStepIds: [], skippedStepIds: [], values: {},
+    });
+    await expect(service.saveStep('client-1', 'user-1', 'step-1', { FULL_NAME: 'Rider', MOBILE_NUMBER: '9000000001' })).rejects.toThrow('package changed');
+  });
+});
+
 describe('RiderAppService.saveStep', () => {
   it('updates the account name before the remaining onboarding steps are complete', async () => {
     const { service, transaction, resolver } = createService();

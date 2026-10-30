@@ -14,7 +14,6 @@ import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
-import { CreateClientDto } from './dto/create-client.dto.js';
 import {
   CreateClientDocumentUploadIntentDto,
   CreateClientDraftDto,
@@ -54,12 +53,6 @@ export class PlatformAdminController {
   }
   @Get('clients') listClients() {
     return this.platform.listClients().then((data) => ({ data }));
-  }
-  @Post('clients') createClient(
-    @Body() dto: CreateClientDto,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.platform.createClient(dto, user.id).then((data) => ({ data }));
   }
   @Post('clients/drafts') createClientDraft(
     @Body() dto: CreateClientDraftDto,
@@ -256,7 +249,7 @@ export class PlatformAdminController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.platform
-      .rejectClient(clientId, dto.reason, user.id)
+      .rejectClient(clientId, dto, user.id)
       .then((data) => ({ data }));
   }
 }

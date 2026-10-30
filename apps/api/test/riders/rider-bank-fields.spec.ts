@@ -49,6 +49,19 @@ const required = () => ({
 });
 
 describe('package-controlled rider bank capture', () => {
+  it('enforces configured minimum age on the server', async () => {
+    const ageComponent = {
+      ...component,
+      featureCode: 'CAPTURE_DATE_OF_BIRTH',
+      configuration: {
+        fieldCode: 'DATE_OF_BIRTH', storageKey: 'dateOfBirth', fieldType: 'DATE', dataType: 'DATE',
+        required: true, minAge: 18,
+      },
+    } as ResolvedComponent;
+    const { resolver } = fixture([ageComponent]);
+    await expect(resolver.validateAndMapValues('client', { DATE_OF_BIRTH: '2015-01-01' }, 'CREATE')).rejects.toThrow('minimum age');
+  });
+
   it('expands the existing bank feature into exactly six fields in the commercial step', async () => {
     const { resolver } = fixture();
     const result = resolver.toPublicConfiguration(

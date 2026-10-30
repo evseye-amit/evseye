@@ -924,6 +924,7 @@ model Client {
   operationVehicleCategories  ClientOperationsVehicleCategory[]
   onboardingProgress          ClientOnboardingProgress?
   onboardingSteps             ClientOnboardingStepRecord[]
+  onboardingRejections        ClientOnboardingRejection[]
   importJobs                  ImportJob[]
   userHubs                    UserHub[]
   teamLeaderProfiles          TeamLeaderProfile[]
@@ -2940,6 +2941,25 @@ model ClientOnboardingStepRecord {
 
   @@unique([progressId, step])
   @@index([clientId, step, status])
+}
+
+model ClientOnboardingRejection {
+  id             String    @id @default(uuid())
+  clientId       String
+  client         Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  submissionId   String?
+  section        String    @db.VarChar(60)
+  reasonCode     String    @db.VarChar(80)
+  reason         String    @db.VarChar(500)
+  blocking       Boolean   @default(true)
+  resolvedAt     DateTime?
+  resolvedById   String?
+  createdById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([clientId, resolvedAt, blocking])
+  @@index([clientId, createdAt])
 }
 
 model ImportJob {
