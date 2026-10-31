@@ -180,17 +180,20 @@ export class AuthService {
 
     try {
       if (client) await this.smsQuota.reserve(client.id, otpRequest.id);
+      const delivery = await (this.prisma as any).smsDelivery?.create({ data: { otpRequestId: otpRequest.id, provider: this.config.getOrThrow('SMS_PROVIDER'), status: 'PENDING' } });
       await this.smsProvider.send({
         phone,
         purpose: OtpPurpose.LOGIN,
         code,
       });
+      if (delivery) await (this.prisma as any).smsDelivery.update({ where: { id: delivery.id }, data: { status: 'DELIVERED', completedAt: new Date() } });
     } catch (error) {
       if (client) await this.smsQuota.refund(client.id, otpRequest.id);
       await this.prisma.otpRequest.update({
         where: { id: otpRequest.id },
         data: { status: OtpStatus.FAILED },
       });
+      await (this.prisma as any).smsDelivery?.updateMany?.({ where: { otpRequestId: otpRequest.id, status: 'PENDING' }, data: { status: 'FAILED', completedAt: new Date(), errorCode: error instanceof Error ? error.name : 'SMS_ERROR' } });
       if (error instanceof HttpException) throw error;
       throw new ServiceUnavailableException(
         'SMS delivery is temporarily unavailable.',

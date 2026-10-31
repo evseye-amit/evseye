@@ -194,6 +194,10 @@ export class IotController {
     const cell = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
     return [headers.join(','), ...rows.map((row) => headers.map((header) => cell(row[header])).join(','))].join('\n');
   }
+  @Roles(UserRole.CLIENT_ADMIN)
+  @Post('devices/imports/:id/retry') async retryImport(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { rows: Array<Record<string, unknown>> }) {
+    return { data: await this.iot.retryImport(this.clients.requireClientId(user), user.id, id, dto.rows, user.roles[0] as UserRole) };
+  }
 
   @Patch('devices/:id')
   @Header('Cache-Control', 'no-store')

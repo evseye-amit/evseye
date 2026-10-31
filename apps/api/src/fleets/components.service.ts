@@ -13,6 +13,7 @@ import {
   ImportStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { normalizeImportFailures } from '../imports/import-failure.js';
 @Injectable()
 export class ComponentsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -348,7 +349,7 @@ export class ComponentsService {
     const job = await this.prisma.importJob.create({
       data: { clientId, createdById: actorId, entityType: kind === 'BATTERY' ? ImportEntityType.BATTERY : ImportEntityType.CONTROLLER, originalFilename: filename, totalRows: rows.length, passedRows: created, failedRows, createdRows: created, status: !created ? ImportStatus.FAIL : failedRows ? ImportStatus.PARTIAL_PASS : ImportStatus.PASS, completedAt: new Date(), metadata: JSON.parse(JSON.stringify({ failures })) },
     });
-    return { jobId: job.id, status: job.status, totalRows: rows.length, passedRows: created, failedRows, createdRows: created };
+    return { jobId: job.id, status: job.status, totalRows: rows.length, passedRows: created, failedRows, createdRows: created, failures: normalizeImportFailures(failures) };
   }
 
   async failedRows(clientId: string, jobId: string, entityType: ImportEntityType) {

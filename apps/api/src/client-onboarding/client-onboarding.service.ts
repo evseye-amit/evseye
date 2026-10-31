@@ -56,6 +56,7 @@ export class ClientOnboardingService {
       orderBy: { createdAt: 'desc' },
     });
     const latestRejection = rejectionItems[0] ?? null;
+    const readiness = this.readiness ? await this.readiness.activation(clientId) : [];
     return {
       client: {
         ...client,
@@ -74,6 +75,7 @@ export class ClientOnboardingService {
         agreement: undefined,
       },
       progress,
+      readiness: { ready: readiness.length === 0, issues: readiness },
       route: this.routeFor(client.status),
     };
   }
@@ -99,17 +101,43 @@ export class ClientOnboardingService {
         where: { id: progress.id },
         include: { steps: { orderBy: { createdAt: 'asc' } } },
       });
+      await this.syncDerivedSteps(clientId, progress.id, repaired.steps);
       return {
         ...repaired,
         steps: steps.map((step) => repaired.steps.find((item) => item.step === step)!).filter(Boolean),
       };
     }
+    await this.syncDerivedSteps(clientId, progress.id, progress.steps);
     return {
       ...progress,
       steps: steps.map(
         (step) => progress.steps.find((item) => item.step === step)!,
       ),
     };
+  }
+
+  private async syncDerivedSteps(clientId: string, progressId: string, records: { step: ClientOnboardingStep; status: ClientOnboardingStepStatus }[]) {
+    const [hubs, fleetManagers, fleets] = await Promise.all([
+      this.prisma.hub.count({ where: { clientId, deletedAt: null } }),
+      this.prisma.user.count({ where: { clientId, role: UserRole.FLEET_MANAGER, isActive: true, deletedAt: null } }),
+      this.prisma.fleet.count({ where: { clientId, deletedAt: null } }),
+    ]);
+    const counts: Partial<Record<ClientOnboardingStep, number>> = {
+      [ClientOnboardingStep.HUBS]: hubs,
+      [ClientOnboardingStep.FLEET_MANAGERS]: fleetManagers,
+      [ClientOnboardingStep.FLEETS]: fleets,
+    };
+    const now = new Date();
+    for (const step of [ClientOnboardingStep.HUBS, ClientOnboardingStep.FLEET_MANAGERS, ClientOnboardingStep.FLEETS]) {
+      const current = records.find((record) => record.step === step);
+      if (!current || counts[step] === undefined) continue;
+      const nextStatus = counts[step]! > 0 ? ClientOnboardingStepStatus.COMPLETED : current.status === ClientOnboardingStepStatus.COMPLETED ? ClientOnboardingStepStatus.IN_PROGRESS : current.status;
+      if (nextStatus === current.status) continue;
+      await this.prisma.clientOnboardingStepRecord.update({
+        where: { progressId_step: { progressId, step } },
+        data: { status: nextStatus, savedAt: now, completedAt: nextStatus === ClientOnboardingStepStatus.COMPLETED ? now : null },
+      });
+    }
   }
 
   async saveStep(

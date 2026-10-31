@@ -106,4 +106,8 @@ export class LocationsController {
       ),
     ].join('\n');
   }
+  @Roles(UserRole.CLIENT_ADMIN)
+  @Post('hubs/imports/:id/retry') async retryHubImport(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { rows: CreateHubDto[] }) {
+    return { data: await this.locations.retryImport(this.clients.requireClientId(user), user.id, id, dto.rows, user.roles[0] as UserRole) };
+  }
 }

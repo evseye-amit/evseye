@@ -12,6 +12,7 @@ import {
 } from "../../lib/domain-enums";
 
 import { ClientBrand } from "../components/client-brand";
+import { ImportFailureRemediation } from "../components/import-failure-remediation";
 import { LanguageSwitcher, useLocale } from "../components/locale-provider";
 import {
   normalizeReadinessPlans,
@@ -21,6 +22,7 @@ import {
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import * as XLSX from "xlsx";
+import { normalizePreLoginFailure } from "../../lib/prelogin-resolver";
 
 const API_URL =
   "/api/v1";
@@ -54,7 +56,10 @@ type Bootstrap = {
   };
   route: "ONBOARDING" | "WAITING" | "SUSPENDED" | "DASHBOARD";
   progress: { currentStep: string; steps: { step: string; status: string }[] };
+  readiness?: { ready: boolean; issues: { code?: string; message?: string; owner?: "CLIENT_ADMIN" | "SUPER_ADMIN" }[] };
 };
+type ImportFailure = { row?: number; message: string; fields?: string[] | string; raw?: Record<string, unknown> };
+type ImportResult = { status: string; passedRows: number; failedRows: number; jobId?: string; failures?: ImportFailure[] };
 
 function apiErrorMessage(body: Record<string, any>, fallback: string) {
   const error = body.error;
@@ -123,12 +128,10 @@ export default function ClientHome() {
     })
       .then(async (response) => {
         const body = await response.json();
-        if (!response.ok)
-          throw new Error(
-            body.error?.message ??
-              body.message ??
-              "Unable to load client workspace.",
-          );
+        if (!response.ok) {
+          const failure = normalizePreLoginFailure(body.error ?? body);
+          throw new Error(failure.message);
+        }
         setBrandingToken(token);
         setData(body.data);
         if (body.data.route === "DASHBOARD") {
@@ -288,6 +291,12 @@ export default function ClientHome() {
             can return to any section to make corrections before resubmitting.
           </p>
         </header>
+        {data.readiness && !data.readiness.ready ? (
+          <section className="client-readiness-panel" role="alert">
+            <strong>Complete these requirements before submission</strong>
+            <ul>{data.readiness.issues.map((issue, index) => <li key={`${issue.code ?? "issue"}-${index}`}><strong>{issue.owner === "SUPER_ADMIN" ? "EVs Eye:" : "Your action:"}</strong> {issue.message ?? issue.code ?? "Requirement incomplete"}{issue.owner === "SUPER_ADMIN" ? <>{" "}<Link href="/platform/clients">Open Super Admin client setup</Link></> : null}</li>)}</ul>
+          </section>
+        ) : null}
         {activeStep === "HUBS" ? (
           <HubSetup onSaved={refreshOnboarding} />
         ) : activeStep === "FLEET_MANAGERS" ? (
@@ -332,6 +341,7 @@ function RiderSetup({ onSaved }: { onSaved: () => void }) {
   const [filename, setFilename] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const token = () => sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? "";
   useEffect(() => {
     fetch(`${API_URL}/riders?page=1&pageSize=50`, {
@@ -446,20 +456,7 @@ function RiderSetup({ onSaved }: { onSaved: () => void }) {
       setMessage(
         `Import ${result.status.replaceAll("_", " ")}: ${result.passedRows} passed, ${result.failedRows} failed.`,
       );
-      if (result.failedRows && result.jobId) {
-        const response = await fetch(
-          `${API_URL}/riders/imports/${result.jobId}/failed-records`,
-          { headers: { Authorization: `Bearer ${token()}` } },
-        );
-        const csv = await response.text();
-        const anchor = document.createElement("a");
-        anchor.href = URL.createObjectURL(
-          new Blob([csv], { type: "text/csv" }),
-        );
-        anchor.download = "rider-import-failures.csv";
-        anchor.click();
-        URL.revokeObjectURL(anchor.href);
-      }
+      setImportResult(result);
       onSaved();
     } catch (cause) {
       setMessage(
@@ -659,6 +656,26 @@ function RiderSetup({ onSaved }: { onSaved: () => void }) {
         </div>
       </div>
       {message ? <p className="client-action-message">{message}</p> : null}
+      {importResult?.failedRows && importResult.jobId ? <ImportFailureRemediation
+        failures={importResult.failures?.length ? importResult.failures : [{ message: `${importResult.failedRows} rider rows failed validation.` }]}
+        onDownload={async () => {
+          const response = await fetch(`${API_URL}/riders/imports/${importResult.jobId}/failed-records`, { headers: { Authorization: `Bearer ${token()}` } });
+          const csv = await response.text(); const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+          const anchor = document.createElement("a"); anchor.href = url; anchor.download = "rider-import-failures.csv"; anchor.click(); URL.revokeObjectURL(url);
+        }} onRetry={async (rows) => {
+          setBusy(true);
+          try {
+            const response = await fetch(`${API_URL}/riders/imports/${importResult.jobId}/retry`, { method: "POST", headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" }, body: JSON.stringify({ rows }) });
+            const body = await response.json();
+            if (!response.ok) throw new Error(apiErrorMessage(body, "Unable to retry rider import."));
+            const retryResult = (body.data ?? body) as ImportResult;
+            setImportResult(retryResult);
+            setMessage(`Retry ${retryResult.status.replaceAll("_", " ")}: ${retryResult.passedRows} passed, ${retryResult.failedRows} failed.`);
+            onSaved();
+          } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Unable to retry rider import."); }
+          finally { setBusy(false); }
+        }}
+      /> : null}
     </section>
   );
 }
@@ -752,12 +769,9 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
     fleets: [], batteries: [], controllers: [], iotDevices: [],
   });
   const [filename, setFilename] = useState("");
-  const [importResult, setImportResult] = useState<{
-    status: string;
-    passedRows: number;
-    failedRows: number;
-  } | null>(null);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [importedIotCredentials, setImportedIotCredentials] = useState<Array<{ deviceNumber: string; ingestSecret: string }>>([]);
+  const [importJobs, setImportJobs] = useState<Array<{ entity: string; result: ImportResult }>>([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [createdFleet, setCreatedFleet] = useState<{
@@ -990,6 +1004,21 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
     ];
     sheets.forEach(([name, rows]) => XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), name));
     XLSX.writeFile(workbook, "evs-eye-fleet-onboarding-template.xlsx");
+  };
+  const bulkCreateJobBacked = async () => {
+    if (!workbookRows.fleets.length) return;
+    setBusy(true); setMessage(""); setImportResult(null); setImportJobs([]);
+    try {
+      const results: Array<{ entity: string; result: ImportResult }> = [];
+      results.push({ entity: "fleet", result: await request("/fleets/bulk", { filename, rows: workbookRows.fleets }) });
+      if (workbookRows.batteries.length) results.push({ entity: "battery", result: await request("/fleets/batteries/bulk", { filename, rows: workbookRows.batteries }) });
+      if (workbookRows.controllers.length) results.push({ entity: "controller", result: await request("/fleets/controllers/bulk", { filename, rows: workbookRows.controllers }) });
+      if (workbookRows.iotDevices.length) results.push({ entity: "iot", result: await request("/iot/devices/bulk", { filename, rows: workbookRows.iotDevices }) });
+      setImportJobs(results);
+      const aggregate: ImportResult = { status: results.some(({ result }) => result.failedRows) ? "PARTIAL_PASS" : "PASS", passedRows: results.reduce((sum, { result }) => sum + result.passedRows, 0), failedRows: results.reduce((sum, { result }) => sum + result.failedRows, 0), jobId: results[0].result.jobId, failures: results.flatMap(({ result }) => result.failures ?? []) };
+      setImportResult(aggregate); setMessage(`Import ${aggregate.status.replaceAll("_", " ")}: ${aggregate.passedRows} passed, ${aggregate.failedRows} failed.`); onSaved();
+    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Unable to import Fleets."); }
+    finally { setBusy(false); }
   };
   const downloadIotCredentials = () => {
     const csv = ["deviceNumber,ingestSecret", ...importedIotCredentials.map((credential) => `${credential.deviceNumber},${credential.ingestSecret}`)].join("\n");
@@ -1539,7 +1568,7 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
           <button
             disabled={busy || !workbookRows.fleets.length}
             type="button"
-            onClick={bulkCreate}
+            onClick={bulkCreateJobBacked}
           >
             {busy ? "Importing…" : "Import Fleet onboarding"}
           </button>
@@ -1560,6 +1589,13 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
               </button>
             </div>
           ) : null}
+          {importJobs.map(({ entity, result }) => result.failedRows && result.jobId ? <ImportFailureRemediation key={`${entity}-${result.jobId}`} failures={result.failures?.length ? result.failures : [{ message: `${result.failedRows} ${entity} rows failed validation.` }]} onDownload={async () => {
+            const path = entity === "fleet" ? `/fleets/imports/${result.jobId}/failed-records` : entity === "battery" ? `/fleets/batteries/imports/${result.jobId}/failed-records` : entity === "controller" ? `/fleets/controllers/imports/${result.jobId}/failed-records` : `/iot/devices/imports/${result.jobId}/failed-records`;
+            const response = await fetch(`${API_URL}${path}`, { headers: { Authorization: `Bearer ${token()}` } }); if (!response.ok) throw new Error(`Unable to download ${entity} failures.`); const csv = await response.text(); const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `${entity}-import-failures.csv`; anchor.click(); URL.revokeObjectURL(url);
+          }} onRetry={async (rows) => {
+            const path = entity === "fleet" ? `/fleets/imports/${result.jobId}/retry` : entity === "battery" ? `/fleets/batteries/imports/${result.jobId}/retry` : entity === "controller" ? `/fleets/controllers/imports/${result.jobId}/retry` : `/iot/devices/imports/${result.jobId}/retry`;
+            const response = await fetch(`${API_URL}${path}`, { method: "POST", headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" }, body: JSON.stringify({ rows }) }); const body = await response.json(); if (!response.ok) throw new Error(apiErrorMessage(body, `Unable to retry ${entity} import.`)); const next = (body.data ?? body) as ImportResult; setImportJobs((jobs) => jobs.map((job) => job.result.jobId === result.jobId ? { ...job, result: next } : job));
+          }} /> : null)}
         </div>
       </div>
       {message ? <p className="client-action-message">{message}</p> : null}
@@ -2075,6 +2111,7 @@ function TeamLeaderSetup({ onSaved }: { onSaved: () => void }) {
   const [filename, setFilename] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const token = () => sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? "";
   useEffect(() => {
     fetch(`${API_URL}/client/users/team-leaders`, {
@@ -2202,20 +2239,7 @@ function TeamLeaderSetup({ onSaved }: { onSaved: () => void }) {
       setMessage(
         `Import ${result.status.replaceAll("_", " ")}: ${result.passedRows} passed, ${result.failedRows} failed.`,
       );
-      if (result.failedRows && result.jobId) {
-        const response = await fetch(
-          `${API_URL}/client/users/team-leaders/imports/${result.jobId}/failed-records`,
-          { headers: { Authorization: `Bearer ${token()}` } },
-        );
-        const csv = await response.text();
-        const anchor = document.createElement("a");
-        anchor.href = URL.createObjectURL(
-          new Blob([csv], { type: "text/csv" }),
-        );
-        anchor.download = "team-leader-import-failures.csv";
-        anchor.click();
-        URL.revokeObjectURL(anchor.href);
-      }
+      setImportResult(result);
       onSaved();
     } catch (cause) {
       setMessage(
@@ -2404,6 +2428,11 @@ function TeamLeaderSetup({ onSaved }: { onSaved: () => void }) {
         </div>
       </div>
       {message ? <p className="client-action-message">{message}</p> : null}
+      {importResult?.failedRows && importResult.jobId ? <ImportFailureRemediation
+        failures={importResult.failures?.length ? importResult.failures : [{ message: `${importResult.failedRows} team-leader rows failed validation.` }]}
+        onDownload={async () => { const response = await fetch(`${API_URL}/client/users/team-leaders/imports/${importResult.jobId}/failed-records`, { headers: { Authorization: `Bearer ${token()}` } }); if (!response.ok) throw new Error("Unable to download team-leader failures."); const csv = await response.text(); const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "team-leader-import-failures.csv"; anchor.click(); URL.revokeObjectURL(url); }}
+        onRetry={async (rows) => { setBusy(true); try { const response = await fetch(`${API_URL}/client/users/team-leaders/imports/${importResult.jobId}/retry`, { method: "POST", headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" }, body: JSON.stringify({ rows }) }); const body = await response.json(); if (!response.ok) throw new Error(apiErrorMessage(body, "Unable to retry team-leader import.")); const retryResult = (body.data ?? body) as ImportResult; setImportResult(retryResult); setMessage(`Retry ${retryResult.status.replaceAll("_", " ")}: ${retryResult.passedRows} passed, ${retryResult.failedRows} failed.`); onSaved(); } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Unable to retry team-leader import."); } finally { setBusy(false); } }}
+      /> : null}
     </section>
   );
 }
@@ -2427,6 +2456,7 @@ function FleetManagerSetup({ onSaved }: { onSaved: () => void }) {
   const [filename, setFilename] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const token = () => sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? "";
   useEffect(() => {
     Promise.all([
@@ -2558,20 +2588,7 @@ function FleetManagerSetup({ onSaved }: { onSaved: () => void }) {
       setMessage(
         `Import ${result.status.replaceAll("_", " ")}: ${result.passedRows} passed, ${result.failedRows} failed.`,
       );
-      if (result.failedRows && result.jobId) {
-        const response = await fetch(
-          `${API_URL}/client/users/fleet-managers/imports/${result.jobId}/failed-records`,
-          { headers: { Authorization: `Bearer ${token()}` } },
-        );
-        const csv = await response.text();
-        const anchor = document.createElement("a");
-        anchor.href = URL.createObjectURL(
-          new Blob([csv], { type: "text/csv" }),
-        );
-        anchor.download = "fleet-manager-import-failures.csv";
-        anchor.click();
-        URL.revokeObjectURL(anchor.href);
-      }
+      setImportResult(result);
       onSaved();
     } catch (cause) {
       setMessage(
@@ -2806,6 +2823,11 @@ function FleetManagerSetup({ onSaved }: { onSaved: () => void }) {
         </div>
       </div>
       {message ? <p className="client-action-message">{message}</p> : null}
+      {importResult?.failedRows && importResult.jobId ? <ImportFailureRemediation
+        failures={importResult.failures?.length ? importResult.failures : [{ message: `${importResult.failedRows} fleet-manager rows failed validation.` }]}
+        onDownload={async () => { const response = await fetch(`${API_URL}/client/users/fleet-managers/imports/${importResult.jobId}/failed-records`, { headers: { Authorization: `Bearer ${token()}` } }); if (!response.ok) throw new Error("Unable to download fleet-manager failures."); const csv = await response.text(); const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "fleet-manager-import-failures.csv"; anchor.click(); URL.revokeObjectURL(url); }}
+        onRetry={async (rows) => { setBusy(true); try { const response = await fetch(`${API_URL}/client/users/fleet-managers/imports/${importResult.jobId}/retry`, { method: "POST", headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" }, body: JSON.stringify({ rows }) }); const body = await response.json(); if (!response.ok) throw new Error(apiErrorMessage(body, "Unable to retry fleet-manager import.")); const retryResult = (body.data ?? body) as ImportResult; setImportResult(retryResult); setMessage(`Retry ${retryResult.status.replaceAll("_", " ")}: ${retryResult.passedRows} passed, ${retryResult.failedRows} failed.`); onSaved(); } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Unable to retry fleet-manager import."); } finally { setBusy(false); } }}
+      /> : null}
     </section>
   );
 }
@@ -2854,6 +2876,7 @@ function HubSetup({ onSaved }: { onSaved: () => void }) {
   const [filename, setFilename] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const token = () => sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? "";
   const fetchHubs = useCallback(async () => {
     const response = await fetch(`${API_URL}/hubs`, {
@@ -2965,20 +2988,7 @@ function HubSetup({ onSaved }: { onSaved: () => void }) {
       setMessage(
         `Import ${result.status.replaceAll("_", " ")}: ${result.passedRows} passed, ${result.failedRows} failed.`,
       );
-      if (result.failedRows && result.jobId) {
-        const response = await fetch(
-          `${API_URL}/hubs/imports/${result.jobId}/failed-records`,
-          { headers: { Authorization: `Bearer ${token()}` } },
-        );
-        const csv = await response.text();
-        const anchor = document.createElement("a");
-        anchor.href = URL.createObjectURL(
-          new Blob([csv], { type: "text/csv" }),
-        );
-        anchor.download = "hub-import-failures.csv";
-        anchor.click();
-        URL.revokeObjectURL(anchor.href);
-      }
+      setImportResult(result);
       onSaved();
     } catch (cause) {
       setMessage(
@@ -3428,6 +3438,34 @@ function HubSetup({ onSaved }: { onSaved: () => void }) {
         </div>
       </div>
       {message ? <p className="client-action-message">{message}</p> : null}
+      {importResult?.failedRows && importResult.jobId ? <ImportFailureRemediation
+        failures={importResult.failures?.length ? importResult.failures : [{ message: `${importResult.failedRows} hub rows failed validation.` }]}
+        onDownload={async () => {
+          const response = await fetch(`${API_URL}/hubs/imports/${importResult.jobId}/failed-records`, { headers: { Authorization: `Bearer ${token()}` } });
+          if (!response.ok) throw new Error("Unable to download hub import failures.");
+          const csv = await response.text();
+          const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+          const anchor = document.createElement("a"); anchor.href = url; anchor.download = "hub-import-failures.csv"; anchor.click(); URL.revokeObjectURL(url);
+        }}
+        onRetry={async (rows) => {
+          setBusy(true);
+          try {
+            const response = await fetch(`${API_URL}/hubs/imports/${importResult.jobId}/retry`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ rows }),
+            });
+            const body = await response.json();
+            if (!response.ok) throw new Error(apiErrorMessage(body, "Unable to retry hub import."));
+            const retryResult = (body.data ?? body) as ImportResult;
+            setImportResult(retryResult);
+            setMessage(`Retry ${retryResult.status.replaceAll("_", " ")}: ${retryResult.passedRows} passed, ${retryResult.failedRows} failed.`);
+            onSaved();
+          } catch (cause) {
+            setMessage(cause instanceof Error ? cause.message : "Unable to retry hub import.");
+          } finally { setBusy(false); }
+        }}
+      /> : null}
     </section>
   );
 }

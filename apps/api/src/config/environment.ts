@@ -131,6 +131,7 @@ const environmentSchema = z.object({
     .refine((value) => /^https?:\/\//.test(value), 'Must use HTTP or HTTPS')
     .optional(),
   SMS_PROVIDER: z.enum(['console', 'telipia']).default('console'),
+  SMS_FALLBACK_PROVIDER: z.enum(['none', 'console', 'telipia']).default('none'),
   TELIPIA_API_URL: z.string().url().optional(),
   TELIPIA_USERNAME: z.string().optional(),
   TELIPIA_API_KEY: z.string().optional(),

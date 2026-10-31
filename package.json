@@ -18,6 +18,7 @@
     "test:client-access": "node --env-file=.env test/client-access.mjs",
     "test:gateway": "node --test test/gateway-security.test.mjs",
     "generate:prelogin-contract": "node scripts/generate-prelogin-contract.mjs",
+    "verify:prelogin-contract": "node scripts/verify-flutter-prelogin-contract.mjs",
     "test:prelogin:staging": "node test/prelogin-staging.mjs",
     "test:login:staging": "node test/login-staging.mjs",
     "test:web": "pnpm --filter @evs-eye/web test"

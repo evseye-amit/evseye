@@ -100,6 +100,10 @@ export class ClientUsersController {
     );
     return this.toCsv(rows);
   }
+  @Roles(UserRole.CLIENT_ADMIN)
+  @Post('fleet-managers/imports/:id/retry') retryFleetManagerImport(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { rows: CreateFleetManagerDto[] }) {
+    return this.users.retryFleetManagerImport(this.clients.requireClientId(user), user.id, id, dto.rows, user.roles[0] as UserRole).then((data) => ({ data }));
+  }
   @Post('team-leaders') teamLeader(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateTeamLeaderDto,
@@ -154,6 +158,10 @@ export class ClientUsersController {
       ImportEntityType.TEAM_LEADER,
     );
     return this.toCsv(rows);
+  }
+  @Roles(UserRole.CLIENT_ADMIN)
+  @Post('team-leaders/imports/:id/retry') retryTeamLeaderImport(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { rows: CreateTeamLeaderDto[] }) {
+    return this.users.retryTeamLeaderImport(this.clients.requireClientId(user), user.id, id, dto.rows, user.roles[0] as UserRole).then((data) => ({ data }));
   }
   @Post('team-leaders/:id/riders') assignRiders(
     @CurrentUser() user: AuthUser,

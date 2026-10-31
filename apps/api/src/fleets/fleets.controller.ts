@@ -31,6 +31,8 @@ import { UpdateFleetDto } from './dto/update-fleet.dto.js';
 import { FleetsService } from './fleets.service.js';
 import { ComponentsService } from './components.service.js';
 import { StartFleetTransferDto } from './dto/start-fleet-transfer.dto.js';
+import { FleetImportRouterService } from './fleet-import-router.service.js';
+import { ImportAuthorizationService } from '../imports/import-authorization.service.js';
 @Controller('fleets')
 @UseGuards(AccessTokenGuard, RolesGuard, FleetManagerActionGuard)
 @FleetActionResource('fleet')
@@ -44,6 +46,8 @@ export class FleetsController {
     private readonly components: ComponentsService,
     private readonly audit: AuditService,
     private readonly clients: ClientContextService,
+    private readonly importRouter: FleetImportRouterService,
+    private readonly importAuthorization: ImportAuthorizationService,
   ) {}
   @Get() async list(@CurrentUser() u: AuthUser, @Query() q: ListFleetsDto) {
     return { data: await this.fleets.list(this.clients.requireClientId(u), q) };
@@ -109,12 +113,24 @@ export class FleetsController {
     const clientId = this.clients.requireClientId(u);
     return { data: await this.components.bulkCreate(clientId, u.id, d.filename, 'BATTERY', d.rows) };
   }
+  @Roles(UserRole.CLIENT_ADMIN)
+  @Post('batteries/imports/:id/retry') async retryBattery(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() d: { rows: Record<string, unknown>[] }) {
+    const clientId = this.clients.requireClientId(u);
+    const job = await this.importAuthorization.authorizeJob({ jobId: id, clientId, entityType: ImportEntityType.BATTERY, role: u.roles[0] as UserRole });
+    return { data: await this.importRouter.retry(clientId, u.id, ImportEntityType.BATTERY, job.originalFilename, d.rows) };
+  }
   @Post('controllers/bulk') async bulkControllers(
     @CurrentUser() u: AuthUser,
     @Body() d: BulkFleetDto,
   ) {
     const clientId = this.clients.requireClientId(u);
     return { data: await this.components.bulkCreate(clientId, u.id, d.filename, 'CONTROLLER', d.rows) };
+  }
+  @Roles(UserRole.CLIENT_ADMIN)
+  @Post('controllers/imports/:id/retry') async retryController(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() d: { rows: Record<string, unknown>[] }) {
+    const clientId = this.clients.requireClientId(u);
+    const job = await this.importAuthorization.authorizeJob({ jobId: id, clientId, entityType: ImportEntityType.CONTROLLER, role: u.roles[0] as UserRole });
+    return { data: await this.importRouter.retry(clientId, u.id, ImportEntityType.CONTROLLER, job.originalFilename, d.rows) };
   }
   @Get(':kind/imports/:id/failed-records')
   @Header('Content-Type', 'text/csv; charset=utf-8')
@@ -170,6 +186,10 @@ export class FleetsController {
           .join(','),
       ),
     ].join('\n');
+  }
+  @Roles(UserRole.CLIENT_ADMIN)
+  @Post('imports/:id/retry') async retryFleetImport(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() body: { rows: Record<string, unknown>[] }) {
+    return { data: await this.fleets.retryImport(this.clients.requireClientId(u), u.id, id, body.rows, u.roles[0] as UserRole) };
   }
   @Get(':id') async get(@CurrentUser() u: AuthUser, @Param('id') id: string) {
     return { data: await this.fleets.get(this.clients.requireClientId(u), id) };

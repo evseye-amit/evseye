@@ -38,7 +38,8 @@ jobs:
       - name: Verify Flutter pre-login contract
         run: |
           pnpm generate:prelogin-contract
-          git diff --exit-code -- contracts/prelogin-error-codes.json
+          git diff --exit-code -- contracts/prelogin-error-codes.json contracts/auth-error-codes.json apps/web/src/lib/prelogin-error-codes.generated.ts
+          if [ -d "../rider_app" ]; then pnpm verify:prelogin-contract; fi
 
       - name: Type check
         run: pnpm typecheck

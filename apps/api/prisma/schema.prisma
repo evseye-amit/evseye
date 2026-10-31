@@ -3948,9 +3948,25 @@ model OtpRequest {
   verifiedAt  DateTime?
   requestedIp String?
   createdAt   DateTime   @default(now())
+  smsDeliveries SmsDelivery[]
 
   @@index([phone, purpose, createdAt])
   @@index([clientId, status])
+}
+
+model SmsDelivery {
+  id           String   @id @default(uuid())
+  otpRequestId String
+  otpRequest   OtpRequest @relation(fields: [otpRequestId], references: [id], onDelete: Cascade)
+  provider     String
+  status       String
+  attempt      Int      @default(1)
+  errorCode    String?
+  createdAt    DateTime @default(now())
+  completedAt  DateTime?
+
+  @@index([otpRequestId, createdAt])
+  @@index([provider, status, createdAt])
 }
 
 enum ClientDomainType {

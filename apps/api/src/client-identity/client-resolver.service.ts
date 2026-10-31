@@ -52,7 +52,7 @@ export class ClientResolverService {
     });
     let clientId = mapping?.clientId;
     if (mapping && !mapping.isVerified)
-      throw new NotFoundException({ code: 'WORKSPACE_UNAVAILABLE', message: 'Workspace unavailable.' });
+      throw new NotFoundException({ code: 'WORKSPACE_DOMAIN_UNVERIFIED', message: 'Workspace domain is not verified.' });
     if (!mapping && base && validClientSlug(slug)) {
       const client = await this.prisma.client.findUnique({
         where: { slug },
@@ -105,7 +105,7 @@ export class ClientResolverService {
         throw new ForbiddenException('Invalid origin.');
       const originContext = await this.resolve(origin.host);
       if (hostContext && originContext?.clientId !== hostContext.clientId)
-        throw new ForbiddenException('Workspace mismatch.');
+        throw new ForbiddenException({ code: 'WORKSPACE_HOST_MISMATCH', message: 'Workspace mismatch.' });
       return hostContext ?? originContext;
     }
     return hostContext;

@@ -10,6 +10,8 @@ import { ImportEntityType, ImportStatus, IoTDeviceStatus, Prisma } from '@prisma
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Environment } from '../config/environment.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { ImportAuthorizationService } from '../imports/import-authorization.service.js';
+import { normalizeImportFailures } from '../imports/import-failure.js';
 
 export type TelemetryPacketType = 'LOCATION' | 'HEARTBEAT' | 'START' | 'STOP';
 
@@ -26,6 +28,7 @@ export class IotService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<Environment, true>,
+    private readonly imports: ImportAuthorizationService,
   ) {}
 
   async registerDevice(
@@ -137,13 +140,17 @@ export class IotService {
     }
     const failedRows = failures.length;
     const job = await this.prisma.importJob.create({ data: { clientId, createdById: actorId, entityType: ImportEntityType.IOT_DEVICE, originalFilename: filename, totalRows: rows.length, passedRows: created, failedRows, createdRows: created, status: !created ? ImportStatus.FAIL : failedRows ? ImportStatus.PARTIAL_PASS : ImportStatus.PASS, completedAt: new Date(), metadata: JSON.parse(JSON.stringify({ failures })) } });
-    return { jobId: job.id, status: job.status, totalRows: rows.length, passedRows: created, failedRows, createdRows: created };
+    return { jobId: job.id, status: job.status, totalRows: rows.length, passedRows: created, failedRows, createdRows: created, failures: normalizeImportFailures(failures) };
   }
 
   async failedRows(clientId: string, jobId: string) {
     const job = await this.prisma.importJob.findFirst({ where: { id: jobId, clientId, entityType: ImportEntityType.IOT_DEVICE }, select: { metadata: true } });
     if (!job) throw new NotFoundException('Import job not found.');
     return ((job.metadata as { failures?: Array<Record<string, unknown>> } | null)?.failures) ?? [];
+  }
+  async retryImport(clientId: string, actorId: string, jobId: string, rows: Array<Record<string, unknown>>, role: import('@prisma/client').UserRole) {
+    const job = await this.imports.authorizeJob({ jobId, clientId, entityType: ImportEntityType.IOT_DEVICE, role });
+    return this.bulkRegisterDevices(clientId, actorId, job.originalFilename, rows);
   }
 
   async updateDevice(

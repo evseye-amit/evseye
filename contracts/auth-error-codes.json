@@ -1,7 +1,8 @@
 {
   "codes": [
-    "OTP_EXPIRED",
+    "OTP_INVALID_REQUEST",
     "OTP_INVALID",
+    "OTP_EXPIRED",
     "OTP_ALREADY_USED",
     "REFRESH_TOKEN_EXPIRED",
     "REFRESH_TOKEN_INVALID",
