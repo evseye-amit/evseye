@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { BillingCycle, Prisma, PricingAdjustmentScope, PricingAdjustmentType } from '@prisma/client';
+import { BillingCycle, ClientStatus, Prisma, PricingAdjustmentScope, PricingAdjustmentType } from '@prisma/client';
 import { AuditService } from '../audit/audit.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AdjustmentDto, ConsumeFeatureDto, FeatureAddOnDto, PackageChangeDto, PurchaseAddOnDto, QuoteDto, SubscriptionDto, UpdateFeatureAddOnDto, VehicleCountDto, VehicleTierDto } from './dto/commercial.dto.js';
@@ -32,25 +32,46 @@ export class CommercialService {
   async calculateSubscriptionPrice(dto: QuoteDto) {
     const effectiveDate = dto.effectiveDate ? new Date(dto.effectiveDate) : new Date(); const pkg = await this.prisma.package.findUnique({ where: { code: dto.packageCode }, include: { features: { where: { isIncluded: true }, include: { feature: true } } } });
     if (!pkg || !pkg.isActive) throw new NotFoundException('Active package not found.'); const tier = await this.resolvePackageVehiclePrice(pkg.id, dto.vehicleCount, effectiveDate);
+    if (pkg.maxFleets < dto.vehicleCount) throw new BadRequestException('Vehicle count exceeds the selected package limit.');
+    if (pkg.features.some((link) => !link.feature.isActive)) throw new BadRequestException('The selected package contains an inactive Feature. Publish a corrected Package revision.');
     const baseRecurringAmount = money(new D(tier.pricePerVehicle).mul(dto.vehicleCount)); const adjustments = await this.activeAdjustments(dto.clientId, effectiveDate, [PricingAdjustmentScope.PACKAGE, PricingAdjustmentScope.TOTAL_INVOICE], pkg.id);
     const recurringAdjustment = this.applyAdjustments(baseRecurringAmount, adjustments); const setupAdjustments = await this.activeAdjustments(dto.clientId, effectiveDate, [PricingAdjustmentScope.SETUP_FEE, PricingAdjustmentScope.TOTAL_INVOICE], pkg.id);
     const setup = this.applyAdjustments(pkg.setupFee, setupAdjustments);
     const availableAddOns = await this.prisma.featureAddOn.findMany({ where: { isActive: true, feature: { isActive: true }, effectiveFrom: { lte: effectiveDate }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: effectiveDate } }] }, include: { feature: true }, orderBy: { code: 'asc' } });
     return { packageCode: pkg.code, packageId: pkg.id, vehicleCount: dto.vehicleCount, billingCycle: dto.billingCycle ?? BillingCycle.MONTHLY, tier: { minVehicles: tier.minVehicles, maxVehicles: tier.maxVehicles, tierMode: tier.tierMode }, pricePerVehicle: tier.pricePerVehicle, baseRecurringAmount, discountAmount: recurringAdjustment.discount, finalRecurringAmount: recurringAdjustment.final, setupFee: setup.final, setupFeeDiscountAmount: setup.discount, currency: tier.currency, includedFeatures: pkg.features.map((link) => ({ featureCode: link.feature.code, featureName: link.feature.name, includedQuantity: link.includedQuantity, resetPeriod: link.resetPeriod, isUnlimited: link.isUnlimited })), availableAddOns: availableAddOns.map((addOn) => ({ id: addOn.id, code: addOn.code, name: addOn.name, featureId: addOn.featureId, quantity: addOn.quantity, salePrice: addOn.salePrice, currency: addOn.currency, validityDays: addOn.validityDays, validityMonths: addOn.validityMonths })), adjustments };
   }
+  private async validatePackageCapacity(clientId: string, packageId: string, vehicleCount: number) {
+    const [pkg, counts] = await Promise.all([
+      this.prisma.package.findUnique({ where: { id: packageId } }),
+      this.prisma.client.findUnique({ where: { id: clientId }, select: { _count: { select: { riders: true, users: true, hubs: true, fleets: true } } } }),
+    ]);
+    if (!pkg || !counts) throw new NotFoundException('Client or package not found.');
+    const limits: Array<[string, number, number]> = [
+      ['fleets', vehicleCount, pkg.maxFleets], ['riders', counts._count.riders, pkg.maxRiders],
+      ['users', counts._count.users, pkg.maxUsers], ['hubs', counts._count.hubs, pkg.maxHubs],
+    ];
+    const exceeded = limits.find(([, actual, limit]) => actual > limit);
+    if (exceeded) throw new BadRequestException(`Client ${exceeded[0]} count exceeds the selected package limit.`);
+  }
   async createSubscription(dto: SubscriptionDto, actorId: string) {
+    const startDate = new Date(dto.startDate);
+    const endDate = dto.endDate ? new Date(dto.endDate) : null;
+    if (Number.isNaN(startDate.valueOf()) || (endDate && Number.isNaN(endDate.valueOf()))) throw new BadRequestException('Subscription dates are invalid.');
+    if (endDate && endDate <= startDate) throw new BadRequestException('Subscription end date must be after the start date.');
     const quote = await this.calculateSubscriptionPrice(dto);
+    await this.validatePackageCapacity(dto.clientId, quote.packageId, dto.vehicleCount);
+    const client = await this.prisma.client.findUnique({ where: { id: dto.clientId }, select: { status: true } });
+    if (!client) throw new NotFoundException('Client not found.');
     const packageRevision = await this.prisma.packageRevision.findFirst({
       where: { packageId: quote.packageId, publishedAt: { not: null } }, orderBy: { version: 'desc' },
     });
     if (!packageRevision) throw new BadRequestException('Publish a Package version before assigning it to a client.');
-    const startDate = new Date(dto.startDate);
     const row = await this.prisma.$transaction(async (tx) => {
       await tx.clientSubscription.updateMany({ where: { clientId: dto.clientId, status: 'ACTIVE' },
         data: { status: 'CANCELLED', endDate: startDate } });
       const subscription = await tx.clientSubscription.create({ data: {
         clientId: dto.clientId, packageId: quote.packageId, packageRevisionId: packageRevision.id,
-        status: 'ACTIVE', billingCycle: quote.billingCycle, startDate,
+        status: client.status === ClientStatus.ACTIVE ? 'ACTIVE' : 'PENDING', billingCycle: quote.billingCycle, startDate,
         endDate: dto.endDate ? new Date(dto.endDate) : undefined, vehicleCount: dto.vehicleCount,
         setupFee: quote.setupFee, pricePerVehicle: quote.pricePerVehicle,
         recurringAmount: quote.finalRecurringAmount, tierMinVehicles: quote.tier.minVehicles,
@@ -59,7 +80,7 @@ export class CommercialService {
       await this.grantPackageAllowances(tx, subscription.id, dto.clientId, packageRevision.id,
         packageRevision.snapshot, startDate);
       return subscription;
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     await this.audit.record({ clientId: dto.clientId, actorId,
       action: 'CLIENT_SUBSCRIPTION_CREATED', entityType: 'ClientSubscription', entityId: row.id,
       newData: { packageId: quote.packageId, packageRevisionId: packageRevision.id, vehicleCount: dto.vehicleCount } });
@@ -68,7 +89,15 @@ export class CommercialService {
   async updateVehicleCount(subscriptionId: string, dto: VehicleCountDto, actorId: string) { const sub = await this.prisma.clientSubscription.findUnique({ where: { id: subscriptionId }, include: { package: true } }); if (!sub) throw new NotFoundException('Subscription not found.'); const quote = await this.calculateSubscriptionPrice({ clientId: sub.clientId, packageCode: sub.package.code, vehicleCount: dto.vehicleCount, billingCycle: sub.billingCycle, effectiveDate: dto.effectiveDate }); const row = await this.prisma.clientSubscription.update({ where: { id: subscriptionId }, data: { vehicleCount: dto.vehicleCount, pricePerVehicle: quote.pricePerVehicle, recurringAmount: quote.finalRecurringAmount, tierMinVehicles: quote.tier.minVehicles, tierMaxVehicles: quote.tier.maxVehicles, tierMode: quote.tier.tierMode } }); await this.audit.record({ clientId: sub.clientId, actorId, action: 'CLIENT_SUBSCRIPTION_VEHICLE_COUNT_UPDATED', entityType: 'ClientSubscription', entityId: subscriptionId }); return row; }
   async getSubscription(id: string) { const row = await this.prisma.clientSubscription.findUnique({ where: { id }, include: { package: true, featureAddOnPurchases: { include: { featureAddOn: true }, orderBy: { purchasedAt: 'desc' } } } }); if (!row) throw new NotFoundException('Subscription not found.'); return row; }
   async listSubscriptions(clientId?: string) { return this.prisma.clientSubscription.findMany({ where: clientId ? { clientId } : {}, include: { client: { select: { id: true, name: true, companyCode: true } }, package: true, packageRevision: { select: { id: true, version: true, publishedAt: true } } }, orderBy: [{ status: 'asc' }, { createdAt: 'desc' }] }); }
-  async changePackage(subscriptionId: string, dto: PackageChangeDto, actorId: string) { const current = await this.prisma.clientSubscription.findUnique({ where: { id: subscriptionId } }); const pkg = await this.requirePackage(dto.packageId); if (!current) throw new NotFoundException('Subscription not found.'); return this.createSubscription({ clientId: current.clientId, packageCode: pkg.code, vehicleCount: dto.vehicleCount, billingCycle: current.billingCycle, startDate: new Date().toISOString(), effectiveDate: dto.effectiveDate }, actorId); }
+  async changePackage(subscriptionId: string, dto: PackageChangeDto, actorId: string) {
+    const current = await this.prisma.clientSubscription.findUnique({ where: { id: subscriptionId } });
+    const pkg = await this.requirePackage(dto.packageId);
+    if (!current) throw new NotFoundException('Subscription not found.');
+    await this.validatePackageCapacity(current.clientId, pkg.id, dto.vehicleCount);
+    if (dto.vehicleCount < current.vehicleCount && pkg.maxFleets < current.vehicleCount)
+      throw new BadRequestException('Cannot downgrade below the client\'s current fleet count.');
+    return this.createSubscription({ clientId: current.clientId, packageCode: pkg.code, vehicleCount: dto.vehicleCount, billingCycle: current.billingCycle, startDate: new Date().toISOString(), effectiveDate: dto.effectiveDate }, actorId);
+  }
   async addAdjustment(dto: AdjustmentDto, actorId: string) { if (dto.validTo && new Date(dto.validTo) <= new Date(dto.validFrom)) throw new BadRequestException('Adjustment end must be after its start.'); const row = await this.prisma.clientPricingAdjustment.create({ data: { ...dto, validFrom: new Date(dto.validFrom), validTo: dto.validTo ? new Date(dto.validTo) : undefined, createdBy: actorId } }); await this.audit.record({ clientId: dto.clientId, actorId, action: 'CLIENT_PRICING_ADJUSTMENT_CREATED', entityType: 'ClientPricingAdjustment', entityId: row.id }); return row; }
   async listAdjustments(clientId?: string) { return this.prisma.clientPricingAdjustment.findMany({ where: clientId ? { clientId } : {}, include: { client: { select: { id: true, name: true, companyCode: true } }, subscription: { select: { id: true, packageId: true } } }, orderBy: { createdAt: 'desc' } }); }
   async createAddOn(dto: FeatureAddOnDto, actorId: string) { const row = await this.prisma.featureAddOn.create({ data: await this.addOnData(dto) }); await this.audit.record({ actorId, action: 'FEATURE_ADDON_CREATED', entityType: 'FeatureAddOn', entityId: row.id }); return row; }

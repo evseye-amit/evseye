@@ -66,6 +66,16 @@ function uploadFeatureConfiguration(
   };
 }
 
+function validateFeatureConfiguration(configuration?: Record<string, unknown>) {
+  if (configuration === undefined) return;
+  if (!configuration || Array.isArray(configuration) || JSON.stringify(configuration).length > 32000)
+    throw new BadRequestException('Feature configuration must be a JSON object under 32 KB.');
+  if (configuration.appCodes !== undefined && (!Array.isArray(configuration.appCodes) || !configuration.appCodes.every((v) => typeof v === 'string')))
+    throw new BadRequestException('Feature appCodes must be a list of strings.');
+  if (configuration.supportedLocales !== undefined && (!Array.isArray(configuration.supportedLocales) || !configuration.supportedLocales.every((v) => typeof v === 'string') || new Set(configuration.supportedLocales).size !== configuration.supportedLocales.length))
+    throw new BadRequestException('Feature supportedLocales must be a distinct list of strings.');
+}
+
 @Injectable()
 export class PlatformCatalogService {
   constructor(
@@ -521,6 +531,7 @@ export class PlatformCatalogService {
   }
   async createFeature(dto: CreateFeatureDto, actorId: string) {
     const { configuration, translations, featureStepId, ...data } = dto;
+    validateFeatureConfiguration(configuration);
     if (featureStepId) await this.requireFeatureStep(featureStepId);
     const effectiveConfiguration = uploadFeatureConfiguration(dto.billingUnit, dto.code, configuration);
     return this.createWithAudit('FEATURE_CREATED', 'Feature', actorId, () =>
@@ -544,6 +555,7 @@ export class PlatformCatalogService {
     const currentConfiguration = existing.configuration && typeof existing.configuration === 'object' && !Array.isArray(existing.configuration)
       ? existing.configuration as Record<string, unknown>
       : undefined;
+    validateFeatureConfiguration(configuration ?? currentConfiguration);
     const effectiveConfiguration = uploadFeatureConfiguration(dto.billingUnit, dto.code, configuration ?? currentConfiguration);
     return this.updateWithAudit('FEATURE_UPDATED', 'Feature', id, actorId, () =>
       this.prisma.feature.update({
@@ -804,9 +816,15 @@ export class PlatformCatalogService {
     dto: CreatePackageFeatureAssignmentDto,
     actorId: string,
   ) {
-    await this.exists('package', dto.packageId);
-    await this.exists('feature', dto.featureId);
-    const { packageId, featureId, ...feature } = dto;
+    const [pkg, featureRecord] = await Promise.all([
+      this.prisma.package.findUnique({ where: { id: dto.packageId }, select: { id: true, isActive: true } }),
+      this.prisma.feature.findUnique({ where: { id: dto.featureId }, select: { id: true, isActive: true } }),
+    ]);
+    if (!pkg) throw new NotFoundException('Package not found.');
+    if (!featureRecord) throw new NotFoundException('Feature not found.');
+    if (!pkg.isActive) throw new BadRequestException('Inactive Packages cannot receive Feature assignments.');
+    if (!featureRecord.isActive) throw new BadRequestException('Only active Features can be assigned to a Package.');
+    const { packageId, featureId, ...featureData } = dto;
     try {
       const created = await this.createWithAudit(
         'PACKAGE_FEATURE_CREATED',
@@ -814,7 +832,7 @@ export class PlatformCatalogService {
         actorId,
         () =>
           this.prisma.packageFeature.create({
-            data: { packageId, featureId, ...this.packageFeatureData(feature) },
+            data: { packageId, featureId, ...this.packageFeatureData(featureData) },
             include: { package: true, feature: true },
           }),
       );
@@ -1061,7 +1079,9 @@ export class PlatformCatalogService {
     feature: Omit<CreatePackageFeatureDto, 'featureId'> &
       Partial<Pick<CreatePackageFeatureDto, 'featureId'>>,
   ) {
-    const { configuration, ...data } = feature;
+    const { configuration, effectiveFrom, effectiveTo, ...data } = feature;
+    if (effectiveFrom && effectiveTo && new Date(effectiveTo) <= new Date(effectiveFrom))
+      throw new BadRequestException('Package Feature end date must be after its start date.');
     if (configuration && typeof configuration === 'object' && !Array.isArray(configuration) && 'loginAppCodes' in configuration) {
       const apps = (configuration as Record<string, unknown>).loginAppCodes;
       const supported = new Set(['RIDER_APP', 'CLIENT_PANEL', 'FLEET_MANAGER_APP', 'TEAM_LEADER_APP']);
@@ -1071,6 +1091,8 @@ export class PlatformCatalogService {
     }
     return {
       ...data,
+      effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : undefined,
+      effectiveTo: effectiveTo ? new Date(effectiveTo) : undefined,
       includedQuantity: feature.includedQuantity,
       configuration: configuration as Prisma.InputJsonValue | undefined,
     };

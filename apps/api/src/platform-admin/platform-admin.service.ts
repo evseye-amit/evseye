@@ -389,7 +389,8 @@ export class PlatformAdminService {
         orderBy: [{ displayOrder: 'asc' }, { feature: { name: 'asc' } }],
       }),
       this.prisma.clientFeature.findMany({
-        where: { clientId, subscriptionId: subscription.id, enabled: true },
+        where: { clientId, subscriptionId: subscription.id, enabled: true,
+          effectiveFrom: { lte: new Date() }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: new Date() } }] },
         include: {
           feature: {
             include: {
@@ -409,6 +410,20 @@ export class PlatformAdminService {
     ]);
 
     return { client, subscription, packageFeatures, clientFeatures };
+  }
+
+  async effectiveClientEntitlements(clientId: string) {
+    const data = await this.clientEntitlements(clientId);
+    if (!data.subscription) return { ...data, entitlements: [] };
+    const merged = new Map<string, any>();
+    for (const item of data.packageFeatures) {
+      merged.set(item.featureId, { ...item, source: 'PACKAGE', enabled: item.isIncluded !== false });
+    }
+    for (const item of data.clientFeatures) {
+      merged.set(item.featureId, { ...item, source: item.source ?? 'ADD_ON' });
+    }
+    const entitlements = [...merged.values()].filter((item) => item.enabled !== false && item.feature?.isActive !== false);
+    return { ...data, entitlements };
   }
 
   async listClientFeatureUsage(clientId: string) {
@@ -963,13 +978,32 @@ export class PlatformAdminService {
     ]);
     if (!packageRecord) throw new NotFoundException('Selected package is unavailable.');
     if (!operations?.numberOfFleets) throw new BadRequestException('Save Fleet Operations with at least one vehicle before selecting a package.');
+    const startDate = new Date(dto.startDate);
+    const endDate = dto.endDate ? new Date(dto.endDate) : null;
+    if (Number.isNaN(startDate.valueOf()) || (endDate && Number.isNaN(endDate.valueOf())))
+      throw new BadRequestException('Package dates are invalid.');
+    if (endDate && endDate <= startDate)
+      throw new BadRequestException('Package end date must be after the start date.');
+    if (dto.trialRequired && !(packageRecord.trialDays > 0))
+      throw new BadRequestException('The selected package does not support a trial.');
+    const activeSubscription = await this.prisma.clientSubscription?.findFirst?.({
+      where: { clientId, status: 'ACTIVE' }, select: { id: true, packageId: true, packageRevisionId: true,
+        vehicleCount: true, billingCycle: true, startDate: true, endDate: true, autoRenew: true },
+    });
+    if (activeSubscription && activeSubscription.packageId === dto.packageId &&
+      activeSubscription.vehicleCount === operations.numberOfFleets && activeSubscription.billingCycle === dto.billingCycle &&
+      activeSubscription.startDate.toISOString().slice(0, 10) === startDate.toISOString().slice(0, 10) &&
+      (activeSubscription.endDate?.toISOString().slice(0, 10) ?? null) === (endDate?.toISOString().slice(0, 10) ?? null) &&
+      activeSubscription.autoRenew === dto.autoRenew) {
+      return this.clientDetail(clientId);
+    }
     const subscription = await this.commercial!.createSubscription({
       clientId,
       packageCode: packageRecord.code,
       vehicleCount: operations.numberOfFleets,
       billingCycle: dto.billingCycle,
-      startDate: dto.startDate,
-      endDate: dto.endDate,
+      startDate: startDate.toISOString(),
+      endDate: endDate?.toISOString(),
     }, actorId);
     if (dto.autoRenew !== undefined && subscription.autoRenew !== dto.autoRenew) {
       await this.prisma.clientSubscription?.update({
@@ -1309,6 +1343,10 @@ export class PlatformAdminService {
       this.prisma.clientAgreement.update({
         where: { clientId },
         data: { approvedAt: new Date(), approvedById: actorId },
+      }),
+      this.prisma.clientSubscription.updateMany({
+        where: { clientId, status: 'PENDING' },
+        data: { status: 'ACTIVE' },
       }),
     ]);
     await this.audit.record({

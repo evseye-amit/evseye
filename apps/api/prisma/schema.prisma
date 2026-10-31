@@ -1197,6 +1197,8 @@ model PackageFeature {
   rolloverAllowed  Boolean              @default(false)
   configuration    Json?
   displayOrder     Int                  @default(0)
+  effectiveFrom    DateTime             @default(now()) @db.Date
+  effectiveTo      DateTime?            @db.Date
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
 

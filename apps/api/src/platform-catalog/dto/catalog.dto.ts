@@ -202,6 +202,8 @@ export class CreatePackageFeatureDto {
   @IsOptional() @IsBoolean() rolloverAllowed?: boolean;
   @IsOptional() @IsObject() configuration?: Record<string, unknown>;
   @IsOptional() @IsInt() @Min(0) displayOrder?: number;
+  @IsOptional() @IsDateString() effectiveFrom?: string;
+  @IsOptional() @IsDateString() effectiveTo?: string;
 }
 
 export class CreatePackageFeatureAssignmentDto extends CreatePackageFeatureDto {
@@ -216,6 +218,8 @@ export class UpdatePackageFeatureDto {
   @IsOptional() @IsBoolean() rolloverAllowed?: boolean;
   @IsOptional() @IsObject() configuration?: Record<string, unknown>;
   @IsOptional() @IsInt() @Min(0) displayOrder?: number;
+  @IsOptional() @IsDateString() effectiveFrom?: string;
+  @IsOptional() @IsDateString() effectiveTo?: string;
 }
 
 export class CreatePackageDto {
