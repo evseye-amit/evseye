@@ -21,6 +21,7 @@ import {
   IsLongitude,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
 } from 'class-validator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
