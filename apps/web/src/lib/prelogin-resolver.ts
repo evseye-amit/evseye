@@ -9,5 +9,5 @@ export function normalizePreLoginFailure(value: unknown): { code?: PreLoginError
 }
 
 export function isRetryablePreLoginFailure(code?: PreLoginErrorCode) {
-  return code === 'WORKSPACE_UNAVAILABLE' || code === 'WORKSPACE_CONFIGURATION_INVALID' || code === 'WORKSPACE_DOMAIN_UNVERIFIED';
+  return code === 'WORKSPACE_UNAVAILABLE';
 }
