@@ -1,4 +1,5 @@
-import { clientCatalog } from '../catalog/clients.mjs';
+import { UserRole } from '@prisma/client';
+import { clientCatalog } from './catalog/clients.mjs';
 import { clientManagerCatalog } from './client/yogmaya/client-managers.mjs';
 import { hubCatalog } from './client/yogmaya/hubs.mjs';
 import { fleets } from './client/yogmaya/fleets.mjs';
@@ -158,10 +159,10 @@ for (const clientSeed of clientCatalog) {
   }
 
   for (const { packageCode, startDate, endDate, ...subscriptionData } of clientSeed.subscriptions) {
-    const pkg = packageByCode.get(packageCode);
-    if (!pkg) {
-      throw new Error(`Client seed references a missing Package code: ${packageCode}`);
-    }
+    const pkg = await prisma.package.findUniqueOrThrow({
+      where: { code: packageCode },
+      select: { id: true },
+    });
     const subscriptionStartDate = new Date(startDate);
     const existingSubscription = await prisma.clientSubscription.findFirst({
       where: { clientId: client.id, packageId: pkg.id, startDate: subscriptionStartDate },
