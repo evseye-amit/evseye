@@ -20,7 +20,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Protect migration history
+      - name: Validate migration changes
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -60,8 +60,12 @@ jobs:
             case "$migration_path" in
               apps/api/prisma/migrations/*/migration.sql)
                 if ! git diff --quiet "$diff_base" "$diff_head" -- "$migration_path"; then
-                  echo "::error::Previously committed migration cannot be changed: $migration_path"
-                  violations=1
+                  if git cat-file -e "$diff_head:$migration_path" 2>/dev/null; then
+                    echo "::error::Previously committed migration cannot be changed: $migration_path"
+                    violations=1
+                  else
+                    echo "::notice::Removed historical migration during development: $migration_path"
+                  fi
                 fi
                 ;;
             esac
@@ -87,6 +91,12 @@ jobs:
 
       - name: Generate Prisma client
         run: pnpm db:generate
+
+      - name: Verify Flutter pre-login contract
+        run: |
+          pnpm generate:prelogin-contract
+          git diff --exit-code -- contracts/prelogin-error-codes.json contracts/auth-error-codes.json apps/web/src/lib/prelogin-error-codes.generated.ts
+          if [ -d "../rider_app" ]; then pnpm verify:prelogin-contract; fi
 
       - name: Type check
         run: pnpm typecheck

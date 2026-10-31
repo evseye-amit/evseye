@@ -1,14 +1,21 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const schema = readFileSync(
   new URL('../../prisma/schema.prisma', import.meta.url),
   'utf8',
 );
-const migration = [
-  '../../prisma/migrations/20261027000000_schema_baseline/migration.sql',
-  '../../prisma/migrations/20261027000100_non_schema_database_logic/migration.sql',
-].map((file) => readFileSync(new URL(file, import.meta.url), 'utf8')).join('\n');
+const migrationsDirectory = new URL('../../prisma/migrations/', import.meta.url);
+const migration = readdirSync(migrationsDirectory, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory())
+  .map((entry) =>
+    readFileSync(
+      join(migrationsDirectory.pathname, entry.name, 'migration.sql'),
+      'utf8',
+    ),
+  )
+  .join('\n');
 
 describe('attendance database contract', () => {
   it('declares the tenant snapshot, timestamps, and supporting indexes', () => {
@@ -18,7 +25,7 @@ describe('attendance database contract', () => {
     expect(schema).toContain('@@index([clientId, checkInAt])');
   });
 
-  it('enforces one open period and valid closed periods in the consolidated migrations', () => {
+  it('enforces one open period and valid closed periods in the migrations', () => {
     expect(migration).toContain(
       'CREATE UNIQUE INDEX "AttendancePeriod_userId_open_key"',
     );

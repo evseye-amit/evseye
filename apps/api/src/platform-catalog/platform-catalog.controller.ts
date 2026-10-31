@@ -1,15 +1,17 @@
 import {
   Body,
+  BadRequestException,
   Controller,
   Delete,
   Get,
+  Header,
   Param,
   Post,
   Query,
   Put,
   UseGuards,
 } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+import { ImportEntityType, UserRole } from '@prisma/client';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
@@ -51,6 +53,25 @@ import { CatalogRevisionService } from './catalog-revision.service.js';
 @Roles(UserRole.SUPER_ADMIN)
 export class PlatformCatalogController {
   constructor(private readonly catalog: PlatformCatalogService, private readonly revisions: CatalogRevisionService) {}
+  @Get(':entity/imports/:id/failed-records')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  async failedImportRecords(@Param('entity') entity: string, @Param('id') id: string) {
+    const map: Record<string, ImportEntityType> = { oems: ImportEntityType.OEM, 'vehicle-categories': ImportEntityType.VEHICLE_CATEGORY, 'vehicle-types': ImportEntityType.VEHICLE_TYPE, features: ImportEntityType.FEATURE, packages: ImportEntityType.PACKAGE };
+    const value = map[entity];
+    if (!value) return '';
+    const rows = await this.catalog.platformImportFailures(id, value);
+    if (!rows.length) return '';
+    const headers = Object.keys((rows[0].raw ?? {}) as Record<string, unknown>);
+    const cell = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+    return [headers.join(','), ...rows.map((row) => headers.map((header) => cell(((row.raw ?? {}) as Record<string, unknown>)[header])).join(','))].join('\n');
+  }
+  @Post(':entity/imports/:id/retry')
+  async retryImport(@Param('entity') entity: string, @Param('id') id: string, @Body() body: { rows: Array<Record<string, unknown>> }, @CurrentUser() user: AuthUser) {
+    const map: Record<string, ImportEntityType> = { oems: ImportEntityType.OEM, 'vehicle-categories': ImportEntityType.VEHICLE_CATEGORY, 'vehicle-types': ImportEntityType.VEHICLE_TYPE, features: ImportEntityType.FEATURE, packages: ImportEntityType.PACKAGE };
+    const entityType = map[entity];
+    if (!entityType || !Array.isArray(body.rows)) throw new BadRequestException('Valid import entity and rows are required.');
+    return { data: await this.catalog.retryPlatformImport(id, entityType, user.id, body.rows) };
+  }
   @Get('features/:id/revisions') featureRevisions(@Param('id') id: string) {
     return this.revisions.featureRevisions(id).then((data) => ({ data }));
   }

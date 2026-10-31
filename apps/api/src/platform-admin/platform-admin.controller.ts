@@ -82,6 +82,11 @@ export class PlatformAdminController {
       .clientEntitlements(clientId)
       .then((data) => ({ data }));
   }
+  @Get('clients/:clientId/effective-entitlements') effectiveClientEntitlements(
+    @Param('clientId') clientId: string,
+  ) {
+    return this.platform.effectiveClientEntitlements(clientId).then((data) => ({ data }));
+  }
   @Get('clients/:clientId/features') clientFeatures(
     @Param('clientId') clientId: string,
   ) {

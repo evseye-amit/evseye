@@ -35,6 +35,8 @@ type RiderField = {
 
 type RiderOnboardingConfiguration = {
   package: { id: string; code: string; name: string };
+  effectivePackageRevision?: { id: string; version: number; contentHash: string; effectiveAt: Date | null };
+  pendingPackageRevision?: { id: string; version: number; contentHash: string; publishedAt: Date } | null;
   onboarding: {
     category: FeatureCategory;
     steps: Array<{
@@ -76,6 +78,8 @@ export class RiderOnboardingConfigurationService {
   toPublicConfiguration(effective: RiderOnboardingConfiguration, locale: ApiLocale = 'en') {
     return {
       package: effective.package,
+      effectivePackageRevision: effective.effectivePackageRevision,
+      pendingPackageRevision: effective.pendingPackageRevision,
       onboarding: {
         category: effective.onboarding.category,
         steps: effective.onboarding.steps.map((step) => ({

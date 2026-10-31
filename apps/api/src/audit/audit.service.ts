@@ -19,6 +19,7 @@ export class AuditService {
     }
     const where: Prisma.AuditLogWhereInput = {
       clientId,
+      ...(query.actorId ? { actorId: query.actorId } : {}),
       ...(query.action
         ? { action: { contains: query.action, mode: 'insensitive' } }
         : {}),

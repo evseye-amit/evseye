@@ -389,7 +389,7 @@ export class MobileDeploymentService {
         where: { clientId_id: { clientId, id: clientWorkPartnerId } },
       });
       if (!partner || partner.clientId !== clientId) throw new NotFoundException('Work partner not found.');
-      if (partner.status !== 'ACTIVE') throw new ConflictException('Select an active work partner.');
+      if (partner.status !== 'ACTIVE') throw new ConflictException({ code: 'WORK_PARTNER_INACTIVE', message: 'Select an active work partner.' });
       return { id: partner.id, name: partner.name.trim() };
     }
 
@@ -401,7 +401,7 @@ export class MobileDeploymentService {
 
     const matches = partners.filter((partner) => partner.name.trim().toLowerCase() === name.toLowerCase());
     if (matches.length !== 1) throw new ConflictException('Work Partner name must match exactly one client work partner.');
-    if (matches[0].status !== 'ACTIVE') throw new ConflictException('Select an active work partner.');
+    if (matches[0].status !== 'ACTIVE') throw new ConflictException({ code: 'WORK_PARTNER_INACTIVE', message: 'Select an active work partner.' });
     return { id: matches[0].id, name: matches[0].name.trim() };
   }
   async createPdiVoiceUploadIntent(clientId: string, userId: string, allocationId: string, input: { itemCode: string; mimeType: 'audio/mpeg' | 'audio/mp4' | 'audio/wav' | 'audio/ogg'; fileName: string; sizeBytes: number }) {

@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Header, Query, UseGuards } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
@@ -25,5 +25,13 @@ export class AuditController {
         query,
       ),
     };
+  }
+  @Get('export')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  async export(@CurrentUser() u: AuthUser, @Query() query: ListAuditDto) {
+    const result = await this.audit.list(this.clients.requireClientId(u), 1, 100, query);
+    const headers = ['createdAt', 'actorId', 'action', 'entityType', 'entityId', 'requestId'];
+    const cell = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+    return [headers.join(','), ...result.items.map((item) => headers.map((header) => cell((item as Record<string, unknown>)[header])).join(','))].join('\n');
   }
 }

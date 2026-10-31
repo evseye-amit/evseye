@@ -544,6 +544,7 @@ export class SparesService {
     const [rows, total] = await Promise.all([
       this.db.returnPenaltyPrice.findMany({
         where,
+        include: { masterSpare: true },
         orderBy: [{ code: 'asc' }, { id: 'asc' }],
         skip: (q.page - 1) * q.limit,
         take: q.limit,

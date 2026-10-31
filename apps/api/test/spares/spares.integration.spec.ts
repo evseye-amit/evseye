@@ -167,6 +167,13 @@ describe.skipIf(!url)('Spares catalogue in PostgreSQL', () => {
       gstPercent: '12',
       isActive: false,
     });
+    const catalogue = await service.catalogue(f.client.id, f.actor, { page: 1, limit: 100 });
+    const propagated = catalogue.data.find((item) => item.id === copy.id)!;
+    expect(propagated.origin).toBe('MASTER');
+    expect(propagated.version).toBe(2);
+    expect(propagated.masterUpdateAvailable).toBe(true);
+    expect(propagated.masterInactive).toBe(true);
+    expect(propagated.allowedFindingTypes).toEqual(['DAMAGE', 'MISSING_ITEM']);
     const preview = (await service.preview(f.client.id, f.actor)).find(
       (p) => p.priceId === copy.id,
     )!;

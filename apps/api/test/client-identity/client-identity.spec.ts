@@ -194,6 +194,10 @@ describe('Client authorization and branding', () => {
       ForbiddenException,
     );
   });
+  it('rejects an access token when the hostname belongs to another client', async () => {
+    const { guard, context } = guardSetup('bluemobility.evseye.com');
+    await expect(guard.canActivate(context as never)).rejects.toBeInstanceOf(ForbiddenException);
+  });
   it('supports existing generic app login', async () => {
     const { guard, context } = guardSetup('app.evseye.com');
     expect(await guard.canActivate(context as never)).toBe(true);

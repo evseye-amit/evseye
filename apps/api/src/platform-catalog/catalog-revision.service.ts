@@ -60,7 +60,7 @@ export class CatalogRevisionService {
 
   async draftPackage(packageId: string) {
     const pkg = await this.prisma.package.findUnique({
-      where: { id: packageId }, include: { features: { where: { isIncluded: true }, include: { feature: true } } },
+      where: { id: packageId }, include: { features: { where: { isIncluded: true, effectiveFrom: { lte: new Date() }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: new Date() } }] }, include: { feature: true } } },
     });
     if (!pkg) throw new NotFoundException('Package not found.');
     const features = [];
@@ -80,11 +80,17 @@ export class CatalogRevisionService {
       });
     }
     features.sort((a, b) => a.displayOrder - b.displayOrder || a.featureId.localeCompare(b.featureId));
+    const steps = features.map((item) => (item.feature as any)?.step).filter(Boolean)
+      .reduce((all: any[], step: any) => all.some((existing) => existing.id === step.id) ? all : [...all, step], [])
+      .sort((a: any, b: any) => Number(a.order ?? 0) - Number(b.order ?? 0));
     const snapshot = {
       id: pkg.id, code: pkg.code, name: pkg.name, description: pkg.description,
+      setupFee: pkg.setupFee.toString(), currency: pkg.currency, trialDays: pkg.trialDays,
+      isCustom: pkg.isCustom, isActive: pkg.isActive, displayOrder: pkg.displayOrder,
       limits: { maxFleets: pkg.maxFleets, maxRiders: pkg.maxRiders, maxAdmins: pkg.maxAdmins,
         maxFleetManagers: pkg.maxFleetManagers, maxHubs: pkg.maxHubs, maxTeamLeaders: pkg.maxTeamLeaders,
         maxClusterManagers: pkg.maxClusterManagers, maxUsers: pkg.maxUsers },
+      steps,
       features,
     };
     const latest = await this.prisma.packageRevision.findFirst({

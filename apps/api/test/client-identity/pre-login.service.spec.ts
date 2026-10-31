@@ -62,8 +62,28 @@ describe('PreLoginService conditional screens', () => {
   });
   it('rejects a different role or host client', async () => {
     const { service } = fixture();
-    await expect(service.publicBootstrap('yogmaya', 'RIDER', UserRole.FLEET_MANAGER)).rejects.toThrow('Application role');
+    await expect(service.publicBootstrap('yogmaya', 'RIDER', UserRole.FLEET_MANAGER)).rejects.toMatchObject({
+      response: { code: 'UNSUPPORTED_APP_ROLE' },
+    });
     await expect(service.publicBootstrap('yogmaya', 'RIDER', UserRole.RIDER, 'other')).rejects.toThrow('Workspace unavailable');
+  });
+  it('returns a distinct error for an unknown company code', async () => {
+    const { service, prisma } = fixture();
+    prisma.client.findFirst.mockResolvedValue(null);
+    await expect(service.publicBootstrap('missing', 'RIDER', UserRole.RIDER)).rejects.toMatchObject({
+      response: { code: 'WORKSPACE_NOT_FOUND' },
+    });
+  });
+  it.each([
+    ['INACTIVE', { isActive: false, status: 'ACTIVE' }],
+    ['PENDING_APPROVAL', { isActive: true, status: 'PENDING_APPROVAL' }],
+    ['SUSPENDED', { isActive: true, status: 'SUSPENDED' }],
+  ] as const)('maps %s workspace state', async (_label, state) => {
+    const { service, prisma } = fixture();
+    prisma.client.findFirst.mockResolvedValue({ id: 'client-1', name: 'Yogmaya', companyCode: 'yogmaya', slug: 'yogmaya', requestedLocales: ['en'], ...state });
+    await expect(service.publicBootstrap('yogmaya', 'RIDER', UserRole.RIDER)).rejects.toMatchObject({
+      response: { code: expect.stringMatching(/^WORKSPACE_/) },
+    });
   });
   it.each([
     ['TEAM_LEADER', UserRole.TEAM_LEAD],

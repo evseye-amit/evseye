@@ -21,6 +21,7 @@ import {
   IsLongitude,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
 } from 'class-validator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
@@ -113,6 +114,8 @@ class UpdateDeviceDto {
 class BulkDevicesDto {
   @IsString() @MaxLength(255) filename!: string;
   @IsArray() rows!: Array<Record<string, unknown>>;
+  @IsOptional() @IsUUID() parentJobId?: string;
+  @IsOptional() @IsString() @MaxLength(100) sheet?: string;
 }
 
 class IngestTelemetryDto {
@@ -182,7 +185,7 @@ export class IotController {
     @CurrentUser() user: AuthUser,
     @Body() dto: BulkDevicesDto,
   ) {
-    return { data: await this.iot.bulkRegisterDevices(this.clients.requireClientId(user), user.id, dto.filename, dto.rows) };
+    return { data: await this.iot.bulkRegisterDevices(this.clients.requireClientId(user), user.id, dto.filename, dto.rows, { parentJobId: dto.parentJobId, sheet: dto.sheet }) };
   }
 
   @Get('devices/imports/:id/failed-records')
@@ -192,7 +195,11 @@ export class IotController {
     if (!rows.length) return '';
     const headers = Object.keys(rows[0]);
     const cell = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
-    return [headers.join(','), ...rows.map((row) => headers.map((header) => cell(row[header])).join(','))].join('\n');
+    return [headers.join(','), ...rows.map((row) => headers.map((header) => cell((row.raw ?? row as unknown as Record<string, unknown>)[header])).join(','))].join('\n');
+  }
+  @Roles(UserRole.CLIENT_ADMIN)
+  @Post('devices/imports/:id/retry') async retryImport(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { rows: Array<Record<string, unknown>> }) {
+    return { data: await this.iot.retryImport(this.clients.requireClientId(user), user.id, id, dto.rows, user.roles[0] as UserRole) };
   }
 
   @Patch('devices/:id')

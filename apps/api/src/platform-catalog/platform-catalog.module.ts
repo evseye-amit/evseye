@@ -2,12 +2,13 @@ import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { MediaModule } from '../media/media.module.js';
+import { ImportsModule } from '../imports/imports.module.js';
 import { PlatformCatalogController } from './platform-catalog.controller.js';
 import { PlatformCatalogService } from './platform-catalog.service.js';
 import { CatalogRevisionService } from './catalog-revision.service.js';
 
 @Module({
-  imports: [AuthModule, AuditModule, MediaModule],
+  imports: [AuthModule, AuditModule, MediaModule, ImportsModule],
   controllers: [PlatformCatalogController],
   providers: [PlatformCatalogService, CatalogRevisionService],
 })

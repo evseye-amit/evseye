@@ -33,6 +33,7 @@ import { ClientCommercialSettings, type ClientCommercialSection } from "../../co
 import { ClientWorkflowSettings } from "../../components/client-workflow-settings";
 import { ClientDomainSettings } from "../../components/client-domain-settings";
 import { ClientLogoUpload } from "../../components/client-logo-upload";
+import { SmsDeliveryPanel } from "../../components/sms-delivery-panel";
 import { WorkPartnerManager } from "../../components/work-partner-manager";
 import { LanguageSwitcher, useLocale } from "../../components/locale-provider";
 import { UiIcon, type IconName } from "../../components/ui-icon";
@@ -62,7 +63,8 @@ type Tab =
   | "clientAddOnPurchases"
   | "clientQuotaPacks"
   | "clientCreditLots"
-  | "clientUsageLedger";
+  | "clientUsageLedger"
+  | "smsDeliveries";
 type Item = Record<string, any>;
 
 function orderFeatureSteps(steps: Item[]): Item[] {
@@ -108,6 +110,9 @@ type BulkImportHistoryEntry = {
   passedRows: number;
   failedRows: number;
   createdAt: string;
+  jobId?: string;
+  failures?: Array<{ row: number; message: string; fields: string[]; raw?: Record<string, unknown> }>;
+  rows?: Array<Record<string, unknown>>;
   error?: string;
 };
 type DeleteConfirmation = {
@@ -1040,7 +1045,7 @@ export default function SuperAdminDashboard() {
     entity: BulkImportEntity,
     fileName: string,
     totalRows: number,
-    result: { created?: number; failedRows?: number; status?: string } = {},
+    result: { created?: number; failedRows?: number; status?: string; jobId?: string; failures?: BulkImportHistoryEntry["failures"] } = {},
     error?: string,
   ) {
     const passedRows = result.created ?? 0;
@@ -1059,6 +1064,8 @@ export default function SuperAdminDashboard() {
       passedRows,
       failedRows,
       createdAt: new Date().toISOString(),
+      ...(result.jobId ? { jobId: result.jobId } : {}),
+      ...(result.failures ? { failures: result.failures } : {}),
       ...(error ? { error } : {}),
     };
     setBulkImportHistory((current) => {
@@ -1109,9 +1116,9 @@ export default function SuperAdminDashboard() {
         "/platform/oems/bulk",
         { method: "POST", body: JSON.stringify({ rows }) },
         token,
-      )) as { created: number };
+      )) as { created?: number; passedRows?: number; failedRows?: number; status?: string; jobId?: string; failures?: BulkImportHistoryEntry["failures"] };
       setNotice(
-        `${result.created} OEM${result.created === 1 ? "" : "s"} imported successfully.`,
+        `${result.created ?? result.passedRows ?? 0} OEM${(result.created ?? result.passedRows ?? 0) === 1 ? "" : "s"} processed successfully.`,
       );
       recordBulkImport("oem", file.name, rows.length, result);
       setBulkImportEntity(null);
@@ -1167,9 +1174,9 @@ export default function SuperAdminDashboard() {
         endpoint,
         { method: "POST", body: JSON.stringify({ rows }) },
         token,
-      )) as { created: number };
+      )) as { created?: number; passedRows?: number; failedRows?: number; status?: string; jobId?: string; failures?: BulkImportHistoryEntry["failures"] };
       setNotice(
-        `${result.created} ${label}${result.created === 1 ? "" : "s"} imported successfully.`,
+        `${result.created ?? result.passedRows ?? 0} ${label}${(result.created ?? result.passedRows ?? 0) === 1 ? "" : "s"} processed successfully.`,
       );
       recordBulkImport(entity, file.name, rows.length, result);
       complete();
@@ -1184,6 +1191,18 @@ export default function SuperAdminDashboard() {
     } finally {
       setLoading(false);
     }
+  }
+  async function retryPlatformImport(entry: BulkImportHistoryEntry, rows: Array<Record<string, unknown>>) {
+    if (!entry.jobId) return;
+    const endpoint = { oem: "oems", "vehicle-category": "vehicle-categories", "vehicle-type": "vehicle-types", feature: "features", package: "packages" }[entry.entity];
+    setLoading(true); setError("");
+    try {
+      const result = await request(`/platform/${endpoint}/imports/${entry.jobId}/retry`, { method: "POST", body: JSON.stringify({ rows }) }, token) as { jobId?: string; passedRows?: number; failedRows?: number; status?: string; failures?: BulkImportHistoryEntry["failures"] };
+      recordBulkImport(entry.entity, `${entry.fileName} (retry)`, rows.length, { ...result, created: result.passedRows });
+      setNotice("Corrected rows re-submitted successfully.");
+      await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to retry failed rows."); }
+    finally { setLoading(false); }
   }
   function downloadVehicleCategoryTemplate() {
     downloadCsvTemplate(
@@ -1450,9 +1469,9 @@ export default function SuperAdminDashboard() {
         "/platform/features/bulk",
         { method: "POST", body: JSON.stringify({ rows }) },
         token,
-      )) as { created: number };
+      )) as { created?: number; passedRows?: number; failedRows?: number; status?: string; jobId?: string; failures?: BulkImportHistoryEntry["failures"] };
       setNotice(
-        `${result.created} feature${result.created === 1 ? "" : "s"} imported successfully.`,
+        `${result.created ?? result.passedRows ?? 0} feature${(result.created ?? result.passedRows ?? 0) === 1 ? "" : "s"} processed successfully.`,
       );
       recordBulkImport("feature", file.name, rows.length, result);
       setBulkImportEntity(null);
@@ -2142,7 +2161,7 @@ export default function SuperAdminDashboard() {
         ["clientUsageLedger", "Feature Usage Ledger", "dashboard"],
       ],
     },
-    { items: [["legalDocuments", "Legal Documents", "audit"]] },
+    { items: [["legalDocuments", "Legal Documents", "audit"], ["smsDeliveries", "SMS Delivery", "notification"]] },
   ];
   const pageSubtitles: Partial<Record<Tab, string>> = {
     spares: "Manage the spare catalogue copied to clients for their penalty configuration.",
@@ -2158,6 +2177,7 @@ export default function SuperAdminDashboard() {
     packages: "Create packages and define the commercial limits available to clients.",
     packageFeatures: "Choose the features included with each platform package.",
     packageTierPricing: "Set the per-vehicle recurring price for each fleet-size range.",
+    smsDeliveries: "Review OTP delivery outcomes, provider attempts, and failover errors.",
     clients: "Manage onboarding drafts, approvals, subscriptions, and documents.",
     workPartners: "Manage the shared work partner catalog.",
     clientPricingAdjustments: "Apply negotiated commercial terms without changing master pricing.",
@@ -2421,6 +2441,7 @@ export default function SuperAdminDashboard() {
             }}
             onDownloadTemplate={bulkImportConfig.downloadTemplate}
             onUpload={(file) => void bulkImportConfig.upload(file)}
+            onRetry={retryPlatformImport}
           />
         ) : (
           <>
@@ -2465,6 +2486,7 @@ export default function SuperAdminDashboard() {
               />
             )}
             {tab === "workPartners" && <WorkPartnerManager refreshKey={refreshKey} mode="platform" request={request} token={token} />}
+            {tab === "smsDeliveries" && <SmsDeliveryPanel token={token} />}
             {tab === "clientPricingAdjustments" && (
               <ClientCommercialDirectory clients={clients} section="pricing" />
             )}
@@ -5621,6 +5643,7 @@ function BulkImportWorkspace({
   onBack,
   onDownloadTemplate,
   onUpload,
+  onRetry,
 }: {
   entity: BulkImportEntity;
   title: string;
@@ -5630,15 +5653,25 @@ function BulkImportWorkspace({
   onBack: () => void;
   onDownloadTemplate: () => void;
   onUpload: (file: File) => void;
+  onRetry?: (entry: BulkImportHistoryEntry, rows: Array<Record<string, unknown>>) => Promise<void>;
 }) {
   const [file, setFile] = useState<File | null>(null);
-  const downloadFailureReport = (entry: BulkImportHistoryEntry) => {
-    const csv = [
-      "file_name,outcome,failure_reason",
-      [entry.fileName, entry.status, entry.error ?? "Row-level validation failed."]
-        .map((value) => `"${value.replaceAll('"', '""')}"`)
-        .join(","),
-    ].join("\n");
+  const [editing, setEditing] = useState<string | null>(null);
+  const [retryRows, setRetryRows] = useState<Array<Record<string, unknown>>>([]);
+  const downloadFailureReport = async (entry: BulkImportHistoryEntry) => {
+    if (entry.jobId) {
+      const entityPath = { oem: "oems", "vehicle-category": "vehicle-categories", "vehicle-type": "vehicle-types", feature: "features", package: "packages" }[entity];
+      const response = await fetch(`${API_URL}/platform/${entityPath}/imports/${entry.jobId}/failed-records`);
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a"); link.href = url; link.download = `${entity}-failed-records.csv`; link.click(); URL.revokeObjectURL(url); return;
+      }
+    }
+    const failures = entry.failures ?? [];
+    const csv = failures.length
+      ? Object.keys(failures[0].raw ?? {}).join(",") + "\n" + failures.map((failure) => Object.keys(failure.raw ?? {}).map((key) => `"${String(failure.raw?.[key] ?? "").replaceAll('"', '""')}"`).join(",")).join("\n")
+      : `file_name,outcome,failure_reason\n"${entry.fileName}","${entry.status}","${entry.error ?? "Row-level validation failed."}"`;
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     const link = document.createElement("a");
     link.href = url;
@@ -5709,12 +5742,11 @@ function BulkImportWorkspace({
               </span>,
               `${entry.passedRows} / ${entry.totalRows}`,
               entry.status !== "PASS" ? (
-                <button key="failures" type="button" className="secondary" onClick={() => downloadFailureReport(entry)}>
-                  Download failures
-                </button>
+                <span key="failures"><button type="button" className="secondary" onClick={() => void downloadFailureReport(entry)}>Download failures</button>{onRetry && entry.jobId && entry.failures?.length ? <button type="button" className="secondary" onClick={() => { setEditing(entry.id); setRetryRows(entry.failures?.map((failure) => ({ ...(failure.raw ?? {}) })) ?? []); }}>Edit & retry</button> : null}</span>
               ) : "—",
             ])}
           />
+          {editing && onRetry ? <section className="sa-bulk-upload-card"><h3>Correct failed rows</h3>{history.find((item) => item.id === editing)?.failures?.map((failure, index) => <p key={`failure-${index}`} className="error">Row {failure.row}: {failure.message}{failure.fields.length ? ` (${failure.fields.join(", ")})` : ""}</p>)}{retryRows.map((row, index) => <input key={index} value={String(row.name ?? row.code ?? "")} onChange={(event) => setRetryRows((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item))} aria-label={`Corrected row ${index + 1}`} />)}<div className="sa-bulk-upload-actions"><button className="secondary" type="button" onClick={() => setEditing(null)}>Cancel</button><button type="button" onClick={async () => { const entry = history.find((item) => item.id === editing); if (entry) await onRetry(entry, retryRows); setEditing(null); }}>Retry corrected rows</button></div></section> : null}
         </section>
       </div>
     </section>

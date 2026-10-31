@@ -11,11 +11,13 @@ import {
   ImportStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { normalizeImportFailures } from '../imports/import-failure.js';
 import type { CreateHubDto } from './dto/create-hub.dto.js';
+import { ImportAuthorizationService } from '../imports/import-authorization.service.js';
 
 @Injectable()
 export class LocationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly imports: ImportAuthorizationService) {}
   listHubs(clientId: string) {
     return this.prisma.hub.findMany({
       where: { clientId, deletedAt: null },
@@ -162,15 +164,19 @@ export class LocationsService {
       passedRows: created,
       failedRows: failures.length,
       createdRows: created,
-      failures,
+      failures: failures.map(({ row_number, failure_reason, failure_fields }) => ({ row: row_number, message: failure_reason, fields: failure_fields })),
     };
+  }
+  async retryImport(clientId: string, actorId: string, jobId: string, rows: CreateHubDto[], role: import('@prisma/client').UserRole) {
+    const job = await this.imports.authorizeJob({ jobId, clientId, entityType: ImportEntityType.HUB, role });
+    return this.bulkCreateHubs(clientId, actorId, job.originalFilename, rows);
   }
   async failedRows(clientId: string, jobId: string) {
     const job = await this.prisma.importJob.findFirst({
       where: { id: jobId, clientId, entityType: ImportEntityType.HUB },
     });
     if (!job) throw new NotFoundException('Import job not found.');
-    return (job.metadata as { failures?: unknown[] } | null)?.failures ?? [];
+    return normalizeImportFailures((job.metadata as { failures?: unknown[] } | null)?.failures);
   }
   private async assertParent(clientId: string, parentHubId?: string) {
     if (!parentHubId) return;
