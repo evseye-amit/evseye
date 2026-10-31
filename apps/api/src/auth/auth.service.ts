@@ -160,7 +160,7 @@ export class AuthService {
       };
     }
 
-    const code = this.otpSecurity.generateCode();
+    const code = this.otpSecurity.generateLoginCode(user.role);
     const expiresAt = this.otpSecurity.expiresAt();
     const otpRequest = await this.prisma.otpRequest.create({
       data: {

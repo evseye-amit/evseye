@@ -7786,3 +7786,76 @@ ALTER TABLE "RazorpayPenaltyCapture" ADD CONSTRAINT "RazorpayPenaltyCapture_orde
 
 -- AddForeignKey
 ALTER TABLE "RazorpayAutoPayCapture" ADD CONSTRAINT "RazorpayAutoPayCapture_transactionId_fkey" FOREIGN KEY ("transactionId") REFERENCES "PaymentTransaction"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+
+-- Consolidated schema migration: 20261031000200_client_onboarding_rejections
+CREATE TABLE "ClientOnboardingRejection" (
+  "id" TEXT NOT NULL,
+  "clientId" TEXT NOT NULL,
+  "submissionId" TEXT,
+  "section" VARCHAR(60) NOT NULL,
+  "reasonCode" VARCHAR(80) NOT NULL,
+  "reason" VARCHAR(500) NOT NULL,
+  "blocking" BOOLEAN NOT NULL DEFAULT true,
+  "resolvedAt" TIMESTAMP(3),
+  "resolvedById" TEXT,
+  "createdById" TEXT,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL,
+  CONSTRAINT "ClientOnboardingRejection_pkey" PRIMARY KEY ("id")
+);
+CREATE INDEX "ClientOnboardingRejection_clientId_resolvedAt_blocking_idx" ON "ClientOnboardingRejection"("clientId", "resolvedAt", "blocking");
+CREATE INDEX "ClientOnboardingRejection_clientId_createdAt_idx" ON "ClientOnboardingRejection"("clientId", "createdAt");
+ALTER TABLE "ClientOnboardingRejection" ADD CONSTRAINT "ClientOnboardingRejection_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+
+-- Consolidated schema migration: 20261031000500_sms_delivery_tracking
+CREATE TABLE "SmsDelivery" (
+  "id" TEXT NOT NULL,
+  "otpRequestId" TEXT NOT NULL,
+  "provider" TEXT NOT NULL,
+  "status" TEXT NOT NULL,
+  "attempt" INTEGER NOT NULL DEFAULT 1,
+  "errorCode" TEXT,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "completedAt" TIMESTAMP(3),
+  CONSTRAINT "SmsDelivery_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "SmsDelivery_otpRequestId_fkey" FOREIGN KEY ("otpRequestId") REFERENCES "OtpRequest"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX "SmsDelivery_otpRequestId_createdAt_idx" ON "SmsDelivery"("otpRequestId", "createdAt");
+CREATE INDEX "SmsDelivery_provider_status_createdAt_idx" ON "SmsDelivery"("provider", "status", "createdAt");
+
+
+-- Consolidated schema migration: 20261101000100_sms_provider_policy
+CREATE TABLE "SmsProviderPolicy" (
+  "id" TEXT NOT NULL DEFAULT 'default',
+  "primaryProvider" TEXT NOT NULL,
+  "fallbackProvider" TEXT,
+  "maxAttempts" INTEGER NOT NULL DEFAULT 2,
+  "updatedAt" TIMESTAMP(3) NOT NULL,
+  "updatedById" TEXT,
+  CONSTRAINT "SmsProviderPolicy_pkey" PRIMARY KEY ("id")
+);
+
+
+-- Consolidated schema migration: 20261101000200_import_parent_jobs
+ALTER TABLE "ImportJob" ADD COLUMN "parentJobId" TEXT;
+CREATE INDEX "ImportJob_parentJobId_idx" ON "ImportJob"("parentJobId");
+ALTER TABLE "ImportJob" ADD CONSTRAINT "ImportJob_parentJobId_fkey" FOREIGN KEY ("parentJobId") REFERENCES "ImportJob"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+
+-- Consolidated schema migration: 20261101000300_platform_import_scope
+-- Enable platform-scoped master-data import jobs.
+ALTER TYPE "ImportEntityType" ADD VALUE IF NOT EXISTS 'OEM';
+ALTER TYPE "ImportEntityType" ADD VALUE IF NOT EXISTS 'VEHICLE_CATEGORY';
+ALTER TYPE "ImportEntityType" ADD VALUE IF NOT EXISTS 'VEHICLE_TYPE';
+ALTER TYPE "ImportEntityType" ADD VALUE IF NOT EXISTS 'FEATURE';
+ALTER TYPE "ImportEntityType" ADD VALUE IF NOT EXISTS 'PACKAGE';
+
+CREATE TYPE "ImportScope" AS ENUM ('CLIENT', 'PLATFORM');
+
+ALTER TABLE "ImportJob" ALTER COLUMN "clientId" DROP NOT NULL;
+ALTER TABLE "ImportJob" ADD COLUMN "scope" "ImportScope" NOT NULL DEFAULT 'CLIENT';
+
+CREATE INDEX "ImportJob_scope_entityType_createdAt_idx"
+  ON "ImportJob"("scope", "entityType", "createdAt");
