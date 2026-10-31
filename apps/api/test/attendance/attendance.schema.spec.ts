@@ -6,8 +6,8 @@ const schema = readFileSync(
   'utf8',
 );
 const migration = [
-  '../../prisma/migrations/20261027000000_schema_baseline/migration.sql',
-  '../../prisma/migrations/20261027000100_non_schema_database_logic/migration.sql',
+  '../../prisma/migrations/20261101000400_schema_consolidated/migration.sql',
+  '../../prisma/migrations/20261101000500_non_schema_consolidated/migration.sql',
 ].map((file) => readFileSync(new URL(file, import.meta.url), 'utf8')).join('\n');
 
 describe('attendance database contract', () => {

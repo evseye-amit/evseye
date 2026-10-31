@@ -68,9 +68,12 @@ const identityKey = (value: LegalWhere) => [
 ].join('|');
 
 test('canonical seed retains templates and client-specific consent acceptance', async () => {
-  const source = await readFile(new URL('../../prisma/seed.mjs', import.meta.url), 'utf8');
-  expect(source).toContain("import { seedLegalTemplates } from './catalog/legal-templates.mjs';");
-  expect(source).toContain("import { seedLegal } from './client/yogmaya/yogmaya-legal-documents.mjs';");
+  const [masterDataSeed, yogmayaSeed] = await Promise.all([
+    readFile(new URL('../../prisma/seed-master-data.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../../prisma/seed-yogmaya.mjs', import.meta.url), 'utf8'),
+  ]);
+  expect(masterDataSeed).toContain("import { seedLegalTemplates } from './catalog/legal-templates.mjs';");
+  expect(yogmayaSeed).toContain("import { seedLegal } from './client/yogmaya/yogmaya-legal-documents.mjs';");
   expect(legalDocumentCatalog).toHaveLength(65);
   expect(legalDocumentCatalog.every((document) => document.version === '1.0.0')).toBe(true);
   const consents = legalDocumentCatalog.filter((document) => document.kind === 'PRIVACY_CONSENT');

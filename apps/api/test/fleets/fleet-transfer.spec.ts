@@ -7,7 +7,7 @@ describe('fleet hub transfers', () => {
   it('binds both readiness receipt exceptions to the current transaction', () => {
     const migration = readFileSync(
       new URL(
-        '../../prisma/migrations/20261027000100_non_schema_database_logic/migration.sql',
+        '../../prisma/migrations/20261101000500_non_schema_consolidated/migration.sql',
         import.meta.url,
       ),
       'utf8',
