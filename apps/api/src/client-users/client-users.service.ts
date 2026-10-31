@@ -23,7 +23,7 @@ import type {
 
 @Injectable()
 export class ClientUsersService {
-  constructor(private readonly prisma: PrismaService, private readonly imports: ImportAuthorizationService) {}
+  constructor(private readonly prisma: PrismaService, private readonly imports?: ImportAuthorizationService) {}
   listImportHistory(clientId: string, entityType: ImportEntityType) {
     return this.prisma.importJob.findMany({
       where: { clientId, entityType },
@@ -424,11 +424,11 @@ export class ClientUsersService {
     };
   }
   async retryTeamLeaderImport(clientId: string, actorId: string, jobId: string, rows: CreateTeamLeaderDto[], role: import('@prisma/client').UserRole) {
-    const job = await this.imports.authorizeJob({ jobId, clientId, entityType: ImportEntityType.TEAM_LEADER, role });
+    const job = await this.imports!.authorizeJob({ jobId, clientId, entityType: ImportEntityType.TEAM_LEADER, role });
     return this.bulkCreateTeamLeaders(clientId, actorId, job.originalFilename, rows);
   }
   async retryFleetManagerImport(clientId: string, actorId: string, jobId: string, rows: CreateFleetManagerDto[], role: import('@prisma/client').UserRole) {
-    const job = await this.imports.authorizeJob({ jobId, clientId, entityType: ImportEntityType.FLEET_MANAGER, role });
+    const job = await this.imports!.authorizeJob({ jobId, clientId, entityType: ImportEntityType.FLEET_MANAGER, role });
     return this.bulkCreateFleetManagers(clientId, actorId, job.originalFilename, rows);
   }
   async assignRiders(

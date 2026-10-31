@@ -28,7 +28,7 @@ export class IotService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<Environment, true>,
-    private readonly imports: ImportAuthorizationService,
+    private readonly imports?: ImportAuthorizationService,
   ) {}
 
   async registerDevice(
@@ -149,7 +149,7 @@ export class IotService {
     return ((job.metadata as { failures?: Array<Record<string, unknown>> } | null)?.failures) ?? [];
   }
   async retryImport(clientId: string, actorId: string, jobId: string, rows: Array<Record<string, unknown>>, role: import('@prisma/client').UserRole) {
-    const job = await this.imports.authorizeJob({ jobId, clientId, entityType: ImportEntityType.IOT_DEVICE, role });
+    const job = await this.imports!.authorizeJob({ jobId, clientId, entityType: ImportEntityType.IOT_DEVICE, role });
     return this.bulkRegisterDevices(clientId, actorId, job.originalFilename, rows);
   }
 

@@ -3969,6 +3969,15 @@ model SmsDelivery {
   @@index([provider, status, createdAt])
 }
 
+model SmsProviderPolicy {
+  id               String   @id @default("default")
+  primaryProvider  String
+  fallbackProvider String?
+  maxAttempts      Int      @default(2)
+  updatedAt        DateTime @updatedAt
+  updatedById      String?
+}
+
 enum ClientDomainType {
   EVSEYE_SUBDOMAIN
   CUSTOM_DOMAIN

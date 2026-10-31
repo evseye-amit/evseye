@@ -46,8 +46,8 @@ export class FleetsController {
     private readonly components: ComponentsService,
     private readonly audit: AuditService,
     private readonly clients: ClientContextService,
-    private readonly importRouter: FleetImportRouterService,
-    private readonly importAuthorization: ImportAuthorizationService,
+    private readonly importRouter?: FleetImportRouterService,
+    private readonly importAuthorization?: ImportAuthorizationService,
   ) {}
   @Get() async list(@CurrentUser() u: AuthUser, @Query() q: ListFleetsDto) {
     return { data: await this.fleets.list(this.clients.requireClientId(u), q) };
@@ -116,8 +116,8 @@ export class FleetsController {
   @Roles(UserRole.CLIENT_ADMIN)
   @Post('batteries/imports/:id/retry') async retryBattery(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() d: { rows: Record<string, unknown>[] }) {
     const clientId = this.clients.requireClientId(u);
-    const job = await this.importAuthorization.authorizeJob({ jobId: id, clientId, entityType: ImportEntityType.BATTERY, role: u.roles[0] as UserRole });
-    return { data: await this.importRouter.retry(clientId, u.id, ImportEntityType.BATTERY, job.originalFilename, d.rows) };
+    const job = await this.importAuthorization!.authorizeJob({ jobId: id, clientId, entityType: ImportEntityType.BATTERY, role: u.roles[0] as UserRole });
+    return { data: await this.importRouter!.retry(clientId, u.id, ImportEntityType.BATTERY, job.originalFilename, d.rows) };
   }
   @Post('controllers/bulk') async bulkControllers(
     @CurrentUser() u: AuthUser,
@@ -129,8 +129,8 @@ export class FleetsController {
   @Roles(UserRole.CLIENT_ADMIN)
   @Post('controllers/imports/:id/retry') async retryController(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() d: { rows: Record<string, unknown>[] }) {
     const clientId = this.clients.requireClientId(u);
-    const job = await this.importAuthorization.authorizeJob({ jobId: id, clientId, entityType: ImportEntityType.CONTROLLER, role: u.roles[0] as UserRole });
-    return { data: await this.importRouter.retry(clientId, u.id, ImportEntityType.CONTROLLER, job.originalFilename, d.rows) };
+    const job = await this.importAuthorization!.authorizeJob({ jobId: id, clientId, entityType: ImportEntityType.CONTROLLER, role: u.roles[0] as UserRole });
+    return { data: await this.importRouter!.retry(clientId, u.id, ImportEntityType.CONTROLLER, job.originalFilename, d.rows) };
   }
   @Get(':kind/imports/:id/failed-records')
   @Header('Content-Type', 'text/csv; charset=utf-8')

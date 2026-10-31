@@ -15,7 +15,7 @@ export class FleetImportRouterService {
       case ImportEntityType.FLEET: return this.fleets.bulkCreate(clientId, actorId, filename, rows);
       case ImportEntityType.BATTERY: return this.components.bulkCreate(clientId, actorId, filename, 'BATTERY', rows);
       case ImportEntityType.CONTROLLER: return this.components.bulkCreate(clientId, actorId, filename, 'CONTROLLER', rows);
-      case ImportEntityType.IOT_DEVICE: return this.iot.bulkCreate(clientId, actorId, filename, rows);
+      case ImportEntityType.IOT_DEVICE: return this.iot.bulkRegisterDevices(clientId, actorId, filename, rows);
       default: throw new BadRequestException('Unsupported Fleet import entity type.');
     }
   }

@@ -164,7 +164,6 @@ export class LocationsService {
       failedRows: failures.length,
       createdRows: created,
       failures: failures.map(({ row_number, failure_reason, failure_fields }) => ({ row: row_number, message: failure_reason, fields: failure_fields })),
-      failures,
     };
   }
   async retryImport(clientId: string, actorId: string, jobId: string, rows: CreateHubDto[], role: import('@prisma/client').UserRole) {

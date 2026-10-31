@@ -37,7 +37,7 @@ export class FleetsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly statusPolicy: FleetStatusPolicy,
-    private readonly imports: ImportAuthorizationService,
+    private readonly imports?: ImportAuthorizationService,
   ) {}
 
   private readonly activeAllocationStatuses: AllocationStatus[] = [
@@ -475,7 +475,7 @@ export class FleetsService {
     };
   }
   async retryImport(clientId: string, actorId: string, jobId: string, rows: Array<Record<string, unknown>>, role: import('@prisma/client').UserRole) {
-    const job = await this.imports.authorizeJob({ jobId, clientId, entityType: ImportEntityType.FLEET, role });
+    const job = await this.imports!.authorizeJob({ jobId, clientId, entityType: ImportEntityType.FLEET, role });
     return this.bulkCreate(clientId, actorId, job.originalFilename, rows);
   }
   async failedRows(clientId: string, jobId: string) {
