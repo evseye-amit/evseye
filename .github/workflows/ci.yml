@@ -35,6 +35,11 @@ jobs:
       - name: Generate Prisma client
         run: pnpm db:generate
 
+      - name: Verify Flutter pre-login contract
+        run: |
+          pnpm generate:prelogin-contract
+          git diff --exit-code -- contracts/prelogin-error-codes.json
+
       - name: Type check
         run: pnpm typecheck
 

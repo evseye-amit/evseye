@@ -9,6 +9,8 @@ const settings: Record<string, string> = {
   TELIPIA_SENDER: 'EVSPRS',
   TELIPIA_ROUTE: 'TRANS',
   TELIPIA_LOGIN_TEMPLATE_ID: 'approved-login-template',
+  TELIPIA_HANDOVER_RIDER_TEMPLATE_ID: 'approved-rider-handover-template',
+  TELIPIA_HANDOVER_OPERATOR_TEMPLATE_ID: 'approved-operator-handover-template',
 };
 
 function provider() {
@@ -40,11 +42,12 @@ describe('TelipiaSmsProvider', () => {
       .rejects.toThrow('SMS delivery is temporarily unavailable');
   });
 
-  it('requires a separate approved template for deallocation messages', async () => {
-    const fetchMock = vi.fn();
+  it('uses purpose-specific handover templates', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, text: async () => '{"status":"success"}' });
     vi.stubGlobal('fetch', fetchMock);
-    await expect(provider().send({ phone: '9871675222', purpose: OtpPurpose.HANDOVER_RIDER, code: '123456' }))
-      .rejects.toThrow('SMS delivery is not configured for this purpose');
-    expect(fetchMock).not.toHaveBeenCalled();
+    await provider().send({ phone: '9871675222', purpose: OtpPurpose.HANDOVER_RIDER, code: '123456' });
+    expect(fetchMock.mock.calls[0][0].searchParams.get('TemplateID')).toBe('approved-rider-handover-template');
+    await provider().send({ phone: '9871675222', purpose: OtpPurpose.HANDOVER_OPERATOR, code: '123456' });
+    expect(fetchMock.mock.calls[1][0].searchParams.get('TemplateID')).toBe('approved-operator-handover-template');
   });
 });

@@ -251,7 +251,7 @@ export class AuthService {
         where: { id: otp.id },
         data: { status: OtpStatus.EXPIRED },
       });
-      throw new UnauthorizedException('OTP has expired.');
+      throw new HttpException({ code: 'OTP_EXPIRED', message: 'OTP has expired.' }, HttpStatus.UNAUTHORIZED);
     }
 
     if (!this.otpSecurity.verify(code, otp.otpHash)) {
@@ -264,7 +264,7 @@ export class AuthService {
             attempts >= otp.maxAttempts ? OtpStatus.FAILED : OtpStatus.PENDING,
         },
       });
-      throw new UnauthorizedException('Invalid OTP.');
+      throw new HttpException({ code: 'OTP_INVALID', message: 'Invalid OTP.' }, HttpStatus.UNAUTHORIZED);
     }
 
     const markedVerified = await this.prisma.otpRequest.updateMany({
@@ -272,7 +272,7 @@ export class AuthService {
       data: { status: OtpStatus.VERIFIED, verifiedAt: new Date() },
     });
     if (markedVerified.count !== 1) {
-      throw new UnauthorizedException('OTP has already been used.');
+      throw new HttpException({ code: 'OTP_ALREADY_USED', message: 'OTP has already been used.' }, HttpStatus.UNAUTHORIZED);
     }
 
     const user = await this.prisma.user.findFirst({
@@ -513,7 +513,7 @@ export class AuthService {
         },
       );
     } catch {
-      throw new UnauthorizedException('Invalid or expired refresh token.');
+      throw new HttpException({ code: 'REFRESH_TOKEN_EXPIRED', message: 'Invalid or expired refresh token.' }, HttpStatus.UNAUTHORIZED);
     }
 
     if (
@@ -522,7 +522,7 @@ export class AuthService {
       !payload.sid ||
       (expectedClientId && payload.clientId !== expectedClientId)
     ) {
-      throw new UnauthorizedException('Invalid refresh token.');
+      throw new HttpException({ code: 'REFRESH_TOKEN_INVALID', message: 'Invalid refresh token.' }, HttpStatus.UNAUTHORIZED);
     }
 
     const session = await this.prisma.session.findFirst({
@@ -537,7 +537,7 @@ export class AuthService {
       !session ||
       !this.otpSecurity.verify(refreshToken, session.refreshTokenHash)
     ) {
-      throw new UnauthorizedException('Refresh session is unavailable.');
+      throw new HttpException({ code: 'SESSION_UNAVAILABLE', message: 'Refresh session is unavailable.' }, HttpStatus.UNAUTHORIZED);
     }
 
     const consumed = await this.prisma.session.updateMany({
@@ -545,7 +545,7 @@ export class AuthService {
       data: { revokedAt: new Date() },
     });
     if (consumed.count !== 1)
-      throw new UnauthorizedException('Refresh session has already been used.');
+      throw new HttpException({ code: 'SESSION_REVOKED', message: 'Refresh session has already been used.' }, HttpStatus.UNAUTHORIZED);
     const user = await this.prisma.user.findFirst({
       where: { id: payload.id, isActive: true, deletedAt: null },
     });
