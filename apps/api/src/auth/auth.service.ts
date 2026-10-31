@@ -226,7 +226,7 @@ export class AuthService {
       boundAppCode &&
       (typeof boundAppCode !== 'string' ||
         !this.loginFlow.isAppCode(boundAppCode) ||
-        (requestedAppCode && requestedAppCode !== boundAppCode))
+        (requestedAppCode !== boundAppCode))
     ) {
       throw new UnauthorizedException(
         'Login is unavailable for this application.',
