@@ -17,6 +17,59 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Protect migration history
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            if [ -z "$BASE_SHA" ] || [ -z "$HEAD_SHA" ]; then
+              echo "::error::Pull request base/head SHA is unavailable."
+              exit 1
+            fi
+            diff_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
+            diff_head="$HEAD_SHA"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            if [ -z "$BEFORE_SHA" ] || [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
+              echo "Skipping migration-history check: this push has no previous commit."
+              exit 0
+            fi
+            diff_base="$BEFORE_SHA"
+            diff_head="$CURRENT_SHA"
+          else
+            echo "::error::Unsupported event for migration-history check: $EVENT_NAME"
+            exit 1
+          fi
+
+          if ! git cat-file -e "$diff_base^{commit}" 2>/dev/null ||
+             ! git cat-file -e "$diff_head^{commit}" 2>/dev/null; then
+            echo "::error::Migration-history comparison commit is unavailable."
+            exit 1
+          fi
+
+          violations=0
+          while IFS= read -r -d '' migration_path; do
+            case "$migration_path" in
+              apps/api/prisma/migrations/*/migration.sql)
+                if ! git diff --quiet "$diff_base" "$diff_head" -- "$migration_path"; then
+                  echo "::error::Previously committed migration cannot be changed: $migration_path"
+                  violations=1
+                fi
+                ;;
+            esac
+          done < <(git ls-tree -r -z --name-only "$diff_base" -- apps/api/prisma/migrations)
+
+          if [ "$violations" -ne 0 ]; then
+            exit 1
+          fi
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
