@@ -56,6 +56,16 @@ type Bootstrap = {
   progress: { currentStep: string; steps: { step: string; status: string }[] };
 };
 
+function apiErrorMessage(body: Record<string, any>, fallback: string) {
+  const error = body.error;
+  if (error?.code === "ONBOARDING_NOT_READY" && Array.isArray(error.issues)) {
+    return error.issues.map((issue: { message?: string }) => issue.message).filter(Boolean).join(" ");
+  }
+  if (typeof error?.message === "string") return error.message;
+  if (Array.isArray(error?.message)) return error.message.join(" ");
+  return typeof body.message === "string" ? body.message : fallback;
+}
+
 type ClientDashboard = {
   hubs: number;
   fleets: number;
@@ -668,7 +678,7 @@ function ReviewSubmit({ onSaved }: { onSaved: () => void }) {
       const body = await response.json();
       if (!response.ok)
         throw new Error(
-          body.error?.message ?? body.message ?? "Unable to submit onboarding.",
+          apiErrorMessage(body, "Unable to submit onboarding."),
         );
       setMessage("Onboarding submitted for EVs Eye approval.");
       onSaved();

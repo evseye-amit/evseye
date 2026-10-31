@@ -55,13 +55,21 @@ export class ClientOnboardingService {
       where: { clientId, blocking: true },
       orderBy: { createdAt: 'desc' },
     });
+    const latestRejection = rejectionItems[0] ?? null;
     return {
       client: {
         ...client,
         rejectionReason: client.agreement?.rejectionReason ?? null,
         rejectedAt: client.agreement?.rejectedAt ?? null,
         rejection: rejectionItems.length
-          ? { items: rejectionItems, resolved: rejectionItems.every((item) => Boolean(item.resolvedAt)) }
+          ? {
+              items: rejectionItems,
+              resolved: rejectionItems.every((item) => Boolean(item.resolvedAt)),
+              section: latestRejection?.section ?? null,
+              reasonCode: latestRejection?.reasonCode ?? null,
+              reason: latestRejection?.reason ?? null,
+              rejectedAt: latestRejection?.createdAt ?? null,
+            }
           : null,
         agreement: undefined,
       },
