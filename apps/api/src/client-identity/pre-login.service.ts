@@ -69,7 +69,7 @@ export class PreLoginService {
       (part) => part.featureCode === 'SELECT_APP_LANGUAGE',
     );
     if (language && language.componentType !== 'LANGUAGE_SELECTOR')
-      throw new NotFoundException({ code: 'WORKSPACE_CONFIGURATION_INVALID', message: 'Language selection Feature is unavailable.' });
+      throw new NotFoundException('Language selection Feature is unavailable.');
     const configured = client.requestedLocales?.length
       ? client.requestedLocales
       : (language?.configuration.supportedLocales ?? ['en']);
@@ -79,13 +79,13 @@ export class PreLoginService {
       !configured.every(isSupportedLanguage) ||
       new Set(configured).size !== configured.length
     )
-      throw new NotFoundException({ code: 'WORKSPACE_CONFIGURATION_INVALID', message: 'Supported languages are not configured.' });
+      throw new NotFoundException('Supported languages are not configured.');
     const supportedLocales = configured as string[];
     const privacyConsent = resolved.components.find(
       (part) => part.configuration.kind === 'PRIVACY_CONSENT',
     );
     if (privacyConsent && privacyConsent.componentType !== 'LEGAL_CONSENT')
-      throw new NotFoundException({ code: 'WORKSPACE_CONFIGURATION_INVALID', message: 'Privacy consent Feature is unavailable.' });
+      throw new NotFoundException('Privacy consent Feature is unavailable.');
     const intro = resolved.components.find(
       (part) => part.featureCode === 'SHOW_APP_INTRO',
     );

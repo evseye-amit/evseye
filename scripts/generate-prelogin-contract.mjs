@@ -6,6 +6,7 @@ const source = resolve(root, 'apps/api/src/client-identity/pre-login-error-codes
 const authSource = resolve(root, 'apps/api/src/auth/auth-error-codes.ts');
 const contract = resolve(root, 'contracts/prelogin-error-codes.json');
 const webTarget = resolve(root, 'apps/web/src/lib/prelogin-error-codes.generated.ts');
+const webAuthTarget = resolve(root, 'apps/web/src/lib/auth-error-codes.generated.ts');
 const flutterTarget = process.env.FLUTTER_REPO
   ? resolve(process.env.FLUTTER_REPO, 'packages/evseye_core/lib/src/api/pre_login_error_codes.g.dart')
   : resolve(root, '../rider_app/packages/evseye_core/lib/src/api/pre_login_error_codes.g.dart');
@@ -18,6 +19,7 @@ const output = `// GENERATED CONTRACT. Do not edit by hand; regenerate from the 
 const authOutput = `// GENERATED CONTRACT. Do not edit by hand.\nconst Set<String> authErrorCodes = <String>{\n${authCodes.map((code) => `  '${code}',`).join('\n')}\n};\nconst Set<String> otpAuthErrorCodes = <String>{'OTP_INVALID_REQUEST', 'OTP_INVALID', 'OTP_EXPIRED', 'OTP_ALREADY_USED'};\nconst Set<String> sessionAuthErrorCodes = <String>{'REFRESH_TOKEN_EXPIRED', 'REFRESH_TOKEN_INVALID', 'SESSION_UNAVAILABLE', 'SESSION_REVOKED'};\n`;
 await writeFile(contract, `${JSON.stringify({ codes }, null, 2)}\n`);
 await writeFile(webTarget, `// GENERATED CONTRACT. Do not edit by hand.\nexport const PRE_LOGIN_ERROR_CODES = ${JSON.stringify(codes)} as const;\nexport type PreLoginErrorCode = (typeof PRE_LOGIN_ERROR_CODES)[number];\nexport const isPreLoginErrorCode = (value: unknown): value is PreLoginErrorCode => typeof value === 'string' && (PRE_LOGIN_ERROR_CODES as readonly string[]).includes(value);\n`);
+await writeFile(webAuthTarget, `// GENERATED CONTRACT. Do not edit by hand.\nexport const AUTH_ERROR_CODES = ${JSON.stringify(authCodes)} as const;\nexport type AuthErrorCode = (typeof AUTH_ERROR_CODES)[number];\nexport const isAuthErrorCode = (value: unknown): value is AuthErrorCode => typeof value === 'string' && (AUTH_ERROR_CODES as readonly string[]).includes(value);\n`);
 await writeFile(resolve(root, 'contracts/auth-error-codes.json'), `${JSON.stringify({ codes: authCodes }, null, 2)}\n`);
 try { await writeFile(flutterTarget, output); console.log(`Generated Flutter catalog at ${flutterTarget}`); } catch (error) {
   if (process.env.REQUIRE_FLUTTER_CONTRACT === '1') throw error;

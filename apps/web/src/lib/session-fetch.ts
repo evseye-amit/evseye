@@ -1,7 +1,12 @@
+import { isAuthErrorCode, type AuthErrorCode } from './auth-error-codes.generated';
 "use client";
 let refreshInFlight: Promise<boolean> | null = null;
 /** Browser requests use host-only HttpOnly cookies. This marker is UI state, never a credential. */
 export const SESSION_MARKER = "cookie-session";
+export function authErrorCode(body: unknown): AuthErrorCode | undefined {
+  const value = body && typeof body === 'object' && 'error' in body ? (body as { error?: { code?: unknown } }).error?.code : undefined;
+  return isAuthErrorCode(value) ? value : undefined;
+}
 async function refreshSession(): Promise<boolean> {
   if (!refreshInFlight)
     refreshInFlight = globalThis

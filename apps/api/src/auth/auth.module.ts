@@ -16,6 +16,7 @@ import { SmsQuotaService } from './sms-quota.service.js';
 import { LoginFlowService } from './login-flow.service.js';
 import { WorkflowModule } from '../workflow/workflow.module.js';
 import type { Environment } from '../config/environment.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 
 @Module({
   imports: [JwtModule.register({}), ClientResolutionModule, WorkflowModule],
@@ -30,21 +31,21 @@ import type { Environment } from '../config/environment.js';
     ClientContextService,
     ConsoleSmsProvider,
     TelipiaSmsProvider,
-    FailoverSmsProvider,
     {
       provide: SMS_PROVIDER,
-      inject: [ConfigService, ConsoleSmsProvider, TelipiaSmsProvider],
+      inject: [ConfigService, ConsoleSmsProvider, TelipiaSmsProvider, PrismaService],
       useFactory: (
         config: ConfigService<Environment, true>,
         consoleProvider: ConsoleSmsProvider,
         telipiaProvider: TelipiaSmsProvider,
+        prisma: PrismaService,
       ) => {
         const provider = config.getOrThrow('SMS_PROVIDER');
         const primary = provider === 'console' ? consoleProvider : provider === 'telipia' ? telipiaProvider : null;
         if (!primary) throw new Error(`Unsupported SMS_PROVIDER: ${provider}`);
         const fallbackName = config.getOrThrow('SMS_FALLBACK_PROVIDER');
         const fallback = fallbackName === 'none' || fallbackName === provider ? undefined : fallbackName === 'console' ? consoleProvider : telipiaProvider;
-        return new FailoverSmsProvider(primary, fallback);
+        return new FailoverSmsProvider(primary, fallback, prisma, { console: consoleProvider, telipia: telipiaProvider });
       },
     },
   ],

@@ -33,6 +33,7 @@ import { ClientCommercialSettings, type ClientCommercialSection } from "../../co
 import { ClientWorkflowSettings } from "../../components/client-workflow-settings";
 import { ClientDomainSettings } from "../../components/client-domain-settings";
 import { ClientLogoUpload } from "../../components/client-logo-upload";
+import { SmsDeliveryPanel } from "../../components/sms-delivery-panel";
 import { WorkPartnerManager } from "../../components/work-partner-manager";
 import { LanguageSwitcher, useLocale } from "../../components/locale-provider";
 import { UiIcon, type IconName } from "../../components/ui-icon";
@@ -62,7 +63,8 @@ type Tab =
   | "clientAddOnPurchases"
   | "clientQuotaPacks"
   | "clientCreditLots"
-  | "clientUsageLedger";
+  | "clientUsageLedger"
+  | "smsDeliveries";
 type Item = Record<string, any>;
 
 function orderFeatureSteps(steps: Item[]): Item[] {
@@ -2142,7 +2144,7 @@ export default function SuperAdminDashboard() {
         ["clientUsageLedger", "Feature Usage Ledger", "dashboard"],
       ],
     },
-    { items: [["legalDocuments", "Legal Documents", "audit"]] },
+    { items: [["legalDocuments", "Legal Documents", "audit"], ["smsDeliveries", "SMS Delivery", "notification"]] },
   ];
   const pageSubtitles: Partial<Record<Tab, string>> = {
     spares: "Manage the spare catalogue copied to clients for their penalty configuration.",
@@ -2158,6 +2160,7 @@ export default function SuperAdminDashboard() {
     packages: "Create packages and define the commercial limits available to clients.",
     packageFeatures: "Choose the features included with each platform package.",
     packageTierPricing: "Set the per-vehicle recurring price for each fleet-size range.",
+    smsDeliveries: "Review OTP delivery outcomes, provider attempts, and failover errors.",
     clients: "Manage onboarding drafts, approvals, subscriptions, and documents.",
     workPartners: "Manage the shared work partner catalog.",
     clientPricingAdjustments: "Apply negotiated commercial terms without changing master pricing.",
@@ -2465,6 +2468,7 @@ export default function SuperAdminDashboard() {
               />
             )}
             {tab === "workPartners" && <WorkPartnerManager refreshKey={refreshKey} mode="platform" request={request} token={token} />}
+            {tab === "smsDeliveries" && <SmsDeliveryPanel token={token} />}
             {tab === "clientPricingAdjustments" && (
               <ClientCommercialDirectory clients={clients} section="pricing" />
             )}

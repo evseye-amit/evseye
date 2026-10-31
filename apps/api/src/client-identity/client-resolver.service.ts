@@ -52,7 +52,7 @@ export class ClientResolverService {
     });
     let clientId = mapping?.clientId;
     if (mapping && !mapping.isVerified)
-      throw new NotFoundException({ code: 'WORKSPACE_DOMAIN_UNVERIFIED', message: 'Workspace domain is not verified.' });
+      throw new NotFoundException({ code: 'WORKSPACE_UNAVAILABLE', message: 'Workspace unavailable.' });
     if (!mapping && base && validClientSlug(slug)) {
       const client = await this.prisma.client.findUnique({
         where: { slug },
