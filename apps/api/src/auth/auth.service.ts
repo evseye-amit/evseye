@@ -82,7 +82,6 @@ export class AuthService {
           where: {
             OR: [{ companyCode }, { slug: companyCode }],
             isActive: true,
-            deletedAt: null,
             status: {
               in: ['CREATED', 'PENDING_APPROVAL', 'ACTIVE', 'REJECTED'],
             },
