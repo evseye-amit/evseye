@@ -881,7 +881,6 @@ model Client {
   commercialOffers            RiderCommercialOffer[]
   rentalAgreements            RiderRentalAgreement[]
   returnPenaltyPrices         ReturnPenaltyPrice[]
-  returnPenaltyCases          ReturnPenaltyCase[]
   supportTickets              SupportTicket[]
   supportReplies              SupportReply[]
   riderPromotions             RiderPromotion[]
@@ -2088,7 +2087,6 @@ model Rider {
   riderPaymentAllocations RiderPaymentAllocation[]
   collectionRequests      PaymentCollectionRequest[]
   billingLedgerEntries    RiderLedgerEntry[]
-  returnPenaltyCases      ReturnPenaltyCase[]
   supportTickets          SupportTicket[]
   paymentMandates         PaymentMandate[]
   autoPayDunningCases     AutoPayDunningCase[]
@@ -2408,7 +2406,6 @@ model RiderCharge {
   status              RiderChargeStatus @default(OPEN)
   invoiceId           String?
   invoice             RiderInvoice?     @relation(fields: [clientId, invoiceId], references: [clientId, id], onDelete: Restrict)
-  returnPenaltyCase   ReturnPenaltyCase?
   createdAt           DateTime          @default(now())
 
   @@unique([clientId, sourceKey])
@@ -3086,7 +3083,6 @@ model Inspection {
   completedAt  DateTime?
   safeForReuse Boolean?
   unsafeReason String?          @db.VarChar(500)
-  returnPenaltyCase ReturnPenaltyCase?
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
 
@@ -4833,7 +4829,6 @@ model RentalTerminationRequest {
   idempotencyKey           String               @db.VarChar(120)
   createdAt                DateTime             @default(now())
   updatedAt                DateTime             @updatedAt
-  returnPenaltyCase        ReturnPenaltyCase?
 
   @@unique([clientId, idempotencyKey])
   @@unique([clientId, agreementId])
@@ -4871,70 +4866,10 @@ model ReturnPenaltyPrice {
   updatedById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  items       ReturnPenaltyItem[]
 
   @@unique([clientId, masterSpareId])
   @@unique([clientId, code])
   @@index([clientId, isActive])
-}
-
-model ReturnPenaltyCase {
-  id                     String               @id @default(uuid())
-  clientId               String
-  client                 Client               @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  riderId                String
-  rider                  Rider                @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
-  terminationRequestId   String               @unique
-  terminationRequest     RentalTerminationRequest @relation(fields: [terminationRequestId], references: [id], onDelete: Restrict)
-  inspectionId           String               @unique
-  inspection             Inspection            @relation(fields: [inspectionId], references: [id], onDelete: Restrict)
-  currentRevision        Int                  @default(0)
-  digest                 String?              @db.Char(64)
-  totalAmount            Decimal              @default(0) @db.Decimal(14, 2)
-  currency               String               @default("INR") @db.Char(3)
-  status                 String               @default("DRAFT") @db.VarChar(40)
-  submittedAt            DateTime?
-  submittedById          String?
-  riderDisputedRevision  Int?
-  riderDisputedAt        DateTime?
-  riderDisputeReason     String?              @db.VarChar(500)
-  managerApprovedRevision Int?
-  managerApprovedAt      DateTime?
-  managerApprovedById    String?
-  postedRevision         Int?
-  postedChargeId         String?              @unique
-  postedCharge           RiderCharge?         @relation(fields: [postedChargeId], references: [id], onDelete: Restrict)
-  postedAt               DateTime?
-  createdAt              DateTime             @default(now())
-  updatedAt              DateTime             @updatedAt
-  items                  ReturnPenaltyItem[]
-
-  @@unique([clientId, id])
-  @@index([clientId, riderId, status, updatedAt])
-  @@index([clientId, status, updatedAt])
-}
-
-model ReturnPenaltyItem {
-  id             String            @id @default(uuid())
-  clientId       String
-  caseId         String
-  case           ReturnPenaltyCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
-  revision       Int
-  position       Int
-  priceListItemId String
-  priceListItem  ReturnPenaltyPrice @relation(fields: [priceListItemId], references: [id], onDelete: Restrict)
-  priceCode      String?           @db.VarChar(60)
-  category       String?           @db.VarChar(30)
-  description    String?           @db.VarChar(300)
-  amount         Decimal?          @db.Decimal(14, 2)
-  currency       String?           @db.Char(3)
-  details        String            @db.VarChar(1000)
-  evidencePhotoIds String[]        @default([])
-  createdAt      DateTime          @default(now())
-  createdById    String
-
-  @@unique([caseId, revision, position])
-  @@index([clientId, caseId, revision])
 }
 
 model SupportTicket {
