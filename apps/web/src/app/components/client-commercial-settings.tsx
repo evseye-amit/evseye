@@ -305,12 +305,12 @@ export function ClientCommercialSettings({
     }
   }
 
+  const [referenceTime] = useState(() => Date.now());
   const balances = useMemo(() => {
-    const now = Date.now();
     const grouped = new Map<string, { feature: Item; available: number }>();
     creditLots.forEach((lot) => {
       const expiresAt = lot.expiresAt ? new Date(String(lot.expiresAt)).getTime() : null;
-      if (expiresAt !== null && expiresAt <= now) return;
+      if (expiresAt !== null && expiresAt <= referenceTime) return;
       const feature = (lot.feature as Item) ?? {};
       const code = String(feature.code ?? "UNKNOWN");
       const current = grouped.get(code) ?? { feature, available: 0 };
@@ -318,7 +318,7 @@ export function ClientCommercialSettings({
       grouped.set(code, current);
     });
     return [...grouped.entries()];
-  }, [creditLots]);
+  }, [creditLots, referenceTime]);
   const buttonLabel = section === "pricing"
     ? "Pricing adjustments"
     : section === "addOns"

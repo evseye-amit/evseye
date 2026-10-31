@@ -3,7 +3,6 @@ import {
   ClientDocumentType,
   ClientOnboardingStep,
   ClientOnboardingStepStatus,
-  ClientStatus,
   UserRole,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';

@@ -73,14 +73,21 @@ function OnboardingSectionStatus({ status, rejection, children }: { status?: str
   </>;
 }
 
-function apiErrorMessage(body: Record<string, any>, fallback: string) {
-  const error = body.error;
+function apiErrorMessage(body: unknown, fallback: string) {
+  if (!body || typeof body !== "object") return fallback;
+  const payload = body as { error?: unknown; message?: unknown };
+  const error = payload.error && typeof payload.error === "object"
+    ? payload.error as { code?: unknown; issues?: unknown; message?: unknown }
+    : undefined;
   if (error?.code === "ONBOARDING_NOT_READY" && Array.isArray(error.issues)) {
-    return error.issues.map((issue: { message?: string }) => issue.message).filter(Boolean).join(" ");
+    return error.issues
+      .map((issue) => issue && typeof issue === "object" ? (issue as { message?: unknown }).message : undefined)
+      .filter((message): message is string => typeof message === "string")
+      .join(" ");
   }
   if (typeof error?.message === "string") return error.message;
   if (Array.isArray(error?.message)) return error.message.join(" ");
-  return typeof body.message === "string" ? body.message : fallback;
+  return typeof payload.message === "string" ? payload.message : fallback;
 }
 
 type ClientDashboard = {
