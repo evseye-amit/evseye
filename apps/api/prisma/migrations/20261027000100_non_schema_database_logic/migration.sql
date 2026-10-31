@@ -1,16 +1,6 @@
 -- PostgreSQL behavior not represented by Prisma's schema: checks, indexes,
 -- functions, and triggers recovered from the current database schema.
 -- Apply after the schema baseline.
--- Additional PostgreSQL indexes and checks that are intentionally not modeled
--- in Prisma's schema.
-CREATE UNIQUE INDEX IF NOT EXISTS "ClientSubscription_one_open_per_client"
-ON "ClientSubscription" ("clientId")
-WHERE "status" IN ('PENDING', 'ACTIVE');
-
-ALTER TABLE "PackageFeature" DROP CONSTRAINT IF EXISTS "PackageFeature_effective_dates_check";
-ALTER TABLE "PackageFeature" ADD CONSTRAINT "PackageFeature_effective_dates_check"
-  CHECK ("effectiveTo" IS NULL OR "effectiveTo" > "effectiveFrom");
-
 -- Keep the fleet manager history coverage boundary initialized on fresh databases.
 INSERT INTO "FleetManagerHomeHistoryCoverage" ("id", "availableFrom")
 VALUES ('initial', clock_timestamp())
