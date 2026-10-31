@@ -79,17 +79,17 @@ export class AuthService {
     const mobileCandidates = indianMobileVariants(phone);
     const client = companyCode
       ? await this.prisma.client.findFirst({
-          where: {
-            OR: [{ companyCode }, { slug: companyCode }],
-            isActive: true,
-            deletedAt: null,
-            status: {
-              in: ['CREATED', 'PENDING_APPROVAL', 'ACTIVE', 'REJECTED'],
-            },
-          },
-          select: { id: true },
+          where: { OR: [{ companyCode }, { slug: companyCode }] },
+          select: { id: true, isActive: true, deletedAt: true, status: true },
         })
       : null;
+
+    if (client) {
+      if (client.deletedAt || client.isActive === false) throw this.loginAccessError('CLIENT_INACTIVE');
+      if (client.status === 'PENDING_APPROVAL') throw this.loginAccessError('CLIENT_PENDING_APPROVAL');
+      if (client.status === 'SUSPENDED') throw this.loginAccessError('CLIENT_SUSPENDED');
+      if (client.status === 'REJECTED' || client.status === 'DRAFT') throw this.loginAccessError('CLIENT_INACTIVE');
+    }
 
     if (
       (companyCode && !client) ||
@@ -102,29 +102,32 @@ export class AuthService {
     }
 
     const appCode = client ? (requestedAppCode ?? 'CLIENT_PANEL') : undefined;
+    if (client && appCode && !this.loginFlow.isAppCode(appCode)) {
+      throw this.loginAccessError('UNSUPPORTED_APP_ROLE');
+    }
     if (client && appCode) await this.loginFlow.resolve(companyCode!, appCode);
     const user = await this.prisma.user.findFirst({
       where: client
         ? {
             clientId: client.id,
             mobile: { in: mobileCandidates },
-            isActive: true,
-            deletedAt: null,
           }
         : {
             clientId: null,
             mobile: { in: mobileCandidates },
             role: UserRole.SUPER_ADMIN,
-            isActive: true,
           },
-      select: { id: true, mobile: true, role: true },
+      select: { id: true, mobile: true, role: true, isActive: true, deletedAt: true },
     });
+
+    if (user && (user.isActive === false || user.deletedAt)) throw this.loginAccessError('USER_INACTIVE');
 
     if (
       !user ||
       (client &&
         !this.loginFlow.roleAllowed(appCode as LoginAppCode, user.role))
     ) {
+      if (user && client) throw this.loginAccessError('UNSUPPORTED_APP_ROLE');
       return {
         otpRequestId: randomUUID(),
         expiresAt: this.otpSecurity.expiresAt(),
@@ -228,9 +231,19 @@ export class AuthService {
         !this.loginFlow.isAppCode(boundAppCode) ||
         (requestedAppCode !== boundAppCode))
     ) {
-      throw new UnauthorizedException(
-        'Login is unavailable for this application.',
-      );
+      throw this.loginAccessError('UNSUPPORTED_APP_ROLE');
+    }
+
+    if (otp.clientId) {
+      const client = await this.prisma.client.findUnique({
+        where: { id: otp.clientId },
+        select: { isActive: true, deletedAt: true, status: true },
+      });
+      if (!client || client.deletedAt || client.isActive === false || client.status === 'REJECTED' || client.status === 'DRAFT') {
+        throw this.loginAccessError('CLIENT_INACTIVE');
+      }
+      if (client.status === 'PENDING_APPROVAL') throw this.loginAccessError('CLIENT_PENDING_APPROVAL');
+      if (client.status === 'SUSPENDED') throw this.loginAccessError('CLIENT_SUSPENDED');
     }
 
     if (otp.expiresAt <= new Date()) {
@@ -274,6 +287,15 @@ export class AuthService {
           },
     });
     if (!user) {
+      const inactiveUser = await this.prisma.user.findFirst({
+        where: otp.clientId
+          ? { clientId: otp.clientId, mobile: otp.phone }
+          : { clientId: null, mobile: otp.phone, role: UserRole.SUPER_ADMIN },
+        select: { isActive: true, deletedAt: true },
+      });
+      if (inactiveUser && (inactiveUser.isActive === false || inactiveUser.deletedAt)) {
+        throw this.loginAccessError('USER_INACTIVE');
+      }
       throw new UnauthorizedException('Account is unavailable.');
     }
 
@@ -281,13 +303,22 @@ export class AuthService {
       if (
         !this.loginFlow.roleAllowed(boundAppCode as LoginAppCode, user.role)
       ) {
-        throw new UnauthorizedException(
-          'Login is unavailable for this application.',
-        );
+        throw this.loginAccessError('UNSUPPORTED_APP_ROLE');
       }
     }
 
     return this.issueTokens(user);
+  }
+
+  private loginAccessError(code: string): UnauthorizedException {
+    const messages: Record<string, string> = {
+      CLIENT_INACTIVE: 'This client account is inactive.',
+      CLIENT_PENDING_APPROVAL: 'This client account is pending approval.',
+      CLIENT_SUSPENDED: 'This client account is suspended.',
+      USER_INACTIVE: 'This user account is inactive.',
+      UNSUPPORTED_APP_ROLE: 'This application is not available for your role.',
+    };
+    return new UnauthorizedException({ code, message: messages[code] ?? 'Login is unavailable.' });
   }
 
   async requestVehicleSubmissionOtp(
@@ -487,6 +518,7 @@ export class AuthService {
 
     if (
       payload.typ !== 'refresh' ||
+      !payload.id ||
       !payload.sid ||
       (expectedClientId && payload.clientId !== expectedClientId)
     ) {

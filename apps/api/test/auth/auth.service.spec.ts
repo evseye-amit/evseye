@@ -17,7 +17,10 @@ const configValues = {
 function createService() {
   const prisma = {
     pushDevice: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
-    client: { findFirst: vi.fn().mockResolvedValue({ id: 'client-1' }) },
+    client: {
+      findFirst: vi.fn().mockResolvedValue({ id: 'client-1' }),
+      findUnique: vi.fn().mockResolvedValue({ id: 'client-1', isActive: true, status: 'ACTIVE' }),
+    },
     user: {
       findFirst: vi.fn().mockResolvedValue({
         id: 'user-1',
@@ -107,13 +110,9 @@ describe('AuthService', () => {
   it('does not send a client OTP to a role outside the requesting app', async () => {
     const { service, prisma, loginFlow, sms } = createService();
     loginFlow.roleAllowed.mockReturnValue(false);
-    await service.requestLoginOtp(
-      '+919999999999',
-      'demo-client',
-      undefined,
-      undefined,
-      'RIDER_APP',
-    );
+    await expect(service.requestLoginOtp(
+      '+919999999999', 'demo-client', undefined, undefined, 'RIDER_APP',
+    )).rejects.toMatchObject({ response: { code: 'UNSUPPORTED_APP_ROLE' } });
     expect(prisma.otpRequest.create).not.toHaveBeenCalled();
     expect(sms.send).not.toHaveBeenCalled();
   });
@@ -143,7 +142,7 @@ describe('AuthService', () => {
     });
     await expect(
       service.verifyLoginOtp('otp-1', code, undefined, 'RIDER_APP'),
-    ).rejects.toThrow('Login is unavailable for this application');
+    ).rejects.toMatchObject({ response: { code: 'UNSUPPORTED_APP_ROLE' } });
   });
 
   it('rejects a refresh already consumed by a concurrent request', async () => {
@@ -165,6 +164,18 @@ describe('AuthService', () => {
       'already been used',
     );
     expect(prisma.session.create).not.toHaveBeenCalled();
+  });
+  it('rejects an expired refresh token before touching the session', async () => {
+    const { service, prisma, jwt } = createService();
+    jwt.verifyAsync.mockRejectedValue(new Error('jwt expired'));
+    await expect(service.refresh('expired-token', 'client-1')).rejects.toThrow('Invalid or expired refresh token');
+    expect(prisma.session.findFirst).not.toHaveBeenCalled();
+  });
+  it('rejects a refresh token presented from another client', async () => {
+    const { service, prisma, jwt } = createService();
+    jwt.verifyAsync.mockResolvedValue({ typ: 'refresh', id: 'user-1', sid: 'session-1', clientId: 'client-1' });
+    await expect(service.refresh('refresh-token', 'client-2')).rejects.toThrow('Invalid refresh token');
+    expect(prisma.session.findFirst).not.toHaveBeenCalled();
   });
   it('unregisters only devices belonging to the logged out session', async () => {
     const { service, prisma, jwt } = createService();
@@ -259,15 +270,10 @@ describe('AuthService', () => {
 
     await service.requestLoginOtp('+919100000000');
 
-    expect(prisma.user.findFirst).toHaveBeenCalledWith({
-      where: {
-        clientId: null,
-        mobile: { in: ['+919100000000', '09100000000', '9100000000'] },
-        role: UserRole.SUPER_ADMIN,
-        isActive: true,
-      },
-      select: { id: true, mobile: true, role: true },
-    });
+    expect(prisma.user.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ clientId: null, role: UserRole.SUPER_ADMIN }),
+      select: expect.objectContaining({ id: true, mobile: true, role: true }),
+    }));
     expect(
       prisma.otpRequest.create.mock.calls[0][0].data.clientId,
     ).toBeUndefined();

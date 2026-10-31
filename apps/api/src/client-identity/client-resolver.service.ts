@@ -52,7 +52,7 @@ export class ClientResolverService {
     });
     let clientId = mapping?.clientId;
     if (mapping && !mapping.isVerified)
-      throw new NotFoundException('Workspace unavailable.');
+      throw new NotFoundException({ code: 'WORKSPACE_UNAVAILABLE', message: 'Workspace unavailable.' });
     if (!mapping && base && validClientSlug(slug)) {
       const client = await this.prisma.client.findUnique({
         where: { slug },
@@ -60,7 +60,7 @@ export class ClientResolverService {
       });
       clientId = client?.id;
     }
-    if (!clientId) throw new NotFoundException('Workspace unavailable.');
+    if (!clientId) throw new NotFoundException({ code: 'WORKSPACE_UNAVAILABLE', message: 'Workspace unavailable.' });
     const client = await this.prisma.client.findFirst({
       where: {
         id: clientId,
@@ -69,7 +69,7 @@ export class ClientResolverService {
       },
       select: { id: true, companyCode: true, slug: true },
     });
-    if (!client) throw new NotFoundException('Workspace unavailable.');
+    if (!client) throw new NotFoundException({ code: 'WORKSPACE_UNAVAILABLE', message: 'Workspace unavailable.' });
     return {
       clientId: client.id,
       companyCode: client.companyCode ?? client.slug,

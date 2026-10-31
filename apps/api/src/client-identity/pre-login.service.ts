@@ -21,8 +21,6 @@ export class PreLoginService {
     const client = await this.prisma.client.findFirst({
       where: {
         OR: [{ companyCode }, { slug: companyCode }],
-        isActive: true,
-        status: { notIn: ['DRAFT', 'SUSPENDED'] },
       },
       select: {
         id: true,
@@ -30,10 +28,20 @@ export class PreLoginService {
         companyCode: true,
         slug: true,
         requestedLocales: true,
+        isActive: true,
+        deletedAt: true,
+        status: true,
       },
     });
-    if (!client || (hostClientId && hostClientId !== client.id))
-      throw new NotFoundException('Workspace unavailable.');
+    if (!client) throw new NotFoundException({ code: 'WORKSPACE_NOT_FOUND', message: 'Company code was not found.' });
+    if (hostClientId && hostClientId !== client.id)
+      throw new NotFoundException({ code: 'WORKSPACE_HOST_MISMATCH', message: 'Workspace unavailable.' });
+    if (client.deletedAt || client.isActive === false || client.status === 'DRAFT' || client.status === 'REJECTED')
+      throw new NotFoundException({ code: 'WORKSPACE_INACTIVE', message: 'This workspace is inactive.' });
+    if (client.status === 'PENDING_APPROVAL')
+      throw new NotFoundException({ code: 'WORKSPACE_PENDING_APPROVAL', message: 'This workspace is pending approval.' });
+    if (client.status === 'SUSPENDED')
+      throw new NotFoundException({ code: 'WORKSPACE_SUSPENDED', message: 'This workspace is suspended.' });
     return client;
   }
 
@@ -50,7 +58,7 @@ export class PreLoginService {
       (appCode === 'CLIENT_PANEL' &&
         ['CLIENT_ADMIN', 'FLEET_MANAGER', 'TEAM_LEAD', 'KYC_OPERATOR', 'ADVISOR', 'QC_MANAGER'].includes(role));
     if (!allowed)
-      throw new NotFoundException('Application role is unavailable.');
+      throw new NotFoundException({ code: 'UNSUPPORTED_APP_ROLE', message: 'Application role is unavailable.' });
     const client = await this.clientForCode(companyCode, hostClientId);
     const resolved = await this.workflows.resolve(
       client.id,
