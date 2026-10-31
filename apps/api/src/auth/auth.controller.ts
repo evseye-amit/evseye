@@ -67,9 +67,25 @@ export class AuthController {
     const rows = await this.prisma.smsDelivery.findMany({
       where: { ...(user.roles.includes(UserRole.CLIENT_ADMIN) ? { otpRequest: { clientId: user.clientId ?? undefined } } : clientId ? { otpRequest: { clientId } } : {}), ...(provider ? { provider } : {}), ...(status ? { status } : {}), ...(from || to ? { createdAt: { ...(from ? { gte: new Date(from) } : {}), ...(to ? { lte: new Date(to) } : {}) } } : {}) },
       orderBy: { createdAt: 'desc' }, take: Math.min(Math.max(Number(limit) || 50, 1), 200),
-      select: { id: true, provider: true, status: true, attempt: true, errorCode: true, createdAt: true, completedAt: true, otpRequest: { select: { phone: true, purpose: true, appCode: true, clientId: true } } },
+      select: { id: true, provider: true, status: true, attempt: true, errorCode: true, createdAt: true, completedAt: true, otpRequest: { select: { phone: true, purpose: true, context: true, clientId: true } } },
     });
-    return { data: rows };
+    return {
+      data: rows.map(({ otpRequest, ...delivery }) => ({
+        ...delivery,
+        otpRequest: {
+          phone: otpRequest.phone,
+          purpose: otpRequest.purpose,
+          appCode:
+            otpRequest.context &&
+            typeof otpRequest.context === 'object' &&
+            !Array.isArray(otpRequest.context) &&
+            typeof otpRequest.context.loginAppCode === 'string'
+              ? otpRequest.context.loginAppCode
+              : null,
+          clientId: otpRequest.clientId,
+        },
+      })),
+    };
   }
 
   @Header('Cache-Control', 'no-store')

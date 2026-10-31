@@ -8,11 +8,13 @@ import { seedSpareMasters } from './catalog/spares.mjs';
 import { seedWorkPartnerMasters } from './catalog/work-partners.mjs';
 import { seedLegalTemplates } from './catalog/legal-templates.mjs';
 import { seedFeatures } from './seed-features.mjs';
+import { seedOemLogos } from './seed-oem-logos.mjs';
 
 export async function seedMasterData(prisma) {
   for (const oem of oemCatalog) {
     await prisma.oem.upsert({ where: { code: oem.code }, create: oem, update: oem });
   }
+  await seedOemLogos(prisma);
   const categories = new Map();
   for (const category of vehicleCategoryCatalog) {
     const saved = await prisma.vehicleCategory.upsert({ where: { code: category.code }, create: category, update: category });
