@@ -11,6 +11,7 @@ import {
   ImportStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { normalizeImportFailures } from '../imports/import-failure.js';
 import type { CreateHubDto } from './dto/create-hub.dto.js';
 import { ImportAuthorizationService } from '../imports/import-authorization.service.js';
 
@@ -175,7 +176,7 @@ export class LocationsService {
       where: { id: jobId, clientId, entityType: ImportEntityType.HUB },
     });
     if (!job) throw new NotFoundException('Import job not found.');
-    return (job.metadata as { failures?: unknown[] } | null)?.failures ?? [];
+    return normalizeImportFailures((job.metadata as { failures?: unknown[] } | null)?.failures);
   }
   private async assertParent(clientId: string, parentHubId?: string) {
     if (!parentHubId) return;

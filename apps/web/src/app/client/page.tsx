@@ -20,7 +20,7 @@ import {
   ReadinessWorkflowPicker,
 } from "../components/readiness-workflow-picker";
 import Link from "next/link";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import * as XLSX from "xlsx";
 import { normalizePreLoginFailure } from "../../lib/prelogin-resolver";
 
@@ -60,6 +60,18 @@ type Bootstrap = {
 };
 type ImportFailure = { row?: number; message: string; fields?: string[] | string; raw?: Record<string, unknown> };
 type ImportResult = { status: string; passedRows: number; failedRows: number; jobId?: string; failures?: ImportFailure[] };
+
+function OnboardingSectionStatus({ status, rejection, children }: { status?: string; rejection?: Bootstrap["client"]["rejection"]; children: ReactNode }) {
+  if (status !== "REJECTED" && !rejection) return <>{children}</>;
+  return <>
+    <section className="client-rejection-note" role="status">
+      <strong>Changes requested by EVs Eye</strong>
+      <p>{rejection?.reason || "Please correct the requested information in this section and resubmit."}</p>
+      {rejection?.section ? <p className="muted">Requested correction: {rejection.section.replaceAll("_", " ")}</p> : null}
+    </section>
+    {children}
+  </>;
+}
 
 function apiErrorMessage(body: Record<string, any>, fallback: string) {
   const error = body.error;
@@ -294,21 +306,21 @@ export default function ClientHome() {
         {data.readiness && !data.readiness.ready ? (
           <section className="client-readiness-panel" role="alert">
             <strong>Complete these requirements before submission</strong>
-            <ul>{data.readiness.issues.map((issue, index) => <li key={`${issue.code ?? "issue"}-${index}`}><strong>{issue.owner === "SUPER_ADMIN" ? "EVs Eye:" : "Your action:"}</strong> {issue.message ?? issue.code ?? "Requirement incomplete"}{issue.owner === "SUPER_ADMIN" ? <>{" "}<Link href="/platform/clients">Open Super Admin client setup</Link></> : null}</li>)}</ul>
+            <ul>{data.readiness.issues.map((issue, index) => { const section = issue.code?.includes("PAN") ? "documents" : issue.code?.includes("BILLING") ? "billing" : issue.code?.includes("AGREEMENT") ? "agreements" : issue.code?.includes("SUBSCRIPTION") ? "subscription" : issue.code?.includes("CONTACT") || issue.code?.includes("ADDRESS") ? "contacts" : undefined; return <li key={`${issue.code ?? "issue"}-${index}`}><strong>{issue.owner === "SUPER_ADMIN" ? "EVs Eye:" : "Your action:"}</strong> {issue.message ?? issue.code ?? "Requirement incomplete"}{issue.owner === "SUPER_ADMIN" ? <>{" "}<Link href={section ? `/platform/clients?section=${section}` : "/platform/clients"}>Open responsible admin area</Link></> : null}</li>; })}</ul>
           </section>
         ) : null}
         {activeStep === "HUBS" ? (
-          <HubSetup onSaved={refreshOnboarding} />
+          <OnboardingSectionStatus status={data.client.status} rejection={data.client.rejection}><HubSetup onSaved={refreshOnboarding} /></OnboardingSectionStatus>
         ) : activeStep === "FLEET_MANAGERS" ? (
-          <FleetManagerSetup onSaved={refreshOnboarding} />
+          <OnboardingSectionStatus status={data.client.status} rejection={data.client.rejection}><FleetManagerSetup onSaved={refreshOnboarding} /></OnboardingSectionStatus>
         ) : activeStep === "TEAM_LEADERS" ? (
-          <TeamLeaderSetup onSaved={refreshOnboarding} />
+          <OnboardingSectionStatus status={data.client.status} rejection={data.client.rejection}><TeamLeaderSetup onSaved={refreshOnboarding} /></OnboardingSectionStatus>
         ) : activeStep === "FLEETS" ? (
-          <FleetSetup onSaved={refreshOnboarding} />
+          <OnboardingSectionStatus status={data.client.status} rejection={data.client.rejection}><FleetSetup onSaved={refreshOnboarding} /></OnboardingSectionStatus>
         ) : activeStep === "RIDERS" ? (
-          <RiderSetup onSaved={refreshOnboarding} />
+          <OnboardingSectionStatus status={data.client.status} rejection={data.client.rejection}><RiderSetup onSaved={refreshOnboarding} /></OnboardingSectionStatus>
         ) : activeStep === "REVIEW" ? (
-          <ReviewSubmit onSaved={refreshOnboarding} />
+          <OnboardingSectionStatus status={data.client.status} rejection={data.client.rejection}><ReviewSubmit onSaved={refreshOnboarding} /></OnboardingSectionStatus>
         ) : (
           <section className="client-next-step">
             <strong>{labels[activeStep]}</strong>
@@ -1009,11 +1021,12 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
     if (!workbookRows.fleets.length) return;
     setBusy(true); setMessage(""); setImportResult(null); setImportJobs([]);
     try {
+      const parent = await request<{ id: string }>("/imports/workbooks", { filename, metadata: { sheets: ["Fleets", "Batteries", "Controllers", "IoT Devices"], entities: ["FLEET", "BATTERY", "CONTROLLER", "IOT_DEVICE"] } });
       const results: Array<{ entity: string; result: ImportResult }> = [];
-      results.push({ entity: "fleet", result: await request("/fleets/bulk", { filename, rows: workbookRows.fleets }) });
-      if (workbookRows.batteries.length) results.push({ entity: "battery", result: await request("/fleets/batteries/bulk", { filename, rows: workbookRows.batteries }) });
-      if (workbookRows.controllers.length) results.push({ entity: "controller", result: await request("/fleets/controllers/bulk", { filename, rows: workbookRows.controllers }) });
-      if (workbookRows.iotDevices.length) results.push({ entity: "iot", result: await request("/iot/devices/bulk", { filename, rows: workbookRows.iotDevices }) });
+      results.push({ entity: "fleet", result: await request("/fleets/bulk", { filename, parentJobId: parent.id, sheet: "Fleets", rows: workbookRows.fleets }) });
+      if (workbookRows.batteries.length) results.push({ entity: "battery", result: await request("/fleets/batteries/bulk", { filename, parentJobId: parent.id, sheet: "Batteries", rows: workbookRows.batteries }) });
+      if (workbookRows.controllers.length) results.push({ entity: "controller", result: await request("/fleets/controllers/bulk", { filename, parentJobId: parent.id, sheet: "Controllers", rows: workbookRows.controllers }) });
+      if (workbookRows.iotDevices.length) results.push({ entity: "iot", result: await request("/iot/devices/bulk", { filename, parentJobId: parent.id, sheet: "IoT Devices", rows: workbookRows.iotDevices }) });
       setImportJobs(results);
       const aggregate: ImportResult = { status: results.some(({ result }) => result.failedRows) ? "PARTIAL_PASS" : "PASS", passedRows: results.reduce((sum, { result }) => sum + result.passedRows, 0), failedRows: results.reduce((sum, { result }) => sum + result.failedRows, 0), jobId: results[0].result.jobId, failures: results.flatMap(({ result }) => result.failures ?? []) };
       setImportResult(aggregate); setMessage(`Import ${aggregate.status.replaceAll("_", " ")}: ${aggregate.passedRows} passed, ${aggregate.failedRows} failed.`); onSaved();

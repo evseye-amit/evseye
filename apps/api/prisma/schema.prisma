@@ -2981,8 +2981,12 @@ model ImportJob {
   createdAt        DateTime         @default(now())
   completedAt      DateTime?
   metadata         Json?
+  parentJobId      String?
+  parentJob        ImportJob? @relation("ImportJobChildren", fields: [parentJobId], references: [id], onDelete: Cascade)
+  childJobs        ImportJob[] @relation("ImportJobChildren")
 
   @@index([clientId, entityType, createdAt])
+  @@index([parentJobId])
 }
 
 model Allocation {

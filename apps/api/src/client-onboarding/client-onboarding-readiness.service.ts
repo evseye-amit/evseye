@@ -14,6 +14,23 @@ export type OnboardingReadinessIssue = { code: string; message: string; owner: '
 export class ClientOnboardingReadinessService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async snapshot(clientId: string) {
+    const [issues, progress] = await Promise.all([this.activation(clientId), this.prisma.clientOnboardingProgress.findUnique({ where: { clientId }, include: { steps: true } })]);
+    return { clientId, ready: issues.length === 0, issues, steps: progress?.steps ?? [], generatedAt: new Date().toISOString() };
+  }
+
+  async reconcileSteps(clientId: string) {
+    const progress = await this.prisma.clientOnboardingProgress.findUnique({ where: { clientId }, include: { steps: true } });
+    if (!progress) return;
+    const [hubs, managers, fleets] = await Promise.all([
+      this.prisma.hub.count({ where: { clientId, deletedAt: null } }),
+      this.prisma.user.count({ where: { clientId, role: UserRole.FLEET_MANAGER, isActive: true, deletedAt: null } }),
+      this.prisma.fleet.count({ where: { clientId, deletedAt: null } }),
+    ]);
+    const counts = new Map([[ClientOnboardingStep.HUBS, hubs], [ClientOnboardingStep.FLEET_MANAGERS, managers], [ClientOnboardingStep.FLEETS, fleets]]);
+    await Promise.all([...counts.entries()].map(([step, count]) => this.prisma.clientOnboardingStepRecord.updateMany({ where: { progressId: progress.id, step, status: { not: ClientOnboardingStepStatus.SKIPPED } }, data: count > 0 ? { status: ClientOnboardingStepStatus.COMPLETED, completedAt: new Date(), savedAt: new Date() } : { status: ClientOnboardingStepStatus.NOT_STARTED, completedAt: null } })));
+  }
+
   async operational(clientId: string): Promise<OnboardingReadinessIssue[]> {
     const [hubs, managers, fleets, progress] = await Promise.all([
       this.prisma.hub.count({ where: { clientId, deletedAt: null } }),

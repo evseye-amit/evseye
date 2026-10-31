@@ -31,6 +31,7 @@ export class ClientOnboardingService {
   constructor(private readonly prisma: PrismaService, private readonly readiness?: ClientOnboardingReadinessService, private readonly audit?: AuditService) {}
 
   async bootstrap(clientId: string) {
+    await this.readiness?.reconcileSteps(clientId);
     const [client, progress] = await Promise.all([
       this.prisma.client.findUniqueOrThrow({
         where: { id: clientId },

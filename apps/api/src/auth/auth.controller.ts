@@ -54,16 +54,18 @@ export class AuthController {
     const allowed = new Set(['console', 'telipia']);
     if (!allowed.has(body.primaryProvider) || (body.fallbackProvider && !allowed.has(body.fallbackProvider))) throw new Error('Unsupported SMS provider.');
     if (body.fallbackProvider === body.primaryProvider) throw new Error('Fallback provider must differ from primary provider.');
+    const previous = await this.prisma.smsProviderPolicy.findUnique({ where: { id: 'default' } });
     const policy = await this.prisma.smsProviderPolicy.upsert({ where: { id: 'default' }, create: { id: 'default', primaryProvider: body.primaryProvider, fallbackProvider: body.fallbackProvider ?? null, maxAttempts: Math.min(Math.max(body.maxAttempts ?? 2, 1), 5), updatedById: user.id }, update: { primaryProvider: body.primaryProvider, fallbackProvider: body.fallbackProvider ?? null, maxAttempts: Math.min(Math.max(body.maxAttempts ?? 2, 1), 5), updatedById: user.id } });
+    await this.prisma.auditLog.create({ data: { clientId: null, actorId: user.id, action: 'SMS_PROVIDER_POLICY_UPDATED', entityType: 'SMS_PROVIDER_POLICY', entityId: policy.id, previousData: previous ?? undefined, newData: policy } });
     return { data: policy };
   }
 
   @Get('sms-deliveries')
   @UseGuards(AccessTokenGuard, RolesGuard)
   @Roles(UserRole.SUPER_ADMIN, UserRole.CLIENT_ADMIN)
-  async smsDeliveries(@CurrentUser() user: AuthUser, @Query('limit') limit = '50') {
+  async smsDeliveries(@CurrentUser() user: AuthUser, @Query('limit') limit = '50', @Query('clientId') clientId?: string, @Query('provider') provider?: string, @Query('status') status?: string, @Query('from') from?: string, @Query('to') to?: string) {
     const rows = await this.prisma.smsDelivery.findMany({
-      where: user.roles.includes(UserRole.CLIENT_ADMIN) ? { otpRequest: { clientId: user.clientId ?? undefined } } : undefined,
+      where: { ...(user.roles.includes(UserRole.CLIENT_ADMIN) ? { otpRequest: { clientId: user.clientId ?? undefined } } : clientId ? { otpRequest: { clientId } } : {}), ...(provider ? { provider } : {}), ...(status ? { status } : {}), ...(from || to ? { createdAt: { ...(from ? { gte: new Date(from) } : {}), ...(to ? { lte: new Date(to) } : {}) } } : {}) },
       orderBy: { createdAt: 'desc' }, take: Math.min(Math.max(Number(limit) || 50, 1), 200),
       select: { id: true, provider: true, status: true, attempt: true, errorCode: true, createdAt: true, completedAt: true, otpRequest: { select: { phone: true, purpose: true, appCode: true, clientId: true } } },
     });

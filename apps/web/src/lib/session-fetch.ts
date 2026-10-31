@@ -1,5 +1,5 @@
-import { isAuthErrorCode, type AuthErrorCode } from './auth-error-codes.generated';
 "use client";
+import { isAuthErrorCode, type AuthErrorCode } from './auth-error-codes.generated';
 let refreshInFlight: Promise<boolean> | null = null;
 /** Browser requests use host-only HttpOnly cookies. This marker is UI state, never a credential. */
 export const SESSION_MARKER = "cookie-session";

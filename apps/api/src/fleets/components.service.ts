@@ -294,6 +294,7 @@ export class ComponentsService {
     filename: string,
     kind: 'BATTERY' | 'CONTROLLER',
     rows: Array<Record<string, unknown>>,
+    metadata?: { parentJobId?: string; sheet?: string },
   ) {
     const fleets = await this.prisma.fleet.findMany({
       where: { clientId, deletedAt: null },
@@ -347,7 +348,7 @@ export class ComponentsService {
     }
     const failedRows = failures.length;
     const job = await this.prisma.importJob.create({
-      data: { clientId, createdById: actorId, entityType: kind === 'BATTERY' ? ImportEntityType.BATTERY : ImportEntityType.CONTROLLER, originalFilename: filename, totalRows: rows.length, passedRows: created, failedRows, createdRows: created, status: !created ? ImportStatus.FAIL : failedRows ? ImportStatus.PARTIAL_PASS : ImportStatus.PASS, completedAt: new Date(), metadata: JSON.parse(JSON.stringify({ failures })) },
+      data: { clientId, createdById: actorId, parentJobId: metadata?.parentJobId, entityType: kind === 'BATTERY' ? ImportEntityType.BATTERY : ImportEntityType.CONTROLLER, originalFilename: filename, totalRows: rows.length, passedRows: created, failedRows, createdRows: created, status: !created ? ImportStatus.FAIL : failedRows ? ImportStatus.PARTIAL_PASS : ImportStatus.PASS, completedAt: new Date(), metadata: JSON.parse(JSON.stringify({ failures, sheet: metadata?.sheet, entityType: kind })) },
     });
     return { jobId: job.id, status: job.status, totalRows: rows.length, passedRows: created, failedRows, createdRows: created, failures: normalizeImportFailures(failures) };
   }
@@ -355,7 +356,7 @@ export class ComponentsService {
   async failedRows(clientId: string, jobId: string, entityType: ImportEntityType) {
     const job = await this.prisma.importJob.findFirst({ where: { id: jobId, clientId, entityType }, select: { metadata: true } });
     if (!job) throw new NotFoundException('Import job not found.');
-    return ((job.metadata as { failures?: Array<Record<string, unknown>> } | null)?.failures) ?? [];
+    return normalizeImportFailures((job.metadata as { failures?: unknown[] } | null)?.failures);
   }
 
   async updateBattery(

@@ -90,7 +90,7 @@ export class FleetsController {
     const rows = await this.components.failedRows(this.clients.requireClientId(u), id, ImportEntityType.FLEET_COMPONENT_MAPPING);
     if (!rows.length) return '';
     const headers = Object.keys(rows[0]); const cell = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
-    return [headers.join(','), ...rows.map((row) => headers.map((header) => cell(row[header])).join(','))].join('\n');
+    return [headers.join(','), ...rows.map((row) => headers.map((header) => cell((row.raw ?? row as unknown as Record<string, unknown>)[header])).join(','))].join('\n');
   }
   @Post('batteries') async createBattery(@CurrentUser() u: AuthUser, @Body() d: CreateBatteryDto) {
     const clientId = this.clients.requireClientId(u);
@@ -111,7 +111,7 @@ export class FleetsController {
     @Body() d: BulkFleetDto,
   ) {
     const clientId = this.clients.requireClientId(u);
-    return { data: await this.components.bulkCreate(clientId, u.id, d.filename, 'BATTERY', d.rows) };
+    return { data: await this.components.bulkCreate(clientId, u.id, d.filename, 'BATTERY', d.rows, { parentJobId: d.parentJobId, sheet: d.sheet }) };
   }
   @Roles(UserRole.CLIENT_ADMIN)
   @Post('batteries/imports/:id/retry') async retryBattery(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() d: { rows: Record<string, unknown>[] }) {
@@ -124,7 +124,7 @@ export class FleetsController {
     @Body() d: BulkFleetDto,
   ) {
     const clientId = this.clients.requireClientId(u);
-    return { data: await this.components.bulkCreate(clientId, u.id, d.filename, 'CONTROLLER', d.rows) };
+    return { data: await this.components.bulkCreate(clientId, u.id, d.filename, 'CONTROLLER', d.rows, { parentJobId: d.parentJobId, sheet: d.sheet }) };
   }
   @Roles(UserRole.CLIENT_ADMIN)
   @Post('controllers/imports/:id/retry') async retryController(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() d: { rows: Record<string, unknown>[] }) {
@@ -141,7 +141,7 @@ export class FleetsController {
     if (!rows.length) return '';
     const headers = Object.keys(rows[0]);
     const cell = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
-    return [headers.join(','), ...rows.map((row) => headers.map((header) => cell(row[header])).join(','))].join('\n');
+    return [headers.join(','), ...rows.map((row) => headers.map((header) => cell((row.raw ?? row as unknown as Record<string, unknown>)[header])).join(','))].join('\n');
   }
   @Post() async create(@CurrentUser() u: AuthUser, @Body() d: CreateFleetDto) {
     const clientId = this.clients.requireClientId(u);
@@ -164,7 +164,7 @@ export class FleetsController {
   ) {
     const clientId = this.clients.requireClientId(u);
     return {
-      data: await this.fleets.bulkCreate(clientId, u.id, d.filename, d.rows),
+      data: await this.fleets.bulkCreate(clientId, u.id, d.filename, d.rows, { parentJobId: d.parentJobId, sheet: d.sheet }),
     };
   }
   @Get('imports/:id/failed-records')

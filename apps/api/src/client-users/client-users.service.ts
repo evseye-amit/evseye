@@ -14,6 +14,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ImportAuthorizationService } from '../imports/import-authorization.service.js';
+import { normalizeImportFailures } from '../imports/import-failure.js';
 import { assertUserMobileAvailable, normalizeIndianMobile, USER_MOBILE_CONFLICT_MESSAGE } from '../common/phone.js';
 import type {
   AssignTeamLeaderRidersDto,
@@ -212,7 +213,7 @@ export class ClientUsersService {
       select: { metadata: true },
     });
     if (!job) throw new NotFoundException('Import job not found.');
-    return (job.metadata as { failures?: unknown[] } | null)?.failures ?? [];
+    return normalizeImportFailures((job.metadata as { failures?: unknown[] } | null)?.failures);
   }
   async createTeamLeader(clientId: string, dto: CreateTeamLeaderDto) {
     await assertUserMobileAvailable(this.prisma, clientId, dto.mobile);

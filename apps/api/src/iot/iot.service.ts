@@ -117,7 +117,7 @@ export class IotService {
     });
   }
 
-  async bulkRegisterDevices(clientId: string, actorId: string, filename: string, rows: Array<Record<string, unknown>>) {
+  async bulkRegisterDevices(clientId: string, actorId: string, filename: string, rows: Array<Record<string, unknown>>, metadata?: { parentJobId?: string; sheet?: string }) {
     const fleets = await this.prisma.fleet.findMany({ where: { clientId, deletedAt: null }, select: { id: true, fleetCode: true, chassisNumber: true, status: true, iotDeviceId: true } });
     const fleetByReference = new Map<string, typeof fleets[number]>();
     fleets.forEach((fleet) => { fleetByReference.set(fleet.id.toUpperCase(), fleet); if (fleet.fleetCode) fleetByReference.set(fleet.fleetCode.toUpperCase(), fleet); fleetByReference.set(fleet.chassisNumber.toUpperCase(), fleet); });
@@ -139,14 +139,14 @@ export class IotService {
       } catch (error) { failures.push({ ...row, row_number: index + 2, failure_reason: error instanceof Error ? error.message : 'Invalid row.' }); }
     }
     const failedRows = failures.length;
-    const job = await this.prisma.importJob.create({ data: { clientId, createdById: actorId, entityType: ImportEntityType.IOT_DEVICE, originalFilename: filename, totalRows: rows.length, passedRows: created, failedRows, createdRows: created, status: !created ? ImportStatus.FAIL : failedRows ? ImportStatus.PARTIAL_PASS : ImportStatus.PASS, completedAt: new Date(), metadata: JSON.parse(JSON.stringify({ failures })) } });
+    const job = await this.prisma.importJob.create({ data: { clientId, createdById: actorId, parentJobId: metadata?.parentJobId, entityType: ImportEntityType.IOT_DEVICE, originalFilename: filename, totalRows: rows.length, passedRows: created, failedRows, createdRows: created, status: !created ? ImportStatus.FAIL : failedRows ? ImportStatus.PARTIAL_PASS : ImportStatus.PASS, completedAt: new Date(), metadata: JSON.parse(JSON.stringify({ failures, sheet: metadata?.sheet, entityType: 'IOT_DEVICE' })) } });
     return { jobId: job.id, status: job.status, totalRows: rows.length, passedRows: created, failedRows, createdRows: created, failures: normalizeImportFailures(failures) };
   }
 
   async failedRows(clientId: string, jobId: string) {
     const job = await this.prisma.importJob.findFirst({ where: { id: jobId, clientId, entityType: ImportEntityType.IOT_DEVICE }, select: { metadata: true } });
     if (!job) throw new NotFoundException('Import job not found.');
-    return ((job.metadata as { failures?: Array<Record<string, unknown>> } | null)?.failures) ?? [];
+    return normalizeImportFailures((job.metadata as { failures?: unknown[] } | null)?.failures);
   }
   async retryImport(clientId: string, actorId: string, jobId: string, rows: Array<Record<string, unknown>>, role: import('@prisma/client').UserRole) {
     const job = await this.imports!.authorizeJob({ jobId, clientId, entityType: ImportEntityType.IOT_DEVICE, role });
