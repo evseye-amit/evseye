@@ -80,12 +80,12 @@ export class AuthService {
     const client = companyCode
       ? await this.prisma.client.findFirst({
           where: { OR: [{ companyCode }, { slug: companyCode }] },
-          select: { id: true, isActive: true, deletedAt: true, status: true },
+          select: { id: true, isActive: true, status: true },
         })
       : null;
 
     if (client) {
-      if (client.deletedAt || client.isActive === false) throw this.loginAccessError('CLIENT_INACTIVE');
+      if (client.isActive === false) throw this.loginAccessError('CLIENT_INACTIVE');
       if (client.status === 'PENDING_APPROVAL') throw this.loginAccessError('CLIENT_PENDING_APPROVAL');
       if (client.status === 'SUSPENDED') throw this.loginAccessError('CLIENT_SUSPENDED');
       if (client.status === 'REJECTED' || client.status === 'DRAFT') throw this.loginAccessError('CLIENT_INACTIVE');
@@ -240,9 +240,9 @@ export class AuthService {
     if (otp.clientId) {
       const client = await this.prisma.client.findUnique({
         where: { id: otp.clientId },
-        select: { isActive: true, deletedAt: true, status: true },
+        select: { isActive: true, status: true },
       });
-      if (!client || client.deletedAt || client.isActive === false || client.status === 'REJECTED' || client.status === 'DRAFT') {
+      if (!client || client.isActive === false || client.status === 'REJECTED' || client.status === 'DRAFT') {
         throw this.loginAccessError('CLIENT_INACTIVE');
       }
       if (client.status === 'PENDING_APPROVAL') throw this.loginAccessError('CLIENT_PENDING_APPROVAL');

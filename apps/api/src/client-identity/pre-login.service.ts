@@ -29,14 +29,13 @@ export class PreLoginService {
         slug: true,
         requestedLocales: true,
         isActive: true,
-        deletedAt: true,
         status: true,
       },
     });
     if (!client) throw new NotFoundException({ code: 'WORKSPACE_NOT_FOUND', message: 'Company code was not found.' });
     if (hostClientId && hostClientId !== client.id)
       throw new NotFoundException({ code: 'WORKSPACE_HOST_MISMATCH', message: 'Workspace unavailable.' });
-    if (client.deletedAt || client.isActive === false || client.status === 'DRAFT' || client.status === 'REJECTED')
+    if (client.isActive === false || client.status === 'DRAFT' || client.status === 'REJECTED')
       throw new NotFoundException({ code: 'WORKSPACE_INACTIVE', message: 'This workspace is inactive.' });
     if (client.status === 'PENDING_APPROVAL')
       throw new NotFoundException({ code: 'WORKSPACE_PENDING_APPROVAL', message: 'This workspace is pending approval.' });
