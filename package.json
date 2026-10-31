@@ -2,7 +2,7 @@
   "name": "evs-eye",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@11.4.0",
+  "packageManager": "pnpm@12.16.1",
   "scripts": {
     "dev:api": "pnpm --filter @evs-eye/api start:dev",
     "dev:web": "pnpm --filter @evs-eye/web dev",
