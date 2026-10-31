@@ -1021,7 +1021,7 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
     if (!workbookRows.fleets.length) return;
     setBusy(true); setMessage(""); setImportResult(null); setImportJobs([]);
     try {
-      const parent = await request<{ id: string }>("/imports/workbooks", { filename, metadata: { sheets: ["Fleets", "Batteries", "Controllers", "IoT Devices"], entities: ["FLEET", "BATTERY", "CONTROLLER", "IOT_DEVICE"] } });
+      const parent = (await request("/imports/workbooks", { filename, metadata: { sheets: ["Fleets", "Batteries", "Controllers", "IoT Devices"], entities: ["FLEET", "BATTERY", "CONTROLLER", "IOT_DEVICE"] } })) as { id: string };
       const results: Array<{ entity: string; result: ImportResult }> = [];
       results.push({ entity: "fleet", result: await request("/fleets/bulk", { filename, parentJobId: parent.id, sheet: "Fleets", rows: workbookRows.fleets }) });
       if (workbookRows.batteries.length) results.push({ entity: "battery", result: await request("/fleets/batteries/bulk", { filename, parentJobId: parent.id, sheet: "Batteries", rows: workbookRows.batteries }) });
