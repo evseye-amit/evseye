@@ -56,7 +56,7 @@ type Bootstrap = {
   };
   route: "ONBOARDING" | "WAITING" | "SUSPENDED" | "DASHBOARD";
   progress: { currentStep: string; steps: { step: string; status: string }[] };
-  readiness?: { ready: boolean; issues: { code?: string; message?: string; owner?: "CLIENT_ADMIN" | "SUPER_ADMIN" }[] };
+  readiness?: { ready: boolean; issues: { code?: string; message?: string; owner?: "CLIENT_ADMIN" | "SUPER_ADMIN"; navigationTarget?: string }[] };
 };
 type ImportFailure = { row?: number; message: string; fields?: string[] | string; raw?: Record<string, unknown> };
 type ImportResult = { status: string; passedRows: number; failedRows: number; jobId?: string; failures?: ImportFailure[] };
@@ -306,7 +306,7 @@ export default function ClientHome() {
         {data.readiness && !data.readiness.ready ? (
           <section className="client-readiness-panel" role="alert">
             <strong>Complete these requirements before submission</strong>
-            <ul>{data.readiness.issues.map((issue, index) => { const section = issue.code?.includes("PAN") ? "documents" : issue.code?.includes("BILLING") ? "billing" : issue.code?.includes("AGREEMENT") ? "agreements" : issue.code?.includes("SUBSCRIPTION") ? "subscription" : issue.code?.includes("CONTACT") || issue.code?.includes("ADDRESS") ? "contacts" : undefined; return <li key={`${issue.code ?? "issue"}-${index}`}><strong>{issue.owner === "SUPER_ADMIN" ? "EVs Eye:" : "Your action:"}</strong> {issue.message ?? issue.code ?? "Requirement incomplete"}{issue.owner === "SUPER_ADMIN" ? <>{" "}<Link href={section ? `/platform/clients?section=${section}` : "/platform/clients"}>Open responsible admin area</Link></> : null}</li>; })}</ul>
+            <ul>{data.readiness.issues.map((issue, index) => <li key={`${issue.code ?? "issue"}-${index}`}><strong>{issue.owner === "SUPER_ADMIN" ? "EVs Eye:" : "Your action:"}</strong> {issue.message ?? issue.code ?? "Requirement incomplete"}{issue.owner === "SUPER_ADMIN" ? <>{" "}<Link href={issue.navigationTarget ?? "/platform/clients"}>Open responsible admin area</Link></> : null}</li>)}</ul>
           </section>
         ) : null}
         {activeStep === "HUBS" ? (

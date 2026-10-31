@@ -92,6 +92,16 @@ enum ImportEntityType {
   IOT_DEVICE
   FLEET_COMPONENT_MAPPING
   RIDER
+  OEM
+  VEHICLE_CATEGORY
+  VEHICLE_TYPE
+  FEATURE
+  PACKAGE
+}
+
+enum ImportScope {
+  CLIENT
+  PLATFORM
 }
 
 enum ImportStatus {
@@ -2966,8 +2976,9 @@ model ClientOnboardingRejection {
 
 model ImportJob {
   id               String           @id @default(uuid())
-  clientId         String
-  client           Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId         String?
+  client           Client?          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  scope            ImportScope      @default(CLIENT)
   entityType       ImportEntityType
   status           ImportStatus
   originalFilename String
@@ -2986,6 +2997,7 @@ model ImportJob {
   childJobs        ImportJob[] @relation("ImportJobChildren")
 
   @@index([clientId, entityType, createdAt])
+  @@index([scope, entityType, createdAt])
   @@index([parentJobId])
 }
 

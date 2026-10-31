@@ -16,6 +16,7 @@ export class ListAuditDto {
   @IsOptional() @IsString() @MaxLength(200) search?: string;
   @IsOptional() @IsString() @MaxLength(100) action?: string;
   @IsOptional() @IsString() @MaxLength(100) entityType?: string;
+  @IsOptional() @IsString() @MaxLength(100) actorId?: string;
   @IsOptional() @IsISO8601() from?: string;
   @IsOptional() @IsISO8601() to?: string;
   @IsOptional() @IsIn(['action', 'entityType', 'createdAt']) sortBy?: string;

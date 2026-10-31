@@ -7,6 +7,7 @@ describe('PlatformCatalogService feature pricing validation', () => {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
   );
 
   const pricing = {
@@ -52,6 +53,7 @@ describe('PlatformCatalogService feature pricing validation', () => {
       {
         createPublicUrl: (key: string) => `https://media.evseye.io/${key}`,
       } as never,
+      {} as never,
     );
 
     await expect(catalog.listOems()).resolves.toEqual([
@@ -74,7 +76,7 @@ describe('immutable vehicle catalog codes', () => {
     const findUnique = vi.fn().mockResolvedValue({ code: 'ORIGINAL' });
     const update = vi.fn();
     const prisma = { [model]: { findUnique, update } };
-    const service = new PlatformCatalogService(prisma as never, {} as never, {} as never);
+    const service = new PlatformCatalogService(prisma as never, {} as never, {} as never, {} as never);
     await expect((service as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>)[method](
       'record-1', { code: 'CHANGED', categoryId: 'category-1' }, 'admin-1',
     )).rejects.toThrow('code cannot be changed after creation');
@@ -91,7 +93,7 @@ describe('immutable vehicle catalog codes', () => {
       vehicleCategory: model === 'vehicleType' ? { findUnique: vi.fn().mockResolvedValue({ id: 'category-1' }) } : undefined };
     if (model === 'vehicleCategory') prisma.vehicleCategory = { findUnique: vi.fn().mockResolvedValue({ code: 'ORIGINAL' }), update };
     const audit = { record: vi.fn().mockResolvedValue(undefined) };
-    const service = new PlatformCatalogService(prisma as never, audit as never, {} as never);
+    const service = new PlatformCatalogService(prisma as never, audit as never, {} as never, {} as never);
     await (service as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>)[method](
       'record-1', { code: 'ORIGINAL', categoryId: 'category-1', name: 'Updated' }, 'admin-1',
     );
