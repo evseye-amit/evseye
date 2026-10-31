@@ -1,4 +1,5 @@
-import { PrismaClient, UserRole } from '@prisma/client';
+import { UserRole } from '@prisma/client';
+import { createPrismaClient } from './prisma-client.mjs';
 
 const mobile = process.env.SUPER_ADMIN_MOBILE ?? '9871675222';
 
@@ -33,7 +34,7 @@ export async function seedSuperAdmin(client, requestedMobile = mobile) {
 }
 
 if (process.argv[1] && new URL(`file://${process.argv[1]}`).href === import.meta.url) {
-  const prisma = new PrismaClient();
+  const prisma = createPrismaClient();
   seedSuperAdmin(prisma)
     .then((user) => {
       console.info(`Super Admin ready: ${user.mobile}`);

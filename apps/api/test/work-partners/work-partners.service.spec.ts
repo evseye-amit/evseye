@@ -1,12 +1,7 @@
-import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 import { describe, expect, it, vi } from 'vitest';
 import { WorkPartnersService } from '../../src/work-partners/work-partners.service.js';
 
-const duplicate = () =>
-  new PrismaClientKnownRequestError('Duplicate', {
-    code: 'P2002',
-    clientVersion: '6.19.0',
-  });
+const duplicate = () => Object.assign(new Error('Duplicate'), { code: 'P2002' });
 
 describe('WorkPartnersService', () => {
   it('normalizes master codes and defaults status to ACTIVE', async () => {

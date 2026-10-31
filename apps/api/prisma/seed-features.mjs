@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { createPrismaClient } from './prisma-client.mjs';
 import { featureStepSpecs } from './catalog/feature-steps.mjs';
 import { featureCatalog } from './catalog/features.mjs';
 import { featurePricingCatalog } from './catalog/feature-pricing.mjs';
@@ -109,7 +109,7 @@ export async function seedFeatures(prisma) {
 }
 
 if (process.argv[1] && new URL(`file://${process.argv[1]}`).href === import.meta.url) {
-  const prisma = new PrismaClient();
+  const prisma = createPrismaClient();
   seedFeatures(prisma)
     .catch((error) => {
       console.error(error);

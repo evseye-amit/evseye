@@ -1,15 +1,16 @@
+import { createTestPrisma } from '../helpers/prisma-client.js';
 import { RiderWalletOperationsService } from '../../src/riders/rider-wallet.service.js';
 import { RiderWalletTransactionsQueryDto } from '../../src/riders/dto/rider-wallet.dto.js';
 import { WalletService } from '../../src/wallet/wallet.service.js';
 import { afterAll, describe, expect, it } from 'vitest';
-import { PrismaClient, type WalletTransactionStatus, type WalletTransactionType } from '@prisma/client';
+import { type WalletTransactionStatus, type WalletTransactionType } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { RiderEarningsService } from '../../src/riders/rider-earnings.service.js';
 import { RiderEarningsQueryDto } from '../../src/riders/dto/rider-earnings.dto.js';
 
 const url = process.env.RIDER_EARNINGS_TEST_DATABASE_URL;
 if (url && !new URL(url).pathname.includes('_test_')) throw new Error('Use a disposable _test_ database.');
-const db = new PrismaClient({ datasources: { db: { url: url ?? 'postgresql://unused:unused@localhost:5432/unused' } } });
+const db = createTestPrisma(url ?? 'postgresql://unused:unused@localhost:5432/unused');
 afterAll(() => db.$disconnect());
 const service = new RiderEarningsService(db as never);
 const wallets = new RiderWalletOperationsService(db as never, new WalletService(db as never));

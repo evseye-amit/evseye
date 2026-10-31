@@ -1,10 +1,11 @@
+import { createTestPrisma } from '../helpers/prisma-client.js';
 import { CommonPaymentService } from '../../src/payments/common-payment.service.js';
 import { RiderBillingService } from '../../src/rider-billing/rider-billing.service.js';
 import { RazorpayDeploymentService } from '../../src/payments/razorpay/razorpay-deployment.service.js';
 import { RazorpayPenaltyService } from '../../src/payments/razorpay/razorpay-penalty.service.js';
 import { RazorpayProviderError } from '../../src/payments/razorpay/razorpay.client.js';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { CheckoutCollectionService } from '../../src/payments/checkout-collection.service.js';
 import { RiderPaymentsService } from '../../src/rider-billing/rider-payments.service.js';
@@ -15,11 +16,7 @@ import { requirePenaltyClearance } from '../../src/submission-penalties/penalty-
 const url = process.env.PENALTY_PAYMENT_TEST_DATABASE_URL;
 if (url && !new URL(url).pathname.includes('_test_'))
   throw new Error('Use a disposable _test_ database.');
-const db = new PrismaClient({
-  datasources: {
-    db: { url: url ?? 'postgresql://unused:unused@localhost:5432/unused' },
-  },
-});
+const db = createTestPrisma(url ?? 'postgresql://unused:unused@localhost:5432/unused');
 afterAll(() => db.$disconnect());
 const D = (amount: string) => new Prisma.Decimal(amount);
 describe.skipIf(!url)(

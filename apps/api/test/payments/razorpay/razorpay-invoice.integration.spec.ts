@@ -1,5 +1,6 @@
+import { createTestPrisma } from '../../helpers/prisma-client.js';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { createHmac, randomUUID } from 'node:crypto';
 import { RazorpayInvoiceService } from '../../../src/payments/razorpay/razorpay-invoice.service.js';
 import { RazorpayPenaltyService } from '../../../src/payments/razorpay/razorpay-penalty.service.js';
@@ -17,11 +18,7 @@ import { WalletBillingService } from '../../../src/wallet/wallet-billing.service
 const url = process.env.RENTAL_PAYMENT_TEST_DATABASE_URL;
 if (url && !new URL(url).pathname.includes('_test_'))
   throw new Error('Use a disposable _test_ database.');
-const db = new PrismaClient({
-  datasources: {
-    db: { url: url ?? 'postgresql://unused:unused@localhost:5432/unused' },
-  },
-});
+const db = createTestPrisma(url ?? 'postgresql://unused:unused@localhost:5432/unused');
 afterAll(() => db.$disconnect());
 describe.skipIf(!url)('Razorpay rental invoices through the common API', () => {
   async function fixture() {

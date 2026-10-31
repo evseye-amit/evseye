@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { createPrismaClient } from './prisma-client.mjs';
 
 const verificationTypes = [
   'PAN_VERIFICATION',
@@ -204,7 +204,7 @@ export async function createThirdPartyConfig(
 }
 
 if (process.argv[1] && new URL(`file://${process.argv[1]}`).href === import.meta.url) {
-  const prisma = new PrismaClient();
+  const prisma = createPrismaClient();
   createThirdPartyConfig(prisma)
     .then(() => console.info('Created SANDBOX provider and rider KYC configuration.'))
     .catch((error) => {

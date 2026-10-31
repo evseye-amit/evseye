@@ -1,5 +1,5 @@
+import { createTestPrisma } from '../helpers/prisma-client.js';
 import { afterAll, describe, expect, it } from 'vitest';
-import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { FleetManagerMaintenanceService } from '../../src/fleet-manager-maintenance/maintenance.service.js';
 import { MaintenanceFleetsQueryDto } from '../../src/fleet-manager-maintenance/maintenance.dto.js';
@@ -7,11 +7,7 @@ import { MaintenanceFleetsQueryDto } from '../../src/fleet-manager-maintenance/m
 const url = process.env.MAINTENANCE_TEST_DATABASE_URL;
 if (url && !new URL(url).pathname.includes('_test_'))
   throw new Error('Use a disposable _test_ database.');
-const db = new PrismaClient({
-  datasources: {
-    db: { url: url ?? 'postgresql://unused:unused@localhost:5432/unused' },
-  },
-});
+const db = createTestPrisma(url ?? 'postgresql://unused:unused@localhost:5432/unused');
 afterAll(() => db.$disconnect());
 const service = new FleetManagerMaintenanceService(db as never);
 describe.skipIf(!url)('maintenance fleet APIs in PostgreSQL', () => {

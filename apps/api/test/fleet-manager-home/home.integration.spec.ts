@@ -1,10 +1,10 @@
+import { createTestPrisma } from '../helpers/prisma-client.js';
 import { RiderKycStatusService } from '../../src/riders/rider-kyc-status.service.js';
 import { RiderDocumentReviewService } from '../../src/riders/rider-document-review.service.js';
 import { MediaService } from '../../src/media/media.service.js';
 import { fleetManagerVisibleSubjects } from '../../src/rider-access/rider-hub-policy.js';
 import { MobileDeploymentService } from '../../src/allocations/mobile-deployment.service.js';
 import { afterAll, describe, expect, it } from 'vitest';
-import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { FleetManagerHomeService } from '../../src/fleet-manager-home/home.service.js';
 import {
@@ -19,11 +19,7 @@ if (url && !new URL(url).pathname.includes('_test_'))
   throw new Error(
     'HOME_TEST_DATABASE_URL must be a disposable _test_ database.',
   );
-const db = new PrismaClient({
-  datasources: {
-    db: { url: url ?? 'postgresql://unused:unused@localhost:5432/unused' },
-  },
-});
+const db = createTestPrisma(url ?? 'postgresql://unused:unused@localhost:5432/unused');
 const service = new FleetManagerHomeService(db as never);
 afterAll(() => db.$disconnect());
 describe.skipIf(!url)('Fleet Manager home in PostgreSQL', () => {

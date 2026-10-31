@@ -1,5 +1,5 @@
+import { createTestPrisma } from '../../helpers/prisma-client.js';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { RazorpayAutoPayProvider } from '../../../src/payments/razorpay/razorpay-autopay.provider.js';
 import { RazorpayProviderError } from '../../../src/payments/razorpay/razorpay.client.js';
@@ -10,11 +10,7 @@ import { WalletService } from '../../../src/wallet/wallet.service.js';
 const url = process.env.AUTOPAY_TEST_DATABASE_URL;
 if (url && !new URL(url).pathname.includes('_test_'))
   throw new Error('Use a disposable _test_ database.');
-const db = new PrismaClient({
-  datasources: {
-    db: { url: url ?? 'postgresql://unused:unused@localhost:5432/unused' },
-  },
-});
+const db = createTestPrisma(url ?? 'postgresql://unused:unused@localhost:5432/unused');
 afterAll(() => db.$disconnect());
 describe.skipIf(!url)(
   'Razorpay UPI AutoPay with PostgreSQL and a simulated gateway',

@@ -1,11 +1,11 @@
-import { PrismaClient } from '@prisma/client';
+import { createPrismaClient } from './prisma-client.mjs';
 import { createThirdPartyConfig } from './create-third-party-config.mjs';
 import { seedInitialRevisions } from './catalog/seed-revisions.mjs';
 import { seedSuperAdmin } from './seed-super-admin.mjs';
 import { seedMasterData } from './seed-master-data.mjs';
 import { seedYogmaya } from './seed-yogmaya.mjs';
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 
 async function main() {
   await seedSuperAdmin(prisma);

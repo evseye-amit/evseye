@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { createPrismaClient } from './prisma-client.mjs';
 import { oemCatalog } from './catalog/oems.mjs';
 import { vehicleCategoryCatalog } from './catalog/vehicle-categories.mjs';
 import { vehicleTypeCatalog } from './catalog/vehicle-types.mjs';
@@ -62,7 +62,7 @@ export async function seedMasterData(prisma) {
 }
 
 if (process.argv[1] && new URL(`file://${process.argv[1]}`).href === import.meta.url) {
-  const prisma = new PrismaClient();
+  const prisma = createPrismaClient();
   seedMasterData(prisma)
     .then(() => console.info('Seeded master data: vehicle catalog, OEMs, spares, features, pricing, packages, work partners, and legal documents.'))
     .catch((error) => { console.error(error); process.exitCode = 1; })

@@ -1,5 +1,6 @@
+import { createTestPrisma } from '../helpers/prisma-client.js';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { PrismaClient, UserRole } from '@prisma/client';
+import { UserRole } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { FleetReadinessService } from '../../src/fleet-readiness/readiness.service.js';
 import { FleetInstallationService } from '../../src/fleet-readiness/installation.service.js';
@@ -13,11 +14,7 @@ import type { AuthUser } from '../../src/auth/interfaces/auth-user.interface.js'
 const url = process.env.READINESS_TEST_DATABASE_URL;
 if (url && !new URL(url).pathname.includes('_test_'))
   throw new Error('Use a disposable _test_ database.');
-const db = new PrismaClient({
-  datasources: {
-    db: { url: url ?? 'postgresql://unused:unused@localhost:5432/unused' },
-  },
-});
+const db = createTestPrisma(url ?? 'postgresql://unused:unused@localhost:5432/unused');
 const storage = {
   createUploadUrl: vi.fn().mockResolvedValue('http://storage/upload'),
   createDownloadUrl: vi.fn().mockResolvedValue('http://storage/photo'),

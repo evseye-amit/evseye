@@ -1,5 +1,5 @@
+import { createTestPrisma } from '../helpers/prisma-client.js';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { SparesService } from '../../src/spares/spares.service.js';
 import { copyActiveSpareMasters } from '../../src/spares/spares-copy.js';
@@ -8,11 +8,7 @@ import type { AuthUser } from '../../src/auth/interfaces/auth-user.interface.js'
 const url = process.env.SPARES_TEST_DATABASE_URL;
 if (url && !new URL(url).pathname.includes('_test_'))
   throw new Error('Use a disposable test database.');
-const db = new PrismaClient({
-  datasources: {
-    db: { url: url ?? 'postgresql://unused:unused@localhost:5432/unused' },
-  },
-});
+const db = createTestPrisma(url ?? 'postgresql://unused:unused@localhost:5432/unused');
 const service = new SparesService(db as never);
 const platform: AuthUser = {
   id: randomUUID(),
