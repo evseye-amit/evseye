@@ -90,6 +90,8 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Generate Prisma client
+        env:
+          DATABASE_URL: postgresql://review:review@127.0.0.1:1/review
         run: pnpm db:generate
 
       - name: Verify Flutter pre-login contract
@@ -99,15 +101,21 @@ jobs:
           if [ -d "../rider_app" ]; then pnpm verify:prelogin-contract; fi
 
       - name: Type check
+        env:
+          DATABASE_URL: postgresql://review:review@127.0.0.1:1/review
         run: pnpm typecheck
 
       - name: Run unit tests
         run: pnpm test
 
       - name: Run API smoke test
+        env:
+          DATABASE_URL: postgresql://review:review@127.0.0.1:1/review
         run: pnpm test:e2e
 
       - name: Build production artifacts
+        env:
+          DATABASE_URL: postgresql://review:review@127.0.0.1:1/review
         run: pnpm build
 
       - name: Prepare Compose environment
