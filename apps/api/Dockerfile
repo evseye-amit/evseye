@@ -31,6 +31,19 @@ RUN node /app/api-deploy/node_modules/.pnpm/@prisma+engines@*/node_modules/@pris
 FROM node:22-alpine AS production
 WORKDIR /app
 ENV NODE_ENV=production
+# Trust AWS RDS certificates without disabling TLS verification. Keep this
+# digest pinned so a changed remote bundle fails the image build visibly.
+ARG RDS_CA_BUNDLE_SHA256=90a6f1a7978a1b1b096dca6c57511ca48d3b8cf052f8e704baf358f34ea2f21b
+RUN apk add --no-cache ca-certificates \
+    && mkdir -p /usr/local/share/rds \
+    && wget -qO /usr/local/share/rds/rds-global-bundle.pem \
+      https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
+    && echo "${RDS_CA_BUNDLE_SHA256}  /usr/local/share/rds/rds-global-bundle.pem" \
+      | sha256sum -c - \
+    && awk 'BEGIN { certificate = 0 } /-----BEGIN CERTIFICATE-----/ { certificate++ } certificate { print > ("/usr/local/share/ca-certificates/rds-" certificate ".crt") }' \
+      /usr/local/share/rds/rds-global-bundle.pem \
+    && update-ca-certificates
+ENV NODE_EXTRA_CA_CERTS=/usr/local/share/rds/rds-global-bundle.pem
 RUN addgroup -S evseye && adduser -S evseye -G evseye
 COPY --from=runtime-dependencies /app/api-deploy ./apps/api
 COPY --from=build /app/apps/api/dist ./apps/api/dist
