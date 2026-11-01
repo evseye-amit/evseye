@@ -3,6 +3,7 @@ import { Client } from 'pg';
 
 const schemaBaseline = '20261101000400_schema_consolidated';
 const nonSchemaBaseline = '20261101000500_non_schema_consolidated';
+const consolidatedBaselines = [schemaBaseline, nonSchemaBaseline];
 
 // These migrations were deployed before the migration history was consolidated.
 // A database with every one applied already has the schema represented by the
@@ -21,13 +22,14 @@ const legacyMigrations = [
   '20261101000200_import_parent_jobs',
   '20261101000300_platform_import_scope',
 ];
+const migrationsToCheck = [...legacyMigrations, ...consolidatedBaselines];
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error('DATABASE_URL is required to deploy migrations.');
 
 const db = new Client({ connectionString: databaseUrl, connectionTimeoutMillis: 5_000 });
 await db.connect();
-let adoptConsolidatedBaselines = false;
+let baselinesToAdopt = [];
 
 try {
   const { rows: tableRows } = await db.query(
@@ -41,14 +43,14 @@ try {
        WHERE migration_name = ANY($1::text[])
          AND finished_at IS NOT NULL
          AND rolled_back_at IS NULL`,
-      [legacyMigrations],
+      [migrationsToCheck],
     );
     const applied = new Set(appliedRows.map((row) => row.migration_name));
     const missing = legacyMigrations.filter((name) => !applied.has(name));
 
     if (missing.length === 0) {
-      adoptConsolidatedBaselines = true;
-    } else {
+      baselinesToAdopt = consolidatedBaselines.filter((name) => !applied.has(name));
+    } else if (!applied.has(schemaBaseline)) {
       const { rows: schemaRows } = await db.query(
         `SELECT EXISTS (
            SELECT 1 FROM pg_type t
@@ -68,9 +70,9 @@ try {
   await db.end();
 }
 
-if (adoptConsolidatedBaselines) {
+if (baselinesToAdopt.length > 0) {
   const prisma = './apps/api/node_modules/.bin/prisma';
-  for (const migration of [schemaBaseline, nonSchemaBaseline]) {
+  for (const migration of baselinesToAdopt) {
     execFileSync(
       prisma,
       ['migrate', 'resolve', '--applied', migration, '--config=apps/api/prisma.config.ts'],
