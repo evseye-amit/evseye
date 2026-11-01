@@ -225,7 +225,7 @@ resource "aws_ecs_task_definition" "migrate" {
       "./apps/api/node_modules/.bin/prisma",
       "migrate",
       "deploy",
-      "--schema=apps/api/prisma/schema.prisma",
+      "--config=apps/api/prisma.config.ts",
     ]
 
     secrets = [{
