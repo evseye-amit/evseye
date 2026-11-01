@@ -132,16 +132,76 @@ jobs:
           image: ${{ secrets.ECR_API_URL }}:${{ needs.build.outputs.image_tag }}
 
       - name: Run Prisma migrate deploy
+        id: migrate-task-run
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
           task-definition: ${{ steps.migrate-task-def.outputs.task-definition }}
           cluster: ${{ secrets.ECS_CLUSTER }}
           run-task: true
           run-task-launch-type: FARGATE
+          run-task-container-overrides: >-
+            [{"name":"migrate","command":["./apps/api/node_modules/.bin/prisma","migrate","deploy","--config=apps/api/prisma.config.ts"]}]
           run-task-subnets: ${{ steps.network.outputs.subnets }}
           run-task-security-groups: ${{ secrets.ECS_TASK_SG }}
           run-task-assign-public-IP: ENABLED
           wait-for-task-stopped: true
+
+      - name: Diagnose failed migration task
+        if: failure() && steps.migrate-task-run.outcome == 'failure'
+        continue-on-error: true
+        env:
+          ECS_CLUSTER_NAME: ${{ secrets.ECS_CLUSTER }}
+          TASK_ARNS_JSON: ${{ steps.migrate-task-run.outputs.run-task-arn }}
+          TASK_DEFINITION_FILE: ${{ steps.migrate-task-def.outputs.task-definition }}
+        run: |
+          task_arns_json="$(jq -n --arg raw "${TASK_ARNS_JSON:-}" 'if $raw == "" then [] else (try ($raw | fromjson) catch [$raw]) | if type == "array" then . else [.] end end')"
+          mapfile -t task_arns < <(jq -r '.[]' <<< "$task_arns_json")
+
+          if [ "${#task_arns[@]}" -eq 0 ]; then
+            echo "::warning::The ECS action did not return a migration task ARN. Check the RunTask failure details above."
+            exit 0
+          fi
+
+          task_details="$(aws ecs describe-tasks \
+            --cluster "$ECS_CLUSTER_NAME" \
+            --tasks "${task_arns[@]}" \
+            --output json)"
+
+          echo "Migration task stopped details:"
+          jq '{failures, tasks: [.tasks[] | {
+            taskArn,
+            lastStatus,
+            desiredStatus,
+            stopCode,
+            stoppedReason,
+            containers: [.containers[] | {
+              name,
+              lastStatus,
+              exitCode,
+              reason,
+              image,
+              logStreamName
+            }]
+          }]}' <<< "$task_details"
+
+          log_options="$(jq -c '.containerDefinitions[] | select(.name == "migrate") | .logConfiguration.options // {}' "$TASK_DEFINITION_FILE")"
+          log_group="$(jq -r '."awslogs-group" // empty' <<< "$log_options")"
+          log_stream="$(jq -r '[.tasks[].containers[] | select(.name == "migrate") | .logStreamName][0] // empty' <<< "$task_details")"
+
+          if [ -n "$log_group" ] && [ -n "$log_stream" ]; then
+            echo "CloudWatch log stream: $log_group/$log_stream"
+            if ! aws logs get-log-events \
+              --log-group-name "$log_group" \
+              --log-stream-name "$log_stream" \
+              --start-from-head \
+              --limit 100 \
+              --query 'events[].message' \
+              --output text; then
+              echo "::warning::Could not read the migration task log stream. Check CloudWatch permissions or open the stream above."
+            fi
+          else
+            echo "::warning::The migration container has no awslogs group/prefix configured; inspect its task logs in the ECS console."
+          fi
 
   # ─── Update ECS services ───────────────────────────────────────────────────
   deploy:
