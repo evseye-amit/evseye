@@ -397,6 +397,25 @@ describe('AuthService', () => {
 });
 
 describe('Client host login binding', () => {
+  it('uses only fields present on the Client Prisma model for OTP lookup', async () => {
+    const { service, prisma } = createService();
+
+    await service.requestLoginOtp(
+      '+919999999999',
+      'demo-client',
+      undefined,
+      undefined,
+      'CLIENT_PANEL',
+    );
+
+    expect(prisma.client.findFirst).toHaveBeenCalledWith({
+      where: {
+        OR: [{ companyCode: 'demo-client' }, { slug: 'demo-client' }],
+      },
+      select: { id: true, isActive: true, status: true },
+    });
+  });
+
   it('does not consume an ACME OTP on another client host', async () => {
     const { service, prisma, jwt } = createService();
     prisma.otpRequest.findUnique.mockResolvedValue({
