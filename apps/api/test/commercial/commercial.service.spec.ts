@@ -298,3 +298,58 @@ describe('CommercialService adjustments and feature credits', () => {
     ).toThrow('Add-on effective end must be after its start');
   });
 });
+
+describe('CommercialService subscription replacement', () => {
+  const subscriptionDto = {
+    clientId: 'client-1', packageCode: 'BASIC', vehicleCount: 10,
+    billingCycle: 'MONTHLY' as const, startDate: '2026-11-01T00:00:00.000Z',
+  };
+
+  function replacementService(transaction: (callback: (tx: unknown) => Promise<unknown>) => Promise<unknown>) {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const create = vi.fn().mockResolvedValue({ id: 'sub-new' });
+    const prisma = {
+      client: { findUnique: vi.fn().mockResolvedValue({ status: 'PENDING_APPROVAL' }) },
+      packageRevision: { findFirst: vi.fn().mockResolvedValue({ id: 'revision-1', snapshot: {} }) },
+      clientSubscription: { updateMany: vi.fn(), create: vi.fn() },
+      $transaction: vi.fn(transaction),
+    };
+    const service = makeService(prisma);
+    (service as never as { calculateSubscriptionPrice: ReturnType<typeof vi.fn> }).calculateSubscriptionPrice = vi.fn().mockResolvedValue({
+      packageId: 'package-1', billingCycle: 'MONTHLY', setupFee: decimal(0),
+      pricePerVehicle: decimal(10), finalRecurringAmount: decimal(100), currency: 'INR',
+      tier: { minVehicles: 1, maxVehicles: 99, tierMode: 'VOLUME' },
+    });
+    (service as never as { validatePackageCapacity: ReturnType<typeof vi.fn> }).validatePackageCapacity = vi.fn().mockResolvedValue(undefined);
+    return { service, prisma, tx: { clientSubscription: { updateMany, create }, featureCreditLot: { create: vi.fn() }, featureUsageLedger: { create: vi.fn() } }, updateMany, create };
+  }
+
+  it('cancels both pending and active subscriptions before creating the replacement', async () => {
+    const holder = replacementService(async (callback) => callback(holder.tx));
+
+    await holder.service.createSubscription(subscriptionDto, 'admin-1');
+
+    expect(holder.updateMany).toHaveBeenCalledWith({
+      where: { clientId: 'client-1', status: { in: ['PENDING', 'ACTIVE'] } },
+      data: { status: 'CANCELLED', endDate: new Date('2026-11-01T00:00:00.000Z') },
+    });
+    expect(holder.create).toHaveBeenCalledWith({ data: expect.objectContaining({ status: 'PENDING' }) });
+  });
+
+  it.each(['P2002', 'P2034'])('maps %s transaction conflicts to a retryable conflict', async (code) => {
+    const known = new Prisma.PrismaClientKnownRequestError('transaction conflict', { code, clientVersion: 'test' });
+    const holder = replacementService(async () => { throw known; });
+
+    await expect(holder.service.createSubscription(subscriptionDto, 'admin-1'))
+      .rejects.toMatchObject({ constructor: ConflictException });
+    await expect(holder.service.createSubscription(subscriptionDto, 'admin-1'))
+      .rejects.toThrow('reload and retry');
+  });
+
+  it('rethrows non-concurrency transaction errors', async () => {
+    const error = new Error('unexpected transaction failure');
+    const holder = replacementService(async () => { throw error; });
+
+    await expect(holder.service.createSubscription(subscriptionDto, 'admin-1')).rejects.toBe(error);
+  });
+});

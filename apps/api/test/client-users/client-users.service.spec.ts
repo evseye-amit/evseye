@@ -70,6 +70,51 @@ describe('ClientUsersService import history', () => {
   });
 });
 
+describe('ClientUsersService bulk import response', () => {
+  it('returns normalized Fleet Manager failures and keeps ImportJob data schema-valid', async () => {
+    const importJobCreate = vi.fn().mockResolvedValue({ id: 'job-1' });
+    const prisma = { importJob: { create: importJobCreate } };
+    const service = new ClientUsersService(prisma as never);
+    vi.spyOn(service, 'createFleetManager').mockResolvedValue({} as never);
+    const rows = [
+      { name: 'Manager 1', mobile: '+919871675222', hubIds: [], primaryHubId: 'hub-1' },
+      { name: 'Manager 2', mobile: '+919871675222', hubIds: [], primaryHubId: 'hub-1' },
+    ];
+
+    const result = await service.bulkCreateFleetManagers('client-1', 'actor-1', 'managers.csv', rows);
+
+    expect(result.failures[0]).toEqual(expect.objectContaining({
+      row: 3,
+      raw: expect.objectContaining({ name: 'Manager 2', mobile: '+919871675222', row_number: 3 }),
+    }));
+    const data = importJobCreate.mock.calls[0]![0].data;
+    expect(data).not.toHaveProperty('failures');
+    expect(Object.keys(data).sort()).toEqual([
+      'clientId', 'createdById', 'createdRows', 'completedAt', 'duplicateRows',
+      'entityType', 'failedRows', 'metadata', 'originalFilename', 'passedRows',
+      'status', 'totalRows',
+    ].sort());
+    expect(data.metadata).toEqual({ failures: [expect.objectContaining({ name: 'Manager 2', mobile: '+919871675222' })] });
+  });
+
+  it('returns normalized Team Leader failures with original row data', async () => {
+    const prisma = { importJob: { create: vi.fn().mockResolvedValue({ id: 'job-1' }) } };
+    const service = new ClientUsersService(prisma as never);
+    vi.spyOn(service, 'createTeamLeader').mockResolvedValue({} as never);
+    const rows = [
+      { name: 'Leader 1', mobile: '+919871675222' },
+      { name: 'Leader 2', mobile: '+919871675222' },
+    ];
+
+    const result = await service.bulkCreateTeamLeaders('client-1', 'actor-1', 'leaders.csv', rows);
+
+    expect(result.failures[0]).toEqual(expect.objectContaining({
+      row: 3,
+      raw: expect.objectContaining({ name: 'Leader 2', mobile: '+919871675222', row_number: 3 }),
+    }));
+  });
+});
+
 describe('ClientUsersService Team Leader reassignment', () => {
   it('transfers riders before deactivating the source account', async () => {
     const calls: string[] = [];

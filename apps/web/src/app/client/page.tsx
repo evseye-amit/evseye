@@ -59,7 +59,7 @@ type Bootstrap = {
   readiness?: { ready: boolean; issues: { code?: string; message?: string; owner?: "CLIENT_ADMIN" | "SUPER_ADMIN"; navigationTarget?: string }[] };
 };
 type ImportFailure = { row?: number; message: string; fields?: string[] | string; raw?: Record<string, unknown> };
-type ImportResult = { status: string; passedRows: number; failedRows: number; jobId?: string; failures?: ImportFailure[] };
+type ImportResult = { status: string; passedRows: number; failedRows: number; jobId?: string; failures?: ImportFailure[]; ingestCredentials?: Array<{ deviceNumber: string; ingestSecret: string }> };
 
 function OnboardingSectionStatus({ status, rejection, children }: { status?: string; rejection?: Bootstrap["client"]["rejection"]; children: ReactNode }) {
   if (status !== "REJECTED" && !rejection) return <>{children}</>;
@@ -1026,17 +1026,22 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
   };
   const bulkCreateJobBacked = async () => {
     if (!workbookRows.fleets.length) return;
-    setBusy(true); setMessage(""); setImportResult(null); setImportJobs([]);
+    setBusy(true); setMessage(""); setImportResult(null); setImportedIotCredentials([]); setImportJobs([]);
     try {
       const parent = (await request("/imports/workbooks", { filename, metadata: { sheets: ["Fleets", "Batteries", "Controllers", "IoT Devices"], entities: ["FLEET", "BATTERY", "CONTROLLER", "IOT_DEVICE"] } })) as { id: string };
       const results: Array<{ entity: string; result: ImportResult }> = [];
       results.push({ entity: "fleet", result: await request("/fleets/bulk", { filename, parentJobId: parent.id, sheet: "Fleets", rows: workbookRows.fleets }) });
       if (workbookRows.batteries.length) results.push({ entity: "battery", result: await request("/fleets/batteries/bulk", { filename, parentJobId: parent.id, sheet: "Batteries", rows: workbookRows.batteries }) });
       if (workbookRows.controllers.length) results.push({ entity: "controller", result: await request("/fleets/controllers/bulk", { filename, parentJobId: parent.id, sheet: "Controllers", rows: workbookRows.controllers }) });
-      if (workbookRows.iotDevices.length) results.push({ entity: "iot", result: await request("/iot/devices/bulk", { filename, parentJobId: parent.id, sheet: "IoT Devices", rows: workbookRows.iotDevices }) });
+      if (workbookRows.iotDevices.length) {
+        const iotResult = await request("/iot/devices/bulk", { filename, parentJobId: parent.id, sheet: "IoT Devices", rows: workbookRows.iotDevices }) as ImportResult;
+        const { ingestCredentials, ...iotResultWithoutCredentials } = iotResult;
+        setImportedIotCredentials(ingestCredentials ?? []);
+        results.push({ entity: "iot", result: iotResultWithoutCredentials });
+      }
       setImportJobs(results);
       const aggregate: ImportResult = { status: results.some(({ result }) => result.failedRows) ? "PARTIAL_PASS" : "PASS", passedRows: results.reduce((sum, { result }) => sum + result.passedRows, 0), failedRows: results.reduce((sum, { result }) => sum + result.failedRows, 0), jobId: results[0].result.jobId, failures: results.flatMap(({ result }) => result.failures ?? []) };
-      setImportResult(aggregate); setMessage(`Import ${aggregate.status.replaceAll("_", " ")}: ${aggregate.passedRows} passed, ${aggregate.failedRows} failed.`); onSaved();
+      setImportResult(aggregate); setMessage(`Import ${aggregate.status.replaceAll("_", " ")}: ${aggregate.passedRows} passed, ${aggregate.failedRows} failed.`);
     } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Unable to import Fleets."); }
     finally { setBusy(false); }
   };
@@ -1614,7 +1619,7 @@ function FleetSetup({ onSaved }: { onSaved: () => void }) {
             const response = await fetch(`${API_URL}${path}`, { headers: { Authorization: `Bearer ${token()}` } }); if (!response.ok) throw new Error(`Unable to download ${entity} failures.`); const csv = await response.text(); const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `${entity}-import-failures.csv`; anchor.click(); URL.revokeObjectURL(url);
           }} onRetry={async (rows) => {
             const path = entity === "fleet" ? `/fleets/imports/${result.jobId}/retry` : entity === "battery" ? `/fleets/batteries/imports/${result.jobId}/retry` : entity === "controller" ? `/fleets/controllers/imports/${result.jobId}/retry` : `/iot/devices/imports/${result.jobId}/retry`;
-            const response = await fetch(`${API_URL}${path}`, { method: "POST", headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" }, body: JSON.stringify({ rows }) }); const body = await response.json(); if (!response.ok) throw new Error(apiErrorMessage(body, `Unable to retry ${entity} import.`)); const next = (body.data ?? body) as ImportResult; setImportJobs((jobs) => jobs.map((job) => job.result.jobId === result.jobId ? { ...job, result: next } : job));
+            const response = await fetch(`${API_URL}${path}`, { method: "POST", headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" }, body: JSON.stringify({ rows }) }); const body = await response.json(); if (!response.ok) throw new Error(apiErrorMessage(body, `Unable to retry ${entity} import.`)); const next = (body.data ?? body) as ImportResult; const { ingestCredentials: retryCredentials, ...retryResultWithoutCredentials } = next; if (entity === "iot") setImportedIotCredentials((current) => [...current, ...(retryCredentials ?? [])]); setImportJobs((jobs) => jobs.map((job) => job.result.jobId === result.jobId ? { ...job, result: retryResultWithoutCredentials } : job));
           }} /> : null)}
         </div>
       </div>

@@ -532,6 +532,15 @@ describe('FleetsService onboarding evidence', () => {
       passedRows: 1,
       failedRows: 1,
     });
+    expect(result.failures[0]).toEqual(expect.objectContaining({
+      row: 3,
+      raw: expect.objectContaining({
+        chassisNumber: 'CHASSIS-2',
+        oemCode: 'unknown',
+        row_number: 3,
+        failure_fields: 'oemCode',
+      }),
+    }));
   });
 
   it('reports missing required evidence by fleet component', async () => {

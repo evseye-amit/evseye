@@ -528,7 +528,14 @@ export class PlatformCatalogService {
     const job = await this.imports.createPlatformJob(actorId, ImportEntityType.VEHICLE_TYPE, 'vehicle-types-bulk', rows.length, { entityType: 'VEHICLE_TYPE' });
     try {
       const result = await this.createBulk(mappedRows, (row) => this.prisma.vehicleType.create({ data: row }), actorId, 'VEHICLE_TYPE_BULK_CREATED', 'VehicleType', 'vehicle type code');
-      return await this.imports.completePlatformJob(job.id, { ...result, createdRows: result.passedRows });
+      const failures = result.failures.map((failure) => {
+        const rowIndex = Number(failure.row ?? failure.row_number) - 2;
+        const source = rows[rowIndex];
+        return source?.categoryCode
+          ? { ...failure, categoryCode: source.categoryCode }
+          : failure;
+      });
+      return await this.imports.completePlatformJob(job.id, { ...result, failures, createdRows: result.passedRows });
     } catch (error) {
       if (error instanceof ConflictException) return await this.imports.completePlatformJob(job.id, { passedRows: 0, failures: rows.map((row, index) => ({ ...row, row_number: index + 2, failure_reason: error.message })) });
       throw error;

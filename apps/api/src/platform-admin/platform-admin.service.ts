@@ -353,6 +353,7 @@ export class PlatformAdminService {
    */
   async clientEntitlements(clientId: string) {
     const client = await this.clientDetail(clientId);
+    const now = new Date();
     const subscription = client.subscriptions.find(
       (item) => item.status === 'ACTIVE',
     );
@@ -368,17 +369,22 @@ export class PlatformAdminService {
 
     const [packageFeatures, clientFeatures] = await Promise.all([
       this.prisma.packageFeature.findMany({
-        where: { packageId: subscription.packageId, isIncluded: true },
+        where: {
+          packageId: subscription.packageId,
+          isIncluded: true,
+          effectiveFrom: { lte: now },
+          OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }],
+        },
         include: {
           feature: {
             include: {
               pricing: {
                 where: {
                   isActive: true,
-                  effectiveFrom: { lte: new Date() },
+                  effectiveFrom: { lte: now },
                   OR: [
                     { effectiveTo: null },
-                    { effectiveTo: { gte: new Date() } },
+                    { effectiveTo: { gte: now } },
                   ],
                 },
                 orderBy: { effectiveFrom: 'desc' },
@@ -390,17 +396,25 @@ export class PlatformAdminService {
       }),
       this.prisma.clientFeature.findMany({
         where: { clientId, subscriptionId: subscription.id, enabled: true,
-          effectiveFrom: { lte: new Date() }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: new Date() } }] },
+          effectiveFrom: { lte: now }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }] },
         include: {
           feature: {
             include: {
               pricing: {
-                where: { isActive: true },
+                where: {
+                  isActive: true,
+                  effectiveFrom: { lte: now },
+                  OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }],
+                },
                 orderBy: { effectiveFrom: 'desc' },
               },
             },
           },
           pricing: {
+            where: {
+              effectiveFrom: { lte: now },
+              OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }],
+            },
             include: { featurePricing: true },
             orderBy: { effectiveFrom: 'desc' },
           },

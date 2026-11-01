@@ -27,6 +27,7 @@ import {
   CreateFleetManagerDto,
   ReassignTeamLeaderDto,
 } from './dto/create-client-user.dto.js';
+import { importFailuresToCsv } from '../imports/import-failure.js';
 
 @Controller('client/users')
 @UseGuards(AccessTokenGuard, RolesGuard)
@@ -172,18 +173,7 @@ export class ClientUsersController {
       .assignRiders(this.clients.requireClientId(user), id, dto)
       .then((data) => ({ data }));
   }
-  private toCsv(rows: unknown[]) {
-    if (!rows.length) return '';
-    const headers = Object.keys(rows[0] as Record<string, unknown>);
-    const cell = (value: unknown) =>
-      `"${String(value ?? '').replaceAll('"', '""')}"`;
-    return [
-      headers.join(','),
-      ...rows.map((row) =>
-        headers
-          .map((header) => cell((row as Record<string, unknown>)[header]))
-          .join(','),
-      ),
-    ].join('\n');
+  private toCsv(rows: Parameters<typeof importFailuresToCsv>[0]) {
+    return importFailuresToCsv(rows);
   }
 }

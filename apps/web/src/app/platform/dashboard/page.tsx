@@ -38,6 +38,7 @@ import { WorkPartnerManager } from "../../components/work-partner-manager";
 import { LanguageSwitcher, useLocale } from "../../components/locale-provider";
 import { UiIcon, type IconName } from "../../components/ui-icon";
 import { PlatformDataTable as DataTable } from "../../components/platform-data-table";
+import { ImportFailureRemediation } from "../../components/import-failure-remediation";
 
 const API_URL =
   "/api/v1";
@@ -1045,10 +1046,10 @@ export default function SuperAdminDashboard() {
     entity: BulkImportEntity,
     fileName: string,
     totalRows: number,
-    result: { created?: number; failedRows?: number; status?: string; jobId?: string; failures?: BulkImportHistoryEntry["failures"] } = {},
+    result: { created?: number; passedRows?: number; failedRows?: number; status?: string; jobId?: string; failures?: BulkImportHistoryEntry["failures"] } = {},
     error?: string,
   ) {
-    const passedRows = result.created ?? 0;
+    const passedRows = result.created ?? result.passedRows ?? 0;
     const failedRows = result.failedRows ?? (error ? totalRows : 0);
     const status = error
       ? "FAIL"
@@ -1198,10 +1199,14 @@ export default function SuperAdminDashboard() {
     setLoading(true); setError("");
     try {
       const result = await request(`/platform/${endpoint}/imports/${entry.jobId}/retry`, { method: "POST", body: JSON.stringify({ rows }) }, token) as { jobId?: string; passedRows?: number; failedRows?: number; status?: string; failures?: BulkImportHistoryEntry["failures"] };
-      recordBulkImport(entry.entity, `${entry.fileName} (retry)`, rows.length, { ...result, created: result.passedRows });
+      recordBulkImport(entry.entity, `${entry.fileName} (retry)`, rows.length, result);
       setNotice("Corrected rows re-submitted successfully.");
       await load();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to retry failed rows."); }
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Unable to retry failed rows.";
+      setError(message);
+      throw cause instanceof Error ? cause : new Error(message);
+    }
     finally { setLoading(false); }
   }
   function downloadVehicleCategoryTemplate() {
@@ -5657,7 +5662,7 @@ function BulkImportWorkspace({
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
-  const [retryRows, setRetryRows] = useState<Array<Record<string, unknown>>>([]);
+  const editingEntry = editing ? history.find((item) => item.id === editing) : undefined;
   const downloadFailureReport = async (entry: BulkImportHistoryEntry) => {
     if (entry.jobId) {
       const entityPath = { oem: "oems", "vehicle-category": "vehicle-categories", "vehicle-type": "vehicle-types", feature: "features", package: "packages" }[entity];
@@ -5742,11 +5747,15 @@ function BulkImportWorkspace({
               </span>,
               `${entry.passedRows} / ${entry.totalRows}`,
               entry.status !== "PASS" ? (
-                <span key="failures"><button type="button" className="secondary" onClick={() => void downloadFailureReport(entry)}>Download failures</button>{onRetry && entry.jobId && entry.failures?.length ? <button type="button" className="secondary" onClick={() => { setEditing(entry.id); setRetryRows(entry.failures?.map((failure) => ({ ...(failure.raw ?? {}) })) ?? []); }}>Edit & retry</button> : null}</span>
+                <span key="failures"><button type="button" className="secondary" onClick={() => void downloadFailureReport(entry)}>Download failures</button>{onRetry && entry.jobId && entry.failures?.length ? <button type="button" className="secondary" onClick={() => setEditing(entry.id)}>Edit & retry</button> : null}</span>
               ) : "—",
             ])}
           />
-          {editing && onRetry ? <section className="sa-bulk-upload-card"><h3>Correct failed rows</h3>{history.find((item) => item.id === editing)?.failures?.map((failure, index) => <p key={`failure-${index}`} className="error">Row {failure.row}: {failure.message}{failure.fields.length ? ` (${failure.fields.join(", ")})` : ""}</p>)}{retryRows.map((row, index) => <input key={index} value={String(row.name ?? row.code ?? "")} onChange={(event) => setRetryRows((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item))} aria-label={`Corrected row ${index + 1}`} />)}<div className="sa-bulk-upload-actions"><button className="secondary" type="button" onClick={() => setEditing(null)}>Cancel</button><button type="button" onClick={async () => { const entry = history.find((item) => item.id === editing); if (entry) await onRetry(entry, retryRows); setEditing(null); }}>Retry corrected rows</button></div></section> : null}
+          {editingEntry && onRetry ? <section className="sa-bulk-upload-card"><h3>Correct failed rows</h3><ImportFailureRemediation
+            failures={editingEntry.failures ?? []}
+            correctedRows={editingEntry.failures?.flatMap((failure) => failure.raw ? [failure.raw] : [])}
+            onRetry={async (rows) => { await onRetry(editingEntry, rows); setEditing(null); }}
+          /><div className="sa-bulk-upload-actions"><button className="secondary" type="button" onClick={() => setEditing(null)}>Cancel</button></div></section> : null}
         </section>
       </div>
     </section>

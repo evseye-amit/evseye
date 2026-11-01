@@ -184,7 +184,6 @@ export class ClientUsersService {
         totalRows: rows.length,
         passedRows: created,
         failedRows: failures.length,
-        failures: failures.map(({ row_number, failure_reason, failure_fields }) => ({ row: row_number, message: failure_reason, fields: failure_fields })),
         duplicateRows: failures.filter((row) => row.failure_fields === 'mobile')
           .length,
         createdRows: created,
@@ -199,7 +198,7 @@ export class ClientUsersService {
       totalRows: rows.length,
       passedRows: created,
       failedRows: failures.length,
-      failures: failures.map(({ row_number, failure_reason, failure_fields }) => ({ row: row_number, message: failure_reason, fields: failure_fields })),
+      failures: normalizeImportFailures(failures),
       createdRows: created,
     };
   }
@@ -422,6 +421,7 @@ export class ClientUsersService {
       passedRows: created,
       failedRows: failures.length,
       createdRows: created,
+      failures: normalizeImportFailures(failures),
     };
   }
   async retryTeamLeaderImport(clientId: string, actorId: string, jobId: string, rows: CreateTeamLeaderDto[], role: import('@prisma/client').UserRole) {

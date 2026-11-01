@@ -33,6 +33,7 @@ import { ComponentsService } from './components.service.js';
 import { StartFleetTransferDto } from './dto/start-fleet-transfer.dto.js';
 import { FleetImportRouterService } from './fleet-import-router.service.js';
 import { ImportAuthorizationService } from '../imports/import-authorization.service.js';
+import { importFailuresToCsv } from '../imports/import-failure.js';
 @Controller('fleets')
 @UseGuards(AccessTokenGuard, RolesGuard, FleetManagerActionGuard)
 @FleetActionResource('fleet')
@@ -88,9 +89,7 @@ export class FleetsController {
   @Header('Content-Type', 'text/csv; charset=utf-8')
   async failedComponentMappingRecords(@CurrentUser() u: AuthUser, @Param('id') id: string) {
     const rows = await this.components.failedRows(this.clients.requireClientId(u), id, ImportEntityType.FLEET_COMPONENT_MAPPING);
-    if (!rows.length) return '';
-    const headers = Object.keys(rows[0]); const cell = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
-    return [headers.join(','), ...rows.map((row) => headers.map((header) => cell((row.raw ?? row as unknown as Record<string, unknown>)[header])).join(','))].join('\n');
+    return importFailuresToCsv(rows);
   }
   @Post('batteries') async createBattery(@CurrentUser() u: AuthUser, @Body() d: CreateBatteryDto) {
     const clientId = this.clients.requireClientId(u);
@@ -138,10 +137,7 @@ export class FleetsController {
     const entityType = kind === 'batteries' ? ImportEntityType.BATTERY : kind === 'controllers' ? ImportEntityType.CONTROLLER : null;
     if (!entityType) return '';
     const rows = await this.components.failedRows(this.clients.requireClientId(u), id, entityType);
-    if (!rows.length) return '';
-    const headers = Object.keys(rows[0]);
-    const cell = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
-    return [headers.join(','), ...rows.map((row) => headers.map((header) => cell((row.raw ?? row as unknown as Record<string, unknown>)[header])).join(','))].join('\n');
+    return importFailuresToCsv(rows);
   }
   @Post() async create(@CurrentUser() u: AuthUser, @Body() d: CreateFleetDto) {
     const clientId = this.clients.requireClientId(u);
@@ -174,18 +170,7 @@ export class FleetsController {
       this.clients.requireClientId(u),
       id,
     );
-    if (!rows.length) return '';
-    const headers = Object.keys(rows[0] as Record<string, unknown>);
-    const cell = (value: unknown) =>
-      `"${String(value ?? '').replaceAll('"', '""')}"`;
-    return [
-      headers.join(','),
-      ...rows.map((row) =>
-        headers
-          .map((header) => cell((row as Record<string, unknown>)[header]))
-          .join(','),
-      ),
-    ].join('\n');
+    return importFailuresToCsv(rows);
   }
   @Roles(UserRole.CLIENT_ADMIN)
   @Post('imports/:id/retry') async retryFleetImport(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() body: { rows: Record<string, unknown>[] }) {

@@ -36,20 +36,12 @@ export class TelipiaSmsProvider implements SmsProvider {
     url.searchParams.set('TemplateID', templateId);
     url.searchParams.set('format', 'JSON');
 
-    let lastError: unknown;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const response = await fetch(url, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(10_000), headers: { accept: 'application/json' } });
-        if (!response.ok) throw new Error('SMS gateway HTTP error');
-        const body = await response.text();
-        if (isExplicitFailure(body)) throw new Error('SMS gateway rejected request');
-        return;
-      } catch (error) {
-        lastError = error;
-        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 100 * 2 ** attempt));
-      }
-    }
-    if (lastError) {
+    try {
+      const response = await fetch(url, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(10_000), headers: { accept: 'application/json' } });
+      if (!response.ok) throw new Error('SMS gateway HTTP error');
+      const body = await response.text();
+      if (isExplicitFailure(body)) throw new Error('SMS gateway rejected request');
+    } catch {
       // Never include the provider response or URL: either may contain an OTP or key.
       throw new ServiceUnavailableException('SMS delivery is temporarily unavailable.');
     }

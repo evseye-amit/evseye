@@ -272,6 +272,14 @@ export function validateEnvironment(
       'SMS_PROVIDER must not use the console provider in production.',
     );
   }
+  if (
+    result.data.NODE_ENV === 'production' &&
+    result.data.SMS_FALLBACK_PROVIDER === 'console'
+  ) {
+    throw new Error(
+      'SMS_FALLBACK_PROVIDER must not use the console provider in production.',
+    );
+  }
   if (result.data.SMS_PROVIDER === 'telipia') {
     const required = [
       'TELIPIA_API_URL',

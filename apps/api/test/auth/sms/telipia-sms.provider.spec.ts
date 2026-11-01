@@ -37,9 +37,11 @@ describe('TelipiaSmsProvider', () => {
   });
 
   it('hides provider errors and credentials from callers', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: async () => '{"status":"failed","error":"secret-key"}' }));
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, text: async () => '{"status":"failed","error":"secret-key"}' });
+    vi.stubGlobal('fetch', fetchMock);
     await expect(provider().send({ phone: '09871675222', purpose: OtpPurpose.LOGIN, code: '123456' }))
       .rejects.toThrow('SMS delivery is temporarily unavailable');
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it('uses purpose-specific handover templates', async () => {

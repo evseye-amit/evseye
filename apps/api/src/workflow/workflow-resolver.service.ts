@@ -28,7 +28,7 @@ export class WorkflowResolverService {
   async resolve(clientId: string, category: string, appCode: string) {
     const now = new Date();
     const subscription = await this.prisma.clientSubscription.findFirst({
-      where: { clientId, status: 'ACTIVE', startDate: { lte: now },
+      where: { clientId, status: category === 'LOGIN' ? { in: ['ACTIVE', 'PENDING'] } : 'ACTIVE', startDate: { lte: now },
         OR: [{ endDate: null }, { endDate: { gte: now } }] },
       orderBy: { startDate: 'desc' },
       include: { packageRevision: true },

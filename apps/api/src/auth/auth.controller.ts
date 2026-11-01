@@ -3,6 +3,7 @@ import { ApiHeader } from '@nestjs/swagger';
 import { ClientResolverService } from '../client-identity/client-resolver.service.js';
 import {
   Body,
+  BadRequestException,
   Req,
   Controller,
   Get,
@@ -52,8 +53,12 @@ export class AuthController {
   @Roles(UserRole.SUPER_ADMIN)
   async updateSmsPolicy(@CurrentUser() user: AuthUser, @Body() body: { primaryProvider: string; fallbackProvider?: string | null; maxAttempts?: number }) {
     const allowed = new Set(['console', 'telipia']);
-    if (!allowed.has(body.primaryProvider) || (body.fallbackProvider && !allowed.has(body.fallbackProvider))) throw new Error('Unsupported SMS provider.');
-    if (body.fallbackProvider === body.primaryProvider) throw new Error('Fallback provider must differ from primary provider.');
+    if (!allowed.has(body.primaryProvider) || (body.fallbackProvider && !allowed.has(body.fallbackProvider))) throw new BadRequestException('Unsupported SMS provider.');
+    if (body.fallbackProvider === body.primaryProvider) throw new BadRequestException('Fallback provider must differ from primary provider.');
+    if (this.config.get<string>('NODE_ENV') === 'production' &&
+      (body.primaryProvider === 'console' || body.fallbackProvider === 'console')) {
+      throw new BadRequestException('The console provider is not allowed in production.');
+    }
     const previous = await this.prisma.smsProviderPolicy.findUnique({ where: { id: 'default' } });
     const policy = await this.prisma.smsProviderPolicy.upsert({ where: { id: 'default' }, create: { id: 'default', primaryProvider: body.primaryProvider, fallbackProvider: body.fallbackProvider ?? null, maxAttempts: Math.min(Math.max(body.maxAttempts ?? 2, 1), 5), updatedById: user.id }, update: { primaryProvider: body.primaryProvider, fallbackProvider: body.fallbackProvider ?? null, maxAttempts: Math.min(Math.max(body.maxAttempts ?? 2, 1), 5), updatedById: user.id } });
     await this.prisma.auditLog.create({ data: { clientId: null, actorId: user.id, action: 'SMS_PROVIDER_POLICY_UPDATED', entityType: 'SMS_PROVIDER_POLICY', entityId: policy.id, previousData: previous ?? undefined, newData: policy } });

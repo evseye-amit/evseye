@@ -18,7 +18,7 @@ function createService() {
   const prisma = {
     pushDevice: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     client: {
-      findFirst: vi.fn().mockResolvedValue({ id: 'client-1' }),
+      findFirst: vi.fn().mockResolvedValue({ id: 'client-1', isActive: true, status: 'ACTIVE' }),
       findUnique: vi.fn().mockResolvedValue({ id: 'client-1', isActive: true, status: 'ACTIVE' }),
     },
     user: {
@@ -88,6 +88,86 @@ function createService() {
 }
 
 describe('AuthService', () => {
+  it.each(['CREATED', 'PENDING_APPROVAL', 'ACTIVE', 'REJECTED'])('allows %s clients to request a login OTP', async (status) => {
+    const { service, prisma, sms } = createService();
+    prisma.client.findFirst.mockResolvedValue({ id: 'client-1', isActive: true, status });
+
+    await service.requestLoginOtp('+919999999999', 'demo-client');
+
+    expect(prisma.otpRequest.create).toHaveBeenCalledOnce();
+    expect(sms.send).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ['SUSPENDED', 'CLIENT_SUSPENDED'],
+    ['DRAFT', 'CLIENT_INACTIVE'],
+  ])('blocks %s clients from requesting a login OTP', async (status, code) => {
+    const { service, prisma, sms } = createService();
+    prisma.client.findFirst.mockResolvedValue({ id: 'client-1', isActive: true, status });
+
+    await expect(service.requestLoginOtp('+919999999999', 'demo-client'))
+      .rejects.toMatchObject({ response: { code } });
+    expect(prisma.otpRequest.create).not.toHaveBeenCalled();
+    expect(sms.send).not.toHaveBeenCalled();
+  });
+
+  it('blocks inactive clients from requesting a login OTP', async () => {
+    const { service, prisma, sms } = createService();
+    prisma.client.findFirst.mockResolvedValue({ id: 'client-1', isActive: false, status: 'ACTIVE' });
+
+    await expect(service.requestLoginOtp('+919999999999', 'demo-client'))
+      .rejects.toMatchObject({ response: { code: 'CLIENT_INACTIVE' } });
+    expect(sms.send).not.toHaveBeenCalled();
+  });
+
+  it.each(['CREATED', 'PENDING_APPROVAL', 'ACTIVE', 'REJECTED'])('allows %s clients to verify a login OTP', async (status) => {
+    const { service, prisma, jwt } = createService();
+    const otpHash = createHmac('sha256', configValues.OTP_HASH_SECRET).update('123456').digest('hex');
+    prisma.otpRequest.findUnique.mockResolvedValue({
+      id: 'otp-1', clientId: 'client-1', purpose: OtpPurpose.LOGIN, phone: '+919999999999',
+      otpHash, context: { loginAppCode: 'CLIENT_PANEL' }, status: OtpStatus.PENDING,
+      attempts: 0, maxAttempts: 5, expiresAt: new Date(Date.now() + 60_000),
+    });
+    prisma.client.findUnique.mockResolvedValue({ isActive: true, status });
+
+    await expect(service.verifyLoginOtp('otp-1', '123456', undefined, 'CLIENT_PANEL'))
+      .resolves.toMatchObject({ tokenType: 'Bearer' });
+    expect(jwt.signAsync).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['SUSPENDED', 'CLIENT_SUSPENDED'],
+    ['DRAFT', 'CLIENT_INACTIVE'],
+  ])('blocks %s clients from verifying a login OTP', async (status, code) => {
+    const { service, prisma, jwt } = createService();
+    const otpHash = createHmac('sha256', configValues.OTP_HASH_SECRET).update('123456').digest('hex');
+    prisma.otpRequest.findUnique.mockResolvedValue({
+      id: 'otp-1', clientId: 'client-1', purpose: OtpPurpose.LOGIN, phone: '+919999999999',
+      otpHash, context: { loginAppCode: 'CLIENT_PANEL' }, status: OtpStatus.PENDING,
+      attempts: 0, maxAttempts: 5, expiresAt: new Date(Date.now() + 60_000),
+    });
+    prisma.client.findUnique.mockResolvedValue({ isActive: true, status });
+
+    await expect(service.verifyLoginOtp('otp-1', '123456', undefined, 'CLIENT_PANEL'))
+      .rejects.toMatchObject({ response: { code } });
+    expect(jwt.signAsync).not.toHaveBeenCalled();
+  });
+
+  it('blocks inactive clients from verifying a login OTP', async () => {
+    const { service, prisma, jwt } = createService();
+    const otpHash = createHmac('sha256', configValues.OTP_HASH_SECRET).update('123456').digest('hex');
+    prisma.otpRequest.findUnique.mockResolvedValue({
+      id: 'otp-1', clientId: 'client-1', purpose: OtpPurpose.LOGIN, phone: '+919999999999',
+      otpHash, status: OtpStatus.PENDING, attempts: 0, maxAttempts: 5,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    prisma.client.findUnique.mockResolvedValue({ isActive: false, status: 'ACTIVE' });
+
+    await expect(service.verifyLoginOtp('otp-1', '123456'))
+      .rejects.toMatchObject({ response: { code: 'CLIENT_INACTIVE' } });
+    expect(jwt.signAsync).not.toHaveBeenCalled();
+  });
+
   it('binds a client OTP to the requesting app', async () => {
     const { service, prisma, loginFlow } = createService();
     await service.requestLoginOtp(

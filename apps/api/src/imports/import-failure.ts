@@ -5,6 +5,10 @@ export type ImportFailure = {
   raw?: Record<string, unknown>;
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
 export function normalizeImportFailures(failures: unknown): ImportFailure[] {
   if (!Array.isArray(failures)) return [];
   return failures.flatMap((item) => {
@@ -13,6 +17,24 @@ export function normalizeImportFailures(failures: unknown): ImportFailure[] {
     const row = Number(value.row ?? value.row_number);
     const message = String(value.message ?? value.failure_reason ?? 'Invalid row.');
     const fields = String(value.fields ?? value.failure_fields ?? '').split(',').map((field) => field.trim()).filter(Boolean);
-    return [{ row: Number.isFinite(row) ? row : 0, message, fields, raw: value }];
+    return [{
+      row: Number.isFinite(row) ? row : 0,
+      message,
+      fields,
+      raw: isRecord(value.raw) ? value.raw : value,
+    }];
   });
+}
+
+export function importFailuresToCsv(failures: ImportFailure[]): string {
+  const rows = failures
+    .map((failure) => failure.raw)
+    .filter((row): row is Record<string, unknown> => isRecord(row));
+  if (!rows.length) return '';
+  const headers = [...new Set(rows.flatMap((row) => Object.keys(row)))];
+  const cell = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+  return [
+    headers.join(','),
+    ...rows.map((row) => headers.map((header) => cell(row[header])).join(',')),
+  ].join('\n');
 }

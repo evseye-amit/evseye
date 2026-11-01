@@ -47,6 +47,7 @@ import {
 } from './dto/catalog.dto.js';
 import { PlatformCatalogService } from './platform-catalog.service.js';
 import { CatalogRevisionService } from './catalog-revision.service.js';
+import { importFailuresToCsv } from '../imports/import-failure.js';
 
 @Controller('platform')
 @UseGuards(AccessTokenGuard, RolesGuard)
@@ -60,10 +61,7 @@ export class PlatformCatalogController {
     const value = map[entity];
     if (!value) return '';
     const rows = await this.catalog.platformImportFailures(id, value);
-    if (!rows.length) return '';
-    const headers = Object.keys((rows[0].raw ?? {}) as Record<string, unknown>);
-    const cell = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
-    return [headers.join(','), ...rows.map((row) => headers.map((header) => cell(((row.raw ?? {}) as Record<string, unknown>)[header])).join(','))].join('\n');
+    return importFailuresToCsv(rows);
   }
   @Post(':entity/imports/:id/retry')
   async retryImport(@Param('entity') entity: string, @Param('id') id: string, @Body() body: { rows: Array<Record<string, unknown>> }, @CurrentUser() user: AuthUser) {

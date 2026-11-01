@@ -19,6 +19,7 @@ import { ClientContextService } from '../auth/client-context.service.js';
 import { CreateHubDto } from './dto/create-hub.dto.js';
 import { BulkHubDto } from './dto/bulk-hub.dto.js';
 import { LocationsService } from './locations.service.js';
+import { importFailuresToCsv } from '../imports/import-failure.js';
 
 @Controller()
 @UseGuards(AccessTokenGuard, RolesGuard)
@@ -93,18 +94,7 @@ export class LocationsController {
       this.clients.requireClientId(user),
       id,
     );
-    if (!rows.length) return '';
-    const headers = Object.keys(rows[0] as Record<string, unknown>);
-    const cell = (value: unknown) =>
-      `"${String(value ?? '').replaceAll('"', '""')}"`;
-    return [
-      headers.join(','),
-      ...rows.map((row) =>
-        headers
-          .map((header) => cell((row as Record<string, unknown>)[header]))
-          .join(','),
-      ),
-    ].join('\n');
+    return importFailuresToCsv(rows);
   }
   @Roles(UserRole.CLIENT_ADMIN)
   @Post('hubs/imports/:id/retry') async retryHubImport(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { rows: CreateHubDto[] }) {

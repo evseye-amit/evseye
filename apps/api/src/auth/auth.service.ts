@@ -84,11 +84,9 @@ export class AuthService {
         })
       : null;
 
-    if (client) {
-      if (client.isActive === false) throw this.loginAccessError('CLIENT_INACTIVE');
-      if (client.status === 'PENDING_APPROVAL') throw this.loginAccessError('CLIENT_PENDING_APPROVAL');
+    if (client && !this.isClientLoginAllowed(client)) {
       if (client.status === 'SUSPENDED') throw this.loginAccessError('CLIENT_SUSPENDED');
-      if (client.status === 'REJECTED' || client.status === 'DRAFT') throw this.loginAccessError('CLIENT_INACTIVE');
+      throw this.loginAccessError('CLIENT_INACTIVE');
     }
 
     if (
@@ -180,20 +178,18 @@ export class AuthService {
 
     try {
       if (client) await this.smsQuota.reserve(client.id, otpRequest.id);
-      const delivery = await (this.prisma as any).smsDelivery?.create({ data: { otpRequestId: otpRequest.id, provider: this.config.getOrThrow('SMS_PROVIDER'), status: 'PENDING' } });
       await this.smsProvider.send({
         phone,
         purpose: OtpPurpose.LOGIN,
         code,
+        otpRequestId: otpRequest.id,
       });
-      if (delivery) await (this.prisma as any).smsDelivery.update({ where: { id: delivery.id }, data: { status: 'DELIVERED', completedAt: new Date() } });
     } catch (error) {
       if (client) await this.smsQuota.refund(client.id, otpRequest.id);
       await this.prisma.otpRequest.update({
         where: { id: otpRequest.id },
         data: { status: OtpStatus.FAILED },
       });
-      await (this.prisma as any).smsDelivery?.updateMany?.({ where: { otpRequestId: otpRequest.id, status: 'PENDING' }, data: { status: 'FAILED', completedAt: new Date(), errorCode: error instanceof Error ? error.name : 'SMS_ERROR' } });
       if (error instanceof HttpException) throw error;
       throw new ServiceUnavailableException(
         'SMS delivery is temporarily unavailable.',
@@ -242,11 +238,10 @@ export class AuthService {
         where: { id: otp.clientId },
         select: { isActive: true, status: true },
       });
-      if (!client || client.isActive === false || client.status === 'REJECTED' || client.status === 'DRAFT') {
+      if (!this.isClientLoginAllowed(client)) {
+        if (client?.status === 'SUSPENDED') throw this.loginAccessError('CLIENT_SUSPENDED');
         throw this.loginAccessError('CLIENT_INACTIVE');
       }
-      if (client.status === 'PENDING_APPROVAL') throw this.loginAccessError('CLIENT_PENDING_APPROVAL');
-      if (client.status === 'SUSPENDED') throw this.loginAccessError('CLIENT_SUSPENDED');
     }
 
     if (otp.expiresAt <= new Date()) {
@@ -324,6 +319,14 @@ export class AuthService {
     return new UnauthorizedException({ code, message: messages[code] ?? 'Login is unavailable.' });
   }
 
+  private isClientLoginAllowed(client: {
+    isActive: boolean;
+    status: string;
+  } | null | undefined): boolean {
+    return !!client && client.isActive === true &&
+      ['CREATED', 'PENDING_APPROVAL', 'ACTIVE', 'REJECTED'].includes(client.status);
+  }
+
   async requestVehicleSubmissionOtp(
     clientId: string,
     reportId: string,
@@ -386,7 +389,7 @@ export class AuthService {
       select: { id: true, expiresAt: true },
     });
     try {
-      await this.smsProvider.send({ phone, purpose, code });
+      await this.smsProvider.send({ phone, purpose, code, otpRequestId: otp.id });
     } catch {
       await this.prisma.otpRequest.update({
         where: { id: otp.id },

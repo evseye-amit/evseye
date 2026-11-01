@@ -10,6 +10,34 @@ const feature = (code: string, category: string, configuration: Record<string, u
 });
 
 describe('WorkflowResolverService', () => {
+  it('uses a pending subscription for LOGIN only, never for other workflow categories', async () => {
+    const subscription = {
+      id: 'sub-1', packageId: 'pkg-1', packageRevisionId: 'pkg-r1',
+      startDate: new Date('2026-01-01T00:00:00.000Z'), endDate: null,
+      packageRevision: {
+        id: 'pkg-r1', version: 1, publishedAt: new Date('2026-01-01T00:00:00.000Z'),
+        contentHash: 'hash', snapshot: { id: 'pkg-1', code: 'BASIC', name: 'Basic', features: [] },
+      },
+    };
+    const findFirst = vi.fn().mockImplementation(({ where }: { where: { status: unknown } }) =>
+      where.status === 'ACTIVE' ? null : subscription);
+    const prisma = {
+      clientSubscription: { findFirst },
+      clientWorkflowRevision: { findFirst: vi.fn().mockResolvedValue(null) },
+    };
+    const service = new WorkflowResolverService(prisma as never);
+
+    await expect(service.resolve('client-1', 'LOGIN', 'CLIENT_PANEL')).resolves.toMatchObject({ packageVersion: 1 });
+    expect(findFirst).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      where: expect.objectContaining({ status: { in: ['ACTIVE', 'PENDING'] } }),
+    }));
+
+    await expect(service.resolve('client-1', 'PRE_LOGIN', 'RIDER')).rejects.toThrow('Published workflow is unavailable');
+    expect(findFirst).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      where: expect.objectContaining({ status: 'ACTIVE' }),
+    }));
+  });
+
   it('reads pinned immutable Package content and a published client override', async () => {
     const prisma = {
       clientSubscription: { findFirst: vi.fn().mockResolvedValue({

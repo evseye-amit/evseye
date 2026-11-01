@@ -12,6 +12,7 @@ function createService() {
   const prisma = {
     fleet: {
       findFirst: vi.fn().mockResolvedValue({ id: 'fleet-1' }),
+      findMany: vi.fn().mockResolvedValue([]),
       update: vi.fn().mockResolvedValue({ id: 'fleet-1' }),
     },
     ioTDevice: {
@@ -25,6 +26,9 @@ function createService() {
     },
     vehicleCurrentState: { upsert: vi.fn().mockResolvedValue({}) },
     telemetryEvent: { create: vi.fn().mockResolvedValue({}) },
+    importJob: {
+      create: vi.fn().mockResolvedValue({ id: 'job-1', status: 'PASS' }),
+    },
   };
 
   return { prisma, service: new IotService(prisma as never, config as never) };
@@ -96,5 +100,28 @@ describe('IotService', () => {
     expect(prisma.vehicleCurrentState.upsert).toHaveBeenCalledWith(
       expect.objectContaining({ where: { fleetId: 'fleet-1' } }),
     );
+  });
+
+  it('returns one-time credentials for successful bulk rows without persisting secrets', async () => {
+    const { prisma, service } = createService();
+    prisma.fleet.findMany.mockResolvedValue([{
+      id: 'fleet-1', fleetCode: 'FLEET-1', chassisNumber: 'CHASSIS-1',
+      status: 'ACTIVE', iotDeviceId: null,
+    }]);
+    const rows = [
+      { fleetCode: 'FLEET-1', deviceNumber: 'device-serial-1' },
+      { fleetCode: 'FLEET-1', deviceNumber: '' },
+    ];
+
+    const result = await service.bulkRegisterDevices('client-1', 'actor-1', 'devices.csv', rows);
+
+    expect(result.ingestCredentials).toHaveLength(1);
+    expect(result.ingestCredentials[0]).toEqual({
+      deviceNumber: 'device-serial-1',
+      ingestSecret: expect.any(String),
+    });
+    const metadata = prisma.importJob.create.mock.calls[0][0].data.metadata;
+    expect(JSON.stringify(metadata)).not.toContain(result.ingestCredentials[0]!.ingestSecret);
+    expect(result.failures).toHaveLength(1);
   });
 });

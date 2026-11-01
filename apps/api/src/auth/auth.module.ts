@@ -45,7 +45,13 @@ import { PrismaService } from '../prisma/prisma.service.js';
         if (!primary) throw new Error(`Unsupported SMS_PROVIDER: ${provider}`);
         const fallbackName = config.getOrThrow('SMS_FALLBACK_PROVIDER');
         const fallback = fallbackName === 'none' || fallbackName === provider ? undefined : fallbackName === 'console' ? consoleProvider : telipiaProvider;
-        return new FailoverSmsProvider(primary, fallback, prisma, { console: consoleProvider, telipia: telipiaProvider });
+        return new FailoverSmsProvider(
+          primary,
+          fallback,
+          prisma,
+          { console: consoleProvider, telipia: telipiaProvider },
+          config.getOrThrow('NODE_ENV') === 'production',
+        );
       },
     },
   ],

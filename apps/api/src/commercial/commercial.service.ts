@@ -66,21 +66,30 @@ export class CommercialService {
       where: { packageId: quote.packageId, publishedAt: { not: null } }, orderBy: { version: 'desc' },
     });
     if (!packageRevision) throw new BadRequestException('Publish a Package version before assigning it to a client.');
-    const row = await this.prisma.$transaction(async (tx) => {
-      await tx.clientSubscription.updateMany({ where: { clientId: dto.clientId, status: 'ACTIVE' },
-        data: { status: 'CANCELLED', endDate: startDate } });
-      const subscription = await tx.clientSubscription.create({ data: {
-        clientId: dto.clientId, packageId: quote.packageId, packageRevisionId: packageRevision.id,
-        status: client.status === ClientStatus.ACTIVE ? 'ACTIVE' : 'PENDING', billingCycle: quote.billingCycle, startDate,
-        endDate: dto.endDate ? new Date(dto.endDate) : undefined, vehicleCount: dto.vehicleCount,
-        setupFee: quote.setupFee, pricePerVehicle: quote.pricePerVehicle,
-        recurringAmount: quote.finalRecurringAmount, tierMinVehicles: quote.tier.minVehicles,
-        tierMaxVehicles: quote.tier.maxVehicles, tierMode: quote.tier.tierMode, currency: quote.currency,
-      } });
-      await this.grantPackageAllowances(tx, subscription.id, dto.clientId, packageRevision.id,
-        packageRevision.snapshot, startDate);
-      return subscription;
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    let row: Awaited<ReturnType<PrismaService['clientSubscription']['create']>>;
+    try {
+      row = await this.prisma.$transaction(async (tx) => {
+        await tx.clientSubscription.updateMany({ where: { clientId: dto.clientId, status: { in: ['PENDING', 'ACTIVE'] } },
+          data: { status: 'CANCELLED', endDate: startDate } });
+        const subscription = await tx.clientSubscription.create({ data: {
+          clientId: dto.clientId, packageId: quote.packageId, packageRevisionId: packageRevision.id,
+          status: client.status === ClientStatus.ACTIVE ? 'ACTIVE' : 'PENDING', billingCycle: quote.billingCycle, startDate,
+          endDate: dto.endDate ? new Date(dto.endDate) : undefined, vehicleCount: dto.vehicleCount,
+          setupFee: quote.setupFee, pricePerVehicle: quote.pricePerVehicle,
+          recurringAmount: quote.finalRecurringAmount, tierMinVehicles: quote.tier.minVehicles,
+          tierMaxVehicles: quote.tier.maxVehicles, tierMode: quote.tier.tierMode, currency: quote.currency,
+        } });
+        await this.grantPackageAllowances(tx, subscription.id, dto.clientId, packageRevision.id,
+          packageRevision.snapshot, startDate);
+        return subscription;
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError &&
+        (error.code === 'P2002' || error.code === 'P2034')) {
+        throw new ConflictException('Subscription change conflicted with another update; reload and retry.');
+      }
+      throw error;
+    }
     await this.audit.record({ clientId: dto.clientId, actorId,
       action: 'CLIENT_SUBSCRIPTION_CREATED', entityType: 'ClientSubscription', entityId: row.id,
       newData: { packageId: quote.packageId, packageRevisionId: packageRevision.id, vehicleCount: dto.vehicleCount } });
