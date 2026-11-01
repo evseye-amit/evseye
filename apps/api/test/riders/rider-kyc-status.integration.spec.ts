@@ -1,5 +1,6 @@
+import { createTestPrisma } from '../helpers/prisma-client.js';
 import { afterAll, describe, expect, it } from 'vitest';
-import { PrismaClient, UserRole } from '@prisma/client';
+import { UserRole } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { RiderKycStatusService } from '../../src/riders/rider-kyc-status.service.js';
 import { RiderDocumentReviewService } from '../../src/riders/rider-document-review.service.js';
@@ -8,11 +9,7 @@ import { RiderAppService } from '../../src/riders/rider-app.service.js';
 const url = process.env.RIDER_KYC_TEST_DATABASE_URL;
 if (url && !new URL(url).pathname.includes('_test_'))
   throw new Error('Use a disposable _test_ database.');
-const db = new PrismaClient({
-  datasources: {
-    db: { url: url ?? 'postgresql://unused:unused@localhost:5432/unused' },
-  },
-});
+const db = createTestPrisma(url ?? 'postgresql://unused:unused@localhost:5432/unused');
 afterAll(() => db.$disconnect());
 
 describe.skipIf(!url)(

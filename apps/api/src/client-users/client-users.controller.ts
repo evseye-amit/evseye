@@ -27,6 +27,7 @@ import {
   CreateFleetManagerDto,
   ReassignTeamLeaderDto,
 } from './dto/create-client-user.dto.js';
+import { importFailuresToCsv } from '../imports/import-failure.js';
 
 @Controller('client/users')
 @UseGuards(AccessTokenGuard, RolesGuard)
@@ -100,6 +101,10 @@ export class ClientUsersController {
     );
     return this.toCsv(rows);
   }
+  @Roles(UserRole.CLIENT_ADMIN)
+  @Post('fleet-managers/imports/:id/retry') retryFleetManagerImport(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { rows: CreateFleetManagerDto[] }) {
+    return this.users.retryFleetManagerImport(this.clients.requireClientId(user), user.id, id, dto.rows, user.roles[0] as UserRole).then((data) => ({ data }));
+  }
   @Post('team-leaders') teamLeader(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateTeamLeaderDto,
@@ -155,6 +160,10 @@ export class ClientUsersController {
     );
     return this.toCsv(rows);
   }
+  @Roles(UserRole.CLIENT_ADMIN)
+  @Post('team-leaders/imports/:id/retry') retryTeamLeaderImport(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { rows: CreateTeamLeaderDto[] }) {
+    return this.users.retryTeamLeaderImport(this.clients.requireClientId(user), user.id, id, dto.rows, user.roles[0] as UserRole).then((data) => ({ data }));
+  }
   @Post('team-leaders/:id/riders') assignRiders(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -164,18 +173,7 @@ export class ClientUsersController {
       .assignRiders(this.clients.requireClientId(user), id, dto)
       .then((data) => ({ data }));
   }
-  private toCsv(rows: unknown[]) {
-    if (!rows.length) return '';
-    const headers = Object.keys(rows[0] as Record<string, unknown>);
-    const cell = (value: unknown) =>
-      `"${String(value ?? '').replaceAll('"', '""')}"`;
-    return [
-      headers.join(','),
-      ...rows.map((row) =>
-        headers
-          .map((header) => cell((row as Record<string, unknown>)[header]))
-          .join(','),
-      ),
-    ].join('\n');
+  private toCsv(rows: Parameters<typeof importFailuresToCsv>[0]) {
+    return importFailuresToCsv(rows);
   }
 }

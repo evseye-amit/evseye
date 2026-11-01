@@ -1,6 +1,19 @@
 -- PostgreSQL behavior not represented by Prisma's schema: checks, indexes,
 -- functions, and triggers recovered from the current database schema.
 -- Apply after the schema baseline.
+-- Additional PostgreSQL indexes and checks that are intentionally not modeled
+-- in Prisma's schema.
+CREATE UNIQUE INDEX IF NOT EXISTS "ClientSubscription_one_open_per_client"
+ON "ClientSubscription" ("clientId")
+WHERE "status" IN ('PENDING', 'ACTIVE');
+
+ALTER TABLE "PackageFeature" DROP CONSTRAINT IF EXISTS "PackageFeature_effective_dates_check";
+ALTER TABLE "PackageFeature" ADD CONSTRAINT "PackageFeature_effective_dates_check"
+  CHECK ("effectiveTo" IS NULL OR "effectiveTo" > "effectiveFrom");
+
+ALTER TABLE "AttendancePeriod" ADD CONSTRAINT "AttendancePeriod_checkOutAt_check"
+  CHECK ("checkOutAt" IS NULL OR "checkOutAt" > "checkInAt");
+
 -- Keep the fleet manager history coverage boundary initialized on fresh databases.
 INSERT INTO "FleetManagerHomeHistoryCoverage" ("id", "availableFrom")
 VALUES ('initial', clock_timestamp())
@@ -106,11 +119,11 @@ BEGIN
   RETURN NEW;
 END $$;
 
-CREATE FUNCTION public.freeze_preparation_photo() RETURNS trigger
+CREATE OR REPLACE FUNCTION public.freeze_preparation_photo() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 BEGIN
-  IF OLD."entityType"::text='PREPARATION' AND (
+  IF OLD."workFlowType"::text='FLEET_PREPARATION' AND (
     EXISTS (SELECT 1 FROM "FleetPreparationRevision" r WHERE r.id=OLD."entityId" AND r."submittedAt" IS NOT NULL)
     OR EXISTS (SELECT 1 FROM "FleetInstallationStage" s WHERE OLD."entityId"='installation:'||s.id||':'||s.revision::text AND s."submittedAt" IS NOT NULL)
     OR EXISTS (SELECT 1 FROM "FleetInstallationStage" s, jsonb_array_elements(s.history) h WHERE h->'photoIds' ? OLD.id)
@@ -233,7 +246,7 @@ BEGIN
   UPDATE "Fleet" SET "readinessApprovedPreparationId"=NULL WHERE id=fleet_id AND "readinessApprovedPreparationId" IS NOT NULL;
 END $$;
 
-CREATE FUNCTION public.invalidate_installation_component(fleet_id text, component_kind text) RETURNS void
+CREATE OR REPLACE FUNCTION public.invalidate_installation_component(fleet_id text, component_kind text) RETURNS void
     LANGUAGE plpgsql
     AS $$
 DECLARE stage_id TEXT; prep_id TEXT;
@@ -248,7 +261,7 @@ BEGIN
     LOOP
       UPDATE "FleetInstallationStage" SET status='WAITING',revision=revision+1,checklist='{}',"componentSnapshot"=NULL,"submittedAt"=NULL,"submittedById"=NULL,"reviewedAt"=NULL,"reviewedById"=NULL,reason='Installed component changed; reconfirm stage.',"failedItems"=ARRAY[]::TEXT[],"updatedAt"=CURRENT_TIMESTAMP WHERE id=stage_id;
     END LOOP;
-    IF EXISTS (SELECT 1 FROM "FleetPreparationRevision" r JOIN "FleetPreparation" p ON r."preparationId"=p.id AND r.revision=p."currentRevision" WHERE p.id=prep_id AND (r.checklist<>'{}'::jsonb OR EXISTS (SELECT 1 FROM "Photo" ph WHERE ph."entityId"=r.id AND ph."entityType"::text='PREPARATION'))) THEN
+    IF EXISTS (SELECT 1 FROM "FleetPreparationRevision" r JOIN "FleetPreparation" p ON r."preparationId"=p.id AND r.revision=p."currentRevision" WHERE p.id=prep_id AND (r.checklist<>'{}'::jsonb OR EXISTS (SELECT 1 FROM "Photo" ph WHERE ph."entityId"=r.id AND ph."workFlowType"::text='FLEET_PREPARATION'))) THEN
       UPDATE "FleetPreparation" SET "currentRevision"="currentRevision"+1 WHERE id=prep_id;
       INSERT INTO "FleetPreparationRevision" (id,"clientId","preparationId",revision) SELECT gen_random_uuid()::text,"clientId",id,"currentRevision" FROM "FleetPreparation" WHERE id=prep_id;
     END IF;

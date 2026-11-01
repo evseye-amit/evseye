@@ -7,6 +7,7 @@ describe('PlatformCatalogService feature pricing validation', () => {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
   );
 
   const pricing = {
@@ -52,6 +53,7 @@ describe('PlatformCatalogService feature pricing validation', () => {
       {
         createPublicUrl: (key: string) => `https://media.evseye.io/${key}`,
       } as never,
+      {} as never,
     );
 
     await expect(catalog.listOems()).resolves.toEqual([
@@ -74,7 +76,7 @@ describe('immutable vehicle catalog codes', () => {
     const findUnique = vi.fn().mockResolvedValue({ code: 'ORIGINAL' });
     const update = vi.fn();
     const prisma = { [model]: { findUnique, update } };
-    const service = new PlatformCatalogService(prisma as never, {} as never, {} as never);
+    const service = new PlatformCatalogService(prisma as never, {} as never, {} as never, {} as never);
     await expect((service as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>)[method](
       'record-1', { code: 'CHANGED', categoryId: 'category-1' }, 'admin-1',
     )).rejects.toThrow('code cannot be changed after creation');
@@ -91,11 +93,36 @@ describe('immutable vehicle catalog codes', () => {
       vehicleCategory: model === 'vehicleType' ? { findUnique: vi.fn().mockResolvedValue({ id: 'category-1' }) } : undefined };
     if (model === 'vehicleCategory') prisma.vehicleCategory = { findUnique: vi.fn().mockResolvedValue({ code: 'ORIGINAL' }), update };
     const audit = { record: vi.fn().mockResolvedValue(undefined) };
-    const service = new PlatformCatalogService(prisma as never, audit as never, {} as never);
+    const service = new PlatformCatalogService(prisma as never, audit as never, {} as never, {} as never);
     await (service as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>)[method](
       'record-1', { code: 'ORIGINAL', categoryId: 'category-1', name: 'Updated' }, 'admin-1',
     );
     expect(update).toHaveBeenCalledOnce();
     expect(update.mock.calls[0]?.[0]?.data).not.toHaveProperty('code');
+  });
+});
+
+describe('vehicle type import retry rows', () => {
+  it('preserves categoryCode for retry while omitting it from the Prisma create', async () => {
+    const completePlatformJob = vi.fn().mockImplementation(async (_jobId, result) => result);
+    const create = vi.fn().mockRejectedValue({ code: 'P2002' });
+    const imports = {
+      createPlatformJob: vi.fn().mockResolvedValue({ id: 'job-1' }),
+      completePlatformJob,
+    };
+    const catalog = new PlatformCatalogService({
+      vehicleCategory: { findMany: vi.fn().mockResolvedValue([{ id: 'category-1', code: 'CAT-1' }]) },
+      vehicleType: { create },
+    } as never, { record: vi.fn().mockResolvedValue(undefined) } as never, {} as never, imports as never);
+
+    await catalog.bulkCreateVehicleTypes({ rows: [{
+      categoryCode: 'cat-1', code: 'type-1', name: 'Type 1', energyType: 'ELECTRIC', status: 'ACTIVE',
+    }] } as never, 'admin-1');
+
+    expect(create).toHaveBeenCalledWith({ data: expect.not.objectContaining({ categoryCode: expect.anything() }) });
+    expect(create).toHaveBeenCalledWith({ data: expect.objectContaining({ categoryId: 'category-1' }) });
+    expect(completePlatformJob).toHaveBeenCalledWith('job-1', expect.objectContaining({
+      failures: [expect.objectContaining({ categoryCode: 'CAT-1' })],
+    }));
   });
 });

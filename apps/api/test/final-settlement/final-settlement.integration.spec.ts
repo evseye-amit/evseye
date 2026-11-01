@@ -1,5 +1,5 @@
+import { createTestPrisma } from '../helpers/prisma-client.js';
 import { describe, expect, it } from 'vitest';
-import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { FinalSettlementService } from '../../src/final-settlement/final-settlement.service.js';
 import { RiderBillingService } from '../../src/rider-billing/rider-billing.service.js';
@@ -11,9 +11,7 @@ const enabled = !!process.env.PHASE9_TEST_DATABASE_URL;
 const at = (s: string) => new Date(s);
 describe.skipIf(!enabled)('final settlement in PostgreSQL', () => {
   it('reconciles final rental, damage, credit, deposit application, refund, and closure', async () => {
-    const db = new PrismaClient({
-      datasources: { db: { url: process.env.PHASE9_TEST_DATABASE_URL! } },
-    });
+    const db = createTestPrisma(process.env.PHASE9_TEST_DATABASE_URL!);
     try {
       const suffix = randomUUID().slice(0, 8);
       const client = await db.client.create({

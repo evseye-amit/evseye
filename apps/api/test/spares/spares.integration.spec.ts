@@ -1,5 +1,5 @@
+import { createTestPrisma } from '../helpers/prisma-client.js';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { SparesService } from '../../src/spares/spares.service.js';
 import { copyActiveSpareMasters } from '../../src/spares/spares-copy.js';
@@ -8,11 +8,7 @@ import type { AuthUser } from '../../src/auth/interfaces/auth-user.interface.js'
 const url = process.env.SPARES_TEST_DATABASE_URL;
 if (url && !new URL(url).pathname.includes('_test_'))
   throw new Error('Use a disposable test database.');
-const db = new PrismaClient({
-  datasources: {
-    db: { url: url ?? 'postgresql://unused:unused@localhost:5432/unused' },
-  },
-});
+const db = createTestPrisma(url ?? 'postgresql://unused:unused@localhost:5432/unused');
 const service = new SparesService(db as never);
 const platform: AuthUser = {
   id: randomUUID(),
@@ -167,6 +163,13 @@ describe.skipIf(!url)('Spares catalogue in PostgreSQL', () => {
       gstPercent: '12',
       isActive: false,
     });
+    const catalogue = await service.catalogue(f.client.id, f.actor, { page: 1, limit: 100 });
+    const propagated = catalogue.data.find((item) => item.id === copy.id)!;
+    expect(propagated.origin).toBe('MASTER');
+    expect(propagated.version).toBe(2);
+    expect(propagated.masterUpdateAvailable).toBe(true);
+    expect(propagated.masterInactive).toBe(true);
+    expect(propagated.allowedFindingTypes).toEqual(['DAMAGE', 'MISSING_ITEM']);
     const preview = (await service.preview(f.client.id, f.actor)).find(
       (p) => p.priceId === copy.id,
     )!;

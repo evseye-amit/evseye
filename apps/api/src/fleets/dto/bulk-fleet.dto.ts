@@ -3,6 +3,8 @@ import {
   ArrayMaxSize,
   IsArray,
   IsObject,
+  IsOptional,
+  IsUUID,
   IsString,
   MaxLength,
 } from 'class-validator';
@@ -14,4 +16,6 @@ export class BulkFleetDto {
   @IsObject({ each: true })
   @Type(() => Object)
   rows!: Array<Record<string, unknown>>;
+  @IsOptional() @IsUUID() parentJobId?: string;
+  @IsOptional() @IsString() @MaxLength(100) sheet?: string;
 }

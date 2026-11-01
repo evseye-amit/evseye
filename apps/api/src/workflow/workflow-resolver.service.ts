@@ -28,7 +28,7 @@ export class WorkflowResolverService {
   async resolve(clientId: string, category: string, appCode: string) {
     const now = new Date();
     const subscription = await this.prisma.clientSubscription.findFirst({
-      where: { clientId, status: 'ACTIVE', startDate: { lte: now },
+      where: { clientId, status: category === 'LOGIN' ? { in: ['ACTIVE', 'PENDING'] } : 'ACTIVE', startDate: { lte: now },
         OR: [{ endDate: null }, { endDate: { gte: now } }] },
       orderBy: { startDate: 'desc' },
       include: { packageRevision: true },
@@ -56,6 +56,15 @@ export class WorkflowResolverService {
         snapshot: { path: ['packageRevisionId'], equals: revision.id } },
       orderBy: { version: 'desc' },
     });
+    // Older lightweight resolver fixtures do not provide the revision delegate.
+    // Treat that as “no pending revision” while production Prisma always has it.
+    const pendingPackageRevision = this.prisma.packageRevision?.findFirst
+      ? await this.prisma.packageRevision.findFirst({
+          where: { packageId: subscription.packageId, publishedAt: { not: null }, version: { gt: revision.version } },
+          orderBy: { version: 'desc' },
+          select: { id: true, version: true, contentHash: true, publishedAt: true },
+        })
+      : null;
     const clientOverrides = new Map(array(object(clientRevision?.snapshot).overrides)
       .map((value) => object(value)).filter((value) => typeof value.featureId === 'string')
       .map((value) => [value.featureId as string, value]));
@@ -145,6 +154,8 @@ export class WorkflowResolverService {
       packageHash: revision.contentHash, clientRevisionHash: clientRevision?.contentHash ?? null,
       category, appCode, components })).digest('hex').slice(0, 16);
     return { packageRevisionId: revision.id, packageVersion: revision.version,
+      effectivePackageRevision: { id: revision.id, version: revision.version, contentHash: revision.contentHash, effectiveAt: revision.publishedAt },
+      pendingPackageRevision: pendingPackageRevision ? { id: pendingPackageRevision.id, version: pendingPackageRevision.version, contentHash: pendingPackageRevision.contentHash, publishedAt: pendingPackageRevision.publishedAt } : null,
       clientRevisionId: clientRevision?.id ?? null,
       package: { id: String(snapshot.id), code: String(snapshot.code), name: String(snapshot.name) },
       version, components };

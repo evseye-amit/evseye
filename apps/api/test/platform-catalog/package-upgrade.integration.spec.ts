@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { createTestPrisma } from '../helpers/prisma-client.js';
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { CatalogRevisionService } from '../../src/platform-catalog/catalog-revision.service.js';
@@ -7,7 +7,7 @@ import { WorkflowResolverService } from '../../src/workflow/workflow-resolver.se
 
 const url = process.env.PACKAGE_UPGRADE_TEST_DATABASE_URL;
 if (url && !new URL(url).pathname.includes('_test_')) throw new Error('Use a disposable _test_ database.');
-const db = new PrismaClient({ datasources: { db: { url: url ?? 'postgresql://unused:unused@localhost:5432/unused' } } });
+const db = createTestPrisma(url ?? 'postgresql://unused:unused@localhost:5432/unused');
 afterAll(() => db.$disconnect());
 const service = new CatalogRevisionService(db as never);
 

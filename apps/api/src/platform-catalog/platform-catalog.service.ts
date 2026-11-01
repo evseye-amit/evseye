@@ -8,6 +8,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { AuditService } from '../audit/audit.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { ImportsService } from '../imports/imports.service.js';
 import {
   STORAGE_PROVIDER,
   type StorageProvider,
@@ -17,6 +18,7 @@ import {
   FeatureCategory,
   FeatureType,
   EnergyType,
+  ImportEntityType,
   MasterRecordStatus,
   Prisma,
   VehicleUsageType,
@@ -66,13 +68,40 @@ function uploadFeatureConfiguration(
   };
 }
 
+function validateFeatureConfiguration(configuration?: Record<string, unknown>) {
+  if (configuration === undefined) return;
+  if (!configuration || Array.isArray(configuration) || JSON.stringify(configuration).length > 32000)
+    throw new BadRequestException('Feature configuration must be a JSON object under 32 KB.');
+  if (configuration.appCodes !== undefined && (!Array.isArray(configuration.appCodes) || !configuration.appCodes.every((v) => typeof v === 'string')))
+    throw new BadRequestException('Feature appCodes must be a list of strings.');
+  if (configuration.supportedLocales !== undefined && (!Array.isArray(configuration.supportedLocales) || !configuration.supportedLocales.every((v) => typeof v === 'string') || new Set(configuration.supportedLocales).size !== configuration.supportedLocales.length))
+    throw new BadRequestException('Feature supportedLocales must be a distinct list of strings.');
+}
+
 @Injectable()
 export class PlatformCatalogService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
+    private readonly imports: ImportsService,
   ) {}
+
+  platformImportFailures(jobId: string, entityType: ImportEntityType) {
+    return this.imports.platformFailures(jobId, entityType);
+  }
+
+  async retryPlatformImport(jobId: string, entityType: ImportEntityType, actorId: string, rows: Array<Record<string, unknown>>) {
+    await this.imports.authorizePlatformJob(jobId, entityType);
+    switch (entityType) {
+      case ImportEntityType.OEM: return this.bulkCreateOems({ rows } as never, actorId);
+      case ImportEntityType.VEHICLE_CATEGORY: return this.bulkCreateVehicleCategories({ rows } as never, actorId);
+      case ImportEntityType.VEHICLE_TYPE: return this.bulkCreateVehicleTypes({ rows } as never, actorId);
+      case ImportEntityType.FEATURE: return this.bulkCreateFeatures({ rows } as never, actorId);
+      case ImportEntityType.PACKAGE: return this.bulkCreatePackages({ rows } as never, actorId);
+      default: throw new BadRequestException('Unsupported platform import entity.');
+    }
+  }
 
   async dashboard() {
     const [
@@ -169,6 +198,7 @@ export class PlatformCatalogService {
   }
   async deleteOem(id: string, actorId: string) {
     await this.exists('oem', id);
+    if (await this.prisma.fleet.count({ where: { oemId: id, deletedAt: null } })) throw new ConflictException('OEM is referenced by active Fleets and cannot be deactivated.');
     await this.prisma.oem.update({ where: { id }, data: { status: MasterRecordStatus.INACTIVE } });
     await this.audit.record({
       actorId,
@@ -242,23 +272,20 @@ export class PlatformCatalogService {
       codes.add(normalized.code);
       return normalized;
     });
+    const job = await this.imports.createPlatformJob(actorId, ImportEntityType.OEM, 'oems-bulk', rows.length, { entityType: 'OEM' });
     try {
-      await this.prisma.$transaction(
-        rows.map((row) => this.prisma.oem.create({ data: row })),
-      );
+      const result = await this.createPlatformRows(rows, (row) => this.prisma.oem.create({ data: row }));
       await this.audit.record({
         actorId,
         action: 'OEM_BULK_CREATED',
         entityType: 'OEM',
         entityId: 'bulk',
-        newData: { count: rows.length, codes: rows.map((row) => row.code) },
+        newData: { count: result.passedRows, codes: rows.map((row) => row.code) },
       });
-      return { created: rows.length };
+      return await this.imports.completePlatformJob(job.id, { ...result, createdRows: result.passedRows });
     } catch (error) {
       if (this.unique(error))
-        throw new ConflictException(
-          'The upload contains an OEM code that already exists. No OEMs were imported.',
-        );
+        return await this.imports.completePlatformJob(job.id, { passedRows: 0, failures: rows.map((row, index) => ({ ...row, row_number: index + 2, failure_reason: 'The OEM code already exists.' })) });
       throw error;
     }
   }
@@ -313,6 +340,7 @@ export class PlatformCatalogService {
   }
   async deleteVehicleCategory(id: string, actorId: string) {
     await this.exists('vehicleCategory', id);
+    if (await this.prisma.vehicleType.count({ where: { categoryId: id, status: MasterRecordStatus.ACTIVE } })) throw new ConflictException('Vehicle Category has active Vehicle Types and cannot be deactivated.');
     await this.prisma.vehicleCategory.update({ where: { id }, data: { status: MasterRecordStatus.INACTIVE } });
     await this.audit.record({
       actorId,
@@ -361,15 +389,14 @@ export class PlatformCatalogService {
         status: normalized.status as MasterRecordStatus,
       };
     });
-    await this.createBulk(
-      rows,
-      (row) => this.prisma.vehicleCategory.create({ data: row }),
-      actorId,
-      'VEHICLE_CATEGORY_BULK_CREATED',
-      'VehicleCategory',
-      'vehicle category code',
-    );
-    return { created: rows.length };
+    const job = await this.imports.createPlatformJob(actorId, ImportEntityType.VEHICLE_CATEGORY, 'vehicle-categories-bulk', rows.length, { entityType: 'VEHICLE_CATEGORY' });
+    try {
+      const result = await this.createBulk(rows, (row) => this.prisma.vehicleCategory.create({ data: row }), actorId, 'VEHICLE_CATEGORY_BULK_CREATED', 'VehicleCategory', 'vehicle category code');
+      return await this.imports.completePlatformJob(job.id, { ...result, createdRows: result.passedRows });
+    } catch (error) {
+      if (error instanceof ConflictException) return await this.imports.completePlatformJob(job.id, { passedRows: 0, failures: rows.map((row, index) => ({ ...row, row_number: index + 2, failure_reason: error.message })) });
+      throw error;
+    }
   }
   listVehicleTypes() {
     return this.prisma.vehicleType.findMany({
@@ -421,6 +448,7 @@ export class PlatformCatalogService {
   }
   async deleteVehicleType(id: string, actorId: string) {
     await this.exists('vehicleType', id);
+    if (await this.prisma.fleet.count({ where: { vehicleTypeId: id, deletedAt: null } })) throw new ConflictException('Vehicle Type is referenced by active Fleets and cannot be deactivated.');
     await this.prisma.vehicleType.update({ where: { id }, data: { status: MasterRecordStatus.INACTIVE } });
     await this.audit.record({
       actorId,
@@ -490,21 +518,28 @@ export class PlatformCatalogService {
         );
       }
     }
-    await this.createBulk(
-      rows.map(({ categoryCode, ...row }) => ({
+    const mappedRows = rows.map(({ categoryCode, ...row }) => ({
         ...row,
         categoryId: categoryIdByCode.get(categoryCode)!,
         energyType: row.energyType as EnergyType,
         usageType: row.usageType as VehicleUsageType | undefined,
         status: row.status as MasterRecordStatus,
-      })),
-      (row) => this.prisma.vehicleType.create({ data: row }),
-      actorId,
-      'VEHICLE_TYPE_BULK_CREATED',
-      'VehicleType',
-      'vehicle type code',
-    );
-    return { created: rows.length };
+      }));
+    const job = await this.imports.createPlatformJob(actorId, ImportEntityType.VEHICLE_TYPE, 'vehicle-types-bulk', rows.length, { entityType: 'VEHICLE_TYPE' });
+    try {
+      const result = await this.createBulk(mappedRows, (row) => this.prisma.vehicleType.create({ data: row }), actorId, 'VEHICLE_TYPE_BULK_CREATED', 'VehicleType', 'vehicle type code');
+      const failures = result.failures.map((failure) => {
+        const rowIndex = Number(failure.row ?? failure.row_number) - 2;
+        const source = rows[rowIndex];
+        return source?.categoryCode
+          ? { ...failure, categoryCode: source.categoryCode }
+          : failure;
+      });
+      return await this.imports.completePlatformJob(job.id, { ...result, failures, createdRows: result.passedRows });
+    } catch (error) {
+      if (error instanceof ConflictException) return await this.imports.completePlatformJob(job.id, { passedRows: 0, failures: rows.map((row, index) => ({ ...row, row_number: index + 2, failure_reason: error.message })) });
+      throw error;
+    }
   }
 
   listFeatures() {
@@ -521,6 +556,7 @@ export class PlatformCatalogService {
   }
   async createFeature(dto: CreateFeatureDto, actorId: string) {
     const { configuration, translations, featureStepId, ...data } = dto;
+    validateFeatureConfiguration(configuration);
     if (featureStepId) await this.requireFeatureStep(featureStepId);
     const effectiveConfiguration = uploadFeatureConfiguration(dto.billingUnit, dto.code, configuration);
     return this.createWithAudit('FEATURE_CREATED', 'Feature', actorId, () =>
@@ -544,6 +580,7 @@ export class PlatformCatalogService {
     const currentConfiguration = existing.configuration && typeof existing.configuration === 'object' && !Array.isArray(existing.configuration)
       ? existing.configuration as Record<string, unknown>
       : undefined;
+    validateFeatureConfiguration(configuration ?? currentConfiguration);
     const effectiveConfiguration = uploadFeatureConfiguration(dto.billingUnit, dto.code, configuration ?? currentConfiguration);
     return this.updateWithAudit('FEATURE_UPDATED', 'Feature', id, actorId, () =>
       this.prisma.feature.update({
@@ -705,23 +742,20 @@ export class PlatformCatalogService {
           : {}),
       };
     });
+    const job = await this.imports.createPlatformJob(actorId, ImportEntityType.FEATURE, 'features-bulk', rows.length, { entityType: 'FEATURE' });
     try {
-      await this.prisma.$transaction(
-        rows.map((row) => this.prisma.feature.create({ data: row })),
-      );
+      const result = await this.createPlatformRows(rows, (row) => this.prisma.feature.create({ data: row }));
       await this.audit.record({
         actorId,
         action: 'FEATURE_BULK_CREATED',
         entityType: 'Feature',
         entityId: 'bulk',
-        newData: { count: rows.length, codes: rows.map((row) => row.code) },
+        newData: { count: result.passedRows, codes: rows.map((row) => row.code) },
       });
-      return { created: rows.length };
+      return await this.imports.completePlatformJob(job.id, { ...result, createdRows: result.passedRows });
     } catch (error) {
       if (this.unique(error)) {
-        throw new ConflictException(
-          'The upload contains a feature code that already exists. No features were imported.',
-        );
+        return await this.imports.completePlatformJob(job.id, { passedRows: 0, failures: rows.map((row, index) => ({ ...row, row_number: index + 2, failure_reason: 'The feature code already exists.' })) });
       }
       throw error;
     }
@@ -804,9 +838,15 @@ export class PlatformCatalogService {
     dto: CreatePackageFeatureAssignmentDto,
     actorId: string,
   ) {
-    await this.exists('package', dto.packageId);
-    await this.exists('feature', dto.featureId);
-    const { packageId, featureId, ...feature } = dto;
+    const [pkg, featureRecord] = await Promise.all([
+      this.prisma.package.findUnique({ where: { id: dto.packageId }, select: { id: true, isActive: true } }),
+      this.prisma.feature.findUnique({ where: { id: dto.featureId }, select: { id: true, isActive: true } }),
+    ]);
+    if (!pkg) throw new NotFoundException('Package not found.');
+    if (!featureRecord) throw new NotFoundException('Feature not found.');
+    if (!pkg.isActive) throw new BadRequestException('Inactive Packages cannot receive Feature assignments.');
+    if (!featureRecord.isActive) throw new BadRequestException('Only active Features can be assigned to a Package.');
+    const { packageId, featureId, ...featureData } = dto;
     try {
       const created = await this.createWithAudit(
         'PACKAGE_FEATURE_CREATED',
@@ -814,7 +854,7 @@ export class PlatformCatalogService {
         actorId,
         () =>
           this.prisma.packageFeature.create({
-            data: { packageId, featureId, ...this.packageFeatureData(feature) },
+            data: { packageId, featureId, ...this.packageFeatureData(featureData) },
             include: { package: true, feature: true },
           }),
       );
@@ -848,8 +888,10 @@ export class PlatformCatalogService {
     return this.jsonSafe(updated);
   }
   async deletePackageFeature(id: string, actorId: string) {
-    const existing = await this.prisma.packageFeature.findUnique({ where: { id } });
+    const existing = await this.prisma.packageFeature.findUnique({ where: { id }, include: { package: true } });
     if (!existing) throw new NotFoundException('Package Feature not found.');
+    const activeSubscriptions = await this.prisma.clientSubscription.count({ where: { packageId: existing.packageId, status: 'ACTIVE' } });
+    if (activeSubscriptions) throw new ConflictException('This Package Feature is assigned to an active client subscription and cannot be removed. Publish a new Package revision instead.');
     await this.prisma.packageFeature.update({ where: { id }, data: { isIncluded: false } });
     await this.audit.record({
       actorId,
@@ -948,23 +990,20 @@ export class PlatformCatalogService {
       codes.add(normalized.code);
       return normalized;
     });
+    const job = await this.imports.createPlatformJob(actorId, ImportEntityType.PACKAGE, 'packages-bulk', rows.length, { entityType: 'PACKAGE' });
     try {
-      await this.prisma.$transaction(async (tx) => {
-        for (const row of rows) await tx.package.create({ data: row });
-      });
+      const result = await this.createPlatformRows(rows, (row) => this.prisma.package.create({ data: row }));
       await this.audit.record({
         actorId,
         action: 'PACKAGE_BULK_CREATED',
         entityType: 'Package',
         entityId: 'bulk',
-        newData: { count: rows.length, codes: rows.map((row) => row.code) },
+        newData: { count: result.passedRows, codes: rows.map((row) => row.code) },
       });
-      return { created: rows.length };
+      return await this.imports.completePlatformJob(job.id, { ...result, createdRows: result.passedRows });
     } catch (error) {
       if (this.unique(error)) {
-        throw new ConflictException(
-          'The upload contains a package code that already exists. No packages were imported.',
-        );
+        return await this.imports.completePlatformJob(job.id, { passedRows: 0, failures: rows.map((row, index) => ({ ...row, row_number: index + 2, failure_reason: 'The package code already exists.' })) });
       }
       throw error;
     }
@@ -1061,7 +1100,9 @@ export class PlatformCatalogService {
     feature: Omit<CreatePackageFeatureDto, 'featureId'> &
       Partial<Pick<CreatePackageFeatureDto, 'featureId'>>,
   ) {
-    const { configuration, ...data } = feature;
+    const { configuration, effectiveFrom, effectiveTo, ...data } = feature;
+    if (effectiveFrom && effectiveTo && new Date(effectiveTo) <= new Date(effectiveFrom))
+      throw new BadRequestException('Package Feature end date must be after its start date.');
     if (configuration && typeof configuration === 'object' && !Array.isArray(configuration) && 'loginAppCodes' in configuration) {
       const apps = (configuration as Record<string, unknown>).loginAppCodes;
       const supported = new Set(['RIDER_APP', 'CLIENT_PANEL', 'FLEET_MANAGER_APP', 'TEAM_LEADER_APP']);
@@ -1071,6 +1112,8 @@ export class PlatformCatalogService {
     }
     return {
       ...data,
+      effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : undefined,
+      effectiveTo: effectiveTo ? new Date(effectiveTo) : undefined,
       includedQuantity: feature.includedQuantity,
       configuration: configuration as Prisma.InputJsonValue | undefined,
     };
@@ -1166,23 +1209,42 @@ export class PlatformCatalogService {
     entityType: string,
     label: string,
   ) {
-    try {
-      await this.prisma.$transaction(rows.map((row) => create(row)));
+    const failures: Array<Record<string, unknown>> = [];
+    let passedRows = 0;
+    for (const [index, row] of rows.entries()) {
+      try {
+        await create(row);
+        passedRows += 1;
+      } catch (error) {
+        if (!this.unique(error)) throw error;
+        failures.push({ ...row, row: index + 2, failure_reason: `The ${label} already exists.` });
+      }
+    }
+    if (passedRows) {
       await this.audit.record({
         actorId,
         action,
         entityType,
         entityId: 'bulk',
-        newData: { count: rows.length, codes: rows.map((row) => row.code) },
+        newData: { count: passedRows, codes: rows.filter((_, index) => !failures.some((failure) => failure.row === index + 2)).map((row) => row.code) },
       });
-    } catch (error) {
-      if (this.unique(error)) {
-        throw new ConflictException(
-          `The upload contains a ${label} that already exists. No records were imported.`,
-        );
-      }
-      throw error;
     }
+    return { passedRows, failures };
+  }
+  private async createPlatformRows<T extends Record<string, unknown>>(
+    rows: T[],
+    create: (row: T) => Prisma.PrismaPromise<unknown>,
+  ) {
+    const failures: Array<Record<string, unknown>> = [];
+    let passedRows = 0;
+    for (const [index, row] of rows.entries()) {
+      try { await create(row); passedRows += 1; }
+      catch (error) {
+        if (!this.unique(error)) throw error;
+        failures.push({ ...row, row: index + 2, failure_reason: 'A record with the same code already exists.' });
+      }
+    }
+    return { passedRows, failures };
   }
   private toBoolean(value: unknown, fallback: boolean) {
     if (value === undefined || value === null || value === '') return fallback;

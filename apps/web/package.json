@@ -11,21 +11,21 @@
     "test": "node --test test/app/components/fleet-readiness-ui.test.mjs test/app/platform/dashboard/data-table-filter.test.mjs"
   },
   "dependencies": {
-    "next": "16.3.4",
+    "next": "16.4.3",
     "qrcode.react": "^4.2.0",
-    "react": "19.2.8",
-    "react-dom": "19.2.8",
-    "xlsx": "^0.18.5"
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "16.3.4",
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "eslint": "^10.14.0",
+    "eslint-config-next": "16.4.3",
     "tailwindcss": "^4",
     "typescript": "^5"
   },
-  "packageManager": "pnpm@11.4.0"
+  "packageManager": "pnpm@12.16.1"
 }

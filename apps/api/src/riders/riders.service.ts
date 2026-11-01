@@ -13,6 +13,7 @@ import {
   UserRole,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { normalizeImportFailures } from '../imports/import-failure.js';
 import { assertUserMobileAvailable, normalizeIndianMobile, USER_MOBILE_CONFLICT_MESSAGE } from '../common/phone.js';
 import type { CreateRiderDto } from './dto/create-rider.dto.js';
 import type { ListRidersDto } from './dto/list-riders.dto.js';
@@ -126,6 +127,7 @@ export class RidersService {
       passedRows: created,
       failedRows: failures.length,
       createdRows: created,
+      failures: normalizeImportFailures(failures),
     };
   }
   async failedRows(clientId: string, jobId: string) {
@@ -135,6 +137,11 @@ export class RidersService {
     });
     if (!job) throw new NotFoundException('Import job not found.');
     return (job.metadata as { failures?: unknown[] } | null)?.failures ?? [];
+  }
+  async retryImport(clientId: string, actorId: string, jobId: string, rows: CreateRiderDto[]) {
+    const job = await this.prisma.importJob.findFirst({ where: { id: jobId, clientId, entityType: ImportEntityType.RIDER }, select: { originalFilename: true } });
+    if (!job) throw new NotFoundException('Import job not found.');
+    return this.bulkCreate(clientId, actorId, job.originalFilename, rows);
   }
 
   async list(clientId: string, query: ListRidersDto) {

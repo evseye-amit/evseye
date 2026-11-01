@@ -1,3 +1,4 @@
+import { createTestPrisma } from '../helpers/prisma-client.js';
 import type { AuthUser } from '../../src/auth/interfaces/auth-user.interface.js';
 import type { ExecutionContext } from '@nestjs/common';
 import { ClientContextService } from '../../src/auth/client-context.service.js';
@@ -15,7 +16,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import { RazorpayDeploymentService } from '../../src/payments/razorpay/razorpay-deployment.service.js';
 import { RazorpayProviderError } from '../../src/payments/razorpay/razorpay.client.js';
 import type { RazorpayClient, RazorpayPayment } from '../../src/payments/razorpay/razorpay.client.js';
-import { PrismaClient, UserRole } from '@prisma/client';
+import { UserRole } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { DeploymentCommercialService } from '../../src/allocations/deployment-commercial.service.js';
 import { CommercialOfferService } from '../../src/rider-rate-cards/commercial-offer.service.js';
@@ -38,11 +39,7 @@ import { FleetStatusPolicy } from '../../src/fleets/fleet-status.policy.js';
 const url = process.env.DEPLOYMENT_PLAN_TEST_DATABASE_URL;
 if (url && !new URL(url).pathname.includes('_test_'))
   throw new Error('Use a disposable _test_ database.');
-const db = new PrismaClient({
-  datasources: {
-    db: { url: url ?? 'postgresql://unused:unused@localhost:5432/unused' },
-  },
-});
+const db = createTestPrisma(url ?? 'postgresql://unused:unused@localhost:5432/unused');
 afterAll(() => db.$disconnect());
 const pricing = new CommercialOfferService(db as never);
 const deposits = new RiderDepositService(db as never);

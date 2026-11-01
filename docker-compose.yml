@@ -26,7 +26,7 @@ services:
       retries: 10
 
   minio:
-    image: quay.io/minio/minio:latest
+    image: docker.io/pgsty/silo:RELEASE.2026-10-26T00-00-00Z
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: evseye-minio
@@ -43,7 +43,7 @@ services:
       retries: 10
 
   minio-init:
-    image: quay.io/minio/mc:latest
+    image: docker.io/pgsty/silo:RELEASE.2026-10-26T00-00-00Z
     environment:
       MINIO_ROOT_USER: evseye-minio
       MINIO_ROOT_PASSWORD: evseye-minio-local-password
@@ -61,6 +61,7 @@ services:
 
   api:
     image: evseye-api:local
+    pull_policy: build
     build:
       context: .
       dockerfile: apps/api/Dockerfile
@@ -93,6 +94,7 @@ services:
 
   migrate:
     image: evseye-api:local
+    pull_policy: build
     build:
       context: .
       dockerfile: apps/api/Dockerfile
@@ -104,7 +106,7 @@ services:
         "./apps/api/node_modules/.bin/prisma",
         "migrate",
         "deploy",
-        "--schema=apps/api/prisma/schema.prisma",
+        "--config=apps/api/prisma.config.ts",
       ]
     depends_on:
       postgres:
@@ -112,6 +114,7 @@ services:
 
   seed:
     image: evseye-api:local
+    pull_policy: build
     build:
       context: .
       dockerfile: apps/api/Dockerfile
@@ -132,6 +135,7 @@ services:
 
   web:
     image: evseye-web:local
+    pull_policy: build
     build:
       context: .
       dockerfile: apps/web/Dockerfile

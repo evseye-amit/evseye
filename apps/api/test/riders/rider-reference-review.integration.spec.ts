@@ -1,3 +1,4 @@
+import { createTestPrisma } from '../helpers/prisma-client.js';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PrismaService } from '../../src/prisma/prisma.service.js';
@@ -10,7 +11,7 @@ describe.skipIf(!databaseUrl)('Rider reference PostgreSQL integration', () => {
   let clientA: string; let clientB: string; let managerA: string; let managerB: string; let userA: string; let riderA: string;
   const references = [{ name: 'Nisha', mobile: '9876543210', relation: 'Sister' }, { name: 'Vikram', mobile: '9876543211', relation: 'Friend' }];
   beforeAll(async () => {
-    db = new PrismaService({ datasources: { db: { url: databaseUrl! } } });
+    db = createTestPrisma(databaseUrl!) as PrismaService;
     clientA = (await db.client.create({ data: { name: 'Reference Test A', slug: `reference-a-${randomUUID()}` } })).id;
     clientB = (await db.client.create({ data: { name: 'Reference Test B', slug: `reference-b-${randomUUID()}` } })).id;
     managerA = (await db.user.create({ data: { clientId: clientA, name: 'Manager A', mobile: '+919876543201', role: 'FLEET_MANAGER' } })).id;

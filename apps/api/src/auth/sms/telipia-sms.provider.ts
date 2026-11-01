@@ -13,11 +13,13 @@ export class TelipiaSmsProvider implements SmsProvider {
   async send(input: SendSmsInput): Promise<void> {
     const templateId = input.purpose === OtpPurpose.LOGIN
       ? this.config.getOrThrow('TELIPIA_LOGIN_TEMPLATE_ID')
-      : this.config.get('TELIPIA_DEALLOCATION_TEMPLATE_ID');
+      : input.purpose === OtpPurpose.HANDOVER_RIDER
+        ? this.config.get('TELIPIA_HANDOVER_RIDER_TEMPLATE_ID')
+        : this.config.get('TELIPIA_HANDOVER_OPERATOR_TEMPLATE_ID');
     if (!templateId) throw new ServiceUnavailableException('SMS delivery is not configured for this purpose.');
     const message = input.purpose === OtpPurpose.LOGIN
       ? `One Time Password (OTP) for your login is ${input.code}. Please enter it to proceed with the process. EV SPARES INDIA PRIVATE LIMITED`
-      : `Your EVs Eye deallocation code is ${input.code}.`;
+      : `Your EVs Eye vehicle handover code is ${input.code}.`;
 
     const mobile = normalizeIndianMobile(input.phone).slice(3);
     if (!/^[6-9]\d{9}$/.test(mobile)) {
@@ -35,12 +37,7 @@ export class TelipiaSmsProvider implements SmsProvider {
     url.searchParams.set('format', 'JSON');
 
     try {
-      const response = await fetch(url, {
-        method: 'GET',
-        redirect: 'error',
-        signal: AbortSignal.timeout(10_000),
-        headers: { accept: 'application/json' },
-      });
+      const response = await fetch(url, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(10_000), headers: { accept: 'application/json' } });
       if (!response.ok) throw new Error('SMS gateway HTTP error');
       const body = await response.text();
       if (isExplicitFailure(body)) throw new Error('SMS gateway rejected request');

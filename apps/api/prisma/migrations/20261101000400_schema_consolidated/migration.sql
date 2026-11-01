@@ -1,17 +1,13 @@
--- Baseline generated from apps/api/prisma/schema.prisma.
--- Existing databases must mark this migration applied; do not replay on populated databases.
--- Database extensions required by the Prisma schema (PostGIS geography fields)
+-- Consolidated schema baseline generated from apps/api/prisma/schema.prisma.
+-- Existing development databases must be reset before applying this baseline.
+-- PostGIS extensions required by geography fields and non-schema constraints.
 CREATE SCHEMA IF NOT EXISTS tiger;
 CREATE SCHEMA IF NOT EXISTS topology;
 
 CREATE EXTENSION IF NOT EXISTS btree_gist WITH SCHEMA public;
-
 CREATE EXTENSION IF NOT EXISTS fuzzystrmatch WITH SCHEMA public;
-
 CREATE EXTENSION IF NOT EXISTS postgis WITH SCHEMA public;
-
 CREATE EXTENSION IF NOT EXISTS postgis_tiger_geocoder WITH SCHEMA tiger;
-
 CREATE EXTENSION IF NOT EXISTS postgis_topology WITH SCHEMA topology;
 
 -- CreateEnum
@@ -42,7 +38,10 @@ CREATE TYPE "ClientOnboardingStep" AS ENUM ('HUBS', 'FLEET_MANAGERS', 'TEAM_LEAD
 CREATE TYPE "ClientOnboardingStepStatus" AS ENUM ('NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'SKIPPED');
 
 -- CreateEnum
-CREATE TYPE "ImportEntityType" AS ENUM ('HUB', 'FLEET_MANAGER', 'TEAM_LEADER', 'FLEET', 'BATTERY', 'CONTROLLER', 'IOT_DEVICE', 'FLEET_COMPONENT_MAPPING', 'RIDER');
+CREATE TYPE "ImportEntityType" AS ENUM ('HUB', 'FLEET_MANAGER', 'TEAM_LEADER', 'FLEET', 'BATTERY', 'CONTROLLER', 'IOT_DEVICE', 'FLEET_COMPONENT_MAPPING', 'RIDER', 'OEM', 'VEHICLE_CATEGORY', 'VEHICLE_TYPE', 'FEATURE', 'PACKAGE');
+
+-- CreateEnum
+CREATE TYPE "ImportScope" AS ENUM ('CLIENT', 'PLATFORM');
 
 -- CreateEnum
 CREATE TYPE "ImportStatus" AS ENUM ('PASS', 'PARTIAL_PASS', 'FAIL');
@@ -632,6 +631,8 @@ CREATE TABLE "PackageFeature" (
     "rolloverAllowed" BOOLEAN NOT NULL DEFAULT false,
     "configuration" JSONB,
     "displayOrder" INTEGER NOT NULL DEFAULT 0,
+    "effectiveFrom" DATE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "effectiveTo" DATE,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -2100,9 +2101,28 @@ CREATE TABLE "ClientOnboardingStepRecord" (
 );
 
 -- CreateTable
-CREATE TABLE "ImportJob" (
+CREATE TABLE "ClientOnboardingRejection" (
     "id" TEXT NOT NULL,
     "clientId" TEXT NOT NULL,
+    "submissionId" TEXT,
+    "section" VARCHAR(60) NOT NULL,
+    "reasonCode" VARCHAR(80) NOT NULL,
+    "reason" VARCHAR(500) NOT NULL,
+    "blocking" BOOLEAN NOT NULL DEFAULT true,
+    "resolvedAt" TIMESTAMP(3),
+    "resolvedById" TEXT,
+    "createdById" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "ClientOnboardingRejection_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "ImportJob" (
+    "id" TEXT NOT NULL,
+    "clientId" TEXT,
+    "scope" "ImportScope" NOT NULL DEFAULT 'CLIENT',
     "entityType" "ImportEntityType" NOT NULL,
     "status" "ImportStatus" NOT NULL,
     "originalFilename" TEXT NOT NULL,
@@ -2116,6 +2136,7 @@ CREATE TABLE "ImportJob" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "completedAt" TIMESTAMP(3),
     "metadata" JSONB,
+    "parentJobId" TEXT,
 
     CONSTRAINT "ImportJob_pkey" PRIMARY KEY ("id")
 );
@@ -2837,10 +2858,6 @@ CREATE TABLE "AttendancePeriod" (
     CONSTRAINT "AttendancePeriod_pkey" PRIMARY KEY ("id")
 );
 
-ALTER TABLE "AttendancePeriod"
-  ADD CONSTRAINT "AttendancePeriod_checkOutAt_checkInAt_check"
-  CHECK ("checkOutAt" IS NULL OR "checkOutAt" > "checkInAt");
-
 -- CreateTable
 CREATE TABLE "AuditLog" (
     "id" BIGSERIAL NOT NULL,
@@ -2875,6 +2892,32 @@ CREATE TABLE "OtpRequest" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "OtpRequest_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "SmsDelivery" (
+    "id" TEXT NOT NULL,
+    "otpRequestId" TEXT NOT NULL,
+    "provider" TEXT NOT NULL,
+    "status" TEXT NOT NULL,
+    "attempt" INTEGER NOT NULL DEFAULT 1,
+    "errorCode" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "completedAt" TIMESTAMP(3),
+
+    CONSTRAINT "SmsDelivery_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "SmsProviderPolicy" (
+    "id" TEXT NOT NULL DEFAULT 'default',
+    "primaryProvider" TEXT NOT NULL,
+    "fallbackProvider" TEXT,
+    "maxAttempts" INTEGER NOT NULL DEFAULT 2,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "updatedById" TEXT,
+
+    CONSTRAINT "SmsProviderPolicy_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -3587,56 +3630,6 @@ CREATE TABLE "ReturnPenaltyPrice" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "ReturnPenaltyPrice_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "ReturnPenaltyCase" (
-    "id" TEXT NOT NULL,
-    "clientId" TEXT NOT NULL,
-    "riderId" TEXT NOT NULL,
-    "terminationRequestId" TEXT NOT NULL,
-    "inspectionId" TEXT NOT NULL,
-    "currentRevision" INTEGER NOT NULL DEFAULT 0,
-    "digest" CHAR(64),
-    "totalAmount" DECIMAL(14,2) NOT NULL DEFAULT 0,
-    "currency" CHAR(3) NOT NULL DEFAULT 'INR',
-    "status" VARCHAR(40) NOT NULL DEFAULT 'DRAFT',
-    "submittedAt" TIMESTAMP(3),
-    "submittedById" TEXT,
-    "riderDisputedRevision" INTEGER,
-    "riderDisputedAt" TIMESTAMP(3),
-    "riderDisputeReason" VARCHAR(500),
-    "managerApprovedRevision" INTEGER,
-    "managerApprovedAt" TIMESTAMP(3),
-    "managerApprovedById" TEXT,
-    "postedRevision" INTEGER,
-    "postedChargeId" TEXT,
-    "postedAt" TIMESTAMP(3),
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "ReturnPenaltyCase_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "ReturnPenaltyItem" (
-    "id" TEXT NOT NULL,
-    "clientId" TEXT NOT NULL,
-    "caseId" TEXT NOT NULL,
-    "revision" INTEGER NOT NULL,
-    "position" INTEGER NOT NULL,
-    "priceListItemId" TEXT NOT NULL,
-    "priceCode" VARCHAR(60),
-    "category" VARCHAR(30),
-    "description" VARCHAR(300),
-    "amount" DECIMAL(14,2),
-    "currency" CHAR(3),
-    "details" VARCHAR(1000) NOT NULL,
-    "evidencePhotoIds" TEXT[] DEFAULT ARRAY[]::TEXT[],
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "createdById" TEXT NOT NULL,
-
-    CONSTRAINT "ReturnPenaltyItem_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -5631,7 +5624,19 @@ CREATE INDEX "ClientOnboardingStepRecord_clientId_step_status_idx" ON "ClientOnb
 CREATE UNIQUE INDEX "ClientOnboardingStepRecord_progressId_step_key" ON "ClientOnboardingStepRecord"("progressId", "step");
 
 -- CreateIndex
+CREATE INDEX "ClientOnboardingRejection_clientId_resolvedAt_blocking_idx" ON "ClientOnboardingRejection"("clientId", "resolvedAt", "blocking");
+
+-- CreateIndex
+CREATE INDEX "ClientOnboardingRejection_clientId_createdAt_idx" ON "ClientOnboardingRejection"("clientId", "createdAt");
+
+-- CreateIndex
 CREATE INDEX "ImportJob_clientId_entityType_createdAt_idx" ON "ImportJob"("clientId", "entityType", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "ImportJob_scope_entityType_createdAt_idx" ON "ImportJob"("scope", "entityType", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "ImportJob_parentJobId_idx" ON "ImportJob"("parentJobId");
 
 -- CreateIndex
 CREATE INDEX "Allocation_clientId_fleetId_status_idx" ON "Allocation"("clientId", "fleetId", "status");
@@ -5922,6 +5927,12 @@ CREATE INDEX "OtpRequest_phone_purpose_createdAt_idx" ON "OtpRequest"("phone", "
 CREATE INDEX "OtpRequest_clientId_status_idx" ON "OtpRequest"("clientId", "status");
 
 -- CreateIndex
+CREATE INDEX "SmsDelivery_otpRequestId_createdAt_idx" ON "SmsDelivery"("otpRequestId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "SmsDelivery_provider_status_createdAt_idx" ON "SmsDelivery"("provider", "status", "createdAt");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "ClientDomain_hostname_key" ON "ClientDomain"("hostname");
 
 -- CreateIndex
@@ -6178,30 +6189,6 @@ CREATE UNIQUE INDEX "ReturnPenaltyPrice_clientId_masterSpareId_key" ON "ReturnPe
 
 -- CreateIndex
 CREATE UNIQUE INDEX "ReturnPenaltyPrice_clientId_code_key" ON "ReturnPenaltyPrice"("clientId", "code");
-
--- CreateIndex
-CREATE UNIQUE INDEX "ReturnPenaltyCase_terminationRequestId_key" ON "ReturnPenaltyCase"("terminationRequestId");
-
--- CreateIndex
-CREATE UNIQUE INDEX "ReturnPenaltyCase_inspectionId_key" ON "ReturnPenaltyCase"("inspectionId");
-
--- CreateIndex
-CREATE UNIQUE INDEX "ReturnPenaltyCase_postedChargeId_key" ON "ReturnPenaltyCase"("postedChargeId");
-
--- CreateIndex
-CREATE INDEX "ReturnPenaltyCase_clientId_riderId_status_updatedAt_idx" ON "ReturnPenaltyCase"("clientId", "riderId", "status", "updatedAt");
-
--- CreateIndex
-CREATE INDEX "ReturnPenaltyCase_clientId_status_updatedAt_idx" ON "ReturnPenaltyCase"("clientId", "status", "updatedAt");
-
--- CreateIndex
-CREATE UNIQUE INDEX "ReturnPenaltyCase_clientId_id_key" ON "ReturnPenaltyCase"("clientId", "id");
-
--- CreateIndex
-CREATE INDEX "ReturnPenaltyItem_clientId_caseId_revision_idx" ON "ReturnPenaltyItem"("clientId", "caseId", "revision");
-
--- CreateIndex
-CREATE UNIQUE INDEX "ReturnPenaltyItem_caseId_revision_position_key" ON "ReturnPenaltyItem"("caseId", "revision", "position");
 
 -- CreateIndex
 CREATE INDEX "SupportTicket_clientId_riderId_lastActivityAt_id_idx" ON "SupportTicket"("clientId", "riderId", "lastActivityAt", "id");
@@ -7143,7 +7130,13 @@ ALTER TABLE "ClientOnboardingStepRecord" ADD CONSTRAINT "ClientOnboardingStepRec
 ALTER TABLE "ClientOnboardingStepRecord" ADD CONSTRAINT "ClientOnboardingStepRecord_progressId_fkey" FOREIGN KEY ("progressId") REFERENCES "ClientOnboardingProgress"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "ClientOnboardingRejection" ADD CONSTRAINT "ClientOnboardingRejection_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "ImportJob" ADD CONSTRAINT "ImportJob_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ImportJob" ADD CONSTRAINT "ImportJob_parentJobId_fkey" FOREIGN KEY ("parentJobId") REFERENCES "ImportJob"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Allocation" ADD CONSTRAINT "Allocation_clientId_commercialOfferId_fkey" FOREIGN KEY ("clientId", "commercialOfferId") REFERENCES "RiderCommercialOffer"("clientId", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -7314,6 +7307,9 @@ ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_clientId_fkey" FOREIGN KEY ("cli
 ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_actorId_fkey" FOREIGN KEY ("actorId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "SmsDelivery" ADD CONSTRAINT "SmsDelivery_otpRequestId_fkey" FOREIGN KEY ("otpRequestId") REFERENCES "OtpRequest"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "ClientDomain" ADD CONSTRAINT "ClientDomain_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -7462,27 +7458,6 @@ ALTER TABLE "ReturnPenaltyPrice" ADD CONSTRAINT "ReturnPenaltyPrice_masterSpareI
 
 -- AddForeignKey
 ALTER TABLE "ReturnPenaltyPrice" ADD CONSTRAINT "ReturnPenaltyPrice_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "ReturnPenaltyCase" ADD CONSTRAINT "ReturnPenaltyCase_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "ReturnPenaltyCase" ADD CONSTRAINT "ReturnPenaltyCase_clientId_riderId_fkey" FOREIGN KEY ("clientId", "riderId") REFERENCES "Rider"("clientId", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "ReturnPenaltyCase" ADD CONSTRAINT "ReturnPenaltyCase_terminationRequestId_fkey" FOREIGN KEY ("terminationRequestId") REFERENCES "RentalTerminationRequest"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "ReturnPenaltyCase" ADD CONSTRAINT "ReturnPenaltyCase_inspectionId_fkey" FOREIGN KEY ("inspectionId") REFERENCES "Inspection"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "ReturnPenaltyCase" ADD CONSTRAINT "ReturnPenaltyCase_postedChargeId_fkey" FOREIGN KEY ("postedChargeId") REFERENCES "RiderCharge"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "ReturnPenaltyItem" ADD CONSTRAINT "ReturnPenaltyItem_caseId_fkey" FOREIGN KEY ("caseId") REFERENCES "ReturnPenaltyCase"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "ReturnPenaltyItem" ADD CONSTRAINT "ReturnPenaltyItem_priceListItemId_fkey" FOREIGN KEY ("priceListItemId") REFERENCES "ReturnPenaltyPrice"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "SupportTicket" ADD CONSTRAINT "SupportTicket_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

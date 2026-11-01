@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 enum UserRole {
@@ -92,6 +91,16 @@ enum ImportEntityType {
   IOT_DEVICE
   FLEET_COMPONENT_MAPPING
   RIDER
+  OEM
+  VEHICLE_CATEGORY
+  VEHICLE_TYPE
+  FEATURE
+  PACKAGE
+}
+
+enum ImportScope {
+  CLIENT
+  PLATFORM
 }
 
 enum ImportStatus {
@@ -1196,6 +1205,8 @@ model PackageFeature {
   rolloverAllowed  Boolean              @default(false)
   configuration    Json?
   displayOrder     Int                  @default(0)
+  effectiveFrom    DateTime             @default(now()) @db.Date
+  effectiveTo      DateTime?            @db.Date
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
 
@@ -2961,8 +2972,9 @@ model ClientOnboardingRejection {
 
 model ImportJob {
   id               String           @id @default(uuid())
-  clientId         String
-  client           Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId         String?
+  client           Client?          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  scope            ImportScope      @default(CLIENT)
   entityType       ImportEntityType
   status           ImportStatus
   originalFilename String
@@ -2976,8 +2988,13 @@ model ImportJob {
   createdAt        DateTime         @default(now())
   completedAt      DateTime?
   metadata         Json?
+  parentJobId      String?
+  parentJob        ImportJob? @relation("ImportJobChildren", fields: [parentJobId], references: [id], onDelete: Cascade)
+  childJobs        ImportJob[] @relation("ImportJobChildren")
 
   @@index([clientId, entityType, createdAt])
+  @@index([scope, entityType, createdAt])
+  @@index([parentJobId])
 }
 
 model Allocation {
@@ -3942,9 +3959,34 @@ model OtpRequest {
   verifiedAt  DateTime?
   requestedIp String?
   createdAt   DateTime   @default(now())
+  smsDeliveries SmsDelivery[]
 
   @@index([phone, purpose, createdAt])
   @@index([clientId, status])
+}
+
+model SmsDelivery {
+  id           String   @id @default(uuid())
+  otpRequestId String
+  otpRequest   OtpRequest @relation(fields: [otpRequestId], references: [id], onDelete: Cascade)
+  provider     String
+  status       String
+  attempt      Int      @default(1)
+  errorCode    String?
+  createdAt    DateTime @default(now())
+  completedAt  DateTime?
+
+  @@index([otpRequestId, createdAt])
+  @@index([provider, status, createdAt])
+}
+
+model SmsProviderPolicy {
+  id               String   @id @default("default")
+  primaryProvider  String
+  fallbackProvider String?
+  maxAttempts      Int      @default(2)
+  updatedAt        DateTime @updatedAt
+  updatedById      String?
 }
 
 enum ClientDomainType {

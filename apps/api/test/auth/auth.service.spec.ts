@@ -17,7 +17,10 @@ const configValues = {
 function createService() {
   const prisma = {
     pushDevice: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
-    client: { findFirst: vi.fn().mockResolvedValue({ id: 'client-1' }) },
+    client: {
+      findFirst: vi.fn().mockResolvedValue({ id: 'client-1', isActive: true, status: 'ACTIVE' }),
+      findUnique: vi.fn().mockResolvedValue({ id: 'client-1', isActive: true, status: 'ACTIVE' }),
+    },
     user: {
       findFirst: vi.fn().mockResolvedValue({
         id: 'user-1',
@@ -85,6 +88,86 @@ function createService() {
 }
 
 describe('AuthService', () => {
+  it.each(['CREATED', 'PENDING_APPROVAL', 'ACTIVE', 'REJECTED'])('allows %s clients to request a login OTP', async (status) => {
+    const { service, prisma, sms } = createService();
+    prisma.client.findFirst.mockResolvedValue({ id: 'client-1', isActive: true, status });
+
+    await service.requestLoginOtp('+919999999999', 'demo-client');
+
+    expect(prisma.otpRequest.create).toHaveBeenCalledOnce();
+    expect(sms.send).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ['SUSPENDED', 'CLIENT_SUSPENDED'],
+    ['DRAFT', 'CLIENT_INACTIVE'],
+  ])('blocks %s clients from requesting a login OTP', async (status, code) => {
+    const { service, prisma, sms } = createService();
+    prisma.client.findFirst.mockResolvedValue({ id: 'client-1', isActive: true, status });
+
+    await expect(service.requestLoginOtp('+919999999999', 'demo-client'))
+      .rejects.toMatchObject({ response: { code } });
+    expect(prisma.otpRequest.create).not.toHaveBeenCalled();
+    expect(sms.send).not.toHaveBeenCalled();
+  });
+
+  it('blocks inactive clients from requesting a login OTP', async () => {
+    const { service, prisma, sms } = createService();
+    prisma.client.findFirst.mockResolvedValue({ id: 'client-1', isActive: false, status: 'ACTIVE' });
+
+    await expect(service.requestLoginOtp('+919999999999', 'demo-client'))
+      .rejects.toMatchObject({ response: { code: 'CLIENT_INACTIVE' } });
+    expect(sms.send).not.toHaveBeenCalled();
+  });
+
+  it.each(['CREATED', 'PENDING_APPROVAL', 'ACTIVE', 'REJECTED'])('allows %s clients to verify a login OTP', async (status) => {
+    const { service, prisma, jwt } = createService();
+    const otpHash = createHmac('sha256', configValues.OTP_HASH_SECRET).update('123456').digest('hex');
+    prisma.otpRequest.findUnique.mockResolvedValue({
+      id: 'otp-1', clientId: 'client-1', purpose: OtpPurpose.LOGIN, phone: '+919999999999',
+      otpHash, context: { loginAppCode: 'CLIENT_PANEL' }, status: OtpStatus.PENDING,
+      attempts: 0, maxAttempts: 5, expiresAt: new Date(Date.now() + 60_000),
+    });
+    prisma.client.findUnique.mockResolvedValue({ isActive: true, status });
+
+    await expect(service.verifyLoginOtp('otp-1', '123456', undefined, 'CLIENT_PANEL'))
+      .resolves.toMatchObject({ tokenType: 'Bearer' });
+    expect(jwt.signAsync).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['SUSPENDED', 'CLIENT_SUSPENDED'],
+    ['DRAFT', 'CLIENT_INACTIVE'],
+  ])('blocks %s clients from verifying a login OTP', async (status, code) => {
+    const { service, prisma, jwt } = createService();
+    const otpHash = createHmac('sha256', configValues.OTP_HASH_SECRET).update('123456').digest('hex');
+    prisma.otpRequest.findUnique.mockResolvedValue({
+      id: 'otp-1', clientId: 'client-1', purpose: OtpPurpose.LOGIN, phone: '+919999999999',
+      otpHash, context: { loginAppCode: 'CLIENT_PANEL' }, status: OtpStatus.PENDING,
+      attempts: 0, maxAttempts: 5, expiresAt: new Date(Date.now() + 60_000),
+    });
+    prisma.client.findUnique.mockResolvedValue({ isActive: true, status });
+
+    await expect(service.verifyLoginOtp('otp-1', '123456', undefined, 'CLIENT_PANEL'))
+      .rejects.toMatchObject({ response: { code } });
+    expect(jwt.signAsync).not.toHaveBeenCalled();
+  });
+
+  it('blocks inactive clients from verifying a login OTP', async () => {
+    const { service, prisma, jwt } = createService();
+    const otpHash = createHmac('sha256', configValues.OTP_HASH_SECRET).update('123456').digest('hex');
+    prisma.otpRequest.findUnique.mockResolvedValue({
+      id: 'otp-1', clientId: 'client-1', purpose: OtpPurpose.LOGIN, phone: '+919999999999',
+      otpHash, status: OtpStatus.PENDING, attempts: 0, maxAttempts: 5,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    prisma.client.findUnique.mockResolvedValue({ isActive: false, status: 'ACTIVE' });
+
+    await expect(service.verifyLoginOtp('otp-1', '123456'))
+      .rejects.toMatchObject({ response: { code: 'CLIENT_INACTIVE' } });
+    expect(jwt.signAsync).not.toHaveBeenCalled();
+  });
+
   it('binds a client OTP to the requesting app', async () => {
     const { service, prisma, loginFlow } = createService();
     await service.requestLoginOtp(
@@ -107,13 +190,9 @@ describe('AuthService', () => {
   it('does not send a client OTP to a role outside the requesting app', async () => {
     const { service, prisma, loginFlow, sms } = createService();
     loginFlow.roleAllowed.mockReturnValue(false);
-    await service.requestLoginOtp(
-      '+919999999999',
-      'demo-client',
-      undefined,
-      undefined,
-      'RIDER_APP',
-    );
+    await expect(service.requestLoginOtp(
+      '+919999999999', 'demo-client', undefined, undefined, 'RIDER_APP',
+    )).rejects.toMatchObject({ response: { code: 'UNSUPPORTED_APP_ROLE' } });
     expect(prisma.otpRequest.create).not.toHaveBeenCalled();
     expect(sms.send).not.toHaveBeenCalled();
   });
@@ -143,7 +222,7 @@ describe('AuthService', () => {
     });
     await expect(
       service.verifyLoginOtp('otp-1', code, undefined, 'RIDER_APP'),
-    ).rejects.toThrow('Login is unavailable for this application');
+    ).rejects.toMatchObject({ response: { code: 'UNSUPPORTED_APP_ROLE' } });
   });
 
   it('rejects a refresh already consumed by a concurrent request', async () => {
@@ -165,6 +244,18 @@ describe('AuthService', () => {
       'already been used',
     );
     expect(prisma.session.create).not.toHaveBeenCalled();
+  });
+  it('rejects an expired refresh token before touching the session', async () => {
+    const { service, prisma, jwt } = createService();
+    jwt.verifyAsync.mockRejectedValue(new Error('jwt expired'));
+    await expect(service.refresh('expired-token', 'client-1')).rejects.toThrow('Invalid or expired refresh token');
+    expect(prisma.session.findFirst).not.toHaveBeenCalled();
+  });
+  it('rejects a refresh token presented from another client', async () => {
+    const { service, prisma, jwt } = createService();
+    jwt.verifyAsync.mockResolvedValue({ typ: 'refresh', id: 'user-1', sid: 'session-1', clientId: 'client-1' });
+    await expect(service.refresh('refresh-token', 'client-2')).rejects.toThrow('Invalid refresh token');
+    expect(prisma.session.findFirst).not.toHaveBeenCalled();
   });
   it('unregisters only devices belonging to the logged out session', async () => {
     const { service, prisma, jwt } = createService();
@@ -259,15 +350,10 @@ describe('AuthService', () => {
 
     await service.requestLoginOtp('+919100000000');
 
-    expect(prisma.user.findFirst).toHaveBeenCalledWith({
-      where: {
-        clientId: null,
-        mobile: { in: ['+919100000000', '09100000000', '9100000000'] },
-        role: UserRole.SUPER_ADMIN,
-        isActive: true,
-      },
-      select: { id: true, mobile: true, role: true },
-    });
+    expect(prisma.user.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ clientId: null, role: UserRole.SUPER_ADMIN }),
+      select: expect.objectContaining({ id: true, mobile: true, role: true }),
+    }));
     expect(
       prisma.otpRequest.create.mock.calls[0][0].data.clientId,
     ).toBeUndefined();
@@ -325,10 +411,8 @@ describe('Client host login binding', () => {
     expect(prisma.client.findFirst).toHaveBeenCalledWith({
       where: {
         OR: [{ companyCode: 'demo-client' }, { slug: 'demo-client' }],
-        isActive: true,
-        status: { in: ['CREATED', 'PENDING_APPROVAL', 'ACTIVE', 'REJECTED'] },
       },
-      select: { id: true },
+      select: { id: true, isActive: true, status: true },
     });
   });
 

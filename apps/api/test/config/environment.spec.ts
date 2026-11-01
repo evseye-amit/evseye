@@ -85,6 +85,25 @@ describe('client deployment configuration', () => {
     expect(() => validateEnvironment({ SMS_PROVIDER: 'telipia' })).toThrow('Telipia SMS configuration is missing');
     expect(() => validateEnvironment({ SMS_PROVIDER: 'telipia', TELIPIA_API_URL: 'http://sms.example.com/api', TELIPIA_USERNAME: 'user', TELIPIA_API_KEY: 'key', TELIPIA_SENDER: 'SENDER', TELIPIA_LOGIN_TEMPLATE_ID: 'template' })).toThrow('TELIPIA_API_URL must use HTTPS');
   });
+  it('rejects the console fallback provider in production', () => {
+    expect(() => validateEnvironment({
+      NODE_ENV: 'production',
+      KYC_PROVIDER: 'live-provider',
+      SMS_PROVIDER: 'telipia',
+      SMS_FALLBACK_PROVIDER: 'console',
+      TELIPIA_API_URL: 'https://sms.example.com/api',
+      TELIPIA_USERNAME: 'user',
+      TELIPIA_API_KEY: 'key',
+      TELIPIA_SENDER: 'SENDER',
+      TELIPIA_LOGIN_TEMPLATE_ID: 'template',
+      S3_BUCKET: 'evs-eye-production',
+      MEDIA_PUBLIC_BASE_URL: 'https://media.evseye.com',
+      JWT_ACCESS_SECRET: 'a'.repeat(40),
+      JWT_REFRESH_SECRET: 'b'.repeat(40),
+      OTP_HASH_SECRET: 'c'.repeat(40),
+      CLIENT_PROXY_SECRET: 'd'.repeat(40),
+    })).toThrow('SMS_FALLBACK_PROVIDER must not use the console provider in production.');
+  });
   it('requires a verified sender domain and login URL for MSG91 email', () => {
     expect(() => validateEnvironment({ EMAIL_PROVIDER: 'msg91' })).toThrow('MSG91 email configuration is missing');
     expect(() => validateEnvironment({ EMAIL_PROVIDER: 'msg91', MSG91_AUTH_KEY: 'test-key', MSG91_EMAIL_DOMAIN: 'mail.evseye.com', MSG91_EMAIL_FROM: 'no-reply@other.example', MSG91_WELCOME_TEMPLATE_ID: 'welcome_client_mail', CLIENT_LOGIN_URL: 'https://app.evseye.com/' })).toThrow('MSG91_EMAIL_FROM must use MSG91_EMAIL_DOMAIN');

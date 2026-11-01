@@ -1,5 +1,5 @@
+import { createTestPrisma } from '../helpers/prisma-client.js';
 import { describe, expect, it } from 'vitest';
-import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { CollectionsService } from '../../src/collections/collections.service.js';
 import { RiderBillingService } from '../../src/rider-billing/rider-billing.service.js';
@@ -8,9 +8,7 @@ import { RiderPaymentsService } from '../../src/rider-billing/rider-payments.ser
 const enabled = !!process.env.PHASE8_TEST_DATABASE_URL;
 describe.skipIf(!enabled)('collections with PostgreSQL', () => {
   it('reuses a case, tracks partial payment, fulfills a promise, and removes its restriction on payment', async () => {
-    const db = new PrismaClient({
-      datasources: { db: { url: process.env.PHASE8_TEST_DATABASE_URL! } },
-    });
+    const db = createTestPrisma(process.env.PHASE8_TEST_DATABASE_URL!);
     try {
       const suffix = randomUUID().slice(0, 8);
       const client = await db.client.create({

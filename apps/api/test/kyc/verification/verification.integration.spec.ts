@@ -1,3 +1,4 @@
+import { createTestPrisma } from '../../helpers/prisma-client.js';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PrismaService } from '../../../src/prisma/prisma.service.js';
@@ -40,7 +41,7 @@ describe.skipIf(!databaseUrl)('KYC PostgreSQL integration', () => {
   let retryPanFailure = true;
 
   beforeAll(async () => {
-    prisma = new PrismaService({ datasources: { db: { url: databaseUrl! } } });
+    prisma = createTestPrisma(databaseUrl!) as PrismaService;
     const [a, b] = await Promise.all([
       prisma.client.create({ data: { name: 'KYC Test A', slug: `kyc-test-a-${marker}` } }),
       prisma.client.create({ data: { name: 'KYC Test B', slug: `kyc-test-b-${marker}` } }),

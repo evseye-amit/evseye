@@ -108,6 +108,11 @@ export class RidersController {
       ),
     ].join('\n');
   }
+  @Post('imports/:id/retry')
+  @Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
+  async retryImport(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: { rows: CreateRiderDto[] }) {
+    return { data: await this.ridersService.retryImport(this.clientContext.requireClientId(user), user.id, id, body.rows) };
+  }
 
   @Get(':id')
   @Roles(

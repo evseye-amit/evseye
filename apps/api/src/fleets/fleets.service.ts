@@ -30,12 +30,15 @@ import {
   vehicleReadiness,
 } from '../fleet-readiness/readiness-policy.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
+import { ImportAuthorizationService } from '../imports/import-authorization.service.js';
+import { normalizeImportFailures } from '../imports/import-failure.js';
 
 @Injectable()
 export class FleetsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly statusPolicy: FleetStatusPolicy,
+    private readonly imports?: ImportAuthorizationService,
   ) {}
 
   private readonly activeAllocationStatuses: AllocationStatus[] = [
@@ -291,6 +294,7 @@ export class FleetsService {
     actorId: string,
     filename: string,
     rows: Array<Record<string, unknown>>,
+    metadata?: { parentJobId?: string; sheet?: string },
   ) {
     const [oems, categories, types, hubs] = await Promise.all([
       this.prisma.oem.findMany({
@@ -458,7 +462,8 @@ export class FleetsService {
         createdRows: created,
         createdById: actorId,
         completedAt: new Date(),
-        metadata: JSON.parse(JSON.stringify({ failures })),
+        parentJobId: metadata?.parentJobId,
+        metadata: JSON.parse(JSON.stringify({ failures, sheet: metadata?.sheet, entityType: 'FLEET' })),
       },
     });
     if (created) await this.completeOnboardingStep(clientId);
@@ -469,7 +474,12 @@ export class FleetsService {
       passedRows: created,
       failedRows: failures.length,
       createdRows: created,
+      failures: normalizeImportFailures(failures),
     };
+  }
+  async retryImport(clientId: string, actorId: string, jobId: string, rows: Array<Record<string, unknown>>, role: import('@prisma/client').UserRole) {
+    const job = await this.imports!.authorizeJob({ jobId, clientId, entityType: ImportEntityType.FLEET, role });
+    return this.bulkCreate(clientId, actorId, job.originalFilename, rows);
   }
   async failedRows(clientId: string, jobId: string) {
     const job = await this.prisma.importJob.findFirst({
@@ -477,7 +487,7 @@ export class FleetsService {
       select: { metadata: true },
     });
     if (!job) throw new NotFoundException('Import job not found.');
-    return (job.metadata as { failures?: unknown[] } | null)?.failures ?? [];
+    return normalizeImportFailures((job.metadata as { failures?: unknown[] } | null)?.failures);
   }
   private async completeOnboardingStep(clientId: string) {
     const progress = await this.prisma.clientOnboardingProgress.findUnique({

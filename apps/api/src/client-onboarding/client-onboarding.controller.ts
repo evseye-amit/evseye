@@ -7,6 +7,7 @@ import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { ClientContextService } from '../auth/client-context.service.js';
 import { ClientOnboardingService } from './client-onboarding.service.js';
+import { ClientOnboardingReadinessService } from './client-onboarding-readiness.service.js';
 import {
   SaveOnboardingStepDto,
   SkipOnboardingStepDto,
@@ -19,11 +20,15 @@ export class ClientOnboardingController {
   constructor(
     private readonly onboarding: ClientOnboardingService,
     private readonly clients: ClientContextService,
+    private readonly readiness: ClientOnboardingReadinessService,
   ) {}
   @Get('bootstrap') bootstrap(@CurrentUser() user: AuthUser) {
     return this.onboarding
       .bootstrap(this.clients.requireClientId(user))
       .then((data) => ({ data }));
+  }
+  @Get('onboarding/readiness') readinessSnapshot(@CurrentUser() user: AuthUser) {
+    return this.readiness.snapshot(this.clients.requireClientId(user)).then((data) => ({ data }));
   }
   @Get('onboarding/progress') progress(@CurrentUser() user: AuthUser) {
     return this.onboarding

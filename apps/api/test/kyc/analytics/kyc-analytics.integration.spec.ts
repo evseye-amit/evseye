@@ -1,5 +1,5 @@
+import { createTestPrisma } from '../../helpers/prisma-client.js';
 import { randomUUID } from 'node:crypto';
-import { PrismaClient } from '@prisma/client';
 import { describe, expect, it } from 'vitest';
 import { KycAnalyticsQueryService } from '../../../src/kyc/analytics/kyc-analytics-query.service.js';
 import { KycAnalyticsService } from '../../../src/kyc/analytics/kyc-analytics.service.js';
@@ -9,7 +9,7 @@ const url = process.env.TEST_DATABASE_URL;
 
 describe.skipIf(!url)('KYC Phase 7 PostgreSQL analytics', () => {
   it('uses one verification as the denominator and sums billable fallback cost', async () => {
-    const db = new PrismaClient({ datasources: { db: { url: url! } } });
+    const db = createTestPrisma(url!);
     const rollback = new Error('ROLLBACK_ANALYTICS_FIXTURE');
     try {
       await expect(db.$transaction(async (tx) => {

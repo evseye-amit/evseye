@@ -221,6 +221,16 @@ describe('mobile PDI submission', () => {
     expect(inactive.tx.allocation.updateMany).not.toHaveBeenCalled();
     expect(inactive.tx.mobileDeploymentWorkflow.update).not.toHaveBeenCalled();
   });
+
+  it('rejects a partner deactivated after Fleet Manager selection', async () => {
+    const selected = { id: 'partner-1', clientId: 'client-1', name: 'Selected Partner', status: 'ACTIVE' };
+    const stale = pdiFixture([selected]);
+    stale.tx.clientWorkPartner.findUnique.mockResolvedValue(selected);
+    selected.status = 'INACTIVE';
+    await expect(
+      stale.service.submitPdi('client-1', 'manager-1', 'allocation-1', selected.name, [], selected.id),
+    ).rejects.toMatchObject({ response: { code: 'WORK_PARTNER_INACTIVE', message: 'Select an active work partner.' } });
+  });
 });
 
 describe('SubmitPdiDto boundary', () => {

@@ -63,6 +63,7 @@ export function ClientCommercialSettings({
   const [upgradeReason, setUpgradeReason] = useState("");
   const [adjustments, setAdjustments] = useState<Item[]>([]);
   const [clientFeatures, setClientFeatures] = useState<Item[]>([]);
+  const [effectiveEntitlements, setEffectiveEntitlements] = useState<Item[]>([]);
   const [creditLots, setCreditLots] = useState<Item[]>([]);
   const [ledger, setLedger] = useState<Item[]>([]);
   const [eligibleFeatures, setEligibleFeatures] = useState<Item[]>([]);
@@ -118,13 +119,17 @@ export function ClientCommercialSettings({
     () => subscriptions.find((item) => item.status === "ACTIVE") ?? null,
     [subscriptions],
   );
+  const pendingSubscription = useMemo(
+    () => subscriptions.find((item) => item.status === "PENDING") ?? null,
+    [subscriptions],
+  );
 
   const load = useCallback(async () => {
     setUpgradePreview(null);
     setBusy(true);
     setError("");
     try {
-      const [loadedSubscriptions, loadedAdjustments, loadedClientFeatures, loadedLots, loadedLedger, catalogFeatures] =
+      const [loadedSubscriptions, loadedAdjustments, loadedClientFeatures, loadedLots, loadedLedger, catalogFeatures, loadedEffective] =
         await Promise.all([
           request(`/subscriptions?clientId=${encodeURIComponent(clientId)}`),
           request(`/adjustments?clientId=${encodeURIComponent(clientId)}`),
@@ -132,11 +137,13 @@ export function ClientCommercialSettings({
           request(`/clients/${encodeURIComponent(clientId)}/credit-lots`),
           request(`/clients/${encodeURIComponent(clientId)}/feature-usage`),
           platformRequest("/features"),
+          platformRequest(`/clients/${encodeURIComponent(clientId)}/effective-entitlements`),
         ]);
       const nextSubscriptions = loadedSubscriptions as Item[];
       setSubscriptions(nextSubscriptions);
       setAdjustments(loadedAdjustments as Item[]);
       setClientFeatures(loadedClientFeatures as Item[]);
+      setEffectiveEntitlements(((loadedEffective as Item)?.entitlements ?? []) as Item[]);
       setCreditLots(loadedLots as Item[]);
       setLedger(loadedLedger as Item[]);
       const eligible = (catalogFeatures as Item[]).filter(
@@ -298,12 +305,12 @@ export function ClientCommercialSettings({
     }
   }
 
+  const [referenceTime] = useState(() => Date.now());
   const balances = useMemo(() => {
-    const now = Date.now();
     const grouped = new Map<string, { feature: Item; available: number }>();
     creditLots.forEach((lot) => {
       const expiresAt = lot.expiresAt ? new Date(String(lot.expiresAt)).getTime() : null;
-      if (expiresAt !== null && expiresAt <= now) return;
+      if (expiresAt !== null && expiresAt <= referenceTime) return;
       const feature = (lot.feature as Item) ?? {};
       const code = String(feature.code ?? "UNKNOWN");
       const current = grouped.get(code) ?? { feature, available: 0 };
@@ -311,7 +318,7 @@ export function ClientCommercialSettings({
       grouped.set(code, current);
     });
     return [...grouped.entries()];
-  }, [creditLots]);
+  }, [creditLots, referenceTime]);
   const buttonLabel = section === "pricing"
     ? "Pricing adjustments"
     : section === "addOns"
@@ -345,6 +352,9 @@ export function ClientCommercialSettings({
             <button type="button" className="secondary" onClick={() => void load()} disabled={busy}>Refresh</button>
           </header>
           {notice && <p className="notice" role="status">{notice}</p>}
+
+          <p className="muted">Effective entitlements: {effectiveEntitlements.length}</p>
+          {pendingSubscription && !activeSubscription && <p className="notice">Package selected and pending client approval. Commercial actions become available after approval.</p>}
 
           {activeSubscription && <section className="sa-commercial-section">
             <div className="sa-commercial-section-head"><div><h3>Published Package version</h3><p>Review a newer published version before upgrading. Existing pricing, allowances, usage history and client settings are preserved.</p></div></div>

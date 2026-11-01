@@ -57,3 +57,44 @@ describe('PlatformAdminService client languages', () => {
     }) });
   });
 });
+
+describe('PlatformAdminService client entitlements', () => {
+  it('uses one inclusive timestamp for active package and client feature windows', async () => {
+    const now = new Date('2026-11-01T12:00:00.000Z');
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    try {
+      const packageFindMany = vi.fn().mockResolvedValue([]);
+      const clientFindMany = vi.fn().mockResolvedValue([]);
+      const service = new PlatformAdminService({
+        packageFeature: { findMany: packageFindMany },
+        clientFeature: { findMany: clientFindMany },
+      } as never, {} as never, {} as never, {} as never);
+      service.clientDetail = vi.fn().mockResolvedValue({
+        id: 'client-1',
+        subscriptions: [{ id: 'subscription-1', status: 'ACTIVE', packageId: 'package-1' }],
+      }) as never;
+
+      await service.clientEntitlements('client-1');
+
+      const packageQuery = packageFindMany.mock.calls[0]![0];
+      expect(packageQuery.where).toEqual({
+        packageId: 'package-1', isIncluded: true,
+        effectiveFrom: { lte: now },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }],
+      });
+      expect(packageQuery.include.feature.include.pricing.where).toEqual({
+        isActive: true,
+        effectiveFrom: { lte: now },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }],
+      });
+      expect(clientFindMany.mock.calls[0]![0].where).toEqual({
+        clientId: 'client-1', subscriptionId: 'subscription-1', enabled: true,
+        effectiveFrom: { lte: now },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

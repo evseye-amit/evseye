@@ -39,7 +39,7 @@ export const clientCatalog = [
         "role": "ACCOUNT_ADMIN",
         "name": "Amit Goyal",
         "designation": "Director",
-        "mobile": "9871675222",
+        "mobile": "9100000000",
         "email": "evseye.amit@gmail.com",
         "alternateMobile": null
       },

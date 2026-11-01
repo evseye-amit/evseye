@@ -13,6 +13,8 @@ import {
   UserRole,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { ImportAuthorizationService } from '../imports/import-authorization.service.js';
+import { normalizeImportFailures } from '../imports/import-failure.js';
 import { assertUserMobileAvailable, normalizeIndianMobile, USER_MOBILE_CONFLICT_MESSAGE } from '../common/phone.js';
 import type {
   AssignTeamLeaderRidersDto,
@@ -22,7 +24,7 @@ import type {
 
 @Injectable()
 export class ClientUsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly imports?: ImportAuthorizationService) {}
   listImportHistory(clientId: string, entityType: ImportEntityType) {
     return this.prisma.importJob.findMany({
       where: { clientId, entityType },
@@ -196,6 +198,7 @@ export class ClientUsersService {
       totalRows: rows.length,
       passedRows: created,
       failedRows: failures.length,
+      failures: normalizeImportFailures(failures),
       createdRows: created,
     };
   }
@@ -209,7 +212,7 @@ export class ClientUsersService {
       select: { metadata: true },
     });
     if (!job) throw new NotFoundException('Import job not found.');
-    return (job.metadata as { failures?: unknown[] } | null)?.failures ?? [];
+    return normalizeImportFailures((job.metadata as { failures?: unknown[] } | null)?.failures);
   }
   async createTeamLeader(clientId: string, dto: CreateTeamLeaderDto) {
     await assertUserMobileAvailable(this.prisma, clientId, dto.mobile);
@@ -418,7 +421,16 @@ export class ClientUsersService {
       passedRows: created,
       failedRows: failures.length,
       createdRows: created,
+      failures: normalizeImportFailures(failures),
     };
+  }
+  async retryTeamLeaderImport(clientId: string, actorId: string, jobId: string, rows: CreateTeamLeaderDto[], role: import('@prisma/client').UserRole) {
+    const job = await this.imports!.authorizeJob({ jobId, clientId, entityType: ImportEntityType.TEAM_LEADER, role });
+    return this.bulkCreateTeamLeaders(clientId, actorId, job.originalFilename, rows);
+  }
+  async retryFleetManagerImport(clientId: string, actorId: string, jobId: string, rows: CreateFleetManagerDto[], role: import('@prisma/client').UserRole) {
+    const job = await this.imports!.authorizeJob({ jobId, clientId, entityType: ImportEntityType.FLEET_MANAGER, role });
+    return this.bulkCreateFleetManagers(clientId, actorId, job.originalFilename, rows);
   }
   async assignRiders(
     clientId: string,

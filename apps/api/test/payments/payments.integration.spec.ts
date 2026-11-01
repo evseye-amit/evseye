@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PaymentsModule } from '../../src/payments/payments.module.js';
 import { PrismaModule } from '../../src/prisma/prisma.module.js';
+import { PrismaService } from '../../src/prisma/prisma.service.js';
 import { validateEnvironment } from '../../src/config/environment.js';
 import {
   PAYMENT_PROVIDER,
@@ -58,6 +59,8 @@ describe('Cashfree provider module and HTTP boundary', () => {
           (settings as Record<string, unknown>)[key] ??
           (validateEnvironment({}) as Record<string, unknown>)[key],
       })
+      .overrideProvider(PrismaService)
+      .useValue({})
       .compile();
     const provider = module.get<PaymentProvider>(PAYMENT_PROVIDER);
     const created = await provider.createMandate({

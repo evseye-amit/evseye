@@ -1,7 +1,7 @@
 // Exported from the local database; feature and package codes keep links portable.
 export const featurePricingCatalog = [
   {"currency": "INR", "isActive": true, "metadata": null, "costPrice": 0.2, "salePrice": 0.4, "billingUnit": "UPLOAD", "effectiveTo": null, "featureCode": "AADHAR_PROOF_DOCUMENT", "effectiveFrom": "2026-09-01T00:00:00"},
-  {"currency": "INR", "isActive": true, "metadata": null, "costPrice": 5.0, "salePrice": 8.0, "billingUnit": "VERIFICATION", "effectiveTo": null, "featureCode": "AADHAR_VERIFICATION", "effectiveFrom": "2026-09-01T00:00:00"},
+  {"currency": "INR", "isActive": true, "metadata": null, "costPrice": 5.0, "salePrice": 8.0, "billingUnit": "VERIFICATION", "effectiveTo": null, "featureCode": "VERIFY_AADHAR", "effectiveFrom": "2026-09-01T00:00:00"},
   {"currency": "INR", "isActive": true, "metadata": null, "costPrice": 0.1, "salePrice": 0.2, "billingUnit": "UPLOAD", "effectiveTo": null, "featureCode": "AGE_PROOF_DOCUMENT", "effectiveFrom": "2026-09-01T00:00:00"},
   {"currency": "INR", "isActive": true, "metadata": null, "costPrice": 0.1, "salePrice": 0.2, "billingUnit": "UPLOAD", "effectiveTo": null, "featureCode": "BANK_PROOF_DOCUMENT", "effectiveFrom": "2026-09-01T00:00:00"},
   {"currency": "INR", "isActive": true, "metadata": null, "costPrice": 3.0, "salePrice": 5.0, "billingUnit": "VERIFICATION", "effectiveTo": null, "featureCode": "BANK_VERIFICATION", "effectiveFrom": "2026-09-01T00:00:00"},
@@ -29,7 +29,7 @@ export const featurePricingCatalog = [
   {"currency": "INR", "isActive": true, "metadata": null, "costPrice": 0.5, "salePrice": 0.75, "billingUnit": "UPLOAD", "effectiveTo": null, "featureCode": "MEDICAL_PROOF_DOCUMENT", "effectiveFrom": "2026-09-01T00:00:00"},
   {"currency": "INR", "isActive": true, "metadata": null, "costPrice": 10.0, "salePrice": 15.0, "billingUnit": "VERIFICATION", "effectiveTo": null, "featureCode": "NACH_MANDATE_VERIFICATION", "effectiveFrom": "2026-09-01T00:00:00"},
   {"currency": "INR", "isActive": true, "metadata": null, "costPrice": 0.1, "salePrice": 0.2, "billingUnit": "UPLOAD", "effectiveTo": null, "featureCode": "PAN_PROOF_DOCUMENT", "effectiveFrom": "2026-09-01T00:00:00"},
-  {"currency": "INR", "isActive": true, "metadata": null, "costPrice": 3.0, "salePrice": 5.0, "billingUnit": "VERIFICATION", "effectiveTo": null, "featureCode": "PAN_VERIFICATION", "effectiveFrom": "2026-09-01T00:00:00"},
+  {"currency": "INR", "isActive": true, "metadata": null, "costPrice": 3.0, "salePrice": 5.0, "billingUnit": "VERIFICATION", "effectiveTo": null, "featureCode": "VERIFY_PAN", "effectiveFrom": "2026-09-01T00:00:00"},
   {"currency": "INR", "isActive": true, "metadata": null, "costPrice": 100.0, "salePrice": 150.0, "billingUnit": "VERIFICATION", "effectiveTo": null, "featureCode": "POLICE_VERIFICATION", "effectiveFrom": "2026-09-01T00:00:00"},
   {"currency": "INR", "isActive": true, "metadata": null, "costPrice": 5.0, "salePrice": 8.0, "billingUnit": "VERIFICATION", "effectiveTo": null, "featureCode": "REFERENCE_VERIFICATION", "effectiveFrom": "2026-09-01T00:00:00"},
   {"currency": "INR", "isActive": true, "metadata": null, "costPrice": 500.0, "salePrice": 1000.0, "billingUnit": "USER", "effectiveTo": null, "featureCode": "REFERRAL_BENEFIT", "effectiveFrom": "2026-09-01T00:00:00"},

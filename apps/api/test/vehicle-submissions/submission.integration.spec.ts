@@ -1,3 +1,4 @@
+import { createTestPrisma } from '../helpers/prisma-client.js';
 import { FleetManagerMaintenanceService } from '../../src/fleet-manager-maintenance/maintenance.service.js';
 import { MaintenanceFleetsQueryDto } from '../../src/fleet-manager-maintenance/maintenance.dto.js';
 import { MediaService } from '../../src/media/media.service.js';
@@ -18,7 +19,7 @@ import { RiderDepositService } from '../../src/rider-deposits/deposit.service.js
 import { RideReturnsService } from '../../src/ride-returns/ride-returns.service.js';
 import { VehicleExchangeService } from '../../src/vehicle-exchanges/vehicle-exchange.service.js';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { PhotoType, PrismaClient } from '@prisma/client';
+import { PhotoType, type PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { VehicleSubmissionService } from '../../src/vehicle-submissions/submission.service.js';
 import { AllocationsService } from '../../src/allocations/allocations.service.js';
@@ -46,7 +47,7 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
   let allocations!: AllocationsService;
   let service!: VehicleSubmissionService;
   beforeAll(() => {
-    db = new PrismaClient({ datasources: { db: { url: url! } } });
+    db = createTestPrisma(url!);
     prisma = db as PrismaService;
     auth = new AuthService(
       prisma,

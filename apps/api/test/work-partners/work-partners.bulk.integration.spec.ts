@@ -1,13 +1,13 @@
+import { createTestPrisma } from '../helpers/prisma-client.js';
 import 'reflect-metadata';
 import { afterAll, describe, expect, it } from 'vitest';
-import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { WorkPartnersService } from '../../src/work-partners/work-partners.service.js';
 import { AuditService } from '../../src/audit/audit.service.js';
 import type { AuthUser } from '../../src/auth/interfaces/auth-user.interface.js';
 const url = process.env.WORK_PARTNER_TEST_DATABASE_URL;
 if (url && !new URL(url).pathname.includes('_test_')) throw new Error('Use a disposable test database.');
-const db = new PrismaClient({ datasources: { db: { url: url ?? 'postgresql://unused:unused@localhost:5432/unused' } } });
+const db = createTestPrisma(url ?? 'postgresql://unused:unused@localhost:5432/unused');
 const service = new WorkPartnersService(db as never, new AuditService(db as never));
 afterAll(() => db.$disconnect());
 const code = () => `WP_${randomUUID().replaceAll('-', '').toUpperCase()}`;

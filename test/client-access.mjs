@@ -4,8 +4,8 @@ import http from 'node:http';
 import https from 'node:https';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { createPrismaClient } from '../apps/api/prisma/prisma-client.mjs';
 const require = createRequire(new URL('../apps/api/package.json', import.meta.url));
-const { PrismaClient } = require('@prisma/client');
 const { S3Client, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const base = new URL(process.env.CLIENT_TEST_URL || 'http://localhost:3001');
 if (process.env.NODE_ENV === 'production' || !['localhost', '127.0.0.1'].includes(base.hostname)) throw new Error('This suite only runs against local development.');
@@ -63,7 +63,7 @@ const originalCookies = jar.get(a);
 assert.equal((await api(a, '/client/identity/context')).status, 200);
 assert.equal((await api(b, '/client/identity/context', { cookies: originalCookies })).status, 403);
 assert.equal((await api(a, '/client/identity/branding', { method: 'PATCH', body: { clientId: 'other-client' } })).status, 400);
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 let fleet, rider, imageKey, acmeClient, previousFavicon;
 try {
   acmeClient = await prisma.client.findUniqueOrThrow({ where: { slug: 'acme' }, include: { branding: true } });

@@ -148,7 +148,13 @@ export class RiderAppService {
       ...publicConfiguration,
       ...await this.kyc.forUser(clientId, userId, configuration.onboarding.steps.flatMap(step => step.fields)),
       screen,
-      documentReview: { documents, rejected, pendingCount },
+      documentReview: {
+        documents,
+        rejected,
+        pendingCount,
+        status: rejected.length ? 'REJECTED' : pendingCount ? 'PENDING' : progress.completedAt ? 'APPROVED' : 'NOT_STARTED',
+        rejectionReasons: rejected.map((document) => ({ fieldCode: document.fieldCode, reason: document.rejectionReason ?? 'Document was rejected.' })),
+      },
       progress: {
         currentStepId: next?.stepId ?? null,
         completedStepIds: [...completed],

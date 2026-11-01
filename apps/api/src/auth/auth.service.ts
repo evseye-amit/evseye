@@ -79,16 +79,15 @@ export class AuthService {
     const mobileCandidates = indianMobileVariants(phone);
     const client = companyCode
       ? await this.prisma.client.findFirst({
-          where: {
-            OR: [{ companyCode }, { slug: companyCode }],
-            isActive: true,
-            status: {
-              in: ['CREATED', 'PENDING_APPROVAL', 'ACTIVE', 'REJECTED'],
-            },
-          },
-          select: { id: true },
+          where: { OR: [{ companyCode }, { slug: companyCode }] },
+          select: { id: true, isActive: true, status: true },
         })
       : null;
+
+    if (client && !this.isClientLoginAllowed(client)) {
+      if (client.status === 'SUSPENDED') throw this.loginAccessError('CLIENT_SUSPENDED');
+      throw this.loginAccessError('CLIENT_INACTIVE');
+    }
 
     if (
       (companyCode && !client) ||
@@ -101,29 +100,32 @@ export class AuthService {
     }
 
     const appCode = client ? (requestedAppCode ?? 'CLIENT_PANEL') : undefined;
+    if (client && appCode && !this.loginFlow.isAppCode(appCode)) {
+      throw this.loginAccessError('UNSUPPORTED_APP_ROLE');
+    }
     if (client && appCode) await this.loginFlow.resolve(companyCode!, appCode);
     const user = await this.prisma.user.findFirst({
       where: client
         ? {
             clientId: client.id,
             mobile: { in: mobileCandidates },
-            isActive: true,
-            deletedAt: null,
           }
         : {
             clientId: null,
             mobile: { in: mobileCandidates },
             role: UserRole.SUPER_ADMIN,
-            isActive: true,
           },
-      select: { id: true, mobile: true, role: true },
+      select: { id: true, mobile: true, role: true, isActive: true, deletedAt: true },
     });
+
+    if (user && (user.isActive === false || user.deletedAt)) throw this.loginAccessError('USER_INACTIVE');
 
     if (
       !user ||
       (client &&
         !this.loginFlow.roleAllowed(appCode as LoginAppCode, user.role))
     ) {
+      if (user && client) throw this.loginAccessError('UNSUPPORTED_APP_ROLE');
       return {
         otpRequestId: randomUUID(),
         expiresAt: this.otpSecurity.expiresAt(),
@@ -156,7 +158,7 @@ export class AuthService {
       };
     }
 
-    const code = this.otpSecurity.generateCode();
+    const code = this.otpSecurity.generateLoginCode(user.role);
     const expiresAt = this.otpSecurity.expiresAt();
     const otpRequest = await this.prisma.otpRequest.create({
       data: {
@@ -180,6 +182,7 @@ export class AuthService {
         phone,
         purpose: OtpPurpose.LOGIN,
         code,
+        otpRequestId: otpRequest.id,
       });
     } catch (error) {
       if (client) await this.smsQuota.refund(client.id, otpRequest.id);
@@ -225,11 +228,20 @@ export class AuthService {
       boundAppCode &&
       (typeof boundAppCode !== 'string' ||
         !this.loginFlow.isAppCode(boundAppCode) ||
-        (requestedAppCode && requestedAppCode !== boundAppCode))
+        (requestedAppCode !== boundAppCode))
     ) {
-      throw new UnauthorizedException(
-        'Login is unavailable for this application.',
-      );
+      throw this.loginAccessError('UNSUPPORTED_APP_ROLE');
+    }
+
+    if (otp.clientId) {
+      const client = await this.prisma.client.findUnique({
+        where: { id: otp.clientId },
+        select: { isActive: true, status: true },
+      });
+      if (!this.isClientLoginAllowed(client)) {
+        if (client?.status === 'SUSPENDED') throw this.loginAccessError('CLIENT_SUSPENDED');
+        throw this.loginAccessError('CLIENT_INACTIVE');
+      }
     }
 
     if (otp.expiresAt <= new Date()) {
@@ -237,7 +249,7 @@ export class AuthService {
         where: { id: otp.id },
         data: { status: OtpStatus.EXPIRED },
       });
-      throw new UnauthorizedException('OTP has expired.');
+      throw new HttpException({ code: 'OTP_EXPIRED', message: 'OTP has expired.' }, HttpStatus.UNAUTHORIZED);
     }
 
     if (!this.otpSecurity.verify(code, otp.otpHash)) {
@@ -250,7 +262,7 @@ export class AuthService {
             attempts >= otp.maxAttempts ? OtpStatus.FAILED : OtpStatus.PENDING,
         },
       });
-      throw new UnauthorizedException('Invalid OTP.');
+      throw new HttpException({ code: 'OTP_INVALID', message: 'Invalid OTP.' }, HttpStatus.UNAUTHORIZED);
     }
 
     const markedVerified = await this.prisma.otpRequest.updateMany({
@@ -258,7 +270,7 @@ export class AuthService {
       data: { status: OtpStatus.VERIFIED, verifiedAt: new Date() },
     });
     if (markedVerified.count !== 1) {
-      throw new UnauthorizedException('OTP has already been used.');
+      throw new HttpException({ code: 'OTP_ALREADY_USED', message: 'OTP has already been used.' }, HttpStatus.UNAUTHORIZED);
     }
 
     const user = await this.prisma.user.findFirst({
@@ -273,6 +285,15 @@ export class AuthService {
           },
     });
     if (!user) {
+      const inactiveUser = await this.prisma.user.findFirst({
+        where: otp.clientId
+          ? { clientId: otp.clientId, mobile: otp.phone }
+          : { clientId: null, mobile: otp.phone, role: UserRole.SUPER_ADMIN },
+        select: { isActive: true, deletedAt: true },
+      });
+      if (inactiveUser && (inactiveUser.isActive === false || inactiveUser.deletedAt)) {
+        throw this.loginAccessError('USER_INACTIVE');
+      }
       throw new UnauthorizedException('Account is unavailable.');
     }
 
@@ -280,13 +301,30 @@ export class AuthService {
       if (
         !this.loginFlow.roleAllowed(boundAppCode as LoginAppCode, user.role)
       ) {
-        throw new UnauthorizedException(
-          'Login is unavailable for this application.',
-        );
+        throw this.loginAccessError('UNSUPPORTED_APP_ROLE');
       }
     }
 
     return this.issueTokens(user);
+  }
+
+  private loginAccessError(code: string): UnauthorizedException {
+    const messages: Record<string, string> = {
+      CLIENT_INACTIVE: 'This client account is inactive.',
+      CLIENT_PENDING_APPROVAL: 'This client account is pending approval.',
+      CLIENT_SUSPENDED: 'This client account is suspended.',
+      USER_INACTIVE: 'This user account is inactive.',
+      UNSUPPORTED_APP_ROLE: 'This application is not available for your role.',
+    };
+    return new UnauthorizedException({ code, message: messages[code] ?? 'Login is unavailable.' });
+  }
+
+  private isClientLoginAllowed(client: {
+    isActive: boolean;
+    status: string;
+  } | null | undefined): boolean {
+    return !!client && client.isActive === true &&
+      ['CREATED', 'PENDING_APPROVAL', 'ACTIVE', 'REJECTED'].includes(client.status);
   }
 
   async requestVehicleSubmissionOtp(
@@ -351,7 +389,7 @@ export class AuthService {
       select: { id: true, expiresAt: true },
     });
     try {
-      await this.smsProvider.send({ phone, purpose, code });
+      await this.smsProvider.send({ phone, purpose, code, otpRequestId: otp.id });
     } catch {
       await this.prisma.otpRequest.update({
         where: { id: otp.id },
@@ -481,15 +519,16 @@ export class AuthService {
         },
       );
     } catch {
-      throw new UnauthorizedException('Invalid or expired refresh token.');
+      throw new HttpException({ code: 'REFRESH_TOKEN_EXPIRED', message: 'Invalid or expired refresh token.' }, HttpStatus.UNAUTHORIZED);
     }
 
     if (
       payload.typ !== 'refresh' ||
+      !payload.id ||
       !payload.sid ||
       (expectedClientId && payload.clientId !== expectedClientId)
     ) {
-      throw new UnauthorizedException('Invalid refresh token.');
+      throw new HttpException({ code: 'REFRESH_TOKEN_INVALID', message: 'Invalid refresh token.' }, HttpStatus.UNAUTHORIZED);
     }
 
     const session = await this.prisma.session.findFirst({
@@ -504,7 +543,7 @@ export class AuthService {
       !session ||
       !this.otpSecurity.verify(refreshToken, session.refreshTokenHash)
     ) {
-      throw new UnauthorizedException('Refresh session is unavailable.');
+      throw new HttpException({ code: 'SESSION_UNAVAILABLE', message: 'Refresh session is unavailable.' }, HttpStatus.UNAUTHORIZED);
     }
 
     const consumed = await this.prisma.session.updateMany({
@@ -512,7 +551,7 @@ export class AuthService {
       data: { revokedAt: new Date() },
     });
     if (consumed.count !== 1)
-      throw new UnauthorizedException('Refresh session has already been used.');
+      throw new HttpException({ code: 'SESSION_REVOKED', message: 'Refresh session has already been used.' }, HttpStatus.UNAUTHORIZED);
     const user = await this.prisma.user.findFirst({
       where: { id: payload.id, isActive: true, deletedAt: null },
     });

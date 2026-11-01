@@ -1,17 +1,24 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { FleetStatus, FleetTransferStatus, UserRole } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
 import { FleetsService } from '../../src/fleets/fleets.service.js';
 
 describe('fleet hub transfers', () => {
   it('binds both readiness receipt exceptions to the current transaction', () => {
-    const migration = readFileSync(
-      new URL(
-        '../../prisma/migrations/20261027000100_non_schema_database_logic/migration.sql',
-        import.meta.url,
-      ),
-      'utf8',
+    const migrationsDirectory = new URL(
+      '../../prisma/migrations/',
+      import.meta.url,
     );
+    const migration = readdirSync(migrationsDirectory, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) =>
+        readFileSync(
+          join(migrationsDirectory.pathname, entry.name, 'migration.sql'),
+          'utf8',
+        ),
+      )
+      .join('\n');
     const marker =
       "t.id = NULLIF(current_setting('evseye.fleet_transfer_receipt_id', true), '')";
     expect(migration.split(marker).length - 1).toBe(2);

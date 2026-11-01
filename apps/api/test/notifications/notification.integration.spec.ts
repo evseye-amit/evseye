@@ -1,5 +1,6 @@
+import { createTestPrisma } from '../helpers/prisma-client.js';
+import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { NotificationService } from '../../src/notifications/notification.service.js';
 import { NotificationWorker } from '../../src/notifications/notification.worker.js';
@@ -33,7 +34,7 @@ describe.skipIf(!url)('notification service and worker in PostgreSQL', () => {
   let service!: NotificationService;
   let worker!: NotificationWorker;
   beforeAll(() => {
-    db = new PrismaClient({ datasources: { db: { url: url! } } });
+    db = createTestPrisma(url!);
     service = new NotificationService(db as PrismaService, config as never, provider);
     worker = new NotificationWorker(db as PrismaService, config as never, service, provider);
   });

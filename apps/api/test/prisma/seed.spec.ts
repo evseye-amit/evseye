@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 
 const seedSource = readFileSync(
-  new URL('../../prisma/seed.mjs', import.meta.url),
+  new URL('../../prisma/seed-yogmaya.mjs', import.meta.url),
   'utf8',
 );
 
@@ -20,18 +20,19 @@ describe('fleet seed upsert', () => {
       };
     };
 
-    // seed.mjs executes its full seed when imported, so execute only the fleet
-    // upsert block with an isolated mock instead of touching a database.
+    // Execute only the fleet upsert block with an isolated mock instead of
+    // importing the consolidated seed and touching a database.
     const fleetUpsertStart = seedSource.indexOf(
       'const { status: _status, ...fleetUpdate } = fleetRecord;',
     );
-    const fleetUpsertEnd = seedSource.indexOf('\n    });', fleetUpsertStart);
+    const endMarker = '\n  });';
+    const fleetUpsertEnd = seedSource.indexOf(endMarker, fleetUpsertStart);
     expect(fleetUpsertStart).toBeGreaterThanOrEqual(0);
     expect(fleetUpsertEnd).toBeGreaterThan(fleetUpsertStart);
 
     const fleetUpsertSource = seedSource.slice(
       fleetUpsertStart,
-      fleetUpsertEnd + '\n    });'.length,
+      fleetUpsertEnd + endMarker.length,
     );
     const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (
       ...args: string[]

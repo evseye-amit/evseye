@@ -1,6 +1,7 @@
+import { createTestPrisma } from '../helpers/prisma-client.js';
 import 'reflect-metadata';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { PrismaClient, type FleetStatus } from '@prisma/client';
+import { type FleetStatus } from '@prisma/client';
 import { Reflector } from '@nestjs/core';
 import { randomUUID } from 'node:crypto';
 import type { ExecutionContext } from '@nestjs/common';
@@ -16,11 +17,7 @@ import type { AuthUser } from '../../src/auth/interfaces/auth-user.interface.js'
 const url = process.env.FLEET_SEARCH_TEST_DATABASE_URL;
 if (url && !new URL(url).pathname.includes('_test_'))
   throw new Error('Use a disposable _test_ database.');
-const db = new PrismaClient({
-  datasources: {
-    db: { url: url ?? 'postgresql://unused:unused@localhost:5432/unused' },
-  },
-});
+const db = createTestPrisma(url ?? 'postgresql://unused:unused@localhost:5432/unused');
 afterAll(() => db.$disconnect());
 const media = {
   downloadUrl: vi.fn(async (_client: string, id: string) => ({
