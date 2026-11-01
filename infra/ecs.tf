@@ -222,10 +222,8 @@ resource "aws_ecs_task_definition" "migrate" {
     essential = true
 
     command = [
-      "./apps/api/node_modules/.bin/prisma",
-      "migrate",
-      "deploy",
-      "--config=apps/api/prisma.config.ts",
+      "node",
+      "apps/api/scripts/deploy-migrations.mjs",
     ]
 
     secrets = [{

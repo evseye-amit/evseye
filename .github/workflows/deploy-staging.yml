@@ -8,6 +8,12 @@ on:
     branches: [main]
     types: [completed]
   workflow_dispatch:
+    inputs:
+      reset_staging_database:
+        description: 'Drop and recreate the staging database schema and data before deploying migrations.'
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   id-token: write   # required for OIDC → AWS
@@ -140,7 +146,7 @@ jobs:
           run-task: true
           run-task-launch-type: FARGATE
           run-task-container-overrides: >-
-            [{"name":"migrate","command":["./apps/api/node_modules/.bin/prisma","migrate","deploy","--config=apps/api/prisma.config.ts"]}]
+            [{"name":"migrate","command":["sh","-c","if [ '${{ inputs.reset_staging_database }}' = 'true' ]; then echo 'RESETTING STAGING DATABASE: all schema and data will be dropped.'; exec ./apps/api/node_modules/.bin/prisma migrate reset --force --skip-seed --config=apps/api/prisma.config.ts; else exec node apps/api/scripts/deploy-migrations.mjs; fi"]}]
           run-task-subnets: ${{ steps.network.outputs.subnets }}
           run-task-security-groups: ${{ secrets.ECS_TASK_SG }}
           run-task-assign-public-IP: ENABLED
@@ -186,7 +192,15 @@ jobs:
 
           log_options="$(jq -c '.containerDefinitions[] | select(.name == "migrate") | .logConfiguration.options // {}' "$TASK_DEFINITION_FILE")"
           log_group="$(jq -r '."awslogs-group" // empty' <<< "$log_options")"
+          log_prefix="$(jq -r '."awslogs-stream-prefix" // empty' <<< "$log_options")"
           log_stream="$(jq -r '[.tasks[].containers[] | select(.name == "migrate") | .logStreamName][0] // empty' <<< "$task_details")"
+
+          if [ -z "$log_stream" ] && [ -n "$log_prefix" ]; then
+            task_id="$(jq -r '[.tasks[].taskArn][0] // empty' <<< "$task_details" | awk -F/ '{print $NF}')"
+            if [ -n "$task_id" ]; then
+              log_stream="$log_prefix/migrate/$task_id"
+            fi
+          fi
 
           if [ -n "$log_group" ] && [ -n "$log_stream" ]; then
             echo "CloudWatch log stream: $log_group/$log_stream"
@@ -200,7 +214,7 @@ jobs:
               echo "::warning::Could not read the migration task log stream. Check CloudWatch permissions or open the stream above."
             fi
           else
-            echo "::warning::The migration container has no awslogs group/prefix configured; inspect its task logs in the ECS console."
+            echo "::warning::Migration task log configuration is incomplete (group='$log_group', stream-prefix='$log_prefix'). Inspect the task in the ECS console."
           fi
 
   # ─── Update ECS services ───────────────────────────────────────────────────
