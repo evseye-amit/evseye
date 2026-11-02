@@ -69,16 +69,24 @@ export class WorkflowResolverService {
       .map((value) => object(value)).filter((value) => typeof value.featureId === 'string')
       .map((value) => [value.featureId as string, value]));
     const components: ResolvedComponent[] = [];
+    const placeholderOverrides = new Set<string>();
     for (const raw of array(snapshot.features)) {
       const assignment = object(raw);
       const feature = object(assignment.feature);
       if (feature.category !== category || feature.isActive === false) continue;
-      const clientOverride = clientOverrides.get(String(assignment.featureId));
+      const featureId = String(assignment.featureId ?? feature.id);
+      const clientOverride = clientOverrides.get(featureId);
       if (clientOverride?.enabled === false) continue;
       const step = object(feature.step);
       if (typeof step.code !== 'string') continue;
       const base = object(feature.configuration);
-      const override = { ...object(assignment.configuration), ...object(clientOverride?.configuration) };
+      const assignmentConfiguration = object(assignment.configuration);
+      const clientConfiguration = object(clientOverride?.configuration);
+      if (
+        Object.prototype.hasOwnProperty.call(assignmentConfiguration, 'placeholder') ||
+        Object.prototype.hasOwnProperty.call(clientConfiguration, 'placeholder')
+      ) placeholderOverrides.add(featureId);
+      const override = { ...assignmentConfiguration, ...clientConfiguration };
       const configuration: Obj = { ...base, ...override,
         validation: { ...object(base.validation), ...object(override.validation) },
         translations: { ...object(base.translations), ...object(override.translations) } };
@@ -86,7 +94,7 @@ export class WorkflowResolverService {
       if (Array.isArray(appCodes) && !appCodes.includes(appCode)) continue;
       if (configuration.enabled === false) continue;
       components.push({
-        featureId: String(assignment.featureId ?? feature.id),
+        featureId,
         featureCode: String(feature.code),
         featureName: String(feature.name ?? feature.code),
         description: typeof feature.description === 'string' ? feature.description : null,
@@ -109,7 +117,7 @@ export class WorkflowResolverService {
     if (featureIds.length) {
       const localizedFeatures = await this.prisma.feature.findMany({
         where: { id: { in: featureIds } },
-        select: { id: true, name: true, description: true, translations: true },
+        select: { id: true, name: true, description: true, translations: true, configuration: true },
       });
       const currentCopy = new Map(localizedFeatures.map((feature) => [feature.id, feature]));
       for (const component of components) {
@@ -117,6 +125,14 @@ export class WorkflowResolverService {
         if (!current) continue;
         component.featureName = current.name;
         component.description = current.description;
+        if (!placeholderOverrides.has(component.featureId)) {
+          const catalogConfiguration = object(current.configuration);
+          if (Object.prototype.hasOwnProperty.call(catalogConfiguration, 'placeholder')) {
+            component.configuration.placeholder = catalogConfiguration.placeholder;
+          } else {
+            delete component.configuration.placeholder;
+          }
+        }
         if (component.componentType === 'INTRO_CAROUSEL') continue;
         const catalogTranslations = object(current.translations);
         const configuredTranslations = object(component.configuration.translations);

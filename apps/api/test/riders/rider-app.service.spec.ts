@@ -483,7 +483,8 @@ describe('RiderOnboardingConfigurationService', () => {
           label: 'Full Name', fieldType: 'TEXT', required: true, readOnly: false,
           disabled: false, editable: true, importable: true, billingUnit: 'LIFE_TIME',
           isUpload: false, sequence: 1, validation: { maxLength: 120 },
-          configuration: { fieldCode: 'FULL_NAME', translations: { kn: { label: 'ರೈಡರ್ ಪೂರ್ಣ ಹೆಸರು' } } },
+          configuration: { fieldCode: 'FULL_NAME',
+            translations: { kn: { label: 'ರೈಡರ್ ಪೂರ್ಣ ಹೆಸರು', placeholder: 'ನಿಮ್ಮ ಪೂರ್ಣ ಹೆಸರನ್ನು ನಮೂದಿಸಿ' } } },
         }],
       }] },
     }, 'kn');
@@ -491,8 +492,10 @@ describe('RiderOnboardingConfigurationService', () => {
     expect(step.stepName).toBe('ವೈಯಕ್ತಿಕ ವಿವರಗಳು');
     expect(step.fields[0]).toMatchObject({
       featureCode: 'CAPTURE_FULL_NAME', fieldCode: 'FULL_NAME', name: 'ಪೂರ್ಣ ಹೆಸರು',
-      configuration: { label: 'ರೈಡರ್ ಪೂರ್ಣ ಹೆಸರು', validation: { maxLength: 120 } },
+      configuration: { label: 'ರೈಡರ್ ಪೂರ್ಣ ಹೆಸರು', placeholder: 'ನಿಮ್ಮ ಪೂರ್ಣ ಹೆಸರನ್ನು ನಮೂದಿಸಿ',
+        validation: { maxLength: 120 } },
     });
+    expect('placeholder' in step.fields[0]).toBe(false);
     expect('translations' in step.fields[0].configuration).toBe(false);
   });
 

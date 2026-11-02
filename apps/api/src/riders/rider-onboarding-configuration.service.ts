@@ -92,8 +92,17 @@ export class RiderOnboardingConfigurationService {
           fields: step.fields.map((field) => {
             const storedConfiguration = Object.fromEntries(
               Object.entries(field.configuration).filter(([key]) =>
-                !['fieldCode', 'fieldId', 'featureId', 'featureCode', 'billingUnit', 'sequence', 'translations'].includes(key),
+                ![
+                  'fieldCode', 'fieldId', 'featureId', 'featureCode', 'billingUnit',
+                  'sequence', 'translations', 'placeholder',
+                ].includes(key),
               ),
+            );
+            const placeholder = translatedProperty(
+              field.placeholder,
+              field.configuration.translations,
+              locale,
+              'placeholder',
             );
             return {
               featureId: field.featureId,
@@ -106,7 +115,7 @@ export class RiderOnboardingConfigurationService {
               configuration: {
                 ...storedConfiguration,
                 label: translatedProperty(undefined, field.configuration.translations, locale, 'label') ?? riderCatalogLabel(field.fieldCode, locale) ?? riderCatalogLabel(field.featureCode, locale) ?? field.label,
-                ...(field.placeholder ? { placeholder: translatedProperty(field.placeholder, field.configuration.translations, locale, 'placeholder') } : {}),
+                ...(placeholder ? { placeholder } : {}),
                 fieldType: field.isUpload ? 'UPLOAD' : field.fieldType,
                 ...(field.storageKey ? { storageKey: field.storageKey } : {}),
                 required: field.required,
