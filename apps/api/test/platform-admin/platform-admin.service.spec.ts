@@ -32,6 +32,40 @@ describe('PlatformAdminService client detail', () => {
 });
 
 describe('PlatformAdminService client languages', () => {
+  it('updates an active client’s languages without creating a rejection', async () => {
+    const updateClient = vi.fn().mockResolvedValue({});
+    const updateProfile = vi.fn().mockResolvedValue({});
+    const record = vi.fn().mockResolvedValue({});
+    const prisma = {
+      client: {
+        findUnique: vi.fn().mockResolvedValue({ id: 'client-1', status: 'ACTIVE' }),
+        update: updateClient,
+      },
+      clientBusinessProfile: { update: updateProfile },
+      clientOnboardingRejection: { create: vi.fn() },
+      $transaction: vi.fn().mockResolvedValue([]),
+    };
+    const service = new PlatformAdminService(prisma as never,
+      { record } as never, {} as never, {} as never);
+    service.clientDetail = vi.fn().mockResolvedValue({ id: 'client-1' }) as never;
+
+    await expect(service.saveBusinessDetails('client-1', {
+      businessFleetName: 'Yogmaya', requestedLocales: ['en', 'hi'],
+      approvalEmailReference: 'Approved language support',
+    } as never, 'admin-1')).resolves.toEqual({ id: 'client-1' });
+
+    expect(updateClient).toHaveBeenCalledWith({
+      where: { id: 'client-1' },
+      data: { name: 'Yogmaya', requestedLocales: ['en', 'hi'] },
+    });
+    expect(updateProfile).toHaveBeenCalledOnce();
+    expect(prisma.clientOnboardingRejection.create).not.toHaveBeenCalled();
+    expect(record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'CLIENT_BUSINESS_DETAILS_UPDATED',
+      newData: { approvalEmailReference: 'Approved language support' },
+    }));
+  });
+
   it('stores onboarding languages as an unpublished Feature override', async () => {
     const createWorkflow = vi.fn().mockResolvedValue({});
     const prisma = {

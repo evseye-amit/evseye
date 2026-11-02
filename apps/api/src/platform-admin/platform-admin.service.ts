@@ -822,16 +822,6 @@ export class PlatformAdminService {
         },
       }),
     ]);
-    await this.prisma.clientOnboardingRejection.create({
-      data: {
-        clientId,
-        section: dto.section ?? 'GENERAL',
-        reasonCode: dto.reasonCode ?? 'GENERAL_REVIEW_REQUIRED',
-        reason: dto.reason.trim(),
-        blocking: true,
-        createdById: actorId,
-      },
-    });
     await this.audit.record({
       actorId,
       action: 'CLIENT_BUSINESS_DETAILS_UPDATED',
