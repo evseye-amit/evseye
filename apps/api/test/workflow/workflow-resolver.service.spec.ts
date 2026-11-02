@@ -116,19 +116,50 @@ describe('WorkflowResolverService', () => {
         id: 'sub-1', packageId: 'pkg-1', packageRevisionId: 'pkg-r1',
         packageRevision: { id: 'pkg-r1', version: 1, publishedAt: new Date(),
           contentHash: 'hash', snapshot: { id: 'pkg-1', code: 'BASIC', name: 'Basic',
-            features: [feature('CAPTURE_NAME', 'RIDER_ONBOARDING', { label: 'Name' })] } },
+            features: [feature('CAPTURE_NAME', 'RIDER_ONBOARDING', {
+              label: 'Name', placeholder: 'Pinned name placeholder',
+            })] } },
       }) },
       clientWorkflowRevision: { findFirst: vi.fn().mockResolvedValue(null) },
       featureStep: { findMany: vi.fn().mockResolvedValue([]) },
       feature: { findMany: vi.fn().mockResolvedValue([{ id: 'CAPTURE_NAME', name: 'Capture name',
-        description: 'Enter your name', translations: { hi: { name: 'नाम', label: 'पूरा नाम',
+        description: 'Enter your name', configuration: { placeholder: 'Current name placeholder' },
+        translations: { hi: { name: 'नाम', label: 'पूरा नाम',
           translationStatus: 'ACTIVE' } } }]) },
     };
     const result = await new WorkflowResolverService(prisma as never)
       .resolve('client-1', 'RIDER_ONBOARDING', 'RIDER');
     expect(result.components[0].featureName).toBe('Capture name');
+    expect(result.components[0].configuration.placeholder).toBe('Current name placeholder');
     expect(result.components[0].configuration.translations).toMatchObject({
       hi: { label: 'पूरा नाम', translationStatus: 'ACTIVE' },
     });
+  });
+
+  it('keeps a client placeholder override instead of the live Feature placeholder', async () => {
+    const prisma = {
+      clientSubscription: { findFirst: vi.fn().mockResolvedValue({
+        id: 'sub-1', packageId: 'pkg-1', packageRevisionId: 'pkg-r1',
+        packageRevision: { id: 'pkg-r1', version: 1, publishedAt: new Date(),
+          contentHash: 'hash', snapshot: { id: 'pkg-1', code: 'BASIC', name: 'Basic',
+            features: [feature('CAPTURE_NAME', 'RIDER_ONBOARDING', {
+              label: 'Name', placeholder: 'Pinned name placeholder',
+            })] } },
+      }) },
+      clientWorkflowRevision: { findFirst: vi.fn().mockResolvedValue({ id: 'client-r1',
+        contentHash: 'client-hash', snapshot: { packageRevisionId: 'pkg-r1', overrides: [{
+          featureId: 'CAPTURE_NAME', enabled: true,
+          configuration: { placeholder: 'Client name placeholder' },
+        }] } }) },
+      featureStep: { findMany: vi.fn().mockResolvedValue([]) },
+      feature: { findMany: vi.fn().mockResolvedValue([{ id: 'CAPTURE_NAME', name: 'Capture name',
+        description: 'Enter your name', configuration: { placeholder: 'Current name placeholder' },
+        translations: {} }]) },
+    };
+
+    const result = await new WorkflowResolverService(prisma as never)
+      .resolve('client-1', 'RIDER_ONBOARDING', 'RIDER');
+
+    expect(result.components[0].configuration.placeholder).toBe('Client name placeholder');
   });
 });
