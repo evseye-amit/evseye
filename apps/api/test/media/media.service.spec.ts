@@ -24,6 +24,38 @@ describe('MediaService photo requirements', () => {
   });
 });
 
+describe('MediaService upload completion', () => {
+  it('uses storage validation without rereading the full object with a header-sized limit', async () => {
+    const photo = {
+      id: 'photo-1',
+      clientId: 'client-a',
+      workFlowType: PhotoWorkflowType.RIDER_ONBOARDING,
+      subjectType: PhotoSubjectType.DECLARATION,
+      entityId: 'progress-1',
+      photoType: 'DOCUMENT',
+      objectKey: 'clients/client-a/rider_onboarding/progress-1/photo.jpg',
+      mimeType: 'image/jpeg',
+      sizeBytes: 339283,
+      status: 'PENDING_UPLOAD',
+    };
+    const updateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const update = vi.fn().mockResolvedValue({ ...photo, status: 'COMPLETE' });
+    const prisma = {
+      photo: { findFirst: vi.fn().mockResolvedValue(photo) },
+      $transaction: vi.fn(async (callback: (tx: unknown) => unknown) => callback({ photo: { updateMany, update } })),
+    };
+    const storage = {
+      assertObjectExists: vi.fn().mockResolvedValue(undefined),
+      readObject: vi.fn(),
+    };
+    const service = new MediaService(prisma as never, storage as never);
+
+    await expect(service.complete('client-a', photo.id)).resolves.toMatchObject({ status: 'COMPLETE' });
+    expect(storage.assertObjectExists).toHaveBeenCalledWith(photo.objectKey, { maxBytes: photo.sizeBytes });
+    expect(storage.readObject).not.toHaveBeenCalled();
+  });
+});
+
 describe('MediaService fleet-manager rider scope', () => {
   const manager = { id: 'manager-1', clientId: 'client-a', roles: [UserRole.FLEET_MANAGER] };
   it('rejects downloads when the rider is outside assigned hubs', async () => {
