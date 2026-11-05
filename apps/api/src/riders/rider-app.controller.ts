@@ -8,7 +8,7 @@ import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { RiderAppEnrollDto, SaveRiderAppStepDto } from './dto/rider-app.dto.js';
-import { RiderDocumentUploadIntentDto } from './dto/rider-document.dto.js';
+import { RiderDocumentUploadCompleteDto, RiderDocumentUploadIntentDto } from './dto/rider-document.dto.js';
 import { RiderAppService } from './rider-app.service.js';
 import { requestLocale } from '../common/locale.js';
 
@@ -63,9 +63,9 @@ export class RiderAppController {
   @Throttle({ default: { limit: 30, ttl: 60000 } })
   @UseGuards(AccessTokenGuard, RolesGuard)
   @Roles(UserRole.RIDER)
-  async completeDocumentUpload(@CurrentUser() user: AuthUser, @Param('photoId') photoId: string) {
+  async completeDocumentUpload(@CurrentUser() user: AuthUser, @Param('photoId') photoId: string, @Body() dto?: RiderDocumentUploadCompleteDto) {
     if (!user.clientId) throw new ForbiddenException('Rider is not associated with a client.');
-    return { data: await this.riderApp.completeDocumentUpload(user.clientId, user.id, photoId) };
+    return { data: await this.riderApp.completeDocumentUpload(user.clientId, user.id, photoId, dto?.fieldCode) };
   }
 
   @Post('onboarding/steps')

@@ -9,6 +9,10 @@ export class RiderDocumentUploadIntentDto {
   @IsInt() @Min(1) @Max(5 * 1024 * 1024) sizeBytes!: number;
 }
 
+export class RiderDocumentUploadCompleteDto {
+  @IsOptional() @IsString() @Matches(/^[A-Z0-9_]{1,100}$/) fieldCode?: string;
+}
+
 export class RejectRiderDocumentDto {
   @IsString() @MaxLength(1000) rejectionReason!: string;
 }
