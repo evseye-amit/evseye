@@ -2,18 +2,44 @@ import { describe, expect, it } from 'vitest';
 import { validateEnvironment } from '../../src/config/environment.js';
 
 describe('validateEnvironment', () => {
-  it('rejects the sandbox KYC provider in production', () => {
-    expect(() =>
-      validateEnvironment({
-        NODE_ENV: 'production',
-        KYC_PROVIDER: 'sandbox',
-        S3_BUCKET: 'evs-eye-production',
-        MEDIA_PUBLIC_BASE_URL: 'https://media.evseye.io',
-        JWT_ACCESS_SECRET: 'a'.repeat(40),
-        JWT_REFRESH_SECRET: 'b'.repeat(40),
-        OTP_HASH_SECRET: 'c'.repeat(40),
-      }),
-    ).toThrow('KYC_PROVIDER must not use the sandbox in production.');
+  it('allows the Sandbox provider in production while KYC is disabled', () => {
+    expect(validateEnvironment({
+      NODE_ENV: 'production',
+      KYC_PROVIDER: 'sandbox',
+      SMS_PROVIDER: 'telipia',
+      TELIPIA_API_URL: 'https://sms.example.com/api',
+      TELIPIA_USERNAME: 'user',
+      TELIPIA_API_KEY: 'key',
+      TELIPIA_SENDER: 'SENDER',
+      TELIPIA_LOGIN_TEMPLATE_ID: 'template',
+      S3_BUCKET: 'evs-eye-production',
+      MEDIA_PUBLIC_BASE_URL: 'https://media.evseye.io',
+      JWT_ACCESS_SECRET: 'a'.repeat(40),
+      JWT_REFRESH_SECRET: 'b'.repeat(40),
+      OTP_HASH_SECRET: 'c'.repeat(40),
+      CLIENT_PROXY_SECRET: 'd'.repeat(40),
+      DATABASE_URL: 'postgresql://user:pass@db.example.com:5432/evseye',
+      APP_BASE_DOMAINS: 'evseye.com',
+      APP_GENERIC_HOSTS: 'app.evseye.com,api.evseye.com',
+      CORS_ORIGINS: 'https://app.evseye.com',
+    }).KYC_PROVIDER).toBe('sandbox');
+  });
+
+  it('requires Sandbox production mode when KYC is enabled in production', () => {
+    expect(() => validateEnvironment({
+      NODE_ENV: 'production',
+      KYC_PROVIDER: 'sandbox',
+      KYC_ENABLED: 'true',
+      KYC_SANDBOX_ENVIRONMENT: 'TEST',
+      KYC_SANDBOX_API_KEY: 'key',
+      KYC_SANDBOX_API_SECRET: 'secret',
+      KYC_FINGERPRINT_SECRET: 'f'.repeat(32),
+      S3_BUCKET: 'evs-eye-production',
+      MEDIA_PUBLIC_BASE_URL: 'https://media.evseye.io',
+      JWT_ACCESS_SECRET: 'a'.repeat(40),
+      JWT_REFRESH_SECRET: 'b'.repeat(40),
+      OTP_HASH_SECRET: 'c'.repeat(40),
+    })).toThrow('Production KYC requires Sandbox PRODUCTION credentials.');
   });
 
   it('rejects the console SMS provider in production', () => {

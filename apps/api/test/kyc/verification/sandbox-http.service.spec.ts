@@ -3,7 +3,7 @@ import { SandboxHttpService } from '../../../src/kyc/verification/sandbox-http.s
 
 afterEach(() => vi.unstubAllGlobals());
 
-const values: Record<string, string | boolean> = { KYC_ENABLED: true, KYC_SANDBOX_ENVIRONMENT: 'TEST',
+const values: Record<string, string | boolean> = { KYC_ENABLED: true, KYC_SANDBOX_ENVIRONMENT: 'TEST', KYC_SANDBOX_API_URL: 'https://test-api.sandbox.co.in',
   KYC_SANDBOX_API_KEY: 'test-key', KYC_SANDBOX_API_SECRET: 'test-secret' };
 const config = { get: (key: string) => values[key] };
 
