@@ -2,8 +2,6 @@ import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Environment } from '../../config/environment.js';
 
-const BASE_URL = 'https://test-api.sandbox.co.in';
-
 export class SandboxHttpError extends Error {
   constructor(readonly category: string, readonly status?: number) {
     super(category);
@@ -21,8 +19,12 @@ export class SandboxHttpService {
 
   circuitOpen() { return this.openUntil > Date.now(); }
 
+  private baseUrl() {
+    return this.config.get('KYC_SANDBOX_API_URL').replace(/\/$/, '');
+  }
+
   private credentials() {
-    if (!this.config.get('KYC_ENABLED') || this.config.get('KYC_SANDBOX_ENVIRONMENT') !== 'TEST')
+    if (!this.config.get('KYC_ENABLED'))
       throw new ServiceUnavailableException('KYC_FEATURE_NOT_ENABLED');
     const key = this.config.get('KYC_SANDBOX_API_KEY');
     const secret = this.config.get('KYC_SANDBOX_API_SECRET');
@@ -35,7 +37,7 @@ export class SandboxHttpService {
     if (this.authPromise) return this.authPromise;
     this.authPromise = (async () => {
       const { key, secret } = this.credentials();
-      const response = await fetch(`${BASE_URL}/authenticate`, {
+      const response = await fetch(`${this.baseUrl()}/authenticate`, {
         method: 'POST', headers: { 'x-api-key': key, 'x-api-secret': secret }, signal: AbortSignal.timeout(8000),
         redirect: 'error',
       });
@@ -54,7 +56,7 @@ export class SandboxHttpService {
     const { key } = this.credentials();
     try {
       const token = await this.authenticate();
-      const response = await fetch(`${BASE_URL}${path}`, {
+      const response = await fetch(`${this.baseUrl()}${path}`, {
         method,
         headers: { Authorization: token, 'x-api-key': key, 'Content-Type': 'application/json' },
         ...(body ? { body: JSON.stringify(body) } : {}),

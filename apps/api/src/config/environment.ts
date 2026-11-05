@@ -142,7 +142,8 @@ const environmentSchema = z.object({
   TELIPIA_HANDOVER_OPERATOR_TEMPLATE_ID: z.string().optional(),
   KYC_PROVIDER: z.string().default('sandbox'),
   KYC_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
-  KYC_SANDBOX_ENVIRONMENT: z.enum(['TEST']).default('TEST'),
+  KYC_SANDBOX_ENVIRONMENT: z.enum(['TEST', 'PRODUCTION']).default('TEST'),
+  KYC_SANDBOX_API_URL: z.string().url().default('https://test-api.sandbox.co.in'),
   KYC_SANDBOX_SECRET_REFERENCE: z.literal('env:KYC_SANDBOX_TEST').default('env:KYC_SANDBOX_TEST'),
   KYC_SANDBOX_API_KEY: z.string().optional(),
   KYC_SANDBOX_API_SECRET: z.string().optional(),
@@ -252,17 +253,11 @@ export function validateEnvironment(
       'MEDIA_PUBLIC_BASE_URL must be configured in production for public media delivery.',
     );
   }
-  if (
-    result.data.NODE_ENV === 'production' &&
-    result.data.KYC_PROVIDER === 'sandbox'
-  ) {
-    throw new Error('KYC_PROVIDER must not use the sandbox in production.');
-  }
   if (result.data.KYC_ENABLED && (!result.data.KYC_SANDBOX_API_KEY || !result.data.KYC_SANDBOX_API_SECRET || !result.data.KYC_FINGERPRINT_SECRET)) {
-    throw new Error('Enabled KYC requires Sandbox TEST credentials and a fingerprint secret.');
+    throw new Error('Enabled KYC requires Sandbox credentials and a fingerprint secret.');
   }
-  if (result.data.NODE_ENV === 'production' && result.data.KYC_ENABLED) {
-    throw new Error('Phase 1 KYC TEST integration cannot run in production.');
+  if (result.data.NODE_ENV === 'production' && result.data.KYC_ENABLED && result.data.KYC_SANDBOX_ENVIRONMENT !== 'PRODUCTION') {
+    throw new Error('Production KYC requires Sandbox PRODUCTION credentials.');
   }
   if (
     result.data.NODE_ENV === 'production' &&
