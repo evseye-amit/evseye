@@ -185,9 +185,32 @@ variable "sms_provider" {
 }
 
 variable "kyc_provider" {
-  description = "KYC adapter name (sandbox | <real-vendor>). Production must not use 'sandbox'."
+  description = "KYC adapter name. Sandbox is the configured vendor and supports TEST or PRODUCTION credentials."
   type        = string
   default     = "sandbox"
+}
+
+variable "kyc_enabled" {
+  description = "Enable KYC verification traffic. Keep false until production provider credentials are configured."
+  type        = bool
+  default     = false
+}
+
+variable "kyc_sandbox_environment" {
+  description = "Sandbox vendor environment selected by the API."
+  type        = string
+  default     = "TEST"
+
+  validation {
+    condition     = contains(["TEST", "PRODUCTION"], var.kyc_sandbox_environment)
+    error_message = "kyc_sandbox_environment must be TEST or PRODUCTION."
+  }
+}
+
+variable "kyc_sandbox_api_url" {
+  description = "Sandbox vendor API base URL. Use the production endpoint when production credentials are enabled."
+  type        = string
+  default     = "https://test-api.sandbox.co.in"
 }
 
 # ─── GitHub OIDC ──────────────────────────────────────────────────────────────

@@ -70,8 +70,6 @@ resource "aws_ecs_task_definition" "api" {
 
     # Non-secret environment variables
     environment = [
-      # Staging intentionally uses the repository's development-only console
-      # SMS and sandbox KYC adapters. Production must select real adapters.
       { name = "NODE_ENV", value = var.environment == "staging" ? "development" : "production" },
       { name = "API_PORT", value = tostring(var.api_port) },
       { name = "AWS_REGION", value = var.aws_region },
@@ -93,6 +91,9 @@ resource "aws_ecs_task_definition" "api" {
       { name = "IOT_OFFLINE_THRESHOLD_SECONDS", value = tostring(var.iot_offline_threshold_seconds) },
       { name = "SMS_PROVIDER", value = var.sms_provider },
       { name = "KYC_PROVIDER", value = var.kyc_provider },
+      { name = "KYC_ENABLED", value = tostring(var.kyc_enabled) },
+      { name = "KYC_SANDBOX_ENVIRONMENT", value = var.kyc_sandbox_environment },
+      { name = "KYC_SANDBOX_API_URL", value = var.kyc_sandbox_api_url },
       { name = "REDIS_URL", value = "rediss://${aws_elasticache_replication_group.main.primary_endpoint_address}:6379" },
     ]
 
