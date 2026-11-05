@@ -8,7 +8,7 @@ import type { SendSmsInput, SmsProvider } from './sms-provider.interface.js';
 /** Telipia's HTTP API adapter. No credentials, request URLs, or OTPs are logged. */
 @Injectable()
 export class TelipiaSmsProvider implements SmsProvider {
-  constructor(private readonly config: ConfigService<Environment, true>) {}
+  constructor(private readonly config: ConfigService<Environment, true>) { }
 
   async send(input: SendSmsInput): Promise<void> {
     const templateId = input.purpose === OtpPurpose.LOGIN
