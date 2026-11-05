@@ -111,6 +111,36 @@ describe('client deployment configuration', () => {
     expect(() => validateEnvironment({ SMS_PROVIDER: 'telipia' })).toThrow('Telipia SMS configuration is missing');
     expect(() => validateEnvironment({ SMS_PROVIDER: 'telipia', TELIPIA_API_URL: 'http://sms.example.com/api', TELIPIA_USERNAME: 'user', TELIPIA_API_KEY: 'key', TELIPIA_SENDER: 'SENDER', TELIPIA_LOGIN_TEMPLATE_ID: 'template' })).toThrow('TELIPIA_API_URL must use HTTPS');
   });
+  it('requires Telipia settings when staging live SMS is enabled', () => {
+    expect(() => validateEnvironment({ STAGING_LIVE_SMS_ENABLED: 'true' })).toThrow('Telipia SMS configuration is missing');
+    expect(validateEnvironment({
+      STAGING_LIVE_SMS_ENABLED: 'true',
+      TELIPIA_API_URL: 'https://telipiacloud.in/sms-panel/api/http/index.php',
+      TELIPIA_USERNAME: 'account',
+      TELIPIA_API_KEY: 'key',
+      TELIPIA_SENDER: 'EVSPRS',
+      TELIPIA_LOGIN_TEMPLATE_ID: 'template',
+    }).STAGING_LIVE_SMS_ENABLED).toBe(true);
+  });
+  it('does not allow the staging SMS switch in production', () => {
+    expect(() => validateEnvironment({
+      NODE_ENV: 'production',
+      STAGING_LIVE_SMS_ENABLED: 'true',
+      KYC_PROVIDER: 'live-provider',
+      SMS_PROVIDER: 'telipia',
+      TELIPIA_API_URL: 'https://telipiacloud.in/sms-panel/api/http/index.php',
+      TELIPIA_USERNAME: 'account',
+      TELIPIA_API_KEY: 'key',
+      TELIPIA_SENDER: 'EVSPRS',
+      TELIPIA_LOGIN_TEMPLATE_ID: 'template',
+      S3_BUCKET: 'evseye-production',
+      MEDIA_PUBLIC_BASE_URL: 'https://media.evseye.com',
+      JWT_ACCESS_SECRET: 'a'.repeat(40),
+      JWT_REFRESH_SECRET: 'b'.repeat(40),
+      OTP_HASH_SECRET: 'c'.repeat(40),
+      CLIENT_PROXY_SECRET: 'd'.repeat(40),
+    })).toThrow('STAGING_LIVE_SMS_ENABLED must not be enabled in production.');
+  });
   it('rejects the console fallback provider in production', () => {
     expect(() => validateEnvironment({
       NODE_ENV: 'production',

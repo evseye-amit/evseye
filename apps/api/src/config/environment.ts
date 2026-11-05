@@ -132,6 +132,7 @@ const environmentSchema = z.object({
     .optional(),
   SMS_PROVIDER: z.enum(['console', 'telipia']).default('console'),
   SMS_FALLBACK_PROVIDER: z.enum(['none', 'console', 'telipia']).default('none'),
+  STAGING_LIVE_SMS_ENABLED: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
   TELIPIA_API_URL: z.string().url().optional(),
   TELIPIA_USERNAME: z.string().optional(),
   TELIPIA_API_KEY: z.string().optional(),
@@ -275,7 +276,10 @@ export function validateEnvironment(
       'SMS_FALLBACK_PROVIDER must not use the console provider in production.',
     );
   }
-  if (result.data.SMS_PROVIDER === 'telipia') {
+  if (result.data.NODE_ENV === 'production' && result.data.STAGING_LIVE_SMS_ENABLED) {
+    throw new Error('STAGING_LIVE_SMS_ENABLED must not be enabled in production.');
+  }
+  if (result.data.SMS_PROVIDER === 'telipia' || result.data.STAGING_LIVE_SMS_ENABLED) {
     const required = [
       'TELIPIA_API_URL',
       'TELIPIA_USERNAME',

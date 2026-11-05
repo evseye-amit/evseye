@@ -18,6 +18,7 @@ export class FailoverSmsProvider implements SmsProvider {
     private readonly prisma?: PrismaService,
     private readonly providers: Record<string, SmsProvider> = {},
     private readonly production = false,
+    private readonly primaryProviderOverride?: string,
   ) {}
 
   async send(input: SendSmsInput): Promise<void> {
@@ -58,6 +59,13 @@ export class FailoverSmsProvider implements SmsProvider {
       fallbackProvider: this.fallback ? this.providerName(this.fallback, 'fallback') : null,
       maxAttempts: 2,
     };
+    if (this.primaryProviderOverride) {
+      return this.validatePolicy({
+        primaryProvider: this.primaryProviderOverride,
+        fallbackProvider: null,
+        maxAttempts: defaults.maxAttempts,
+      });
+    }
     if (!this.prisma) return this.validatePolicy(defaults);
 
     let stored: SmsPolicy | null;

@@ -182,6 +182,11 @@ variable "sms_provider" {
   description = "SMS adapter name. 'console' logs OTP to stdout and accepts 123456 (staging only). Production must use a real provider."
   type        = string
   default     = "console"
+
+  validation {
+    condition     = contains(["console", "telipia"], var.sms_provider)
+    error_message = "sms_provider must be either 'console' or 'telipia'."
+  }
 }
 
 variable "kyc_provider" {
