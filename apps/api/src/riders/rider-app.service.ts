@@ -479,21 +479,31 @@ export class RiderAppService {
     };
   }
 
-  async completeDocumentUpload(clientId: string, userId: string, photoId: string) {
+  async completeDocumentUpload(clientId: string, userId: string, photoId: string, requestedFieldCode?: string) {
     const photo = await this.prisma.photo.findFirst({ where: { id: photoId, clientId, uploadedById: userId, workFlowType: 'RIDER_ONBOARDING', status: { in: [PhotoStatus.PENDING_UPLOAD, PhotoStatus.COMPLETE] } }, select: { id: true, photoType: true, subjectType: true, status: true } });
     if (!photo) throw new BadRequestException('Rider onboarding document upload not found.');
-    const effective = await this.configuration.getEffectiveConfiguration(clientId);
-    const subjectRules = await this.prisma.photoRequirement.findMany({ where: { clientId, workFlowType: 'RIDER_ONBOARDING', subjectType: photo.subjectType }, select: { featureCode: true } });
-    const featureCodes = new Set(subjectRules.map((rule) => rule.featureCode).filter((code): code is string => Boolean(code)));
-    const field = effective.onboarding.steps.flatMap((step) => step.fields).find((item) =>
-      (featureCodes.has(item.featureCode) || item.configuration.photoSubjectType === photo.subjectType || item.featureCode === photo.subjectType) &&
-      item.isUpload && !item.disabled && item.configuration.enabled !== false,
-    );
-    if (!field?.isUpload) throw new BadRequestException('Rider onboarding document field is not active in the current package.');
-    const configuredTypes = await this.uploadField(clientId, userId, field.fieldCode);
+    let configuredTypes;
+    if (requestedFieldCode) {
+      configuredTypes = await this.uploadField(clientId, userId, requestedFieldCode);
+      if (configuredTypes.subjectType !== photo.subjectType) {
+        throw new BadRequestException('The uploaded photo does not belong to this onboarding field.');
+      }
+    } else {
+      // Backwards compatibility for app versions that completed uploads without a field code.
+      const effective = await this.configuration.getEffectiveConfiguration(clientId);
+      const subjectRules = await this.prisma.photoRequirement.findMany({ where: { clientId, workFlowType: 'RIDER_ONBOARDING', subjectType: photo.subjectType }, select: { featureCode: true } });
+      const featureCodes = new Set(subjectRules.map((rule) => rule.featureCode).filter((code): code is string => Boolean(code)));
+      const field = effective.onboarding.steps.flatMap((step) => step.fields).find((item) =>
+        (featureCodes.has(item.featureCode) || item.configuration.photoSubjectType === photo.subjectType || item.featureCode === photo.subjectType) &&
+        item.isUpload && !item.disabled && item.configuration.enabled !== false,
+      );
+      if (!field?.isUpload) throw new BadRequestException('Rider onboarding document field is not active in the current package.');
+      configuredTypes = await this.uploadField(clientId, userId, field.fieldCode);
+    }
     if (configuredTypes.photoTypes.length && !configuredTypes.photoTypes.some((slot) => slot.photoType === photo.photoType)) {
       throw new BadRequestException('This photo type is no longer allowed for the active onboarding package.');
     }
+    const { field } = configuredTypes;
     const fieldCode = field.fieldCode;
     if (photo.status === PhotoStatus.COMPLETE) {
       const existing = await this.prisma.riderOnboardingDocument.findFirst({ where: { clientId, userId, photoId }, orderBy: { createdAt: 'desc' } });
