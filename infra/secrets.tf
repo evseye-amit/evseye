@@ -97,3 +97,10 @@ data "aws_secretsmanager_secret" "staging_razorpay" {
   count = var.environment == "staging" ? 1 : 0
   name  = "${local.name_prefix}/razorpay"
 }
+
+# Telipia credentials and approved DLT settings are provisioned outside
+# Terraform so their values never enter Terraform state or source control.
+data "aws_secretsmanager_secret" "telipia" {
+  count = var.environment == "staging" || var.sms_provider == "telipia" ? 1 : 0
+  name  = "${local.name_prefix}/telipia"
+}

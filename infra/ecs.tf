@@ -92,6 +92,7 @@ resource "aws_ecs_task_definition" "api" {
       { name = "API_RATE_TTL_MS", value = tostring(var.api_rate_ttl_ms) },
       { name = "IOT_OFFLINE_THRESHOLD_SECONDS", value = tostring(var.iot_offline_threshold_seconds) },
       { name = "SMS_PROVIDER", value = var.sms_provider },
+      { name = "SMS_FALLBACK_PROVIDER", value = "none" },
       { name = "KYC_PROVIDER", value = var.kyc_provider },
       { name = "REDIS_URL", value = "rediss://${aws_elasticache_replication_group.main.primary_endpoint_address}:6379" },
     ]
@@ -127,7 +128,18 @@ resource "aws_ecs_task_definition" "api" {
         name      = name
         valueFrom = "${data.aws_secretsmanager_secret.staging_razorpay[0].arn}:${name}::"
       }
-    ] : [])
+      ] : [], var.environment == "staging" || var.sms_provider == "telipia" ? [
+      for name in [
+        "TELIPIA_API_URL", "TELIPIA_USERNAME", "TELIPIA_API_KEY",
+        "TELIPIA_SENDER", "TELIPIA_ROUTE", "TELIPIA_LOGIN_TEMPLATE_ID"
+        ] : {
+        name      = name
+        valueFrom = "${data.aws_secretsmanager_secret.telipia[0].arn}:${name}::"
+      }
+      ] : [], var.environment == "staging" ? [{
+        name      = "STAGING_LIVE_SMS_ENABLED"
+        valueFrom = "${data.aws_secretsmanager_secret.telipia[0].arn}:STAGING_LIVE_SMS_ENABLED::"
+    }] : [])
 
     logConfiguration = {
       logDriver = "awslogs"

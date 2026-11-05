@@ -40,7 +40,8 @@ import { PrismaService } from '../prisma/prisma.service.js';
         telipiaProvider: TelipiaSmsProvider,
         prisma: PrismaService,
       ) => {
-        const provider = config.getOrThrow('SMS_PROVIDER');
+        const stagingLiveSms = config.getOrThrow('NODE_ENV') !== 'production' && config.getOrThrow('STAGING_LIVE_SMS_ENABLED');
+        const provider = stagingLiveSms ? 'telipia' : config.getOrThrow('SMS_PROVIDER');
         const primary = provider === 'console' ? consoleProvider : provider === 'telipia' ? telipiaProvider : null;
         if (!primary) throw new Error(`Unsupported SMS_PROVIDER: ${provider}`);
         const fallbackName = config.getOrThrow('SMS_FALLBACK_PROVIDER');
@@ -51,6 +52,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
           prisma,
           { console: consoleProvider, telipia: telipiaProvider },
           config.getOrThrow('NODE_ENV') === 'production',
+          stagingLiveSms ? 'telipia' : undefined,
         );
       },
     },

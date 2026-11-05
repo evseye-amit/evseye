@@ -102,4 +102,39 @@ describe('FailoverSmsProvider', () => {
     await expect(service.send(input)).rejects.toThrow('SMS delivery is temporarily unavailable');
     await expect(service.send(input)).rejects.not.toThrow('secret-key');
   });
+
+  it('lets the staging live-SMS switch force Telipia without disabling delivery history', async () => {
+    const consoleSend = vi.fn().mockResolvedValue(undefined);
+    const telipiaSend = vi.fn().mockResolvedValue(undefined);
+    const rows: Array<Record<string, unknown>> = [];
+    const prisma = {
+      smsProviderPolicy: { findUnique: vi.fn() },
+      smsDelivery: {
+        create: vi.fn().mockImplementation(({ data }) => {
+          const row = { id: 'delivery-1', ...data };
+          rows.push(row);
+          return Promise.resolve(row);
+        }),
+        update: vi.fn().mockImplementation(({ data }) => {
+          Object.assign(rows[0]!, data);
+          return Promise.resolve(rows[0]);
+        }),
+      },
+    };
+    const service = new FailoverSmsProvider(
+      { send: telipiaSend },
+      undefined,
+      prisma as never,
+      { console: { send: consoleSend }, telipia: { send: telipiaSend } },
+      false,
+      'telipia',
+    );
+
+    await service.send(input);
+
+    expect(prisma.smsProviderPolicy.findUnique).not.toHaveBeenCalled();
+    expect(consoleSend).not.toHaveBeenCalled();
+    expect(telipiaSend).toHaveBeenCalledOnce();
+    expect(rows).toEqual([expect.objectContaining({ provider: 'telipia', status: 'DELIVERED' })]);
+  });
 });

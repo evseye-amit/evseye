@@ -9,13 +9,14 @@ export class OtpSecurity {
 
   generateCode(): string {
     return this.config.getOrThrow('NODE_ENV') !== 'production' &&
-      this.config.getOrThrow('SMS_PROVIDER') === 'console'
+      this.config.getOrThrow('SMS_PROVIDER') === 'console' &&
+      !this.config.getOrThrow('STAGING_LIVE_SMS_ENABLED')
       ? '123456'
       : randomInt(100_000, 1_000_000).toString();
   }
 
   generateLoginCode(role: UserRole): string {
-    if (this.config.getOrThrow('NODE_ENV') !== 'production' && this.config.getOrThrow('SMS_PROVIDER') === 'console') {
+    if (this.config.getOrThrow('NODE_ENV') !== 'production' && this.config.getOrThrow('SMS_PROVIDER') === 'console' && !this.config.getOrThrow('STAGING_LIVE_SMS_ENABLED')) {
       return role === 'SUPER_ADMIN' ? '098765' : '123456';
     }
     return randomInt(100_000, 1_000_000).toString();

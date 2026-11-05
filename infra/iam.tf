@@ -40,7 +40,8 @@ resource "aws_iam_role_policy" "ecs_task_execution_secrets" {
         aws_secretsmanager_secret.jwt_refresh.arn,
         aws_secretsmanager_secret.otp_hash.arn,
         aws_secretsmanager_secret.client_proxy.arn,
-      ], var.environment == "staging" ? [data.aws_secretsmanager_secret.staging_razorpay[0].arn] : [])
+        ], var.environment == "staging" ? [data.aws_secretsmanager_secret.staging_razorpay[0].arn] : [],
+      var.environment == "staging" || var.sms_provider == "telipia" ? [data.aws_secretsmanager_secret.telipia[0].arn] : [])
     }]
   })
 }
