@@ -2405,15 +2405,18 @@ body:has(.sa-dialog[open]) {
   border-radius: 6px;
 }
 .sa-checkbox-list label,
-.sa-toggle {
+.sa-toggle,
+.sa-check {
   display: flex !important;
   align-items: center;
   gap: 7px;
   font-weight: 400 !important;
 }
 .sa-checkbox-list input,
-.sa-toggle input {
+.sa-toggle input,
+.sa-check input {
   width: auto !important;
+  flex: 0 0 auto;
 }
 .sa-package-limits {
   display: grid;
