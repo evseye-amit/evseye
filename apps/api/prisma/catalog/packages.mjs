@@ -1,4 +1,4 @@
-// Exported from the development database on 2026-10-09. Package codes remain stable across databases.
+// Exported from the local database; package codes remain stable across databases.
 export const packageCatalog = [
   {
     "code": "BASIC",
@@ -17,7 +17,7 @@ export const packageCatalog = [
     "displayOrder": 1,
     "isCustom": false,
     "isActive": true,
-    "setupFee": "50000"
+    "setupFee": "50000.00"
   },
   {
     "code": "STANDARD",
@@ -36,7 +36,7 @@ export const packageCatalog = [
     "displayOrder": 2,
     "isCustom": false,
     "isActive": true,
-    "setupFee": "75000"
+    "setupFee": "75000.00"
   },
   {
     "code": "PREMIUM",
@@ -55,6 +55,6 @@ export const packageCatalog = [
     "displayOrder": 3,
     "isCustom": false,
     "isActive": true,
-    "setupFee": "100000"
+    "setupFee": "100000.00"
   }
 ];
