@@ -53,7 +53,7 @@ function stateTables(clientId: string, cutoff?: Date) {
 export function attributedRidersCte() {
   return Prisma.sql`riders_scoped AS (
     SELECT r.*, ${riderHubExpression()} AS "attributedHubId"
-    FROM "Rider" r WHERE r."deletedAt" IS NULL AND r.status = 'ACTIVE'
+    FROM "Rider" r WHERE r."deletedAt" IS NULL AND r.status IN ('ACTIVE', 'ONBOARDING')
       AND (r."userId" IS NULL OR EXISTS (SELECT 1 FROM "User" u WHERE u.id = r."userId"
         AND u."isActive" AND u."deletedAt" IS NULL))
   )`;
@@ -120,7 +120,8 @@ export function homeCountsQuery(
         AND EXISTS (SELECT 1 FROM "Allocation" a WHERE a."fleetId" = f.id AND a.status IN ('ACTIVE','DEALLOCATION_INITIATED')))::int AS "allocatedFleet",
       COUNT(*) FILTER (WHERE f."currentHubId" = ${hubId} AND f.status IN
         ('AVAILABLE','RESERVED','ALLOCATION_IN_PROGRESS','INSPECTION_PENDING','MAINTENANCE','BROKEN','AWAITING_PARTS','OUT_OF_SERVICE'))::int AS "occupiedSlots",
-      (SELECT COUNT(*)::int FROM riders_scoped r WHERE r."attributedHubId" = ${hubId}) AS "activeRiders"
+      (SELECT COUNT(*)::int FROM riders_scoped r WHERE r."attributedHubId" = ${hubId}
+        AND r.status = 'ACTIVE') AS "activeRiders"
     FROM "Fleet" f WHERE f."deletedAt" IS NULL`;
 }
 
@@ -131,6 +132,7 @@ export function riderAttendanceQuery(
 ) {
   return Prisma.sql`WITH ${stateTables(clientId)}, ${attributedRidersCte()}
     SELECT COUNT(*)::int AS present FROM riders_scoped r WHERE r."attributedHubId" = ${hubId}
+      AND r.status = 'ACTIVE'
       AND EXISTS (SELECT 1 FROM "AttendancePeriod" p WHERE p."clientId" = ${clientId}
         AND p."userId" = r."userId" AND p."checkInAt" <= ${now}
         AND (p."checkOutAt" IS NULL OR p."checkOutAt" > ${now}))`;

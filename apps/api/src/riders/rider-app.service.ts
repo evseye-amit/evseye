@@ -356,7 +356,6 @@ export class RiderAppService {
     const nextStep = effective.onboarding.steps.find((item) => !completed.has(item.stepId) && !skipped.has(item.stepId));
     const merged = { ...(current.values as Record<string, unknown>), ...values };
     const allFinished = effective.onboarding.steps.every((item) => completed.has(item.stepId) || skipped.has(item.stepId));
-    const requiresDocumentReview = effective.onboarding.steps.some((item) => item.fields.some((field) => field.isUpload && !field.disabled));
     const storedValues = allFinished
       ? Object.fromEntries(
           effective.onboarding.steps
@@ -379,6 +378,9 @@ export class RiderAppService {
       }
       const existingRider = allFinished ? await tx.rider.findUnique({ where: { userId } }) : null;
       if (allFinished && !existingRider) {
+        const requiresDocumentReview = await tx.riderOnboardingDocument.count({
+          where: { clientId, userId, supersededAt: null },
+        }) > 0;
         const data: Record<string, unknown> = {
           ...riderValues,
           clientId,

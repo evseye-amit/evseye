@@ -44,7 +44,7 @@ function createService() {
   const transaction = {
     riderOnboardingProgress: { update: vi.fn().mockResolvedValue({}) },
     rider: { update: vi.fn().mockResolvedValue({}), findUnique: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({ id: 'rider-1' }) },
-    riderOnboardingDocument: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    riderOnboardingDocument: { updateMany: vi.fn().mockResolvedValue({ count: 0 }), count: vi.fn().mockResolvedValue(0) },
     user: { update: vi.fn().mockResolvedValue({}) },
   };
   const prisma = {
@@ -363,6 +363,34 @@ describe('RiderAppService.saveStep', () => {
     }) });
     expect(kyc.lockUser).toHaveBeenCalledWith(transaction, 'client-1', 'user-1');
     expect(kyc.sync).toHaveBeenCalledWith(transaction, 'client-1', 'user-1', configuration.onboarding.steps[0].fields);
+  });
+
+  it('creates an active rider when optional uploads were skipped', async () => {
+    const { service, transaction, resolver } = createService();
+    vi.spyOn(resolver, 'getEffectiveConfiguration').mockResolvedValue({
+      ...configuration,
+      onboarding: { ...configuration.onboarding, steps: [{
+        ...configuration.onboarding.steps[0],
+        fields: [...configuration.onboarding.steps[0].fields, {
+          fieldCode: 'PROFILE_PHOTO', storageKey: '', fieldType: 'UPLOAD', required: false,
+          isUpload: true, editable: true, readOnly: false, disabled: false,
+          validation: {}, configuration: {},
+        }],
+      }] },
+    } as never);
+    await service.saveStep('client-1', 'user-1', 'step-1', {
+      FULL_NAME: 'Aman Singh', MOBILE_NUMBER: '6573838383',
+    });
+    expect(transaction.rider.create).toHaveBeenCalledWith({ data: expect.objectContaining({ status: 'ACTIVE' }) });
+  });
+
+  it('requires review when an optional document was uploaded', async () => {
+    const { service, transaction } = createService();
+    transaction.riderOnboardingDocument.count.mockResolvedValue(1);
+    await service.saveStep('client-1', 'user-1', 'step-1', {
+      FULL_NAME: 'Aman Singh', MOBILE_NUMBER: '6573838383',
+    });
+    expect(transaction.rider.create).toHaveBeenCalledWith({ data: expect.objectContaining({ status: 'ONBOARDING' }) });
   });
 
   it('rejects an invalid birth date before saving onboarding progress', async () => {
