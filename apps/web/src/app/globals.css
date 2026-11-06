@@ -3073,6 +3073,20 @@ body:has(.sa-dialog[open]) {
   align-items: center;
   justify-content: center;
 }
+.platform-admin-shell :is(.sa-actions > button, .sa-dialog-actions > button, .form-actions > button, .sa-table-action-cell button, .sa-client-actions > button, .sa-inline-actions > button) {
+  box-sizing: border-box;
+  min-height: 40px;
+  height: 40px;
+  padding: 0 14px;
+  line-height: 1.2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+}
+.platform-admin-shell :is(.sa-actions, .sa-dialog-actions, .form-actions, .sa-client-actions, .sa-inline-actions) {
+  align-items: center;
+}
 .sa-field-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
