@@ -385,8 +385,8 @@ describe('RiderAppService.saveStep', () => {
   });
 
   it('requires review when an optional document was uploaded', async () => {
-    const { service, transaction } = createService();
-    transaction.riderOnboardingDocument.count.mockResolvedValue(1);
+    const { service, transaction, prisma } = createService();
+    prisma.riderOnboardingDocument.findMany.mockResolvedValue([{ fieldCode: 'PROFILE_PHOTO', status: 'PENDING', photo: { photoType: 'PROFILE' } }]);
     await service.saveStep('client-1', 'user-1', 'step-1', {
       FULL_NAME: 'Aman Singh', MOBILE_NUMBER: '6573838383',
     });

@@ -325,8 +325,10 @@ export class RiderAppService {
         usedMobiles.add(mobile);
       }
     }
+    let uploadedDocumentCount = 0;
     if (!skip) {
       const uploaded = await this.prisma.riderOnboardingDocument.findMany({ where: { clientId, userId, supersededAt: null }, select: { fieldCode: true, status: true, photo: { select: { photoType: true } } } });
+      uploadedDocumentCount = uploaded.length;
       const uploads = new Map<string, Set<string>>();
       for (const document of uploaded) {
         const statuses = uploads.get(document.fieldCode) ?? new Set<string>();
@@ -378,9 +380,7 @@ export class RiderAppService {
       }
       const existingRider = allFinished ? await tx.rider.findUnique({ where: { userId } }) : null;
       if (allFinished && !existingRider) {
-        const requiresDocumentReview = await tx.riderOnboardingDocument.count({
-          where: { clientId, userId, supersededAt: null },
-        }) > 0;
+        const requiresDocumentReview = uploadedDocumentCount > 0;
         const data: Record<string, unknown> = {
           ...riderValues,
           clientId,
