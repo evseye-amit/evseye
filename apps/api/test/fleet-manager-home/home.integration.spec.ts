@@ -217,6 +217,24 @@ describe.skipIf(!url)('Fleet Manager home in PostgreSQL', () => {
     ).toEqual(expect.arrayContaining([second.id, shared.id]));
   });
 
+  it('shows submitted onboarding riders in Waiting without counting them as active or present', async () => {
+    const f = await fixture();
+    const onboarding = await f.rider();
+    await db.rider.update({ where: { id: onboarding.id }, data: { status: 'ONBOARDING' } });
+    await db.attendancePeriod.create({
+      data: { clientId: f.clientId, userId: onboarding.user.id, checkInAt: new Date(Date.now() - 60_000) },
+    });
+    const deployments = new MobileDeploymentService(db as never, {} as never, {} as never, {} as never, {} as never);
+    expect((await deployments.pendingRiders(f.clientId, f.manager.id, f.hub.id)).map((r) => r.id)).toContain(onboarding.id);
+    expect((await service.get(f.clientId, f.manager.id)).summary).toMatchObject({
+      pendingAllocation: 1, riders: { active: 0, present: 0 },
+    });
+    await db.rider.update({ where: { id: onboarding.id }, data: { status: 'ACTIVE' } });
+    expect((await service.get(f.clientId, f.manager.id)).summary).toMatchObject({
+      pendingAllocation: 1, riders: { active: 1, present: 1 },
+    });
+  });
+
   it('uses current attendance including overnight periods and counts people rather than periods', async () => {
     const f = await fixture();
     const rider = await f.rider();
