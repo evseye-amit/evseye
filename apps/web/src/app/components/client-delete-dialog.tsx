@@ -39,7 +39,7 @@ export function ClientDeleteDialog({ confirmation, busy, onClose }: {
   }} onClose={() => { if (confirmation) onClose(); }}>
     <div className="sa-dialog-surface sa-delete-dialog-surface">
       <span className="sa-delete-dialog-icon" aria-hidden="true">!</span>
-      <div><p className="sa-eyebrow">{t("CONFIRM DELETION")}</p><h2 id={titleId}>{t(confirmation?.title ?? "")}</h2><p id={descriptionId}>{t(confirmation?.description ?? "")}</p></div>
+      <div className="sa-delete-dialog-copy"><p className="sa-eyebrow">{t("CONFIRM DELETION")}</p><h2 id={titleId}>{t(confirmation?.title ?? "")}</h2><p id={descriptionId}>{t(confirmation?.description ?? "")}</p></div>
       <div className="sa-dialog-actions">
         <button ref={cancelRef} type="button" className="secondary" disabled={busy} onClick={onClose}>{t("Keep it")}</button>
         <button type="button" className="danger" disabled={busy} onClick={() => { if (confirmation) void confirmation.onConfirm().finally(onClose); }}>{t(busy ? "Deleting…" : confirmation?.confirmLabel ?? "Delete")}</button>

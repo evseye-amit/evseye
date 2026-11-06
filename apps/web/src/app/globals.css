@@ -2019,6 +2019,13 @@ body:has(.sa-dialog[open]) {
   box-shadow: 0 24px 70px #071d2640;
   isolation: isolate;
 }
+.sa-delete-dialog-copy {
+  min-width: 0;
+  align-self: center;
+}
+.sa-delete-dialog-copy .sa-eyebrow {
+  margin: 0 0 5px;
+}
 .sa-delete-dialog-icon {
   display: grid;
   width: 46px;
@@ -2044,7 +2051,33 @@ body:has(.sa-dialog[open]) {
 }
 .sa-delete-dialog-surface .sa-dialog-actions {
   grid-column: 1 / -1;
-  margin-top: 8px;
+  align-items: center;
+  margin: 8px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid #e4eae5;
+}
+.sa-delete-dialog-surface .sa-dialog-actions button {
+  min-height: 40px;
+  white-space: nowrap;
+}
+@media (max-width: 520px) {
+  .sa-delete-dialog .sa-delete-dialog-surface {
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: 12px;
+    padding: 22px !important;
+  }
+  .sa-delete-dialog-icon {
+    width: 40px;
+    height: 40px;
+  }
+  .sa-delete-dialog-surface .sa-dialog-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .sa-delete-dialog-surface .sa-dialog-actions button {
+    width: 100%;
+    min-width: 0;
+  }
 }
 .sa-client-picker {
   display: grid;

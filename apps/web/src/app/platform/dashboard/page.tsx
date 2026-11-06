@@ -4331,7 +4331,7 @@ function DeleteConfirmationDialog({
     >
       <div className="sa-dialog-surface sa-delete-dialog-surface">
         <span className="sa-delete-dialog-icon" aria-hidden="true">!</span>
-        <div>
+        <div className="sa-delete-dialog-copy">
           <p className="sa-eyebrow">CONFIRM DELETION</p>
           <h2 id={titleId}>{confirmation?.title}</h2>
           <p id={descriptionId}>{confirmation?.description}</p>
