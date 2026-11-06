@@ -56,24 +56,5 @@ export const packageCatalog = [
     "isCustom": false,
     "isActive": true,
     "setupFee": "100000"
-  },
-  {
-    "code": "CUSTOM",
-    "name": "Custom",
-    "description": "Custom package configured for enterprise clients",
-    "currency": "INR",
-    "maxFleets": 2147483647,
-    "maxRiders": 2147483647,
-    "maxAdmins": 2147483647,
-    "maxFleetManagers": 2147483647,
-    "maxHubs": 2147483647,
-    "maxTeamLeaders": 2147483647,
-    "maxClusterManagers": 2147483647,
-    "maxUsers": 2147483647,
-    "trialDays": 0,
-    "displayOrder": 4,
-    "isCustom": true,
-    "isActive": true,
-    "setupFee": "0"
   }
 ];

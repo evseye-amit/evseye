@@ -1013,7 +1013,11 @@ export class PlatformCatalogService {
     return this.prisma.featurePricing
       .findMany({
         include: { feature: true },
-        orderBy: { updatedAt: 'desc' },
+        orderBy: [
+          { feature: { displayOrder: 'asc' } },
+          { feature: { name: 'asc' } },
+          { updatedAt: 'desc' },
+        ],
       })
       .then((pricing) => this.jsonSafe(pricing));
   }
