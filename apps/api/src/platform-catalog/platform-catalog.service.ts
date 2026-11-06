@@ -56,6 +56,11 @@ import type {
 } from './dto/catalog.dto.js';
 
 const PACKAGE_UNLIMITED_LIMIT = 2_147_483_647;
+type PackageDraftSnapshot = {
+  limits?: Record<string, unknown>;
+  features?: Array<{ featureId?: string; includedQuantity?: unknown; resetPeriod?: unknown; isUnlimited?: unknown; rolloverAllowed?: unknown; displayOrder?: unknown }>;
+  [key: string]: unknown;
+};
 
 function uploadFeatureConfiguration(
   billingUnit: FeatureBillingUnit,
@@ -766,8 +771,8 @@ export class PlatformCatalogService {
     }
   }
 
-  listPackages() {
-    return this.prisma.package
+  async listPackages() {
+    const packages = await this.prisma.package
       .findMany({
         include: {
           features: {
@@ -784,7 +789,18 @@ export class PlatformCatalogService {
           { name: 'asc' },
         ],
       })
-      .then((packages) => this.jsonSafe(packages));
+    const drafts = await this.prisma.packageRevision.findMany({ where: { publishedAt: null }, select: { packageId: true, snapshot: true } });
+    const draftByPackage = new Map(drafts.map((draft) => [draft.packageId, draft.snapshot as PackageDraftSnapshot]));
+    return this.jsonSafe(packages.map((pkg) => {
+      const snapshot = draftByPackage.get(pkg.id);
+      if (!snapshot) return pkg;
+      const values = snapshot.limits ?? {};
+      const snapshotFeatures = new Map((Array.isArray(snapshot.features) ? snapshot.features : []).map((item) => [String(item.featureId), item]));
+      return { ...pkg, ...snapshot, ...values, features: pkg.features.map((link) => {
+        const item = snapshotFeatures.get(link.featureId);
+        return item ? { ...link, isIncluded: true, includedQuantity: item.includedQuantity, resetPeriod: item.resetPeriod, isUnlimited: item.isUnlimited, rolloverAllowed: item.rolloverAllowed, displayOrder: item.displayOrder } : { ...link, isIncluded: false };
+      }) };
+    }));
   }
   async createPackage(dto: CreatePackageDto, actorId: string) {
     const data = dto;
@@ -829,10 +845,11 @@ export class PlatformCatalogService {
             },
           }),
     );
+    if (this.revisions) await this.revisions.draftPackage(id);
     return this.jsonSafe(updated);
   }
-  listPackageFeatures() {
-    return this.prisma.packageFeature
+  async listPackageFeatures() {
+    const links = await this.prisma.packageFeature
       .findMany({
         include: { package: true, feature: true },
         orderBy: [
@@ -840,7 +857,13 @@ export class PlatformCatalogService {
           { feature: { displayOrder: 'asc' } },
         ],
       })
-      .then((links) => this.jsonSafe(links));
+    const drafts = await this.prisma.packageRevision.findMany({ where: { publishedAt: null }, select: { packageId: true, snapshot: true } });
+    const draftByPackage = new Map(drafts.map((draft) => [draft.packageId, draft.snapshot as PackageDraftSnapshot]));
+    return this.jsonSafe(links.map((link) => {
+      const snapshot = draftByPackage.get(link.packageId);
+      const item = (Array.isArray(snapshot?.features) ? snapshot.features : []).find((entry) => entry.featureId === link.featureId);
+      return item ? { ...link, isIncluded: true, includedQuantity: item.includedQuantity, resetPeriod: item.resetPeriod, isUnlimited: item.isUnlimited, rolloverAllowed: item.rolloverAllowed, displayOrder: item.displayOrder } : snapshot ? { ...link, isIncluded: false } : link;
+    }));
   }
   async createPackageFeature(
     dto: CreatePackageFeatureAssignmentDto,
@@ -848,7 +871,7 @@ export class PlatformCatalogService {
   ) {
     const [pkg, featureRecord] = await Promise.all([
       this.prisma.package.findUnique({ where: { id: dto.packageId }, select: { id: true, isActive: true } }),
-      this.prisma.feature.findUnique({ where: { id: dto.featureId }, select: { id: true, isActive: true } }),
+      this.prisma.feature.findUnique({ where: { id: dto.featureId }, select: { id: true, isActive: true, displayOrder: true } }),
     ]);
     if (!pkg) throw new NotFoundException('Package not found.');
     if (!featureRecord) throw new NotFoundException('Feature not found.');
@@ -862,10 +885,11 @@ export class PlatformCatalogService {
         actorId,
         () =>
           this.prisma.packageFeature.create({
-            data: { packageId, featureId, ...this.packageFeatureData(featureData) },
+            data: { packageId, featureId, displayOrder: featureRecord.displayOrder, ...this.packageFeatureData(featureData) },
             include: { package: true, feature: true },
           }),
       );
+      if (this.revisions) await this.revisions.draftPackage(packageId);
       return this.jsonSafe(created);
     } catch (error) {
       if (this.unique(error)) {
@@ -879,7 +903,7 @@ export class PlatformCatalogService {
     dto: UpdatePackageFeatureDto,
     actorId: string,
   ) {
-    const existing = await this.prisma.packageFeature.findUnique({ where: { id } });
+    const existing = await this.prisma.packageFeature.findUnique({ where: { id }, include: { feature: { select: { displayOrder: true } } } });
     if (!existing) throw new NotFoundException('Package Feature not found.');
     const updated = await this.updateWithAudit(
       'PACKAGE_FEATURE_UPDATED',
@@ -889,10 +913,11 @@ export class PlatformCatalogService {
       () =>
         this.prisma.packageFeature.update({
           where: { id },
-          data: this.packageFeatureData(dto),
+          data: { displayOrder: existing.feature.displayOrder, ...this.packageFeatureData(dto) },
           include: { package: true, feature: true },
         }),
     );
+    if (this.revisions) await this.revisions.draftPackage(existing.packageId);
     return this.jsonSafe(updated);
   }
   async deletePackageFeature(id: string, actorId: string) {
@@ -901,6 +926,7 @@ export class PlatformCatalogService {
     const activeSubscriptions = await this.prisma.clientSubscription.count({ where: { packageId: existing.packageId, status: 'ACTIVE' } });
     if (activeSubscriptions) throw new ConflictException('This Package Feature is assigned to an active client subscription and cannot be removed. Publish a new Package revision instead.');
     await this.prisma.packageFeature.update({ where: { id }, data: { isIncluded: false } });
+    if (this.revisions) await this.revisions.draftPackage(existing.packageId);
     await this.audit.record({
       actorId,
       action: 'PACKAGE_FEATURE_DELETED',
@@ -1112,7 +1138,7 @@ export class PlatformCatalogService {
     feature: Omit<CreatePackageFeatureDto, 'featureId'> &
       Partial<Pick<CreatePackageFeatureDto, 'featureId'>>,
   ) {
-    const { effectiveFrom, effectiveTo, ...data } = feature;
+    const { effectiveFrom, effectiveTo, displayOrder: _displayOrder, ...data } = feature;
     if (effectiveFrom && effectiveTo && new Date(effectiveTo) <= new Date(effectiveFrom))
       throw new BadRequestException('Package Feature end date must be after its start date.');
     return {
