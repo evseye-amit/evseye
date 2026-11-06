@@ -2149,7 +2149,6 @@ export default function SuperAdminDashboard() {
       label: "Package Management",
       items: [
         ["packages", "Package", "package"],
-        ["packageFeatures", "Package Feature", "packageFeature"],
         ["packageTierPricing", "Package Tier Pricing", "pricing"],
       ],
     },
@@ -3628,6 +3627,7 @@ export default function SuperAdminDashboard() {
                 packageId={packageFeaturePackageId}
                 onSaved={() => void load()}
                 onDelete={(path, label) => void remove(path, label)}
+                onBack={() => setTab("packages")}
               />
             )}
             {tab === "packageTierPricing" && (
@@ -5996,6 +5996,7 @@ function PackageFeaturesView({
   packageId,
   onSaved,
   onDelete,
+  onBack,
 }: {
   packages: Item[];
   features: Item[];
@@ -6003,6 +6004,7 @@ function PackageFeaturesView({
   packageId: string | null;
   onSaved: () => void;
   onDelete: (path: string, label: string) => void;
+  onBack: () => void;
 }) {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const [editing, setEditing] = useState<Item | null>(null);
@@ -6094,12 +6096,14 @@ function PackageFeaturesView({
   );
   return (
     <>
-      <section className="sa-page-head">
+      <section className="sa-bulk-workspace-head sa-package-feature-head">
+        <button className="secondary" type="button" onClick={onBack}>
+          ← Back to {packages.find((item) => item.id === packageId)?.name ?? "Package"}
+        </button>
         <div>
-          <h2>Package Feature</h2>
-          <p>
-            Add and manage the Features supplied by each Package.
-          </p>
+          <p className="sa-eyebrow">PACKAGE CONFIGURATION</p>
+          <h2>{packages.find((item) => item.id === packageId)?.name ?? "Package"} Features</h2>
+          <p>Add and manage the Features supplied by this Package.</p>
         </div>
         <div className="sa-actions">
           <button onClick={(event) => openForm(event.currentTarget)}>
