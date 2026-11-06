@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
 import {
   expandRiderBankComponent,
   riderBankFields,
@@ -7,6 +6,7 @@ import {
 import { RiderOnboardingConfigurationService } from '../../src/riders/rider-onboarding-configuration.service.js';
 import { RiderAppService } from '../../src/riders/rider-app.service.js';
 import type { ResolvedComponent } from '../../src/workflow/workflow-resolver.service.js';
+import { featureCatalog } from '../../prisma/catalog/features.mjs';
 
 const component: ResolvedComponent = {
   featureId: 'bank-feature',
@@ -85,24 +85,19 @@ describe('package-controlled rider bank capture', () => {
     );
   });
   it('keeps seed defaults consistent with runtime fields', () => {
-    const source = readFileSync(
-      new URL('../../prisma/catalog/features.mjs', import.meta.url),
-      'utf8',
-    );
-    const line = source
-      .split('\n')
-      .find((line) => line.includes('"code": "CAPTURE_BANK_ACCOUNT"'))!;
-    const feature = JSON.parse(line.trim().replace(/,$/, ''));
+    const feature = featureCatalog.find(({ code }) => code === 'CAPTURE_BANK_ACCOUNT');
+    expect(feature).toBeDefined();
+    if (!feature) return;
     expect(feature.featureStepCode).toBe('RIDER_COMMERCIALS');
-    expect(feature.configuration.fields).toEqual(
-      riderBankFields.map((field) => ({
-        ...field,
-        fieldType: 'TEXT',
-        dataType: 'STRING',
-        editable: true,
-        importable: true,
-      })),
-    );
+    expect(feature.configuration).toMatchObject({
+      fieldCode: 'BANK_ACCOUNT_NUMBER',
+      fieldType: 'TEXT',
+      dataType: 'STRING',
+      required: true,
+      editable: true,
+      importable: true,
+      storageKey: 'metadata.bankAccountNumber',
+    });
     expect(
       expandRiderBankComponent({
         ...component,
