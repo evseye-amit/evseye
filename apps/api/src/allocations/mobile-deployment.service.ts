@@ -144,7 +144,7 @@ export class MobileDeploymentService {
       where: {
         clientId,
         id: { in: eligible.map((item) => item.id) },
-        status: RiderStatus.ACTIVE,
+        status: { in: [RiderStatus.ACTIVE, RiderStatus.ONBOARDING] },
         deletedAt: null,
         allocations: { none: { OR: [{ status: { not: AllocationStatus.CANCELLED } }, { allocatedAt: { not: null } }] } },
       },
