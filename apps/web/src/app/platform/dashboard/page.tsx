@@ -39,6 +39,7 @@ import { LanguageSwitcher, useLocale } from "../../components/locale-provider";
 import { UiIcon, type IconName } from "../../components/ui-icon";
 import { PlatformDataTable as DataTable } from "../../components/platform-data-table";
 import { ImportFailureRemediation } from "../../components/import-failure-remediation";
+import { ClientConfirmationDialog } from "../../components/client-confirmation-dialog";
 
 const API_URL =
   "/api/v1";
@@ -509,6 +510,7 @@ export default function SuperAdminDashboard() {
   const [revisions, setRevisions] = useState<Item[]>([]);
   const [revisionBusy, setRevisionBusy] = useState(false);
   const [revisionError, setRevisionError] = useState("");
+  const [discardRevisionTarget, setDiscardRevisionTarget] = useState<Item | null>(null);
   const revisionTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [pricing, setPricing] = useState<Item[]>([]);
   const [featureAddOns, setFeatureAddOns] = useState<Item[]>([]);
@@ -2296,15 +2298,17 @@ export default function SuperAdminDashboard() {
   }
 
   async function discardRevision(id: string) {
-    if (!revisionTarget || !window.confirm("Discard this draft version? This cannot be undone.")) return;
+    if (!revisionTarget) return false;
     setRevisionBusy(true);
     setRevisionError("");
     try {
       await request(`/platform/${revisionTarget.kind === "feature" ? "feature" : "package"}-revisions/${id}`, { method: "DELETE" }, token);
       setRevisions(await request(`/platform/${revisionTarget.kind === "feature" ? "features" : "packages"}/${revisionTarget.item.id}/revisions`, {}, token));
       setNotice("Draft version discarded.");
+      return true;
     } catch (cause) {
       setRevisionError(cause instanceof Error ? cause.message : "Could not discard this draft version.");
+      return false;
     } finally {
       setRevisionBusy(false);
     }
@@ -2332,10 +2336,20 @@ export default function SuperAdminDashboard() {
             revision.publishedAt ? "Published" : "Draft",
             revision.publishedAt ? new Date(revision.publishedAt).toLocaleDateString() : "—",
             <button key="review" type="button" className="secondary" onClick={() => setReviewRevision(revision)}>Review configuration</button>,
-            revision.publishedAt ? "—" : <span className="sa-inline-actions"><button key="publish" type="button" onClick={() => void publishRevision(String(revision.id))} disabled={revisionBusy}>Publish</button><button key="discard" type="button" className="secondary" onClick={() => void discardRevision(String(revision.id))} disabled={revisionBusy}>Discard</button></span>,
+            revision.publishedAt ? "—" : <span className="sa-inline-actions"><button key="publish" type="button" onClick={() => void publishRevision(String(revision.id))} disabled={revisionBusy}>Publish</button><button key="discard" type="button" className="danger" onClick={() => setDiscardRevisionTarget(revision)} disabled={revisionBusy}>Discard</button></span>,
           ])}
         /> : <p className="muted">No versions yet. Edit this feature to create its first draft automatically.</p>}
       </CatalogFormDialog>
+      {discardRevisionTarget && <ClientConfirmationDialog
+        title="Discard draft version?"
+        description={`This will permanently remove v${discardRevisionTarget.version}. This action cannot be undone.`}
+        confirmLabel="Discard draft"
+        busy={revisionBusy}
+        error={revisionError}
+        danger
+        onClose={() => { if (!revisionBusy) setDiscardRevisionTarget(null); }}
+        onConfirm={async () => { if (await discardRevision(String(discardRevisionTarget.id))) setDiscardRevisionTarget(null); }}
+      />}
       <CatalogFormDialog
         open={reviewRevision !== null}
         title="Review configuration"

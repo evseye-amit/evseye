@@ -3048,6 +3048,29 @@ body:has(.sa-dialog[open]) {
 .danger:hover {
   background: #f4d3cd;
 }
+.sa-inline-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.sa-inline-actions > button {
+  box-sizing: border-box;
+  min-width: 84px;
+  min-height: 40px;
+  padding: 9px 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+.form-actions > button {
+  box-sizing: border-box;
+  min-width: 104px;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 .sa-field-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
