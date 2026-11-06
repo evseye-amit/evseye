@@ -2304,6 +2304,7 @@ export default function SuperAdminDashboard() {
     try {
       await request(`/platform/${revisionTarget.kind === "feature" ? "feature" : "package"}-revisions/${id}`, { method: "DELETE" }, token);
       setRevisions(await request(`/platform/${revisionTarget.kind === "feature" ? "features" : "packages"}/${revisionTarget.item.id}/revisions`, {}, token));
+      await load();
       setNotice("Draft version discarded.");
       return true;
     } catch (cause) {
