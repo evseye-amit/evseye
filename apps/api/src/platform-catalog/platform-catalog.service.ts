@@ -1112,22 +1112,14 @@ export class PlatformCatalogService {
     feature: Omit<CreatePackageFeatureDto, 'featureId'> &
       Partial<Pick<CreatePackageFeatureDto, 'featureId'>>,
   ) {
-    const { configuration, effectiveFrom, effectiveTo, ...data } = feature;
+    const { effectiveFrom, effectiveTo, ...data } = feature;
     if (effectiveFrom && effectiveTo && new Date(effectiveTo) <= new Date(effectiveFrom))
       throw new BadRequestException('Package Feature end date must be after its start date.');
-    if (configuration && typeof configuration === 'object' && !Array.isArray(configuration) && 'loginAppCodes' in configuration) {
-      const apps = (configuration as Record<string, unknown>).loginAppCodes;
-      const supported = new Set(['RIDER_APP', 'CLIENT_PANEL', 'FLEET_MANAGER_APP', 'TEAM_LEADER_APP']);
-      if (!Array.isArray(apps) || apps.length === 0 || apps.some((app) => typeof app !== 'string' || !supported.has(app))) {
-        throw new BadRequestException('loginAppCodes must contain supported applications.');
-      }
-    }
     return {
       ...data,
       effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : undefined,
       effectiveTo: effectiveTo ? new Date(effectiveTo) : undefined,
       includedQuantity: feature.includedQuantity,
-      configuration: configuration as Prisma.InputJsonValue | undefined,
     };
   }
   private jsonSafe<T>(value: T): T {

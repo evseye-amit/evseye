@@ -80,13 +80,11 @@ export class WorkflowResolverService {
       const step = object(feature.step);
       if (typeof step.code !== 'string') continue;
       const base = object(feature.configuration);
-      const assignmentConfiguration = object(assignment.configuration);
       const clientConfiguration = object(clientOverride?.configuration);
       if (
-        Object.prototype.hasOwnProperty.call(assignmentConfiguration, 'placeholder') ||
         Object.prototype.hasOwnProperty.call(clientConfiguration, 'placeholder')
       ) placeholderOverrides.add(featureId);
-      const override = { ...assignmentConfiguration, ...clientConfiguration };
+      const override = { ...clientConfiguration };
       const configuration: Obj = { ...base, ...override,
         validation: { ...object(base.validation), ...object(override.validation) },
         translations: { ...object(base.translations), ...object(override.translations) } };

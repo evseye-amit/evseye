@@ -80,7 +80,7 @@ export async function seedFeatures(prisma) {
     }
   }
 
-  for (const { packageCode, featureCode, configuration, ...assignment } of packageFeatureCatalog) {
+  for (const { packageCode, featureCode, configuration: _configuration, ...assignment } of packageFeatureCatalog) {
     const [pkg, feature] = await Promise.all([
       prisma.package.findUniqueOrThrow({
         where: { code: packageCode },
@@ -91,14 +91,10 @@ export async function seedFeatures(prisma) {
         select: { id: true },
       }),
     ]);
-    const data = {
-      ...assignment,
-      ...(configuration === null ? {} : { configuration }),
-    };
     await prisma.packageFeature.upsert({
       where: { packageId_featureId: { packageId: pkg.id, featureId: feature.id } },
-      create: { packageId: pkg.id, featureId: feature.id, ...data },
-      update: data,
+      create: { packageId: pkg.id, featureId: feature.id, ...assignment },
+      update: assignment,
     });
   }
 

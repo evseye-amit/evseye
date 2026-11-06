@@ -5985,8 +5985,6 @@ function PackageFeaturesView({
     includedQuantity: "",
     resetPeriod: "NONE",
     rolloverAllowed: false,
-    displayOrder: "0",
-    configuration: "",
   });
   const links = packages.flatMap((pack) =>
     (pack.features ?? []).map((link: Item) => ({ ...link, package: pack })),
@@ -6005,10 +6003,6 @@ function PackageFeaturesView({
           includedQuantity: item.includedQuantity ?? "",
           resetPeriod: item.resetPeriod ?? "NONE",
           rolloverAllowed: item.rolloverAllowed ?? false,
-          displayOrder: String(item.displayOrder ?? 0),
-          configuration: item.configuration
-            ? JSON.stringify(item.configuration, null, 2)
-            : "",
         }
         : {
           packageId: "",
@@ -6018,8 +6012,6 @@ function PackageFeaturesView({
           includedQuantity: "",
           resetPeriod: "NONE",
           rolloverAllowed: false,
-          displayOrder: String(links.length),
-          configuration: "",
         },
     );
     setOpen(true);
@@ -6030,32 +6022,20 @@ function PackageFeaturesView({
   };
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    let configuration: Record<string, unknown> | undefined;
-    try {
-      configuration = form.configuration ? JSON.parse(form.configuration) : undefined;
-    } catch {
-      setError("Feature configuration must be valid JSON.");
-      return;
-    }
-    const selected = features.find((feature) => feature.id === form.featureId);
-    if (selected?.category === "LOGIN" && Array.isArray(configuration?.loginAppCodes) && configuration.loginAppCodes.length === 0) {
-      setError("Select at least one app, or exclude this Feature from the package.");
-      return;
-    }
     setBusy(true);
     setError("");
     try {
+      const selected = features.find((feature) => feature.id === form.featureId);
       const payload = {
         ...(!editing ? { packageId: form.packageId, featureId: form.featureId } : {}),
         isIncluded: Boolean(form.isIncluded),
         isUnlimited: Boolean(form.isUnlimited),
         resetPeriod: form.resetPeriod,
         rolloverAllowed: Boolean(form.rolloverAllowed),
-        displayOrder: Number(form.displayOrder || 0),
+        displayOrder: Number(selected?.displayOrder ?? 0),
         ...(form.includedQuantity !== ""
           ? { includedQuantity: Number(form.includedQuantity) }
           : {}),
-        ...(configuration ? { configuration } : {}),
       };
       await request(
         editing
@@ -6080,19 +6060,6 @@ function PackageFeaturesView({
   const assignedToSelectedPackage = new Set(
     links.filter((link) => link.packageId === form.packageId).map((link) => link.featureId),
   );
-  const selectedFeature = features.find((feature) => feature.id === form.featureId);
-  const loginApps = [
-    ["RIDER_APP", "Rider app"],
-    ["CLIENT_PANEL", "Client Operations panel"],
-    ["FLEET_MANAGER_APP", "Fleet Manager app"],
-    ["TEAM_LEADER_APP", "Team Leader app"],
-  ] as const;
-  const parsedConfiguration = (() => { try { return form.configuration ? JSON.parse(form.configuration) as Record<string, unknown> : {}; } catch { return {}; } })();
-  const scopedApps = Array.isArray(parsedConfiguration.loginAppCodes) ? parsedConfiguration.loginAppCodes as string[] : loginApps.map(([code]) => code);
-  const toggleLoginApp = (appCode: string, checked: boolean) => {
-    const next = checked ? [...new Set([...scopedApps, appCode])] : scopedApps.filter((code) => code !== appCode);
-    setForm((current) => ({ ...current, configuration: JSON.stringify({ ...parsedConfiguration, loginAppCodes: next }, null, 2) }));
-  };
   return (
     <>
       <section className="sa-page-head">
@@ -6144,14 +6111,7 @@ function PackageFeaturesView({
           <label>Included quantity<input type="number" min="0" step="1" value={form.includedQuantity} onChange={(event) => setForm((current) => ({ ...current, includedQuantity: event.target.value }))} /></label>
           <label>Allowance reset<select value={form.resetPeriod} onChange={(event) => setForm((current) => ({ ...current, resetPeriod: event.target.value }))}>{allowanceResetPeriods.map((period) => <option key={period} value={period}>{period === "NONE" ? "No reset" : enumLabel(period)}</option>)}</select></label>
           <label className="sa-toggle"><input type="checkbox" checked={form.rolloverAllowed} onChange={(event) => setForm((current) => ({ ...current, rolloverAllowed: event.target.checked }))} /> Allow unused credits to roll over</label>
-          <label>Display order<input type="number" min="0" step="1" value={form.displayOrder} onChange={(event) => setForm((current) => ({ ...current, displayOrder: event.target.value }))} /></label>
         </div>
-        <label>Feature configuration (optional JSON)<textarea value={form.configuration} placeholder={'{"workflow":"standard"}'} onChange={(event) => setForm((current) => ({ ...current, configuration: event.target.value }))} /></label>
-        {selectedFeature?.category === "LOGIN" && <fieldset className="sa-feature-fields">
-          <legend>Login availability</legend>
-          <p className="muted">Choose the apps that can use this login Feature. The API also checks the user role and package assignment before sending an OTP.</p>
-          {loginApps.map(([code, label]) => <label className="sa-toggle" key={code}><input type="checkbox" checked={scopedApps.includes(code)} onChange={(event) => toggleLoginApp(code, event.target.checked)} />{label}</label>)}
-        </fieldset>}
       </CatalogFormDialog>
       {error && !open ? <p className="error">{error}</p> : null}
       <section className="sa-management oem-table-only">

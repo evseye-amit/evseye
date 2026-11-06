@@ -40,7 +40,7 @@ export async function seedInitialRevisions(prisma) {
       if (!revision) throw new Error(`Feature ${assignment.featureId} has no published revision`);
       entries.push({ featureId: assignment.featureId, featureRevisionId: revision.id,
         featureVersion: revision.version, feature: revision.snapshot,
-        configuration: assignment.configuration, displayOrder: assignment.displayOrder,
+        displayOrder: assignment.displayOrder,
         includedQuantity: assignment.includedQuantity?.toString() ?? null,
         resetPeriod: assignment.resetPeriod, isUnlimited: assignment.isUnlimited,
         rolloverAllowed: assignment.rolloverAllowed });

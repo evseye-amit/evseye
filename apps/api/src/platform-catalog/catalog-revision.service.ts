@@ -109,7 +109,7 @@ export class CatalogRevisionService {
       features.push({
         featureId: assignment.featureId, featureRevisionId: revision.id,
         featureVersion: revision.version, feature: revision.snapshot,
-        configuration: assignment.configuration, displayOrder: assignment.displayOrder,
+        displayOrder: assignment.displayOrder,
         includedQuantity: assignment.includedQuantity?.toString() ?? null,
         resetPeriod: assignment.resetPeriod, isUnlimited: assignment.isUnlimited,
         rolloverAllowed: assignment.rolloverAllowed,
@@ -342,7 +342,6 @@ export class CatalogRevisionService {
     const packageRevision = await this.prisma.packageRevision.findUnique({ where: { id: subscription.packageRevisionId! } });
     const packageFeatures = ((packageRevision?.snapshot as { features?: Array<{
       featureId: string; feature: { code: string; configuration?: Record<string, unknown> };
-      configuration?: Record<string, unknown>;
     }> })?.features ?? []);
     const overrides = new Map((((revision.snapshot as { overrides?: Array<{
       featureId: string; enabled?: boolean; configuration?: Record<string, unknown>;
@@ -350,7 +349,7 @@ export class CatalogRevisionService {
     const featureConfig = (code: string, appCode: string) => {
       const item = packageFeatures.find((part) => part.feature.code === code);
       if (!item || overrides.get(item.featureId)?.enabled === false) return null;
-      const configuration = { ...item.feature.configuration, ...item.configuration,
+      const configuration = { ...item.feature.configuration,
         ...overrides.get(item.featureId)?.configuration };
       const apps = configuration.appCodes;
       return configuration.enabled === false || (Array.isArray(apps) && !apps.includes(appCode))
