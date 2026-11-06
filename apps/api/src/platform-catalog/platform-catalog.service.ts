@@ -4,11 +4,13 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { AuditService } from '../audit/audit.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ImportsService } from '../imports/imports.service.js';
+import { CatalogRevisionService } from './catalog-revision.service.js';
 import {
   STORAGE_PROVIDER,
   type StorageProvider,
@@ -85,6 +87,7 @@ export class PlatformCatalogService {
     private readonly audit: AuditService,
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
     private readonly imports: ImportsService,
+    @Optional() private readonly revisions?: CatalogRevisionService,
   ) {}
 
   platformImportFailures(jobId: string, entityType: ImportEntityType) {
@@ -582,7 +585,7 @@ export class PlatformCatalogService {
       : undefined;
     validateFeatureConfiguration(configuration ?? currentConfiguration);
     const effectiveConfiguration = uploadFeatureConfiguration(dto.billingUnit, dto.code, configuration ?? currentConfiguration);
-    return this.updateWithAudit('FEATURE_UPDATED', 'Feature', id, actorId, () =>
+    const updated = await this.updateWithAudit('FEATURE_UPDATED', 'Feature', id, actorId, () =>
       this.prisma.feature.update({
         where: { id },
         data: {
@@ -595,6 +598,8 @@ export class PlatformCatalogService {
         },
       }),
     );
+    if (this.revisions) await this.revisions.draftFeature(id);
+    return updated;
   }
   listTrainingContent() {
     return this.prisma.trainingContent.findMany({

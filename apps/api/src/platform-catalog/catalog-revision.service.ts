@@ -20,6 +20,14 @@ export class CatalogRevisionService {
   }
 
   async draftFeature(featureId: string) {
+    const snapshot = await this.featureSnapshot(featureId);
+    const existingDraft = await this.prisma.featureRevision.findFirst({ where: { featureId, publishedAt: null }, orderBy: { version: 'desc' } });
+    if (existingDraft) return this.prisma.featureRevision.update({ where: { id: existingDraft.id }, data: { snapshot: json(snapshot), contentHash: hash(snapshot) } });
+    const latest = await this.prisma.featureRevision.findFirst({ where: { featureId }, orderBy: { version: 'desc' }, select: { version: true } });
+    return this.prisma.featureRevision.create({ data: { featureId, version: (latest?.version ?? 0) + 1, snapshot: json(snapshot), contentHash: hash(snapshot) } });
+  }
+
+  private async featureSnapshot(featureId: string) {
     const feature = await this.prisma.feature.findUnique({
       where: { id: featureId }, include: { featureStep: { include: { parent: true } } },
     });
@@ -39,12 +47,7 @@ export class CatalogRevisionService {
         parentCode: feature.featureStep.parent?.code ?? null,
       } : null,
     };
-    const latest = await this.prisma.featureRevision.findFirst({
-      where: { featureId }, orderBy: { version: 'desc' }, select: { version: true },
-    });
-    return this.prisma.featureRevision.create({
-      data: { featureId, version: (latest?.version ?? 0) + 1, snapshot: json(snapshot), contentHash: hash(snapshot) },
-    });
+    return snapshot;
   }
 
   async publishFeature(revisionId: string) {
