@@ -65,7 +65,32 @@ export class CatalogRevisionService {
     const revision = await this.prisma.featureRevision.findUnique({ where: { id: revisionId } });
     if (!revision) throw new NotFoundException('Feature revision not found.');
     if (revision.publishedAt) throw new BadRequestException('Published Feature revisions are immutable and cannot be discarded.');
-    await this.prisma.featureRevision.delete({ where: { id: revisionId } });
+    const published = await this.prisma.featureRevision.findFirst({
+      where: { featureId: revision.featureId, publishedAt: { not: null } },
+      orderBy: { version: 'desc' },
+    });
+    if (!published) throw new BadRequestException('Cannot discard a draft before a published Feature version exists.');
+    const snapshot = published.snapshot as {
+      name?: string; category?: string; featureType?: string; billingUnit?: string;
+      description?: string | null; translations?: Prisma.InputJsonValue;
+      configuration?: Prisma.InputJsonValue; displayOrder?: number; isActive?: boolean;
+      step?: { id?: string | null } | null;
+    };
+    await this.prisma.$transaction(async (tx) => {
+      await tx.feature.update({ where: { id: revision.featureId }, data: {
+        ...(snapshot.name !== undefined ? { name: snapshot.name } : {}),
+        ...(snapshot.category !== undefined ? { category: snapshot.category as never } : {}),
+        ...(snapshot.featureType !== undefined ? { featureType: snapshot.featureType as never } : {}),
+        ...(snapshot.billingUnit !== undefined ? { billingUnit: snapshot.billingUnit as never } : {}),
+        ...(snapshot.description !== undefined ? { description: snapshot.description } : {}),
+        ...(snapshot.translations !== undefined ? { translations: snapshot.translations } : {}),
+        ...(snapshot.configuration !== undefined ? { configuration: snapshot.configuration } : {}),
+        ...(snapshot.displayOrder !== undefined ? { displayOrder: snapshot.displayOrder } : {}),
+        ...(snapshot.isActive !== undefined ? { isActive: snapshot.isActive } : {}),
+        ...(snapshot.step?.id !== undefined ? { featureStepId: snapshot.step.id } : {}),
+      } });
+      await tx.featureRevision.delete({ where: { id: revisionId } });
+    });
     return { discarded: true, revisionId };
   }
 
