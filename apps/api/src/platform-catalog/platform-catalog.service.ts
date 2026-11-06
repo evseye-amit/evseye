@@ -835,7 +835,10 @@ export class PlatformCatalogService {
     return this.prisma.packageFeature
       .findMany({
         include: { package: true, feature: true },
-        orderBy: [{ package: { name: 'asc' } }, { displayOrder: 'asc' }],
+        orderBy: [
+          { package: { name: 'asc' } },
+          { feature: { displayOrder: 'asc' } },
+        ],
       })
       .then((links) => this.jsonSafe(links));
   }
