@@ -27,6 +27,8 @@ import {
 import { RejectClientDto } from './dto/reject-client.dto.js';
 import { PlatformAdminService } from './platform-admin.service.js';
 import { ClientLogoUploadDto, CompleteClientLogoDto } from './dto/client-logo.dto.js';
+import { UpdateClientBrandingDto } from './dto/client-branding.dto.js';
+import { UpdateClientCommercialsDto } from './dto/client-commercials.dto.js';
 import {
   CreateClientFeatureDto,
   UpdateClientFeatureDto,
@@ -64,6 +66,50 @@ export class PlatformAdminController {
   }
   @Get('clients/:clientId') clientDetail(@Param('clientId') clientId: string) {
     return this.platform.clientDetail(clientId).then((data) => ({ data }));
+  }
+  @Get('clients/:clientId/configuration') clientConfiguration(@Param('clientId') clientId: string) {
+    return this.platform.clientConfiguration(clientId).then((data) => ({ data }));
+  }
+  @Post('clients/:clientId/feature-revisions/draft') createClientFeatureDraft(
+    @Param('clientId') clientId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform.createClientFeatureDraft(clientId, user.id).then((data) => ({ data }));
+  }
+  @Post('clients/:clientId/feature-revisions/publish') publishClientFeatureDraft(
+    @Param('clientId') clientId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform.publishClientFeatureDraft(clientId, user.id).then((data) => ({ data }));
+  }
+  @Delete('clients/:clientId/feature-revisions/draft') discardClientFeatureDraft(
+    @Param('clientId') clientId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform.discardClientFeatureDraft(clientId, user.id).then((data) => ({ data }));
+  }
+  @Patch('clients/:clientId/branding') branding(
+    @Param('clientId') clientId: string,
+    @Body() dto: UpdateClientBrandingDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform.saveBranding(clientId, dto, user.id).then((data) => ({ data }));
+  }
+  @Patch('clients/:clientId/commercials') commercials(
+    @Param('clientId') clientId: string,
+    @Body() dto: UpdateClientCommercialsDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform.saveCommercials(clientId, dto, user.id).then((data) => ({ data }));
+  }
+  @Post('clients/:clientId/pricing-revisions/draft') createClientPricingDraft(@Param('clientId') clientId: string, @Body() dto: UpdateClientCommercialsDto, @CurrentUser() user: AuthUser) {
+    return this.platform.createClientPricingDraft(clientId, user.id, dto).then((data) => ({ data }));
+  }
+  @Post('clients/:clientId/pricing-revisions/publish') publishClientPricingDraft(@Param('clientId') clientId: string, @CurrentUser() user: AuthUser) {
+    return this.platform.publishClientPricingDraft(clientId, user.id).then((data) => ({ data }));
+  }
+  @Delete('clients/:clientId/pricing-revisions/draft') discardClientPricingDraft(@Param('clientId') clientId: string, @CurrentUser() user: AuthUser) {
+    return this.platform.discardClientPricingDraft(clientId, user.id).then((data) => ({ data }));
   }
   @Patch('clients/:clientId/business-details')
   businessDetails(

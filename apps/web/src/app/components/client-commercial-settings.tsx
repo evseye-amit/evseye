@@ -69,6 +69,12 @@ export function ClientCommercialSettings({
   const [eligibleFeatures, setEligibleFeatures] = useState<Item[]>([]);
   const [quotaOffers, setQuotaOffers] = useState<Item[]>([]);
   const [quotaPurchases, setQuotaPurchases] = useState<Item[]>([]);
+  const [vehicleTiers, setVehicleTiers] = useState<Item[]>([]);
+  const [setupDiscount, setSetupDiscount] = useState("0");
+  const [vehicleDiscount, setVehicleDiscount] = useState("0");
+  const [setupDiscountType, setSetupDiscountType] = useState<"PERCENTAGE" | "FIXED_AMOUNT">("PERCENTAGE");
+  const [vehicleDiscountType, setVehicleDiscountType] = useState<"PERCENTAGE" | "FIXED_AMOUNT">("PERCENTAGE");
+  const [pricingDraft, setPricingDraft] = useState<Item | null>(null);
   const [selectedQuotaOffer, setSelectedQuotaOffer] = useState("");
   const [activationReference, setActivationReference] = useState("");
   const [adjustment, setAdjustment] = useState({
@@ -142,6 +148,14 @@ export function ClientCommercialSettings({
       const nextSubscriptions = loadedSubscriptions as Item[];
       setSubscriptions(nextSubscriptions);
       setAdjustments(loadedAdjustments as Item[]);
+      const savedAdjustments = loadedAdjustments as Item[];
+      const setupAdjustment = savedAdjustments.find((item) => item.adjustmentScope === "SETUP_FEE" && item.isActive);
+      const vehicleAdjustment = savedAdjustments.find((item) => item.adjustmentScope === "PACKAGE" && item.isActive);
+      setSetupDiscount(String(setupAdjustment?.adjustmentValue ?? "0"));
+      setVehicleDiscount(String(vehicleAdjustment?.adjustmentValue ?? "0"));
+      const clientConfiguration = await platformRequest(`/clients/${encodeURIComponent(clientId)}/configuration`);
+      const revisions = (clientConfiguration?.commercials?.pricingRevisions ?? []) as Item[];
+      setPricingDraft(revisions.find((item) => !item.publishedAt) ?? null);
       setClientFeatures(loadedClientFeatures as Item[]);
       setEffectiveEntitlements(((loadedEffective as Item)?.entitlements ?? []) as Item[]);
       setCreditLots(loadedLots as Item[]);
@@ -151,6 +165,8 @@ export function ClientCommercialSettings({
       );
       setEligibleFeatures(eligible);
       const active = nextSubscriptions.find((item) => item.status === "ACTIVE");
+      const tiers = active ? await request(`/packages/${encodeURIComponent(String(active.packageId))}/vehicle-tiers`) : [];
+      setVehicleTiers((tiers as Item[]) ?? []);
       const availableRevisions = active
         ? await platformRequest(`/packages/${encodeURIComponent(String(active.packageId))}/revisions`)
         : [];
@@ -203,6 +219,38 @@ export function ClientCommercialSettings({
     } finally {
       setBusy(false);
     }
+  }
+
+  async function savePricing() {
+    if (!activeSubscription) return;
+    setBusy(true); setError("");
+    try {
+      const draft = await platformRequest(`/clients/${encodeURIComponent(clientId)}/pricing-revisions/draft`, "POST", {
+        setupDiscountPercent: Number(setupDiscount),
+        vehicleDiscountPercent: Number(vehicleDiscount),
+        setupDiscountType,
+        setupDiscountValue: Number(setupDiscount),
+        vehicleDiscountType,
+        vehicleDiscountValue: Number(vehicleDiscount),
+      });
+      setPricingDraft(draft as Item);
+      setNotice("Pricing saved.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save pricing."); }
+    finally { setBusy(false); }
+  }
+
+  async function publishPricingDraft() {
+    setBusy(true); setError("");
+    try { const published = await platformRequest(`/clients/${encodeURIComponent(clientId)}/pricing-revisions/publish`, "POST"); setPricingDraft(null); setNotice(`Pricing v${published.version} published.`); await load(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to publish pricing."); }
+    finally { setBusy(false); }
+  }
+
+  async function discardPricingDraft() {
+    setBusy(true); setError("");
+    try { await platformRequest(`/clients/${encodeURIComponent(clientId)}/pricing-revisions/draft`, "DELETE"); setPricingDraft(null); setNotice("Pricing draft discarded."); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to discard pricing draft."); }
+    finally { setBusy(false); }
   }
 
   useEffect(() => {
@@ -320,16 +368,16 @@ export function ClientCommercialSettings({
     return [...grouped.entries()];
   }, [creditLots, referenceTime]);
   const buttonLabel = section === "pricing"
-    ? "Pricing adjustments"
+    ? "Pricing"
     : section === "addOns"
-      ? "Features & Pricing"
+      ? "Details"
       : section === "quotaPacks"
         ? "Quota add-ons"
       : section === "creditLots"
         ? "Feature credit lots"
         : section === "ledger"
           ? "Feature usage ledger"
-          : "Commercials";
+          : "Pricing";
 
   return (
     <>
@@ -338,12 +386,12 @@ export function ClientCommercialSettings({
       </button>
       {open && (
         <ClientFormDialog
-          title={`Commercials — ${clientName}`}
+          title={`Pricing — ${clientName}`}
           wide
           busy={busy}
           error={error}
           onClose={() => setOpen(false)}
-          heading={<>Commercials — {clientName}</>}>
+          heading={<>Pricing — {clientName}</>}>
           <header className="sa-commercial-head">
             <div>
 
@@ -356,7 +404,7 @@ export function ClientCommercialSettings({
           <p className="muted">Effective entitlements: {effectiveEntitlements.length}</p>
           {pendingSubscription && !activeSubscription && <p className="notice">Package selected and pending client approval. Commercial actions become available after approval.</p>}
 
-          {activeSubscription && <section className="sa-commercial-section">
+          {String(section) === "packageUpgrade" && activeSubscription && <section className="sa-commercial-section">
             <div className="sa-commercial-section-head"><div><h3>Published Package version</h3><p>Review a newer published version before upgrading. Existing pricing, allowances, usage history and client settings are preserved.</p></div></div>
             <div className="sa-commercial-grid">
               <label><span>Package version</span><select disabled={busy} value={selectedPackageRevision} onChange={(event) => { setSelectedPackageRevision(event.target.value); setUpgradePreview(null); }}>{packageRevisions.map((revision) => <option key={String(revision.id)} value={String(revision.id)} disabled={Number(revision.version) < Number((activeSubscription.packageRevision as Item)?.version ?? 0)}>v{String(revision.version)}{revision.id === (activeSubscription.packageRevision as Item)?.id ? " · current" : ""}</option>)}</select></label>
@@ -375,21 +423,18 @@ export function ClientCommercialSettings({
           </section>}
 
           {(!section || section === "pricing") && <section className="sa-commercial-section">
-            <div className="sa-commercial-section-head"><div><h3>Client pricing adjustments</h3><p>Changes apply only to this client and never alter master pricing.</p></div></div>
-            <form className="sa-commercial-grid" onSubmit={saveAdjustment}>
-              <label><span>Subscription</span><select value={adjustment.subscriptionId} onChange={(event) => setAdjustment((current) => ({ ...current, subscriptionId: event.target.value }))}><option value="">All client subscriptions</option>{subscriptions.map((item) => <option key={String(item.id)} value={String(item.id)}>{String((item.package as Item)?.name ?? item.packageId)} · {label(item.status)}</option>)}</select></label>
-              <label><span>Adjustment scope <b className="sa-required-star">*</b></span><select value={adjustment.adjustmentScope} onChange={(event) => setAdjustment((current) => ({ ...current, adjustmentScope: event.target.value }))}>{adjustmentScopes.map((item) => <option key={item}>{label(item)}</option>)}</select></label>
-              <label><span>Adjustment type <b className="sa-required-star">*</b></span><select value={adjustment.adjustmentType} onChange={(event) => setAdjustment((current) => ({ ...current, adjustmentType: event.target.value }))}>{adjustmentTypes.map((item) => <option key={item}>{label(item)}</option>)}</select></label>
-              <label><span>Value <b className="sa-required-star">*</b></span><input required min="0" step="0.0001" type="number" value={adjustment.adjustmentValue} onChange={(event) => setAdjustment((current) => ({ ...current, adjustmentValue: event.target.value }))} /></label>
-              <label><span>Reference ID</span><input value={adjustment.referenceId} placeholder="Feature, Add-On, or package ID" onChange={(event) => setAdjustment((current) => ({ ...current, referenceId: event.target.value }))} /><small>Leave blank to apply to every eligible item in the selected scope.</small></label>
-              <label><span>Valid from <b className="sa-required-star">*</b></span><input required type="date" value={adjustment.validFrom} onChange={(event) => setAdjustment((current) => ({ ...current, validFrom: event.target.value }))} /></label>
-              <label><span>Valid to</span><input type="date" value={adjustment.validTo} onChange={(event) => setAdjustment((current) => ({ ...current, validTo: event.target.value }))} /></label>
-              <label><span>Reason <b className="sa-required-star">*</b></span><input required value={adjustment.reason} maxLength={500} onChange={(event) => setAdjustment((current) => ({ ...current, reason: event.target.value }))} /></label>
-              <div className="sa-commercial-form-action"><button disabled={busy} type="submit">Save adjustment</button></div>
-            </form>
-            <CommercialTable headings={["Scope", "Type", "Value", "Reference", "Period", "Reason"]}>
-              {adjustments.map((item) => <tr key={String(item.id)}><td>{label(item.adjustmentScope)}</td><td>{label(item.adjustmentType)}</td><td>{number(item.adjustmentValue)}</td><td>{String(item.referenceId ?? "All eligible")}</td><td>{date(item.validFrom)} — {date(item.validTo)}</td><td>{String(item.reason)}</td></tr>)}
+            <div className="sa-commercial-section-head"><div><h3>Setup and vehicle pricing</h3><p>Review package pricing and calculate the negotiated client charge.</p></div><div className="sa-feature-card-summary">{pricingDraft && <span className="sa-feature-draft-status">Draft v{String(pricingDraft.version)}</span>} {pricingDraft && <><button type="button" disabled={busy} onClick={() => void publishPricingDraft()}>Publish</button><button type="button" className="danger" disabled={busy} onClick={() => void discardPricingDraft()}>Discard</button></>}</div></div>
+            <div className="sa-commercial-grid">
+              <label><span>Setup cost</span><input readOnly value={number(activeSubscription?.setupFee)} /></label>
+              <label><span>Setup discount type</span><select value={setupDiscountType} onChange={(event) => setSetupDiscountType(event.target.value as typeof setupDiscountType)}><option value="PERCENTAGE">Percentage</option><option value="FIXED_AMOUNT">Fixed value</option></select></label>
+              <label><span>Setup discount {setupDiscountType === "PERCENTAGE" ? "(%)" : "(amount)"}</span><input min="0" max={setupDiscountType === "PERCENTAGE" ? "100" : undefined} step="0.01" type="number" value={setupDiscount} onChange={(event) => setSetupDiscount(event.target.value)} /></label>
+              <label><span>Final setup cost</span><input readOnly value={number(Math.max(0, Number(activeSubscription?.setupFee ?? 0) - (setupDiscountType === "PERCENTAGE" ? Number(activeSubscription?.setupFee ?? 0) * Number(setupDiscount) / 100 : Number(setupDiscount)) ))} /></label>
+            </div>
+            <CommercialTable headings={["Vehicle tier", "Base vehicle cost", "Discount type", "Discount", "Final vehicle cost"]}>
+              {vehicleTiers.map((tier) => { const base = Number(tier.pricePerVehicle ?? tier.unitPrice ?? tier.amount ?? 0); const discount = Number(vehicleDiscount); const amount = vehicleDiscountType === "PERCENTAGE" ? base * discount / 100 : discount; return <tr key={String(tier.id)}><td>{String(tier.minVehicles ?? tier.min ?? 0)} – {String(tier.maxVehicles ?? tier.max ?? "+")}</td><td>{number(base)}</td><td><select value={vehicleDiscountType} onChange={(event) => setVehicleDiscountType(event.target.value as typeof vehicleDiscountType)}><option value="PERCENTAGE">Percentage</option><option value="FIXED_AMOUNT">Fixed value</option></select></td><td><input className="sa-inline-number" min="0" max={vehicleDiscountType === "PERCENTAGE" ? "100" : undefined} step="0.01" type="number" value={vehicleDiscount} onChange={(event) => setVehicleDiscount(event.target.value)} /></td><td>{number(Math.max(0, base - amount))}</td></tr>; })}
             </CommercialTable>
+            {!vehicleTiers.length && <p className="sa-commercial-empty">No vehicle tiers are configured for the selected package.</p>}
+            <div className="sa-commercial-form-action"><button type="button" disabled={busy || !activeSubscription} onClick={() => void savePricing()}>{pricingDraft ? "Update pricing draft" : "Save pricing draft"}</button></div>
           </section>}
 
           {(!section || section === "addOns") && <section className="sa-commercial-section">
@@ -407,7 +452,7 @@ export function ClientCommercialSettings({
             </CommercialTable>
           </section>}
 
-          {(!section || section === "quotaPacks") && <section className="sa-commercial-section">
+          {(!section || section === "quotaPacks" || section === "addOns") && <section className="sa-commercial-section">
             <div className="sa-commercial-section-head"><div><h3>Quota add-ons</h3><p>Activate a purchased pack using the approved payment or grant reference. Package credits are used before add-on credits.</p></div></div>
             {activeSubscription ? <form className="sa-commercial-grid" onSubmit={activateQuotaPack}>
               <label><span>Available pack <b className="sa-required-star">*</b></span><select required value={selectedQuotaOffer} onChange={(event) => setSelectedQuotaOffer(event.target.value)}><option value="">Select a pack</option>{quotaOffers.map((offer) => <option key={String(offer.id)} value={String(offer.id)}>{String(offer.name)} · {number(offer.quantity)} credits · {String(offer.currency)} {number(offer.salePrice)} · {offer.validityMonths ? `${offer.validityMonths} months` : `${offer.validityDays} days`}</option>)}</select></label>

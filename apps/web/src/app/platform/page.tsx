@@ -56,7 +56,7 @@ export default function PlatformPage() {
     try {
       const data = (await api("/auth/otp/request", {
         method: "POST",
-        body: JSON.stringify({ phone }),
+        body: JSON.stringify({ phone, appCode: "PLATFORM" }),
       })) as { otpRequestId: string };
       setOtpRequestId(data.otpRequestId);
       setNotice(t("OTP sent successfully. Enter the six-digit code below to continue."));
@@ -74,7 +74,7 @@ export default function PlatformPage() {
     try {
       const data = (await api("/auth/otp/verify", {
         method: "POST",
-        body: JSON.stringify({ otpRequestId, code }),
+        body: JSON.stringify({ otpRequestId, code, appCode: "PLATFORM" }),
       })) as { authenticated: boolean };
       if (!data.authenticated) throw new Error(t("Sign-in failed."));
       sessionStorage.removeItem("evs-eye-access-token");

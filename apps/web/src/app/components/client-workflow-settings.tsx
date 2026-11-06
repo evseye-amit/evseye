@@ -103,27 +103,26 @@ export function ClientWorkflowSettings({ clientId, clientName }: { clientId: str
     finally { setBusy(false); }
   }
 
+  async function discard(id: string) {
+    if (!subscription) return;
+    setBusy(true); setError("");
+    try {
+      await data(`/workflow-revisions/${id}`, "DELETE");
+      setRevisions(await data(`/subscriptions/${subscription.id}/workflow-revisions`) as Row[]);
+      setNotice("Draft version discarded.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not discard draft."); }
+    finally { setBusy(false); }
+  }
+
   return <>
-    <button type="button" className="secondary" onClick={() => setOpen(true)}>Workflow versions</button>
-    {open && <ClientFormDialog title={`Workflow versions — ${clientName}`} wide busy={busy} error={error} onClose={() => setOpen(false)} heading={<>Workflow versions — {clientName}</>}>
-      <header className="sa-commercial-head"><div><p>Override included Features for this client. Published versions remain available for review.</p></div><button type="button" className="secondary" onClick={() => setOpen(false)}>Close</button></header>
+    <button type="button" className="secondary" onClick={() => setOpen(true)}>Versions</button>
+    {open && <ClientFormDialog title={`Versions — ${clientName}`} wide busy={busy} error={error} onClose={() => setOpen(false)} heading={<>Versions — {clientName}</>}>
+      <header className="sa-commercial-head"><div><p>Review immutable client onboarding workflow versions. Drafts can be published or discarded.</p></div></header>
       {notice && <p className="notice" role="status">{notice}</p>}
-      {!subscription || !packageRevision ? <p className="muted">An active subscription with a published Package version is required.</p> : <>
-        <section className="sa-commercial-section">
-          <div className="sa-commercial-section-head"><div><h3>Client Feature overrides</h3><p>Current Package: {String((subscription.package as Row)?.name ?? "Package")} v{String(packageRevision.version)}. An empty configuration keeps the Package default.</p></div></div>
-          <div className="sa-commercial-grid">
-            <label><span>Included Feature</span><select value={featureId} onChange={(event) => selectFeature(event.target.value)}><option value="">Select Feature</option>{included.map((item) => { const feature = item.feature as Row; return <option key={String(item.featureId)} value={String(item.featureId)}>{String(feature.name)} · {String(feature.category)}</option>; })}</select></label>
-            <label className="sa-toggle"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> Enabled for this client</label>
-            <label><span>Configuration override (JSON)</span><textarea rows={7} value={configuration} onChange={(event) => setConfiguration(event.target.value)} spellCheck={false} /></label>
-            <div className="sa-commercial-form-action"><button type="button" disabled={busy || !featureId} onClick={saveOverride}>Add override</button></div>
-          </div>
-          <div className="sa-commercial-table-wrap"><table className="sa-commercial-table"><thead><tr><th>Feature</th><th>Enabled</th><th>Configuration</th><th>Action</th></tr></thead><tbody>{overrides.length ? overrides.map((item) => <tr key={item.featureId}><td>{String((included.find((part) => part.featureId === item.featureId)?.feature as Row)?.name ?? item.featureId)}</td><td>{item.enabled ? "Yes" : "No"}</td><td><code>{JSON.stringify(item.configuration)}</code></td><td><button type="button" className="secondary" onClick={() => setOverrides((current) => current.filter((part) => part.featureId !== item.featureId))}>Remove</button></td></tr>) : <tr><td colSpan={4} className="sa-commercial-empty">No client overrides in this draft.</td></tr>}</tbody></table></div>
-          <div className="sa-dialog-actions"><button type="button" disabled={busy} onClick={() => void createDraft()}>Create client draft</button></div>
-        </section>
-        <section className="sa-commercial-section"><div className="sa-commercial-section-head"><div><h3>Saved versions</h3><p>Review the exact override snapshot before publishing.</p></div></div>
-          <div className="sa-commercial-table-wrap"><table className="sa-commercial-table"><thead><tr><th>Version</th><th>Status</th><th>Configuration</th><th>Action</th></tr></thead><tbody>{revisions.length ? revisions.map((item) => <tr key={String(item.id)}><td>v{String(item.version)}</td><td>{item.publishedAt ? "Published" : "Draft"}</td><td><details><summary>Review snapshot</summary><pre>{JSON.stringify(item.snapshot, null, 2)}</pre></details></td><td>{item.publishedAt ? "—" : <button type="button" disabled={busy} onClick={() => void publish(String(item.id))}>Publish</button>}</td></tr>) : <tr><td colSpan={4} className="sa-commercial-empty">No client versions yet.</td></tr>}</tbody></table></div>
-        </section>
-      </>}
+      {!subscription ? <p className="muted">An active subscription is required before workflow versions can be reviewed.</p> : <section className="sa-commercial-section"><div className="sa-commercial-section-head"><div><h3>Workflow versions</h3><p>Review the exact immutable snapshot before publishing.</p></div></div>
+        <div className="sa-commercial-table-wrap"><table className="sa-commercial-table"><thead><tr><th>Version</th><th>Status</th><th>Created</th><th>Published</th><th>Snapshot</th><th>Action</th></tr></thead><tbody>{revisions.length ? revisions.map((item) => <tr key={String(item.id)}><td>v{String(item.version)}</td><td>{item.publishedAt ? "Published" : "Draft"}</td><td>{item.createdAt ? new Date(String(item.createdAt)).toLocaleDateString("en-IN") : "—"}</td><td>{item.publishedAt ? new Date(String(item.publishedAt)).toLocaleDateString("en-IN") : "—"}</td><td><details><summary>Review</summary><pre>{JSON.stringify(item.snapshot, null, 2)}</pre></details></td><td>{item.publishedAt ? "—" : <span className="sa-client-actions"><button type="button" disabled={busy} onClick={() => void publish(String(item.id))}>Publish</button><button type="button" className="danger" disabled={busy} onClick={() => void discard(String(item.id))}>Discard</button></span>}</td></tr>) : <tr><td colSpan={6} className="sa-commercial-empty">No client versions yet.</td></tr>}</tbody></table></div>
+      </section>}
+      <div className="form-actions"><button type="button" className="secondary" onClick={() => setOpen(false)}>Close</button></div>
     </ClientFormDialog>}
   </>;
 }

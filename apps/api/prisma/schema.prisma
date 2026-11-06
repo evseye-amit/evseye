@@ -1447,6 +1447,8 @@ model ClientSubscription {
   packageRevisionId     String?
   packageRevision       PackageRevision?             @relation(fields: [packageRevisionId], references: [id], onDelete: Restrict)
   workflowRevisions     ClientWorkflowRevision[]
+  featureRevisions      ClientFeatureRevision[]
+  pricingRevisions      ClientPricingRevision[]
   pricingAdjustments    ClientPricingAdjustment[]
   features              ClientFeature[]
   featureAddOnPurchases ClientFeatureAddOnPurchase[]
@@ -1481,6 +1483,42 @@ model ClientWorkflowRevision {
   contentHash    String             @db.Char(64)
   publishedAt    DateTime?
   createdAt      DateTime           @default(now())
+
+  @@unique([subscriptionId, version])
+  @@index([subscriptionId, publishedAt])
+}
+
+/// Versioned client feature configuration. A null publishedAt is a draft;
+/// published revisions are immutable and become the active client snapshot.
+model ClientFeatureRevision {
+  id             String             @id @default(uuid())
+  subscriptionId String
+  subscription   ClientSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  version        Int
+  snapshot       Json
+  contentHash    String             @db.Char(64)
+  publishedAt    DateTime?
+  createdAt      DateTime           @default(now())
+
+  @@unique([subscriptionId, version])
+  @@index([subscriptionId, publishedAt])
+}
+
+/// Versioned client pricing terms. A null publishedAt is a draft.
+model ClientPricingRevision {
+  id                    String             @id @default(uuid())
+  subscriptionId        String
+  subscription          ClientSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  version               Int
+  setupDiscountPercent  Decimal            @default(0) @db.Decimal(6, 2)
+  vehicleDiscountPercent Decimal           @default(0) @db.Decimal(6, 2)
+  setupDiscountType     String             @default("PERCENTAGE")
+  setupDiscountValue    Decimal            @default(0) @db.Decimal(12, 2)
+  vehicleDiscountType   String             @default("PERCENTAGE")
+  vehicleDiscountValue  Decimal            @default(0) @db.Decimal(12, 2)
+  snapshot              Json
+  publishedAt           DateTime?
+  createdAt             DateTime           @default(now())
 
   @@unique([subscriptionId, version])
   @@index([subscriptionId, publishedAt])

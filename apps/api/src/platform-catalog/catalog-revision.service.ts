@@ -460,4 +460,12 @@ export class CatalogRevisionService {
       where: { id: revisionId }, data: { publishedAt: new Date() },
     });
   }
+
+  async discardClientWorkflow(revisionId: string) {
+    const revision = await this.prisma.clientWorkflowRevision.findUnique({ where: { id: revisionId } });
+    if (!revision) throw new NotFoundException('Client workflow revision not found.');
+    if (revision.publishedAt) throw new BadRequestException('Published workflow versions cannot be discarded.');
+    await this.prisma.clientWorkflowRevision.delete({ where: { id: revisionId } });
+    return { discarded: true, version: revision.version };
+  }
 }

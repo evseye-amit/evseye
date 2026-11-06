@@ -13,6 +13,7 @@ import { seedYogmayaExchangePolicy } from './client/yogmaya/exchange-policy.mjs'
 import { seedLegal } from './client/yogmaya/yogmaya-legal-documents.mjs';
 import { seedYogmayaReferralCampaign } from './client/yogmaya/referral-campaign.mjs';
 import { seedYogmayaRateCard } from './client/yogmaya/rate-card.mjs';
+import { seedClientLogos } from './seed-client-logos.mjs';
 
 export async function seedYogmaya(prisma) {
 for (const clientSeed of clientCatalog) {
@@ -149,6 +150,8 @@ for (const clientSeed of clientCatalog) {
       update: clientSeed.branding,
     });
   }
+
+  await seedClientLogos(prisma);
 
   for (const domain of clientSeed.domains) {
     await prisma.clientDomain.upsert({
