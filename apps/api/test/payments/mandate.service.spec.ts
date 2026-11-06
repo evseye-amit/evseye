@@ -7,10 +7,12 @@ const clientId = 'client-1';
 const userId = 'user-1';
 const rider = { id: 'rider-1', name: 'A Rider', mobile: '9876543210' };
 const packageFeature = {
-  configuration: {
-    mandateMaxAmount: '2500.00',
-    validityDays: 365,
-    paymentMethods: ['UPI_AUTOPAY'],
+  feature: {
+    configuration: {
+      mandateMaxAmount: '2500.00',
+      validityDays: 365,
+      paymentMethods: ['UPI_AUTOPAY'],
+    },
   },
 };
 const subscription = {
