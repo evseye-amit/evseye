@@ -505,6 +505,7 @@ export default function SuperAdminDashboard() {
   const [featureSteps, setFeatureSteps] = useState<Item[]>([]);
   const [features, setFeatures] = useState<Item[]>([]);
   const [revisionTarget, setRevisionTarget] = useState<{ kind: "feature" | "package"; item: Item } | null>(null);
+  const [reviewRevision, setReviewRevision] = useState<any | null>(null);
   const [revisions, setRevisions] = useState<Item[]>([]);
   const [revisionBusy, setRevisionBusy] = useState(false);
   const [revisionError, setRevisionError] = useState("");
@@ -2279,21 +2280,6 @@ export default function SuperAdminDashboard() {
     }
   }
 
-  async function createRevision() {
-    if (!revisionTarget) return;
-    setRevisionBusy(true);
-    setRevisionError("");
-    try {
-      await request(`/platform/${revisionTarget.kind === "feature" ? "features" : "packages"}/${revisionTarget.item.id}/revisions`, { method: "POST" }, token);
-      setRevisions(await request(`/platform/${revisionTarget.kind === "feature" ? "features" : "packages"}/${revisionTarget.item.id}/revisions`, {}, token));
-      setNotice("Draft version created. Review its snapshot before publishing.");
-    } catch (cause) {
-      setRevisionError(cause instanceof Error ? cause.message : "Could not create a draft version.");
-    } finally {
-      setRevisionBusy(false);
-    }
-  }
-
   async function publishRevision(id: string) {
     if (!revisionTarget) return;
     setRevisionBusy(true);
@@ -2321,8 +2307,8 @@ export default function SuperAdminDashboard() {
         triggerRef={revisionTriggerRef}
         onClose={() => setRevisionTarget(null)}
         onDialogClose={() => setRevisionTarget(null)}
-        onSubmit={(event) => { event.preventDefault(); void createRevision(); }}
-        actions={<><button type="button" className="secondary" onClick={() => setRevisionTarget(null)} disabled={revisionBusy}>Close</button><button type="submit" disabled={revisionBusy}>Create draft from current catalog</button></>}
+        onSubmit={(event) => event.preventDefault()}
+        actions={<button type="button" className="secondary" onClick={() => setRevisionTarget(null)} disabled={revisionBusy}>Close</button>}
       >
         {revisions.length ? <DataTable
           headings={["Version", "Status", "Published", "Snapshot", "Action"]}
@@ -2330,10 +2316,25 @@ export default function SuperAdminDashboard() {
             `v${revision.version}`,
             revision.publishedAt ? "Published" : "Draft",
             revision.publishedAt ? new Date(revision.publishedAt).toLocaleDateString() : "—",
-            <details key="snapshot"><summary>Review configuration</summary><pre>{JSON.stringify(revision.snapshot, null, 2)}</pre></details>,
+            <button key="review" type="button" className="secondary" onClick={() => setReviewRevision(revision)}>Review configuration</button>,
             revision.publishedAt ? "—" : <button key="publish" type="button" onClick={() => void publishRevision(String(revision.id))} disabled={revisionBusy}>Publish</button>,
           ])}
-        /> : <p className="muted">No versions yet. Create a draft from the current catalog record.</p>}
+        /> : <p className="muted">No versions yet. Edit this feature to create its first draft automatically.</p>}
+      </CatalogFormDialog>
+      <CatalogFormDialog
+        open={reviewRevision !== null}
+        title="Review configuration"
+        description={reviewRevision ? `Immutable snapshot for v${reviewRevision.version}` : ""}
+        error=""
+        busy={false}
+        size="wide"
+        triggerRef={revisionTriggerRef}
+        onClose={() => setReviewRevision(null)}
+        onDialogClose={() => setReviewRevision(null)}
+        onSubmit={(event) => event.preventDefault()}
+        actions={<button type="button" className="secondary" onClick={() => setReviewRevision(null)}>Close</button>}
+      >
+        {reviewRevision && <pre className="sa-json-viewer">{JSON.stringify(reviewRevision.snapshot, null, 2)}</pre>}
       </CatalogFormDialog>
       <aside className="sa-sidebar">
         <div className="sa-brand">
