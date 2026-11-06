@@ -61,6 +61,14 @@ export class CatalogRevisionService {
     return this.prisma.featureRevision.update({ where: { id: revisionId }, data: { publishedAt: new Date() } });
   }
 
+  async discardFeature(revisionId: string) {
+    const revision = await this.prisma.featureRevision.findUnique({ where: { id: revisionId } });
+    if (!revision) throw new NotFoundException('Feature revision not found.');
+    if (revision.publishedAt) throw new BadRequestException('Published Feature revisions are immutable and cannot be discarded.');
+    await this.prisma.featureRevision.delete({ where: { id: revisionId } });
+    return { discarded: true, revisionId };
+  }
+
   async draftPackage(packageId: string) {
     const pkg = await this.prisma.package.findUnique({
       where: { id: packageId }, include: { features: { where: { isIncluded: true, effectiveFrom: { lte: new Date() }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: new Date() } }] }, include: { feature: true } } },
@@ -120,6 +128,14 @@ export class CatalogRevisionService {
     });
     if (newerPublished) throw new BadRequestException('A newer Package revision is already published.');
     return this.prisma.packageRevision.update({ where: { id: revisionId }, data: { publishedAt: new Date() } });
+  }
+
+  async discardPackage(revisionId: string) {
+    const revision = await this.prisma.packageRevision.findUnique({ where: { id: revisionId } });
+    if (!revision) throw new NotFoundException('Package revision not found.');
+    if (revision.publishedAt) throw new BadRequestException('Published Package revisions are immutable and cannot be discarded.');
+    await this.prisma.packageRevision.delete({ where: { id: revisionId } });
+    return { discarded: true, revisionId };
   }
 
   async assignPackageRevision(subscriptionId: string, revisionId: string) {

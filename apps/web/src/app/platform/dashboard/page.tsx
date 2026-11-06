@@ -2295,6 +2295,21 @@ export default function SuperAdminDashboard() {
     }
   }
 
+  async function discardRevision(id: string) {
+    if (!revisionTarget || !window.confirm("Discard this draft version? This cannot be undone.")) return;
+    setRevisionBusy(true);
+    setRevisionError("");
+    try {
+      await request(`/platform/${revisionTarget.kind === "feature" ? "feature" : "package"}-revisions/${id}`, { method: "DELETE" }, token);
+      setRevisions(await request(`/platform/${revisionTarget.kind === "feature" ? "features" : "packages"}/${revisionTarget.item.id}/revisions`, {}, token));
+      setNotice("Draft version discarded.");
+    } catch (cause) {
+      setRevisionError(cause instanceof Error ? cause.message : "Could not discard this draft version.");
+    } finally {
+      setRevisionBusy(false);
+    }
+  }
+
   return (
     <main className="sa-shell platform-admin-shell">
       <CatalogFormDialog
@@ -2317,7 +2332,7 @@ export default function SuperAdminDashboard() {
             revision.publishedAt ? "Published" : "Draft",
             revision.publishedAt ? new Date(revision.publishedAt).toLocaleDateString() : "—",
             <button key="review" type="button" className="secondary" onClick={() => setReviewRevision(revision)}>Review configuration</button>,
-            revision.publishedAt ? "—" : <button key="publish" type="button" onClick={() => void publishRevision(String(revision.id))} disabled={revisionBusy}>Publish</button>,
+            revision.publishedAt ? "—" : <span className="sa-inline-actions"><button key="publish" type="button" onClick={() => void publishRevision(String(revision.id))} disabled={revisionBusy}>Publish</button><button key="discard" type="button" className="secondary" onClick={() => void discardRevision(String(revision.id))} disabled={revisionBusy}>Discard</button></span>,
           ])}
         /> : <p className="muted">No versions yet. Edit this feature to create its first draft automatically.</p>}
       </CatalogFormDialog>
