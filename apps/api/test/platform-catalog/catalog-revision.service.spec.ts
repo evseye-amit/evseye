@@ -21,9 +21,13 @@ describe('CatalogRevisionService', () => {
 
   it('publishes a package without unconditional pre-login Features', async () => {
     const revision = { id: 'pkg-r1', packageId: 'pkg', version: 1, snapshot: { features: [] } };
-    const prisma = { packageRevision: { findUnique: vi.fn().mockResolvedValue(revision),
-      findFirst: vi.fn().mockResolvedValue(null), update: vi.fn().mockResolvedValue(revision) } };
+    const db = { package: { update: vi.fn() }, packageFeature: { deleteMany: vi.fn() },
+      packageRevision: { findUnique: vi.fn().mockResolvedValue(revision),
+        findFirst: vi.fn().mockResolvedValue(null), update: vi.fn().mockResolvedValue(revision) } };
+    const prisma = { ...db, $transaction: vi.fn(async (fn: (tx: typeof db) => unknown) => fn(db)) };
     await expect(new CatalogRevisionService(prisma as never).publishPackage('pkg-r1')).resolves.toMatchObject({ id: 'pkg-r1' });
+    expect(db.package.update).toHaveBeenCalledWith({ where: { id: 'pkg' }, data: {} });
+    expect(db.packageFeature.deleteMany).toHaveBeenCalledWith({ where: { packageId: 'pkg' } });
   });
   it('allows disabling an optional pre-login Feature in a client draft', async () => {
     const prisma = {
