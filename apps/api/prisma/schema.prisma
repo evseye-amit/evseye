@@ -1203,7 +1203,6 @@ model PackageFeature {
   resetPeriod      AllowanceResetPeriod @default(NONE)
   isUnlimited      Boolean              @default(false)
   rolloverAllowed  Boolean              @default(false)
-  configuration    Json?
   displayOrder     Int                  @default(0)
   effectiveFrom    DateTime             @default(now()) @db.Date
   effectiveTo      DateTime?            @db.Date

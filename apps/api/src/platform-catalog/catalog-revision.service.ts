@@ -109,7 +109,7 @@ export class CatalogRevisionService {
       features.push({
         featureId: assignment.featureId, featureRevisionId: revision.id,
         featureVersion: revision.version, feature: revision.snapshot,
-        configuration: assignment.configuration, displayOrder: assignment.displayOrder,
+        displayOrder: assignment.feature.displayOrder,
         includedQuantity: assignment.includedQuantity?.toString() ?? null,
         resetPeriod: assignment.resetPeriod, isUnlimited: assignment.isUnlimited,
         rolloverAllowed: assignment.rolloverAllowed,
@@ -129,11 +129,18 @@ export class CatalogRevisionService {
       steps,
       features,
     };
+    const snapshotData = { packageId, snapshot: json(snapshot), contentHash: hash(snapshot) };
+    const existingDraft = await this.prisma.packageRevision.findFirst({
+      where: { packageId, publishedAt: null }, orderBy: { version: 'desc' },
+    });
+    if (existingDraft) {
+      return this.prisma.packageRevision.update({ where: { id: existingDraft.id }, data: snapshotData });
+    }
     const latest = await this.prisma.packageRevision.findFirst({
       where: { packageId }, orderBy: { version: 'desc' }, select: { version: true },
     });
     return this.prisma.packageRevision.create({
-      data: { packageId, version: (latest?.version ?? 0) + 1, snapshot: json(snapshot), contentHash: hash(snapshot) },
+      data: { ...snapshotData, version: (latest?.version ?? 0) + 1 },
     });
   }
 
@@ -141,10 +148,10 @@ export class CatalogRevisionService {
     const revision = await this.prisma.packageRevision.findUnique({ where: { id: revisionId } });
     if (!revision) throw new NotFoundException('Package revision not found.');
     if (revision.publishedAt) return revision;
-    const snapshot = revision.snapshot as { features?: Array<{ feature?: { code?: string; configuration?: Record<string, unknown> }; configuration?: Record<string, unknown> }> };
+    const snapshot = revision.snapshot as { features?: Array<{ feature?: { code?: string; configuration?: Record<string, unknown> } }> };
     const features = snapshot.features ?? [];
     const language = features.find((item) => item.feature?.code === 'SELECT_APP_LANGUAGE');
-    const locales = { ...language?.feature?.configuration, ...language?.configuration }.supportedLocales;
+    const locales = language?.feature?.configuration?.supportedLocales;
     if (locales !== undefined && (!Array.isArray(locales) || locales.length === 0 ||
         !locales.every(isSupportedLanguage) || new Set(locales).size !== locales.length))
       throw new BadRequestException('Select distinct languages from the platform language catalog.');
@@ -152,14 +159,84 @@ export class CatalogRevisionService {
       where: { packageId: revision.packageId, version: { gt: revision.version }, publishedAt: { not: null } },
     });
     if (newerPublished) throw new BadRequestException('A newer Package revision is already published.');
-    return this.prisma.packageRevision.update({ where: { id: revisionId }, data: { publishedAt: new Date() } });
+    const packageSnapshot = revision.snapshot as {
+      name?: string; description?: string | null; setupFee?: string; currency?: string; trialDays?: number;
+      isCustom?: boolean; isActive?: boolean; displayOrder?: number; limits?: Record<string, number>;
+      features?: Array<{ featureId: string; includedQuantity?: string | null; resetPeriod?: string; isUnlimited?: boolean; rolloverAllowed?: boolean; displayOrder?: number }>;
+    };
+    const packageData = {
+      ...(packageSnapshot.name !== undefined ? { name: packageSnapshot.name } : {}),
+      ...(packageSnapshot.description !== undefined ? { description: packageSnapshot.description } : {}),
+      ...(packageSnapshot.setupFee !== undefined ? { setupFee: packageSnapshot.setupFee } : {}),
+      ...(packageSnapshot.currency !== undefined ? { currency: packageSnapshot.currency } : {}),
+      ...(packageSnapshot.trialDays !== undefined ? { trialDays: packageSnapshot.trialDays } : {}),
+      ...(packageSnapshot.isCustom !== undefined ? { isCustom: packageSnapshot.isCustom } : {}),
+      ...(packageSnapshot.isActive !== undefined ? { isActive: packageSnapshot.isActive } : {}),
+      ...(packageSnapshot.displayOrder !== undefined ? { displayOrder: packageSnapshot.displayOrder } : {}),
+      ...(packageSnapshot.limits ?? {}),
+    };
+    return this.prisma.$transaction(async (tx) => {
+      await tx.package.update({ where: { id: revision.packageId }, data: packageData as never });
+      await tx.packageFeature.deleteMany({ where: { packageId: revision.packageId } });
+      for (const feature of packageSnapshot.features ?? []) {
+        await tx.packageFeature.create({ data: {
+          packageId: revision.packageId,
+          featureId: feature.featureId,
+          isIncluded: true,
+          includedQuantity: feature.includedQuantity ?? null,
+          resetPeriod: feature.resetPeriod as never ?? 'NONE',
+          isUnlimited: feature.isUnlimited ?? false,
+          rolloverAllowed: feature.rolloverAllowed ?? false,
+          displayOrder: feature.displayOrder ?? 0,
+        } });
+      }
+      return tx.packageRevision.update({ where: { id: revisionId }, data: { publishedAt: new Date() } });
+    });
   }
 
   async discardPackage(revisionId: string) {
     const revision = await this.prisma.packageRevision.findUnique({ where: { id: revisionId } });
     if (!revision) throw new NotFoundException('Package revision not found.');
     if (revision.publishedAt) throw new BadRequestException('Published Package revisions are immutable and cannot be discarded.');
-    await this.prisma.packageRevision.delete({ where: { id: revisionId } });
+    const published = await this.prisma.packageRevision.findFirst({
+      where: { packageId: revision.packageId, publishedAt: { not: null } },
+      orderBy: { version: 'desc' },
+    });
+    if (!published) throw new BadRequestException('Cannot discard a Package draft before a published Package version exists.');
+    const snapshot = published.snapshot as {
+      name?: string; description?: string | null; setupFee?: string; currency?: string; trialDays?: number;
+      isCustom?: boolean; isActive?: boolean; displayOrder?: number;
+      limits?: Record<string, number>;
+      features?: Array<{ featureId: string; includedQuantity?: string | null; resetPeriod?: string; isUnlimited?: boolean; rolloverAllowed?: boolean; displayOrder?: number }>;
+    };
+    const packageData = {
+      ...(snapshot.name !== undefined ? { name: snapshot.name } : {}),
+      ...(snapshot.description !== undefined ? { description: snapshot.description } : {}),
+      ...(snapshot.setupFee !== undefined ? { setupFee: snapshot.setupFee } : {}),
+      ...(snapshot.currency !== undefined ? { currency: snapshot.currency } : {}),
+      ...(snapshot.trialDays !== undefined ? { trialDays: snapshot.trialDays } : {}),
+      ...(snapshot.isCustom !== undefined ? { isCustom: snapshot.isCustom } : {}),
+      ...(snapshot.isActive !== undefined ? { isActive: snapshot.isActive } : {}),
+      ...(snapshot.displayOrder !== undefined ? { displayOrder: snapshot.displayOrder } : {}),
+      ...(snapshot.limits ?? {}),
+    };
+    await this.prisma.$transaction(async (tx) => {
+      await tx.package.update({ where: { id: revision.packageId }, data: packageData as never });
+      await tx.packageFeature.deleteMany({ where: { packageId: revision.packageId } });
+      for (const feature of snapshot.features ?? []) {
+        await tx.packageFeature.create({ data: {
+          packageId: revision.packageId,
+          featureId: feature.featureId,
+          isIncluded: true,
+          includedQuantity: feature.includedQuantity ?? null,
+          resetPeriod: feature.resetPeriod as never ?? 'NONE',
+          isUnlimited: feature.isUnlimited ?? false,
+          rolloverAllowed: feature.rolloverAllowed ?? false,
+          displayOrder: feature.displayOrder ?? 0,
+        } });
+      }
+      await tx.packageRevision.delete({ where: { id: revisionId } });
+    });
     return { discarded: true, revisionId };
   }
 
@@ -342,7 +419,6 @@ export class CatalogRevisionService {
     const packageRevision = await this.prisma.packageRevision.findUnique({ where: { id: subscription.packageRevisionId! } });
     const packageFeatures = ((packageRevision?.snapshot as { features?: Array<{
       featureId: string; feature: { code: string; configuration?: Record<string, unknown> };
-      configuration?: Record<string, unknown>;
     }> })?.features ?? []);
     const overrides = new Map((((revision.snapshot as { overrides?: Array<{
       featureId: string; enabled?: boolean; configuration?: Record<string, unknown>;
@@ -350,7 +426,7 @@ export class CatalogRevisionService {
     const featureConfig = (code: string, appCode: string) => {
       const item = packageFeatures.find((part) => part.feature.code === code);
       if (!item || overrides.get(item.featureId)?.enabled === false) return null;
-      const configuration = { ...item.feature.configuration, ...item.configuration,
+      const configuration = { ...item.feature.configuration,
         ...overrides.get(item.featureId)?.configuration };
       const apps = configuration.appCodes;
       return configuration.enabled === false || (Array.isArray(apps) && !apps.includes(appCode))

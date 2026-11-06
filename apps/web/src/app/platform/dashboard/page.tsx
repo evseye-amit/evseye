@@ -503,6 +503,7 @@ export default function SuperAdminDashboard() {
   const [vehicleCategories, setVehicleCategories] = useState<Item[]>([]);
   const [vehicleTypes, setVehicleTypes] = useState<Item[]>([]);
   const [packages, setPackages] = useState<Item[]>([]);
+  const [packageFeaturePackageId, setPackageFeaturePackageId] = useState<string | null>(null);
   const [featureSteps, setFeatureSteps] = useState<Item[]>([]);
   const [features, setFeatures] = useState<Item[]>([]);
   const [revisionTarget, setRevisionTarget] = useState<{ kind: "feature" | "package"; item: Item } | null>(null);
@@ -2364,7 +2365,7 @@ export default function SuperAdminDashboard() {
         onSubmit={(event) => event.preventDefault()}
         actions={<button type="button" className="secondary" onClick={() => setReviewRevision(null)}>Close</button>}
       >
-        {reviewRevision && <pre className="sa-json-viewer">{JSON.stringify(reviewRevision.snapshot, null, 2)}</pre>}
+        {reviewRevision && revisionTarget?.kind === "package" ? <PackageRevisionReview snapshot={reviewRevision.snapshot as Item} baseline={(revisions.find((item) => item.publishedAt && item.id !== reviewRevision.id)?.snapshot as Item | undefined)} /> : reviewRevision && <pre className="sa-json-viewer">{JSON.stringify(reviewRevision.snapshot, null, 2)}</pre>}
       </CatalogFormDialog>
       <aside className="sa-sidebar">
         <div className="sa-brand">
@@ -3455,7 +3456,7 @@ export default function SuperAdminDashboard() {
                   <div>
                     <h2>Package</h2>
                     <p>
-                      Define commercial packages, limits, and trial settings.
+                      Define commercial packages and manage their versioned feature entitlements together.
                     </p>
                   </div>
                   <div className="sa-actions">
@@ -3479,7 +3480,7 @@ export default function SuperAdminDashboard() {
                   <CatalogFormDialog
                     open={showPackageForm}
                     title={editingPackageId ? "Edit Package" : "Add Package"}
-                    description="Define commercial package details. Assign Features separately from Package Feature."
+                    description="Package details and feature entitlements are versioned together. Changes create or update a draft revision."
                     error={error}
                     busy={loading}
                     size="wide"
@@ -3568,7 +3569,7 @@ export default function SuperAdminDashboard() {
                         { type: "text" },
                         { type: "text" },
                         { type: "select" },
-                        { type: "number" },
+                        { type: "text" },
                         null,
                         null,
                       ]}
@@ -3578,9 +3579,13 @@ export default function SuperAdminDashboard() {
                         item.setupFee ? `₹${item.setupFee}` : "₹0",
                         `${displayPackageLimit(item.maxFleets)} fleets · ${displayPackageLimit(item.maxRiders)} riders`,
                         `${item.isActive ? "ACTIVE" : "INACTIVE"}${item.isCustom ? " · CUSTOM" : ""}`,
-                        item.features?.length ?? 0,
+                        (() => {
+                          const names = (item.features ?? []).filter((link: Item) => link.isIncluded !== false).map((link: Item) => String(link.feature?.name ?? link.feature?.code ?? "Feature"));
+                          return names.length ? `${names.slice(0, 3).join(", ")}${names.length > 3 ? ` +${names.length - 3} more` : ""}` : "No features";
+                        })(),
                         <span key="manage" className="sa-client-actions">
                           <button className="secondary" onClick={(event) => openPackageModal(event.currentTarget, item)}>Edit</button>
+                          <button className="secondary" onClick={() => { setPackageFeaturePackageId(String(item.id)); setTab("packageFeatures"); }}>Features</button>
                           <button className="secondary" onClick={(event) => void openRevisions("package", item, event.currentTarget)}>Versions</button>
                         </span>,
                         <button
@@ -3620,6 +3625,7 @@ export default function SuperAdminDashboard() {
                 packages={packages}
                 features={features}
                 token={token}
+                packageId={packageFeaturePackageId}
                 onSaved={() => void load()}
                 onDelete={(path, label) => void remove(path, label)}
               />
@@ -4088,6 +4094,30 @@ export default function SuperAdminDashboard() {
       />
     </main>
   );
+}
+
+function PackageRevisionReview({ snapshot, baseline }: { snapshot: Item; baseline?: Item }) {
+  const limits = (snapshot.limits ?? {}) as Item;
+  const features = Array.isArray(snapshot.features) ? snapshot.features as Item[] : [];
+  const previousFeatures = new Map((Array.isArray(baseline?.features) ? baseline.features : []).map((item: Item) => [String(item.featureId), item]));
+  const currentIds = new Set(features.map((item) => String(item.featureId)));
+  const added = features.filter((item) => !previousFeatures.has(String(item.featureId))).length;
+  const removed = [...previousFeatures.keys()].filter((id) => !currentIds.has(id)).length;
+  const changed = features.filter((item) => {
+    const previous = previousFeatures.get(String(item.featureId));
+    return previous && JSON.stringify({ includedQuantity: previous.includedQuantity, resetPeriod: previous.resetPeriod, isUnlimited: previous.isUnlimited, rolloverAllowed: previous.rolloverAllowed, displayOrder: previous.displayOrder }) !== JSON.stringify({ includedQuantity: item.includedQuantity, resetPeriod: item.resetPeriod, isUnlimited: item.isUnlimited, rolloverAllowed: item.rolloverAllowed, displayOrder: item.displayOrder });
+  }).length;
+  return <div className="sa-package-revision-review">
+    <div className="sa-package-review-summary">
+      <div><span>Package</span><strong>{String(snapshot.name ?? snapshot.code ?? "—")}</strong></div>
+      <div><span>Setup fee</span><strong>{snapshot.setupFee ? `₹${String(snapshot.setupFee)}` : "₹0"}</strong></div>
+      <div><span>Trial days</span><strong>{String(snapshot.trialDays ?? 0)}</strong></div>
+      <div><span>Features</span><strong>{features.length}</strong></div>
+    </div>
+    <div className="sa-package-review-limits"><strong>Limits</strong><span>{["maxFleets", "maxRiders", "maxAdmins", "maxHubs"].map((key) => `${key.replace(/^max/, "")} ${displayPackageLimit(limits[key])}`).join(" · ")}</span></div>
+    {baseline && <div className="sa-package-review-limits"><strong>Changes</strong><span>{added} added · {removed} removed · {changed} feature settings changed</span></div>}
+    <div className="sa-commercial-table-wrap"><table className="sa-commercial-table"><thead><tr><th>Feature</th><th>Display order</th><th>Included quantity</th><th>Reset</th><th>Unlimited</th><th>Rollover</th></tr></thead><tbody>{features.length ? features.map((item) => <tr key={String(item.featureId)}><td>{String(item.feature?.name ?? item.feature?.code ?? item.featureId ?? "—")}</td><td>{String(item.displayOrder ?? 0)}</td><td>{item.isUnlimited ? "Unlimited" : String(item.includedQuantity ?? "—")}</td><td>{String(item.resetPeriod ?? "NONE")}</td><td>{item.isUnlimited ? "Yes" : "No"}</td><td>{item.rolloverAllowed ? "Yes" : "No"}</td></tr>) : <tr><td colSpan={6} className="sa-commercial-empty">No features in this snapshot.</td></tr>}</tbody></table></div>
+  </div>;
 }
 
 type LegalTemplate = {
@@ -5963,12 +5993,14 @@ function PackageFeaturesView({
   packages,
   features,
   token,
+  packageId,
   onSaved,
   onDelete,
 }: {
   packages: Item[];
   features: Item[];
   token: string;
+  packageId: string | null;
   onSaved: () => void;
   onDelete: (path: string, label: string) => void;
 }) {
@@ -5978,19 +6010,17 @@ function PackageFeaturesView({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useState<Item>({
-    packageId: "",
+    packageId: packageId ?? "",
     featureId: "",
     isIncluded: true,
     isUnlimited: false,
     includedQuantity: "",
     resetPeriod: "NONE",
     rolloverAllowed: false,
-    displayOrder: "0",
-    configuration: "",
   });
   const links = packages.flatMap((pack) =>
     (pack.features ?? []).map((link: Item) => ({ ...link, package: pack })),
-  );
+  ).filter((link) => !packageId || link.packageId === packageId);
   const openForm = (trigger: HTMLButtonElement, item?: Item) => {
     triggerRef.current = trigger;
     setError("");
@@ -6005,21 +6035,15 @@ function PackageFeaturesView({
           includedQuantity: item.includedQuantity ?? "",
           resetPeriod: item.resetPeriod ?? "NONE",
           rolloverAllowed: item.rolloverAllowed ?? false,
-          displayOrder: String(item.displayOrder ?? 0),
-          configuration: item.configuration
-            ? JSON.stringify(item.configuration, null, 2)
-            : "",
         }
         : {
-          packageId: "",
+          packageId: packageId ?? "",
           featureId: "",
           isIncluded: true,
           isUnlimited: false,
           includedQuantity: "",
           resetPeriod: "NONE",
           rolloverAllowed: false,
-          displayOrder: String(links.length),
-          configuration: "",
         },
     );
     setOpen(true);
@@ -6030,32 +6054,20 @@ function PackageFeaturesView({
   };
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    let configuration: Record<string, unknown> | undefined;
-    try {
-      configuration = form.configuration ? JSON.parse(form.configuration) : undefined;
-    } catch {
-      setError("Feature configuration must be valid JSON.");
-      return;
-    }
-    const selected = features.find((feature) => feature.id === form.featureId);
-    if (selected?.category === "LOGIN" && Array.isArray(configuration?.loginAppCodes) && configuration.loginAppCodes.length === 0) {
-      setError("Select at least one app, or exclude this Feature from the package.");
-      return;
-    }
     setBusy(true);
     setError("");
     try {
+      const selected = features.find((feature) => feature.id === form.featureId);
       const payload = {
         ...(!editing ? { packageId: form.packageId, featureId: form.featureId } : {}),
         isIncluded: Boolean(form.isIncluded),
         isUnlimited: Boolean(form.isUnlimited),
         resetPeriod: form.resetPeriod,
         rolloverAllowed: Boolean(form.rolloverAllowed),
-        displayOrder: Number(form.displayOrder || 0),
+        displayOrder: Number(selected?.displayOrder ?? 0),
         ...(form.includedQuantity !== ""
           ? { includedQuantity: Number(form.includedQuantity) }
           : {}),
-        ...(configuration ? { configuration } : {}),
       };
       await request(
         editing
@@ -6080,19 +6092,6 @@ function PackageFeaturesView({
   const assignedToSelectedPackage = new Set(
     links.filter((link) => link.packageId === form.packageId).map((link) => link.featureId),
   );
-  const selectedFeature = features.find((feature) => feature.id === form.featureId);
-  const loginApps = [
-    ["RIDER_APP", "Rider app"],
-    ["CLIENT_PANEL", "Client Operations panel"],
-    ["FLEET_MANAGER_APP", "Fleet Manager app"],
-    ["TEAM_LEADER_APP", "Team Leader app"],
-  ] as const;
-  const parsedConfiguration = (() => { try { return form.configuration ? JSON.parse(form.configuration) as Record<string, unknown> : {}; } catch { return {}; } })();
-  const scopedApps = Array.isArray(parsedConfiguration.loginAppCodes) ? parsedConfiguration.loginAppCodes as string[] : loginApps.map(([code]) => code);
-  const toggleLoginApp = (appCode: string, checked: boolean) => {
-    const next = checked ? [...new Set([...scopedApps, appCode])] : scopedApps.filter((code) => code !== appCode);
-    setForm((current) => ({ ...current, configuration: JSON.stringify({ ...parsedConfiguration, loginAppCodes: next }, null, 2) }));
-  };
   return (
     <>
       <section className="sa-page-head">
@@ -6144,14 +6143,7 @@ function PackageFeaturesView({
           <label>Included quantity<input type="number" min="0" step="1" value={form.includedQuantity} onChange={(event) => setForm((current) => ({ ...current, includedQuantity: event.target.value }))} /></label>
           <label>Allowance reset<select value={form.resetPeriod} onChange={(event) => setForm((current) => ({ ...current, resetPeriod: event.target.value }))}>{allowanceResetPeriods.map((period) => <option key={period} value={period}>{period === "NONE" ? "No reset" : enumLabel(period)}</option>)}</select></label>
           <label className="sa-toggle"><input type="checkbox" checked={form.rolloverAllowed} onChange={(event) => setForm((current) => ({ ...current, rolloverAllowed: event.target.checked }))} /> Allow unused credits to roll over</label>
-          <label>Display order<input type="number" min="0" step="1" value={form.displayOrder} onChange={(event) => setForm((current) => ({ ...current, displayOrder: event.target.value }))} /></label>
         </div>
-        <label>Feature configuration (optional JSON)<textarea value={form.configuration} placeholder={'{"workflow":"standard"}'} onChange={(event) => setForm((current) => ({ ...current, configuration: event.target.value }))} /></label>
-        {selectedFeature?.category === "LOGIN" && <fieldset className="sa-feature-fields">
-          <legend>Login availability</legend>
-          <p className="muted">Choose the apps that can use this login Feature. The API also checks the user role and package assignment before sending an OTP.</p>
-          {loginApps.map(([code, label]) => <label className="sa-toggle" key={code}><input type="checkbox" checked={scopedApps.includes(code)} onChange={(event) => toggleLoginApp(code, event.target.checked)} />{label}</label>)}
-        </fieldset>}
       </CatalogFormDialog>
       {error && !open ? <p className="error">{error}</p> : null}
       <section className="sa-management oem-table-only">

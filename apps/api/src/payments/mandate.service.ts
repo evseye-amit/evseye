@@ -105,7 +105,7 @@ export class MandateService {
       throw new BadRequestException(
         'Rider AutoPay is not included in the active package.',
       );
-    const raw = feature.configuration;
+    const raw = feature.feature.configuration;
     if (!raw || typeof raw !== 'object' || Array.isArray(raw))
       throw new BadRequestException(
         'Rider AutoPay package configuration is missing.',

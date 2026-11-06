@@ -200,7 +200,6 @@ export class CreatePackageFeatureDto {
   @IsOptional() @IsEnum(AllowanceResetPeriod) resetPeriod?: AllowanceResetPeriod;
   @IsOptional() @IsBoolean() isUnlimited?: boolean;
   @IsOptional() @IsBoolean() rolloverAllowed?: boolean;
-  @IsOptional() @IsObject() configuration?: Record<string, unknown>;
   @IsOptional() @IsInt() @Min(0) displayOrder?: number;
   @IsOptional() @IsDateString() effectiveFrom?: string;
   @IsOptional() @IsDateString() effectiveTo?: string;
@@ -216,7 +215,6 @@ export class UpdatePackageFeatureDto {
   @IsOptional() @IsEnum(AllowanceResetPeriod) resetPeriod?: AllowanceResetPeriod;
   @IsOptional() @IsBoolean() isUnlimited?: boolean;
   @IsOptional() @IsBoolean() rolloverAllowed?: boolean;
-  @IsOptional() @IsObject() configuration?: Record<string, unknown>;
   @IsOptional() @IsInt() @Min(0) displayOrder?: number;
   @IsOptional() @IsDateString() effectiveFrom?: string;
   @IsOptional() @IsDateString() effectiveTo?: string;
