@@ -79,6 +79,9 @@ export class PlatformCatalogController {
   @Post('feature-revisions/:id/publish') publishFeature(@Param('id') id: string) {
     return this.revisions.publishFeature(id).then((data) => ({ data }));
   }
+  @Delete('feature-revisions/:id') discardFeature(@Param('id') id: string) {
+    return this.revisions.discardFeature(id).then((data) => ({ data }));
+  }
   @Get('packages/:id/revisions') packageRevisions(@Param('id') id: string) {
     return this.revisions.packageRevisions(id).then((data) => ({ data }));
   }
@@ -87,6 +90,9 @@ export class PlatformCatalogController {
   }
   @Post('package-revisions/:id/publish') publishPackage(@Param('id') id: string) {
     return this.revisions.publishPackage(id).then((data) => ({ data }));
+  }
+  @Delete('package-revisions/:id') discardPackage(@Param('id') id: string) {
+    return this.revisions.discardPackage(id).then((data) => ({ data }));
   }
   @Post('subscriptions/:id/package-revisions/:revisionId') assignPackageRevision(
     @Param('id') id: string, @Param('revisionId') revisionId: string,
