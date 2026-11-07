@@ -398,7 +398,7 @@ export class PlatformAdminService {
         orderBy: [{ displayOrder: 'asc' }, { feature: { name: 'asc' } }],
       }),
       this.prisma.clientFeature.findMany({
-        where: { clientId, subscriptionId: subscription.id,
+        where: { clientId, subscriptionId: subscription.id, enabled: true,
           effectiveFrom: { lte: now }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }] },
         include: {
           feature: {

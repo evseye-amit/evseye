@@ -51,7 +51,6 @@ describe('PlatformAdminService client languages', () => {
 
     await expect(service.saveBusinessDetails('client-1', {
       businessFleetName: 'Yogmaya', requestedLocales: ['en', 'hi'],
-      approvalEmailReference: 'Approved language support',
     } as never, 'admin-1')).resolves.toEqual({ id: 'client-1' });
 
     expect(updateClient).toHaveBeenCalledWith({
@@ -62,7 +61,7 @@ describe('PlatformAdminService client languages', () => {
     expect(prisma.clientOnboardingRejection.create).not.toHaveBeenCalled();
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       action: 'CLIENT_BUSINESS_DETAILS_UPDATED',
-      newData: { approvalEmailReference: 'Approved language support' },
+      newData: {},
     }));
   });
 
