@@ -898,20 +898,475 @@ export const yogmayaClientConfiguration = {
       "effectiveFrom": "2026-11-06T00:00:00.000Z",
       "effectiveTo": null,
       "configuration": {
-        "label": "References",
-        "allowAdd": true,
-        "dataType": "STRING",
-        "editable": true,
-        "required": false,
-        "fieldCode": "REFERENCES",
-        "fieldType": "LIST",
-        "importable": true,
-        "storageKey": "metadata.references",
-        "allowRemove": true,
-        "placeholder": "Reference",
-        "maxReferences": 2,
-        "minReferences": 1
-      }
+          "label": "References",
+          "allowAdd": true,
+          "dataType": "ARRAY",
+          "editable": true,
+          "required": false,
+          "fieldCode": "RIDER_REFERENCES",
+          "fieldType": "REFERENCE",
+          "storageKey": "metadata.references",
+          "allowRemove": true,
+          "description": "Capture rider references for vehicle safety.",
+          "placeholder": "Reference",
+          "translations": {
+            "as": {
+              "label": "ৰেফাৰেন্সসমূহ",
+              "description": "বাহনৰ সুৰক্ষাৰ বাবে ৰাইডাৰৰ ৰেফাৰেন্সসমূহ সংগ্ৰহ কৰক",
+              "placeholder": "ৰেফাৰেন্স",
+              "referenceFields": {
+                "NAME": {
+                  "label": "নাম",
+                  "placeholder": "নাম লিখক"
+                },
+                "MOBILE": {
+                  "label": "ম'বাইল নম্বৰ",
+                  "placeholder": "ম'বাইল নম্বৰ লিখক"
+                },
+                "RELATION": {
+                  "label": "সম্পৰ্ক",
+                  "placeholder": "সম্পৰ্ক বাছনি কৰক"
+                }
+              },
+              "relationOptions": {
+                "SON": "পুত্ৰ",
+                "WIFE": "পত্নী",
+                "OTHER": "অন্যান্য",
+                "FATHER": "পিতৃ",
+                "FRIEND": "বন্ধু",
+                "MOTHER": "মাতৃ",
+                "SISTER": "ভগ্নী",
+                "BROTHER": "ভাতৃ",
+                "HUSBAND": "স্বামী",
+                "DAUGHTER": "কন্যা"
+              }
+            },
+            "bn": {
+              "label": "রেফারেন্সসমূহ",
+              "description": "গাড়ির নিরাপত্তার জন্য রাইডারের রেফারেন্স সংগ্রহ করুন",
+              "placeholder": "রেফারেন্স",
+              "referenceFields": {
+                "NAME": {
+                  "label": "নাম",
+                  "placeholder": "নাম লিখুন"
+                },
+                "MOBILE": {
+                  "label": "মোবাইল নম্বর",
+                  "placeholder": "মোবাইল নম্বর লিখুন"
+                },
+                "RELATION": {
+                  "label": "সম্পর্ক",
+                  "placeholder": "সম্পর্ক নির্বাচন করুন"
+                }
+              },
+              "relationOptions": {
+                "SON": "ছেলে",
+                "WIFE": "স্ত্রী",
+                "OTHER": "অন্যান্য",
+                "FATHER": "বাবা",
+                "FRIEND": "বন্ধু",
+                "MOTHER": "মা",
+                "SISTER": "বোন",
+                "BROTHER": "ভাই",
+                "HUSBAND": "স্বামী",
+                "DAUGHTER": "মেয়ে"
+              }
+            },
+            "gu": {
+              "label": "રેફરન્સ",
+              "description": "વાહનની સુરક્ષા માટે રાઇડરના રેફરન્સ મેળવો.",
+              "placeholder": "રેફરન્સ",
+              "referenceFields": {
+                "NAME": {
+                  "label": "નામ",
+                  "placeholder": "નામ દાખલ કરો"
+                },
+                "MOBILE": {
+                  "label": "મોબાઇલ નંબર",
+                  "placeholder": "મોબાઇલ નંબર દાખલ કરો"
+                },
+                "RELATION": {
+                  "label": "સંબંધ",
+                  "placeholder": "સંબંધ પસંદ કરો"
+                }
+              },
+              "relationOptions": {
+                "SON": "પુત્ર",
+                "WIFE": "પત્ની",
+                "OTHER": "અન્ય",
+                "FATHER": "પિતા",
+                "FRIEND": "મિત્ર",
+                "MOTHER": "માતા",
+                "SISTER": "બહેન",
+                "BROTHER": "ભાઈ",
+                "HUSBAND": "પતિ",
+                "DAUGHTER": "પુત્રી"
+              }
+            },
+            "hi": {
+              "label": "रेफरेंस",
+              "description": "वाहन की सुरक्षा के लिए राइडर के रेफरेंस दर्ज करें।",
+              "placeholder": "रेफरेंस",
+              "referenceFields": {
+                "NAME": {
+                  "label": "नाम",
+                  "placeholder": "नाम दर्ज करें"
+                },
+                "MOBILE": {
+                  "label": "मोबाइल नंबर",
+                  "placeholder": "मोबाइल नंबर दर्ज करें"
+                },
+                "RELATION": {
+                  "label": "रिश्ता",
+                  "placeholder": "रिश्ता चुनें"
+                }
+              },
+              "relationOptions": {
+                "SON": "बेटा",
+                "WIFE": "पत्नी",
+                "OTHER": "अन्य",
+                "FATHER": "पिता",
+                "FRIEND": "मित्र",
+                "MOTHER": "माता",
+                "SISTER": "बहन",
+                "BROTHER": "भाई",
+                "HUSBAND": "पति",
+                "DAUGHTER": "बेटी"
+              }
+            },
+            "kn": {
+              "label": "ಉಲ್ಲೇಖಗಳು",
+              "description": "ವಾಹನದ ಸುರಕ್ಷತೆಗಾಗಿ ರೈಡರ್‌ನ ಉಲ್ಲೇಖಗಳನ್ನು ದಾಖಲಿಸಿ.",
+              "placeholder": "ಉಲ್ಲೇಖ",
+              "referenceFields": {
+                "NAME": {
+                  "label": "ಹೆಸರು",
+                  "placeholder": "ಹೆಸರನ್ನು ನಮೂದಿಸಿ"
+                },
+                "MOBILE": {
+                  "label": "ಮೊಬೈಲ್ ಸಂಖ್ಯೆ",
+                  "placeholder": "ಮೊಬೈಲ್ ಸಂಖ್ಯೆಯನ್ನು ನಮೂದಿಸಿ"
+                },
+                "RELATION": {
+                  "label": "ಸಂಬಂಧ",
+                  "placeholder": "ಸಂಬಂಧವನ್ನು ಆಯ್ಕೆಮಾಡಿ"
+                }
+              },
+              "relationOptions": {
+                "SON": "ಮಗ",
+                "WIFE": "ಪತ್ನಿ",
+                "OTHER": "ಇತರೆ",
+                "FATHER": "ತಂದೆ",
+                "FRIEND": "ಸ್ನೇಹಿತ",
+                "MOTHER": "ತಾಯಿ",
+                "SISTER": "ಸಹೋದರಿ",
+                "BROTHER": "ಸಹೋದರ",
+                "HUSBAND": "ಪತಿ",
+                "DAUGHTER": "ಮಗಳು"
+              }
+            },
+            "ml": {
+              "label": "റഫറൻസുകൾ",
+              "description": "വാഹനത്തിന്റെ സുരക്ഷയ്ക്കായി റൈഡറുടെ റഫറൻസുകൾ രേഖപ്പെടുത്തുക.",
+              "placeholder": "റഫറൻസ്",
+              "referenceFields": {
+                "NAME": {
+                  "label": "പേര്",
+                  "placeholder": "പേര് നൽകുക"
+                },
+                "MOBILE": {
+                  "label": "മൊബൈൽ നമ്പർ",
+                  "placeholder": "മൊബൈൽ നമ്പർ നൽകുക"
+                },
+                "RELATION": {
+                  "label": "ബന്ധം",
+                  "placeholder": "ബന്ധം തിരഞ്ഞെടുക്കുക"
+                }
+              },
+              "relationOptions": {
+                "SON": "മകൻ",
+                "WIFE": "ഭാര്യ",
+                "OTHER": "മറ്റുള്ളവർ",
+                "FATHER": "അച്ഛൻ",
+                "FRIEND": "സുഹൃത്ത്",
+                "MOTHER": "അമ്മ",
+                "SISTER": "സഹോദരി",
+                "BROTHER": "സഹോദരൻ",
+                "HUSBAND": "ഭർത്താവ്",
+                "DAUGHTER": "മകൾ"
+              }
+            },
+            "mr": {
+              "label": "संदर्भ",
+              "description": "वाहनाच्या सुरक्षिततेसाठी रायडरचे संदर्भ नोंदवा.",
+              "placeholder": "संदर्भ",
+              "referenceFields": {
+                "NAME": {
+                  "label": "नाव",
+                  "placeholder": "नाव नोंदवा"
+                },
+                "MOBILE": {
+                  "label": "मोबाईल क्रमांक",
+                  "placeholder": "मोबाईल क्रमांक नोंदवा"
+                },
+                "RELATION": {
+                  "label": "नाते",
+                  "placeholder": "नाते निवडा"
+                }
+              },
+              "relationOptions": {
+                "SON": "मुलगा",
+                "WIFE": "पत्नी",
+                "OTHER": "इतर",
+                "FATHER": "वडील",
+                "FRIEND": "मित्र",
+                "MOTHER": "आई",
+                "SISTER": "बहीण",
+                "BROTHER": "भाऊ",
+                "HUSBAND": "पती",
+                "DAUGHTER": "मुलगी"
+              }
+            },
+            "or": {
+              "label": "ରେଫରେନ୍ସଗୁଡ଼ିକ",
+              "description": "ଯାନବାହନର ସୁରକ୍ଷା ପାଇଁ ରାଇଡରଙ୍କ ରେଫରେନ୍ସ ସଂଗ୍ରହ କରନ୍ତୁ।",
+              "placeholder": "ରେଫରେନ୍ସ",
+              "referenceFields": {
+                "NAME": {
+                  "label": "ନାମ",
+                  "placeholder": "ନାମ ଲେଖନ୍ତୁ"
+                },
+                "MOBILE": {
+                  "label": "ମୋବାଇଲ୍ ନମ୍ବର",
+                  "placeholder": "ମୋବାଇଲ୍ ନମ୍ବର ଲେଖନ୍ତୁ"
+                },
+                "RELATION": {
+                  "label": "ସମ୍ପର୍କ",
+                  "placeholder": "ସମ୍ପର୍କ ବାଛନ୍ତୁ"
+                }
+              },
+              "relationOptions": {
+                "SON": "ପୁଅ",
+                "WIFE": "ପତ୍ନୀ",
+                "OTHER": "ଅନ୍ୟାନ୍ୟ",
+                "FATHER": "ବାପା",
+                "FRIEND": "ବନ୍ଧୁ",
+                "MOTHER": "ମାଆ",
+                "SISTER": "ଭଉଣୀ",
+                "BROTHER": "ଭାଇ",
+                "HUSBAND": "ସ୍ୱାମୀ",
+                "DAUGHTER": "ଝିଅ"
+              }
+            },
+            "pa": {
+              "label": "ਰੈਫਰੈਂਸ",
+              "description": "ਵਾਹਨ ਦੀ ਸੁਰੱਖਿਆ ਲਈ ਰਾਈਡਰ ਦੇ ਰੈਫਰੈਂਸ ਦਰਜ ਕਰੋ।",
+              "placeholder": "ਰੈਫਰੈਂਸ",
+              "referenceFields": {
+                "NAME": {
+                  "label": "ਨਾਮ",
+                  "placeholder": "ਨਾਮ ਦਰਜ ਕਰੋ"
+                },
+                "MOBILE": {
+                  "label": "ਮੋਬਾਈਲ ਨੰਬਰ",
+                  "placeholder": "ਮੋਬਾਈਲ ਨੰਬਰ ਦਰਜ ਕਰੋ"
+                },
+                "RELATION": {
+                  "label": "ਰਿਸ਼ਤਾ",
+                  "placeholder": "ਰਿਸ਼ਤਾ ਚੁਣੋ"
+                }
+              },
+              "relationOptions": {
+                "SON": "ਪੁੱਤਰ",
+                "WIFE": "ਪਤਨੀ",
+                "OTHER": "ਹੋਰ",
+                "FATHER": "ਪਿਤਾ",
+                "FRIEND": "ਦੋਸਤ",
+                "MOTHER": "ਮਾਤਾ",
+                "SISTER": "ਭੈਣ",
+                "BROTHER": "ਭਰਾ",
+                "HUSBAND": "ਪਤੀ",
+                "DAUGHTER": "ਧੀ"
+              }
+            },
+            "ta": {
+              "label": "பரிந்துரையாளர்கள்",
+              "description": "வாகனப் பாதுகாப்பிற்காக ரைடரின் பரிந்துரையாளர்களின் விவரங்களைப் பதிவு செய்யவும்.",
+              "placeholder": "பரிந்துரையாளர்",
+              "referenceFields": {
+                "NAME": {
+                  "label": "பெயர்",
+                  "placeholder": "பெயரை உள்ளிடவும்"
+                },
+                "MOBILE": {
+                  "label": "மொபைல் எண்",
+                  "placeholder": "மொபைல் எண்ணை உள்ளிடவும்"
+                },
+                "RELATION": {
+                  "label": "உறவு",
+                  "placeholder": "உறவைத் தேர்ந்தெடுக்கவும்"
+                }
+              },
+              "relationOptions": {
+                "SON": "மகன்",
+                "WIFE": "மனைவி",
+                "OTHER": "மற்றவை",
+                "FATHER": "தந்தை",
+                "FRIEND": "நண்பர்",
+                "MOTHER": "தாய்",
+                "SISTER": "சகோதரி",
+                "BROTHER": "சகோதரர்",
+                "HUSBAND": "கணவர்",
+                "DAUGHTER": "மகள்"
+              }
+            },
+            "te": {
+              "label": "రిఫరెన్స్‌లు",
+              "description": "వాహన భద్రత కోసం రైడర్ రిఫరెన్స్‌లను నమోదు చేయండి.",
+              "placeholder": "రిఫరెన్స్",
+              "referenceFields": {
+                "NAME": {
+                  "label": "పేరు",
+                  "placeholder": "పేరు నమోదు చేయండి"
+                },
+                "MOBILE": {
+                  "label": "మొబైల్ నంబర్",
+                  "placeholder": "మొబైల్ నంబర్ నమోదు చేయండి"
+                },
+                "RELATION": {
+                  "label": "సంబంధం",
+                  "placeholder": "సంబంధాన్ని ఎంచుకోండి"
+                }
+              },
+              "relationOptions": {
+                "SON": "కుమారుడు",
+                "WIFE": "భార్య",
+                "OTHER": "ఇతరులు",
+                "FATHER": "తండ్రి",
+                "FRIEND": "స్నేహితుడు",
+                "MOTHER": "తల్లి",
+                "SISTER": "సోదరి",
+                "BROTHER": "సోదరుడు",
+                "HUSBAND": "భర్త",
+                "DAUGHTER": "కుమార్తె"
+              }
+            },
+            "ur": {
+              "label": "حوالہ جات",
+              "description": "گاڑی کی حفاظت کے لیے رائیڈر کے حوالہ جات درج کریں۔",
+              "placeholder": "حوالہ",
+              "referenceFields": {
+                "NAME": {
+                  "label": "نام",
+                  "placeholder": "نام درج کریں"
+                },
+                "MOBILE": {
+                  "label": "موبائل نمبر",
+                  "placeholder": "موبائل نمبر درج کریں"
+                },
+                "RELATION": {
+                  "label": "رشتہ",
+                  "placeholder": "رشتہ منتخب کریں"
+                }
+              },
+              "relationOptions": {
+                "SON": "بیٹا",
+                "WIFE": "بیوی",
+                "OTHER": "دیگر",
+                "FATHER": "والد",
+                "FRIEND": "دوست",
+                "MOTHER": "والدہ",
+                "SISTER": "بہن",
+                "BROTHER": "بھائی",
+                "HUSBAND": "شوہر",
+                "DAUGHTER": "بیٹی"
+              }
+            }
+          },
+          "maxReferences": 2,
+          "minReferences": 1,
+          "referenceFields": [
+            {
+              "label": "Name",
+              "dataType": "STRING",
+              "editable": true,
+              "required": true,
+              "fieldCode": "NAME",
+              "fieldType": "TEXT",
+              "validation": {
+                "maxLength": 120,
+                "minLength": 2
+              },
+              "placeholder": "Enter name"
+            },
+            {
+              "label": "Mobile Number",
+              "dataType": "STRING",
+              "editable": true,
+              "required": true,
+              "fieldCode": "MOBILE",
+              "fieldType": "MOBILE",
+              "validation": {
+                "pattern": "^(?:\\+?91|0)?[6-9]\\d{9}$",
+                "countryCode": "IN"
+              },
+              "placeholder": "Enter mobile number"
+            },
+            {
+              "label": "Relation",
+              "dataType": "STRING",
+              "editable": true,
+              "required": true,
+              "fieldCode": "RELATION",
+              "fieldType": "SELECT",
+              "placeholder": "Select relation",
+              "optionsSource": "relationOptions"
+            }
+          ],
+          "relationOptions": [
+            {
+              "code": "SON",
+              "label": "Son"
+            },
+            {
+              "code": "DAUGHTER",
+              "label": "Daughter"
+            },
+            {
+              "code": "BROTHER",
+              "label": "Brother"
+            },
+            {
+              "code": "SISTER",
+              "label": "Sister"
+            },
+            {
+              "code": "WIFE",
+              "label": "Wife"
+            },
+            {
+              "code": "HUSBAND",
+              "label": "Husband"
+            },
+            {
+              "code": "FATHER",
+              "label": "Father"
+            },
+            {
+              "code": "MOTHER",
+              "label": "Mother"
+            },
+            {
+              "code": "FRIEND",
+              "label": "Friend"
+            },
+            {
+              "code": "OTHER",
+              "label": "Other",
+              "allowsCustomValue": true
+            }
+          ]
+        }
     },
     {
       "featureCode": "CAPTURE_IFSC",
@@ -1096,7 +1551,7 @@ export const yogmayaClientConfiguration = {
         "label": "Security Deposit of Vehicle",
         "dataType": "STRING",
         "editable": false,
-        "required": true,
+        "required": false,
         "fieldCode": "SECURITY_DEPOSIT",
         "fieldType": "TEXT",
         "importable": true,
@@ -1118,7 +1573,7 @@ export const yogmayaClientConfiguration = {
         "label": "On-boarding Fees of Vehicle",
         "dataType": "STRING",
         "editable": false,
-        "required": true,
+        "required": false,
         "fieldCode": "ONBOARDING_FEES",
         "fieldType": "TEXT",
         "importable": true,
@@ -1140,7 +1595,7 @@ export const yogmayaClientConfiguration = {
         "label": "Rental Plan",
         "dataType": "STRING",
         "editable": false,
-        "required": true,
+        "required": false,
         "fieldCode": "RENTAL_PLAN",
         "fieldType": "TEXT",
         "importable": true,
