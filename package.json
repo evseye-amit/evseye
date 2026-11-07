@@ -18,6 +18,7 @@
     "db:seed:super-admin": "node --env-file=.env apps/api/prisma/seed-super-admin.mjs",
     "db:seed:master-data": "node --env-file=.env apps/api/prisma/seed-master-data.mjs",
     "db:seed:yogmaya": "node --env-file=.env -e \"import { createPrismaClient } from './apps/api/prisma/prisma-client.mjs'; import { seedYogmaya } from './apps/api/prisma/seed-yogmaya.mjs'; const prisma = createPrismaClient(); seedYogmaya(prisma).finally(() => prisma.\\$disconnect());\"",
+    "db:seed:yogmaya:test-riders": "SEED_YOGMAYA_TEST_RIDERS=1 node --env-file=.env apps/api/prisma/seed-yogmaya-test-riders.mjs",
     "db:seed:features": "node --env-file=.env apps/api/prisma/seed-features.mjs",
     "db:seed:third-party-config": "node --env-file=.env apps/api/prisma/create-third-party-config.mjs",
     "db:seed:all": "pnpm db:seed",
