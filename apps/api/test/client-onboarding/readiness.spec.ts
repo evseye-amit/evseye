@@ -23,6 +23,7 @@ function setup(overrides: Record<string, unknown> = {}) {
       addresses: [{ type: 'REGISTERED' }, { type: 'BILLING' }],
       agreement: { termsAcceptedAt: new Date(), privacyAcceptedAt: new Date(), dataProcessingConsentAt: new Date() },
       subscriptions: [{ status: 'ACTIVE' }],
+      riderCommercialTerms: [{ status: 'ACTIVE' }],
       documents: [{ documentType: 'PAN_CARD', uploadedAt: new Date(), verificationStatus: 'VERIFIED' }],
     }) },
     ...overrides,
@@ -54,7 +55,7 @@ describe('ClientOnboardingReadinessService', () => {
     const { service } = setup({
       client: { findUnique: vi.fn().mockResolvedValue({
         businessProfile: null, operationsProfile: null, billingProfile: null,
-        contacts: [], addresses: [], agreement: null, subscriptions: [], documents: [],
+        contacts: [], addresses: [], agreement: null, subscriptions: [], riderCommercialTerms: [], documents: [],
       }) },
     });
     const issues = await service.activation('client-1');
@@ -63,7 +64,23 @@ describe('ClientOnboardingReadinessService', () => {
       'BILLING_PROFILE_REQUIRED', 'AGREEMENT_REQUIRED', 'SUBSCRIPTION_REQUIRED',
       'PRIMARY_CONTACT_REQUIRED', 'ACCOUNT_ADMIN_REQUIRED',
       'REGISTERED_ADDRESS_REQUIRED', 'BILLING_ADDRESS_REQUIRED', 'PAN_REQUIRED',
+      'RIDER_COMMERCIAL_TERMS_REQUIRED',
     ]));
+  });
+
+  it('requires exactly one active rider commercial terms version', async () => {
+    const { service } = setup({
+      client: { findUnique: vi.fn().mockResolvedValue({
+        businessProfile: {}, operationsProfile: {}, billingProfile: {},
+        contacts: [{ role: 'PRIMARY' }, { role: 'ACCOUNT_ADMIN' }],
+        addresses: [{ type: 'REGISTERED' }, { type: 'BILLING' }],
+        agreement: { termsAcceptedAt: new Date(), privacyAcceptedAt: new Date(), dataProcessingConsentAt: new Date() },
+        subscriptions: [{ status: 'ACTIVE' }],
+        riderCommercialTerms: [{ status: 'ACTIVE' }, { status: 'ACTIVE' }],
+        documents: [{ documentType: 'PAN_CARD', uploadedAt: new Date(), verificationStatus: 'VERIFIED' }],
+      }) },
+    });
+    expect((await service.activation('client-1')).map((issue) => issue.code)).toContain('RIDER_COMMERCIAL_TERMS_REQUIRED');
   });
 
   it('requires PAN verification before activation', async () => {
@@ -74,6 +91,7 @@ describe('ClientOnboardingReadinessService', () => {
         addresses: [{ type: 'REGISTERED' }, { type: 'BILLING' }],
         agreement: { termsAcceptedAt: new Date(), privacyAcceptedAt: new Date(), dataProcessingConsentAt: new Date() },
         subscriptions: [{ status: 'ACTIVE' }],
+        riderCommercialTerms: [],
         documents: [{ documentType: 'PAN_CARD', uploadedAt: new Date(), verificationStatus: 'PENDING' }],
       }) },
     });
