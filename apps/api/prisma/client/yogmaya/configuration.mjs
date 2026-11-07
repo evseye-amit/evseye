@@ -1616,9 +1616,7 @@ export const yogmayaClientConfiguration = {
       "configuration": {
         "editable": false,
         "required": false,
-        "fieldCode": "AGREEMENT_E_SIGN",
-        "importable": true,
-        "storageKey": "agreementEsign"
+        "importable": true
       }
     }
   ]
