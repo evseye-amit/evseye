@@ -11,6 +11,7 @@ import { seedYogmayaSpares } from './client/yogmaya/spares.mjs';
 import { seedYogmayaWorkPartners } from './client/yogmaya/work-partners.mjs';
 import { seedYogmayaExchangePolicy } from './client/yogmaya/exchange-policy.mjs';
 import { seedLegal } from './client/yogmaya/yogmaya-legal-documents.mjs';
+import { seedYogmayaCommercialTerms } from './client/yogmaya/commercial-terms.mjs';
 import { seedYogmayaReferralCampaign } from './client/yogmaya/referral-campaign.mjs';
 import { seedYogmayaRateCard } from './client/yogmaya/rate-card.mjs';
 
@@ -446,6 +447,7 @@ for (const mappingSeed of fleetComponentMappings) {
   await seedYogmayaWorkPartners(prisma);
   await seedYogmayaExchangePolicy(prisma);
   await seedLegal(prisma);
+  await seedYogmayaCommercialTerms(prisma);
   await seedYogmayaReferralCampaign(prisma);
   await seedYogmayaRateCard(prisma);
 }
