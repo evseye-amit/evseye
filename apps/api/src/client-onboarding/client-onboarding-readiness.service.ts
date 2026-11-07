@@ -60,7 +60,7 @@ export class ClientOnboardingReadinessService {
     const issues = await this.operational(clientId);
     const client = await this.prisma.client.findUnique({
       where: { id: clientId },
-      include: { businessProfile: true, contacts: true, addresses: true, operationsProfile: true, billingProfile: true, agreement: true, subscriptions: true, documents: true },
+      include: { businessProfile: true, contacts: true, addresses: true, operationsProfile: true, billingProfile: true, agreement: true, subscriptions: true, documents: true, riderCommercialTerms: { where: { status: 'ACTIVE' } } },
     });
     if (!client) return [{ code: 'CLIENT_NOT_FOUND', message: 'Client not found.', owner: 'SUPER_ADMIN', navigationTarget: '/platform/clients' }];
     if (!client.businessProfile) issues.push({ code: 'BUSINESS_PROFILE_REQUIRED', message: 'Business profile is incomplete.', owner: 'SUPER_ADMIN', navigationTarget: '/platform/clients?section=business' });
@@ -70,6 +70,8 @@ export class ClientOnboardingReadinessService {
       issues.push({ code: 'AGREEMENT_REQUIRED', message: 'Required agreement consents are incomplete.', owner: 'SUPER_ADMIN', navigationTarget: '/platform/clients?section=agreements' });
     if (!client.subscriptions.some((subscription) => subscription.status === 'ACTIVE' || subscription.status === 'PENDING'))
       issues.push({ code: 'SUBSCRIPTION_REQUIRED', message: 'A client subscription is required.', owner: 'SUPER_ADMIN', navigationTarget: '/platform/clients?section=subscription' });
+    if (client.riderCommercialTerms.length !== 1)
+      issues.push({ code: 'RIDER_COMMERCIAL_TERMS_REQUIRED', message: 'Exactly one active Rider Commercial Terms version is required before activation.', owner: 'SUPER_ADMIN', navigationTarget: '/platform/clients?section=terms' });
     if (!client.contacts.some((contact) => contact.role === 'PRIMARY')) issues.push({ code: 'PRIMARY_CONTACT_REQUIRED', message: 'Primary contact is required.', owner: 'SUPER_ADMIN', navigationTarget: '/platform/clients?section=contacts' });
     if (!client.contacts.some((contact) => contact.role === 'ACCOUNT_ADMIN')) issues.push({ code: 'ACCOUNT_ADMIN_REQUIRED', message: 'Account Admin contact is required.', owner: 'SUPER_ADMIN', navigationTarget: '/platform/clients?section=contacts' });
     if (!client.addresses.some((address) => address.type === 'REGISTERED')) issues.push({ code: 'REGISTERED_ADDRESS_REQUIRED', message: 'Registered address is required.', owner: 'SUPER_ADMIN', navigationTarget: '/platform/clients?section=addresses' });
