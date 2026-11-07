@@ -68,6 +68,21 @@ export class WorkflowResolverService {
     const clientOverrides = new Map(array(object(clientRevision?.snapshot).overrides)
       .map((value) => object(value)).filter((value) => typeof value.featureId === 'string')
       .map((value) => [value.featureId as string, value]));
+    const clientFeatureRows = this.prisma.clientFeature?.findMany
+      ? await this.prisma.clientFeature.findMany({
+          where: {
+            subscriptionId: subscription.id,
+            effectiveFrom: { lte: now },
+            OR: [{ effectiveTo: null }, { effectiveTo: { gte: now } }],
+          },
+          select: { featureId: true, enabled: true, configuration: true },
+        })
+      : [];
+    const clientFeatureOverrides = new Map(clientFeatureRows.map((value) => [value.featureId, {
+      featureId: value.featureId,
+      enabled: value.enabled,
+      configuration: value.configuration,
+    }]));
     const components: ResolvedComponent[] = [];
     const placeholderOverrides = new Set<string>();
     for (const raw of array(snapshot.features)) {
@@ -75,7 +90,7 @@ export class WorkflowResolverService {
       const feature = object(assignment.feature);
       if (feature.category !== category || feature.isActive === false) continue;
       const featureId = String(assignment.featureId ?? feature.id);
-      const clientOverride = clientOverrides.get(featureId);
+      const clientOverride = clientOverrides.get(featureId) ?? clientFeatureOverrides.get(featureId);
       if (clientOverride?.enabled === false) continue;
       const step = object(feature.step);
       if (typeof step.code !== 'string') continue;
