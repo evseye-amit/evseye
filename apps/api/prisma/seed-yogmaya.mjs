@@ -11,9 +11,14 @@ import { seedYogmayaSpares } from './client/yogmaya/spares.mjs';
 import { seedYogmayaWorkPartners } from './client/yogmaya/work-partners.mjs';
 import { seedYogmayaExchangePolicy } from './client/yogmaya/exchange-policy.mjs';
 import { seedLegal } from './client/yogmaya/yogmaya-legal-documents.mjs';
+import { legalDocumentCatalog } from './client/yogmaya/yogmaya-legal-documents.mjs';
 import { seedYogmayaReferralCampaign } from './client/yogmaya/referral-campaign.mjs';
 import { seedYogmayaRateCard } from './client/yogmaya/rate-card.mjs';
 import { seedClientLogos } from './seed-client-logos.mjs';
+import { yogmayaClientConfiguration } from './client/yogmaya/configuration.mjs';
+import { createHash } from 'node:crypto';
+
+const contentHash = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 export async function seedYogmaya(prisma) {
 for (const clientSeed of clientCatalog) {
@@ -187,6 +192,33 @@ for (const clientSeed of clientCatalog) {
       });
     }
   }
+}
+
+const yogmaya = await prisma.client.findUniqueOrThrow({ where: { slug: 'yogmaya' } });
+const yogmayaSubscription = await prisma.clientSubscription.findFirstOrThrow({
+  where: { clientId: yogmaya.id, package: { code: yogmayaClientConfiguration.packageCode } },
+});
+const featureRecords = await prisma.feature.findMany({
+  where: { code: { in: yogmayaClientConfiguration.features.map((item) => item.featureCode) } },
+  select: { id: true, code: true },
+});
+const featureIds = new Map(featureRecords.map((feature) => [feature.code, feature.id]));
+for (const item of yogmayaClientConfiguration.features) {
+  const featureId = featureIds.get(item.featureCode);
+  if (!featureId) throw new Error(`Missing feature ${item.featureCode} for Yogmaya seed`);
+  await prisma.clientFeature.upsert({
+    where: { subscriptionId_featureId: { subscriptionId: yogmayaSubscription.id, featureId } },
+    create: { clientId: yogmaya.id, subscriptionId: yogmayaSubscription.id, featureId, source: item.source, enabled: item.enabled, includedQuantity: item.includedQuantity, usageLimit: item.usageLimit, unlimitedUsage: item.unlimitedUsage, effectiveFrom: new Date(item.effectiveFrom), effectiveTo: item.effectiveTo ? new Date(item.effectiveTo) : null, configuration: item.configuration },
+    update: { source: item.source, enabled: item.enabled, includedQuantity: item.includedQuantity, usageLimit: item.usageLimit, unlimitedUsage: item.unlimitedUsage, effectiveFrom: new Date(item.effectiveFrom), effectiveTo: item.effectiveTo ? new Date(item.effectiveTo) : null, configuration: item.configuration },
+  });
+}
+const clientFeatureSnapshot = yogmayaClientConfiguration.features.map((item) => ({ featureId: featureIds.get(item.featureCode), source: item.source, enabled: item.enabled, configuration: item.configuration }));
+if (!(await prisma.clientFeatureRevision.findUnique({ where: { subscriptionId_version: { subscriptionId: yogmayaSubscription.id, version: yogmayaClientConfiguration.featureRevisionVersion } } }))) {
+  await prisma.clientFeatureRevision.create({ data: { subscriptionId: yogmayaSubscription.id, version: yogmayaClientConfiguration.featureRevisionVersion, snapshot: clientFeatureSnapshot, contentHash: contentHash(clientFeatureSnapshot), publishedAt: new Date() } });
+}
+const workflowSnapshot = { subscriptionId: yogmayaSubscription.id, overrides: yogmayaClientConfiguration.features.filter((item) => item.source !== 'PACKAGE' || !item.enabled).map((item) => ({ featureCode: item.featureCode, enabled: item.enabled, configuration: item.configuration })) };
+if (!(await prisma.clientWorkflowRevision.findUnique({ where: { subscriptionId_version: { subscriptionId: yogmayaSubscription.id, version: yogmayaClientConfiguration.workflowRevisionVersion } } }))) {
+  await prisma.clientWorkflowRevision.create({ data: { subscriptionId: yogmayaSubscription.id, version: yogmayaClientConfiguration.workflowRevisionVersion, snapshot: workflowSnapshot, contentHash: contentHash(workflowSnapshot), publishedAt: new Date() } });
 }
 
 // Seed base Hub records before their parent-child hierarchy, allowing the
@@ -449,6 +481,17 @@ for (const mappingSeed of fleetComponentMappings) {
   await seedYogmayaWorkPartners(prisma);
   await seedYogmayaExchangePolicy(prisma);
   await seedLegal(prisma);
+  const riderTerms = legalDocumentCatalog.find(
+    (document) => document.appCode === 'RIDER' && document.role === 'RIDER' && document.kind === 'TERMS_AND_CONDITIONS' && document.locale === 'en',
+  );
+  if (!riderTerms) throw new Error('English Rider Terms & Conditions are required for Yogmaya commercial terms.');
+  const existingTerms = await prisma.riderCommercialTerms.findFirst({
+    where: { clientId: yogmaya.id, code: 'YOGMAYA_RIDER_TERMS', version: 1 },
+  });
+  const commercialTerms = existingTerms
+    ? await prisma.riderCommercialTerms.update({ where: { id: existingTerms.id }, data: { title: riderTerms.title, content: riderTerms.content, contentHash: riderTerms.contentHash, status: 'ACTIVE', activatedAt: existingTerms.activatedAt ?? new Date() } })
+    : await prisma.riderCommercialTerms.create({ data: { clientId: yogmaya.id, code: 'YOGMAYA_RIDER_TERMS', version: 1, title: riderTerms.title, content: riderTerms.content, contentHash: riderTerms.contentHash, status: 'ACTIVE', activatedAt: new Date() } });
+  await prisma.riderCommercialTerms.updateMany({ where: { clientId: yogmaya.id, id: { not: commercialTerms.id }, status: 'ACTIVE' }, data: { status: 'INACTIVE' } });
   await seedYogmayaReferralCampaign(prisma);
   await seedYogmayaRateCard(prisma);
 }

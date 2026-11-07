@@ -4476,6 +4476,9 @@ body:has(.sa-dialog[open]) {
 .client-branding-panel { border: 1px solid var(--border, #dce6df); border-radius: 10px; padding: 1rem; margin-bottom: 1.25rem; }
 .client-branding-panel h3 { margin: 0 0 .25rem; }
 .client-branding-logo-preview { display: block; max-width: 220px; max-height: 100px; object-fit: contain; border: 1px solid var(--border, #dce6df); border-radius: 8px; padding: .5rem; margin: .75rem 0 1rem; }
+.sa-status-pill { display: inline-flex; align-items: center; border-radius: 999px; padding: .25rem .55rem; font-size: .72rem; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; background: #eef3f0; color: #52625a; }
+.sa-status-pill.sa-status-delivered, .sa-status-pill.sa-status-success, .sa-status-pill.sa-status-sent { background: #e4f4eb; color: #147447; }
+.sa-status-pill.sa-status-failed, .sa-status-pill.sa-status-error { background: #fde8e5; color: #bd4b3d; }
 
 .sa-commercial-head,
 .sa-commercial-section-head,
