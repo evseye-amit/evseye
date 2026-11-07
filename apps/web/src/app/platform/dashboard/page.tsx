@@ -576,7 +576,6 @@ export default function SuperAdminDashboard() {
     Record<string, File | undefined>
   >({});
   const [activeClientEdit, setActiveClientEdit] = useState(false);
-  const [approvalEmailReference, setApprovalEmailReference] = useState("");
   const [expandedNavGroups, setExpandedNavGroups] = useState<
     Record<string, boolean>
   >({});
@@ -890,7 +889,6 @@ export default function SuperAdminDashboard() {
       setClientStep(1);
     }
     setActiveClientEdit(false);
-    setApprovalEmailReference("");
     setError("");
     setNotice("");
     setShowClientForm(true);
@@ -898,7 +896,6 @@ export default function SuperAdminDashboard() {
   function closeClientModal() {
     setError("");
     setActiveClientEdit(false);
-    setApprovalEmailReference("");
     setShowClientForm(false);
   }
   async function submitOem(event: FormEvent) {
@@ -1616,14 +1613,13 @@ export default function SuperAdminDashboard() {
   }
   async function uploadClientLogo(clientId: string) {
     if (!clientLogoFile) return;
-    const approval = activeClientEdit ? { approvalEmailReference: approvalEmailReference.trim() } : {};
     const intent = await request(`/platform/clients/${clientId}/logo-upload-intents`, {
-      method: "POST", body: JSON.stringify({ mimeType: clientLogoFile.type, sizeBytes: clientLogoFile.size, ...approval }),
+      method: "POST", body: JSON.stringify({ mimeType: clientLogoFile.type, sizeBytes: clientLogoFile.size }),
     }, token);
     const uploaded = await fetch(intent.uploadUrl, { method: "PUT", headers: { "Content-Type": clientLogoFile.type }, body: clientLogoFile });
     if (!uploaded.ok) throw new Error("The client logo could not be uploaded. Please retry.");
     const completed = await request(`/platform/clients/${clientId}/logo-upload-complete`, {
-      method: "POST", body: JSON.stringify({ objectKey: intent.objectKey, ...approval }),
+      method: "POST", body: JSON.stringify({ objectKey: intent.objectKey }),
     }, token);
     setClient((current) => ({ ...current, logoUrl: completed.logoUrl }));
     setClientLogoFile(null);
@@ -1635,14 +1631,6 @@ export default function SuperAdminDashboard() {
       async () => {
         const numberOrUndefined = (value: unknown) =>
           value === "" || value === undefined ? undefined : Number(value);
-        const activeEditApproval = activeClientEdit
-          ? { approvalEmailReference: approvalEmailReference.trim() }
-          : {};
-        if (activeClientEdit && !approvalEmailReference.trim()) {
-          throw new Error(
-            "Enter the approved email reference before saving an active Client.",
-          );
-        }
         if (clientStep === 1) {
           if (client.id) {
             await request(
@@ -1666,7 +1654,6 @@ export default function SuperAdminDashboard() {
                   estimatedUserCount: numberOrUndefined(
                     client.estimatedUserCount,
                   ),
-                  ...activeEditApproval,
                 }),
               },
               token,
@@ -1747,7 +1734,6 @@ export default function SuperAdminDashboard() {
                 ...(client.country ? { country: client.country } : {}),
                 pinCode: client.pinCode,
                 billingSameAsRegistered: client.billingSameAsRegistered,
-                ...activeEditApproval,
                 ...(client.billingSameAsRegistered
                   ? {}
                   : {
@@ -1789,7 +1775,6 @@ export default function SuperAdminDashboard() {
                 operationalHubCount: numberOrUndefined(
                   client.operationalHubCount,
                 ),
-                ...activeEditApproval,
               }),
             },
             token,
@@ -1809,7 +1794,6 @@ export default function SuperAdminDashboard() {
                 endDate: client.endDate || undefined,
                 trialRequired: client.trialRequired,
                 autoRenew: client.autoRenew,
-                ...activeEditApproval,
               }),
             },
             token,
@@ -1829,7 +1813,6 @@ export default function SuperAdminDashboard() {
                 purchaseOrderRequired: client.purchaseOrderRequired,
                 poNumber: client.poNumber || undefined,
                 paymentTerms: client.paymentTerms || undefined,
-                ...activeEditApproval,
               }),
             },
             token,
@@ -1847,7 +1830,6 @@ export default function SuperAdminDashboard() {
                   fileName: file.name,
                   mimeType: file.type,
                   sizeBytes: file.size,
-                  ...activeEditApproval,
                 }),
               },
               token,
@@ -1902,7 +1884,6 @@ export default function SuperAdminDashboard() {
           setClientDocumentFiles({});
           setClientStep(1);
           setActiveClientEdit(false);
-          setApprovalEmailReference("");
           setShowClientForm(false);
         }
       },
@@ -2092,7 +2073,6 @@ export default function SuperAdminDashboard() {
       const isActiveClient = detail.status === "ACTIVE";
       setClientLogoFile(null);
       setActiveClientEdit(isActiveClient);
-      setApprovalEmailReference("");
       setShowClientForm(true);
       setClientStep(
         isActiveClient
@@ -2157,14 +2137,7 @@ export default function SuperAdminDashboard() {
       items: [
         ["clients", "Client", "users"],
         ["workPartners", "Work Partners", "link"],
-      ],
-    },
-    {
-      label: "Client Commercials",
-      items: [
-        ["clientPricingAdjustments", "Pricing Adjustments", "pricing"],
-        ["clientAddOnPurchases", "Features & Pricing", "feature"],
-        ["clientQuotaPacks", "Quota Add-Ons", "packageFeature"],
+        ["clientAddOnPurchases", "Add-ons", "feature"],
         ["clientCreditLots", "Feature Credit Lots", "packageFeature"],
         ["clientUsageLedger", "Feature Usage Ledger", "dashboard"],
       ],
@@ -2517,8 +2490,8 @@ export default function SuperAdminDashboard() {
                 rejectClient={rejectClient}
                 editClient={editClientDraft}
                 activeClientEdit={activeClientEdit}
-                approvalEmailReference={approvalEmailReference}
-                setApprovalEmailReference={setApprovalEmailReference}
+                request={request}
+                token={token}
               />
             )}
             {tab === "workPartners" && <WorkPartnerManager refreshKey={refreshKey} mode="platform" request={request} token={token} />}
@@ -4697,8 +4670,8 @@ function ClientCommercialDirectory({
       description: "Create and review client-specific commercial adjustments without changing package or Feature master prices.",
     },
     addOns: {
-      title: "Client Features & Pricing",
-      description: "Manage custom client feature access and pricing.",
+      title: "Client Add-ons",
+      description: "Review each client's purchased add-ons and activate new add-on capacity.",
     },
     quotaPacks: {
       title: "Client Quota Add-Ons",
@@ -4773,8 +4746,8 @@ function ClientsView({
   rejectClient,
   editClient,
   activeClientEdit,
-  approvalEmailReference,
-  setApprovalEmailReference,
+  request,
+  token,
 }: any) {
   const stepHeadingRef = useRef<HTMLHeadingElement>(null);
   const stepHeadingId = useId();
@@ -4921,7 +4894,7 @@ function ClientsView({
         title={activeClientEdit ? "Edit active Client" : "Client onboarding"}
         description={
           activeClientEdit
-            ? "Save only changes covered by the approved email reference. Every update is recorded in the audit log."
+            ? "Update the client configuration. Every update is recorded in the audit log."
             : "Onboard a client through six saved steps, then create its workspace."
         }
         error={error}
@@ -4957,34 +4930,13 @@ function ClientsView({
                   ? "Finish"
                   : "Create client workspace"
                 : activeClientEdit
-                  ? "Save approved changes"
+                  ? "Save changes"
                   : "Save & continue"}
             </button>
           </>
         }
       >
         <>
-          {activeClientEdit && (
-            <label className="sa-active-client-approval">
-              <span className="sa-label-text">
-                Approved email reference
-                <span className="sa-required-star">*</span>
-              </span>
-              <input
-                value={approvalEmailReference}
-                onChange={(event) =>
-                  setApprovalEmailReference(event.target.value)
-                }
-                placeholder="Email subject, ticket ID, or approval date"
-                required
-                maxLength={500}
-              />
-              <small>
-                Keep the approval email in your records. This reference is stored
-                with each Client change in the audit log.
-              </small>
-            </label>
-          )}
           <div className="sa-client-wizard">
             <nav className="sa-client-stepper" aria-label="Client onboarding steps">
               <ol>
@@ -5448,9 +5400,15 @@ function ClientsView({
               >
                 Edit client
               </button>
-              <ClientCommercialSettings clientId={item.id} clientName={item.name} />
-              <ClientWorkflowSettings clientId={item.id} clientName={item.name} />
+              <ClientConfigurationSettings
+                clientId={item.id}
+                clientName={item.name}
+                request={request}
+                token={token}
+              />
+              <ClientCommercialSettings clientId={item.id} clientName={item.name} section="pricing" />
               <ClientDomainSettings clientId={item.id} clientName={item.name} />
+              <ClientWorkflowSettings clientId={item.id} clientName={item.name} />
             </span>
           ) : (
             "—"
@@ -5460,6 +5418,407 @@ function ClientsView({
     </>
   );
 }
+
+function ClientConfigurationSettings({
+  clientId,
+  clientName,
+  request,
+  token,
+}: {
+  clientId: string;
+  clientName: string;
+  request: (path: string, options?: RequestInit, token?: string) => Promise<any>;
+  token: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [configuration, setConfiguration] = useState<any>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const [supportEmail, setSupportEmail] = useState("");
+  const [supportPhone, setSupportPhone] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [commercialDraft, setCommercialDraft] = useState<any>({});
+  const [overrideDraft, setOverrideDraft] = useState("[]");
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [featureSearch, setFeatureSearch] = useState("");
+  const [featureFilter, setFeatureFilter] = useState<"ALL" | "ENABLED" | "DISABLED" | "OVERRIDDEN">("ALL");
+  const [featureConfigurationDrafts, setFeatureConfigurationDrafts] = useState<Record<string, string>>({});
+
+  async function openConfiguration() {
+    setOpen(true);
+    setLoading(true);
+    setError("");
+    try {
+      const response = await request(`/platform/clients/${clientId}/configuration`, undefined, token);
+      const loaded = response.data ?? response;
+      setConfiguration(loaded);
+      setFeatureConfigurationDrafts(Object.fromEntries((loaded.featureEntitlements ?? []).map((item: any) => [
+        item.packageFeature.featureId,
+        item.configuration ? JSON.stringify(item.configuration, null, 2) : "",
+      ])));
+      setSupportEmail(loaded.branding?.supportEmail ?? "");
+      setSupportPhone(loaded.branding?.supportPhone ?? "");
+      setCommercialDraft({
+        billingCycle: loaded.commercials?.billingCycle ?? "",
+        vehicleCount: loaded.commercials?.vehicleCount ?? "",
+        setupFee: loaded.commercials?.setupFee ?? "",
+        pricePerVehicle: loaded.commercials?.pricePerVehicle ?? "",
+        recurringAmount: loaded.commercials?.recurringAmount ?? "",
+        autoRenew: loaded.commercials?.autoRenew ?? false,
+      });
+      setOverrideDraft(JSON.stringify(loaded.riderOnboarding?.revisions?.[0]?.snapshot?.overrides ?? [], null, 2));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to load client configuration.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function saveBranding() {
+    setSaving(true);
+    setError("");
+    try {
+      const response = await request(`/platform/clients/${clientId}/branding`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          supportEmail: supportEmail.trim() || undefined,
+          supportPhone: supportPhone.trim() || undefined,
+        }),
+      }, token);
+      setConfiguration(response.data ?? response);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to save branding details.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveCommercials() {
+    setSaving(true);
+    setError("");
+    try {
+      const response = await request(`/platform/clients/${clientId}/commercials`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          billingCycle: commercialDraft.billingCycle || undefined,
+          vehicleCount: commercialDraft.vehicleCount === "" ? undefined : Number(commercialDraft.vehicleCount),
+          setupFee: commercialDraft.setupFee === "" ? undefined : Number(commercialDraft.setupFee),
+          pricePerVehicle: commercialDraft.pricePerVehicle === "" ? undefined : Number(commercialDraft.pricePerVehicle),
+          recurringAmount: commercialDraft.recurringAmount === "" ? undefined : Number(commercialDraft.recurringAmount),
+          autoRenew: Boolean(commercialDraft.autoRenew),
+        }),
+      }, token);
+      setConfiguration(response.data ?? response);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to save commercial details.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function uploadLogo() {
+    if (!logoFile) return;
+    setSaving(true);
+    setError("");
+    try {
+      const intentResponse = await request(`/platform/clients/${clientId}/logo-upload-intents`, {
+        method: "POST",
+        body: JSON.stringify({ mimeType: logoFile.type, sizeBytes: logoFile.size }),
+      }, token);
+      const intent = intentResponse.data ?? intentResponse;
+      const uploaded = await fetch(intent.uploadUrl, { method: "PUT", headers: { "Content-Type": logoFile.type }, body: logoFile });
+      if (!uploaded.ok) throw new Error("The client logo could not be uploaded. Please retry.");
+      await request(`/platform/clients/${clientId}/logo-upload-complete`, {
+        method: "POST",
+        body: JSON.stringify({ objectKey: intent.objectKey }),
+      }, token);
+      setLogoFile(null);
+      await openConfiguration();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to upload the client logo.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function createWorkflowDraft() {
+    const subscriptionId = configuration?.riderOnboarding?.subscriptionId;
+    if (!subscriptionId) return;
+    setSaving(true);
+    setError("");
+    try {
+      let overrides: unknown;
+      try {
+        overrides = JSON.parse(overrideDraft);
+      } catch {
+        throw new Error("Workflow overrides must contain valid JSON.");
+      }
+      if (!Array.isArray(overrides)) throw new Error("Workflow overrides must be a JSON array.");
+      const response = await request(`/platform/subscriptions/${subscriptionId}/workflow-revisions`, {
+        method: "POST",
+        body: JSON.stringify({ overrides }),
+      }, token);
+      setConfiguration((current: any) => ({
+        ...current,
+        riderOnboarding: {
+          ...current.riderOnboarding,
+          revisions: [response.data ?? response, ...(current.riderOnboarding?.revisions ?? [])],
+        },
+      }));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to create rider onboarding draft.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function publishWorkflowDraft() {
+    if (!latestRevision?.id || latestRevision.publishedAt) return;
+    setSaving(true);
+    setError("");
+    try {
+      const response = await request(`/platform/workflow-revisions/${latestRevision.id}/publish`, { method: "POST" }, token);
+      const published = response.data ?? response;
+      setConfiguration((current: any) => ({
+        ...current,
+        riderOnboarding: {
+          ...current.riderOnboarding,
+          revisions: (current.riderOnboarding?.revisions ?? []).map((revision: any) => revision.id === published.id ? published : revision),
+        },
+      }));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to publish rider onboarding configuration.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveFeatureOverride(item: any, enabled: boolean, configurationText: string) {
+    const subscriptionId = configuration?.riderOnboarding?.subscriptionId;
+    if (!subscriptionId) return;
+    let featureConfiguration: Record<string, unknown> | undefined;
+    try {
+      featureConfiguration = configurationText.trim()
+        ? JSON.parse(configurationText)
+        : undefined;
+    } catch {
+      setError(`Configuration for ${item.packageFeature.feature.name} must be valid JSON.`);
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const existing = item.clientFeature;
+      const response = await request(
+        existing
+          ? `/platform/clients/${clientId}/features/${existing.id}`
+          : `/platform/clients/${clientId}/features`,
+        {
+          method: existing ? "PATCH" : "POST",
+          body: JSON.stringify(existing
+            ? { enabled, configuration: featureConfiguration }
+            : {
+                subscriptionId,
+                featureId: item.packageFeature.featureId,
+                source: "CUSTOM",
+                enabled,
+                effectiveFrom: new Date().toISOString().slice(0, 10),
+                configuration: featureConfiguration,
+              }),
+        },
+        token,
+      );
+      const saved = response.data ?? response;
+      setConfiguration((current: any) => ({
+        ...current,
+        featureEntitlements: (current.featureEntitlements ?? []).map((entry: any) =>
+          entry.packageFeature.featureId === item.packageFeature.featureId
+            ? { ...entry, clientFeature: saved, enabled: saved.enabled, overridden: true, configuration: saved.configuration ?? null }
+            : entry,
+        ),
+      }));
+      setFeatureConfigurationDrafts((drafts) => ({
+        ...drafts,
+        [item.packageFeature.featureId]: saved.configuration ? JSON.stringify(saved.configuration, null, 2) : "",
+      }));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to save feature configuration.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function resetFeatureOverride(item: any) {
+    if (!item.clientFeature?.id) return;
+    setSaving(true);
+    setError("");
+    try {
+      await request(`/platform/clients/${clientId}/features/${item.clientFeature.id}`, { method: "DELETE" }, token);
+      setConfiguration((current: any) => ({
+        ...current,
+        featureEntitlements: (current.featureEntitlements ?? []).map((entry: any) =>
+          entry.packageFeature.featureId === item.packageFeature.featureId
+            ? { ...entry, clientFeature: null, enabled: entry.packageFeature.isIncluded, overridden: false, configuration: entry.packageFeature.feature.configuration ?? null }
+            : entry,
+        ),
+      }));
+      setFeatureConfigurationDrafts((drafts) => ({
+        ...drafts,
+        [item.packageFeature.featureId]: item.packageFeature.feature.configuration
+          ? JSON.stringify(item.packageFeature.feature.configuration, null, 2)
+          : "",
+      }));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to reset feature override.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveFeatureDraft() {
+    setSaving(true);
+    setError("");
+    try {
+      const response = await request(`/platform/clients/${clientId}/feature-revisions/draft`, { method: "POST" }, token);
+      const draft = response.data ?? response;
+      setConfiguration((current: any) => ({
+        ...current,
+        riderOnboarding: { ...current.riderOnboarding, featureRevisions: [draft, ...(current.riderOnboarding?.featureRevisions ?? []).filter((revision: any) => revision.id !== draft.id)] },
+      }));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to save feature draft.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function publishFeatureDraft() {
+    setSaving(true); setError("");
+    try {
+      const response = await request(`/platform/clients/${clientId}/feature-revisions/publish`, { method: "POST" }, token);
+      const published = response.data ?? response;
+      setConfiguration((current: any) => ({ ...current, riderOnboarding: { ...current.riderOnboarding, featureRevisions: (current.riderOnboarding?.featureRevisions ?? []).map((revision: any) => revision.id === published.id ? published : revision) } }));
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to publish feature draft."); }
+    finally { setSaving(false); }
+  }
+
+  async function discardFeatureDraft() {
+    setSaving(true); setError("");
+    try {
+      await request(`/platform/clients/${clientId}/feature-revisions/draft`, { method: "DELETE" }, token);
+      setConfiguration((current: any) => ({ ...current, riderOnboarding: { ...current.riderOnboarding, featureRevisions: (current.riderOnboarding?.featureRevisions ?? []).filter((revision: any) => revision.publishedAt) } }));
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to discard feature draft."); }
+    finally { setSaving(false); }
+  }
+
+  const commercial = configuration?.commercials;
+  const branding = configuration?.branding;
+  const revisions = configuration?.riderOnboarding?.revisions ?? [];
+  const latestRevision = revisions[0];
+  const visibleFeatureEntitlements = (configuration?.featureEntitlements ?? []).filter((item: any) => {
+    const feature = item.packageFeature.feature;
+    const haystack = `${feature.name} ${feature.code} ${feature.category ?? ""}`.toLowerCase();
+    const matchesSearch = haystack.includes(featureSearch.trim().toLowerCase());
+    return matchesSearch
+      && (featureFilter === "ALL"
+        || (featureFilter === "ENABLED" && item.enabled)
+        || (featureFilter === "DISABLED" && !item.enabled)
+        || (featureFilter === "OVERRIDDEN" && item.overridden));
+  });
+  const enabledFeatureCount = (configuration?.featureEntitlements ?? []).filter((item: any) => item.enabled).length;
+  const overrideFeatureCount = (configuration?.featureEntitlements ?? []).filter((item: any) => item.overridden).length;
+  const featureRevisions = configuration?.riderOnboarding?.featureRevisions ?? [];
+  const featureDraft = featureRevisions.find((revision: any) => !revision.publishedAt);
+
+  return (
+    <>
+      <button type="button" className="secondary" onClick={() => void openConfiguration()}>
+        Features
+      </button>
+      <CatalogFormDialog
+        open={open}
+        title={`${clientName} features`}
+        description="Review and manage the features included for this client."
+        error={error}
+        busy={loading}
+        size="wide"
+        triggerRef={triggerRef}
+        onClose={() => setOpen(false)}
+        onDialogClose={() => setOpen(false)}
+        onSubmit={(event) => event.preventDefault()}
+        actions={
+          <button type="button" className="secondary" onClick={() => setOpen(false)}>
+            Close
+          </button>
+        }
+      >
+        {loading ? (
+          <p className="muted">Loading client configuration…</p>
+        ) : configuration ? (
+          <div className="sa-client-configuration">
+            <section className="sa-card">
+              <div className="sa-card-head">
+                <div>
+                  <h3>Package features</h3>
+                  <p>Features inherited from the selected package. Client changes are stored as overrides.</p>
+                </div>
+                <div className="sa-feature-card-summary">
+                  <strong>{enabledFeatureCount}/{configuration.featureEntitlements?.length ?? 0} enabled · {overrideFeatureCount} overridden</strong>
+                  {featureDraft && <span className="sa-feature-draft-status">Draft v{featureDraft.version}</span>}
+                  <button type="button" onClick={() => void saveFeatureDraft()} disabled={saving || !configuration.featureEntitlements?.length}>{saving ? "Saving…" : "Save draft"}</button>
+                  {featureDraft && <><button type="button" onClick={() => void publishFeatureDraft()} disabled={saving}>Publish</button><button type="button" className="danger" onClick={() => void discardFeatureDraft()} disabled={saving}>Discard</button></>}
+                </div>
+              </div>
+              {featureDraft && <details className="sa-feature-draft-review">
+                <summary>Review draft snapshot · v{featureDraft.version}</summary>
+                <p>This snapshot is isolated from the live client configuration until published.</p>
+                <pre>{JSON.stringify(featureDraft.snapshot, null, 2)}</pre>
+              </details>}
+              <div className="sa-feature-toolbar">
+                <input value={featureSearch} onChange={(event) => setFeatureSearch(event.target.value)} placeholder="Search features" aria-label="Search package features" />
+                <select value={featureFilter} onChange={(event) => setFeatureFilter(event.target.value as typeof featureFilter)} aria-label="Filter package features">
+                  <option value="ALL">All features</option>
+                  <option value="ENABLED">Enabled</option>
+                  <option value="DISABLED">Disabled</option>
+                  <option value="OVERRIDDEN">Overridden</option>
+                </select>
+                {(featureSearch || featureFilter !== "ALL") && <button type="button" className="secondary" onClick={() => { setFeatureSearch(""); setFeatureFilter("ALL"); }}>Clear</button>}
+              </div>
+              <div className="sa-client-feature-table-wrap">
+                <table className="sa-client-feature-table">
+                  <thead><tr><th>Feature</th><th>Step</th><th>Package default</th><th>Client state</th><th>Configuration override</th><th>Action</th></tr></thead>
+                  <tbody>
+                    {visibleFeatureEntitlements.map((item: any) => {
+                      const feature = item.packageFeature.feature;
+                      const configText = featureConfigurationDrafts[item.packageFeature.featureId]
+                        ?? (item.configuration ? JSON.stringify(item.configuration, null, 2) : "");
+                      return (
+                        <tr key={item.packageFeature.featureId}>
+                          <td><strong>{feature.name}</strong><small>{feature.code}</small></td>
+                          <td>{feature.featureStep?.displayName ?? feature.category ?? "—"}</td>
+                          <td>{item.packageFeature.isIncluded ? "Included" : "Not included"}</td>
+                          <td>
+                            <label className="sa-inline-checkbox"><input type="checkbox" checked={Boolean(item.enabled)} onChange={(event) => void saveFeatureOverride(item, event.target.checked, configText)} /> {item.enabled ? "Enabled" : "Disabled"}</label>
+                            {item.overridden && <small>Client override</small>}
+                          </td>
+                          <td><details><summary>{item.configuration ? "Override configured" : "Use package default"}</summary><textarea value={configText} rows={4} aria-label={`${feature.name} configuration`} onChange={(event) => setFeatureConfigurationDrafts((drafts) => ({ ...drafts, [item.packageFeature.featureId]: event.target.value }))} placeholder="{}" /><button type="button" className="secondary" onClick={() => void saveFeatureOverride(item, Boolean(item.enabled), configText)} disabled={saving}>Save configuration</button></details></td>
+                          <td><button type="button" className="secondary" onClick={() => void resetFeatureOverride(item)} disabled={saving || !item.clientFeature}>Reset</button></td>
+                        </tr>
+                      );
+                    })}
+                    {!visibleFeatureEntitlements.length && <tr><td colSpan={6} className="sa-client-feature-empty">No package features match the current search or filter.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        ) : null}
+      </CatalogFormDialog>
+    </>
+  );
+}
+
 function TextFields({
   value,
   change,

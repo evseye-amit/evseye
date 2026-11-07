@@ -20,7 +20,6 @@ export const clientCatalog = [
       "pan": "AHLPG8053D",
       "cinOrLlpin": null,
       "website": "https://www.evsparesindia.com",
-      "logoObjectKey": "clients/d2f2a2b6-f6d1-4054-a786-d80fb2060b77/logo/8c6f77bc-ba09-425e-ba0f-43e1231f9f4e.jpg",
       "yearEstablished": 2025,
       "estimatedFleetSize": 100,
       "estimatedRiderCount": 10000,
@@ -109,7 +108,6 @@ export const clientCatalog = [
       "rejectionReason": null
     },
     "branding": {
-      "logoObjectKey": "clients/d2f2a2b6-f6d1-4054-a786-d80fb2060b77/logo/8c6f77bc-ba09-425e-ba0f-43e1231f9f4e.jpg",
       "faviconObjectKey": null,
       "supportEmail": null,
       "supportPhone": null

@@ -114,7 +114,7 @@ export class AuthController {
     @Ip() ip: string,
     @Req() request: FastifyRequest,
   ) {
-    const clientContext = await this.clientsResolver.fromRequest(request);
+    const clientContext = dto.appCode === 'PLATFORM' ? null : await this.clientsResolver.fromRequest(request);
     const data = await this.authService.requestLoginOtp(
       dto.phone,
       clientContext?.companyCode ?? dto.companyCode ?? dto.clientSlug,
@@ -136,7 +136,7 @@ export class AuthController {
       data: await this.authService.verifyLoginOtp(
         dto.otpRequestId,
         dto.code,
-        (await this.clientsResolver.fromRequest(request))?.clientId,
+        dto.appCode === 'PLATFORM' ? undefined : (await this.clientsResolver.fromRequest(request))?.clientId,
         dto.appCode,
       ),
     };

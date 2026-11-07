@@ -20,6 +20,6 @@ export class RequestLoginOtpDto {
 
   @IsOptional()
   @IsString()
-  @Matches(/^(RIDER_APP|CLIENT_PANEL|FLEET_MANAGER_APP|TEAM_LEADER_APP)$/)
+  @Matches(/^(PLATFORM|RIDER_APP|CLIENT_PANEL|FLEET_MANAGER_APP|TEAM_LEADER_APP)$/)
   appCode?: string;
 }

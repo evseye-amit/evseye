@@ -119,6 +119,9 @@ export class PlatformCatalogController {
   @Post('workflow-revisions/:id/publish') publishClientWorkflow(@Param('id') id: string) {
     return this.revisions.publishClientWorkflow(id).then((data) => ({ data }));
   }
+  @Delete('workflow-revisions/:id') discardClientWorkflow(@Param('id') id: string) {
+    return this.revisions.discardClientWorkflow(id).then((data) => ({ data }));
+  }
   @Get('dashboard') dashboard() {
     return this.catalog.dashboard().then((data) => ({ data }));
   }
