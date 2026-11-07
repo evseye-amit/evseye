@@ -152,6 +152,7 @@ enum PhotoType {
   DOCUMENT
   FACE
   RECEIPT
+  DAMAGE
   OTHER
 }
 

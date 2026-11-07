@@ -1,4 +1,4 @@
-import { PhotoSubjectType, PhotoWorkflowType, UserRole } from '@prisma/client';
+import { PhotoSubjectType, PhotoType, PhotoWorkflowType, UserRole } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
 import { MediaService } from '../../src/media/media.service.js';
 
@@ -53,6 +53,33 @@ describe('MediaService upload completion', () => {
     await expect(service.complete('client-a', photo.id)).resolves.toMatchObject({ status: 'COMPLETE' });
     expect(storage.assertObjectExists).toHaveBeenCalledWith(photo.objectKey, { maxBytes: photo.sizeBytes });
     expect(storage.readObject).not.toHaveBeenCalled();
+  });
+
+  it('keeps multiple damage photos complete instead of replacing the previous photo', async () => {
+    const photo = {
+      id: 'damage-2',
+      clientId: 'client-a',
+      workFlowType: PhotoWorkflowType.FLEET_SUBMISSION,
+      subjectType: PhotoSubjectType.FLEET,
+      entityId: 'inspection-1',
+      photoType: PhotoType.DAMAGE,
+      objectKey: 'clients/client-a/fleet_submission/inspection-1/damage-2.jpg',
+      mimeType: 'image/jpeg',
+      sizeBytes: 339283,
+      status: 'PENDING_UPLOAD',
+    };
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const update = vi.fn().mockResolvedValue({ ...photo, status: 'COMPLETE' });
+    const prisma = {
+      photo: { findFirst: vi.fn().mockResolvedValue(photo) },
+      $transaction: vi.fn(async (callback: (tx: unknown) => unknown) => callback({ photo: { updateMany, update }, vehicleSubmissionReport: { findMany: vi.fn().mockResolvedValue([]) }, $queryRaw: vi.fn() })),
+    };
+    const storage = { assertObjectExists: vi.fn().mockResolvedValue(undefined) };
+    const service = new MediaService(prisma as never, storage as never);
+
+    await expect(service.complete('client-a', photo.id)).resolves.toMatchObject({ status: 'COMPLETE' });
+    expect(updateMany).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith({ where: { id: photo.id }, data: { status: 'COMPLETE', uploadedAt: expect.any(Date) } });
   });
 });
 
