@@ -144,7 +144,9 @@ export class MediaService {
       select: { photoType: true },
     });
     const requirementType = photoType;
-    if (configured.length && !configured.some((requirement) => requirement.photoType === requirementType)) {
+    if (photoType === PhotoType.DAMAGE && workFlowType !== PhotoWorkflowType.FLEET_SUBMISSION)
+      throw new BadRequestException('Damage photos are only allowed on vehicle submissions.');
+    if (photoType !== PhotoType.DAMAGE && configured.length && !configured.some((requirement) => requirement.photoType === requirementType)) {
       throw new BadRequestException('Photo type is not configured for this workflow and subject.');
     }
     this.assertExtensionMatchesMime(dto.fileName, dto.mimeType);
@@ -445,20 +447,21 @@ export class MediaService {
           ]),
         ),
       ];
-      await tx.photo.updateMany({
-        where: {
-          clientId,
-          workFlowType: photo.workFlowType, subjectType: photo.subjectType,
-          entityId: photo.entityId,
-          photoType: photo.photoType,
-          status: PhotoStatus.COMPLETE,
-          id: {
-            not: photo.id,
-            ...(protectedIds.length ? { notIn: protectedIds } : {}),
+      if (photo.photoType !== PhotoType.DAMAGE)
+        await tx.photo.updateMany({
+          where: {
+            clientId,
+            workFlowType: photo.workFlowType, subjectType: photo.subjectType,
+            entityId: photo.entityId,
+            photoType: photo.photoType,
+            status: PhotoStatus.COMPLETE,
+            id: {
+              not: photo.id,
+              ...(protectedIds.length ? { notIn: protectedIds } : {}),
+            },
           },
-        },
-        data: { status: PhotoStatus.DELETED },
-      });
+          data: { status: PhotoStatus.DELETED },
+        });
       return tx.photo.update({
         where: { id: photo.id },
         data: { status: PhotoStatus.COMPLETE, uploadedAt: new Date() },
