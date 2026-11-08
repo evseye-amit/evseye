@@ -3,7 +3,8 @@ import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 type Obj = Record<string, unknown>;
-const object = (value: unknown): Obj => value && typeof value === 'object' && !Array.isArray(value) ? value as Obj : {};
+const isObject = (value: unknown): value is Obj => value !== null && typeof value === 'object' && !Array.isArray(value);
+const object = (value: unknown): Obj => isObject(value) ? value : {};
 const array = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
 
 export type ResolvedComponent = {
@@ -84,7 +85,7 @@ export class WorkflowResolverService {
       configuration: value.configuration,
     }]));
     const components: ResolvedComponent[] = [];
-    const placeholderOverrides = new Set<string>();
+    const clientConfiguredFeatures = new Set<string>();
     for (const raw of array(snapshot.features)) {
       const assignment = object(raw);
       const feature = object(assignment.feature);
@@ -95,14 +96,11 @@ export class WorkflowResolverService {
       const step = object(feature.step);
       if (typeof step.code !== 'string') continue;
       const base = object(feature.configuration);
-      const clientConfiguration = object(clientOverride?.configuration);
-      if (
-        Object.prototype.hasOwnProperty.call(clientConfiguration, 'placeholder')
-      ) placeholderOverrides.add(featureId);
-      const override = { ...clientConfiguration };
-      const configuration: Obj = { ...base, ...override,
-        validation: { ...object(base.validation), ...object(override.validation) },
-        translations: { ...object(base.translations), ...object(override.translations) } };
+      const clientConfiguration = clientOverride?.configuration;
+      const configuration: Obj = isObject(clientConfiguration)
+        ? { ...clientConfiguration }
+        : { ...base, validation: object(base.validation), translations: object(base.translations) };
+      if (isObject(clientConfiguration)) clientConfiguredFeatures.add(featureId);
       const appCodes = configuration.appCodes ?? configuration.loginAppCodes;
       if (Array.isArray(appCodes) && !appCodes.includes(appCode)) continue;
       if (configuration.enabled === false) continue;
@@ -138,13 +136,12 @@ export class WorkflowResolverService {
         if (!current) continue;
         component.featureName = current.name;
         component.description = current.description;
-        if (!placeholderOverrides.has(component.featureId)) {
-          const catalogConfiguration = object(current.configuration);
-          if (Object.prototype.hasOwnProperty.call(catalogConfiguration, 'placeholder')) {
-            component.configuration.placeholder = catalogConfiguration.placeholder;
-          } else {
-            delete component.configuration.placeholder;
-          }
+        if (clientConfiguredFeatures.has(component.featureId)) continue;
+        const catalogConfiguration = object(current.configuration);
+        if (Object.prototype.hasOwnProperty.call(catalogConfiguration, 'placeholder')) {
+          component.configuration.placeholder = catalogConfiguration.placeholder;
+        } else {
+          delete component.configuration.placeholder;
         }
         if (component.componentType === 'INTRO_CAROUSEL') continue;
         const catalogTranslations = object(current.translations);

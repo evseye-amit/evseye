@@ -52,7 +52,7 @@ describe('WorkflowResolverService', () => {
       clientWorkflowRevision: { findFirst: vi.fn().mockResolvedValue({ id: 'client-r1',
         contentHash: 'client-hash', snapshot: { packageRevisionId: 'pkg-r1', overrides: [
           { featureId: 'ACCEPT_RIDER_PRIVACY_CONSENT', enabled: true,
-            configuration: { displayTitle: 'Review terms' } },
+            configuration: { componentType: 'LEGAL_CONSENT', appCodes: ['RIDER', 'FLEET_MANAGER'], displayTitle: 'Review terms' } },
         ] } }) },
     };
     const result = await new WorkflowResolverService(prisma as never)
@@ -63,6 +63,47 @@ describe('WorkflowResolverService', () => {
     expect(result.components[0].componentType).toBe('LEGAL_CONSENT');
     expect(result.version).toMatch(/^[a-f0-9]{16}$/);
     expect(prisma.clientSubscription.findFirst).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { scenario: 'published client revision', source: 'revision', config: { editable: false, required: false, importable: true } },
+    { scenario: 'effective client feature', source: 'row', config: { validation: { length: 6 }, translations: { hi: { label: 'Client' } } } },
+    { scenario: 'empty client configuration', source: 'row', config: {} },
+    { scenario: 'null client configuration', source: 'row', config: null },
+  ])('resolves $scenario with the correct configuration', async ({ source, config }) => {
+    const code = 'SHOW_AGREEMENT_E_SIGN';
+    const base = {
+      fieldCode: 'AGREEMENT_E_SIGN',
+      storageKey: 'agreementEsign',
+      placeholder: 'Pinned placeholder',
+      validation: { pattern: 'base' },
+      translations: { en: { label: 'Base', translationStatus: 'ACTIVE' } },
+    };
+    const override = { featureId: code, enabled: true, configuration: config };
+    const prisma = {
+      clientSubscription: { findFirst: vi.fn().mockResolvedValue({
+        id: 'sub-1', packageId: 'pkg-1', packageRevisionId: 'pkg-r1',
+        packageRevision: { id: 'pkg-r1', version: 1, publishedAt: new Date(),
+          snapshot: { id: 'pkg-1', features: [feature(code, 'RIDER_ONBOARDING', base)] } },
+      }) },
+      clientWorkflowRevision: { findFirst: vi.fn().mockResolvedValue(source === 'revision'
+        ? { snapshot: { packageRevisionId: 'pkg-r1', overrides: [override] } }
+        : null) },
+      clientFeature: { findMany: vi.fn().mockResolvedValue(source === 'row' ? [override] : []) },
+      feature: { findMany: vi.fn().mockResolvedValue([{
+        id: code, name: 'E-Sign the agreement', configuration: { placeholder: 'Current placeholder' },
+        translations: { en: { label: 'Catalog' } },
+      }]) },
+      featureStep: { findMany: vi.fn().mockResolvedValue([]) },
+    };
+
+    const result = await new WorkflowResolverService(prisma as never)
+      .resolve('yogmaya', 'RIDER_ONBOARDING', 'RIDER');
+
+    expect(result.components[0].featureName).toBe('E-Sign the agreement');
+    expect(result.components[0].configuration).toEqual(config ?? {
+      ...base, placeholder: 'Current placeholder',
+    });
   });
 
   it('does not include another app scoped Feature', async () => {
