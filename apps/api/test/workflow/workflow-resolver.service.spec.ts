@@ -101,9 +101,45 @@ describe('WorkflowResolverService', () => {
       .resolve('yogmaya', 'RIDER_ONBOARDING', 'RIDER');
 
     expect(result.components[0].featureName).toBe('E-Sign the agreement');
-    expect(result.components[0].configuration).toEqual(config ?? {
+    expect(result.components[0].configuration).toMatchObject(source === 'revision' ? base : (config ?? {
       ...base, placeholder: 'Current placeholder',
-    });
+    }));
+  });
+
+  it('keeps client feature configuration when workflow only changes display order', async () => {
+    const code = 'SHOW_AGREEMENT_E_SIGN';
+    const clientConfiguration = { componentType: 'LEGAL_CONSENT', label: 'Yogmaya consent' };
+    const prisma = {
+      clientSubscription: { findFirst: vi.fn().mockResolvedValue({
+        id: 'sub-1', packageId: 'pkg-1', packageRevisionId: 'pkg-r1',
+        packageRevision: { id: 'pkg-r1', version: 1, publishedAt: new Date(),
+          snapshot: { id: 'pkg-1', features: [feature(code, 'RIDER_ONBOARDING', {
+            componentType: 'LEGAL_CONSENT', fieldCode: 'AGREEMENT_E_SIGN', storageKey: 'agreementEsign',
+          })] } },
+      }) },
+      clientWorkflowRevision: { findFirst: vi.fn().mockResolvedValue({
+        id: 'workflow-r1', contentHash: 'workflow-hash', snapshot: { packageRevisionId: 'pkg-r1', overrides: [
+          { featureId: code, enabled: true, displayOrder: 42, configuration: {} },
+        ] },
+      }) },
+      clientFeature: { findMany: vi.fn().mockResolvedValue([{
+        featureId: code, enabled: true, configuration: clientConfiguration,
+      }]) },
+      feature: { findMany: vi.fn().mockResolvedValue([{
+        id: code, name: 'E-Sign the agreement', description: null, configuration: {
+          fieldCode: 'AGREEMENT_E_SIGN', storageKey: 'agreementEsign', placeholder: 'Catalog placeholder',
+        }, translations: {},
+      }]) },
+      featureStep: { findMany: vi.fn().mockResolvedValue([]) },
+    };
+
+    const result = await new WorkflowResolverService(prisma as never)
+      .resolve('yogmaya', 'RIDER_ONBOARDING', 'RIDER');
+
+    expect(result.components[0].order).toBe(42);
+    expect(result.components[0].configuration).toEqual(clientConfiguration);
+    expect(result.components[0].configuration).not.toHaveProperty('fieldCode');
+    expect(result.components[0].configuration).not.toHaveProperty('storageKey');
   });
 
   it('does not include another app scoped Feature', async () => {

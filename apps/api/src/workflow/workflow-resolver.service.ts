@@ -91,16 +91,26 @@ export class WorkflowResolverService {
       const feature = object(assignment.feature);
       if (feature.category !== category || feature.isActive === false) continue;
       const featureId = String(assignment.featureId ?? feature.id);
-      const clientOverride = clientOverrides.get(featureId) ?? clientFeatureOverrides.get(featureId);
-      if (clientOverride?.enabled === false) continue;
+      const workflowOverride = clientOverrides.get(featureId);
+      const clientFeatureOverride = clientFeatureOverrides.get(featureId);
+      const clientOverride = workflowOverride ?? clientFeatureOverride;
+      if (workflowOverride?.enabled === false || (workflowOverride === undefined && clientFeatureOverride?.enabled === false)) continue;
       const step = object(feature.step);
       if (typeof step.code !== 'string') continue;
       const base = object(feature.configuration);
-      const clientConfiguration = clientOverride?.configuration;
-      const configuration: Obj = isObject(clientConfiguration)
+      // ClientFeature configuration is the authoritative client payload. A workflow
+      // revision may still supply workflow-only controls (enabled/order), but it must
+      // not replace or repopulate fields deliberately removed by the client.
+      const clientConfiguration = clientFeatureOverride?.configuration;
+      const workflowConfiguration = workflowOverride?.configuration;
+      const hasClientConfiguration = isObject(clientConfiguration);
+      const hasWorkflowConfiguration = isObject(workflowConfiguration);
+      const configuration: Obj = hasClientConfiguration
         ? { ...clientConfiguration }
-        : { ...base, validation: object(base.validation), translations: object(base.translations) };
-      if (isObject(clientConfiguration)) clientConfiguredFeatures.add(featureId);
+        : hasWorkflowConfiguration
+          ? { ...base, ...workflowConfiguration, validation: object(workflowConfiguration.validation ?? base.validation), translations: object(workflowConfiguration.translations ?? base.translations) }
+          : { ...base, validation: object(base.validation), translations: object(base.translations) };
+      if (hasClientConfiguration || hasWorkflowConfiguration) clientConfiguredFeatures.add(featureId);
       const appCodes = configuration.appCodes ?? configuration.loginAppCodes;
       if (Array.isArray(appCodes) && !appCodes.includes(appCode)) continue;
       if (configuration.enabled === false) continue;
@@ -113,7 +123,7 @@ export class WorkflowResolverService {
         billingUnit: String(feature.billingUnit ?? 'LIFE_TIME'),
         featureVersion: Number(assignment.featureVersion ?? 1),
         componentType: String(configuration.componentType ?? configuration.fieldType ?? 'FIELD'),
-        order: Number((clientOverride as Obj).displayOrder ?? assignment.displayOrder ?? feature.displayOrder ?? 0),
+        order: Number(workflowOverride?.displayOrder ?? assignment.displayOrder ?? feature.displayOrder ?? 0),
         configuration,
         step: { id: String(step.id ?? step.code), code: step.code,
           name: String(step.name ?? step.code),
