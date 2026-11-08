@@ -404,7 +404,7 @@ export class CatalogRevisionService {
       return { featureId, enabled: item.enabled !== false, ...(displayOrder === undefined ? {} : { displayOrder }), configuration };
     });
     const snapshot = { subscriptionId, packageRevisionId: subscription.packageRevisionId, overrides };
-    const save = async (db: typeof this.prisma) => {
+    const save = async (db: Prisma.TransactionClient) => {
       const existingDraft = await db.clientWorkflowRevision.findFirst({
         where: { subscriptionId, publishedAt: null }, orderBy: { version: 'desc' },
       });
@@ -424,13 +424,14 @@ export class CatalogRevisionService {
       });
       return { revision, updated: false };
     };
-    let created;
+    let created: Awaited<ReturnType<typeof save>>;
     try {
-      created = typeof this.prisma.$transaction === 'function'
-        ? await this.prisma.$transaction(save, {
+      const transaction = (this.prisma as unknown as { $transaction?: Function }).$transaction;
+      created = typeof transaction === 'function'
+        ? await transaction.call(this.prisma, save, {
             isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
           })
-        : await save(this.prisma);
+        : await save(this.prisma as unknown as Prisma.TransactionClient);
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && ['P2034', 'P2002'].includes(error.code))
         throw new ConflictException('Another workflow draft was saved concurrently. Refresh and review it again.');
