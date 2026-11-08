@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { AuditService } from '../audit/audit.service.js';
 import { isSupportedLanguage } from '../common/language-catalog.js';
 
 const json = (value: unknown): Prisma.InputJsonValue => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
@@ -9,7 +10,7 @@ const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(valu
 
 @Injectable()
 export class CatalogRevisionService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit?: AuditService) {}
 
   featureRevisions(featureId: string) {
     return this.prisma.featureRevision.findMany({ where: { featureId }, orderBy: { version: 'desc' } });
@@ -351,13 +352,15 @@ export class CatalogRevisionService {
     }
   }
 
-  clientWorkflowRevisions(subscriptionId: string) {
+  async clientWorkflowRevisions(subscriptionId: string) {
+    const subscription = await this.prisma.clientSubscription.findUnique({ where: { id: subscriptionId }, select: { id: true } });
+    if (!subscription) throw new NotFoundException('Subscription not found.');
     return this.prisma.clientWorkflowRevision.findMany({
       where: { subscriptionId }, orderBy: { version: 'desc' },
     });
   }
 
-  async draftClientWorkflow(subscriptionId: string, input: unknown) {
+  async draftClientWorkflow(subscriptionId: string, input: unknown, actorId = 'system') {
     const subscription = await this.prisma.clientSubscription.findUnique({
       where: { id: subscriptionId, }, include: { packageRevision: true },
     });
@@ -372,6 +375,7 @@ export class CatalogRevisionService {
       featureId: string; feature: { code: string } }> }).features ?? [])
       .map((part) => [part.featureId, part.feature.code]));
     const seen = new Set<string>();
+    const seenDisplayOrders = new Set<number>();
     const overrides = raw.map((value) => {
       if (!value || typeof value !== 'object' || Array.isArray(value))
         throw new BadRequestException('Invalid Feature override.');
@@ -394,20 +398,51 @@ export class CatalogRevisionService {
       const displayOrder = item.displayOrder === undefined ? undefined : Number(item.displayOrder);
       if (displayOrder !== undefined && (!Number.isInteger(displayOrder) || displayOrder < 0))
         throw new BadRequestException('Feature display order must be a non-negative integer.');
+      if (displayOrder !== undefined && seenDisplayOrders.has(displayOrder))
+        throw new BadRequestException('Feature display orders must be unique within a workflow.');
+      if (displayOrder !== undefined) seenDisplayOrders.add(displayOrder);
       return { featureId, enabled: item.enabled !== false, ...(displayOrder === undefined ? {} : { displayOrder }), configuration };
     });
     const snapshot = { subscriptionId, packageRevisionId: subscription.packageRevisionId, overrides };
-    const latest = await this.prisma.clientWorkflowRevision.findFirst({
-      where: { subscriptionId }, orderBy: { version: 'desc' }, select: { version: true },
-    });
-    return this.prisma.clientWorkflowRevision.create({
-      data: { subscriptionId, version: (latest?.version ?? 0) + 1,
-        snapshot: json(snapshot), contentHash: hash(snapshot) },
-    });
+    const save = async (db: typeof this.prisma) => {
+      const existingDraft = await db.clientWorkflowRevision.findFirst({
+        where: { subscriptionId, publishedAt: null }, orderBy: { version: 'desc' },
+      });
+      if (existingDraft) {
+        const revision = await db.clientWorkflowRevision.update({
+          where: { id: existingDraft.id },
+          data: { snapshot: json(snapshot), contentHash: hash(snapshot) },
+        });
+        return { revision, updated: true };
+      }
+      const latest = await db.clientWorkflowRevision.findFirst({
+        where: { subscriptionId }, orderBy: { version: 'desc' }, select: { version: true },
+      });
+      const revision = await db.clientWorkflowRevision.create({
+        data: { subscriptionId, version: (latest?.version ?? 0) + 1,
+          snapshot: json(snapshot), contentHash: hash(snapshot) },
+      });
+      return { revision, updated: false };
+    };
+    let created;
+    try {
+      created = typeof this.prisma.$transaction === 'function'
+        ? await this.prisma.$transaction(save, {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          })
+        : await save(this.prisma);
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && ['P2034', 'P2002'].includes(error.code))
+        throw new ConflictException('Another workflow draft was saved concurrently. Refresh and review it again.');
+      throw error;
+    }
+    const { revision, updated } = created;
+    await this.audit?.record({ clientId: subscription.clientId, actorId, action: updated ? 'CLIENT_WORKFLOW_DRAFT_SAVED' : 'CLIENT_WORKFLOW_DRAFT_CREATED', entityType: 'ClientWorkflowRevision', entityId: revision.id, newData: { version: revision.version, contentHash: revision.contentHash } });
+    return revision;
   }
 
-  async publishClientWorkflow(revisionId: string) {
-    const revision = await this.prisma.clientWorkflowRevision.findUnique({ where: { id: revisionId } });
+  async publishClientWorkflow(revisionId: string, actorId = 'system') {
+    const revision = await this.prisma.clientWorkflowRevision.findUnique({ where: { id: revisionId }, include: { subscription: { select: { clientId: true } } } });
     if (!revision) throw new NotFoundException('Client workflow revision not found.');
     if (revision.publishedAt) return revision;
     const subscription = await this.prisma.clientSubscription.findUnique({
@@ -459,16 +494,19 @@ export class CatalogRevisionService {
       if (missing.length)
         throw new BadRequestException(`${appCode}: publish legal documents before enabling these languages: ${missing.join(', ')}.`);
     }
-    return this.prisma.clientWorkflowRevision.update({
+    const published = await this.prisma.clientWorkflowRevision.update({
       where: { id: revisionId }, data: { publishedAt: new Date() },
     });
+    await this.audit?.record({ clientId: revision.subscription.clientId, actorId, action: 'CLIENT_WORKFLOW_PUBLISHED', entityType: 'ClientWorkflowRevision', entityId: published.id, newData: { version: published.version, contentHash: published.contentHash } });
+    return published;
   }
 
-  async discardClientWorkflow(revisionId: string) {
-    const revision = await this.prisma.clientWorkflowRevision.findUnique({ where: { id: revisionId } });
+  async discardClientWorkflow(revisionId: string, actorId = 'system') {
+    const revision = await this.prisma.clientWorkflowRevision.findUnique({ where: { id: revisionId }, include: { subscription: { select: { clientId: true } } } });
     if (!revision) throw new NotFoundException('Client workflow revision not found.');
     if (revision.publishedAt) throw new BadRequestException('Published workflow versions cannot be discarded.');
     await this.prisma.clientWorkflowRevision.delete({ where: { id: revisionId } });
+    await this.audit?.record({ clientId: revision.subscription.clientId, actorId, action: 'CLIENT_WORKFLOW_DISCARDED', entityType: 'ClientWorkflowRevision', entityId: revisionId, previousData: { version: revision.version, contentHash: revision.contentHash } });
     return { discarded: true, version: revision.version };
   }
 }

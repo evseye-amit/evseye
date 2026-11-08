@@ -10,6 +10,70 @@ const feature = (code: string, category: string, configuration: Record<string, u
 });
 
 describe('WorkflowResolverService', () => {
+  function resolverFixture(options: {
+    packageConfiguration?: Record<string, unknown>;
+    clientConfiguration?: Record<string, unknown> | null;
+    workflowOverride?: Record<string, unknown>;
+    secondFeature?: boolean;
+  } = {}) {
+    const first = feature('SHOW_AGREEMENT_E_SIGN', 'RIDER_ONBOARDING', options.packageConfiguration ?? {
+      componentType: 'LEGAL_CONSENT', fieldCode: 'AGREEMENT_E_SIGN', storageKey: 'agreementEsign',
+    });
+    const second = feature('CAPTURE_DATE_OF_BIRTH', 'RIDER_ONBOARDING', { componentType: 'TEXT' });
+    second.displayOrder = 2;
+    const packageFeatures = options.secondFeature === false ? [first] : [first, second];
+    const prisma = {
+      clientSubscription: { findFirst: vi.fn().mockResolvedValue({ id: 'sub-1', packageRevisionId: 'pkg-r1',
+        packageRevision: { id: 'pkg-r1', version: 1, publishedAt: new Date(), snapshot: { features: packageFeatures } } }) },
+      clientWorkflowRevision: { findFirst: vi.fn().mockResolvedValue(options.workflowOverride ? {
+        snapshot: { packageRevisionId: 'pkg-r1', overrides: [options.workflowOverride] },
+      } : null) },
+      clientFeature: { findMany: vi.fn().mockResolvedValue(options.clientConfiguration === undefined ? [] : [{
+        featureId: 'SHOW_AGREEMENT_E_SIGN', enabled: true, configuration: options.clientConfiguration,
+      }]) },
+      feature: { findMany: vi.fn().mockResolvedValue(packageFeatures.map((item) => ({ id: item.featureId,
+        name: item.feature.code, configuration: item.feature.configuration, translations: {} }))) },
+      featureStep: { findMany: vi.fn().mockResolvedValue([]) },
+    };
+    return { prisma, service: new WorkflowResolverService(prisma as never) };
+  }
+
+  it('covers package, client, and workflow precedence including removed client fields', async () => {
+    const packageOnly = resolverFixture({ clientConfiguration: undefined });
+    const packageResult = await packageOnly.service.resolve('client-1', 'RIDER_ONBOARDING', 'RIDER');
+    expect(packageResult.components[0].configuration).toHaveProperty('fieldCode');
+
+    const clientOnly = resolverFixture({ clientConfiguration: { componentType: 'LEGAL_CONSENT', label: 'Client' } });
+    const clientResult = await clientOnly.service.resolve('client-1', 'RIDER_ONBOARDING', 'RIDER');
+    expect(clientResult.components[0].configuration).toEqual({ componentType: 'LEGAL_CONSENT', label: 'Client' });
+    expect(clientResult.components[0].configuration).not.toHaveProperty('fieldCode');
+    expect(clientResult.components[0].configuration).not.toHaveProperty('storageKey');
+
+    const combined = resolverFixture({ clientConfiguration: { componentType: 'LEGAL_CONSENT', label: 'Yogmaya' },
+      workflowOverride: { featureId: 'SHOW_AGREEMENT_E_SIGN', displayOrder: 9, enabled: true, configuration: {} } });
+    const combinedResult = await combined.service.resolve('client-1', 'RIDER_ONBOARDING', 'RIDER');
+    const consent = combinedResult.components.find((item) => item.featureName === 'SHOW_AGREEMENT_E_SIGN');
+    expect(consent?.order).toBe(9);
+    expect(consent?.configuration).toEqual({ componentType: 'LEGAL_CONSENT', label: 'Yogmaya' });
+
+    const disabled = resolverFixture({ clientConfiguration: { componentType: 'LEGAL_CONSENT' },
+      workflowOverride: { featureId: 'SHOW_AGREEMENT_E_SIGN', enabled: false, configuration: {} } });
+    await expect(disabled.service.resolve('client-1', 'RIDER_ONBOARDING', 'RIDER')).resolves.toMatchObject({ components: [expect.objectContaining({ featureName: 'CAPTURE_DATE_OF_BIRTH' })] });
+  });
+
+  it('supports empty workflow configuration and falls back to package configuration', async () => {
+    const fixtureWithEmpty = resolverFixture({ workflowOverride: { featureId: 'SHOW_AGREEMENT_E_SIGN', enabled: true, configuration: {} } });
+    const result = await fixtureWithEmpty.service.resolve('client-1', 'RIDER_ONBOARDING', 'RIDER');
+    expect(result.components[0].configuration).toHaveProperty('fieldCode');
+  });
+
+  it('sorts by workflow display order before feature order', async () => {
+    const { service } = resolverFixture({ secondFeature: true,
+      workflowOverride: { featureId: 'SHOW_AGREEMENT_E_SIGN', enabled: true, displayOrder: 0, configuration: {} } });
+    const result = await service.resolve('client-1', 'RIDER_ONBOARDING', 'RIDER');
+    expect(result.components.map((item) => item.featureName)).toEqual(['SHOW_AGREEMENT_E_SIGN', 'CAPTURE_DATE_OF_BIRTH']);
+  });
+
   it('uses a pending subscription for LOGIN only, never for other workflow categories', async () => {
     const subscription = {
       id: 'sub-1', packageId: 'pkg-1', packageRevisionId: 'pkg-r1',
