@@ -113,7 +113,7 @@ export class WorkflowResolverService {
         billingUnit: String(feature.billingUnit ?? 'LIFE_TIME'),
         featureVersion: Number(assignment.featureVersion ?? 1),
         componentType: String(configuration.componentType ?? configuration.fieldType ?? 'FIELD'),
-        order: Number(assignment.displayOrder || feature.displayOrder || 0),
+        order: Number((clientOverride as Obj).displayOrder ?? assignment.displayOrder ?? feature.displayOrder ?? 0),
         configuration,
         step: { id: String(step.id ?? step.code), code: step.code,
           name: String(step.name ?? step.code),

@@ -927,20 +927,31 @@ export class PlatformAdminService {
     const client = await this.prisma.client.findUnique({ where: { id: clientId } });
     if (!client) throw new NotFoundException('Client not found.');
     const subscription = await this.requireClientSubscription(clientId);
-    const entitlements = await this.clientEntitlements(clientId);
-    const snapshot = entitlements.packageFeatures.map((packageFeature) => {
-      const override = entitlements.clientFeatures.find((item) => item.featureId === packageFeature.featureId);
-      return {
-        featureId: packageFeature.featureId,
-        enabled: override?.enabled ?? packageFeature.isIncluded,
-        configuration: override?.configuration ?? packageFeature.feature.configuration ?? null,
-        source: override?.source ?? 'PACKAGE',
-      };
-    });
-    const contentHash = createHash('sha256').update(JSON.stringify(snapshot)).digest('hex');
     const latest = await this.prisma.clientFeatureRevision.findFirst({
       where: { subscriptionId: subscription.id }, orderBy: { version: 'desc' },
     });
+    const published = latest?.publishedAt
+      ? latest
+      : await this.prisma.clientFeatureRevision.findFirst({
+          where: { subscriptionId: subscription.id, publishedAt: { not: null } },
+          orderBy: { version: 'desc' },
+        });
+    let snapshot: unknown[];
+    if (published && Array.isArray(published.snapshot)) {
+      snapshot = published.snapshot as unknown[];
+    } else {
+      const entitlements = await this.clientEntitlements(clientId);
+      snapshot = entitlements.packageFeatures.map((packageFeature) => {
+        const override = entitlements.clientFeatures.find((item) => item.featureId === packageFeature.featureId);
+        return {
+          featureId: packageFeature.featureId,
+          enabled: override?.enabled ?? packageFeature.isIncluded,
+          configuration: override?.configuration ?? packageFeature.feature.configuration ?? null,
+          source: override?.source ?? 'PACKAGE',
+        };
+      });
+    }
+    const contentHash = createHash('sha256').update(JSON.stringify(snapshot)).digest('hex');
     const draft = latest && !latest.publishedAt
       ? await this.prisma.clientFeatureRevision.update({ where: { id: latest.id }, data: { snapshot, contentHash } })
       : await this.prisma.clientFeatureRevision.create({

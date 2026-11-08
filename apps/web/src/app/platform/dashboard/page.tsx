@@ -382,7 +382,7 @@ type CatalogFormDialogProps = Readonly<{
   description: string;
   error: string;
   busy: boolean;
-  size?: "default" | "wide";
+  size?: "default" | "wide" | "extra-wide";
   triggerRef: { current: HTMLButtonElement | null };
   onClose: () => void;
   onDialogClose: () => void;
@@ -5444,9 +5444,13 @@ function ClientConfigurationSettings({
   const [featureSearch, setFeatureSearch] = useState("");
   const [featureFilter, setFeatureFilter] = useState<"ALL" | "ENABLED" | "DISABLED" | "OVERRIDDEN">("ALL");
   const [featureConfigurationDrafts, setFeatureConfigurationDrafts] = useState<Record<string, string>>({});
+  const [showFeatureHistory, setShowFeatureHistory] = useState(false);
+  const [selectedFeatureRevisionId, setSelectedFeatureRevisionId] = useState<string | null>(null);
 
   async function openConfiguration() {
     setOpen(true);
+    setShowFeatureHistory(false);
+    setSelectedFeatureRevisionId(null);
     setLoading(true);
     setError("");
     try {
@@ -5686,6 +5690,7 @@ function ClientConfigurationSettings({
         ...current,
         riderOnboarding: { ...current.riderOnboarding, featureRevisions: [draft, ...(current.riderOnboarding?.featureRevisions ?? []).filter((revision: any) => revision.id !== draft.id)] },
       }));
+      setSelectedFeatureRevisionId(draft.id);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to save feature draft.");
     } finally {
@@ -5716,20 +5721,33 @@ function ClientConfigurationSettings({
   const branding = configuration?.branding;
   const revisions = configuration?.riderOnboarding?.revisions ?? [];
   const latestRevision = revisions[0];
-  const visibleFeatureEntitlements = (configuration?.featureEntitlements ?? []).filter((item: any) => {
+  const featureRevisions = configuration?.riderOnboarding?.featureRevisions ?? [];
+  const featureDraft = featureRevisions.find((revision: any) => !revision.publishedAt);
+  const latestPublishedFeatureRevision = featureRevisions.find((revision: any) => Boolean(revision.publishedAt));
+  const effectiveFeatureRevision = featureDraft ?? latestPublishedFeatureRevision;
+  const selectedFeatureRevision = featureRevisions.find((revision: any) => revision.id === selectedFeatureRevisionId) ?? effectiveFeatureRevision;
+  const selectedFeatureRevisionEditable = Boolean(selectedFeatureRevision && featureDraft && selectedFeatureRevision.id === featureDraft.id);
+  const effectiveFeatureSnapshot = Array.isArray(selectedFeatureRevision?.snapshot)
+    ? selectedFeatureRevision.snapshot
+    : null;
+  const effectiveFeatureById = new Map((effectiveFeatureSnapshot ?? []).map((item: any) => [String(item.featureId), item]));
+  const displayFeatureEntitlements = effectiveFeatureSnapshot
+    ? (configuration?.featureEntitlements ?? []).filter((item: any) => effectiveFeatureById.has(String(item.packageFeature.featureId))).map((item: any) => {
+        const snapshot: any = effectiveFeatureById.get(String(item.packageFeature.featureId));
+        return { ...item, enabled: snapshot.enabled, overridden: snapshot.source !== "PACKAGE", configuration: snapshot.configuration ?? null };
+      })
+    : (configuration?.featureEntitlements ?? []);
+  const visibleDisplayFeatureEntitlements = displayFeatureEntitlements.filter((item: any) => {
     const feature = item.packageFeature.feature;
     const haystack = `${feature.name} ${feature.code} ${feature.category ?? ""}`.toLowerCase();
-    const matchesSearch = haystack.includes(featureSearch.trim().toLowerCase());
-    return matchesSearch
+    return haystack.includes(featureSearch.trim().toLowerCase())
       && (featureFilter === "ALL"
         || (featureFilter === "ENABLED" && item.enabled)
         || (featureFilter === "DISABLED" && !item.enabled)
         || (featureFilter === "OVERRIDDEN" && item.overridden));
   });
-  const enabledFeatureCount = (configuration?.featureEntitlements ?? []).filter((item: any) => item.enabled).length;
-  const overrideFeatureCount = (configuration?.featureEntitlements ?? []).filter((item: any) => item.overridden).length;
-  const featureRevisions = configuration?.riderOnboarding?.featureRevisions ?? [];
-  const featureDraft = featureRevisions.find((revision: any) => !revision.publishedAt);
+  const displayEnabledFeatureCount = displayFeatureEntitlements.filter((item: any) => item.enabled).length;
+  const displayOverrideFeatureCount = displayFeatureEntitlements.filter((item: any) => item.overridden).length;
 
   return (
     <>
@@ -5742,7 +5760,7 @@ function ClientConfigurationSettings({
         description="Review and manage the features included for this client."
         error={error}
         busy={loading}
-        size="wide"
+        size="extra-wide"
         triggerRef={triggerRef}
         onClose={() => setOpen(false)}
         onDialogClose={() => setOpen(false)}
@@ -5761,12 +5779,16 @@ function ClientConfigurationSettings({
               <div className="sa-card-head">
                 <div>
                   <h3>Package features</h3>
-                  <p>Features inherited from the selected package. Client changes are stored as overrides.</p>
+                  <p>Features from the latest effective client revision. Client changes are stored as overrides.</p>
                 </div>
                 <div className="sa-feature-card-summary">
-                  <strong>{enabledFeatureCount}/{configuration.featureEntitlements?.length ?? 0} enabled · {overrideFeatureCount} overridden</strong>
+                  <strong>{displayEnabledFeatureCount}/{displayFeatureEntitlements.length} enabled · {displayOverrideFeatureCount} overridden</strong>
+                  {selectedFeatureRevision && <span className="sa-feature-revision-meta">Viewing v{selectedFeatureRevision.version} · {selectedFeatureRevision.publishedAt ? "Published" : "Draft"}{selectedFeatureRevision.publishedAt ? ` · ${new Date(selectedFeatureRevision.publishedAt).toLocaleDateString("en-IN")}` : ""}{!selectedFeatureRevisionEditable && " · Read-only"}</span>}
                   {featureDraft && <span className="sa-feature-draft-status">Draft v{featureDraft.version}</span>}
-                  <button type="button" onClick={() => void saveFeatureDraft()} disabled={saving || !configuration.featureEntitlements?.length}>{saving ? "Saving…" : "Save draft"}</button>
+                  <button type="button" className="secondary" onClick={() => setShowFeatureHistory((value) => !value)}>{showFeatureHistory ? "Hide version history" : "Version history"}</button>
+                  {featureDraft && !selectedFeatureRevisionEditable
+                    ? <button type="button" onClick={() => setSelectedFeatureRevisionId(featureDraft.id)} disabled={saving}>Edit draft</button>
+                    : <button type="button" onClick={() => void saveFeatureDraft()} disabled={saving || !configuration.featureEntitlements?.length}>{saving ? (featureDraft ? "Saving…" : "Creating…") : (featureDraft ? "Save draft" : "Create draft")}</button>}
                   {featureDraft && <><button type="button" onClick={() => void publishFeatureDraft()} disabled={saving}>Publish</button><button type="button" className="danger" onClick={() => void discardFeatureDraft()} disabled={saving}>Discard</button></>}
                 </div>
               </div>
@@ -5775,6 +5797,14 @@ function ClientConfigurationSettings({
                 <p>This snapshot is isolated from the live client configuration until published.</p>
                 <pre>{JSON.stringify(featureDraft.snapshot, null, 2)}</pre>
               </details>}
+              {selectedFeatureRevisionEditable && <div className="sa-feature-draft-banner">Editing draft v{featureDraft.version} — changes are not live until published.</div>}
+              {showFeatureHistory && <div className="sa-feature-version-history">
+                <h4>Feature version history</h4>
+                <table><thead><tr><th>Version</th><th>Status</th><th>Features</th><th>Published</th></tr></thead><tbody>
+                  {featureRevisions.map((revision: any) => { const snapshot = Array.isArray(revision.snapshot) ? revision.snapshot : []; const enabledCount = snapshot.filter((item: any) => item.enabled).length; const overrideCount = snapshot.filter((item: any) => item.source !== "PACKAGE").length; return <tr key={revision.id} className={selectedFeatureRevision?.id === revision.id ? "is-selected" : ""} aria-selected={selectedFeatureRevision?.id === revision.id} tabIndex={0} onClick={() => setSelectedFeatureRevisionId(revision.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedFeatureRevisionId(revision.id); } }}><td><button type="button" className="sa-feature-version-link" onClick={(event) => { event.stopPropagation(); setSelectedFeatureRevisionId(revision.id); }}>v{revision.version}</button></td><td>{revision.publishedAt ? "Published" : "Draft"}</td><td>{enabledCount}/{snapshot.length} enabled · {overrideCount} overridden</td><td>{revision.publishedAt ? new Date(revision.publishedAt).toLocaleDateString("en-IN") : "—"}</td></tr>; })}
+                  {!featureRevisions.length && <tr><td colSpan={4}>No feature revisions yet.</td></tr>}
+                </tbody></table>
+              </div>}
               <div className="sa-feature-toolbar">
                 <input value={featureSearch} onChange={(event) => setFeatureSearch(event.target.value)} placeholder="Search features" aria-label="Search package features" />
                 <select value={featureFilter} onChange={(event) => setFeatureFilter(event.target.value as typeof featureFilter)} aria-label="Filter package features">
@@ -5789,7 +5819,7 @@ function ClientConfigurationSettings({
                 <table className="sa-client-feature-table">
                   <thead><tr><th>Feature</th><th>Step</th><th>Package default</th><th>Client state</th><th>Configuration override</th><th>Action</th></tr></thead>
                   <tbody>
-                    {visibleFeatureEntitlements.map((item: any) => {
+                    {visibleDisplayFeatureEntitlements.map((item: any) => {
                       const feature = item.packageFeature.feature;
                       const configText = featureConfigurationDrafts[item.packageFeature.featureId]
                         ?? (item.configuration ? JSON.stringify(item.configuration, null, 2) : "");
@@ -5799,15 +5829,15 @@ function ClientConfigurationSettings({
                           <td>{feature.featureStep?.displayName ?? feature.category ?? "—"}</td>
                           <td>{item.packageFeature.isIncluded ? "Included" : "Not included"}</td>
                           <td>
-                            <label className="sa-inline-checkbox"><input type="checkbox" checked={Boolean(item.enabled)} onChange={(event) => void saveFeatureOverride(item, event.target.checked, configText)} /> {item.enabled ? "Enabled" : "Disabled"}</label>
+                            <label className="sa-inline-checkbox"><input type="checkbox" checked={Boolean(item.enabled)} disabled={!selectedFeatureRevisionEditable || saving} onChange={(event) => void saveFeatureOverride(item, event.target.checked, configText)} /> {item.enabled ? "Enabled" : "Disabled"}</label>
                             {item.overridden && <small>Client override</small>}
                           </td>
-                          <td><details><summary>{item.configuration ? "Override configured" : "Use package default"}</summary><textarea value={configText} rows={4} aria-label={`${feature.name} configuration`} onChange={(event) => setFeatureConfigurationDrafts((drafts) => ({ ...drafts, [item.packageFeature.featureId]: event.target.value }))} placeholder="{}" /><button type="button" className="secondary" onClick={() => void saveFeatureOverride(item, Boolean(item.enabled), configText)} disabled={saving}>Save configuration</button></details></td>
-                          <td><button type="button" className="secondary" onClick={() => void resetFeatureOverride(item)} disabled={saving || !item.clientFeature}>Reset</button></td>
+                          <td><details><summary>{item.configuration ? "Override configured" : "Use package default"}</summary><textarea value={configText} rows={4} aria-label={`${feature.name} configuration`} disabled={!selectedFeatureRevisionEditable || saving} onChange={(event) => setFeatureConfigurationDrafts((drafts) => ({ ...drafts, [item.packageFeature.featureId]: event.target.value }))} placeholder="{}" /><button type="button" className="secondary" onClick={() => void saveFeatureOverride(item, Boolean(item.enabled), configText)} disabled={!selectedFeatureRevisionEditable || saving}>Save configuration</button></details></td>
+                          <td><button type="button" className="secondary" onClick={() => void resetFeatureOverride(item)} disabled={!selectedFeatureRevisionEditable || saving || !item.clientFeature}>Reset</button></td>
                         </tr>
                       );
                     })}
-                    {!visibleFeatureEntitlements.length && <tr><td colSpan={6} className="sa-client-feature-empty">No package features match the current search or filter.</td></tr>}
+                    {!visibleDisplayFeatureEntitlements.length && <tr><td colSpan={6} className="sa-client-feature-empty">No package features match the current search or filter.</td></tr>}
                   </tbody>
                 </table>
               </div>

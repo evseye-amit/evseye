@@ -391,7 +391,10 @@ export class CatalogRevisionService {
       if (locales !== undefined && (!Array.isArray(locales) || locales.length === 0 ||
           !locales.every(isSupportedLanguage) || new Set(locales).size !== locales.length))
         throw new BadRequestException('Select distinct languages from the platform language catalog.');
-      return { featureId, enabled: item.enabled !== false, configuration };
+      const displayOrder = item.displayOrder === undefined ? undefined : Number(item.displayOrder);
+      if (displayOrder !== undefined && (!Number.isInteger(displayOrder) || displayOrder < 0))
+        throw new BadRequestException('Feature display order must be a non-negative integer.');
+      return { featureId, enabled: item.enabled !== false, ...(displayOrder === undefined ? {} : { displayOrder }), configuration };
     });
     const snapshot = { subscriptionId, packageRevisionId: subscription.packageRevisionId, overrides };
     const latest = await this.prisma.clientWorkflowRevision.findFirst({
