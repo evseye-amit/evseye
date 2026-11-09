@@ -97,4 +97,17 @@ describe('ClientOnboardingReadinessService', () => {
     });
     expect((await service.activation('client-1')).map((issue) => issue.code)).toContain('PAN_REQUIRED');
   });
+
+  it('does not require PAN for a proprietary firm', async () => {
+    const { service } = setup({
+      client: { findUnique: vi.fn().mockResolvedValue({
+        businessProfile: { businessType: 'PROPRIETORSHIP' }, operationsProfile: {}, billingProfile: {},
+        contacts: [{ role: 'PRIMARY' }, { role: 'ACCOUNT_ADMIN' }],
+        addresses: [{ type: 'REGISTERED' }, { type: 'BILLING' }],
+        agreement: { termsAcceptedAt: new Date(), privacyAcceptedAt: new Date(), dataProcessingConsentAt: new Date() },
+        subscriptions: [{ status: 'ACTIVE' }], riderCommercialTerms: [{ status: 'ACTIVE' }], documents: [],
+      }) },
+    });
+    expect((await service.activation('client-1')).map((issue) => issue.code)).not.toContain('PAN_REQUIRED');
+  });
 });

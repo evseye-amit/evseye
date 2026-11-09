@@ -76,8 +76,9 @@ export class ClientOnboardingReadinessService {
     if (!client.contacts.some((contact) => contact.role === 'ACCOUNT_ADMIN')) issues.push({ code: 'ACCOUNT_ADMIN_REQUIRED', message: 'Account Admin contact is required.', owner: 'SUPER_ADMIN', navigationTarget: '/platform/clients?section=contacts' });
     if (!client.addresses.some((address) => address.type === 'REGISTERED')) issues.push({ code: 'REGISTERED_ADDRESS_REQUIRED', message: 'Registered address is required.', owner: 'SUPER_ADMIN', navigationTarget: '/platform/clients?section=addresses' });
     if (!client.addresses.some((address) => address.type === 'BILLING')) issues.push({ code: 'BILLING_ADDRESS_REQUIRED', message: 'Billing address is required.', owner: 'SUPER_ADMIN', navigationTarget: '/platform/clients?section=addresses' });
+    const panRequired = client.businessProfile?.businessType !== 'PROPRIETORSHIP';
     const pan = client.documents.find((document) => document.documentType === ClientDocumentType.PAN_CARD && document.uploadedAt && document.verificationStatus === 'VERIFIED');
-    if (!pan) issues.push({ code: 'PAN_REQUIRED', message: 'A valid uploaded PAN document is required.', owner: 'SUPER_ADMIN', navigationTarget: '/platform/clients?section=documents' });
+    if (panRequired && !pan) issues.push({ code: 'PAN_REQUIRED', message: 'A valid uploaded PAN document is required.', owner: 'SUPER_ADMIN', navigationTarget: '/platform/clients?section=documents' });
     return issues;
   }
 }

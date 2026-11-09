@@ -1572,7 +1572,7 @@ export class PlatformAdminService {
       !client.addresses.some(
         (address) => address.type === ClientAddressType.BILLING,
       ) ||
-      !docs.has(ClientDocumentType.PAN_CARD)
+      (client.businessProfile?.businessType !== 'PROPRIETORSHIP' && !docs.has(ClientDocumentType.PAN_CARD))
     )
       throw new UnprocessableEntityException(
         'Complete all mandatory onboarding steps and upload the PAN Card before submitting.',
