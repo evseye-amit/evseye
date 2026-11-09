@@ -446,6 +446,8 @@ export class CatalogRevisionService {
     const revision = await this.prisma.clientWorkflowRevision.findUnique({ where: { id: revisionId }, include: { subscription: { select: { clientId: true } } } });
     if (!revision) throw new NotFoundException('Client workflow revision not found.');
     if (revision.publishedAt) return revision;
+    const clientStatus = await this.prisma.client.findUnique({ where: { id: revision.subscription.clientId }, select: { status: true } });
+    if (clientStatus?.status === 'SUSPENDED') throw new BadRequestException('Reactivate the client before publishing workflow changes.');
     const subscription = await this.prisma.clientSubscription.findUnique({
       where: { id: revision.subscriptionId },
     });

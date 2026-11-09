@@ -1001,6 +1001,7 @@ export class PlatformAdminService {
   }
 
   async publishClientFeatureDraft(clientId: string, actorId: string) {
+    await this.assertClientPublishingAllowed(clientId);
     const subscription = await this.requireClientSubscription(clientId);
     const draft = await this.prisma.clientFeatureRevision.findFirst({ where: { subscriptionId: subscription.id, publishedAt: null }, orderBy: { version: 'desc' } });
     if (!draft) throw new NotFoundException('No client feature draft is available to publish.');
@@ -1091,6 +1092,7 @@ export class PlatformAdminService {
   }
 
   async publishClientPricingDraft(clientId: string, actorId: string) {
+    await this.assertClientPublishingAllowed(clientId);
     const subscription = await this.requireClientSubscription(clientId);
     const draft = await this.prisma.clientPricingRevision.findFirst({ where: { subscriptionId: subscription.id, publishedAt: null }, orderBy: { version: 'desc' } });
     if (!draft) throw new NotFoundException('No client pricing draft is available to publish.');
@@ -1752,13 +1754,23 @@ export class PlatformAdminService {
     if (!client) throw new NotFoundException('Client not found.');
     if (
       client.status !== ClientStatus.DRAFT &&
-      client.status !== ClientStatus.ACTIVE
+      client.status !== ClientStatus.CREATED &&
+      client.status !== ClientStatus.ACTIVE &&
+      client.status !== ClientStatus.SUSPENDED
     ) {
       throw new BadRequestException(
         'Only draft or active clients can be edited.',
       );
     }
     return client;
+  }
+
+  private async assertClientPublishingAllowed(clientId: string) {
+    const client = await this.prisma.client.findUnique({ where: { id: clientId }, select: { status: true } });
+    if (!client) throw new NotFoundException('Client not found.');
+    if (client.status === ClientStatus.SUSPENDED) {
+      throw new BadRequestException('Reactivate the client before publishing configuration changes.');
+    }
   }
 
   private activeEditAuditData(

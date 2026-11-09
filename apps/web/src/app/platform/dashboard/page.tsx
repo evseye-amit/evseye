@@ -5372,11 +5372,22 @@ function ClientsView({
           item.companyCode ?? item.slug,
           item._count?.riders ?? 0,
           item.status ?? (item.isActive ? "ACTIVE" : "INACTIVE"),
-          item.status === "DRAFT" ? (
+          item.status === "DRAFT" || item.status === "CREATED" ? (
             <span className="sa-client-actions" key={item.id}>
               <button type="button" onClick={(event) => void editClient(item.id, event.currentTarget)}>
-                Edit & resume
+                {item.status === "DRAFT" ? "Edit & resume" : "Edit client"}
               </button>
+              {item.status === "CREATED" ? <>
+                <ClientConfigurationSettings
+                  clientId={item.id}
+                  clientName={item.name}
+                  request={request}
+                  token={token}
+                />
+                <ClientCommercialSettings clientId={item.id} clientName={item.name} section="pricing" />
+                <ClientDomainSettings clientId={item.id} clientName={item.name} />
+                <ClientWorkflowSettings clientId={item.id} clientName={item.name} />
+              </> : null}
             </span>
           ) : item.status === "PENDING_APPROVAL" ? (
             <span className="sa-client-actions" key={item.id}>
@@ -5411,6 +5422,15 @@ function ClientsView({
               <ClientDomainSettings clientId={item.id} clientName={item.name} />
               <ClientWorkflowSettings clientId={item.id} clientName={item.name} />
               <ClientPaymentSettings clientId={item.id} clientName={item.name} />
+            </span>
+          ) : item.status === "SUSPENDED" ? (
+            <span className="sa-client-actions" key={item.id}>
+              <button
+                type="button"
+                onClick={(event) => void editClient(item.id, event.currentTarget)}
+              >
+                Edit client
+              </button>
             </span>
           ) : (
             "—"
