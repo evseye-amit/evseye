@@ -39,7 +39,7 @@ describe('Onboarding submission welcome trigger', () => {
     slug: 'fleet',
     companyCode: 'fleet',
     status: 'DRAFT',
-    businessProfile: { businessType: 'PROPRIETORSHIP' },
+    businessProfile: { businessType: 'PRIVATE_LIMITED' },
     operationsProfile: {},
     billingProfile: {},
     agreement: {},
