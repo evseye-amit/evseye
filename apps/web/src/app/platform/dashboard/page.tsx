@@ -2071,12 +2071,14 @@ export default function SuperAdminDashboard() {
         uploadedDocuments: detail.documents ?? [],
       }));
       setClientDocumentFiles({});
-      const isActiveClient = detail.status === "ACTIVE";
+      // Any client that has already created its workspace must stay in edit
+      // mode. Only DRAFT clients may submit the workspace-creation action.
+      const isExistingClient = detail.status !== "DRAFT";
       setClientLogoFile(null);
-      setActiveClientEdit(isActiveClient);
+      setActiveClientEdit(isExistingClient);
       setShowClientForm(true);
       setClientStep(
-        isActiveClient
+        isExistingClient
           ? 1
           : !primary.id || !registered.id
             ? 2
@@ -4892,7 +4894,7 @@ function ClientsView({
       </section>
       <CatalogFormDialog
         open={showForm}
-        title={activeClientEdit ? "Edit active Client" : "Client onboarding"}
+        title={activeClientEdit ? "Edit client" : "Client onboarding"}
         description={
           activeClientEdit
             ? "Update the client configuration. Every update is recorded in the audit log."
@@ -4928,7 +4930,7 @@ function ClientsView({
             <button type="submit" disabled={loading}>
               {step === 6
                 ? activeClientEdit
-                  ? "Finish"
+                ? "Save changes"
                   : "Create client workspace"
                 : activeClientEdit
                   ? "Save changes"
