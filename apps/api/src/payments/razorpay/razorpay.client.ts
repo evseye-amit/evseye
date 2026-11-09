@@ -1,11 +1,13 @@
 import {
   BadRequestException,
   Injectable,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
+import { RazorpayConfigurationService } from './razorpay-configuration.service.js';
 
 export const orderSchema = z.object({
   id: z.string().regex(/^order_[A-Za-z0-9]+$/),
@@ -60,7 +62,7 @@ function decode<T>(schema: z.ZodType<T>, data: unknown): T {
 
 @Injectable()
 export class RazorpayClient {
-  constructor(private readonly config: ConfigService) {}
+  constructor(private readonly config: ConfigService, @Optional() private readonly clientConfiguration?: RazorpayConfigurationService) {}
   get keyId(): string {
     return this.config.get<string>('RAZORPAY_KEY_ID') ?? '';
   }
@@ -68,6 +70,7 @@ export class RazorpayClient {
     return this.config.get<string>('RAZORPAY_ENABLED') === 'true';
   }
   assertConfigured(clientId?: string, keyId?: string) {
+    if (clientId && this.clientConfiguration) return;
     const clients = (this.config.get<string>('RAZORPAY_CLIENT_IDS') ?? '')
       .split(',')
       .map((v) => v.trim());
@@ -93,26 +96,33 @@ export class RazorpayClient {
       this.config.getOrThrow<string>('RAZORPAY_KEY_SECRET'),
     );
   }
-  verifyWebhook(body: Buffer, signature: string) {
-    this.assertConfigured();
+  async verifyWebhook(body: Buffer, signature: string, clientId?: string) {
+    this.assertConfigured(clientId);
+    const secret = clientId && this.clientConfiguration
+      ? (await this.clientConfiguration.resolve(clientId)).webhookSecret
+      : this.config.getOrThrow<string>('RAZORPAY_WEBHOOK_SECRET');
     verifyRazorpaySignature(
       body,
       signature,
-      this.config.getOrThrow<string>('RAZORPAY_WEBHOOK_SECRET'),
+      secret,
     );
   }
   protected async request(
     path: string,
     method = 'GET',
     body?: unknown,
+    clientId?: string,
   ): Promise<unknown> {
     this.assertConfigured();
+    const credentials = clientId && this.clientConfiguration
+      ? await this.clientConfiguration.resolve(clientId)
+      : { keyId: this.keyId, keySecret: this.config.getOrThrow<string>('RAZORPAY_KEY_SECRET'), webhookSecret: this.config.getOrThrow<string>('RAZORPAY_WEBHOOK_SECRET') };
     try {
       const response = await fetch(`https://api.razorpay.com/v1/${path}`, {
         method,
         signal: AbortSignal.timeout(8000),
         headers: {
-          Authorization: `Basic ${Buffer.from(`${this.keyId}:${this.config.getOrThrow<string>('RAZORPAY_KEY_SECRET')}`).toString('base64')}`,
+          Authorization: `Basic ${Buffer.from(`${credentials.keyId}:${credentials.keySecret}`).toString('base64')}`,
           'Content-Type': 'application/json',
         },
         ...(body ? { body: JSON.stringify(body) } : {}),
@@ -133,6 +143,7 @@ export class RazorpayClient {
     currency: string,
     receipt: string,
     notes: Record<string, string>,
+    clientId?: string,
   ) {
     return decode(
       orderSchema,
@@ -142,36 +153,36 @@ export class RazorpayClient {
         receipt,
         notes,
         partial_payment: false,
-      }),
+      }, clientId),
     );
   }
-  async findOrders(receipt: string) {
+  async findOrders(receipt: string, clientId?: string) {
     return decode(
       z.object({ items: z.array(orderSchema) }),
       await this.request(
-        `orders?receipt=${encodeURIComponent(receipt)}&count=100`,
+        `orders?receipt=${encodeURIComponent(receipt)}&count=100`, 'GET', undefined, clientId,
       ),
     ).items.filter((v) => v.receipt === receipt);
   }
-  async fetchOrder(id: string) {
+  async fetchOrder(id: string, clientId?: string) {
     if (!/^order_[A-Za-z0-9]+$/.test(id))
       throw new BadRequestException('Invalid Razorpay order ID.');
-    return decode(orderSchema, await this.request(`orders/${id}`));
+    return decode(orderSchema, await this.request(`orders/${id}`, 'GET', undefined, clientId));
   }
-  async fetchPayment(id: string) {
+  async fetchPayment(id: string, clientId?: string) {
     if (!/^pay_[A-Za-z0-9]+$/.test(id))
       throw new BadRequestException('Invalid Razorpay payment ID.');
-    return decode(paymentSchema, await this.request(`payments/${id}`));
+    return decode(paymentSchema, await this.request(`payments/${id}`, 'GET', undefined, clientId));
   }
-  async orderPayments(id: string) {
+  async orderPayments(id: string, clientId?: string) {
     if (!/^order_[A-Za-z0-9]+$/.test(id))
       throw new BadRequestException('Invalid Razorpay order ID.');
     return decode(
       z.object({ items: z.array(paymentSchema) }),
-      await this.request(`orders/${id}/payments`),
+      await this.request(`orders/${id}/payments`, 'GET', undefined, clientId),
     ).items;
   }
-  async refund(paymentId: string, amount: number, receipt: string) {
+  async refund(paymentId: string, amount: number, receipt: string, clientId?: string) {
     return decode(
       refundSchema,
       await this.request(`payments/${paymentId}/refund`, 'POST', {
@@ -181,19 +192,19 @@ export class RazorpayClient {
           reason: 'Duplicate or cancelled deployment payment',
           captureId: receipt,
         },
-      }),
+      }, clientId),
     );
   }
-  async fetchRefund(id: string) {
+  async fetchRefund(id: string, clientId?: string) {
     return decode(
       refundSchema,
-      await this.request(`refunds/${encodeURIComponent(id)}`),
+      await this.request(`refunds/${encodeURIComponent(id)}`, 'GET', undefined, clientId),
     );
   }
-  async findRefunds(paymentId: string) {
+  async findRefunds(paymentId: string, clientId?: string) {
     return decode(
       z.object({ items: z.array(refundSchema) }),
-      await this.request(`payments/${paymentId}/refunds?count=100`),
+      await this.request(`payments/${paymentId}/refunds?count=100`, 'GET', undefined, clientId),
     ).items;
   }
 }

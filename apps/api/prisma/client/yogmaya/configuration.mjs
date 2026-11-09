@@ -3,6 +3,7 @@ export const yogmayaClientConfiguration = {
   "packageCode": "BASIC",
   "featureRevisionVersion": 1,
   "workflowRevisionVersion": 1,
+  "workflowOverrides": [],
   "features": [
     {
       "featureCode": "CAPTURE_EMAIL",

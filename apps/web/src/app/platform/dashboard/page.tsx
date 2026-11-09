@@ -31,6 +31,7 @@ import Link from "next/link";
 import { CatalogTranslationFields, completeCatalogTranslations, type CatalogTranslations } from "./catalog-translation-fields";
 import { ClientCommercialSettings, type ClientCommercialSection } from "../../components/client-commercial-settings";
 import { ClientWorkflowSettings } from "../../components/client-workflow-settings";
+import { ClientPaymentSettings } from "../../components/client-payment-settings";
 import { ClientDomainSettings } from "../../components/client-domain-settings";
 import { ClientLogoUpload } from "../../components/client-logo-upload";
 import { SmsDeliveryPanel } from "../../components/sms-delivery-panel";
@@ -5409,6 +5410,7 @@ function ClientsView({
               <ClientCommercialSettings clientId={item.id} clientName={item.name} section="pricing" />
               <ClientDomainSettings clientId={item.id} clientName={item.name} />
               <ClientWorkflowSettings clientId={item.id} clientName={item.name} />
+              <ClientPaymentSettings clientId={item.id} clientName={item.name} />
             </span>
           ) : (
             "—"

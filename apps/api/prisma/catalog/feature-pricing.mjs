@@ -1,4 +1,4 @@
-// Exported from the local database; feature and package codes keep links portable.
+// Exported from local database after collapsing superseded pricing rows into the current v1 catalog.
 export const featurePricingCatalog = [
   {"currency":"INR","isActive":true,"metadata":null,"costPrice":0.2,"salePrice":0.4,"billingUnit":"UPLOAD","effectiveTo":null,"featureCode":"AADHAR_PROOF_DOCUMENT","effectiveFrom":"2026-09-01T00:00:00"},
   {"currency":"INR","isActive":true,"metadata":null,"costPrice":1000,"salePrice":1500,"billingUnit":"LIFE_TIME","effectiveTo":null,"featureCode":"ACCEPT_RIDER_PRIVACY_CONSENT","effectiveFrom":"2026-09-01T00:00:00"},

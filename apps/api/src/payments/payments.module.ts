@@ -6,6 +6,7 @@ import { AllocationsModule } from '../allocations/allocations.module.js';
 import { CommonPaymentController } from './common-payment.controller.js';
 import { CommonPaymentService } from './common-payment.service.js';
 import { RazorpayPenaltyModule } from './razorpay/razorpay-penalty.module.js';
+import { RazorpayConfigurationService } from './razorpay/razorpay-configuration.service.js';
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Environment } from '../config/environment.js';
@@ -72,7 +73,7 @@ import {
     ProviderSettlementController,
   ],
   providers: [
-    RazorpayRecurringClient, RazorpayAutoPayProvider, RazorpayAutoPayWorker, AutoPayProviderRouter,
+    RazorpayRecurringClient, RazorpayAutoPayProvider, RazorpayAutoPayWorker, AutoPayProviderRouter, RazorpayConfigurationService,
     CommonPaymentService,
     CashfreeHttpClient,
     CashfreePaymentProvider,

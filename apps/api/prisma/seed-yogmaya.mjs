@@ -216,7 +216,12 @@ const clientFeatureSnapshot = yogmayaClientConfiguration.features.map((item) => 
 if (!(await prisma.clientFeatureRevision.findUnique({ where: { subscriptionId_version: { subscriptionId: yogmayaSubscription.id, version: yogmayaClientConfiguration.featureRevisionVersion } } }))) {
   await prisma.clientFeatureRevision.create({ data: { subscriptionId: yogmayaSubscription.id, version: yogmayaClientConfiguration.featureRevisionVersion, snapshot: clientFeatureSnapshot, contentHash: contentHash(clientFeatureSnapshot), publishedAt: new Date() } });
 }
-const workflowSnapshot = { subscriptionId: yogmayaSubscription.id, overrides: yogmayaClientConfiguration.features.filter((item) => item.source !== 'PACKAGE' || !item.enabled).map((item) => ({ featureCode: item.featureCode, enabled: item.enabled, configuration: item.configuration })) };
+const workflowSnapshot = {
+  subscriptionId: yogmayaSubscription.id,
+  overrides: yogmayaClientConfiguration.workflowOverrides ?? yogmayaClientConfiguration.features
+    .filter((item) => item.source !== 'PACKAGE' || !item.enabled)
+    .map((item) => ({ featureCode: item.featureCode, enabled: item.enabled, configuration: item.configuration })),
+};
 if (!(await prisma.clientWorkflowRevision.findUnique({ where: { subscriptionId_version: { subscriptionId: yogmayaSubscription.id, version: yogmayaClientConfiguration.workflowRevisionVersion } } }))) {
   await prisma.clientWorkflowRevision.create({ data: { subscriptionId: yogmayaSubscription.id, version: yogmayaClientConfiguration.workflowRevisionVersion, snapshot: workflowSnapshot, contentHash: contentHash(workflowSnapshot), publishedAt: new Date() } });
 }

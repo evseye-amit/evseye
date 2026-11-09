@@ -925,6 +925,7 @@ model Client {
   documents                   ClientDocument[]
   agreement                   ClientAgreement?
   subscriptions               ClientSubscription[]
+  paymentProviders            ClientPaymentProvider[]
   features                    ClientFeature[]
   pricingAdjustments          ClientPricingAdjustment[]
   featureAddOnPurchases       ClientFeatureAddOnPurchase[]
@@ -967,6 +968,25 @@ model Client {
   paymentAttempts             PaymentAttempt[]
   createdAt                   DateTime                           @default(now())
   updatedAt                   DateTime                           @updatedAt
+}
+
+model ClientPaymentProvider {
+  id                String   @id @default(uuid())
+  clientId          String
+  client            Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  provider          String   @default("RAZORPAY") @db.VarChar(32)
+  environment       String   @default("PRODUCTION") @db.VarChar(16)
+  merchantAccountId String?  @db.VarChar(128)
+  keyId             String   @db.VarChar(128)
+  secretReference   String   @db.VarChar(512)
+  status            String   @default("ACTIVE") @db.VarChar(32)
+  validFrom         DateTime @default(now())
+  validUntil        DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([clientId, provider, environment])
+  @@index([clientId, provider, status])
 }
 
 model ClientSettlementPolicy {
