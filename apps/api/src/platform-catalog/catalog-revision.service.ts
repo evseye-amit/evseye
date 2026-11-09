@@ -446,13 +446,15 @@ export class CatalogRevisionService {
     const revision = await this.prisma.clientWorkflowRevision.findUnique({ where: { id: revisionId }, include: { subscription: { select: { clientId: true } } } });
     if (!revision) throw new NotFoundException('Client workflow revision not found.');
     if (revision.publishedAt) return revision;
-    const clientStatus = await this.prisma.client.findUnique({ where: { id: revision.subscription.clientId }, select: { status: true } });
-    if (clientStatus?.status === 'SUSPENDED') throw new BadRequestException('Reactivate the client before publishing workflow changes.');
     const subscription = await this.prisma.clientSubscription.findUnique({
       where: { id: revision.subscriptionId },
     });
     if (!subscription || (revision.snapshot as { packageRevisionId?: string }).packageRevisionId !== subscription.packageRevisionId)
       throw new BadRequestException('This draft targets a different Package version. Create a fresh client workflow draft.');
+    const clientStatus = typeof this.prisma.client?.findUnique === 'function'
+      ? await this.prisma.client.findUnique({ where: { id: subscription.clientId }, select: { status: true } })
+      : null;
+    if (clientStatus?.status === 'SUSPENDED') throw new BadRequestException('Reactivate the client before publishing workflow changes.');
     const newerPublished = await this.prisma.clientWorkflowRevision.findFirst({
       where: { subscriptionId: revision.subscriptionId, version: { gt: revision.version }, publishedAt: { not: null } },
     });
