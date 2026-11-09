@@ -11,7 +11,10 @@ export class SmsQuotaService {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${clientId + ':SEND_OTP_VIA_SMS'}))`;
       const now = new Date();
       const subscription = await tx.clientSubscription.findFirst({
-        where: { clientId, status: 'ACTIVE', startDate: { lte: now }, OR: [{ endDate: null }, { endDate: { gt: now } }] },
+        // Client admins must be able to receive their first login OTP while
+        // onboarding is still pending. Runtime usage remains ACTIVE-only in
+        // the callers that require an active subscription.
+        where: { clientId, status: { in: ['ACTIVE', 'PENDING'] }, startDate: { lte: now }, OR: [{ endDate: null }, { endDate: { gt: now } }] },
         include: { packageRevision: true },
       });
       if (!subscription) throw new ConflictException('An active subscription is required for SMS.');
