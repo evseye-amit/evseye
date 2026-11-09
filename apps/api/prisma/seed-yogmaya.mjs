@@ -195,8 +195,42 @@ for (const clientSeed of clientCatalog) {
 }
 
 const yogmaya = await prisma.client.findUniqueOrThrow({ where: { slug: 'yogmaya' } });
+// Payment provider metadata is safe to seed; the actual Razorpay secret stays
+// in the environment/secret store and is referenced by name only.
+await prisma.clientPaymentProvider.upsert({
+  where: {
+    clientId_provider_environment: {
+      clientId: yogmaya.id,
+      provider: 'RAZORPAY',
+      environment: 'TEST',
+    },
+  },
+  create: {
+    clientId: yogmaya.id,
+    provider: 'RAZORPAY',
+    environment: 'TEST',
+    keyId: 'rzp_test_TrasfgOFEQNV7J',
+    secretReference: 'env:YOGMAYA_RAZORPAY_SECRETS',
+    status: 'ACTIVE',
+  },
+  update: {
+    keyId: 'rzp_test_TrasfgOFEQNV7J',
+    secretReference: 'env:YOGMAYA_RAZORPAY_SECRETS',
+    status: 'ACTIVE',
+    merchantAccountId: null,
+  },
+});
 const yogmayaSubscription = await prisma.clientSubscription.findFirstOrThrow({
   where: { clientId: yogmaya.id, package: { code: yogmayaClientConfiguration.packageCode } },
+});
+// The Yogmaya catalog is a development snapshot. Reconcile historical client
+// feature revisions so a fresh or repeat seed leaves only the configured
+// published revision rather than retaining superseded versions or drafts.
+await prisma.clientFeatureRevision.deleteMany({
+  where: {
+    subscriptionId: yogmayaSubscription.id,
+    version: { not: yogmayaClientConfiguration.featureRevisionVersion },
+  },
 });
 const featureRecords = await prisma.feature.findMany({
   where: { code: { in: yogmayaClientConfiguration.features.map((item) => item.featureCode) } },
@@ -216,7 +250,12 @@ const clientFeatureSnapshot = yogmayaClientConfiguration.features.map((item) => 
 if (!(await prisma.clientFeatureRevision.findUnique({ where: { subscriptionId_version: { subscriptionId: yogmayaSubscription.id, version: yogmayaClientConfiguration.featureRevisionVersion } } }))) {
   await prisma.clientFeatureRevision.create({ data: { subscriptionId: yogmayaSubscription.id, version: yogmayaClientConfiguration.featureRevisionVersion, snapshot: clientFeatureSnapshot, contentHash: contentHash(clientFeatureSnapshot), publishedAt: new Date() } });
 }
-const workflowSnapshot = { subscriptionId: yogmayaSubscription.id, overrides: yogmayaClientConfiguration.features.filter((item) => item.source !== 'PACKAGE' || !item.enabled).map((item) => ({ featureCode: item.featureCode, enabled: item.enabled, configuration: item.configuration })) };
+const workflowSnapshot = {
+  subscriptionId: yogmayaSubscription.id,
+  overrides: yogmayaClientConfiguration.workflowOverrides ?? yogmayaClientConfiguration.features
+    .filter((item) => item.source !== 'PACKAGE' || !item.enabled)
+    .map((item) => ({ featureCode: item.featureCode, enabled: item.enabled, configuration: item.configuration })),
+};
 if (!(await prisma.clientWorkflowRevision.findUnique({ where: { subscriptionId_version: { subscriptionId: yogmayaSubscription.id, version: yogmayaClientConfiguration.workflowRevisionVersion } } }))) {
   await prisma.clientWorkflowRevision.create({ data: { subscriptionId: yogmayaSubscription.id, version: yogmayaClientConfiguration.workflowRevisionVersion, snapshot: workflowSnapshot, contentHash: contentHash(workflowSnapshot), publishedAt: new Date() } });
 }

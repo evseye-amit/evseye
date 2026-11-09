@@ -161,6 +161,7 @@ const environmentSchema = z.object({
   AUTOPAY_PROVIDER: z.enum(['configured', 'cashfree', 'razorpay', 'mock', 'disabled']).default('configured'),
   RAZORPAY_AUTOPAY_ENABLED: z.enum(['true', 'false']).default('false'),
   RAZORPAY_ENABLED: z.enum(['true', 'false']).default('false'),
+  RAZORPAY_ENVIRONMENT: z.enum(['TEST', 'PRODUCTION']).default('TEST'),
   RAZORPAY_KEY_ID: z.string().optional(),
   RAZORPAY_KEY_SECRET: z.string().optional(),
   RAZORPAY_WEBHOOK_SECRET: z.string().optional(),

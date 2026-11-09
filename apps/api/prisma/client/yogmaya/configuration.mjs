@@ -1,8 +1,9 @@
-// Exported from local Yogmaya database on 2026-11-07.
+// Exported from local Yogmaya database on 2026-11-09.
 export const yogmayaClientConfiguration = {
   "packageCode": "BASIC",
   "featureRevisionVersion": 1,
   "workflowRevisionVersion": 1,
+  "workflowOverrides": [],
   "features": [
     {
       "featureCode": "CAPTURE_EMAIL",

@@ -205,6 +205,7 @@ export class RazorpayPenaltyService {
               order.currency,
               order.id,
               { purpose },
+              clientId,
             ),
           );
         } catch (error) {
@@ -226,7 +227,7 @@ export class RazorpayPenaltyService {
           throw new ConflictException(
             'A payment order is being created. Please retry shortly.',
           );
-        const matches = await this.gateway.findOrders(order.id);
+        const matches = await this.gateway.findOrders(order.id, clientId);
         if (matches.length !== 1)
           throw new ConflictException(
             'Payment order needs confirmation. Do not pay again; contact support if this persists.',
@@ -297,13 +298,13 @@ export class RazorpayPenaltyService {
       body.razorpayPaymentId,
       body.razorpaySignature,
     );
-    const payment = await this.gateway.fetchPayment(body.razorpayPaymentId);
+    const payment = await this.gateway.fetchPayment(body.razorpayPaymentId, clientId);
     if (payment.id !== body.razorpayPaymentId)
       throw new ConflictException('PROVIDER_PAYMENT_IDENTITY_CONFLICT');
     await this.observe(order, payment);
     const retryAvailable =
       payment.status === 'failed' &&
-      (await this.gateway.orderPayments(order.providerOrderId!)).every(
+      (await this.gateway.orderPayments(order.providerOrderId!, clientId)).every(
         (p) => p.status === 'failed',
       );
     const current = await this.db.paymentCollectionRequest.findUniqueOrThrow({
@@ -435,7 +436,7 @@ export class RazorpayPenaltyService {
         clientId: order.collection.clientId,
       },
     });
-    const payment = await this.gateway.fetchPayment(paymentId);
+    const payment = await this.gateway.fetchPayment(paymentId, order.collection.clientId);
     if (payment.id !== paymentId)
       throw new ConflictException('PROVIDER_PAYMENT_IDENTITY_CONFLICT');
     await this.observe(order, payment);
@@ -454,13 +455,13 @@ export class RazorpayPenaltyService {
     this.gateway.assertConfigured(clientId, order.keyId);
     if (!order.providerOrderId) {
       if (Date.now() - order.createdAt.getTime() < 30000) return;
-      const matches = await this.gateway.findOrders(order.id);
+      const matches = await this.gateway.findOrders(order.id, clientId);
       if (matches.length !== 1)
         throw new ConflictException('Payment order requires support review.');
       order = await this.bind(order, matches[0]);
     }
     for (const payment of await this.gateway.orderPayments(
-      order.providerOrderId!,
+      order.providerOrderId!, clientId,
     ))
       await this.observe(order, payment);
   }
@@ -481,12 +482,12 @@ export class RazorpayPenaltyService {
         this.gateway.assertConfigured(order.collection.clientId, order.keyId);
         if (!order.providerOrderId) {
           if (Date.now() - order.createdAt.getTime() < 30000) continue;
-          const matches = await this.gateway.findOrders(order.id);
+          const matches = await this.gateway.findOrders(order.id, order.collection.clientId);
           if (matches.length !== 1) continue;
           order = { ...order, ...(await this.bind(order, matches[0])) };
         }
         for (const payment of await this.gateway.orderPayments(
-          order.providerOrderId!,
+          order.providerOrderId!, order.collection.clientId,
         ))
           await this.observe(order, payment);
       } catch {

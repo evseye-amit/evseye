@@ -7,9 +7,10 @@ import { PlatformAdminController } from './platform-admin.controller.js';
 import { PlatformAdminService } from './platform-admin.service.js';
 import { CommercialModule } from '../commercial/commercial.module.js';
 import { ClientOnboardingModule } from '../client-onboarding/client-onboarding.module.js';
+import { RazorpayPenaltyModule } from '../payments/razorpay/razorpay-penalty.module.js';
 
 @Module({
-  imports: [AuthModule, AuditModule, MediaModule, CommercialModule, EmailModule, ClientOnboardingModule],
+  imports: [AuthModule, AuditModule, MediaModule, CommercialModule, EmailModule, ClientOnboardingModule, RazorpayPenaltyModule],
   controllers: [PlatformAdminController],
   providers: [PlatformAdminService],
 })

@@ -55,9 +55,47 @@ import { ClientOnboardingReadinessService } from '../client-onboarding/client-on
 import type { RejectClientDto } from './dto/reject-client.dto.js';
 import type { UpdateClientBrandingDto } from './dto/client-branding.dto.js';
 import type { UpdateClientCommercialsDto } from './dto/client-commercials.dto.js';
+import type { UpsertClientPaymentProviderDto } from './dto/client-payment-provider.dto.js';
+import { RazorpayConfigurationService } from '../payments/razorpay/razorpay-configuration.service.js';
 
 @Injectable()
 export class PlatformAdminService {
+  async listClientPaymentProviders(clientId: string) {
+    await this.prisma.client.findUniqueOrThrow({ where: { id: clientId }, select: { id: true } });
+    const providers = await this.prisma.clientPaymentProvider.findMany({
+      where: { clientId },
+      orderBy: [{ provider: 'asc' }, { environment: 'asc' }],
+      select: { id: true, provider: true, environment: true, merchantAccountId: true, keyId: true, secretReference: true, status: true, validFrom: true, validUntil: true, createdAt: true, updatedAt: true },
+    });
+    return Promise.all(providers.map(async (provider) => {
+      let resolved = false;
+      if (provider.status === 'ACTIVE') {
+        try {
+          if (this.razorpayConfiguration) await this.razorpayConfiguration.resolve(clientId, provider.environment);
+          resolved = true;
+        } catch { /* keep the health result false without exposing secrets */ }
+      }
+      return { ...provider, resolved };
+    }));
+  }
+
+  async upsertClientPaymentProvider(clientId: string, dto: UpsertClientPaymentProviderDto, actorId: string) {
+    await this.prisma.client.findUniqueOrThrow({ where: { id: clientId }, select: { id: true } });
+    if (!dto.secretReference.startsWith('env:')) {
+      throw new UnprocessableEntityException('Payment secrets must be stored in the server secret store and referenced with env:<name>.');
+    }
+    if (!/^env:[A-Z][A-Z0-9_]{2,127}$/.test(dto.secretReference) || !/^rzp_(test|live)_[A-Za-z0-9]+$/.test(dto.keyId)) {
+      throw new UnprocessableEntityException('Provide a valid Razorpay key ID and an uppercase environment secret reference.');
+    }
+    const record = await this.prisma.clientPaymentProvider.upsert({
+      where: { clientId_provider_environment: { clientId, provider: dto.provider, environment: dto.environment } },
+      create: { clientId, provider: dto.provider, environment: dto.environment, keyId: dto.keyId, secretReference: dto.secretReference, merchantAccountId: dto.merchantAccountId, status: dto.status ?? 'ACTIVE' },
+      update: { keyId: dto.keyId, secretReference: dto.secretReference, merchantAccountId: dto.merchantAccountId, status: dto.status ?? 'ACTIVE' },
+      select: { id: true, provider: true, environment: true, merchantAccountId: true, keyId: true, status: true, validFrom: true, validUntil: true, updatedAt: true },
+    });
+    await this.audit.record({ actorId, action: 'CLIENT_PAYMENT_PROVIDER_UPDATED', entityType: 'ClientPaymentProvider', entityId: record.id, newData: { clientId, provider: record.provider, environment: record.environment, keyId: record.keyId, merchantAccountId: record.merchantAccountId, status: record.status } });
+    return record;
+  }
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -65,6 +103,7 @@ export class PlatformAdminService {
     private readonly welcome: ClientWelcomeService,
     private readonly commercial?: CommercialService,
     private readonly readiness?: ClientOnboardingReadinessService,
+    private readonly razorpayConfiguration?: RazorpayConfigurationService,
   ) {}
 
   async createClientLogoUpload(clientId: string, dto: ClientLogoUploadDto) {
@@ -927,20 +966,31 @@ export class PlatformAdminService {
     const client = await this.prisma.client.findUnique({ where: { id: clientId } });
     if (!client) throw new NotFoundException('Client not found.');
     const subscription = await this.requireClientSubscription(clientId);
-    const entitlements = await this.clientEntitlements(clientId);
-    const snapshot = entitlements.packageFeatures.map((packageFeature) => {
-      const override = entitlements.clientFeatures.find((item) => item.featureId === packageFeature.featureId);
-      return {
-        featureId: packageFeature.featureId,
-        enabled: override?.enabled ?? packageFeature.isIncluded,
-        configuration: override?.configuration ?? packageFeature.feature.configuration ?? null,
-        source: override?.source ?? 'PACKAGE',
-      };
-    });
-    const contentHash = createHash('sha256').update(JSON.stringify(snapshot)).digest('hex');
     const latest = await this.prisma.clientFeatureRevision.findFirst({
       where: { subscriptionId: subscription.id }, orderBy: { version: 'desc' },
     });
+    const published = latest?.publishedAt
+      ? latest
+      : await this.prisma.clientFeatureRevision.findFirst({
+          where: { subscriptionId: subscription.id, publishedAt: { not: null } },
+          orderBy: { version: 'desc' },
+        });
+    let snapshot: unknown[];
+    if (published && Array.isArray(published.snapshot)) {
+      snapshot = published.snapshot as unknown[];
+    } else {
+      const entitlements = await this.clientEntitlements(clientId);
+      snapshot = entitlements.packageFeatures.map((packageFeature) => {
+        const override = entitlements.clientFeatures.find((item) => item.featureId === packageFeature.featureId);
+        return {
+          featureId: packageFeature.featureId,
+          enabled: override?.enabled ?? packageFeature.isIncluded,
+          configuration: override?.configuration ?? packageFeature.feature.configuration ?? null,
+          source: override?.source ?? 'PACKAGE',
+        };
+      });
+    }
+    const contentHash = createHash('sha256').update(JSON.stringify(snapshot)).digest('hex');
     const draft = latest && !latest.publishedAt
       ? await this.prisma.clientFeatureRevision.update({ where: { id: latest.id }, data: { snapshot, contentHash } })
       : await this.prisma.clientFeatureRevision.create({

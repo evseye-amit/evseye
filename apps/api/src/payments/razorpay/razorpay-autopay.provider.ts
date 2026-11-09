@@ -169,7 +169,7 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
         sms_notify: true,
         email_notify: true,
         notes: { purpose: 'AUTOPAY_AUTHORIZATION', mandateId: m.id },
-      });
+      }, m.clientId);
       await this.bindRegistration(m, remote);
       return this.fetchMandate(m.providerMandateId);
     } catch (error) {
@@ -227,13 +227,14 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
       const matches = await this.gateway.findRegistrations(
         m.id,
         m.providerCreateClaimedAt,
+        m.clientId,
       );
       if (matches.length !== 1)
         return this.result(m, 'UNKNOWN', 'REGISTRATION_CREATE_REQUIRES_REVIEW');
       m = await this.bindRegistration(m, matches[0]);
     }
     const registration = await this.gateway.fetchRegistration(
-      m.providerRegistrationId!,
+      m.providerRegistrationId!, m.clientId,
     );
     m = await this.bindRegistration(m, registration);
     if (registration.status === 'cancelled')
@@ -243,7 +244,7 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
     if (!registration.payment_id || !registration.order_id)
       return this.result(m, 'AUTHORIZATION_PENDING', 'REGISTRATION_PENDING');
     const payment = await this.gateway.recurringPayment(
-      registration.payment_id,
+      registration.payment_id, m.clientId,
     );
     if (
       payment.id !== registration.payment_id ||
@@ -269,6 +270,7 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
     const token = await this.gateway.fetchToken(
       registration.customer_id,
       payment.token_id,
+      m.clientId,
     );
     if (
       token.id !== payment.token_id ||
@@ -323,16 +325,16 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
     if (m.providerTokenId && m.providerCustomerId) {
       const token = await this.gateway.fetchToken(
         m.providerCustomerId,
-        m.providerTokenId,
+        m.providerTokenId, m.clientId,
       );
       if (token.recurring_details.status !== 'cancelled')
-        await this.gateway.cancelToken(m.providerCustomerId, m.providerTokenId);
+        await this.gateway.cancelToken(m.providerCustomerId, m.providerTokenId, m.clientId);
     } else if (m.providerRegistrationId) {
       const registration = await this.gateway.fetchRegistration(
-        m.providerRegistrationId,
+        m.providerRegistrationId, m.clientId,
       );
       if (!['cancelled', 'expired'].includes(registration.status))
-        await this.gateway.cancelRegistration(m.providerRegistrationId);
+        await this.gateway.cancelRegistration(m.providerRegistrationId, m.clientId);
     } else
       throw new ConflictException(
         'Registration creation is uncertain. Reconcile it before cancellation.',
@@ -464,6 +466,7 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
               t.id,
               m.providerTokenId,
               t.scheduledAt,
+              m.clientId,
             ),
           );
         } else {
@@ -472,7 +475,7 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
             Date.now() - t.providerOrderClaimedAt.getTime() < 30000
           )
             return this.paymentResult(m, t, 'UNKNOWN', 'ORDER_CREATE_PENDING');
-          const matches = await this.gateway.findOrders(t.id);
+          const matches = await this.gateway.findOrders(t.id, m.clientId);
           if (matches.length !== 1)
             return this.paymentResult(
               m,
@@ -505,7 +508,7 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
     });
     if (!t.providerOrderId) {
       if (t.providerOrderClaimedAt) {
-        const matches = await this.gateway.findOrders(t.id);
+        const matches = await this.gateway.findOrders(t.id, m.clientId);
         if (matches.length !== 1)
           return this.paymentResult(
             m,
@@ -531,13 +534,13 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
         });
     }
     const remotes = await this.gateway.recurringOrderPayments(
-      t.providerOrderId!,
+      t.providerOrderId!, m.clientId,
     );
     if (
       t.gatewayPaymentId &&
       !remotes.some((payment) => payment.id === t.gatewayPaymentId)
     ) {
-      const payment = await this.gateway.recurringPayment(t.gatewayPaymentId);
+      const payment = await this.gateway.recurringPayment(t.gatewayPaymentId, m.clientId);
       if (payment.id !== t.gatewayPaymentId)
         throw new ConflictException(
           'Razorpay recurring payment identity mismatch.',
@@ -709,6 +712,7 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
         amount: paise(t.amount),
         email: m.providerCustomerEmail!,
         contact: rider.mobile,
+        clientId: m.clientId,
       });
       await this.db.paymentTransaction.update({
         where: { id: t.id },

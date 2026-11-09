@@ -181,8 +181,9 @@ export class RazorpayDeploymentService {
                 clientId,
                 attemptId: order.id,
               },
+              clientId,
             )
-          : (await this.gateway.findOrders(order.id))[0];
+          : (await this.gateway.findOrders(order.id, clientId))[0];
       } catch (error) {
         if (fresh && error instanceof RazorpayProviderError && error.definitive)
           await this.db.razorpayDeploymentOrder.update({
@@ -279,7 +280,7 @@ export class RazorpayDeploymentService {
       input.razorpayPaymentId,
       input.razorpaySignature,
     );
-    const remote = await this.gateway.fetchPayment(input.razorpayPaymentId);
+    const remote = await this.gateway.fetchPayment(input.razorpayPaymentId, clientId);
     this.assertPayment(order, remote);
     if (['captured', 'refunded'].includes(remote.status))
       await this.settle(order, remote);
@@ -490,7 +491,6 @@ export class RazorpayDeploymentService {
     });
   }
   async webhook(raw: Buffer, signature: string, eventId: string) {
-    this.gateway.verifyWebhook(raw, signature);
     if (!eventId || eventId.length > 128)
       throw new BadRequestException('A valid Razorpay event ID is required.');
     let input: z.infer<typeof hook>;
@@ -499,6 +499,14 @@ export class RazorpayDeploymentService {
     } catch {
       throw new BadRequestException('Invalid Razorpay webhook payload.');
     }
+    const providerOrderId = input.payload.payment?.entity.order_id ?? input.payload.order?.entity.id;
+    const deployment = providerOrderId
+      ? await this.db.razorpayDeploymentOrder.findUnique({ where: { providerOrderId }, select: { clientId: true } })
+      : null;
+    const penalty = !deployment && providerOrderId
+      ? await this.db.razorpayPenaltyOrder.findUnique({ where: { providerOrderId }, include: { collection: { select: { clientId: true } } } })
+      : null;
+    await this.gateway.verifyWebhook(raw, signature, deployment?.clientId ?? penalty?.collection.clientId);
     const hash = createHash('sha256').update(raw).digest('hex');
     await this.db.paymentProviderEvent.createMany({
       skipDuplicates: true,
@@ -559,7 +567,7 @@ export class RazorpayDeploymentService {
           where: { providerOrderId: entity.orderId },
         });
         if (!order) {
-          const remote = await this.gateway.fetchOrder(entity.orderId);
+          const remote = await this.gateway.fetchOrder(entity.orderId, undefined);
           const pending = remote.receipt
             ? await this.db.razorpayDeploymentOrder.findUnique({
                 where: { id: remote.receipt },
@@ -578,7 +586,7 @@ export class RazorpayDeploymentService {
             where: { id: event.id },
             data: { deploymentOrderId: order.id, clientId: order.clientId },
           });
-          const payment = await this.gateway.fetchPayment(entity.paymentId);
+          const payment = await this.gateway.fetchPayment(entity.paymentId, order.clientId);
           this.assertPayment(order, payment);
           if (['captured', 'refunded'].includes(payment.status))
             await this.settle(order, payment);
@@ -612,12 +620,12 @@ export class RazorpayDeploymentService {
     this.gateway.assertConfigured(order.clientId, order.keyId);
     if (!order.providerOrderId) {
       if (Date.now() - order.createdAt.getTime() < 30000) return;
-      const matches = await this.gateway.findOrders(order.id);
+      const matches = await this.gateway.findOrders(order.id, order.clientId);
       if (!matches.length) return; // Ambiguous create: never blindly issue another POST.
       order = await this.bindOrder(order, matches[0]);
     }
     for (const payment of await this.gateway.orderPayments(
-      order.providerOrderId!,
+      order.providerOrderId!, order.clientId,
     ))
       if (['captured', 'refunded'].includes(payment.status))
         await this.settle(order, payment);
@@ -634,10 +642,10 @@ export class RazorpayDeploymentService {
     this.gateway.assertConfigured(capture.order.clientId, capture.order.keyId);
     let remote;
     if (capture.providerRefundId)
-      remote = await this.gateway.fetchRefund(capture.providerRefundId);
+      remote = await this.gateway.fetchRefund(capture.providerRefundId, capture.order.clientId);
     else if (capture.status === 'REFUND_PENDING') {
       const payment = await this.gateway.fetchPayment(
-        capture.providerPaymentId,
+        capture.providerPaymentId, capture.order.clientId,
       );
       if (payment.amount_refunded !== 0) {
         await this.db.razorpayDeploymentCapture.update({
@@ -658,7 +666,7 @@ export class RazorpayDeploymentService {
         remote = await this.gateway.refund(
           capture.providerPaymentId,
           Number(capture.amountPaise),
-          capture.id,
+          capture.id, capture.order.clientId,
         );
       } catch (error) {
         if (error instanceof RazorpayProviderError && error.definitive)
@@ -672,7 +680,7 @@ export class RazorpayDeploymentService {
         throw error;
       }
     } else
-      remote = (await this.gateway.findRefunds(capture.providerPaymentId)).find(
+      remote = (await this.gateway.findRefunds(capture.providerPaymentId, capture.order.clientId)).find(
         (r) => r.receipt === capture.id,
       );
     if (!remote) {

@@ -106,6 +106,7 @@ export function ClientDomainSettings({
         <ClientFormDialog
           title={`Branding — ${clientName}`}
           wide
+          surfaceClassName="client-branding-dialog"
           busy={busy}
           error={error}
           onClose={() => setOpen(false)}

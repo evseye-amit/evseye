@@ -41,6 +41,23 @@ describe('CatalogRevisionService', () => {
       overrides: [{ featureId: 'intro', enabled: false, configuration: {} }],
     })).resolves.toMatchObject({ id: 'draft' });
   });
+  it('rejects duplicate display orders in a client workflow draft', async () => {
+    const prisma = {
+      clientSubscription: { findUnique: vi.fn().mockResolvedValue({ clientId: 'client', packageRevisionId: 'pkg-r1',
+        packageRevision: { publishedAt: new Date(), snapshot: { features: [
+          { featureId: 'one', feature: { code: 'ONE' } },
+          { featureId: 'two', feature: { code: 'TWO' } },
+        ] } } }) },
+      clientWorkflowRevision: { findFirst: vi.fn(), create: vi.fn() },
+    };
+    await expect(new CatalogRevisionService(prisma as never).draftClientWorkflow('sub', {
+      overrides: [
+        { featureId: 'one', displayOrder: 1, configuration: {} },
+        { featureId: 'two', displayOrder: 1, configuration: {} },
+      ],
+    })).rejects.toThrow('display orders must be unique');
+    expect(prisma.clientWorkflowRevision.create).not.toHaveBeenCalled();
+  });
   it('requires published privacy consent before publishing a workflow that enables it', async () => {
     const prisma = {
       clientWorkflowRevision: { findUnique: vi.fn().mockResolvedValue({ id: 'r', subscriptionId: 'sub', version: 1,
@@ -55,6 +72,49 @@ describe('CatalogRevisionService', () => {
     };
     await expect(new CatalogRevisionService(prisma as never).publishClientWorkflow('r')).rejects.toThrow('hi PRIVACY_CONSENT');
     expect(prisma.clientWorkflowRevision.update).not.toHaveBeenCalled();
+  });
+
+  it('runs the complete workflow lifecycle without creating duplicate drafts', async () => {
+    const subscription = { id: 'sub', clientId: 'client', packageRevisionId: 'pkg-r1',
+      packageRevision: { publishedAt: new Date(), snapshot: { features: [
+        { featureId: 'intro', feature: { code: 'SHOW_APP_INTRO' } },
+      ] } } };
+    const revisions: Array<Record<string, unknown>> = [];
+    const prisma = {
+      clientSubscription: { findUnique: vi.fn().mockResolvedValue(subscription) },
+      packageRevision: { findUnique: vi.fn().mockResolvedValue({ snapshot: { features: [
+        { featureId: 'intro', feature: { code: 'SHOW_APP_INTRO', configuration: {} } },
+      ] } }) },
+      client: { findUniqueOrThrow: vi.fn().mockResolvedValue({ requestedLocales: ['en'] }) },
+      clientWorkflowRevision: {
+        findFirst: vi.fn().mockImplementation(({ where }: { where: { publishedAt?: null } }) =>
+          revisions.find((item) => where.publishedAt === undefined || item.publishedAt === where.publishedAt) ?? null),
+        findUnique: vi.fn().mockImplementation(({ where }: { where: { id: string } }) =>
+          revisions.find((item) => item.id === where.id) ?? null),
+        create: vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) => {
+          const revision = { id: `wf-${revisions.length + 1}`, publishedAt: null, ...data };
+          revisions.push(revision); return revision;
+        }),
+        update: vi.fn().mockImplementation(({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+          const revision = revisions.find((item) => item.id === where.id)!; Object.assign(revision, data); return revision;
+        }),
+        delete: vi.fn().mockImplementation(({ where }: { where: { id: string } }) => {
+          const index = revisions.findIndex((item) => item.id === where.id); const [revision] = revisions.splice(index, 1); return revision;
+        }),
+      },
+    };
+    const service = new CatalogRevisionService(prisma as never);
+    const first = await service.draftClientWorkflow('sub', { overrides: [{ featureId: 'intro', configuration: {} }] }, 'admin');
+    const saved = await service.draftClientWorkflow('sub', { overrides: [{ featureId: 'intro', enabled: false, configuration: {} }] }, 'admin');
+    expect(first.id).toBe(saved.id);
+    expect(revisions).toHaveLength(1);
+    const published = await service.publishClientWorkflow(first.id, 'admin');
+    expect(published.publishedAt).toBeInstanceOf(Date);
+    await expect(service.discardClientWorkflow(first.id, 'admin')).rejects.toThrow('Published workflow versions cannot be discarded.');
+    const draft = await service.draftClientWorkflow('sub', { overrides: [{ featureId: 'intro', configuration: {} }] }, 'admin');
+    expect(draft.version).toBe(2);
+    await service.discardClientWorkflow(draft.id, 'admin');
+    expect(revisions).toHaveLength(1);
   });
 });
 

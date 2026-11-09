@@ -113,14 +113,14 @@ export class PlatformCatalogController {
   @Get('subscriptions/:id/workflow-revisions') clientWorkflowRevisions(@Param('id') id: string) {
     return this.revisions.clientWorkflowRevisions(id).then((data) => ({ data }));
   }
-  @Post('subscriptions/:id/workflow-revisions') draftClientWorkflow(@Param('id') id: string, @Body() body: unknown) {
-    return this.revisions.draftClientWorkflow(id, body).then((data) => ({ data }));
+  @Post('subscriptions/:id/workflow-revisions') draftClientWorkflow(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: AuthUser) {
+    return this.revisions.draftClientWorkflow(id, body, user.id).then((data) => ({ data }));
   }
-  @Post('workflow-revisions/:id/publish') publishClientWorkflow(@Param('id') id: string) {
-    return this.revisions.publishClientWorkflow(id).then((data) => ({ data }));
+  @Post('workflow-revisions/:id/publish') publishClientWorkflow(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.revisions.publishClientWorkflow(id, user.id).then((data) => ({ data }));
   }
-  @Delete('workflow-revisions/:id') discardClientWorkflow(@Param('id') id: string) {
-    return this.revisions.discardClientWorkflow(id).then((data) => ({ data }));
+  @Delete('workflow-revisions/:id') discardClientWorkflow(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.revisions.discardClientWorkflow(id, user.id).then((data) => ({ data }));
   }
   @Get('dashboard') dashboard() {
     return this.catalog.dashboard().then((data) => ({ data }));

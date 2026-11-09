@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   UseGuards,
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
@@ -29,6 +30,7 @@ import { PlatformAdminService } from './platform-admin.service.js';
 import { ClientLogoUploadDto, CompleteClientLogoDto } from './dto/client-logo.dto.js';
 import { UpdateClientBrandingDto } from './dto/client-branding.dto.js';
 import { UpdateClientCommercialsDto } from './dto/client-commercials.dto.js';
+import { UpsertClientPaymentProviderDto } from './dto/client-payment-provider.dto.js';
 import {
   CreateClientFeatureDto,
   UpdateClientFeatureDto,
@@ -69,6 +71,16 @@ export class PlatformAdminController {
   }
   @Get('clients/:clientId/configuration') clientConfiguration(@Param('clientId') clientId: string) {
     return this.platform.clientConfiguration(clientId).then((data) => ({ data }));
+  }
+  @Get('clients/:clientId/payment-providers') paymentProviders(@Param('clientId') clientId: string) {
+    return this.platform.listClientPaymentProviders(clientId).then((data) => ({ data }));
+  }
+  @Put('clients/:clientId/payment-providers/razorpay') upsertRazorpayProvider(
+    @Param('clientId') clientId: string,
+    @Body() dto: UpsertClientPaymentProviderDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform.upsertClientPaymentProvider(clientId, dto, user.id).then((data) => ({ data }));
   }
   @Post('clients/:clientId/feature-revisions/draft') createClientFeatureDraft(
     @Param('clientId') clientId: string,

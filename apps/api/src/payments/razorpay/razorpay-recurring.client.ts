@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { z } from 'zod';
 import {
@@ -7,6 +7,7 @@ import {
   orderSchema,
   paymentSchema,
 } from './razorpay.client.js';
+import { RazorpayConfigurationService } from './razorpay-configuration.service.js';
 const remoteId = (prefix: string) =>
   z.string().regex(new RegExp(`^${prefix}_[A-Za-z0-9]+$`));
 const registration = z.object({
@@ -47,27 +48,27 @@ function parse<T>(schema: z.ZodType<T>, value: unknown): T {
 }
 @Injectable()
 export class RazorpayRecurringClient extends RazorpayClient {
-  constructor(config: ConfigService) {
-    super(config);
+  constructor(config: ConfigService, @Optional() configuration?: RazorpayConfigurationService) {
+    super(config, configuration);
   }
-  async createRegistration(body: Record<string, unknown>) {
+  async createRegistration(body: Record<string, unknown>, clientId?: string) {
     return parse(
       registration,
-      await this.request('subscription_registration/auth_links', 'POST', body),
+      await this.request('subscription_registration/auth_links', 'POST', body, clientId),
     );
   }
-  async fetchRegistration(id: string) {
+  async fetchRegistration(id: string, clientId?: string) {
     remoteId('inv').parse(id);
-    return parse(registration, await this.request(`invoices/${id}`));
+    return parse(registration, await this.request(`invoices/${id}`, 'GET', undefined, clientId));
   }
-  async findRegistrations(receipt: string, createdAt: Date) {
+  async findRegistrations(receipt: string, createdAt: Date, clientId?: string) {
     const found: RazorpayRegistration[] = [];
     // Receipt is not assumed to be a supported server-side invoice filter.
     for (let skip = 0; skip < 1000; skip += 100) {
       const page = parse(
         z.object({ items: z.array(z.unknown()) }),
         await this.request(
-          `invoices?from=${Math.floor(createdAt.getTime() / 1000) - 60}&count=100&skip=${skip}`,
+          `invoices?from=${Math.floor(createdAt.getTime() / 1000) - 60}&count=100&skip=${skip}`, 'GET', undefined, clientId,
         ),
       );
       for (const item of page.items) {
@@ -84,29 +85,29 @@ export class RazorpayRecurringClient extends RazorpayClient {
     // Do not bind a partial search result: a second matching registration may exist.
     throw new RazorpayProviderError();
   }
-  async cancelRegistration(id: string) {
+  async cancelRegistration(id: string, clientId?: string) {
     remoteId('inv').parse(id);
     return parse(
       registration,
-      await this.request(`invoices/${id}/cancel`, 'POST'),
+      await this.request(`invoices/${id}/cancel`, 'POST', undefined, clientId),
     );
   }
-  async fetchToken(customerId: string, tokenId: string) {
+  async fetchToken(customerId: string, tokenId: string, clientId?: string) {
     remoteId('cust').parse(customerId);
     remoteId('token').parse(tokenId);
     return parse(
       token,
-      await this.request(`customers/${customerId}/tokens/${tokenId}`),
+      await this.request(`customers/${customerId}/tokens/${tokenId}`, 'GET', undefined, clientId),
     );
   }
-  async cancelToken(customerId: string, tokenId: string) {
+  async cancelToken(customerId: string, tokenId: string, clientId?: string) {
     remoteId('cust').parse(customerId);
     remoteId('token').parse(tokenId);
     return parse(
       z.object({ status: z.string() }),
       await this.request(
         `customers/${customerId}/tokens/${tokenId}/cancel`,
-        'PUT',
+        'PUT', undefined, clientId,
       ),
     );
   }
@@ -114,7 +115,7 @@ export class RazorpayRecurringClient extends RazorpayClient {
     amount: number,
     receipt: string,
     tokenId: string,
-    scheduledAt: Date,
+    scheduledAt: Date, clientId?: string,
   ) {
     return parse(
       orderSchema,
@@ -129,7 +130,7 @@ export class RazorpayRecurringClient extends RazorpayClient {
           payment_after: Math.ceil(scheduledAt.getTime() / 1000),
         },
         notes: { purpose: 'AUTOPAY_DEBIT', reference: receipt },
-      }),
+      }, clientId),
     );
   }
   async createRecurringPayment(input: {
@@ -139,6 +140,7 @@ export class RazorpayRecurringClient extends RazorpayClient {
     amount: number;
     email: string;
     contact: string;
+    clientId?: string;
   }) {
     return parse(
       z.object({ razorpay_payment_id: remoteId('pay') }),
@@ -152,18 +154,18 @@ export class RazorpayRecurringClient extends RazorpayClient {
         contact: input.contact,
         recurring: true,
         description: 'EVsEye recurring invoice payment',
-      }),
+      }, input.clientId),
     );
   }
-  async recurringPayment(id: string) {
+  async recurringPayment(id: string, clientId?: string) {
     remoteId('pay').parse(id);
-    return parse(recurringPayment, await this.request(`payments/${id}`));
+    return parse(recurringPayment, await this.request(`payments/${id}`, 'GET', undefined, clientId));
   }
-  async recurringOrderPayments(id: string) {
+  async recurringOrderPayments(id: string, clientId?: string) {
     remoteId('order').parse(id);
     return parse(
       z.object({ items: z.array(recurringPayment) }),
-      await this.request(`orders/${id}/payments`),
+      await this.request(`orders/${id}/payments`, 'GET', undefined, clientId),
     ).items;
   }
 }

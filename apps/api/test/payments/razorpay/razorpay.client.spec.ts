@@ -19,7 +19,7 @@ function fixture(overrides: Record<string, string> = {}) {
 }
 afterEach(() => vi.unstubAllGlobals());
 describe('Razorpay authentication and provider requests', () => {
-  it('uses the stored order in checkout signature verification and a separate secret for webhooks', () => {
+  it('uses the stored order in checkout signature verification and a separate secret for webhooks', async () => {
     const client = fixture();
     const sign = (body: string, key: string) =>
       createHmac('sha256', key).update(body).digest('hex');
@@ -35,19 +35,19 @@ describe('Razorpay authentication and provider requests', () => {
         sign('order_1|pay_1', 'api-secret'),
       ),
     ).toThrow('signature');
-    client.verifyWebhook(
+    await client.verifyWebhook(
       Buffer.from('{ "event": 1 }'),
       sign('{ "event": 1 }', 'hook-secret'),
     );
-    expect(() =>
+    await expect(
       client.verifyWebhook(
         Buffer.from('{"event":1}'),
         sign('{ "event": 1 }', 'hook-secret'),
       ),
-    ).toThrow('signature');
-    expect(() =>
+    ).rejects.toThrow('signature');
+    await expect(
       client.verifyWebhook(Buffer.from('body'), sign('body', 'api-secret')),
-    ).toThrow('signature');
+    ).rejects.toThrow('signature');
   });
   it.each(['', 'a', 'z'.repeat(64), 'a'.repeat(66)])(
     'rejects malformed signature %s without comparison errors',
