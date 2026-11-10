@@ -828,6 +828,35 @@ export class PlatformAdminService {
         });
         await copyActiveSpareMasters(tx, created.id, actorId);
         await copyLegalTemplatesToClient(tx, created, dto.legalEntityName);
+        // Every client starts with a draft rider-commercial-terms record.  It
+        // is activated as part of client approval, so runtime offers never
+        // observe a client without exactly one active terms version.
+        const riderTerms = await tx.appLegalDocument.findFirst({
+          where: {
+            clientId: created.id,
+            appCode: 'RIDER',
+            role: UserRole.RIDER,
+            kind: 'TERMS_AND_CONDITIONS',
+            locale: 'en',
+            deletedAt: null,
+          },
+          orderBy: { effectiveAt: 'desc' },
+        });
+        if (!riderTerms) {
+          throw new BadRequestException('English rider terms template is required before creating a client.');
+        }
+        await tx.riderCommercialTerms.create({
+          data: {
+            clientId: created.id,
+            code: `${created.companyCode.toUpperCase()}_RIDER_TERMS`,
+            version: 1,
+            title: riderTerms.title,
+            content: riderTerms.content,
+            contentHash: riderTerms.contentHash,
+            status: 'DRAFT',
+            createdById: actorId,
+          },
+        });
         return created;
       });
       await this.audit.record({
@@ -1658,7 +1687,23 @@ export class PlatformAdminService {
       const issues = await this.readiness.approval(clientId);
       if (issues.length) throw new UnprocessableEntityException({ code: 'CLIENT_NOT_READY_FOR_ACTIVATION', issues });
     }
+    const terms = await this.prisma.riderCommercialTerms.findMany({
+      where: { clientId, status: { in: ['ACTIVE', 'DRAFT'] } },
+      orderBy: { version: 'desc' },
+    });
+    if (terms.length !== 1) {
+      throw new UnprocessableEntityException({
+        code: 'CLIENT_NOT_READY_FOR_ACTIVATION',
+        issues: [{ code: 'RIDER_COMMERCIAL_TERMS_REQUIRED', message: 'Exactly one rider commercial terms draft is required before approval.' }],
+      });
+    }
     await this.prisma.$transaction([
+      ...(terms[0].status === 'DRAFT'
+        ? [
+            this.prisma.riderCommercialTerms.updateMany({ where: { clientId, status: 'ACTIVE' }, data: { status: 'INACTIVE' } }),
+            this.prisma.riderCommercialTerms.update({ where: { id: terms[0].id }, data: { status: 'ACTIVE', activatedById: actorId, activatedAt: new Date() } }),
+          ]
+        : []),
       this.prisma.client.update({
         where: { id: clientId },
         data: { status: ClientStatus.ACTIVE, isActive: true },
