@@ -1786,11 +1786,17 @@ export class PlatformAdminService {
   }
   private async requireClientSubscription(
     clientId: string,
-    subscriptionId: string,
+    subscriptionId?: string,
   ) {
-    const subscription = await this.prisma.clientSubscription.findFirst({
-      where: { id: subscriptionId, clientId },
-    });
+    const subscription = subscriptionId
+      ? await this.prisma.clientSubscription.findFirst({ where: { id: subscriptionId, clientId } })
+      : await this.prisma.clientSubscription.findFirst({
+          where: { clientId, status: 'ACTIVE' },
+          orderBy: { createdAt: 'desc' },
+        }) ?? await this.prisma.clientSubscription.findFirst({
+          where: { clientId, status: 'PENDING' },
+          orderBy: { createdAt: 'desc' },
+        });
     if (!subscription) {
       throw new NotFoundException('Client subscription not found.');
     }
