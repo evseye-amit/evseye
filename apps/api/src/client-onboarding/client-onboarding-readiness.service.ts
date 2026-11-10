@@ -58,6 +58,17 @@ export class ClientOnboardingReadinessService {
 
   async activation(clientId: string): Promise<OnboardingReadinessIssue[]> {
     const issues = await this.operational(clientId);
+    issues.push(...await this.approval(clientId));
+    return issues;
+  }
+
+  /**
+   * Checks requirements owned by the platform admin before a client workspace
+   * is activated. Operational records are intentionally excluded because the
+   * client admin creates hubs, fleet managers, and fleets after activation.
+   */
+  async approval(clientId: string): Promise<OnboardingReadinessIssue[]> {
+    const issues: OnboardingReadinessIssue[] = [];
     const client = await this.prisma.client.findUnique({
       where: { id: clientId },
       include: { businessProfile: true, contacts: true, addresses: true, operationsProfile: true, billingProfile: true, agreement: true, subscriptions: true, documents: true, riderCommercialTerms: { where: { status: 'ACTIVE' } } },

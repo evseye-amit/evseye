@@ -37,6 +37,16 @@ describe('ClientOnboardingReadinessService', () => {
     await expect(service.operational('client-1')).resolves.toEqual([]);
   });
 
+  it('allows platform approval before client operational onboarding', async () => {
+    const { service } = setup({
+      hub: { count: vi.fn().mockResolvedValue(0) },
+      user: { count: vi.fn().mockResolvedValue(0) },
+      fleet: { count: vi.fn().mockResolvedValue(0) },
+      clientOnboardingProgress: { findUnique: vi.fn().mockResolvedValue({ steps: [] }) },
+    });
+    await expect(service.approval('client-1')).resolves.toEqual([]);
+  });
+
   it('reports missing operational records and incomplete required steps', async () => {
     const { service } = setup({
       hub: { count: vi.fn().mockResolvedValue(0) },

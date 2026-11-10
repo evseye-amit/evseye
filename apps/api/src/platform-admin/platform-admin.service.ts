@@ -1655,7 +1655,7 @@ export class PlatformAdminService {
     if (client.status !== ClientStatus.PENDING_APPROVAL)
       throw new BadRequestException('Only a pending client can be approved.');
     if (this.readiness) {
-      const issues = await this.readiness.activation(clientId);
+      const issues = await this.readiness.approval(clientId);
       if (issues.length) throw new UnprocessableEntityException({ code: 'CLIENT_NOT_READY_FOR_ACTIVATION', issues });
     }
     await this.prisma.$transaction([
