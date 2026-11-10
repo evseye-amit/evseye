@@ -43,6 +43,13 @@ describe('ClientOnboardingReadinessService', () => {
       user: { count: vi.fn().mockResolvedValue(0) },
       fleet: { count: vi.fn().mockResolvedValue(0) },
       clientOnboardingProgress: { findUnique: vi.fn().mockResolvedValue({ steps: [] }) },
+      client: { findUnique: vi.fn().mockResolvedValue({
+        businessProfile: { businessType: 'PROPRIETORSHIP' }, operationsProfile: {}, billingProfile: {},
+        contacts: [{ role: 'PRIMARY' }, { role: 'ACCOUNT_ADMIN' }],
+        addresses: [{ type: 'REGISTERED' }, { type: 'BILLING' }],
+        agreement: { termsAcceptedAt: new Date(), privacyAcceptedAt: new Date(), dataProcessingConsentAt: new Date() },
+        subscriptions: [{ status: 'PENDING' }], riderCommercialTerms: [], documents: [],
+      }) },
     });
     await expect(service.approval('client-1')).resolves.toEqual([]);
   });

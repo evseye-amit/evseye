@@ -58,7 +58,7 @@ export class ClientOnboardingReadinessService {
 
   async activation(clientId: string): Promise<OnboardingReadinessIssue[]> {
     const issues = await this.operational(clientId);
-    issues.push(...await this.approval(clientId));
+    issues.push(...await this.approval(clientId, true));
     return issues;
   }
 
@@ -67,7 +67,7 @@ export class ClientOnboardingReadinessService {
    * is activated. Operational records are intentionally excluded because the
    * client admin creates hubs, fleet managers, and fleets after activation.
    */
-  async approval(clientId: string): Promise<OnboardingReadinessIssue[]> {
+  async approval(clientId: string, requireCommercialTerms = false): Promise<OnboardingReadinessIssue[]> {
     const issues: OnboardingReadinessIssue[] = [];
     const client = await this.prisma.client.findUnique({
       where: { id: clientId },
@@ -81,7 +81,7 @@ export class ClientOnboardingReadinessService {
       issues.push({ code: 'AGREEMENT_REQUIRED', message: 'Required agreement consents are incomplete.', owner: 'SUPER_ADMIN', navigationTarget: '/platform/clients?section=agreements' });
     if (!client.subscriptions.some((subscription) => subscription.status === 'ACTIVE' || subscription.status === 'PENDING'))
       issues.push({ code: 'SUBSCRIPTION_REQUIRED', message: 'A client subscription is required.', owner: 'SUPER_ADMIN', navigationTarget: '/platform/clients?section=subscription' });
-    if (client.riderCommercialTerms.length !== 1)
+    if (requireCommercialTerms && client.riderCommercialTerms.length !== 1)
       issues.push({ code: 'RIDER_COMMERCIAL_TERMS_REQUIRED', message: 'Exactly one active Rider Commercial Terms version is required before activation.', owner: 'SUPER_ADMIN', navigationTarget: '/platform/clients?section=terms' });
     if (!client.contacts.some((contact) => contact.role === 'PRIMARY')) issues.push({ code: 'PRIMARY_CONTACT_REQUIRED', message: 'Primary contact is required.', owner: 'SUPER_ADMIN', navigationTarget: '/platform/clients?section=contacts' });
     if (!client.contacts.some((contact) => contact.role === 'ACCOUNT_ADMIN')) issues.push({ code: 'ACCOUNT_ADMIN_REQUIRED', message: 'Account Admin contact is required.', owner: 'SUPER_ADMIN', navigationTarget: '/platform/clients?section=contacts' });
