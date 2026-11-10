@@ -158,8 +158,22 @@ async function request(
     },
   });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok)
-    throw new Error(body.error?.message ?? body.message ?? "Request failed.");
+  if (!response.ok) {
+    const error = body.error ?? body;
+    const issues = Array.isArray(error.issues)
+      ? error.issues
+          .map((issue: unknown) =>
+            typeof issue === "object" && issue !== null && "message" in issue
+              ? String((issue as { message: unknown }).message)
+              : String(issue),
+          )
+          .filter(Boolean)
+      : [];
+    const base = error.message ?? error.code ?? body.message ?? "Request failed.";
+    throw new Error(
+      issues.length ? `${String(base)} ${issues.join(" ")}` : String(base),
+    );
+  }
   return body.data;
 }
 
