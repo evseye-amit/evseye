@@ -75,6 +75,7 @@ export class AuthService {
     requestedIp?: string,
     expectedClientId?: string,
     requestedAppCode?: string,
+    rejectCooldown = false,
   ) {
     const mobileCandidates = indianMobileVariants(phone);
     const client = companyCode
@@ -151,6 +152,12 @@ export class AuthService {
     });
 
     if (recent) {
+      if (rejectCooldown) {
+        throw new HttpException(
+          'Please wait before requesting another OTP.',
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
       // Use the same accepted shape for unknown accounts and cooldown requests.
       return {
         otpRequestId: randomUUID(),
@@ -197,6 +204,45 @@ export class AuthService {
     }
 
     return { otpRequestId: otpRequest.id, expiresAt: otpRequest.expiresAt };
+  }
+
+  async resendLoginOtp(otpRequestId: string, requestedAppCode?: string, requestedClientId?: string) {
+    const previous = await this.prisma.otpRequest.findUnique({
+      where: { id: otpRequestId },
+      select: { id: true, clientId: true, phone: true, purpose: true, status: true, context: true, createdAt: true },
+    });
+    if (!previous || previous.purpose !== OtpPurpose.LOGIN || previous.status !== OtpStatus.PENDING) {
+      throw new UnauthorizedException('Invalid OTP request.');
+    }
+    if (requestedClientId && previous.clientId !== requestedClientId) {
+      throw new UnauthorizedException('Invalid OTP request.');
+    }
+    const context = previous.context && typeof previous.context === 'object' && !Array.isArray(previous.context)
+      ? (previous.context as Record<string, unknown>)
+      : {};
+    const boundAppCode = typeof context.loginAppCode === 'string' ? context.loginAppCode : undefined;
+    if (requestedAppCode && boundAppCode && requestedAppCode !== boundAppCode) {
+      throw new UnauthorizedException('Invalid OTP request.');
+    }
+    const cooldownMs = this.config.getOrThrow<number>('OTP_RESEND_COOLDOWN_SECONDS') * 1000;
+    if (Date.now() - previous.createdAt.getTime() < cooldownMs) {
+      throw new HttpException(
+        'Please wait before requesting another OTP.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    const client = previous.clientId
+      ? await this.prisma.client.findUnique({ where: { id: previous.clientId }, select: { companyCode: true } })
+      : null;
+    await this.prisma.otpRequest.update({ where: { id: previous.id }, data: { status: OtpStatus.CANCELLED } });
+    return this.requestLoginOtp(
+      previous.phone,
+      client?.companyCode ?? undefined,
+      undefined,
+      previous.clientId ?? undefined,
+      requestedAppCode ?? boundAppCode,
+      true,
+    );
   }
 
   async verifyLoginOtp(

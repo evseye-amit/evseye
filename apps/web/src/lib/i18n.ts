@@ -1,10 +1,22 @@
 import { kn } from "./i18n-kn";
 import { te } from "./i18n-te";
+import { as } from "./i18n-as";
+import { bn } from "./i18n-bn";
+import { gu } from "./i18n-gu";
+import { ml } from "./i18n-ml";
+import { mr } from "./i18n-mr";
+import { or } from "./i18n-or";
+import { pa } from "./i18n-pa";
+import { ta } from "./i18n-ta";
+import { ur } from "./i18n-ur";
 
-export type Locale = "en" | "hi" | "te" | "kn";
+export type Locale = "en" | "as" | "bn" | "gu" | "hi" | "kn" | "ml" | "mr" | "or" | "pa" | "ta" | "te" | "ur";
 export const LOCALE_COOKIE = "evseye_locale";
-export const supportedLocale = (value: string | null | undefined): Locale => value === "hi" || value === "te" || value === "kn" ? value : "en";
-export const localeTag = (locale: Locale): string => ({ en: "en-IN", hi: "hi-IN", te: "te-IN", kn: "kn-IN" })[locale];
+export const supportedLocale = (value: string | null | undefined): Locale =>
+  ["en", "as", "bn", "gu", "hi", "kn", "ml", "mr", "or", "pa", "ta", "te", "ur"].includes(value ?? "")
+    ? (value as Locale)
+    : "en";
+export const localeTag = (locale: Locale): string => ({ en: "en-IN", as: "as-IN", bn: "bn-IN", gu: "gu-IN", hi: "hi-IN", kn: "kn-IN", ml: "ml-IN", mr: "mr-IN", or: "or-IN", pa: "pa-IN", ta: "ta-IN", te: "te-IN", ur: "ur-IN" })[locale];
 
 // English UI copy is the lookup key. Untranslated or client-provided text stays intact.
 const hi: Record<string, string> = {
@@ -49,6 +61,11 @@ const hi: Record<string, string> = {
   "Verify your number": "अपना नंबर सत्यापित करें", "Send OTP": "ओटीपी भेजें",
   "Verify OTP": "ओटीपी सत्यापित करें", "Sending code…": "कोड भेजा जा रहा है…",
   "Verifying…": "सत्यापित किया जा रहा है…", "Change mobile number": "मोबाइल नंबर बदलें",
+  "Resend OTP": "OTP दोबारा भेजें", "Resending…": "दोबारा भेजा जा रहा है…",
+  "Resend OTP in {seconds}s": "{seconds}s बाद OTP दोबारा भेजें",
+  "OTP resent successfully. Enter the new six-digit code below to continue.": "OTP सफलतापूर्वक दोबारा भेज दिया गया है। आगे बढ़ने के लिए नीचे नया छह अंकों का कोड दर्ज करें।",
+  "Unable to resend OTP.": "OTP दोबारा नहीं भेजा जा सका।",
+  "Please wait before requesting another OTP.": "कृपया दूसरा OTP मांगने से पहले प्रतीक्षा करें।",
   "Contact support": "सहायता से संपर्क करें", "Protected by OTP verification": "ओटीपी सत्यापन से सुरक्षित",
   "Secure access for EVs Eye platform administrators.": "ईवीज़ आई प्लेटफ़ॉर्म प्रशासकों के लिए सुरक्षित प्रवेश।",
   "Welcome back": "वापसी पर स्वागत है",
@@ -176,7 +193,7 @@ const hi: Record<string, string> = {
 
 export function translate(locale: Locale, source: string): string {
   if (locale === "en") return source;
-  const dictionary = { hi, te, kn }[locale];
+  const dictionary = { as, bn, gu, hi, kn, ml, mr, or, pa, ta, te, ur }[locale];
   if (dictionary[source]) return dictionary[source];
   const count = /^(\d+) (.+)$/.exec(source);
   if (count && dictionary[count[2]]) return `${count[1]} ${dictionary[count[2]]}`;
