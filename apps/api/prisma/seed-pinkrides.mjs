@@ -75,6 +75,12 @@ export async function seedPinkrides(prisma) {
     create: { clientId: client.id, rateCardVersionId: rateVersion.id, rentalPeriodType: 'MONTHLY', amount: '5000.00', includedKm: '1500.00', extraKmRate: '4.00', taxable: true, taxRate: '18.00', priceIncludesTax: false },
     update: { amount: '5000.00', includedKm: '1500.00', extraKmRate: '4.00', taxable: true, taxRate: '18.00', priceIncludesTax: false, isActive: true },
   });
+  const existingDeposit = await prisma.rateCardDeposit.findFirst({ where: { clientId: client.id, rateCardVersionId: rateVersion.id, code: 'VEHICLE-SECURITY' } });
+  if (existingDeposit) await prisma.rateCardDeposit.update({ where: { id: existingDeposit.id }, data: { amount: '0.00', waiverAmount: '0.00', isActive: true } });
+  else await prisma.rateCardDeposit.create({ data: { clientId: client.id, rateCardVersionId: rateVersion.id, code: 'VEHICLE-SECURITY', name: 'Vehicle security deposit', depositType: 'VEHICLE_SECURITY', amount: '0.00', waiverAmount: '0.00' } });
+  const existingFee = await prisma.rateCardFee.findFirst({ where: { clientId: client.id, rateCardVersionId: rateVersion.id, code: 'ONBOARDING_FEE' } });
+  if (existingFee) await prisma.rateCardFee.update({ where: { id: existingFee.id }, data: { amount: '0.00', isActive: true } });
+  else await prisma.rateCardFee.create({ data: { clientId: client.id, rateCardVersionId: rateVersion.id, code: 'ONBOARDING_FEE', name: 'Onboarding fee', chargeType: 'ONBOARDING_FEE', nature: 'ONE_TIME', eligibility: 'ONCE_PER_CLIENT_RIDER_RELATIONSHIP', amount: '0.00', taxable: false, priceIncludesTax: false } });
 
   const bucket = process.env.S3_BUCKET;
   if (bucket) {
