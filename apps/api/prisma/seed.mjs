@@ -4,6 +4,7 @@ import { seedInitialRevisions } from './catalog/seed-revisions.mjs';
 import { seedSuperAdmin } from './seed-super-admin.mjs';
 import { seedMasterData } from './seed-master-data.mjs';
 import { seedYogmaya } from './seed-yogmaya.mjs';
+import { seedPinkrides } from './seed-pinkrides.mjs';
 
 const prisma = createPrismaClient();
 
@@ -11,6 +12,7 @@ async function main() {
   await seedSuperAdmin(prisma);
   await seedMasterData(prisma);
   await seedYogmaya(prisma);
+  await seedPinkrides(prisma);
 
   await createThirdPartyConfig(prisma);
 
