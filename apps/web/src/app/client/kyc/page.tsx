@@ -9,6 +9,7 @@ import { sessionFetch } from "../../../lib/session-fetch";
 import WorkflowPanel from "./workflow-panel";
 import RoutingPanel from "./routing-panel";
 import CommercialPanel from "./commercial-panel";
+import RiderRateCardsPanel from "./rider-rate-cards-panel";
 
 type Status = "CREATED" | "PROCESSING" | "OTP_REQUIRED" | "VERIFIED" | "FAILED" | "MANUAL_REVIEW";
 type Verification = { id: string; riderId: string; verificationType: string; status: Status;
@@ -42,7 +43,7 @@ async function api<T>(path: string): Promise<T> {
 export default function KycAdministration() {
   const [authorized, setAuthorized] = useState(false);
   const [canManagePolicy, setCanManagePolicy] = useState(false);
-  const [tab, setTab] = useState<"overview" | "providers" | "verifications" | "health" | "workflows" | "reviews" | "definitions" | "routing" | "commercial">("overview");
+  const [tab, setTab] = useState<"overview" | "providers" | "verifications" | "health" | "workflows" | "reviews" | "definitions" | "routing" | "commercial" | "rate-cards">("overview");
   const [overview, setOverview] = useState<Overview | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [rows, setRows] = useState<Verification[]>([]);
@@ -104,15 +105,16 @@ export default function KycAdministration() {
     <header className="client-dashboard-header"><div><p className="eyebrow">CLIENT WORKSPACE</p><h1>KYC &amp; Verification</h1>
       <p>Client scoped verification operations</p></div><div><Link href="/client/kyc/operations">Command Center</Link>{" · "}<Link className="button secondary" href="/?tab=dashboard">Back to dashboard</Link></div></header>
     {authorized && <nav aria-label="KYC sections" style={{ display: "flex", gap: "1rem", margin: "1.5rem 0" }}>
-      {(["overview", "workflows", "verifications", "reviews", "definitions", "providers", "routing", "health", "commercial"] as const).map((item) =>
+      {(["overview", "workflows", "verifications", "reviews", "definitions", "providers", "routing", "health", "commercial", "rate-cards"] as const).map((item) =>
         <button key={item} type="button" aria-current={tab === item ? "page" : undefined}
-          onClick={() => requestNavigation(() => { setTab(item); setSelected(null); })}>{item === "reviews" ? "Manual Review" : item === "routing" ? "Routing Policies" : item === "definitions" ? "Definitions" : item === "commercial" ? "Policy & Usage" : item[0].toUpperCase() + item.slice(1)}</button>)}
+          onClick={() => requestNavigation(() => { setTab(item); setSelected(null); })}>{item === "reviews" ? "Manual Review" : item === "routing" ? "Routing Policies" : item === "definitions" ? "Definitions" : item === "commercial" ? "Policy & Usage" : item === "rate-cards" ? "Rider Rate Cards" : item[0].toUpperCase() + item.slice(1)}</button>)}
     </nav>}
     {loading && <p role="status">Loading KYC data…</p>}
     {error && <p className="error" role="alert">{error}</p>}
     {authorized && (tab === "workflows" || tab === "reviews" || tab === "definitions") && <WorkflowPanel view={tab} />}
     {authorized && tab === "routing" && <RoutingPanel />}
     {authorized && tab === "commercial" && <CommercialPanel canManage={canManagePolicy} />}
+    {authorized && tab === "rate-cards" && <RiderRateCardsPanel canManage={canManagePolicy} />}
     {authorized && tab === "overview" && overview && <>
     <h2>Rider KYC</h2><p>Each rider is counted once. Verification requires approval of all submitted onboarding documents and all required uploads.</p>
     <section className="client-metrics" aria-label="Rider KYC metrics">
