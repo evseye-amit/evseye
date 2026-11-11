@@ -237,3 +237,15 @@ variable "github_repo" {
   type        = string
   default     = "evseye"
 }
+
+variable "github_owner_id" {
+  description = "Numeric GitHub owner ID used by GitHub Actions OIDC subject claims."
+  type        = string
+  default     = "288633496"
+}
+
+variable "github_repository_id" {
+  description = "Numeric GitHub repository ID used by GitHub Actions OIDC subject claims."
+  type        = string
+  default     = "1364646469"
+}

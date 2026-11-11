@@ -17,3 +17,12 @@ variable "github_repo" {
   type    = string
   default = "evseye"
 }
+
+variable "github_owner_id" {
+  type    = string
+  default = "288633496"
+}
+variable "github_repository_id" {
+  type    = string
+  default = "1364646469"
+}
