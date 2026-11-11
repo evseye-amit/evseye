@@ -12,7 +12,7 @@ import {
   vehicleSpeedTypes,
 } from "../lib/domain-enums";
 
-import { Dispatch, Fragment, FormEvent, SetStateAction, useEffect, useRef, useState } from "react";
+import { Dispatch, Fragment, FormEvent, MouseEvent, SetStateAction, useEffect, useRef, useState } from "react";
 import { OtpCodeInput } from "./components/otp-code-input";
 import { UiIcon, type IconName } from "./components/ui-icon";
 import { ClientNotifications } from "./components/client-notifications";
@@ -798,6 +798,8 @@ export default function Home() {
   const [companyCode, setCompanyCode] = useState("");
   const [loginFlow, setLoginFlow] = useState<LoginFlow | null>(null);
   const [otpRequestId, setOtpRequestId] = useState("");
+  const otpRequestGeneration = useRef(0);
+  const [resendIn, setResendIn] = useState(0);
   const [code, setCode] = useState("");
   const [token, setToken] = useState("");
   const [tab, setTab] = useState<Tab>("dashboard");
@@ -1135,6 +1137,7 @@ export default function Home() {
 
   async function sendOtp(event: FormEvent) {
     event.preventDefault();
+    const generation = ++otpRequestGeneration.current;
     setLoading(true);
     setError("");
     try {
@@ -1146,7 +1149,9 @@ export default function Home() {
         method: "POST",
         body: JSON.stringify({ phone, appCode: "CLIENT_PANEL", ...(hostClient ? {} : { companyCode }) }),
       })) as { otpRequestId: string };
+      if (generation !== otpRequestGeneration.current) return;
       setOtpRequestId(data.otpRequestId);
+      setResendIn(60);
       setNotice("OTP sent successfully. Enter the six-digit code below to continue.");
     } catch (cause) {
       setError(
@@ -1193,6 +1198,44 @@ export default function Home() {
       setLoading(false);
     }
   }
+
+  function changeMobileNumber(event: MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    otpRequestGeneration.current += 1;
+    setOtpRequestId("");
+    setResendIn(0);
+    setCode("");
+    setNotice("");
+    setError("");
+  }
+
+  async function resendOtp(event: MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    if (!otpRequestId || resendIn > 0 || loading) return;
+    setLoading(true);
+    setError("");
+    try {
+      const data = await request("/auth/otp/resend", {
+        method: "POST",
+        body: JSON.stringify({ otpRequestId, appCode: "CLIENT_PANEL" }),
+      }) as { otpRequestId: string };
+      setOtpRequestId(data.otpRequestId);
+      setCode("");
+      setResendIn(60);
+      setNotice("OTP resent successfully. Enter the new six-digit code below to continue.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to resend OTP.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const timer = window.setInterval(() => setResendIn((value) => Math.max(value - 1, 0)), 1000);
+    return () => window.clearInterval(timer);
+  }, [resendIn]);
 
   async function approveRiderDocument(id: string) {
     if (reviewBusyId) return;
@@ -2273,14 +2316,12 @@ export default function Home() {
                 <button
                   type="button"
                   className="auth-text-button"
-                  onClick={() => {
-                    setOtpRequestId("");
-                    setCode("");
-                    setNotice("");
-                    setError("");
-                  }}
+                  onClick={changeMobileNumber}
                 >
                   {t("Change mobile number")}
+                </button>
+                <button type="button" className="auth-text-button" disabled={loading || resendIn > 0} onClick={resendOtp}>
+                  {loading ? t("Resending…") : resendIn > 0 ? t("Resend OTP in {seconds}s").replace("{seconds}", String(resendIn)) : t("Resend OTP")}
                 </button>
               </form>
             )}

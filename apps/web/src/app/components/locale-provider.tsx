@@ -25,5 +25,5 @@ export function LocalizedText({ text }: { text: string }) {
 
 export function LanguageSwitcher() {
   const { locale, setLocale, t } = useLocale();
-  return <label className="language-switcher"><span>{t("Language")}</span><select aria-label={t("Language")} value={locale} onChange={(event) => setLocale(supportedLocale(event.target.value))}><option value="en">English</option><option value="hi">हिन्दी</option><option value="te">తెలుగు</option><option value="kn">ಕನ್ನಡ</option></select></label>;
+  return <label className="language-switcher"><span>{t("Language")}</span><select aria-label={t("Language")} value={locale} onChange={(event) => setLocale(supportedLocale(event.target.value))}><option value="en">English</option><option value="as">অসমীয়া</option><option value="bn">বাংলা</option><option value="gu">ગુજરાતી</option><option value="hi">हिन्दी</option><option value="kn">ಕನ್ನಡ</option><option value="ml">മലയാളം</option><option value="mr">मराठी</option><option value="or">ଓଡ଼ିଆ</option><option value="pa">ਪੰਜਾਬੀ</option><option value="ta">தமிழ்</option><option value="te">తెలుగు</option><option value="ur">اردو</option></select></label>;
 }

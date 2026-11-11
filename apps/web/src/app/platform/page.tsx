@@ -3,7 +3,7 @@ import { sessionFetch as fetch } from "../../lib/session-fetch";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, MouseEvent, useEffect, useState } from "react";
 import { OtpCodeInput } from "../components/otp-code-input";
 import { UiIcon } from "../components/ui-icon";
 import { LanguageSwitcher, useLocale } from "../components/locale-provider";
@@ -40,6 +40,7 @@ export default function PlatformPage() {
   );
   const [phone, setPhone] = useState("");
   const [otpRequestId, setOtpRequestId] = useState("");
+  const [resendIn, setResendIn] = useState(0);
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState("");
@@ -59,6 +60,7 @@ export default function PlatformPage() {
         body: JSON.stringify({ phone, appCode: "PLATFORM" }),
       })) as { otpRequestId: string };
       setOtpRequestId(data.otpRequestId);
+      setResendIn(60);
       setNotice(t("OTP sent successfully. Enter the six-digit code below to continue."));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("Unable to request OTP."));
@@ -66,6 +68,33 @@ export default function PlatformPage() {
       setLoading(false);
     }
   }
+
+  async function resendOtp(event: MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    if (!otpRequestId || resendIn > 0 || loading) return;
+    setLoading(true);
+    setError("");
+    try {
+      const data = await api("/auth/otp/resend", {
+        method: "POST",
+        body: JSON.stringify({ otpRequestId, appCode: "PLATFORM" }),
+      }) as { otpRequestId: string };
+      setOtpRequestId(data.otpRequestId);
+      setCode("");
+      setResendIn(60);
+      setNotice(t("OTP resent successfully. Enter the new six-digit code below to continue."));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t("Unable to resend OTP."));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const timer = window.setInterval(() => setResendIn((value) => Math.max(value - 1, 0)), 1000);
+    return () => window.clearInterval(timer);
+  }, [resendIn]);
 
   async function verifyOtp(event: FormEvent) {
     event.preventDefault();
@@ -126,6 +155,9 @@ export default function PlatformPage() {
             <button className="auth-submit" disabled={loading || code.length !== 6}>
               {t(loading ? "Verifying…" : "Verify OTP")}
               <UiIcon name="arrowRight" />
+            </button>
+            <button type="button" className="auth-text-button" disabled={loading || resendIn > 0} onClick={resendOtp}>
+              {loading ? t("Resending…") : resendIn > 0 ? t("Resend OTP in {seconds}s").replace("{seconds}", String(resendIn)) : t("Resend OTP")}
             </button>
           </form>
         )}

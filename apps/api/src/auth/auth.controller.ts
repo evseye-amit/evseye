@@ -24,6 +24,7 @@ import { CurrentUser } from './decorators/current-user.decorator.js';
 import { RefreshTokenDto } from './dto/refresh-token.dto.js';
 import { RequestLoginOtpDto } from './dto/request-login-otp.dto.js';
 import { VerifyOtpDto } from './dto/verify-otp.dto.js';
+import { ResendLoginOtpDto } from './dto/resend-login-otp.dto.js';
 import { AccessTokenGuard } from './guards/access-token.guard.js';
 import type { AuthUser } from './interfaces/auth-user.interface.js';
 import { LoginFlowService } from './login-flow.service.js';
@@ -123,6 +124,24 @@ export class AuthController {
       dto.appCode,
     );
     return { data };
+  }
+
+  @Header('Cache-Control', 'no-store')
+  @Post('otp/resend')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @HttpCode(202)
+  async resendLoginOtp(
+    @Body() dto: ResendLoginOtpDto,
+    @Req() request: FastifyRequest,
+  ) {
+    const clientContext = dto.appCode === 'PLATFORM' ? null : await this.clientsResolver.fromRequest(request);
+    return {
+      data: await this.authService.resendLoginOtp(
+        dto.otpRequestId,
+        dto.appCode,
+        clientContext?.clientId,
+      ),
+    };
   }
 
   @Header('Cache-Control', 'no-store')

@@ -187,6 +187,94 @@ describe('AuthService', () => {
     });
   });
 
+  it('enforces the resend cooldown', async () => {
+    const { service, prisma, sms } = createService();
+    prisma.otpRequest.findUnique.mockResolvedValue({
+      id: 'otp-1', clientId: 'client-1', phone: '+919999999999',
+      purpose: OtpPurpose.LOGIN, status: OtpStatus.PENDING,
+      context: { loginAppCode: 'CLIENT_PANEL' }, createdAt: new Date(),
+    });
+    await expect(service.resendLoginOtp('otp-1', 'CLIENT_PANEL', 'client-1'))
+      .rejects.toThrow('Please wait before requesting another OTP.');
+    expect(prisma.otpRequest.update).not.toHaveBeenCalled();
+    expect(sms.send).not.toHaveBeenCalled();
+  });
+
+  it('invalidates the previous client OTP before issuing a replacement', async () => {
+    const { service, prisma, sms } = createService();
+    prisma.client.findUnique
+      .mockResolvedValueOnce({ companyCode: 'demo-client' })
+      .mockResolvedValue({ isActive: true, status: 'ACTIVE' });
+    prisma.otpRequest.findUnique.mockResolvedValue({
+      id: 'otp-1', clientId: 'client-1', phone: '+919999999999',
+      purpose: OtpPurpose.LOGIN, status: OtpStatus.PENDING,
+      context: { loginAppCode: 'CLIENT_PANEL' }, createdAt: new Date(Date.now() - 61_000),
+    });
+    prisma.otpRequest.create.mockResolvedValue({ id: 'otp-2', expiresAt: new Date(Date.now() + 300_000) });
+    const result = await service.resendLoginOtp('otp-1', 'CLIENT_PANEL', 'client-1');
+    expect(result).toHaveProperty('otpRequestId', 'otp-2');
+    expect(prisma.otpRequest.update).toHaveBeenCalledWith({
+      where: { id: 'otp-1' }, data: { status: OtpStatus.CANCELLED },
+    });
+    expect(sms.send).toHaveBeenCalledOnce();
+  });
+
+  it('allows the replacement OTP to be verified', async () => {
+    const { service, prisma, sms, jwt } = createService();
+    prisma.client.findUnique
+      .mockResolvedValueOnce({ companyCode: 'demo-client' })
+      .mockResolvedValue({ isActive: true, status: 'ACTIVE' });
+    prisma.otpRequest.findUnique
+      .mockResolvedValueOnce({
+        id: 'otp-1', clientId: 'client-1', phone: '+919999999999',
+        purpose: OtpPurpose.LOGIN, status: OtpStatus.PENDING,
+        context: { loginAppCode: 'CLIENT_PANEL' }, createdAt: new Date(Date.now() - 61_000),
+      })
+      .mockResolvedValueOnce({
+        id: 'otp-2', clientId: 'client-1', phone: '+919999999999',
+        purpose: OtpPurpose.LOGIN, status: OtpStatus.PENDING,
+        context: { loginAppCode: 'CLIENT_PANEL' }, attempts: 0, maxAttempts: 5,
+        otpHash: createHmac('sha256', configValues.OTP_HASH_SECRET).update('123456').digest('hex'),
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+    prisma.otpRequest.create.mockResolvedValue({ id: 'otp-2', expiresAt: new Date(Date.now() + 300_000) });
+    await service.resendLoginOtp('otp-1', 'CLIENT_PANEL', 'client-1');
+    await expect(service.verifyLoginOtp('otp-2', '123456', 'client-1', 'CLIENT_PANEL'))
+      .resolves.toMatchObject({ tokenType: 'Bearer' });
+    expect(jwt.signAsync).toHaveBeenCalledTimes(2);
+    expect(sms.send).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a resend from a different client workspace', async () => {
+    const { service, prisma, sms } = createService();
+    prisma.otpRequest.findUnique.mockResolvedValue({
+      id: 'otp-1', clientId: 'client-1', phone: '+919999999999',
+      purpose: OtpPurpose.LOGIN, status: OtpStatus.PENDING,
+      context: { loginAppCode: 'CLIENT_PANEL' }, createdAt: new Date(Date.now() - 61_000),
+    });
+    await expect(service.resendLoginOtp('otp-1', 'CLIENT_PANEL', 'client-2'))
+      .rejects.toThrow('Invalid OTP request.');
+    expect(prisma.otpRequest.update).not.toHaveBeenCalled();
+    expect(sms.send).not.toHaveBeenCalled();
+  });
+
+  it('supports resend for the Super Admin login flow', async () => {
+    const { service, prisma, sms } = createService();
+    prisma.user.findFirst.mockResolvedValue({
+      id: 'admin-1', clientId: null, mobile: '+919999999999', role: UserRole.SUPER_ADMIN,
+      isActive: true,
+    });
+    prisma.otpRequest.findUnique.mockResolvedValue({
+      id: 'otp-1', clientId: null, phone: '+919999999999',
+      purpose: OtpPurpose.LOGIN, status: OtpStatus.PENDING,
+      context: { loginAppCode: 'PLATFORM' }, createdAt: new Date(Date.now() - 61_000),
+    });
+    prisma.otpRequest.create.mockResolvedValue({ id: 'otp-2', expiresAt: new Date(Date.now() + 300_000) });
+    await expect(service.resendLoginOtp('otp-1', 'PLATFORM'))
+      .resolves.toMatchObject({ otpRequestId: 'otp-2' });
+    expect(sms.send).toHaveBeenCalledOnce();
+  });
+
   it('does not send a client OTP to a role outside the requesting app', async () => {
     const { service, prisma, loginFlow, sms } = createService();
     loginFlow.roleAllowed.mockReturnValue(false);
