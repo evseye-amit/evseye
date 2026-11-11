@@ -5,8 +5,24 @@ data "aws_route53_zone" "main" {
   private_zone = false
 }
 
-data "aws_iam_role" "github_actions_deploy" {
-  name = var.github_deploy_role_name
+data "aws_iam_openid_connect_provider" "github" {
+  url = "https://token.actions.githubusercontent.com"
+}
+
+resource "aws_iam_role" "site_deploy" {
+  name = "evseye-production-marketing-site-deploy"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Federated = data.aws_iam_openid_connect_provider.github.arn }
+      Action    = "sts:AssumeRoleWithWebIdentity"
+      Condition = { StringEquals = {
+        "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+        "token.actions.githubusercontent.com:sub" = "repo:${var.github_org}/${var.github_repo}:environment:production"
+      } }
+    }]
+  })
 }
 
 resource "aws_s3_bucket" "site" {
@@ -201,7 +217,7 @@ resource "aws_route53_record" "site" {
 
 resource "aws_iam_role_policy" "site_deploy" {
   name = "publish-marketing-site"
-  role = data.aws_iam_role.github_actions_deploy.name
+  role = aws_iam_role.site_deploy.name
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
