@@ -1,4 +1,5 @@
 import campaignSeed from './referral-campaign.staging.json' with { type: 'json' };
+import { findSeedActor } from '../../seed-actor.mjs';
 
 const dateFields = ['startAt', 'endAt', 'activatedAt'];
 
@@ -10,11 +11,8 @@ export async function seedYogmayaReferralCampaign(prisma) {
   const client = await prisma.client.findUnique({ where: { slug: 'yogmaya' } });
   if (!client) throw new Error('Yogmaya must be seeded before its referral campaign.');
 
-  const actor = await prisma.user.findFirst({
-    where: { clientId: client.id, role: 'CLIENT_ADMIN', isActive: true },
-    orderBy: { createdAt: 'asc' },
-  });
-  if (!actor) throw new Error('Yogmaya Client Admin must be seeded before its referral campaign.');
+  const actor = await findSeedActor(prisma, client.id);
+  if (!actor) throw new Error('Yogmaya seed requires a Super Admin or active Client Admin.');
 
   const { milestones, ...campaignFields } = campaignSeed;
   const campaignData = Object.fromEntries(

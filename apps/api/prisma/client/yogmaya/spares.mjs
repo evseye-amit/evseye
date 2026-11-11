@@ -1,3 +1,5 @@
+import { findSeedActor } from '../../seed-actor.mjs';
+
 // Source: EVSI SINGLE LIGHT - BODY PARTS PRICING - Copy.xlsx, PLASTIC PARTS, rows 2–33.
 // finalAmount is column G (GST-inclusive). Penalty = finalAmount + INR 20, once per piece.
 // Evidence stays required. Images are intentionally excluded.
@@ -202,11 +204,8 @@ export async function seedYogmayaSpares(prisma) {
     if (!client) throw new Error('Yogmaya spares seed requires the yogmaya client.');
     // Use the same client lock as catalogue edits/imports.
     await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${client.id} FOR UPDATE`;
-    const actor = await tx.user.findFirst({
-      where: { clientId: client.id, role: 'CLIENT_ADMIN', isActive: true, deletedAt: null },
-      orderBy: { id: 'asc' },
-    });
-    if (!actor) throw new Error('Yogmaya spares seed requires an active Client Admin.');
+    const actor = await findSeedActor(tx, client.id);
+    if (!actor) throw new Error('Yogmaya spares seed requires a Super Admin or active Client Admin.');
     let created = 0;
     let configured = 0;
     for (const entry of yogmayaSpareCatalog) {

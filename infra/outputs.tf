@@ -48,6 +48,11 @@ output "ecs_migrate_task_family" {
   value       = aws_ecs_task_definition.migrate.family
 }
 
+output "ecs_seed_task_family" {
+  description = "ECS seed task definition family name."
+  value       = aws_ecs_task_definition.seed.family
+}
+
 output "ecs_public_subnet_ids" {
   description = "Public subnet IDs used by ECS services and CI/CD migration tasks."
   value       = aws_subnet.public[*].id

@@ -24,6 +24,12 @@ resource "aws_cloudwatch_log_group" "migrate" {
   tags              = { Name = "${local.name_prefix}-migrate-logs" }
 }
 
+resource "aws_cloudwatch_log_group" "seed" {
+  name              = "/ecs/${local.name_prefix}/seed"
+  retention_in_days = 14
+  tags              = { Name = "${local.name_prefix}-seed-logs" }
+}
+
 # ─── ECS Cluster ──────────────────────────────────────────────────────────────
 
 resource "aws_ecs_cluster" "main" {
@@ -255,6 +261,55 @@ resource "aws_ecs_task_definition" "migrate" {
   }])
 
   tags = { Name = "${local.name_prefix}-migrate" }
+}
+
+# ─── Database Seed Task Definition ───────────────────────────────────────────
+# Run manually as a one-shot task after migrations. This remains separate from
+# migrations so either operation can be run independently in each environment.
+# Client-specific seed scripts can be supplied as a command override when the
+# task is launched (for example, seed-yogmaya.mjs).
+
+resource "aws_ecs_task_definition" "seed" {
+  family                   = "${local.name_prefix}-seed"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = 256
+  memory                   = 512
+  execution_role_arn       = aws_iam_role.ecs_task_execution.arn
+  task_role_arn            = aws_iam_role.ecs_task_api.arn
+
+  container_definitions = jsonencode([{
+    name      = "seed"
+    image     = "${aws_ecr_repository.api.repository_url}:latest"
+    essential = true
+
+    command = [
+      "node",
+      "apps/api/prisma/seed.mjs",
+    ]
+
+    environment = [
+      { name = "NODE_ENV", value = var.environment == "staging" ? "development" : "production" },
+      { name = "AWS_REGION", value = var.aws_region },
+      { name = "S3_BUCKET", value = aws_s3_bucket.media.bucket },
+    ]
+
+    secrets = [{
+      name      = "DATABASE_URL"
+      valueFrom = aws_secretsmanager_secret.database_url.arn
+    }]
+
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        awslogs-group         = aws_cloudwatch_log_group.seed.name
+        awslogs-region        = var.aws_region
+        awslogs-stream-prefix = "seed"
+      }
+    }
+  }])
+
+  tags = { Name = "${local.name_prefix}-seed" }
 }
 
 # ─── ECS Services ─────────────────────────────────────────────────────────────
