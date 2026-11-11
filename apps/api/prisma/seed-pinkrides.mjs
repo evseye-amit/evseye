@@ -5,6 +5,7 @@ import { clientSeed } from './client/pinkrides/client.mjs';
 import { hubCatalog } from './client/pinkrides/hubs.mjs';
 import { controllers, fleets, fleetComponentMappings } from './client/pinkrides/fleets.mjs';
 import { riderTerms } from './client/pinkrides/rider-terms.mjs';
+import { seedPinkridesManagers, seedPinkridesWorkPartners, seedPinkridesSpares, seedPinkridesReferral, seedPinkridesRateCard, seedPinkridesLegal } from './client/pinkrides/related.mjs';
 
 const logoPath = fileURLToPath(new URL('./client/pinkrides/assets/logo.png', import.meta.url));
 
@@ -84,6 +85,12 @@ export async function seedPinkrides(prisma) {
     await prisma.clientBusinessProfile.update({ where: { clientId: client.id }, data: { logoObjectKey: objectKey } });
     await prisma.clientBranding.upsert({ where: { clientId: client.id }, create: { clientId: client.id, logoObjectKey: objectKey }, update: { logoObjectKey: objectKey } });
   } else console.warn('Skipping Pink Rides logo because S3_BUCKET is not configured.');
+  await seedPinkridesManagers(prisma);
+  await seedPinkridesWorkPartners(prisma);
+  await seedPinkridesSpares(prisma);
+  await seedPinkridesReferral(prisma);
+  await seedPinkridesRateCard(prisma);
+  await seedPinkridesLegal(prisma);
   console.info(`Seeded Pink Rides client, hub, ${fleets.length} fleets/controllers, rider terms, and branding.`);
   return { client, subscription };
 }
