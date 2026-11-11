@@ -1,97 +1,130 @@
 "use client";
+import { FormDialogHeader } from "../../components/form-dialog-header";
+import { SparesCatalogue } from "../../components/spares-catalogue";
+import { LegalAcceptanceFields, type LegalAcceptanceCopy } from "../../components/legal-acceptance-fields";
+import { sessionFetch as fetch } from "../../../lib/session-fetch";
+import {
+  allowanceResetPeriods,
+  billingCycles,
+  clientIndustries,
+  energyTypes,
+  featureBillingUnits,
+  featureCategories,
+  featureTypes,
+  fleetBusinessModels,
+  masterRecordStatuses,
+  vehicleOwnerships,
+  vehicleUsageTypes,
+} from "../../../lib/domain-enums";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import {
+  FormEvent,
+  ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
+import { CatalogTranslationFields, completeCatalogTranslations, type CatalogTranslations } from "./catalog-translation-fields";
+import { ClientCommercialSettings, type ClientCommercialSection } from "../../components/client-commercial-settings";
+import { ClientWorkflowSettings } from "../../components/client-workflow-settings";
+import { ClientPaymentSettings } from "../../components/client-payment-settings";
+import { ClientDomainSettings } from "../../components/client-domain-settings";
+import { ClientLogoUpload } from "../../components/client-logo-upload";
+import { SmsDeliveryPanel } from "../../components/sms-delivery-panel";
+import { WorkPartnerManager } from "../../components/work-partner-manager";
+import { LanguageSwitcher, useLocale } from "../../components/locale-provider";
+import { UiIcon, type IconName } from "../../components/ui-icon";
+import { PlatformDataTable as DataTable } from "../../components/platform-data-table";
+import { ImportFailureRemediation } from "../../components/import-failure-remediation";
+import { ClientConfirmationDialog } from "../../components/client-confirmation-dialog";
 
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
-const ACCESS_TOKEN_KEY = "evs-eye-access-token";
-const REFRESH_TOKEN_KEY = "evs-eye-refresh-token";
+  "/api/v1";
+const ACCESS_TOKEN_KEY = "evs-eye-session-present";
+const REFRESH_TOKEN_KEY = "evs-eye-session-refreshable";
 type Tab =
+  | "spares"
+  | "legalDocuments"
   | "dashboard"
   | "clients"
+  | "workPartners"
   | "oems"
   | "vehicleCategories"
   | "vehicleTypes"
+  | "featureSteps"
   | "features"
   | "packages"
-  | "pricing";
+  | "pricing"
+  | "featureAddOns"
+  | "packageFeatures"
+  | "packageTierPricing"
+  | "clientPricingAdjustments"
+  | "clientAddOnPurchases"
+  | "clientQuotaPacks"
+  | "clientCreditLots"
+  | "clientUsageLedger"
+  | "smsDeliveries";
 type Item = Record<string, any>;
-type PricingTierInput = {
-  tierOrder: string;
-  fromQuantity: string;
-  toQuantity: string;
-  unitPrice: string;
-  costPrice: string;
-};
-type PackageFeatureInput = {
-  featureId: string;
-  enabled: boolean;
-  includedQuantity: string;
-  usageLimit: string;
-  unlimitedUsage: boolean;
-  configuration: string;
-  displayOrder: string;
-};
 
-const featureCategories = [
-  ["LOGIN", "Login"],
-  ["RIDER_ONBOARDING", "Rider Onboarding"],
-  ["RIDER_VERIFICATION", "Rider Verification / KYC"],
-  ["RIDER_TRAINING", "Rider Training"],
-  ["RIDER_MANAGEMENT", "Rider Management"],
-  ["ATTENDANCE", "Attendance & Workforce"],
-  ["FACE_RECOGNITION", "Face Recognition"],
-  ["FLEET_MANAGEMENT", "Fleet Management"],
-  ["VEHICLE_MANAGEMENT", "Vehicle Management"],
-  ["IOT_TELEMATICS", "IoT & Telematics"],
-  ["TRACKING_GEOFENCING", "Tracking & Geofencing"],
-  ["BATTERY_MANAGEMENT", "Battery Management"],
-  ["SERVICE_MAINTENANCE", "Service & Maintenance"],
-  ["MECHANIC_MANAGEMENT", "Mechanic Management"],
-  ["SAFETY_COMPLIANCE", "Safety & Compliance"],
-  ["ANALYTICS", "Analytics"],
-  ["REPORTING", "Reports"],
-  ["NOTIFICATION", "Notifications"],
-  ["INTEGRATION", "Integrations"],
-  ["API_ACCESS", "API Access"],
-  ["USER_ACCESS", "Users & Access"],
-  ["DOCUMENT_MANAGEMENT", "Document Management"],
-  ["USER_VERIFICATION", "User Verification"],
-  ["COUPON", "Coupon"],
-  ["TRAINING", "Training"],
-  ["SUPPORT", "Support"],
-  ["AI_AUTOMATION", "AI & Automation"],
-] as const;
-const featureTypes = ["BOOLEAN", "QUANTITY", "USAGE_BASED", "CONFIGURATION"];
-const featureBillingUnits = [
-  "VERIFICATION",
-  "RIDER",
-  "VEHICLE",
-  "FLEET",
-  "USER",
-  "API_CALL",
-  "FACE_SCAN",
-  "TRAINING",
-  "DEVICE",
-  "MONTH",
-];
-const pricingModels = [
-  "FREE",
-  "INCLUDED",
-  "FLAT_FEE",
-  "PER_UNIT",
-  "TIERED",
-  "VOLUME",
-  "PER_USER",
-  "PER_RIDER",
-  "PER_VEHICLE",
-  "PER_FLEET",
-  "USAGE_BASED",
-  "ONE_TIME",
-  "CUSTOM",
-];
+function orderFeatureSteps(steps: Item[]): Item[] {
+  const byParent = new Map<string | null, Item[]>();
+  for (const step of steps) {
+    const parentId = step.parentId ?? step.parent?.id ?? null;
+    const siblings = byParent.get(parentId) ?? [];
+    siblings.push(step);
+    byParent.set(parentId, siblings);
+  }
+  for (const siblings of byParent.values()) {
+    siblings.sort((a, b) =>
+      (a.displayOrder ?? 0) - (b.displayOrder ?? 0) ||
+      String(a.code).localeCompare(String(b.code)),
+    );
+  }
+
+  const ordered: Item[] = [];
+  const visited = new Set<string>();
+  function append(step: Item) {
+    if (visited.has(step.id)) return;
+    visited.add(step.id);
+    ordered.push(step);
+    for (const child of byParent.get(step.id) ?? []) append(child);
+  }
+  for (const root of byParent.get(null) ?? []) append(root);
+  // Keep records with a missing parent visible until their relationship is fixed.
+  for (const step of steps) append(step);
+  return ordered;
+}
+type BulkImportEntity =
+  | "oem"
+  | "vehicle-category"
+  | "vehicle-type"
+  | "feature"
+  | "package";
+type BulkImportHistoryEntry = {
+  id: string;
+  entity: BulkImportEntity;
+  fileName: string;
+  status: "PASS" | "PARTIAL_PASS" | "FAIL";
+  totalRows: number;
+  passedRows: number;
+  failedRows: number;
+  createdAt: string;
+  jobId?: string;
+  failures?: Array<{ row: number; message: string; fields: string[]; raw?: Record<string, unknown> }>;
+  rows?: Array<Record<string, unknown>>;
+  error?: string;
+};
+type DeleteConfirmation = {
+  title: string;
+  description: string;
+  confirmLabel: string;
+  onConfirm: () => Promise<void>;
+};
+const BULK_IMPORT_HISTORY_KEY = "evs-eye-platform-bulk-import-history";
 
 function parseCsvLine(line: string) {
   const cells: string[] = [];
@@ -125,8 +158,22 @@ async function request(
     },
   });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok)
-    throw new Error(body.error?.message ?? body.message ?? "Request failed.");
+  if (!response.ok) {
+    const error = body.error ?? body;
+    const issues = Array.isArray(error.issues)
+      ? error.issues
+          .map((issue: unknown) =>
+            typeof issue === "object" && issue !== null && "message" in issue
+              ? String((issue as { message: unknown }).message)
+              : String(issue),
+          )
+          .filter(Boolean)
+      : [];
+    const base = error.message ?? error.code ?? body.message ?? "Request failed.";
+    throw new Error(
+      issues.length ? `${String(base)} ${issues.join(" ")}` : String(base),
+    );
+  }
   return body.data;
 }
 
@@ -137,13 +184,93 @@ const emptyOem = {
   status: "ACTIVE",
   website: "",
   description: "",
+  translations: {} as CatalogTranslations,
 };
+const emptyClient = {
+  id: "",
+  businessFleetName: "",
+  companyCode: "",
+  requestedLocales: ["en"] as string[],
+  legalEntityName: "",
+  clientType: "",
+  businessType: "",
+  industry: "",
+  gstin: "",
+  pan: "",
+  cinOrLlpin: "",
+  website: "",
+  yearEstablished: "",
+  estimatedFleetSize: "",
+  estimatedRiderCount: "",
+  estimatedUserCount: "",
+  primaryContactName: "",
+  primaryDesignation: "",
+  primaryMobile: "",
+  primaryEmail: "",
+  alternateMobile: "",
+  adminSameAsPrimary: true,
+  adminName: "",
+  adminEmail: "",
+  adminMobile: "",
+  adminDesignation: "",
+  registeredAddressLine1: "",
+  registeredAddressLine2: "",
+  landmark: "",
+  city: "",
+  district: "",
+  state: "",
+  country: "India",
+  pinCode: "",
+  billingSameAsRegistered: true,
+  billingAddressLine1: "",
+  billingAddressLine2: "",
+  billingLandmark: "",
+  billingCity: "",
+  billingDistrict: "",
+  billingState: "",
+  billingCountry: "India",
+  billingPinCode: "",
+  fleetBusinessModel: "",
+  numberOfFleets: "",
+  approximateRiderCount: "",
+  vehicleOwnership: "",
+  vehicleCategoryIds: [] as string[],
+  operationalHubCount: "",
+  packageId: "",
+  billingCycle: "",
+  startDate: new Date().toISOString().slice(0, 10),
+  endDate: "",
+  trialRequired: false,
+  autoRenew: true,
+  billingContactName: "",
+  billingEmail: "",
+  billingMobile: "",
+  purchaseOrderRequired: false,
+  poNumber: "",
+  paymentTerms: "",
+  authorizedSignatoryName: "",
+  signatoryDesignation: "",
+  termsAccepted: false,
+  privacyAccepted: false,
+  dataProcessingConsent: false,
+  kycConsent: false,
+  marketingConsent: false,
+};
+const clientStepLabels = [
+  "Business Details",
+  "Contacts & Address",
+  "Fleet Operations",
+  "Package Selection",
+  "Billing & Documents",
+  "Review & Submit",
+] as const;
 const emptyVehicleCategory = {
   code: "",
   name: "",
   description: "",
   status: "ACTIVE",
   displayOrder: "0",
+  translations: {} as CatalogTranslations,
 };
 const emptyVehicleType = {
   categoryId: "",
@@ -151,109 +278,275 @@ const emptyVehicleType = {
   name: "",
   subCategory: "",
   description: "",
-  energyType: "ELECTRIC",
+  energyType: "",
   usageType: "",
   status: "ACTIVE",
+  translations: {} as CatalogTranslations,
 };
 const emptyPackage = {
   code: "",
   name: "",
-  monthlyPrice: "",
-  yearlyPrice: "",
+  setupFee: "0",
   currency: "INR",
   description: "",
-  maxFleets: "",
-  maxRiders: "",
+  maxFleets: "2147483647",
+  maxRiders: "2147483647",
+  maxAdmins: "2147483647",
+  maxFleetManagers: "2147483647",
+  maxHubs: "2147483647",
+  maxTeamLeaders: "2147483647",
+  maxClusterManagers: "2147483647",
+  maxUsers: "2147483647",
   trialDays: "0",
   displayOrder: "0",
   isCustom: false,
   isActive: true,
 };
+const PACKAGE_UNLIMITED_LIMIT = 2_147_483_647;
+const packageLimitFields = [
+  ["maxFleets", "Maximum fleets"],
+  ["maxRiders", "Maximum riders"],
+  ["maxAdmins", "Maximum admins"],
+  ["maxFleetManagers", "Maximum fleet managers"],
+  ["maxHubs", "Maximum hubs"],
+  ["maxTeamLeaders", "Maximum team leaders"],
+  ["maxClusterManagers", "Maximum cluster managers"],
+  ["maxUsers", "Maximum users"],
+] as const;
+
+function isUnlimitedPackageLimit(value: unknown) {
+  return Number(value) === PACKAGE_UNLIMITED_LIMIT;
+}
+
+function displayPackageLimit(value: unknown) {
+  return isUnlimitedPackageLimit(value) ? "Unlimited" : String(value ?? 0);
+}
 const emptyFeature = {
   code: "",
   name: "",
   description: "",
-  category: "RIDER_ONBOARDING",
-  featureType: "BOOLEAN",
-  billingUnit: "MONTH",
+  translations: {} as CatalogTranslations,
+  category: "",
+  featureType: "",
+  billingUnit: "",
+  configuration: "",
+  featureStepId: "",
+  displayOrder: "0",
+  isActive: true,
+  isAddOnEligible: false,
+};
+const emptyFeatureStep = {
+  code: "",
+  displayName: "",
+  description: "",
+  translations: {} as CatalogTranslations,
+  parentId: "",
   displayOrder: "0",
   isActive: true,
 };
 const emptyPricing = {
   featureId: "",
-  pricingName: "",
-  pricingModel: "PER_UNIT",
-  billingUnit: "VERIFICATION",
+  billingUnit: "",
   currency: "INR",
-  basePrice: "0",
-  unitPrice: "",
-  costPrice: "0",
-  minimumCharge: "",
-  maximumCharge: "",
-  setupFee: "0",
-  billingCycle: "MONTHLY",
-  taxInclusive: false,
+  salePrice: "",
+  costPrice: "",
   effectiveFrom: new Date().toISOString().slice(0, 10),
   effectiveTo: "",
   isActive: true,
   metadata: "",
-  tiers: [] as PricingTierInput[],
 };
-
-const emptyPackageFeature = (
-  featureId: string,
-  displayOrder: number,
-): PackageFeatureInput => ({
-  featureId,
-  enabled: true,
-  includedQuantity: "",
-  usageLimit: "",
-  unlimitedUsage: true,
-  configuration: "",
-  displayOrder: String(displayOrder),
-});
+const emptyFeatureAddOn = {
+  code: "",
+  name: "",
+  description: "",
+  featureId: "",
+  quantity: "",
+  discount: "0",
+  validityDays: "",
+  validityMonths: "",
+  effectiveFrom: new Date().toISOString().slice(0, 10),
+  effectiveTo: "",
+  isActive: true,
+};
 
 function Metric({
   label,
   value,
   tone,
+  detail,
 }: {
   label: string;
   value: string | number;
   tone: string;
+  detail?: string;
 }) {
+  const { t } = useLocale();
   return (
     <article className="sa-metric">
       <span className={`sa-icon ${tone}`}>◈</span>
       <strong>{value}</strong>
-      <small>{label}</small>
-      <em>Live</em>
+      <small>{t(label)}</small>
+      <em>{t(detail ?? "Live")}</em>
     </article>
   );
 }
 
+type CatalogFormDialogProps = Readonly<{
+  open: boolean;
+  title: string;
+  description: string;
+  error: string;
+  busy: boolean;
+  size?: "default" | "wide" | "extra-wide";
+  triggerRef: { current: HTMLButtonElement | null };
+  onClose: () => void;
+  onDialogClose: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>;
+  actions: ReactNode;
+  children: ReactNode;
+}>;
+
+function CatalogFormDialog({
+  open,
+  title,
+  description,
+  error,
+  busy,
+  size = "default",
+  triggerRef,
+  onClose,
+  onDialogClose,
+  onSubmit,
+  actions,
+  children,
+}: CatalogFormDialogProps) {
+  const { t } = useLocale();
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const dialogId = useId();
+  const wasOpenRef = useRef(false);
+  const titleId = `${dialogId}-title`;
+  const descriptionId = `${dialogId}-description`;
+  const errorId = `${dialogId}-error`;
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+
+    let frame = 0;
+    if (open) {
+      if (!dialog.open) dialog.showModal();
+      frame = window.requestAnimationFrame(() => {
+        dialog
+          .querySelector<HTMLElement>(
+            '[data-dialog-initial-focus]:not(:disabled), input:not([type="file"]):not([type="hidden"]):not(:disabled), select:not(:disabled), textarea:not(:disabled)',
+          )
+          ?.focus();
+      });
+    } else {
+      if (dialog.open) dialog.close();
+      if (wasOpenRef.current) {
+        frame = window.requestAnimationFrame(() => {
+          triggerRef.current?.focus();
+        });
+      }
+    }
+    wasOpenRef.current = open;
+
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [open, triggerRef]);
+
+  return (
+    <dialog
+      ref={dialogRef}
+      className={`sa-dialog sa-dialog-${size}`}
+      aria-labelledby={titleId}
+      aria-describedby={error ? `${descriptionId} ${errorId}` : descriptionId}
+      aria-modal="true"
+      onCancel={(event) => {
+        event.preventDefault();
+        if (!busy) onClose();
+      }}
+      onClose={onDialogClose}
+    >
+      <form
+        className="sa-form sa-dialog-surface"
+        onSubmit={onSubmit}
+        aria-busy={busy}
+      >
+        <FormDialogHeader titleId={titleId} title={t(title)} descriptionId={descriptionId} description={t(description)} busy={busy} onClose={onClose} />
+        <div className="sa-dialog-content">
+        {error && (
+          <p id={errorId} className="error sa-dialog-error" role="alert">
+            {error}
+          </p>
+        )}
+        {children}
+        </div>
+        <footer className="sa-dialog-actions">{actions}</footer>
+      </form>
+    </dialog>
+  );
+}
+
 export default function SuperAdminDashboard() {
+  const { t } = useLocale();
   const [token, setToken] = useState(() =>
     typeof window === "undefined"
       ? ""
       : (sessionStorage.getItem(ACCESS_TOKEN_KEY) ?? ""),
   );
   const [tab, setTab] = useState<Tab>("dashboard");
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("tab") === "legalDocuments") {
+      // Keep the previous Legal Templates URL usable inside the portal shell.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setTab("legalDocuments");
+    }
+  }, []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [deleteConfirmation, setDeleteConfirmation] =
+    useState<DeleteConfirmation | null>(null);
   const [summary, setSummary] = useState<Item>({});
   const [clients, setClients] = useState<Item[]>([]);
   const [oems, setOems] = useState<Item[]>([]);
   const [vehicleCategories, setVehicleCategories] = useState<Item[]>([]);
   const [vehicleTypes, setVehicleTypes] = useState<Item[]>([]);
   const [packages, setPackages] = useState<Item[]>([]);
+  const [packageFeaturePackageId, setPackageFeaturePackageId] = useState<string | null>(null);
+  const [featureSteps, setFeatureSteps] = useState<Item[]>([]);
   const [features, setFeatures] = useState<Item[]>([]);
+  const [revisionTarget, setRevisionTarget] = useState<{ kind: "feature" | "package"; item: Item } | null>(null);
+  const [reviewRevision, setReviewRevision] = useState<any | null>(null);
+  const [revisions, setRevisions] = useState<Item[]>([]);
+  const [revisionBusy, setRevisionBusy] = useState(false);
+  const [revisionError, setRevisionError] = useState("");
+  const [discardRevisionTarget, setDiscardRevisionTarget] = useState<Item | null>(null);
+  const revisionTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [pricing, setPricing] = useState<Item[]>([]);
+  const [featureAddOns, setFeatureAddOns] = useState<Item[]>([]);
   const [oem, setOem] = useState(emptyOem);
   const [editingOemId, setEditingOemId] = useState<string | null>(null);
   const [showOemForm, setShowOemForm] = useState(false);
-  const [showOemBulk, setShowOemBulk] = useState(false);
+  const oemTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const [bulkImportEntity, setBulkImportEntity] =
+    useState<BulkImportEntity | null>(null);
+  const [bulkImportHistory, setBulkImportHistory] = useState<
+    BulkImportHistoryEntry[]
+  >(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = localStorage.getItem(BULK_IMPORT_HISTORY_KEY);
+      return saved ? (JSON.parse(saved) as BulkImportHistoryEntry[]) : [];
+    } catch {
+      return [];
+    }
+  });
   const [oemLogoFile, setOemLogoFile] = useState<File | null>(null);
   const [oemLogoPreview, setOemLogoPreview] = useState("");
   const [vehicleCategory, setVehicleCategory] = useState(emptyVehicleCategory);
@@ -261,68 +554,46 @@ export default function SuperAdminDashboard() {
     string | null
   >(null);
   const [showVehicleCategoryForm, setShowVehicleCategoryForm] = useState(false);
-  const [showVehicleCategoryBulk, setShowVehicleCategoryBulk] = useState(false);
+  const vehicleCategoryTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [vehicleType, setVehicleType] = useState(emptyVehicleType);
   const [editingVehicleTypeId, setEditingVehicleTypeId] = useState<
     string | null
   >(null);
   const [showVehicleTypeForm, setShowVehicleTypeForm] = useState(false);
-  const [showVehicleTypeBulk, setShowVehicleTypeBulk] = useState(false);
+  const vehicleTypeTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [feature, setFeature] = useState(emptyFeature);
   const [editingFeatureId, setEditingFeatureId] = useState<string | null>(null);
   const [showFeatureForm, setShowFeatureForm] = useState(false);
-  const [showFeatureBulk, setShowFeatureBulk] = useState(false);
+  const featureTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const [featureStep, setFeatureStep] = useState(emptyFeatureStep);
+  const [editingFeatureStepId, setEditingFeatureStepId] = useState<string | null>(null);
+  const [showFeatureStepForm, setShowFeatureStepForm] = useState(false);
+  const featureStepTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [pack, setPack] = useState(emptyPackage);
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
   const [showPackageForm, setShowPackageForm] = useState(false);
-  const [showPackageBulk, setShowPackageBulk] = useState(false);
-  const [packageFeatures, setPackageFeatures] = useState<PackageFeatureInput[]>(
-    [],
-  );
+  const packageTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [price, setPrice] = useState(emptyPricing);
   const [editingPricingId, setEditingPricingId] = useState<string | null>(null);
   const [showPricingForm, setShowPricingForm] = useState(false);
+  const pricingTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const [featureAddOn, setFeatureAddOn] = useState(emptyFeatureAddOn);
+  const [editingFeatureAddOnId, setEditingFeatureAddOnId] = useState<string | null>(null);
+  const [showFeatureAddOnForm, setShowFeatureAddOnForm] = useState(false);
+  const featureAddOnTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [clientStep, setClientStep] = useState(1);
   const [showClientForm, setShowClientForm] = useState(false);
-  const [client, setClient] = useState<Item>({
-    name: "",
-    slug: "",
-    legalCompanyName: "",
-    clientType: "FLEET_OPERATOR",
-    businessType: "PVT_LTD",
-    industry: "",
-    gstin: "",
-    pan: "",
-    website: "",
-    primaryContactName: "",
-    primaryContactTitle: "",
-    primaryContactMobile: "",
-    primaryContactEmail: "",
-    alternateMobile: "",
-    adminName: "",
-    adminEmail: "",
-    adminMobile: "",
-    registeredAddressLine1: "",
-    registeredAddressLine2: "",
-    landmark: "",
-    city: "",
-    district: "",
-    state: "",
-    country: "India",
-    pinCode: "",
-    packageId: "",
-    billingCycle: "MONTHLY",
-    packageStartDate: new Date().toISOString().slice(0, 10),
-    trialApplicable: false,
-    trialDays: "",
-    billingFrequency: "MONTHLY",
-    discountType: "",
-    discount: "",
-    taxRate: "18",
-    autoRenewal: true,
-    paymentTerms: "",
-    poNumber: "",
-  });
+  const clientTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const [client, setClient] = useState<Item>(emptyClient);
+  const [languages, setLanguages] = useState<Array<{ code: string; name: string; nativeName: string }>>([]);
+  const [clientLogoFile, setClientLogoFile] = useState<File | null>(null);
+  const [clientDocumentFiles, setClientDocumentFiles] = useState<
+    Record<string, File | undefined>
+  >({});
+  const [activeClientEdit, setActiveClientEdit] = useState(false);
+  const [expandedNavGroups, setExpandedNavGroups] = useState<
+    Record<string, boolean>
+  >({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -335,8 +606,11 @@ export default function SuperAdminDashboard() {
         vehicleCategoryList,
         vehicleTypeList,
         packageList,
+        featureStepList,
         featureList,
         priceList,
+        addOnList,
+        languageList,
       ] = await Promise.all([
         request("/platform/dashboard", {}, token),
         request("/platform/clients", {}, token),
@@ -344,8 +618,11 @@ export default function SuperAdminDashboard() {
         request("/platform/vehicle-categories", {}, token),
         request("/platform/vehicle-types", {}, token),
         request("/platform/packages", {}, token),
+        request("/platform/feature-steps", {}, token),
         request("/platform/features", {}, token),
         request("/platform/feature-pricing", {}, token),
+        request("/platform/commercial/feature-addons", {}, token),
+        request("/public/app/languages"),
       ]);
       setSummary(dashboard);
       setClients(clientList);
@@ -353,8 +630,12 @@ export default function SuperAdminDashboard() {
       setVehicleCategories(vehicleCategoryList);
       setVehicleTypes(vehicleTypeList);
       setPackages(packageList);
+      setFeatureSteps(featureStepList);
       setFeatures(featureList);
       setPricing(priceList);
+      setFeatureAddOns(addOnList);
+      setLanguages(languageList);
+      setLastLoadedAt(new Date());
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -370,15 +651,283 @@ export default function SuperAdminDashboard() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (token) void load();
   }, [token, load]);
+  function openOemModal(trigger: HTMLButtonElement, item?: Item) {
+    oemTriggerRef.current = trigger;
+    setError("");
+    setNotice("");
+    setBulkImportEntity(null);
+    if (item) {
+      setOem({
+        code: item.code,
+        name: item.name,
+        displayName: item.displayName,
+        status: item.status,
+        website: item.website ?? "",
+        description: item.description ?? "",
+        translations: item.translations ?? {},
+      });
+      setEditingOemId(item.id);
+    } else {
+      setOem(emptyOem);
+      setEditingOemId(null);
+    }
+    setOemLogoFile(null);
+    setOemLogoPreview("");
+    setShowOemForm(true);
+  }
+  function closeOemModal() {
+    setError("");
+    setShowOemForm(false);
+  }
+  function openVehicleCategoryModal(
+    trigger: HTMLButtonElement,
+    item?: Item,
+    hideBulk = false,
+  ) {
+    vehicleCategoryTriggerRef.current = trigger;
+    setError("");
+    if (hideBulk) setBulkImportEntity(null);
+    if (item) {
+      setVehicleCategory({
+        code: item.code,
+        name: item.name,
+        description: item.description ?? "",
+        status: item.status,
+        displayOrder: String(item.displayOrder ?? 0),
+        translations: item.translations ?? {},
+      });
+      setEditingVehicleCategoryId(item.id);
+    } else {
+      setVehicleCategory(emptyVehicleCategory);
+      setEditingVehicleCategoryId(null);
+    }
+    setShowVehicleCategoryForm(true);
+  }
+  function closeVehicleCategoryModal() {
+    setError("");
+    setShowVehicleCategoryForm(false);
+  }
+  function openVehicleTypeModal(
+    trigger: HTMLButtonElement,
+    item?: Item,
+    hideBulk = false,
+  ) {
+    vehicleTypeTriggerRef.current = trigger;
+    setError("");
+    if (hideBulk) setBulkImportEntity(null);
+    if (item) {
+      setVehicleType({
+        categoryId: item.categoryId,
+        code: item.code,
+        name: item.name,
+        subCategory: item.subCategory ?? "",
+        description: item.description ?? "",
+        energyType: item.energyType,
+        usageType: item.usageType ?? "",
+        status: item.status,
+        translations: item.translations ?? {},
+      });
+      setEditingVehicleTypeId(item.id);
+    } else {
+      setVehicleType(emptyVehicleType);
+      setEditingVehicleTypeId(null);
+    }
+    setShowVehicleTypeForm(true);
+  }
+  function closeVehicleTypeModal() {
+    setError("");
+    setShowVehicleTypeForm(false);
+  }
+  function openFeatureModal(
+    trigger: HTMLButtonElement,
+    item?: Item,
+    hideBulk = false,
+  ) {
+    featureTriggerRef.current = trigger;
+    setError("");
+    if (hideBulk) setBulkImportEntity(null);
+    if (item) {
+      setFeature({
+        code: item.code,
+        name: item.name,
+        description: item.description ?? "",
+        translations: completeCatalogTranslations(
+          {
+            name: item.name, description: item.description ?? "",
+            label: item.configuration?.label ?? "", placeholder: item.configuration?.placeholder ?? ""
+          },
+          ["name", "description", "label", "placeholder"], item.translations ?? {},
+        ),
+        category: item.category,
+        featureType: item.featureType,
+        billingUnit: item.billingUnit,
+        configuration: item.configuration
+          ? JSON.stringify(item.configuration, null, 2)
+          : "",
+        featureStepId: item.featureStepId ?? "",
+        displayOrder: String(item.displayOrder),
+        isActive: item.isActive,
+        isAddOnEligible: Boolean(item.isAddOnEligible),
+      });
+      setEditingFeatureId(item.id);
+    } else {
+      setFeature(emptyFeature);
+      setEditingFeatureId(null);
+    }
+    setShowFeatureForm(true);
+  }
+  function closeFeatureModal() {
+    setError("");
+    setShowFeatureForm(false);
+  }
+  function openFeatureStepModal(trigger: HTMLButtonElement, item?: Item) {
+    featureStepTriggerRef.current = trigger;
+    setError("");
+    if (item) {
+      setFeatureStep({
+        code: item.code,
+        displayName: item.displayName,
+        description: item.description ?? "",
+        translations: completeCatalogTranslations({ displayName: item.displayName, description: item.description ?? "" }, ["displayName", "description"], item.translations ?? {}),
+        parentId: item.parentId ?? "",
+        displayOrder: String(item.displayOrder ?? 0),
+        isActive: item.isActive,
+      });
+      setEditingFeatureStepId(item.id);
+    } else {
+      setFeatureStep(emptyFeatureStep);
+      setEditingFeatureStepId(null);
+    }
+    setShowFeatureStepForm(true);
+  }
+  function closeFeatureStepModal() {
+    setError("");
+    setShowFeatureStepForm(false);
+  }
+  function openPackageModal(trigger: HTMLButtonElement, item?: Item) {
+    packageTriggerRef.current = trigger;
+    setError("");
+    setBulkImportEntity(null);
+    if (item) {
+      setPack({
+        code: item.code,
+        name: item.name,
+        setupFee: String(item.setupFee ?? 0),
+        currency: item.currency,
+        description: item.description ?? "",
+        maxFleets: String(item.maxFleets ?? 0),
+        maxRiders: String(item.maxRiders ?? 0),
+        maxAdmins: String(item.maxAdmins ?? 0),
+        maxFleetManagers: String(item.maxFleetManagers ?? 0),
+        maxHubs: String(item.maxHubs ?? 0),
+        maxTeamLeaders: String(item.maxTeamLeaders ?? 0),
+        maxClusterManagers: String(item.maxClusterManagers ?? 0),
+        maxUsers: String(item.maxUsers ?? 0),
+        trialDays: String(item.trialDays ?? 0),
+        displayOrder: String(item.displayOrder ?? 0),
+        isCustom: item.isCustom,
+        isActive: item.isActive,
+      });
+      setEditingPackageId(item.id);
+    } else {
+      setPack(emptyPackage);
+      setEditingPackageId(null);
+    }
+    setShowPackageForm(true);
+  }
+  function closePackageModal() {
+    setError("");
+    setShowPackageForm(false);
+  }
+  function openPricingModal(trigger: HTMLButtonElement, item?: Item) {
+    pricingTriggerRef.current = trigger;
+    setError("");
+    if (item) {
+      setPrice({
+        featureId: item.featureId,
+        billingUnit: item.billingUnit,
+        salePrice: String(item.salePrice ?? ""),
+        costPrice: item.costPrice === null ? "" : String(item.costPrice ?? ""),
+        currency: item.currency,
+        effectiveFrom: item.effectiveFrom.slice(0, 10),
+        effectiveTo: item.effectiveTo ? item.effectiveTo.slice(0, 10) : "",
+        isActive: item.isActive,
+        metadata: item.metadata
+          ? JSON.stringify(item.metadata, null, 2)
+          : "",
+      });
+      setEditingPricingId(item.id);
+    } else {
+      setPrice(emptyPricing);
+      setEditingPricingId(null);
+    }
+    setShowPricingForm(true);
+  }
+  function closePricingModal() {
+    setError("");
+    setShowPricingForm(false);
+  }
+  function openFeatureAddOnModal(trigger: HTMLButtonElement, item?: Item) {
+    featureAddOnTriggerRef.current = trigger;
+    setError("");
+    if (item) {
+      setFeatureAddOn({
+        code: item.code,
+        name: item.name,
+        description: item.description ?? "",
+        featureId: item.featureId,
+        quantity: String(item.quantity ?? ""),
+        discount: String(item.discount ?? 0),
+        validityDays: item.validityDays === null ? "" : String(item.validityDays ?? ""),
+        validityMonths: item.validityMonths === null ? "" : String(item.validityMonths ?? ""),
+        effectiveFrom: item.effectiveFrom.slice(0, 10),
+        effectiveTo: item.effectiveTo ? item.effectiveTo.slice(0, 10) : "",
+        isActive: item.isActive,
+      });
+      setEditingFeatureAddOnId(item.id);
+    } else {
+      setFeatureAddOn(emptyFeatureAddOn);
+      setEditingFeatureAddOnId(null);
+    }
+    setShowFeatureAddOnForm(true);
+  }
+  function closeFeatureAddOnModal() {
+    setError("");
+    setShowFeatureAddOnForm(false);
+  }
+  function openClientModal(trigger: HTMLButtonElement) {
+    clientTriggerRef.current = trigger;
+    if (!client.id) {
+      setClient(emptyClient);
+      setClientLogoFile(null);
+      setClientDocumentFiles({});
+      setClientStep(1);
+    }
+    setActiveClientEdit(false);
+    setError("");
+    setNotice("");
+    setShowClientForm(true);
+  }
+  function closeClientModal() {
+    setError("");
+    setActiveClientEdit(false);
+    setShowClientForm(false);
+  }
   async function submitOem(event: FormEvent) {
     event.preventDefault();
     await submit(
       async () => {
         const saved = await request(
           editingOemId ? `/platform/oems/${editingOemId}` : "/platform/oems",
-          { method: editingOemId ? "PUT" : "POST", body: JSON.stringify(oem) },
+          {
+            method: editingOemId ? "PUT" : "POST", body: JSON.stringify({
+              ...oem,
+              translations: completeCatalogTranslations(oem, ["description"], oem.translations),
+            })
+          },
           token,
         );
+        if (!editingOemId) setEditingOemId(saved.id);
         if (oemLogoFile) await uploadOemLogo(saved.id, oemLogoFile);
       },
       editingOemId ? "OEM updated." : "OEM created.",
@@ -437,6 +986,7 @@ export default function SuperAdminDashboard() {
             body: JSON.stringify({
               ...vehicleCategory,
               displayOrder: Number(vehicleCategory.displayOrder || 0),
+              translations: completeCatalogTranslations(vehicleCategory, ["name", "description"], vehicleCategory.translations),
             }),
           },
           token,
@@ -464,6 +1014,7 @@ export default function SuperAdminDashboard() {
             body: JSON.stringify({
               ...vehicleType,
               ...(vehicleType.usageType ? {} : { usageType: undefined }),
+              translations: completeCatalogTranslations(vehicleType, ["name", "description"], vehicleType.translations),
             }),
           },
           token,
@@ -499,7 +1050,7 @@ export default function SuperAdminDashboard() {
   }
   function downloadOemTemplate() {
     const csv =
-      "oem_code,oem_name,display_name,status,logo_url,website,description\nZELIO,Zelio Auto Private Limited,Zelio,ACTIVE,,,\n";
+      "oem_code,oem_name,display_name,status,website,description\nZELIO,Zelio Auto Private Limited,Zelio,ACTIVE,,\n";
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     const link = document.createElement("a");
     link.href = url;
@@ -507,22 +1058,54 @@ export default function SuperAdminDashboard() {
     link.click();
     URL.revokeObjectURL(url);
   }
+  function recordBulkImport(
+    entity: BulkImportEntity,
+    fileName: string,
+    totalRows: number,
+    result: { created?: number; passedRows?: number; failedRows?: number; status?: string; jobId?: string; failures?: BulkImportHistoryEntry["failures"] } = {},
+    error?: string,
+  ) {
+    const passedRows = result.created ?? result.passedRows ?? 0;
+    const failedRows = result.failedRows ?? (error ? totalRows : 0);
+    const status = error
+      ? "FAIL"
+      : result.status === "PARTIAL_PASS" || failedRows > 0
+        ? "PARTIAL_PASS"
+        : "PASS";
+    const entry: BulkImportHistoryEntry = {
+      id: crypto.randomUUID(),
+      entity,
+      fileName,
+      status,
+      totalRows,
+      passedRows,
+      failedRows,
+      createdAt: new Date().toISOString(),
+      ...(result.jobId ? { jobId: result.jobId } : {}),
+      ...(result.failures ? { failures: result.failures } : {}),
+      ...(error ? { error } : {}),
+    };
+    setBulkImportHistory((current) => {
+      const next = [entry, ...current].slice(0, 50);
+      localStorage.setItem(BULK_IMPORT_HISTORY_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
   async function uploadOemCsv(file: File) {
     setLoading(true);
     setError("");
     try {
       const text = await file.text();
       const lines = text.split(/\r?\n/).filter((line) => line.trim());
-      const headers = lines
-        .shift()
-        ?.split(",")
-        .map((header) => header.trim().toLowerCase());
+      const headerLine = lines.shift();
+      const headers = headerLine
+        ? parseCsvLine(headerLine).map((header) => header.trim().toLowerCase())
+        : undefined;
       const expected = [
         "oem_code",
         "oem_name",
         "display_name",
         "status",
-        "logo_url",
         "website",
         "description",
       ];
@@ -534,21 +1117,13 @@ export default function SuperAdminDashboard() {
           "Use the OEM template. Header names or their order do not match.",
         );
       const rows = lines.map((line) => {
-        const [
-          code,
-          name,
-          displayName,
-          status,
-          logoUrl,
-          website,
-          description,
-        ] = parseCsvLine(line);
+        const [code, name, displayName, status, website, description] =
+          parseCsvLine(line);
         return {
           code,
           name,
           displayName,
           status,
-          ...(logoUrl ? { logoUrl } : {}),
           ...(website ? { website } : {}),
           ...(description ? { description } : {}),
         };
@@ -558,16 +1133,18 @@ export default function SuperAdminDashboard() {
         "/platform/oems/bulk",
         { method: "POST", body: JSON.stringify({ rows }) },
         token,
-      )) as { created: number };
+      )) as { created?: number; passedRows?: number; failedRows?: number; status?: string; jobId?: string; failures?: BulkImportHistoryEntry["failures"] };
       setNotice(
-        `${result.created} OEM${result.created === 1 ? "" : "s"} imported successfully.`,
+        `${result.created ?? result.passedRows ?? 0} OEM${(result.created ?? result.passedRows ?? 0) === 1 ? "" : "s"} processed successfully.`,
       );
-      setShowOemBulk(false);
+      recordBulkImport("oem", file.name, rows.length, result);
+      setBulkImportEntity(null);
       await load();
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Unable to import OEMs.",
-      );
+      const message =
+        cause instanceof Error ? cause.message : "Unable to import OEMs.";
+      recordBulkImport("oem", file.name, 0, {}, message);
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -582,6 +1159,7 @@ export default function SuperAdminDashboard() {
   }
   async function uploadBulkCsv(
     file: File,
+    entity: BulkImportEntity,
     expectedHeaders: string[],
     endpoint: string,
     label: string,
@@ -591,17 +1169,21 @@ export default function SuperAdminDashboard() {
     setLoading(true);
     setError("");
     try {
-      const lines = (await file.text()).split(/\r?\n/).filter((line) => line.trim());
-      const headers = lines
-        .shift()
-        ?.split(",")
-        .map((header) => header.trim().toLowerCase());
+      const lines = (await file.text())
+        .split(/\r?\n/)
+        .filter((line) => line.trim());
+      const headerLine = lines.shift();
+      const headers = headerLine
+        ? parseCsvLine(headerLine).map((header) => header.trim().toLowerCase())
+        : undefined;
       if (
         !headers ||
         headers.length !== expectedHeaders.length ||
         expectedHeaders.some((header, index) => headers[index] !== header)
       ) {
-        throw new Error("Use the downloaded template. Header names or their order do not match.");
+        throw new Error(
+          "Use the downloaded template. Header names or their order do not match.",
+        );
       }
       const rows = lines.map((line) => toRow(parseCsvLine(line)));
       if (!rows.length) throw new Error("The upload contains no rows.");
@@ -609,15 +1191,39 @@ export default function SuperAdminDashboard() {
         endpoint,
         { method: "POST", body: JSON.stringify({ rows }) },
         token,
-      )) as { created: number };
-      setNotice(`${result.created} ${label}${result.created === 1 ? "" : "s"} imported successfully.`);
+      )) as { created?: number; passedRows?: number; failedRows?: number; status?: string; jobId?: string; failures?: BulkImportHistoryEntry["failures"] };
+      setNotice(
+        `${result.created ?? result.passedRows ?? 0} ${label}${(result.created ?? result.passedRows ?? 0) === 1 ? "" : "s"} processed successfully.`,
+      );
+      recordBulkImport(entity, file.name, rows.length, result);
       complete();
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : `Unable to import ${label.toLowerCase()}s.`);
+      const message =
+        cause instanceof Error
+          ? cause.message
+          : `Unable to import ${label.toLowerCase()}s.`;
+      recordBulkImport(entity, file.name, 0, {}, message);
+      setError(message);
     } finally {
       setLoading(false);
     }
+  }
+  async function retryPlatformImport(entry: BulkImportHistoryEntry, rows: Array<Record<string, unknown>>) {
+    if (!entry.jobId) return;
+    const endpoint = { oem: "oems", "vehicle-category": "vehicle-categories", "vehicle-type": "vehicle-types", feature: "features", package: "packages" }[entry.entity];
+    setLoading(true); setError("");
+    try {
+      const result = await request(`/platform/${endpoint}/imports/${entry.jobId}/retry`, { method: "POST", body: JSON.stringify({ rows }) }, token) as { jobId?: string; passedRows?: number; failedRows?: number; status?: string; failures?: BulkImportHistoryEntry["failures"] };
+      recordBulkImport(entry.entity, `${entry.fileName} (retry)`, rows.length, result);
+      setNotice("Corrected rows re-submitted successfully.");
+      await load();
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Unable to retry failed rows.";
+      setError(message);
+      throw cause instanceof Error ? cause : new Error(message);
+    }
+    finally { setLoading(false); }
   }
   function downloadVehicleCategoryTemplate() {
     downloadCsvTemplate(
@@ -628,11 +1234,18 @@ export default function SuperAdminDashboard() {
   async function uploadVehicleCategoryCsv(file: File) {
     await uploadBulkCsv(
       file,
+      "vehicle-category",
       ["code", "name", "description", "status", "display_order"],
       "/platform/vehicle-categories/bulk",
       "Vehicle Category",
-      ([code, name, description, status, displayOrder]) => ({ code, name, description, status, displayOrder }),
-      () => setShowVehicleCategoryBulk(false),
+      ([code, name, description, status, displayOrder]) => ({
+        code,
+        name,
+        description,
+        status,
+        displayOrder,
+      }),
+      () => setBulkImportEntity(null),
     );
   }
   function downloadVehicleTypeTemplate() {
@@ -644,31 +1257,123 @@ export default function SuperAdminDashboard() {
   async function uploadVehicleTypeCsv(file: File) {
     await uploadBulkCsv(
       file,
-      ["category_code", "code", "name", "sub_category", "description", "energy_type", "usage_type", "status"],
+      "vehicle-type",
+      [
+        "category_code",
+        "code",
+        "name",
+        "sub_category",
+        "description",
+        "energy_type",
+        "usage_type",
+        "status",
+      ],
       "/platform/vehicle-types/bulk",
       "Vehicle Type",
-      ([categoryCode, code, name, subCategory, description, energyType, usageType, status]) => ({ categoryCode, code, name, subCategory, description, energyType, usageType, status }),
-      () => setShowVehicleTypeBulk(false),
+      ([
+        categoryCode,
+        code,
+        name,
+        subCategory,
+        description,
+        energyType,
+        usageType,
+        status,
+      ]) => ({
+        categoryCode,
+        code,
+        name,
+        subCategory,
+        description,
+        energyType,
+        usageType,
+        status,
+      }),
+      () => setBulkImportEntity(null),
     );
   }
   function downloadPackageTemplate() {
     downloadCsvTemplate(
       "evseye-package-template.csv",
-      "code,name,monthly_price,yearly_price,currency,max_fleets,max_riders,trial_days,display_order,is_custom,is_active,description\nSTARTER,Starter,1999,19990,INR,1,100,0,10,false,true,Starter platform package\n",
+      "code,name,setup_fee,currency,max_fleets,max_riders,max_admins,max_fleet_managers,max_hubs,max_team_leaders,max_cluster_managers,max_users,trial_days,display_order,is_custom,is_active,description\nSTARTER,Starter,0,INR,1,100,2,5,2,10,2,15,0,10,false,true,Starter platform package\n",
     );
   }
   async function uploadPackageCsv(file: File) {
     await uploadBulkCsv(
       file,
-      ["code", "name", "monthly_price", "yearly_price", "currency", "max_fleets", "max_riders", "trial_days", "display_order", "is_custom", "is_active", "description"],
+      "package",
+      [
+        "code",
+        "name",
+        "setup_fee",
+        "currency",
+        "max_fleets",
+        "max_riders",
+        "max_admins",
+        "max_fleet_managers",
+        "max_hubs",
+        "max_team_leaders",
+        "max_cluster_managers",
+        "max_users",
+        "trial_days",
+        "display_order",
+        "is_custom",
+        "is_active",
+        "description",
+      ],
       "/platform/packages/bulk",
       "Package",
-      ([code, name, monthlyPrice, yearlyPrice, currency, maxFleets, maxRiders, trialDays, displayOrder, isCustom, isActive, description]) => ({ code, name, monthlyPrice, yearlyPrice, currency, maxFleets, maxRiders, trialDays, displayOrder, isCustom, isActive, description }),
-      () => setShowPackageBulk(false),
+      ([
+        code,
+        name,
+        setupFee,
+        currency,
+        maxFleets,
+        maxRiders,
+        maxAdmins,
+        maxFleetManagers,
+        maxHubs,
+        maxTeamLeaders,
+        maxClusterManagers,
+        maxUsers,
+        trialDays,
+        displayOrder,
+        isCustom,
+        isActive,
+        description,
+      ]) => ({
+        code,
+        name,
+        setupFee,
+        currency,
+        maxFleets,
+        maxRiders,
+        maxAdmins,
+        maxFleetManagers,
+        maxHubs,
+        maxTeamLeaders,
+        maxClusterManagers,
+        maxUsers,
+        trialDays,
+        displayOrder,
+        isCustom,
+        isActive,
+        description,
+      }),
+      () => setBulkImportEntity(null),
     );
   }
   async function submitFeature(event: FormEvent) {
     event.preventDefault();
+    let configuration: Record<string, unknown> | undefined;
+    try {
+      configuration = feature.configuration
+        ? JSON.parse(feature.configuration)
+        : undefined;
+    } catch {
+      setError("Feature configuration must be valid JSON.");
+      return;
+    }
     await submit(
       () =>
         request(
@@ -679,7 +1384,9 @@ export default function SuperAdminDashboard() {
             method: editingFeatureId ? "PUT" : "POST",
             body: JSON.stringify({
               ...feature,
+              ...(configuration ? { configuration } : {}),
               displayOrder: Number(feature.displayOrder),
+              isAddOnEligible: feature.isAddOnEligible,
             }),
           },
           token,
@@ -689,6 +1396,31 @@ export default function SuperAdminDashboard() {
         setFeature(emptyFeature);
         setEditingFeatureId(null);
         setShowFeatureForm(false);
+      },
+    );
+  }
+  async function submitFeatureStep(event: FormEvent) {
+    event.preventDefault();
+    await submit(
+      () => request(
+        editingFeatureStepId
+          ? `/platform/feature-steps/${editingFeatureStepId}`
+          : "/platform/feature-steps",
+        {
+          method: editingFeatureStepId ? "PUT" : "POST",
+          body: JSON.stringify({
+            ...featureStep,
+            parentId: featureStep.parentId || undefined,
+            displayOrder: Number(featureStep.displayOrder || 0),
+          }),
+        },
+        token,
+      ),
+      editingFeatureStepId ? "Feature Step updated." : "Feature Step created.",
+      () => {
+        setFeatureStep(emptyFeatureStep);
+        setEditingFeatureStepId(null);
+        setShowFeatureStepForm(false);
       },
     );
   }
@@ -709,10 +1441,10 @@ export default function SuperAdminDashboard() {
       const lines = (await file.text())
         .split(/\r?\n/)
         .filter((line) => line.trim());
-      const headers = lines
-        .shift()
-        ?.split(",")
-        .map((header) => header.trim().toLowerCase());
+      const headerLine = lines.shift();
+      const headers = headerLine
+        ? parseCsvLine(headerLine).map((header) => header.trim().toLowerCase())
+        : undefined;
       const expected = [
         "feature_code",
         "feature_name",
@@ -758,43 +1490,24 @@ export default function SuperAdminDashboard() {
         "/platform/features/bulk",
         { method: "POST", body: JSON.stringify({ rows }) },
         token,
-      )) as { created: number };
+      )) as { created?: number; passedRows?: number; failedRows?: number; status?: string; jobId?: string; failures?: BulkImportHistoryEntry["failures"] };
       setNotice(
-        `${result.created} feature${result.created === 1 ? "" : "s"} imported successfully.`,
+        `${result.created ?? result.passedRows ?? 0} feature${(result.created ?? result.passedRows ?? 0) === 1 ? "" : "s"} processed successfully.`,
       );
-      setShowFeatureBulk(false);
+      recordBulkImport("feature", file.name, rows.length, result);
+      setBulkImportEntity(null);
       await load();
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Unable to import Features.",
-      );
+      const message =
+        cause instanceof Error ? cause.message : "Unable to import Features.";
+      recordBulkImport("feature", file.name, 0, {}, message);
+      setError(message);
     } finally {
       setLoading(false);
     }
   }
   async function submitPackage(event: FormEvent) {
     event.preventDefault();
-    let configuredFeatures: Item[];
-    try {
-      configuredFeatures = packageFeatures.map((feature) => ({
-        featureId: feature.featureId,
-        enabled: feature.enabled,
-        unlimitedUsage: feature.unlimitedUsage,
-        displayOrder: Number(feature.displayOrder || 0),
-        ...(feature.includedQuantity
-          ? { includedQuantity: Number(feature.includedQuantity) }
-          : {}),
-        ...(feature.usageLimit
-          ? { usageLimit: Number(feature.usageLimit) }
-          : {}),
-        ...(feature.configuration
-          ? { configuration: JSON.parse(feature.configuration) }
-          : {}),
-      }));
-    } catch {
-      setError("Package Feature configuration must be valid JSON.");
-      return;
-    }
     await submit(
       () =>
         request(
@@ -805,17 +1518,17 @@ export default function SuperAdminDashboard() {
             method: editingPackageId ? "PUT" : "POST",
             body: JSON.stringify({
               ...pack,
-              ...(pack.monthlyPrice
-                ? { monthlyPrice: Number(pack.monthlyPrice) }
-                : {}),
-              ...(pack.yearlyPrice
-                ? { yearlyPrice: Number(pack.yearlyPrice) }
-                : {}),
-              ...(pack.maxFleets ? { maxFleets: Number(pack.maxFleets) } : {}),
-              ...(pack.maxRiders ? { maxRiders: Number(pack.maxRiders) } : {}),
+              setupFee: Number(pack.setupFee),
+              maxFleets: Number(pack.maxFleets),
+              maxRiders: Number(pack.maxRiders),
+              maxAdmins: Number(pack.maxAdmins),
+              maxFleetManagers: Number(pack.maxFleetManagers),
+              maxHubs: Number(pack.maxHubs),
+              maxTeamLeaders: Number(pack.maxTeamLeaders),
+              maxClusterManagers: Number(pack.maxClusterManagers),
+              maxUsers: Number(pack.maxUsers),
               trialDays: Number(pack.trialDays || 0),
               displayOrder: Number(pack.displayOrder || 0),
-              packageFeatures: configuredFeatures,
             }),
           },
           token,
@@ -823,7 +1536,6 @@ export default function SuperAdminDashboard() {
       editingPackageId ? "Package updated." : "Package created.",
       () => {
         setPack(emptyPackage);
-        setPackageFeatures([]);
         setEditingPackageId(null);
         setShowPackageForm(false);
       },
@@ -847,30 +1559,15 @@ export default function SuperAdminDashboard() {
           {
             method: editingPricingId ? "PUT" : "POST",
             body: JSON.stringify({
-              ...price,
-              basePrice: Number(price.basePrice || 0),
-              unitPrice: Number(price.unitPrice),
-              costPrice: Number(price.costPrice || 0),
-              ...(price.minimumCharge
-                ? { minimumCharge: Number(price.minimumCharge) }
-                : {}),
-              ...(price.maximumCharge
-                ? { maximumCharge: Number(price.maximumCharge) }
-                : {}),
-              setupFee: Number(price.setupFee || 0),
+              featureId: price.featureId,
+              billingUnit: price.billingUnit,
+              currency: price.currency,
+              salePrice: Number(price.salePrice),
+              ...(price.costPrice ? { costPrice: Number(price.costPrice) } : {}),
+              effectiveFrom: price.effectiveFrom,
               ...(price.effectiveTo ? {} : { effectiveTo: undefined }),
               ...(metadata ? { metadata } : { metadata: undefined }),
-              tiers: price.tiers.map((tier) => ({
-                tierOrder: Number(tier.tierOrder),
-                fromQuantity: Number(tier.fromQuantity),
-                ...(tier.toQuantity
-                  ? { toQuantity: Number(tier.toQuantity) }
-                  : {}),
-                unitPrice: Number(tier.unitPrice),
-                ...(tier.costPrice
-                  ? { costPrice: Number(tier.costPrice) }
-                  : {}),
-              })),
+              isActive: price.isActive,
             }),
           },
           token,
@@ -885,38 +1582,367 @@ export default function SuperAdminDashboard() {
       },
     );
   }
+  async function submitFeatureAddOn(event: FormEvent) {
+    event.preventDefault();
+    await submit(
+      () =>
+        request(
+          editingFeatureAddOnId
+            ? `/platform/commercial/feature-addons/${editingFeatureAddOnId}`
+            : "/platform/commercial/feature-addons",
+          {
+            method: editingFeatureAddOnId ? "PUT" : "POST",
+            body: JSON.stringify({
+              code: featureAddOn.code,
+              name: featureAddOn.name,
+              ...(featureAddOn.description
+                ? { description: featureAddOn.description }
+                : {}),
+              featureId: featureAddOn.featureId,
+              quantity: Number(featureAddOn.quantity),
+              discount: Number(featureAddOn.discount || 0),
+              ...(featureAddOn.validityDays
+                ? { validityDays: Number(featureAddOn.validityDays) }
+                : {}),
+              ...(featureAddOn.validityMonths
+                ? { validityMonths: Number(featureAddOn.validityMonths) }
+                : {}),
+              effectiveFrom: featureAddOn.effectiveFrom,
+              ...(featureAddOn.effectiveTo
+                ? { effectiveTo: featureAddOn.effectiveTo }
+                : {}),
+              isActive: featureAddOn.isActive,
+            }),
+          },
+          token,
+        ),
+      editingFeatureAddOnId
+        ? "Feature add-on updated."
+        : "Feature add-on created.",
+      () => {
+        setFeatureAddOn(emptyFeatureAddOn);
+        setEditingFeatureAddOnId(null);
+        setShowFeatureAddOnForm(false);
+      },
+    );
+  }
+  async function uploadClientLogo(clientId: string) {
+    if (!clientLogoFile) return;
+    const intent = await request(`/platform/clients/${clientId}/logo-upload-intents`, {
+      method: "POST", body: JSON.stringify({ mimeType: clientLogoFile.type, sizeBytes: clientLogoFile.size }),
+    }, token);
+    const uploaded = await fetch(intent.uploadUrl, { method: "PUT", headers: { "Content-Type": clientLogoFile.type }, body: clientLogoFile });
+    if (!uploaded.ok) throw new Error("The client logo could not be uploaded. Please retry.");
+    const completed = await request(`/platform/clients/${clientId}/logo-upload-complete`, {
+      method: "POST", body: JSON.stringify({ objectKey: intent.objectKey }),
+    }, token);
+    setClient((current) => ({ ...current, logoUrl: completed.logoUrl }));
+    setClientLogoFile(null);
+  }
+
   async function submitClient(event: FormEvent) {
     event.preventDefault();
-    if (clientStep < 4) {
-      setClientStep(clientStep + 1);
+    await submit(
+      async () => {
+        const numberOrUndefined = (value: unknown) =>
+          value === "" || value === undefined ? undefined : Number(value);
+        if (clientStep === 1) {
+          if (client.id) {
+            await request(
+              `/platform/clients/${client.id}/business-details`,
+              {
+                method: "PATCH",
+                body: JSON.stringify({
+                  businessFleetName: client.businessFleetName,
+                  requestedLocales: client.requestedLocales,
+                  legalEntityName: client.legalEntityName,
+                  businessType: client.businessType,
+                  clientType: client.clientType,
+                  industry: client.industry || undefined,
+                  pan: client.pan,
+                  gstin: client.gstin || undefined,
+                  cinOrLlpin: client.cinOrLlpin || undefined,
+                  website: client.website || undefined,
+                  yearEstablished: numberOrUndefined(client.yearEstablished),
+                  estimatedFleetSize: Number(client.estimatedFleetSize),
+                  estimatedRiderCount: Number(client.estimatedRiderCount),
+                  estimatedUserCount: numberOrUndefined(
+                    client.estimatedUserCount,
+                  ),
+                }),
+              },
+              token,
+            );
+            await uploadClientLogo(client.id);
+            if (!activeClientEdit) setClientStep(2);
+            return;
+          }
+          const created = await request(
+            "/platform/clients/drafts",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                businessFleetName: client.businessFleetName,
+                companyCode: client.companyCode,
+                requestedLocales: client.requestedLocales,
+                legalEntityName: client.legalEntityName,
+                businessType: client.businessType,
+                clientType: client.clientType,
+                industry: client.industry || undefined,
+                pan: client.pan,
+                gstin: client.gstin || undefined,
+                cinOrLlpin: client.cinOrLlpin || undefined,
+                website: client.website || undefined,
+                yearEstablished: numberOrUndefined(client.yearEstablished),
+                estimatedFleetSize: Number(client.estimatedFleetSize),
+                estimatedRiderCount: Number(client.estimatedRiderCount),
+                estimatedUserCount: numberOrUndefined(
+                  client.estimatedUserCount,
+                ),
+              }),
+            },
+            token,
+          );
+          setClient((current) => ({ ...current, id: created.id }));
+          await uploadClientLogo(created.id);
+          setClientStep(2);
+          return;
+        }
+        if (!client.id)
+          throw new Error("Create Business Details before continuing.");
+        if (clientStep === 2) {
+          await request(
+            `/platform/clients/${client.id}/contacts-addresses`,
+            {
+              method: "PATCH",
+              // This endpoint has a step-specific DTO. Send only contact and
+              // address fields so the API can keep its strict whitelist on.
+
+              body: JSON.stringify({
+                primaryContactName: client.primaryContactName,
+                primaryDesignation: client.primaryDesignation,
+                primaryMobile: client.primaryMobile,
+                primaryEmail: client.primaryEmail,
+                ...(client.alternateMobile
+                  ? { alternateMobile: client.alternateMobile }
+                  : {}),
+                adminSameAsPrimary: client.adminSameAsPrimary,
+                ...(client.adminSameAsPrimary
+                  ? {}
+                  : {
+                    adminName: client.adminName,
+                    adminMobile: client.adminMobile,
+                    adminEmail: client.adminEmail,
+                    ...(client.adminDesignation
+                      ? { adminDesignation: client.adminDesignation }
+                      : {}),
+                  }),
+
+                registeredAddressLine1: client.registeredAddressLine1,
+                ...(client.registeredAddressLine2
+                  ? { registeredAddressLine2: client.registeredAddressLine2 }
+                  : {}),
+                ...(client.landmark ? { landmark: client.landmark } : {}),
+                city: client.city,
+                ...(client.district ? { district: client.district } : {}),
+                state: client.state,
+                ...(client.country ? { country: client.country } : {}),
+                pinCode: client.pinCode,
+                billingSameAsRegistered: client.billingSameAsRegistered,
+                ...(client.billingSameAsRegistered
+                  ? {}
+                  : {
+                    billingAddressLine1: client.billingAddressLine1,
+                    ...(client.billingAddressLine2
+                      ? { billingAddressLine2: client.billingAddressLine2 }
+                      : {}),
+                    ...(client.billingLandmark
+                      ? { billingLandmark: client.billingLandmark }
+                      : {}),
+                    billingCity: client.billingCity,
+                    ...(client.billingDistrict
+                      ? { billingDistrict: client.billingDistrict }
+                      : {}),
+                    billingState: client.billingState,
+                    ...(client.billingCountry
+                      ? { billingCountry: client.billingCountry }
+                      : {}),
+                    billingPinCode: client.billingPinCode,
+                  }),
+              }),
+            },
+            token,
+          );
+          setClientStep(3);
+          return;
+        }
+        if (clientStep === 3) {
+          await request(
+            `/platform/clients/${client.id}/fleet-operations`,
+            {
+              method: "PATCH",
+              body: JSON.stringify({
+                fleetBusinessModel: client.fleetBusinessModel,
+                numberOfFleets: Number(client.numberOfFleets),
+                approximateRiderCount: Number(client.approximateRiderCount),
+                vehicleOwnership: client.vehicleOwnership,
+                vehicleCategoryIds: client.vehicleCategoryIds,
+                operationalHubCount: numberOrUndefined(
+                  client.operationalHubCount,
+                ),
+              }),
+            },
+            token,
+          );
+          setClientStep(4);
+          return;
+        }
+        if (clientStep === 4) {
+          await request(
+            `/platform/clients/${client.id}/package-selection`,
+            {
+              method: "PATCH",
+              body: JSON.stringify({
+                packageId: client.packageId,
+                billingCycle: client.billingCycle,
+                startDate: client.startDate,
+                endDate: client.endDate || undefined,
+                trialRequired: client.trialRequired,
+                autoRenew: client.autoRenew,
+              }),
+            },
+            token,
+          );
+          setClientStep(5);
+          return;
+        }
+        if (clientStep === 5) {
+          await request(
+            `/platform/clients/${client.id}/billing`,
+            {
+              method: "PATCH",
+              body: JSON.stringify({
+                billingContactName: client.billingContactName,
+                billingEmail: client.billingEmail,
+                billingMobile: client.billingMobile || undefined,
+                purchaseOrderRequired: client.purchaseOrderRequired,
+                poNumber: client.poNumber || undefined,
+                paymentTerms: client.paymentTerms || undefined,
+              }),
+            },
+            token,
+          );
+          for (const [documentType, file] of Object.entries(
+            clientDocumentFiles,
+          )) {
+            if (!file) continue;
+            const intent = await request(
+              `/platform/clients/${client.id}/documents/upload-intents`,
+              {
+                method: "POST",
+                body: JSON.stringify({
+                  documentType,
+                  fileName: file.name,
+                  mimeType: file.type,
+                  sizeBytes: file.size,
+                }),
+              },
+              token,
+            );
+            const upload = await fetch(intent.uploadUrl, {
+              method: "PUT",
+              headers: { "Content-Type": file.type },
+              body: file,
+            });
+            if (!upload.ok)
+              throw new Error(`Unable to upload ${documentType}.`);
+            await request(
+              `/platform/clients/${client.id}/documents/${intent.document.id}/complete`,
+              { method: "POST" },
+              token,
+            );
+          }
+          setClientStep(6);
+          return;
+        }
+        if (activeClientEdit) return;
+        await request(
+          `/platform/clients/${client.id}/agreement`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({
+              authorizedSignatoryName: client.authorizedSignatoryName,
+              designation: client.signatoryDesignation,
+              termsAccepted: client.termsAccepted,
+              privacyAccepted: client.privacyAccepted,
+              dataProcessingConsent: client.dataProcessingConsent,
+              kycConsent: client.kycConsent,
+              marketingConsent: client.marketingConsent,
+            }),
+          },
+          token,
+        );
+        return request(
+          `/platform/clients/${client.id}/submit`,
+          { method: "POST" },
+          token,
+        );
+      },
+      clientStep === 6
+        ? activeClientEdit
+          ? "Approved Client changes saved."
+          : "Client workspace created. The Client Admin can now sign in."
+        : "Draft saved.",
+      () => {
+        if (clientStep === 6) {
+          setClient(emptyClient);
+          setClientDocumentFiles({});
+          setClientStep(1);
+          setActiveClientEdit(false);
+          setShowClientForm(false);
+        }
+      },
+    );
+  }
+  async function remove(path: string, label: string) {
+    setDeleteConfirmation({
+      title: `Delete ${label}?`,
+      description: `This permanently removes this ${label}. This action cannot be undone.`,
+      confirmLabel: `Delete ${label}`,
+      onConfirm: async () => {
+        await submit(
+          () => request(path, { method: "DELETE" }, token),
+          `${label} deleted.`,
+        );
+      },
+    });
+  }
+  async function approveClient(clientId: string) {
+    await submit(
+      () =>
+        request(
+          `/platform/clients/${clientId}/approve`,
+          { method: "POST" },
+          token,
+        ),
+      "Client approved and activated.",
+    );
+  }
+  async function rejectClient(clientId: string) {
+    const reason = window.prompt("Enter the reason for rejecting this Client.");
+    if (reason === null) return;
+    if (!reason.trim()) {
+      setError("A rejection reason is required.");
       return;
     }
     await submit(
       () =>
         request(
-          "/platform/clients/onboarding",
-          {
-            method: "POST",
-            body: JSON.stringify({
-              ...client,
-              trialDays: client.trialDays
-                ? Number(client.trialDays)
-                : undefined,
-              discount: client.discount ? Number(client.discount) : undefined,
-              taxRate: Number(client.taxRate),
-            }),
-          },
+          `/platform/clients/${clientId}/reject`,
+          { method: "POST", body: JSON.stringify({ reason: reason.trim() }) },
           token,
         ),
-      "Client onboarded successfully.",
-      () => setShowClientForm(false),
-    );
-  }
-  async function remove(path: string, label: string) {
-    if (!window.confirm(`Delete this ${label}?`)) return;
-    await submit(
-      () => request(path, { method: "DELETE" }, token),
-      `${label} deleted.`,
+      "Client rejected. The Client Admin will see the correction message.",
     );
   }
   async function submit(
@@ -927,9 +1953,9 @@ export default function SuperAdminDashboard() {
     setLoading(true);
     setError("");
     try {
-      await operation();
+      const result = await operation() as { welcomeEmail?: { message: string } } | undefined;
       done?.();
-      setNotice(success);
+      setNotice([success, result?.welcomeEmail?.message].filter(Boolean).join(" "));
       await load();
     } catch (cause) {
       setError(
@@ -940,7 +1966,145 @@ export default function SuperAdminDashboard() {
     }
   }
   function changeClient(key: string, value: unknown) {
-    setClient((current) => ({ ...current, [key]: value }));
+    const normalizedValue =
+      typeof value === "string" && (key === "pan" || key === "gstin")
+        ? value.toUpperCase()
+        : value;
+    setClient((current) => ({ ...current, [key]: normalizedValue }));
+  }
+  async function editClientDraft(
+    clientId: string,
+    trigger?: HTMLButtonElement,
+  ) {
+    if (trigger) clientTriggerRef.current = trigger;
+    await submit(async () => {
+      const detail = (await request(
+        `/platform/clients/${clientId}`,
+        {},
+        token,
+      )) as Item;
+      const profile = (detail.businessProfile ?? {}) as Item;
+      const contacts = (detail.contacts ?? []) as Item[];
+      const addresses = (detail.addresses ?? []) as Item[];
+      const primary = contacts.find((item) => item.role === "PRIMARY") ?? {};
+      const admin =
+        contacts.find((item) => item.role === "ACCOUNT_ADMIN") ?? {};
+      const registered =
+        addresses.find((item) => item.type === "REGISTERED") ?? {};
+      const billing = addresses.find((item) => item.type === "BILLING") ?? {};
+      const operations = (detail.operationsProfile ?? {}) as Item;
+      const subscription = ((detail.subscriptions ?? []) as Item[])[0] ?? {};
+      const billingProfile = (detail.billingProfile ?? {}) as Item;
+      const agreement = (detail.agreement ?? {}) as Item;
+      const sameAdmin =
+        !admin.id ||
+        (admin.name === primary.name &&
+          admin.mobile === primary.mobile &&
+          admin.email === primary.email);
+      const sameBilling =
+        !billing.id ||
+        (billing.line1 === registered.line1 &&
+          billing.city === registered.city &&
+          billing.state === registered.state &&
+          billing.pinCode === registered.pinCode);
+      const dateValue = (value: unknown) =>
+        value ? String(value).slice(0, 10) : "";
+
+      setClient((current) => ({
+        ...current,
+        id: detail.id,
+        logoUrl: detail.logoUrl ?? "",
+        businessFleetName: detail.name ?? "",
+        companyCode: detail.companyCode ?? detail.slug ?? "",
+        requestedLocales: detail.requestedLocales ?? ["en"],
+        legalEntityName: profile.legalCompanyName ?? "",
+        clientType: profile.clientType ?? "",
+        businessType: profile.businessType ?? "",
+        industry: profile.industry ?? "",
+        gstin: profile.gstin ?? "",
+        pan: profile.pan ?? "",
+        cinOrLlpin: profile.cinOrLlpin ?? "",
+        website: profile.website ?? "",
+        yearEstablished: profile.yearEstablished ?? "",
+        estimatedFleetSize: profile.estimatedFleetSize ?? "",
+        estimatedRiderCount: profile.estimatedRiderCount ?? "",
+        estimatedUserCount: profile.estimatedUserCount ?? "",
+        primaryContactName: primary.name ?? "",
+        primaryDesignation: primary.designation ?? "",
+        primaryMobile: primary.mobile ?? "",
+        primaryEmail: primary.email ?? "",
+        alternateMobile: primary.alternateMobile ?? "",
+        adminSameAsPrimary: sameAdmin,
+        adminName: sameAdmin ? "" : (admin.name ?? ""),
+        adminDesignation: sameAdmin ? "" : (admin.designation ?? ""),
+        adminMobile: sameAdmin ? "" : (admin.mobile ?? ""),
+        adminEmail: sameAdmin ? "" : (admin.email ?? ""),
+        registeredAddressLine1: registered.line1 ?? "",
+        registeredAddressLine2: registered.line2 ?? "",
+        landmark: registered.landmark ?? "",
+        city: registered.city ?? "",
+        district: registered.district ?? "",
+        state: registered.state ?? "",
+        country: registered.country ?? "India",
+        pinCode: registered.pinCode ?? "",
+        billingSameAsRegistered: sameBilling,
+        billingAddressLine1: sameBilling ? "" : (billing.line1 ?? ""),
+        billingAddressLine2: sameBilling ? "" : (billing.line2 ?? ""),
+        billingLandmark: sameBilling ? "" : (billing.landmark ?? ""),
+        billingCity: sameBilling ? "" : (billing.city ?? ""),
+        billingDistrict: sameBilling ? "" : (billing.district ?? ""),
+        billingState: sameBilling ? "" : (billing.state ?? ""),
+        billingCountry: sameBilling ? "India" : (billing.country ?? "India"),
+        billingPinCode: sameBilling ? "" : (billing.pinCode ?? ""),
+        fleetBusinessModel: operations.fleetBusinessModel ?? "",
+        numberOfFleets: operations.numberOfFleets ?? "",
+        approximateRiderCount: operations.approximateRiderCount ?? "",
+        vehicleOwnership: operations.vehicleOwnership ?? "",
+        vehicleCategoryIds: (operations.vehicleCategories ?? []).map(
+          (item: Item) => item.vehicleCategoryId,
+        ),
+        operationalHubCount: operations.operationalHubCount ?? "",
+        packageId: subscription.packageId ?? "",
+        billingCycle: subscription.billingCycle ?? "",
+        startDate: dateValue(subscription.startDate) || current.startDate,
+        endDate: dateValue(subscription.endDate),
+        autoRenew: subscription.autoRenew ?? true,
+        billingContactName: billingProfile.billingContactName ?? "",
+        billingEmail: billingProfile.billingEmail ?? "",
+        billingMobile: billingProfile.billingMobile ?? "",
+        purchaseOrderRequired: billingProfile.purchaseOrderRequired ?? false,
+        poNumber: billingProfile.poNumber ?? "",
+        paymentTerms: billingProfile.paymentTerms ?? "",
+        authorizedSignatoryName: agreement.authorizedSignatoryName ?? "",
+        signatoryDesignation: agreement.designation ?? "",
+        termsAccepted: Boolean(agreement.termsAcceptedAt),
+        privacyAccepted: Boolean(agreement.privacyAcceptedAt),
+        dataProcessingConsent: Boolean(agreement.dataProcessingConsentAt),
+        kycConsent: Boolean(agreement.kycConsentAt),
+        marketingConsent: Boolean(agreement.marketingConsentAt),
+        uploadedDocuments: detail.documents ?? [],
+      }));
+      setClientDocumentFiles({});
+      // Any client that has already created its workspace must stay in edit
+      // mode. Only DRAFT clients may submit the workspace-creation action.
+      const isExistingClient = detail.status !== "DRAFT";
+      setClientLogoFile(null);
+      setActiveClientEdit(isExistingClient);
+      setShowClientForm(true);
+      setClientStep(
+        isExistingClient
+          ? 1
+          : !primary.id || !registered.id
+            ? 2
+            : !operations.id
+              ? 3
+              : !subscription.id
+                ? 4
+                : !billingProfile.id
+                  ? 5
+                  : 6,
+      );
+    }, "Client loaded.");
   }
   if (!token)
     return (
@@ -955,47 +2119,301 @@ export default function SuperAdminDashboard() {
         </section>
       </main>
     );
-  const nav: Array<[Tab, string, string]> = [
-    ["dashboard", "Dashboard", "▦"],
-    ["vehicleCategories", "Vehicle Category", "▤"],
-    ["vehicleTypes", "Vehicle Type", "▧"],
-    ["oems", "OEM", "▣"],
-    ["features", "Feature", "◇"],
-    ["pricing", "Feature pricing", "₹"],
-    ["packages", "Package", "◫"],
-    ["clients", "Client", "♙"],
+  const navGroups: Array<{
+    label?: string;
+    items: Array<[Tab, string, IconName]>;
+  }> = [
+    { items: [["dashboard", "Dashboard", "dashboard"]] },
+    {
+      label: "Vehicle Management",
+      items: [
+        ["vehicleCategories", "Vehicle Category", "category"],
+        ["vehicleTypes", "Vehicle Type", "vehicle"],
+        ["oems", "OEM", "factory"],
+        ["spares", "Spares", "factory"],
+      ],
+    },
+    {
+      label: "Feature Management",
+      items: [
+        ["featureSteps", "Feature Step", "category"],
+        ["features", "Feature", "feature"],
+        ["pricing", "Pricing", "pricing"],
+        ["featureAddOns", "Add-ons", "feature"],
+      ],
+    },
+    {
+      label: "Package Management",
+      items: [
+        ["packages", "Package", "package"],
+        ["packageTierPricing", "Package Tier Pricing", "pricing"],
+      ],
+    },
+    {
+      label: "Client Management",
+      items: [
+        ["clients", "Client", "users"],
+        ["workPartners", "Work Partners", "link"],
+        ["clientAddOnPurchases", "Add-ons", "feature"],
+        ["clientCreditLots", "Feature Credit Lots", "packageFeature"],
+        ["clientUsageLedger", "Feature Usage Ledger", "dashboard"],
+      ],
+    },
+    { items: [["legalDocuments", "Legal Documents", "audit"], ["smsDeliveries", "SMS Delivery", "notification"]] },
   ];
+  const pageSubtitles: Partial<Record<Tab, string>> = {
+    spares: "Manage the spare catalogue copied to clients for their penalty configuration.",
+    legalDocuments: "Manage default legal documents copied as drafts when a client is created.",
+    oems: "Create and manage manufacturers visible across the platform.",
+    vehicleCategories:
+      "Define platform-wide vehicle classifications used in fleet onboarding and reporting.",
+    vehicleTypes:
+      "Define vehicle types by category, energy source, and usage.",
+    features: "Manage the platform feature catalog and entitlement definitions.",
+    featureSteps: "Organize the onboarding journey and align each Feature to its primary step.",
+    pricing: "Configure catalog pricing for billable platform features.",
+    packages: "Create packages and define the commercial limits available to clients.",
+    packageFeatures: "Choose the features included with each platform package.",
+    packageTierPricing: "Set the per-vehicle recurring price for each fleet-size range.",
+    smsDeliveries: "Review OTP delivery outcomes, provider attempts, and failover errors.",
+    clients: "Manage onboarding drafts, approvals, subscriptions, and documents.",
+    workPartners: "Manage the shared work partner catalog.",
+    clientPricingAdjustments: "Apply negotiated commercial terms without changing master pricing.",
+    clientAddOnPurchases: "Assign eligible catalog Features and client-specific pricing without changing package masters.",
+    clientCreditLots: "Review active and expired client feature credits by source and expiry.",
+    clientUsageLedger: "Review the immutable client feature credit and consumption history.",
+  };
+  const featureAddOnEffectiveDate = featureAddOn.effectiveFrom
+    ? new Date(featureAddOn.effectiveFrom)
+    : null;
+  const featureAddOnUnitPrice = featureAddOnEffectiveDate
+    ? pricing
+      .filter(
+        (item) =>
+          item.featureId === featureAddOn.featureId &&
+          item.isActive &&
+          new Date(item.effectiveFrom) <= featureAddOnEffectiveDate &&
+          (!item.effectiveTo ||
+            new Date(item.effectiveTo) >= featureAddOnEffectiveDate),
+      )
+      .sort(
+        (left, right) =>
+          new Date(right.effectiveFrom).getTime() -
+          new Date(left.effectiveFrom).getTime(),
+      )[0]
+    : undefined;
+  const featureAddOnQuantity = Number(featureAddOn.quantity) || 0;
+  const featureAddOnDiscount = Number(featureAddOn.discount) || 0;
+  const featureAddOnBaseCost = featureAddOnUnitPrice?.costPrice === null ||
+    featureAddOnUnitPrice?.costPrice === undefined
+    ? null
+    : Number(featureAddOnUnitPrice.costPrice) * featureAddOnQuantity;
+  const featureAddOnBaseSale = featureAddOnUnitPrice
+    ? Number(featureAddOnUnitPrice.salePrice) * featureAddOnQuantity
+    : null;
+  const featureAddOnSaleAfterDiscount = featureAddOnBaseSale === null
+    ? null
+    : featureAddOnBaseSale * (1 - featureAddOnDiscount / 100);
+  const catalogDialogOpen =
+    showOemForm ||
+    showVehicleCategoryForm ||
+    showVehicleTypeForm ||
+    showFeatureStepForm ||
+    showFeatureForm ||
+    showPackageForm ||
+    showPricingForm ||
+    showFeatureAddOnForm ||
+    showClientForm;
+  const nav = navGroups.flatMap((group) => group.items);
+  const bulkImportConfig = bulkImportEntity
+    ? {
+      oem: {
+        title: "OEM",
+        requiredColumns: "oem_code, oem_name, display_name, status",
+        downloadTemplate: downloadOemTemplate,
+        upload: uploadOemCsv,
+      },
+      "vehicle-category": {
+        title: "Vehicle Category",
+        requiredColumns: "code, name, status",
+        downloadTemplate: downloadVehicleCategoryTemplate,
+        upload: uploadVehicleCategoryCsv,
+      },
+      "vehicle-type": {
+        title: "Vehicle Type",
+        requiredColumns: "category_code, code, name, energy_type, status",
+        downloadTemplate: downloadVehicleTypeTemplate,
+        upload: uploadVehicleTypeCsv,
+      },
+      feature: {
+        title: "Feature",
+        requiredColumns:
+          "feature_code, feature_name, feature_category, feature_type, billing_unit",
+        downloadTemplate: downloadFeatureTemplate,
+        upload: uploadFeatureCsv,
+      },
+      package: {
+        title: "Package",
+        requiredColumns: "code, name, currency, is_custom, is_active",
+        downloadTemplate: downloadPackageTemplate,
+        upload: uploadPackageCsv,
+      },
+    }[bulkImportEntity]
+    : null;
+
+  async function openRevisions(kind: "feature" | "package", item: Item, trigger: HTMLButtonElement) {
+    revisionTriggerRef.current = trigger;
+    setRevisionTarget({ kind, item });
+    setRevisionError("");
+    try {
+      setRevisions(await request(`/platform/${kind === "feature" ? "features" : "packages"}/${item.id}/revisions`, {}, token));
+    } catch (cause) {
+      setRevisionError(cause instanceof Error ? cause.message : "Could not load versions.");
+    }
+  }
+
+  async function publishRevision(id: string) {
+    if (!revisionTarget) return;
+    setRevisionBusy(true);
+    setRevisionError("");
+    try {
+      await request(`/platform/${revisionTarget.kind === "feature" ? "feature" : "package"}-revisions/${id}/publish`, { method: "POST" }, token);
+      setRevisions(await request(`/platform/${revisionTarget.kind === "feature" ? "features" : "packages"}/${revisionTarget.item.id}/revisions`, {}, token));
+      setNotice("Version published. Existing subscriptions keep their assigned Package version.");
+    } catch (cause) {
+      setRevisionError(cause instanceof Error ? cause.message : "Could not publish this version.");
+    } finally {
+      setRevisionBusy(false);
+    }
+  }
+
+  async function discardRevision(id: string) {
+    if (!revisionTarget) return false;
+    setRevisionBusy(true);
+    setRevisionError("");
+    try {
+      await request(`/platform/${revisionTarget.kind === "feature" ? "feature" : "package"}-revisions/${id}`, { method: "DELETE" }, token);
+      setRevisions(await request(`/platform/${revisionTarget.kind === "feature" ? "features" : "packages"}/${revisionTarget.item.id}/revisions`, {}, token));
+      await load();
+      setNotice("Draft version discarded.");
+      return true;
+    } catch (cause) {
+      setRevisionError(cause instanceof Error ? cause.message : "Could not discard this draft version.");
+      return false;
+    } finally {
+      setRevisionBusy(false);
+    }
+  }
+
   return (
-    <main className="sa-shell">
+    <main className="sa-shell platform-admin-shell">
+      <CatalogFormDialog
+        open={revisionTarget !== null}
+        title={`${revisionTarget?.kind === "feature" ? "Feature" : "Package"} versions`}
+        description={`Review immutable versions of ${String(revisionTarget?.item.name ?? "this catalog item")}. Changes to the catalog require a new draft and an explicit publish.`}
+        error={revisionError}
+        busy={revisionBusy}
+        size="wide"
+        triggerRef={revisionTriggerRef}
+        onClose={() => setRevisionTarget(null)}
+        onDialogClose={() => setRevisionTarget(null)}
+        onSubmit={(event) => event.preventDefault()}
+        actions={<button type="button" className="secondary" onClick={() => setRevisionTarget(null)} disabled={revisionBusy}>Close</button>}
+      >
+        {revisions.length ? <DataTable
+          headings={["Version", "Status", "Published", "Snapshot", "Action"]}
+          rows={revisions.map((revision) => [
+            `v${revision.version}`,
+            revision.publishedAt ? "Published" : "Draft",
+            revision.publishedAt ? new Date(revision.publishedAt).toLocaleDateString() : "—",
+            <button key="review" type="button" className="secondary" onClick={() => setReviewRevision(revision)}>Review configuration</button>,
+            revision.publishedAt ? "—" : <span className="sa-inline-actions"><button key="publish" type="button" onClick={() => void publishRevision(String(revision.id))} disabled={revisionBusy}>Publish</button><button key="discard" type="button" className="danger" onClick={() => setDiscardRevisionTarget(revision)} disabled={revisionBusy}>Discard</button></span>,
+          ])}
+        /> : <p className="muted">No versions yet. Edit this feature to create its first draft automatically.</p>}
+      </CatalogFormDialog>
+      {discardRevisionTarget && <ClientConfirmationDialog
+        title="Discard draft version?"
+        description={`This will permanently remove v${discardRevisionTarget.version}. This action cannot be undone.`}
+        confirmLabel="Discard draft"
+        busy={revisionBusy}
+        error={revisionError}
+        danger
+        onClose={() => { if (!revisionBusy) setDiscardRevisionTarget(null); }}
+        onConfirm={async () => { if (await discardRevision(String(discardRevisionTarget.id))) setDiscardRevisionTarget(null); }}
+      />}
+      <CatalogFormDialog
+        open={reviewRevision !== null}
+        title="Review configuration"
+        description={reviewRevision ? `Immutable snapshot for v${reviewRevision.version}` : ""}
+        error=""
+        busy={false}
+        size="wide"
+        triggerRef={revisionTriggerRef}
+        onClose={() => setReviewRevision(null)}
+        onDialogClose={() => setReviewRevision(null)}
+        onSubmit={(event) => event.preventDefault()}
+        actions={<button type="button" className="secondary" onClick={() => setReviewRevision(null)}>Close</button>}
+      >
+        {reviewRevision && revisionTarget?.kind === "package" ? <PackageRevisionReview snapshot={reviewRevision.snapshot as Item} baseline={(revisions.find((item) => item.publishedAt && item.id !== reviewRevision.id)?.snapshot as Item | undefined)} /> : reviewRevision && <pre className="sa-json-viewer">{JSON.stringify(reviewRevision.snapshot, null, 2)}</pre>}
+      </CatalogFormDialog>
       <aside className="sa-sidebar">
         <div className="sa-brand">
-          <span>◉</span>
+          <span><UiIcon name="eye" /></span>
           <div>
             <strong>Evs Eye</strong>
             <small>PRO</small>
           </div>
         </div>
-        <p className="sa-nav-label">PLATFORM</p>
         <nav>
-          {nav.map(([key, label, icon]) => (
-            <button
-              key={key}
-              className={tab === key ? "active" : ""}
-              onClick={() => {
-                setTab(key);
-                setShowClientForm(false);
-                setNotice("");
-              }}
-            >
-              <span>{icon}</span>
-              {label}
-            </button>
+          {navGroups.map((group, groupIndex) => (
+            <div className="sa-nav-group" key={`${group.label ?? "root"}-${groupIndex}`}>
+              {group.label ? (
+                <button
+                  type="button"
+                  className="sa-nav-group-toggle"
+                  aria-expanded={expandedNavGroups[group.label] ?? false}
+                  data-active={group.items.some(([key]) => key === tab)}
+                  onClick={() =>
+                    setExpandedNavGroups((current) => ({
+                      ...current,
+                      [group.label!]: !(current[group.label!] ?? false),
+                    }))
+                  }
+                >
+                  <span>{t(group.label)}</span>
+                  <UiIcon
+                    name="chevron"
+                    className={(expandedNavGroups[group.label] ?? false) ? "" : "is-collapsed"}
+                  />
+                </button>
+              ) : null}
+              {(!group.label || (expandedNavGroups[group.label] ?? false)) &&
+                group.items.map(([key, label, icon]) => (
+                <button
+                  key={key}
+                  aria-current={tab === key ? "page" : undefined}
+                  className={`${tab === key ? "active" : ""} ${group.label ? "sa-nav-child" : ""}`}
+                  onClick={() => {
+                    setTab(key);
+                    window.history.replaceState(null, "", key === "legalDocuments" ? "/platform/dashboard?tab=legalDocuments" : "/platform/dashboard");
+                    if (key === "dashboard") setExpandedNavGroups({});
+                    setBulkImportEntity(null);
+                    setShowClientForm(false);
+                    setNotice("");
+                    setError("");
+                  }}
+                >
+                  <UiIcon name={icon} />
+                  {t(label)}
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
         <div className="sa-user">
           <span>S</span>
           <div>
-            <strong>Super Admin</strong>
+            <strong>{t("Super Admin")}</strong>
             <small>admin@evseye.io</small>
           </div>
         </div>
@@ -1005,118 +2423,169 @@ export default function SuperAdminDashboard() {
           <div>
             <h1>
               {tab === "dashboard"
-                ? "Super Admin Dashboard"
-                : nav.find(([key]) => key === tab)?.[1]}
+                ? t("Super Admin Dashboard")
+                : t(nav.find(([key]) => key === tab)?.[1] ?? "")}
             </h1>
             <p>
               {tab === "dashboard"
-                ? "Complete platform overview · Updated just now"
-                : "Platform-owned catalog and commercial controls"}
+                ? (lastLoadedAt ? <>{t("Complete platform overview")} · {t("Updated")} <time dateTime={lastLoadedAt.toISOString()}>{lastLoadedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time></> : t("Complete platform overview"))
+                : t(pageSubtitles[tab] ??
+                  "Platform-owned catalog and commercial controls")}
             </p>
           </div>
-          <div>
-            <button className="secondary" onClick={() => void load()}>
-              ↻ Refresh
+          <div className="header-actions">
+            <LanguageSwitcher />
+            <button className="secondary" disabled={loading} aria-busy={loading} onClick={() => { setRefreshKey((key) => key + 1); void load(); }}>
+              ↻ {t("Refresh")}
             </button>
             <button
-              onClick={() => {
+              onClick={async () => {
+                await fetch("/api/v1/auth/logout", { method: "POST" }).catch(() => undefined);
                 sessionStorage.removeItem(ACCESS_TOKEN_KEY);
                 sessionStorage.removeItem(REFRESH_TOKEN_KEY);
                 setToken("");
               }}
             >
-              Sign out
+              {t("Sign out")}
             </button>
           </div>
         </header>
-        {notice && <p className="notice">{notice}</p>}
-        {error && <p className="error">{error}</p>}
+        {notice && <p className="notice" role="status">{notice}</p>}
+        {error && !catalogDialogOpen && <p className="error" role="alert">{error}</p>}
+        {bulkImportEntity && bulkImportConfig ? (
+          <BulkImportWorkspace
+            entity={bulkImportEntity}
+            title={bulkImportConfig.title}
+            requiredColumns={bulkImportConfig.requiredColumns}
+            history={bulkImportHistory.filter(
+              (entry) => entry.entity === bulkImportEntity,
+            )}
+            busy={loading}
+            onBack={() => {
+              setBulkImportEntity(null);
+              setError("");
+            }}
+            onDownloadTemplate={bulkImportConfig.downloadTemplate}
+            onUpload={(file) => void bulkImportConfig.upload(file)}
+            onRetry={retryPlatformImport}
+          />
+        ) : (
+          <>
         {tab === "dashboard" && (
           <DashboardView
             summary={summary}
             clients={clients}
-            packages={packages}
             oems={oems}
             setTab={setTab}
           />
         )}
-        {tab === "clients" && (
-          <ClientsView
-            clients={clients}
-            packages={packages}
-            showForm={showClientForm}
-            setShowForm={setShowClientForm}
-            client={client}
-            change={changeClient}
-            step={clientStep}
-            setStep={setClientStep}
-            submit={submitClient}
-          />
-        )}
-        {tab === "oems" && (
-          <>
-            <section className="sa-page-head">
-              <div>
-                <h2>OEM</h2>
-                <p>
-                  Create and manage manufacturers visible across the platform.
-                </p>
-              </div>
-              <div className="sa-actions">
-                <button className="secondary" onClick={downloadOemTemplate}>
-                  Download template
-                </button>
-                <button
-                  className="secondary"
-                  onClick={() => {
-                    setShowOemBulk(!showOemBulk);
-                    setShowOemForm(false);
-                  }}
-                >
-                  Bulk upload
-                </button>
-                <button
-                  onClick={() => {
-                    setShowOemForm(!showOemForm);
-                    setShowOemBulk(false);
-                  }}
-                >
-                  + Add OEM
-                </button>
-              </div>
-            </section>
-            {showOemBulk && (
-              <section className="sa-oem-bulk">
-                <div>
-                  <h3>Bulk upload OEMs</h3>
-                  <p>
-                    Download the CSV template, complete one OEM per row, and
-                    upload it. The entire file is rejected if any row is invalid
-                    or duplicates an existing code.
-                  </p>
-                </div>
-                <label className="sa-file-input">
-                  Choose completed CSV
-                  <input
-                    type="file"
-                    accept=".csv,text/csv"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      if (file) void uploadOemCsv(file);
-                      event.currentTarget.value = "";
-                    }}
-                  />
-                </label>
-              </section>
+        {tab === "spares" && <SparesCatalogue platform refreshKey={refreshKey} />}
+            {tab === "legalDocuments" && <LegalDocumentsView token={token} refreshKey={refreshKey} />}
+            {tab === "clients" && (
+              <ClientsView
+                clients={clients}
+                languages={languages}
+                packages={packages}
+                vehicleCategories={vehicleCategories}
+                showForm={showClientForm}
+                setShowForm={setShowClientForm}
+                client={client}
+                change={changeClient}
+                step={clientStep}
+                setStep={setClientStep}
+                submit={submitClient}
+                error={error}
+                loading={loading}
+                triggerRef={clientTriggerRef}
+                openDialog={openClientModal}
+                closeDialog={closeClientModal}
+                documentFiles={clientDocumentFiles}
+                setDocumentFiles={setClientDocumentFiles}
+                logoFile={clientLogoFile}
+                setLogoFile={setClientLogoFile}
+                approveClient={approveClient}
+                rejectClient={rejectClient}
+                editClient={editClientDraft}
+                activeClientEdit={activeClientEdit}
+                request={request}
+                token={token}
+              />
             )}
-            <section
-              className={`sa-management ${showOemForm ? "" : "oem-table-only"}`}
-            >
-              {showOemForm && (
-                <form className="sa-form" onSubmit={submitOem}>
-                  <h3>Add OEM</h3>
+            {tab === "workPartners" && <WorkPartnerManager refreshKey={refreshKey} mode="platform" request={request} token={token} />}
+            {tab === "smsDeliveries" && <SmsDeliveryPanel token={token} />}
+            {tab === "clientPricingAdjustments" && (
+              <ClientCommercialDirectory clients={clients} section="pricing" />
+            )}
+            {tab === "clientAddOnPurchases" && (
+              <ClientCommercialDirectory clients={clients} section="addOns" />
+            )}
+            {tab === "clientQuotaPacks" && (
+              <ClientCommercialDirectory clients={clients} section="quotaPacks" />
+            )}
+            {tab === "clientCreditLots" && (
+              <ClientCommercialDirectory clients={clients} section="creditLots" />
+            )}
+            {tab === "clientUsageLedger" && (
+              <ClientCommercialDirectory clients={clients} section="ledger" />
+            )}
+            {tab === "oems" && (
+              <>
+                <section className="sa-page-head">
+                  <div>
+                    <h2>OEM</h2>
+                    <p>
+                      Create and manage manufacturers visible across the platform.
+                    </p>
+                  </div>
+                  <div className="sa-actions">
+                    <button
+                      className="secondary"
+                      onClick={() => {
+                        setBulkImportEntity("oem");
+                        setShowOemForm(false);
+                      }}
+                    >
+                      Bulk upload
+                    </button>
+                    <button
+                      onClick={(event) => openOemModal(event.currentTarget)}
+                    >
+                      + Add OEM
+                    </button>
+                  </div>
+                </section>
+                <CatalogFormDialog
+                  open={showOemForm}
+                  size="wide"
+                  title={editingOemId ? "Edit OEM" : "Add OEM"}
+                  description="Enter the manufacturer details shown across the platform."
+                  error={error}
+                  busy={loading}
+                  triggerRef={oemTriggerRef}
+                  onClose={closeOemModal}
+                  onDialogClose={() => setShowOemForm(false)}
+                  onSubmit={submitOem}
+                  actions={
+                    <>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={closeOemModal}
+                        disabled={loading}
+                      >
+                        Cancel
+                      </button>
+                      <button type="submit" disabled={loading}>
+
+                        {editingOemId ? "Update OEM" : "Save OEM"}
+                      </button>
+                    </>
+                  }
+                >
                   <TextFields
                     value={oem}
+                    disabledKeys={editingOemId ? ["code"] : []}
+                    softWarnings={{ code: editingOemId ? "Code is permanent after creation." : "Choose a unique code. It cannot be changed later." }}
                     change={(key, value) =>
                       setOem((current) => ({ ...current, [key]: value }))
                     }
@@ -1128,12 +2597,19 @@ export default function SuperAdminDashboard() {
                       ["description", "Description"],
                     ]}
                   />
+                  <CatalogTranslationFields
+                    base={oem}
+                    fields={[{ key: "description", label: "Description" }]}
+                    translations={oem.translations}
+                    onChange={(translations) => setOem((current) => ({ ...current, translations }))}
+                  />
                   <Select
+                    label="Status"
                     value={oem.status}
                     change={(value) =>
                       setOem((current) => ({ ...current, status: value }))
                     }
-                    options={["ACTIVE", "INACTIVE", "SUSPENDED"]}
+                    options={masterRecordStatuses}
                   />
                   <label className="sa-logo-input">
                     OEM logo{" "}
@@ -1157,1381 +2633,1939 @@ export default function SuperAdminDashboard() {
                       alt="OEM logo preview"
                     />
                   )}
-                  <button disabled={loading}>
-                    {editingOemId ? "Update OEM" : "Save OEM"}
-                  </button>
-                </form>
-              )}
-              {oems.length ? (
-                <DataTable
-                  headings={["Code", "OEM", "Status", ""]}
-                  rows={oems.map((item) => [
-                    item.code,
-                    item.displayName,
-                    item.status,
-                    <button
-                      key="edit"
-                      className="secondary"
-                      onClick={() => {
-                        setOem({
-                          code: item.code,
-                          name: item.name,
-                          displayName: item.displayName,
-                          status: item.status,
-                          website: item.website ?? "",
-                          description: item.description ?? "",
-                        });
-                        setEditingOemId(item.id);
-                        setShowOemForm(true);
-                        setOemLogoFile(null);
-                        setOemLogoPreview("");
-                      }}
-                    >
-                      Edit
-                    </button>,
-                    <button
-                      key="delete"
-                      className="danger"
-                      onClick={() =>
-                        void remove(`/platform/oems/${item.id}`, "OEM")
-                      }
-                    >
-                      Delete
-                    </button>,
-                  ])}
-                />
-              ) : (
-                <section className="sa-empty-catalog">
-                  <h3>No OEMs yet</h3>
-                  <p>
-                    Start by adding an OEM individually or importing a completed
-                    template.
-                  </p>
-                  <div>
-                    <button onClick={() => setShowOemForm(true)}>
-                      Add OEM
-                    </button>
-                    <button
-                      className="secondary"
-                      onClick={() => setShowOemBulk(true)}
-                    >
-                      Bulk upload
-                    </button>
-                  </div>
-                </section>
-              )}
-            </section>
-          </>
-        )}
-        {tab === "vehicleCategories" && (
-          <>
-            <section className="sa-page-head">
-              <div>
-                <h2>Vehicle Category</h2>
-                <p>
-                  Define platform-wide vehicle classifications used in fleet
-                  onboarding and reporting.
-                </p>
-              </div>
-              <div className="sa-actions">
-                <button className="secondary" onClick={downloadVehicleCategoryTemplate}>
-                  Download template
-                </button>
-                <button
-                  className="secondary"
-                  onClick={() => {
-                    setShowVehicleCategoryBulk(!showVehicleCategoryBulk);
-                    setShowVehicleCategoryForm(false);
-                  }}
-                >
-                  Bulk upload
-                </button>
-                <button
-                  onClick={() => {
-                    setVehicleCategory(emptyVehicleCategory);
-                    setEditingVehicleCategoryId(null);
-                    setShowVehicleCategoryForm(!showVehicleCategoryForm);
-                    setShowVehicleCategoryBulk(false);
-                  }}
-                >
-                  + Add Vehicle Category
-                </button>
-              </div>
-            </section>
-            {showVehicleCategoryBulk && (
-              <BulkUploadPanel
-                title="Bulk upload Vehicle Categories"
-                description="Download the CSV template, complete one Vehicle Category per row, and upload it. The entire file is rejected if a row is invalid or a code already exists."
-                onChoose={(file) => void uploadVehicleCategoryCsv(file)}
-              />
-            )}
-            <section
-              className={`sa-management ${showVehicleCategoryForm ? "" : "oem-table-only"}`}
-            >
-              {showVehicleCategoryForm && (
-                <form className="sa-form" onSubmit={submitVehicleCategory}>
-                  <h3>
-                    {editingVehicleCategoryId
-                      ? "Edit Vehicle Category"
-                      : "Add Vehicle Category"}
-                  </h3>
-                  <TextFields
-                    value={vehicleCategory}
-                    change={(key, value) =>
-                      setVehicleCategory((current) => ({
-                        ...current,
-                        [key]: value,
-                      }))
-                    }
-                    fields={[
-                      ["code", "Category code"],
-                      ["name", "Category name"],
-                      ["description", "Description"],
-                      ["displayOrder", "Display order"],
-                    ]}
-                  />
-                  <Select
-                    label="Status"
-                    value={vehicleCategory.status}
-                    change={(value) =>
-                      setVehicleCategory((current) => ({
-                        ...current,
-                        status: value,
-                      }))
-                    }
-                    options={["ACTIVE", "INACTIVE", "SUSPENDED"]}
-                  />
-                  <button disabled={loading}>
-                    {editingVehicleCategoryId
-                      ? "Update Vehicle Category"
-                      : "Save Vehicle Category"}
-                  </button>
-                </form>
-              )}
-              {vehicleCategories.length ? (
-                <DataTable
-                  headings={[
-                    "Code",
-                    "Category",
-                    "Description",
-                    "Status",
-                    "Order",
-                    "",
-                    "",
-                  ]}
-                  rows={vehicleCategories.map((item) => [
-                    item.code,
-                    item.name,
-                    item.description ?? "—",
-                    item.status,
-                    item.displayOrder,
-                    <button
-                      key="edit"
-                      className="secondary"
-                      onClick={() => {
-                        setVehicleCategory({
-                          code: item.code,
-                          name: item.name,
-                          description: item.description ?? "",
-                          status: item.status,
-                          displayOrder: String(item.displayOrder ?? 0),
-                        });
-                        setEditingVehicleCategoryId(item.id);
-                        setShowVehicleCategoryForm(true);
-                      }}
-                    >
-                      Edit
-                    </button>,
-                    <button
-                      key="delete"
-                      className="danger"
-                      onClick={() =>
-                        void remove(
-                          `/platform/vehicle-categories/${item.id}`,
-                          "Vehicle Category",
-                        )
-                      }
-                    >
-                      Delete
-                    </button>,
-                  ])}
-                />
-              ) : (
-                <section className="sa-empty-catalog">
-                  <h3>No Vehicle Categories yet</h3>
-                  <p>Create your first platform-wide vehicle classification.</p>
-                  <button onClick={() => setShowVehicleCategoryForm(true)}>
-                    Add Vehicle Category
-                  </button>
-                </section>
-              )}
-            </section>
-          </>
-        )}
-        {tab === "vehicleTypes" && (
-          <>
-            <section className="sa-page-head">
-              <div>
-                <h2>Vehicle Type</h2>
-                <p>
-                  Define vehicle types by category, energy source, and usage.
-                </p>
-              </div>
-              <div className="sa-actions">
-                <button className="secondary" onClick={downloadVehicleTypeTemplate}>
-                  Download template
-                </button>
-                <button
-                  className="secondary"
-                  onClick={() => {
-                    setShowVehicleTypeBulk(!showVehicleTypeBulk);
-                    setShowVehicleTypeForm(false);
-                  }}
-                >
-                  Bulk upload
-                </button>
-                <button
-                  onClick={() => {
-                    setVehicleType(emptyVehicleType);
-                    setEditingVehicleTypeId(null);
-                    setShowVehicleTypeForm(!showVehicleTypeForm);
-                    setShowVehicleTypeBulk(false);
-                  }}
-                >
-                  + Add Vehicle Type
-                </button>
-              </div>
-            </section>
-            {showVehicleTypeBulk && (
-              <BulkUploadPanel
-                title="Bulk upload Vehicle Types"
-                description="Download the CSV template. Each Vehicle Type references its Vehicle Category by category code. The entire file is rejected if a category or controlled value is invalid."
-                onChoose={(file) => void uploadVehicleTypeCsv(file)}
-              />
-            )}
-            <section
-              className={`sa-management ${showVehicleTypeForm ? "" : "oem-table-only"}`}
-            >
-              {showVehicleTypeForm && (
-                <form className="sa-form" onSubmit={submitVehicleType}>
-                  <h3>
-                    {editingVehicleTypeId
-                      ? "Edit Vehicle Type"
-                      : "Add Vehicle Type"}
-                  </h3>
-                  <label>
-                    Vehicle Category
-                    <select
-                      required
-                      value={vehicleType.categoryId}
-                      onChange={(event) =>
-                        setVehicleType((current) => ({
-                          ...current,
-                          categoryId: event.target.value,
-                        }))
-                      }
-                    >
-                      <option value="">Select vehicle category</option>
-                      {vehicleCategories
-                        .filter((item) => item.status === "ACTIVE")
-                        .map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.code} · {item.name}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                  <TextFields
-                    value={vehicleType}
-                    change={(key, value) =>
-                      setVehicleType((current) => ({
-                        ...current,
-                        [key]: value,
-                      }))
-                    }
-                    fields={[
-                      ["code", "Type code"],
-                      ["name", "Type name"],
-                      ["subCategory", "Sub-category"],
-                      ["description", "Description"],
-                    ]}
-                  />
-                  <Select
-                    label="Energy type"
-                    value={vehicleType.energyType}
-                    change={(value) =>
-                      setVehicleType((current) => ({
-                        ...current,
-                        energyType: value,
-                      }))
-                    }
-                    options={[
-                      "ELECTRIC",
-                      "HYBRID",
-                      "PETROL",
-                      "DIESEL",
-                      "CNG",
-                      "HYDROGEN",
-                      "OTHER",
-                      "LPG",
-                    ]}
-                  />
-                  <label>
-                    Usage type
-                    <select
-                      value={vehicleType.usageType}
-                      onChange={(event) =>
-                        setVehicleType((current) => ({
-                          ...current,
-                          usageType: event.target.value,
-                        }))
-                      }
-                    >
-                      <option value="">Not specified</option>
-                      {[
-                        "PRIVATE",
-                        "PASSENGER",
-                        "GOODS",
-                        "DELIVERY",
-                        "SHARED_MOBILITY",
-                        "PUBLIC_TRANSPORT",
-                        "STAFF_TRANSPORT",
-                        "SCHOOL_TRANSPORT",
-                        "EMERGENCY",
-                        "AGRICULTURAL",
-                        "CONSTRUCTION",
-                        "INDUSTRIAL",
-                        "RENTAL",
-                        "GOVERNMENT",
-                        "SPECIAL_PURPOSE",
-                      ].map((option) => (
-                        <option key={option}>{option}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <Select
-                    label="Status"
-                    value={vehicleType.status}
-                    change={(value) =>
-                      setVehicleType((current) => ({
-                        ...current,
-                        status: value,
-                      }))
-                    }
-                    options={["ACTIVE", "INACTIVE", "SUSPENDED"]}
-                  />
-                  <button disabled={loading}>
-                    {editingVehicleTypeId
-                      ? "Update Vehicle Type"
-                      : "Save Vehicle Type"}
-                  </button>
-                </form>
-              )}
-              <DataTable
-                headings={[
-                  "Code",
-                  "Vehicle Type",
-                  "Category",
-                  "Energy",
-                  "Usage",
-                  "Status",
-                  "",
-                  "",
-                ]}
-                rows={vehicleTypes.map((item) => [
-                  item.code,
-                  item.name,
-                  item.category?.name,
-                  item.energyType,
-                  item.usageType ?? "—",
-                  item.status,
-                  <button
-                    key="edit"
-                    className="secondary"
-                    onClick={() => {
-                      setVehicleType({
-                        categoryId: item.categoryId,
-                        code: item.code,
-                        name: item.name,
-                        subCategory: item.subCategory ?? "",
-                        description: item.description ?? "",
-                        energyType: item.energyType,
-                        usageType: item.usageType ?? "",
-                        status: item.status,
-                      });
-                      setEditingVehicleTypeId(item.id);
-                      setShowVehicleTypeForm(true);
-                    }}
-                  >
-                    Edit
-                  </button>,
-                  <button
-                    key="delete"
-                    className="danger"
-                    onClick={() =>
-                      void remove(
-                        `/platform/vehicle-types/${item.id}`,
-                        "Vehicle Type",
-                      )
-                    }
-                  >
-                    Delete
-                  </button>,
-                ])}
-              />
-            </section>
-          </>
-        )}
-        {tab === "features" && (
-          <>
-            <section className="sa-page-head">
-              <div>
-                <h2>Feature</h2>
-                <p>
-                  Define platform capabilities that can be included in packages
-                  and priced commercially.
-                </p>
-              </div>
-              <div className="sa-actions">
-                <button className="secondary" onClick={downloadFeatureTemplate}>
-                  Download template
-                </button>
-                <button
-                  className="secondary"
-                  onClick={() => {
-                    setShowFeatureBulk(!showFeatureBulk);
-                    setShowFeatureForm(false);
-                  }}
-                >
-                  Bulk upload
-                </button>
-                <button
-                  onClick={() => {
-                    setFeature(emptyFeature);
-                    setEditingFeatureId(null);
-                    setShowFeatureForm(!showFeatureForm);
-                    setShowFeatureBulk(false);
-                  }}
-                >
-                  + Add Feature
-                </button>
-              </div>
-            </section>
-            {showFeatureBulk && (
-              <section className="sa-oem-bulk">
-                <div>
-                  <h3>Bulk upload Features</h3>
-                  <p>
-                    Download the CSV template, complete one Feature per row, and
-                    upload it. The entire file is rejected if any row has an
-                    invalid controlled value or duplicate code.
-                  </p>
-                </div>
-                <label className="sa-file-input">
-                  Choose completed CSV
-                  <input
-                    type="file"
-                    accept=".csv,text/csv"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      if (file) void uploadFeatureCsv(file);
-                      event.currentTarget.value = "";
-                    }}
-                  />
-                </label>
-              </section>
-            )}
-            <section
-              className={`sa-management ${showFeatureForm ? "" : "oem-table-only"}`}
-            >
-              {showFeatureForm && (
-                <form className="sa-form" onSubmit={submitFeature}>
-                  <h3>{editingFeatureId ? "Edit Feature" : "Add Feature"}</h3>
-                  <TextFields
-                    value={feature}
-                    change={(key, value) =>
-                      setFeature((current) => ({ ...current, [key]: value }))
-                    }
-                    fields={[
-                      ["code", "Feature code"],
-                      ["name", "Feature name"],
-                      ["description", "Description"],
-                      ["displayOrder", "Display order"],
-                    ]}
-                  />
-                  <label>
-                    Feature category
-                    <select
-                      value={feature.category}
-                      onChange={(event) =>
-                        setFeature((current) => ({
-                          ...current,
-                          category: event.target.value,
-                        }))
-                      }
-                    >
-                      {featureCategories.map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <Select
-                    value={feature.featureType}
-                    change={(value) =>
-                      setFeature((current) => ({
-                        ...current,
-                        featureType: value,
-                      }))
-                    }
-                    options={featureTypes}
-                  />
-                  <Select
-                    value={feature.billingUnit}
-                    change={(value) =>
-                      setFeature((current) => ({
-                        ...current,
-                        billingUnit: value,
-                      }))
-                    }
-                    options={featureBillingUnits}
-                  />
-                  <label className="sa-toggle">
-                    <input
-                      type="checkbox"
-                      checked={feature.isActive}
-                      onChange={(event) =>
-                        setFeature((current) => ({
-                          ...current,
-                          isActive: event.target.checked,
-                        }))
-                      }
-                    />
-                    Active feature
-                  </label>
-                  <button disabled={loading}>
-                    {editingFeatureId ? "Update Feature" : "Save Feature"}
-                  </button>
-                </form>
-              )}
-              {features.length ? (
-                <DataTable
-                  headings={[
-                    "Code",
-                    "Feature",
-                    "Category",
-                    "Type",
-                    "Billing unit",
-                    "Active",
-                    "Order",
-                    "",
-                  ]}
-                  rows={features.map((item) => [
-                    item.code,
-                    item.name,
-                    featureCategories.find(
-                      ([value]) => value === item.category,
-                    )?.[1] ?? item.category,
-                    item.featureType,
-                    item.billingUnit,
-                    item.isActive ? "YES" : "NO",
-                    item.displayOrder,
-                    <button
-                      key="edit"
-                      className="secondary"
-                      onClick={() => {
-                        setFeature({
-                          code: item.code,
-                          name: item.name,
-                          description: item.description ?? "",
-                          category: item.category,
-                          featureType: item.featureType,
-                          billingUnit: item.billingUnit,
-                          displayOrder: String(item.displayOrder),
-                          isActive: item.isActive,
-                        });
-                        setEditingFeatureId(item.id);
-                        setShowFeatureForm(true);
-                        setShowFeatureBulk(false);
-                      }}
-                    >
-                      Edit
-                    </button>,
-                    <button
-                      key="delete"
-                      className="danger"
-                      onClick={() =>
-                        void remove(`/platform/features/${item.id}`, "Feature")
-                      }
-                    >
-                      Delete
-                    </button>,
-                  ])}
-                />
-              ) : (
-                <section className="sa-empty-catalog">
-                  <h3>No Features yet</h3>
-                  <p>
-                    Start by adding a Feature individually or importing a
-                    completed template.
-                  </p>
-                  <div>
-                    <button onClick={() => setShowFeatureForm(true)}>
-                      Add Feature
-                    </button>
-                    <button
-                      className="secondary"
-                      onClick={() => setShowFeatureBulk(true)}
-                    >
-                      Bulk upload
-                    </button>
-                  </div>
-                </section>
-              )}
-            </section>
-          </>
-        )}
-        {tab === "packages" && (
-          <>
-            <section className="sa-page-head">
-              <div>
-                <h2>Package</h2>
-                <p>
-                  Define commercial packages, limits, trial settings, and their
-                  enabled platform features.
-                </p>
-              </div>
-              <div className="sa-actions">
-                <button className="secondary" onClick={downloadPackageTemplate}>
-                  Download template
-                </button>
-                <button
-                  className="secondary"
-                  onClick={() => {
-                    setShowPackageBulk(!showPackageBulk);
-                    setShowPackageForm(false);
-                  }}
-                >
-                  Bulk upload
-                </button>
-                <button
-                  onClick={() => {
-                    setPack(emptyPackage);
-                    setPackageFeatures([]);
-                    setEditingPackageId(null);
-                    setShowPackageForm(!showPackageForm);
-                    setShowPackageBulk(false);
-                  }}
-                >
-                  + Add Package
-                </button>
-              </div>
-            </section>
-            {showPackageBulk && (
-              <BulkUploadPanel
-                title="Bulk upload Packages"
-                description="Download the CSV template to create base package and commercial settings. Package Features can be configured after import."
-                onChoose={(file) => void uploadPackageCsv(file)}
-              />
-            )}
-            <section
-              className={`sa-management ${showPackageForm ? "" : "oem-table-only"}`}
-            >
-              {showPackageForm && (
-                <form className="sa-form" onSubmit={submitPackage}>
-                  <h3>{editingPackageId ? "Edit Package" : "Add Package"}</h3>
-                  <TextFields
-                    value={pack}
-                    change={(key, value) =>
-                      setPack((current) => ({ ...current, [key]: value }))
-                    }
-                    fields={[
-                      ["code", "Package code"],
-                      ["name", "Package name"],
-                      ["description", "Description"],
-                      ["monthlyPrice", "Monthly price"],
-                      ["yearlyPrice", "Yearly price"],
-                      ["maxFleets", "Maximum fleets"],
-                      ["maxRiders", "Maximum riders"],
-                      ["trialDays", "Trial days"],
-                      ["displayOrder", "Display order"],
-                    ]}
-                  />
-                  <label className="sa-toggle">
-                    <input
-                      type="checkbox"
-                      checked={pack.isCustom}
-                      onChange={(event) =>
-                        setPack((current) => ({
-                          ...current,
-                          isCustom: event.target.checked,
-                        }))
-                      }
-                    />
-                    Custom package
-                  </label>
-                  <label className="sa-toggle">
-                    <input
-                      type="checkbox"
-                      checked={pack.isActive}
-                      onChange={(event) =>
-                        setPack((current) => ({
-                          ...current,
-                          isActive: event.target.checked,
-                        }))
-                      }
-                    />
-                    Active package
-                  </label>
-                  <div className="sa-checkbox-list">
-                    {features
-                      .filter(
-                        (feature) =>
-                          feature.isActive ||
-                          packageFeatures.some(
-                            (item) => item.featureId === feature.id,
-                          ),
-                      )
-                      .map((feature) => (
-                        <label key={feature.id}>
-                          <input
-                            type="checkbox"
-                            checked={packageFeatures.some(
-                              (item) => item.featureId === feature.id,
-                            )}
-                            disabled={!feature.isActive}
-                            onChange={(event) =>
-                              setPackageFeatures((current) =>
-                                event.target.checked
-                                  ? [
-                                      ...current,
-                                      emptyPackageFeature(
-                                        feature.id,
-                                        current.length,
-                                      ),
-                                    ]
-                                  : current.filter(
-                                      (item) => item.featureId !== feature.id,
-                                    ),
-                              )
-                            }
+                </CatalogFormDialog>
+                <section className="sa-management oem-table-only">
+                  {oems.length ? (
+                    <DataTable
+                      headings={[
+                        "Logo",
+                        "Code",
+                        "OEM",
+                        "Legal Name",
+                        "Description",
+                        "Status",
+                        "",
+                        "",
+                      ]}
+                      columnFilters={[
+                        null,
+                        { type: "text" },
+                        { type: "text" },
+                        { type: "text" },
+                        { type: "text" },
+                        {
+                          type: "select",
+                          options: masterRecordStatuses,
+                        },
+                        null,
+                        null,
+                      ]}
+                      rows={oems.map((item) => [
+                        item.logoUrl ? (
+                          <img
+                            key="logo"
+                            className="sa-table-logo"
+                            src={item.logoUrl}
+                            alt={`${item.displayName ?? item.name} logo`}
                           />
-                          {feature.name}
-                          {!feature.isActive ? " (inactive)" : ""}
-                        </label>
-                      ))}
-                  </div>
-                  {packageFeatures.map((packageFeature, featureIndex) => {
-                    const linkedFeature = features.find(
-                      (item) => item.id === packageFeature.featureId,
-                    );
-                    const updatePackageFeature = (
-                      field: keyof PackageFeatureInput,
-                      value: string | boolean,
-                    ) =>
-                      setPackageFeatures((current) =>
-                        current.map((item, index) =>
-                          index === featureIndex
-                            ? { ...item, [field]: value }
-                            : item,
+                        ) : (
+                          "—"
                         ),
-                      );
-                    return (
-                      <div
-                        className="sa-package-feature"
-                        key={packageFeature.featureId}
-                      >
-                        <strong>{linkedFeature?.name ?? "Feature"}</strong>
-                        <div className="sa-feature-fields">
-                          <label className="sa-toggle">
-                            <input
-                              type="checkbox"
-                              checked={packageFeature.enabled}
-                              onChange={(event) =>
-                                updatePackageFeature(
-                                  "enabled",
-                                  event.target.checked,
-                                )
-                              }
-                            />
-                            Enabled
-                          </label>
-                          <label className="sa-toggle">
-                            <input
-                              type="checkbox"
-                              checked={packageFeature.unlimitedUsage}
-                              onChange={(event) =>
-                                updatePackageFeature(
-                                  "unlimitedUsage",
-                                  event.target.checked,
-                                )
-                              }
-                            />
-                            Unlimited usage
-                          </label>
-                          <label>
-                            Included quantity
-                            <input
-                              type="number"
-                              min="0"
-                              step="1"
-                              value={packageFeature.includedQuantity}
-                              onChange={(event) =>
-                                updatePackageFeature(
-                                  "includedQuantity",
-                                  event.target.value,
-                                )
-                              }
-                            />
-                          </label>
-                          <label>
-                            Usage limit
-                            <input
-                              type="number"
-                              min="0"
-                              step="1"
-                              disabled={packageFeature.unlimitedUsage}
-                              value={packageFeature.usageLimit}
-                              onChange={(event) =>
-                                updatePackageFeature(
-                                  "usageLimit",
-                                  event.target.value,
-                                )
-                              }
-                            />
-                          </label>
-                          <label>
-                            Display order
-                            <input
-                              type="number"
-                              min="0"
-                              step="1"
-                              value={packageFeature.displayOrder}
-                              onChange={(event) =>
-                                updatePackageFeature(
-                                  "displayOrder",
-                                  event.target.value,
-                                )
-                              }
-                            />
-                          </label>
-                        </div>
-                        <label>
-                          Feature configuration (optional JSON)
-                          <textarea
-                            value={packageFeature.configuration}
-                            placeholder={'{"workflow": "standard"}'}
-                            onChange={(event) =>
-                              updatePackageFeature(
-                                "configuration",
-                                event.target.value,
-                              )
-                            }
-                          />
-                        </label>
+                        item.code,
+                        item.displayName,
+                        item.name,
+                        item.description ?? "—",
+                        item.status,
+                        <button
+                          key="edit"
+                          className="secondary"
+                          onClick={(event) =>
+                            openOemModal(event.currentTarget, item)
+                          }
+                        >
+                          Edit
+                        </button>,
+                        <button
+                          key="delete"
+                          className="danger"
+                          onClick={() =>
+                            void remove(`/platform/oems/${item.id}`, "OEM")
+                          }
+                        >
+                          Delete
+                        </button>,
+                      ])}
+                    />
+                  ) : (
+                    <section className="sa-empty-catalog">
+                      <h3>No OEMs yet</h3>
+                      <p>
+                        Start by adding an OEM individually or importing a completed
+                        template.
+                      </p>
+                      <div>
+                        <button
+                          onClick={(event) => openOemModal(event.currentTarget)}
+                        >
+                          Add OEM
+                        </button>
+                        <button
+                          className="secondary"
+                          onClick={() => setBulkImportEntity("oem")}
+                        >
+                          Bulk upload
+                        </button>
                       </div>
-                    );
-                  })}
-                  <button disabled={loading}>
-                    {editingPackageId ? "Update Package" : "Save Package"}
-                  </button>
-                </form>
-              )}
-              {packages.length ? (
-                <DataTable
-                  headings={[
-                    "Code",
-                    "Package",
-                    "Monthly",
-                    "Limits",
-                    "Status",
-                    "Features",
-                    "",
-                  ]}
-                  rows={packages.map((item) => [
-                    item.code,
-                    item.name,
-                    item.monthlyPrice ? `₹${item.monthlyPrice}` : "—",
-                    `${item.maxFleets ?? "∞"} fleets · ${item.maxRiders ?? "∞"} riders`,
-                    `${item.isActive ? "ACTIVE" : "INACTIVE"}${item.isCustom ? " · CUSTOM" : ""}`,
-                    item.features?.length ?? 0,
+                    </section>
+                  )}
+                </section>
+              </>
+            )}
+            {tab === "vehicleCategories" && (
+              <>
+                <section className="sa-page-head">
+                  <div>
+                    <h2>Vehicle Category</h2>
+                    <p>
+                      Define platform-wide vehicle classifications used in fleet
+                      onboarding and reporting.
+                    </p>
+                  </div>
+                  <div className="sa-actions">
                     <button
-                      key="edit"
                       className="secondary"
                       onClick={() => {
-                        setPack({
-                          code: item.code,
-                          name: item.name,
-                          monthlyPrice: item.monthlyPrice
-                            ? String(item.monthlyPrice)
-                            : "",
-                          yearlyPrice: item.yearlyPrice
-                            ? String(item.yearlyPrice)
-                            : "",
-                          currency: item.currency,
-                          description: item.description ?? "",
-                          maxFleets: item.maxFleets
-                            ? String(item.maxFleets)
-                            : "",
-                          maxRiders: item.maxRiders
-                            ? String(item.maxRiders)
-                            : "",
-                          trialDays: String(item.trialDays ?? 0),
-                          displayOrder: String(item.displayOrder ?? 0),
-                          isCustom: item.isCustom,
-                          isActive: item.isActive,
-                        });
-                        setPackageFeatures(
-                          (item.features ?? []).map(
-                            (link: Item, index: number) => ({
-                              featureId: link.featureId,
-                              enabled: link.enabled,
-                              includedQuantity: link.includedQuantity
-                                ? String(link.includedQuantity)
-                                : "",
-                              usageLimit: link.usageLimit
-                                ? String(link.usageLimit)
-                                : "",
-                              unlimitedUsage: link.unlimitedUsage,
-                              configuration: link.configuration
-                                ? JSON.stringify(link.configuration, null, 2)
-                                : "",
-                              displayOrder: String(link.displayOrder ?? index),
-                            }),
-                          ),
-                        );
-                        setEditingPackageId(item.id);
-                        setShowPackageForm(true);
+                        setBulkImportEntity("vehicle-category");
+                        setShowVehicleCategoryForm(false);
                       }}
                     >
-                      Edit
-                    </button>,
+                      Bulk upload
+                    </button>
                     <button
-                      key="delete"
-                      className="danger"
-                      onClick={() =>
-                        void remove(`/platform/packages/${item.id}`, "package")
+                      onClick={(event) =>
+                        openVehicleCategoryModal(event.currentTarget, undefined, true)
                       }
                     >
-                      Delete
-                    </button>,
-                  ])}
-                />
-              ) : (
-                <section className="sa-empty-catalog">
-                  <h3>No Packages yet</h3>
-                  <p>
-                    Create a Package to group Features, commercial limits, and
-                    pricing.
-                  </p>
-                  <div>
-                    <button onClick={() => setShowPackageForm(true)}>
-                      Add Package
+                      + Add Vehicle Category
                     </button>
                   </div>
                 </section>
-              )}
-            </section>
-          </>
-        )}
-        {tab === "pricing" && (
-          <>
-            <section className="sa-page-head">
-              <div>
-                <h2>Feature Pricing</h2>
-                <p>
-                  Define the platform-owned commercial terms for every feature.
-                </p>
-              </div>
-              <div className="sa-actions">
-                <button
-                  onClick={() => {
-                    setPrice(emptyPricing);
-                    setEditingPricingId(null);
-                    setShowPricingForm(!showPricingForm);
-                  }}
-                >
-                  + Add Feature Price
-                </button>
-              </div>
-            </section>
-            <section
-              className={`sa-management ${showPricingForm ? "" : "oem-table-only"}`}
-            >
-              {showPricingForm && (
-                <form className="sa-form" onSubmit={submitPricing}>
-                  <h3>
-                    {editingPricingId
-                      ? "Edit Feature Price"
-                      : "Add Feature Price"}
-                  </h3>
-                  <label>
-                    Feature
-                    <select
-                      value={price.featureId}
-                      onChange={(event) => {
-                        const selectedFeature = features.find(
-                          (feature) => feature.id === event.target.value,
-                        );
-                        setPrice((current) => ({
-                          ...current,
-                          featureId: event.target.value,
-                          billingUnit:
-                            selectedFeature?.billingUnit ?? current.billingUnit,
-                        }));
-                      }}
-                      required
-                    >
-                      <option value="">Select feature</option>
-                      {features
-                        .filter(
-                          (feature) =>
-                            feature.isActive || feature.id === price.featureId,
-                        )
-                        .map((feature) => (
-                          <option key={feature.id} value={feature.id}>
-                            {feature.name}
-                            {!feature.isActive ? " (inactive)" : ""}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                  <Select
-                    label="Pricing model"
-                    value={price.pricingModel}
-                    change={(value) =>
-                      setPrice((current) => ({
-                        ...current,
-                        pricingModel: value,
-                      }))
+                <section className="sa-management oem-table-only">
+                  <CatalogFormDialog
+                    open={showVehicleCategoryForm}
+                    size="wide"
+                    title={
+                      editingVehicleCategoryId
+                        ? "Edit Vehicle Category"
+                        : "Add Vehicle Category"
                     }
-                    options={pricingModels}
-                  />
-                  <TextFields
-                    value={price}
-                    change={(key, value) =>
-                      setPrice((current) => ({ ...current, [key]: value }))
-                    }
-                    fields={[
-                      ["pricingName", "Pricing name"],
-                      ["billingUnit", "Billing unit"],
-                      ["basePrice", "Base price"],
-                      ["unitPrice", "Unit price"],
-                      ["costPrice", "Cost price"],
-                      ["minimumCharge", "Minimum charge"],
-                      ["maximumCharge", "Maximum charge"],
-                      ["setupFee", "Setup fee"],
-                      ["effectiveFrom", "Effective from"],
-                      ["effectiveTo", "Effective to"],
-                    ]}
-                  />
-                  <Select
-                    label="Billing cycle"
-                    value={price.billingCycle}
-                    change={(value) =>
-                      setPrice((current) => ({
-                        ...current,
-                        billingCycle: value,
-                      }))
-                    }
-                    options={["MONTHLY", "QUARTERLY", "HALF_YEARLY", "YEARLY"]}
-                  />
-                  <label>
-                    Currency
-                    <select
-                      value={price.currency}
-                      onChange={(event) =>
-                        setPrice((current) => ({
-                          ...current,
-                          currency: event.target.value,
-                        }))
-                      }
-                    >
-                      <option value="INR">INR</option>
-                    </select>
-                  </label>
-                  <label>
-                    Pricing metadata (optional JSON)
-                    <textarea
-                      value={price.metadata}
-                      placeholder={'{"includedQuantity": 100}'}
-                      onChange={(event) =>
-                        setPrice((current) => ({
-                          ...current,
-                          metadata: event.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="sa-check">
-                    <input
-                      type="checkbox"
-                      checked={price.taxInclusive}
-                      onChange={(event) =>
-                        setPrice((current) => ({
-                          ...current,
-                          taxInclusive: event.target.checked,
-                        }))
-                      }
-                    />
-                    Tax inclusive
-                  </label>
-                  <label className="sa-check">
-                    <input
-                      type="checkbox"
-                      checked={price.isActive}
-                      onChange={(event) =>
-                        setPrice((current) => ({
-                          ...current,
-                          isActive: event.target.checked,
-                        }))
-                      }
-                    />
-                    Active
-                  </label>
-                  {(price.pricingModel === "TIERED" ||
-                    price.pricingModel === "VOLUME") && (
-                    <div className="sa-package-feature-pricing">
-                      <div>
-                        <strong>Pricing tiers</strong>
+                    description="Define a platform-wide vehicle classification used in fleet onboarding and reporting."
+                    error={error}
+                    busy={loading}
+                    triggerRef={vehicleCategoryTriggerRef}
+                    onClose={closeVehicleCategoryModal}
+                    onDialogClose={() => setShowVehicleCategoryForm(false)}
+                    onSubmit={submitVehicleCategory}
+                    actions={
+                      <>
                         <button
                           type="button"
                           className="secondary"
-                          onClick={() =>
-                            setPrice((current) => ({
-                              ...current,
-                              tiers: [
-                                ...current.tiers,
-                                {
-                                  tierOrder: String(current.tiers.length + 1),
-                                  fromQuantity: "0",
-                                  toQuantity: "",
-                                  unitPrice: "",
-                                  costPrice: "",
-                                },
-                              ],
-                            }))
+                          onClick={closeVehicleCategoryModal}
+                          disabled={loading}
+                        >
+                          Cancel
+                        </button>
+                        <button type="submit" disabled={loading}>
+                          {editingVehicleCategoryId
+                            ? "Update Vehicle Category"
+                            : "Save Vehicle Category"}
+                        </button>
+                      </>
+                    }
+                  >
+                    <TextFields
+                      value={vehicleCategory}
+                      disabledKeys={editingVehicleCategoryId ? ["code"] : []}
+                      softWarnings={{ code: editingVehicleCategoryId ? "Code is permanent after creation." : "Choose a unique code. It cannot be changed later." }}
+                      change={(key, value) =>
+                        setVehicleCategory((current) => ({
+                          ...current,
+                          [key]: value,
+                        }))
+                      }
+                      fields={[
+                        ["code", "Category code"],
+                        ["name", "Category name"],
+                        ["description", "Description"],
+                        ["displayOrder", "Display order"],
+                      ]}
+                    />
+                    <CatalogTranslationFields
+                      base={vehicleCategory}
+                      fields={[{ key: "name", label: "Category name" }, { key: "description", label: "Description" }]}
+                      translations={vehicleCategory.translations}
+                      onChange={(translations) => setVehicleCategory((current) => ({ ...current, translations }))}
+                    />
+                    <Select
+                      label="Status"
+                      value={vehicleCategory.status}
+                      change={(value) =>
+                        setVehicleCategory((current) => ({
+                          ...current,
+                          status: value,
+                        }))
+                      }
+                      options={masterRecordStatuses}
+                    />
+                  </CatalogFormDialog>
+                  {vehicleCategories.length ? (
+                    <DataTable
+                      headings={[
+                        "Code",
+                        "Category",
+                        "Description",
+                        "Status",
+                        "",
+                        "",
+                      ]}
+                      columnFilters={[
+                        { type: "text" },
+                        { type: "text" },
+                        { type: "text" },
+                        {
+                          type: "select",
+                          options: masterRecordStatuses,
+                        },
+                        null,
+                        null,
+                      ]}
+                      rows={vehicleCategories.map((item) => [
+                        item.code,
+                        item.name,
+                        item.description ?? "—",
+                        item.status,
+                        <button
+                          key="edit"
+                          className="secondary"
+                          onClick={(event) =>
+                            openVehicleCategoryModal(event.currentTarget, item)
                           }
                         >
-                          + Add tier
-                        </button>
-                      </div>
-                      {price.tiers.map((tier, tierIndex) => (
-                        <div className="sa-price-override" key={tierIndex}>
-                          <TextFields
-                            value={tier}
-                            change={(key, value) =>
-                              setPrice((current) => ({
-                                ...current,
-                                tiers: current.tiers.map((item, index) =>
-                                  index === tierIndex
-                                    ? { ...item, [key]: value }
-                                    : item,
-                                ),
-                              }))
-                            }
-                            fields={[
-                              ["tierOrder", "Tier order"],
-                              ["fromQuantity", "From quantity"],
-                              ["toQuantity", "To quantity"],
-                              ["unitPrice", "Unit price"],
-                              ["costPrice", "Cost price"],
-                            ]}
-                          />
-                          <button
-                            type="button"
-                            className="danger"
-                            onClick={() =>
-                              setPrice((current) => ({
-                                ...current,
-                                tiers: current.tiers.filter(
-                                  (_, index) => index !== tierIndex,
-                                ),
-                              }))
-                            }
-                          >
-                            Remove tier
-                          </button>
-                        </div>
-                      ))}
-                    </div>
+                          Edit
+                        </button>,
+                        <button
+                          key="delete"
+                          className="danger"
+                          onClick={() =>
+                            void remove(
+                              `/platform/vehicle-categories/${item.id}`,
+                              "Vehicle Category",
+                            )
+                          }
+                        >
+                          Delete
+                        </button>,
+                      ])}
+                    />
+                  ) : (
+                    <section className="sa-empty-catalog">
+                      <h3>No Vehicle Categories yet</h3>
+                      <p>Create your first platform-wide vehicle classification.</p>
+                      <button
+                        onClick={(event) =>
+                          openVehicleCategoryModal(event.currentTarget)
+                        }
+                      >
+                        Add Vehicle Category
+                      </button>
+                    </section>
                   )}
-                  <button disabled={loading}>
-                    {editingPricingId
-                      ? "Update Feature Price"
-                      : "Save Feature Price"}
-                  </button>
-                </form>
-              )}
-              {pricing.length ? (
-                <DataTable
-                  headings={[
-                    "Feature",
-                    "Price name",
-                    "Model",
-                    "Price",
-                    "Effective from",
-                    "Status",
-                    "",
-                  ]}
-                  rows={pricing.map((item) => [
-                    item.feature?.name,
-                    item.pricingName ?? "—",
-                    item.pricingModel,
-                    `${item.currency} ${item.unitPrice}`,
-                    new Date(item.effectiveFrom).toLocaleDateString(),
-                    item.isActive ? "ACTIVE" : "INACTIVE",
+                </section>
+              </>
+            )}
+            {tab === "vehicleTypes" && (
+              <>
+                <section className="sa-page-head">
+                  <div>
+                    <h2>Vehicle Type</h2>
+                    <p>
+                      Define vehicle types by category, energy source, and usage.
+                    </p>
+                  </div>
+                  <div className="sa-actions">
                     <button
-                      key="edit"
                       className="secondary"
                       onClick={() => {
-                        setPrice({
-                          featureId: item.featureId,
-                          pricingName: item.pricingName ?? "",
-                          pricingModel: item.pricingModel,
-                          billingUnit: item.billingUnit,
-                          basePrice: String(item.basePrice ?? 0),
-                          unitPrice: String(item.unitPrice),
-                          costPrice: String(item.costPrice ?? 0),
-                          minimumCharge: item.minimumCharge
-                            ? String(item.minimumCharge)
-                            : "",
-                          maximumCharge: item.maximumCharge
-                            ? String(item.maximumCharge)
-                            : "",
-                          setupFee: String(item.setupFee ?? 0),
-                          currency: item.currency,
-                          billingCycle: item.billingCycle ?? "MONTHLY",
-                          taxInclusive: item.taxInclusive ?? false,
-                          effectiveFrom: item.effectiveFrom.slice(0, 10),
-                          effectiveTo: item.effectiveTo
-                            ? item.effectiveTo.slice(0, 10)
-                            : "",
-                          isActive: item.isActive,
-                          metadata: item.metadata
-                            ? JSON.stringify(item.metadata, null, 2)
-                            : "",
-                          tiers: (item.tiers ?? []).map((tier: Item) => ({
-                            tierOrder: String(tier.tierOrder),
-                            fromQuantity: String(tier.fromQuantity),
-                            toQuantity: tier.toQuantity
-                              ? String(tier.toQuantity)
-                              : "",
-                            unitPrice: String(tier.unitPrice),
-                            costPrice: tier.costPrice
-                              ? String(tier.costPrice)
-                              : "",
-                          })),
-                        });
-                        setEditingPricingId(item.id);
-                        setShowPricingForm(true);
+                        setBulkImportEntity("vehicle-type");
+                        setShowVehicleTypeForm(false);
                       }}
                     >
-                      Edit
-                    </button>,
+                      Bulk upload
+                    </button>
                     <button
-                      key="delete"
-                      className="danger"
-                      onClick={() =>
-                        void remove(
-                          `/platform/feature-pricing/${item.id}`,
-                          "price",
-                        )
+                      onClick={(event) =>
+                        openVehicleTypeModal(event.currentTarget, undefined, true)
                       }
                     >
-                      Delete
-                    </button>,
-                  ])}
-                />
-              ) : (
-                <section className="sa-empty-catalog">
-                  <h3>No Feature Prices yet</h3>
-                  <p>
-                    Create pricing terms for a Feature, including its model,
-                    effective dates, and commercial amounts.
-                  </p>
-                  <div>
-                    <button onClick={() => setShowPricingForm(true)}>
-                      Add Feature Price
+                      + Add Vehicle Type
                     </button>
                   </div>
                 </section>
-              )}
-            </section>
+                <section className="sa-management oem-table-only">
+                  <CatalogFormDialog
+                    open={showVehicleTypeForm}
+                    size="wide"
+                    title={
+                      editingVehicleTypeId
+                        ? "Edit Vehicle Type"
+                        : "Add Vehicle Type"
+                    }
+                    description="Define a vehicle type by category, energy source, and usage."
+                    error={error}
+                    busy={loading}
+                    triggerRef={vehicleTypeTriggerRef}
+                    onClose={closeVehicleTypeModal}
+                    onDialogClose={() => setShowVehicleTypeForm(false)}
+                    onSubmit={submitVehicleType}
+                    actions={
+                      <>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={closeVehicleTypeModal}
+                          disabled={loading}
+
+                        >
+                          Cancel
+                        </button>
+                        <button type="submit" disabled={loading}>
+                          {editingVehicleTypeId
+                            ? "Update Vehicle Type"
+                            : "Save Vehicle Type"}
+                        </button>
+                      </>
+                    }
+                  >
+                    <label>
+                      <span className="sa-label-text">
+                        Vehicle Category <span className="sa-required-star">*</span>
+                      </span>
+                      <select
+                        required
+                        value={vehicleType.categoryId}
+                        onChange={(event) =>
+                          setVehicleType((current) => ({
+                            ...current,
+                            categoryId: event.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">Select vehicle category</option>
+                        {vehicleCategories
+                          .filter((item) => item.status === "ACTIVE")
+                          .map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.code} · {item.name}
+
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                    <TextFields
+                      value={vehicleType}
+                      disabledKeys={editingVehicleTypeId ? ["code"] : []}
+                      softWarnings={{ code: editingVehicleTypeId ? "Code is permanent after creation." : "Choose a unique code. It cannot be changed later." }}
+                      change={(key, value) =>
+                        setVehicleType((current) => ({
+                          ...current,
+                          [key]: value,
+                        }))
+                      }
+                      fields={[
+                        ["code", "Type code"],
+                        ["name", "Type name"],
+                        ["subCategory", "Sub-category"],
+                        ["description", "Description"],
+                      ]}
+                    />
+                    <CatalogTranslationFields
+                      base={vehicleType}
+                      fields={[{ key: "name", label: "Type name" }, { key: "description", label: "Description" }]}
+                      translations={vehicleType.translations}
+                      onChange={(translations) => setVehicleType((current) => ({ ...current, translations }))}
+                    />
+                    <Select
+                      label="Energy type"
+                      value={vehicleType.energyType}
+                      change={(value) =>
+                        setVehicleType((current) => ({
+                          ...current,
+                          energyType: value,
+                        }))
+                      }
+                      options={energyTypes}
+                    />
+                    <label>
+                      Usage type
+                      <select
+                        value={vehicleType.usageType}
+                        onChange={(event) =>
+                          setVehicleType((current) => ({
+                            ...current,
+                            usageType: event.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">Not specified</option>
+                        {vehicleUsageTypes.map((option) => (
+                          <option key={option}>{option}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <Select
+                      label="Status"
+                      value={vehicleType.status}
+                      change={(value) =>
+                        setVehicleType((current) => ({
+                          ...current,
+                          status: value,
+                        }))
+                      }
+                      options={masterRecordStatuses}
+                    />
+                  </CatalogFormDialog>
+                  <DataTable
+                    headings={[
+                      "Code",
+                      "Vehicle Type",
+                      "Sub-category",
+                      "Category",
+                      "Description",
+                      "Energy",
+                      "Usage",
+                      "Status",
+                      "",
+                      "",
+                    ]}
+                    columnFilters={[
+                      { type: "text" },
+                      { type: "text" },
+                      { type: "text" },
+                      { type: "text" },
+                      { type: "text" },
+                      { type: "select" },
+                      { type: "select" },
+                      { type: "select" },
+                      null,
+                      null,
+                    ]}
+                    rows={vehicleTypes.map((item) => [
+                      item.code,
+                      item.name,
+                      item.subCategory ?? "—",
+                      item.category?.name,
+                      item.description ?? "—",
+                      item.energyType,
+                      item.usageType ?? "—",
+                      item.status,
+                      <button
+                        key="edit"
+                        className="secondary"
+                        onClick={(event) =>
+                          openVehicleTypeModal(event.currentTarget, item)
+                        }
+                      >
+                        Edit
+                      </button>,
+                      <button
+                        key="delete"
+                        className="danger"
+                        onClick={() =>
+                          void remove(
+                            `/platform/vehicle-types/${item.id}`,
+                            "Vehicle Type",
+                          )
+                        }
+                      >
+                        Delete
+                      </button>,
+                    ])}
+                  />
+                </section>
+              </>
+            )}
+            {tab === "featureSteps" && (
+              <>
+                <section className="sa-page-head">
+                  <div>
+                    <h2>Feature Step</h2>
+                    <p>Define the onboarding journey and assign Features to its steps.</p>
+                  </div>
+                  <div className="sa-actions">
+                    <button onClick={(event) => openFeatureStepModal(event.currentTarget)}>
+                      + Add Feature Step
+                    </button>
+                  </div>
+                </section>
+                <section className="sa-management oem-table-only">
+                  <CatalogFormDialog
+                    open={showFeatureStepForm}
+                    title={editingFeatureStepId ? "Edit Feature Step" : "Add Feature Step"}
+                    description="Create a parent or child step for the configurable onboarding journey."
+                    error={error}
+                    busy={loading}
+                    triggerRef={featureStepTriggerRef}
+                    onClose={closeFeatureStepModal}
+                    onDialogClose={() => setShowFeatureStepForm(false)}
+                    onSubmit={submitFeatureStep}
+                    actions={<><button type="button" className="secondary" onClick={closeFeatureStepModal} disabled={loading}>Cancel</button><button type="submit" disabled={loading}>{editingFeatureStepId ? "Update Feature Step" : "Save Feature Step"}</button></>}
+                  >
+                    <TextFields
+                      value={featureStep}
+                      change={(key, value) => setFeatureStep((current) => ({ ...current, [key]: value }))}
+                      fields={[["code", "Step code"], ["displayName", "Step name"], ["description", "Description"], ["displayOrder", "Display order"]]}
+                      requiredKeys={["code", "displayName"]}
+                    />
+                    <CatalogTranslationFields
+                      base={featureStep}
+                      fields={[{ key: "displayName", label: "Step name" }, { key: "description", label: "Description" }]}
+                      translations={featureStep.translations}
+                      onChange={(translations) => setFeatureStep((current) => ({ ...current, translations }))}
+                    />
+                    <label>
+                      Parent step
+                      <select value={featureStep.parentId} onChange={(event) => setFeatureStep((current) => ({ ...current, parentId: event.target.value }))}>
+                        <option value="">No parent (top-level step)</option>
+                        {featureSteps.filter((item) => item.id !== editingFeatureStepId && item.isActive).map((item) => (
+                          <option key={item.id} value={item.id}>{item.parent ? `${item.parent.displayName} / ` : ""}{item.displayName}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="sa-toggle">
+                      <input type="checkbox" checked={featureStep.isActive} onChange={(event) => setFeatureStep((current) => ({ ...current, isActive: event.target.checked }))} />
+                      Active step
+                    </label>
+                  </CatalogFormDialog>
+                  {featureSteps.length ? (
+                    <DataTable
+                      headings={["Code", "Feature Step", "Parent", "Features", "Status", "", ""]}
+                      columnFilters={[{ type: "text" }, { type: "text" }, { type: "select" }, { type: "number" }, { type: "select" }, null, null]}
+                      nonSortableColumns={[0, 1, 2, 3, 4, 5, 6]}
+                      rows={orderFeatureSteps(featureSteps).map((item) => [
+                        item.code,
+                        item.parentId || item.parent ? `↳ ${item.displayName}` : item.displayName,
+                        item.parent?.displayName ?? "—",
+                        item._count?.features ?? 0,
+                        item.isActive ? "ACTIVE" : "INACTIVE",
+                        <button key="edit" className="secondary" onClick={(event) => openFeatureStepModal(event.currentTarget, item)}>Edit</button>,
+                        <button key="delete" className="danger" onClick={() => void remove(`/platform/feature-steps/${item.id}`, "Feature Step")}>Delete</button>,
+                      ])}
+                    />
+                  ) : (
+                    <section className="sa-empty-catalog"><h3>No Feature Steps yet</h3><p>Create the onboarding steps before assigning Features to them.</p></section>
+                  )}
+                </section>
+              </>
+            )}
+            {tab === "features" && (
+              <>
+                <section className="sa-page-head">
+                  <div>
+                    <h2>Feature</h2>
+                    <p>
+                      Define platform capabilities that can be included in packages
+                      and priced commercially.
+                    </p>
+                  </div>
+                  <div className="sa-actions">
+                    <button
+                      className="secondary"
+                      onClick={() => {
+                        setBulkImportEntity("feature");
+                        setShowFeatureForm(false);
+                      }}
+                    >
+                      Bulk upload
+                    </button>
+                    <button
+                      onClick={(event) =>
+                        openFeatureModal(event.currentTarget, undefined, true)
+                      }
+                    >
+                      + Add Feature
+                    </button>
+                  </div>
+                </section>
+                <section className="sa-management oem-table-only">
+                  <CatalogFormDialog
+                    open={showFeatureForm}
+                    title={editingFeatureId ? "Edit Feature" : "Add Feature"}
+                    description="Define platform capabilities that can be included in packages and priced commercially."
+                    error={error}
+                    busy={loading}
+                    triggerRef={featureTriggerRef}
+                    onClose={closeFeatureModal}
+                    onDialogClose={() => setShowFeatureForm(false)}
+                    onSubmit={submitFeature}
+                    actions={
+                      <>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={closeFeatureModal}
+                          disabled={loading}
+                        >
+                          Cancel
+                        </button>
+                        <button type="submit" disabled={loading}>
+                          {editingFeatureId ? "Update Feature" : "Save Feature"}
+                        </button>
+                      </>
+                    }
+                  >
+                    <TextFields
+                      value={feature}
+                      change={(key, value) =>
+                        setFeature((current) => ({ ...current, [key]: value }))
+                      }
+                      fields={[
+                        ["code", "Feature code"],
+                        ["name", "Feature name"],
+                        ["description", "Description"],
+                        ["displayOrder", "Display order"],
+                      ]}
+                    />
+                    <CatalogTranslationFields
+                      base={{
+                        name: feature.name, description: feature.description,
+                        label: (() => { try { return JSON.parse(feature.configuration || "{}").label ?? ""; } catch { return ""; } })(),
+                        placeholder: (() => { try { return JSON.parse(feature.configuration || "{}").placeholder ?? ""; } catch { return ""; } })()
+                      }}
+                      fields={[{ key: "name", label: "Feature name" }, { key: "description", label: "Description" },
+                      { key: "label", label: "Field label" }, { key: "placeholder", label: "Field placeholder" }]}
+                      translations={feature.translations}
+                      onChange={(translations) => setFeature((current) => ({ ...current, translations }))}
+                    />
+                    <label>
+                      Feature configuration (optional JSON)
+                      <textarea
+                        value={feature.configuration}
+                        placeholder={'{"provider":"msg91","delivery":"otp"}'}
+                        onChange={(event) =>
+                          setFeature((current) => ({
+                            ...current,
+                            configuration: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <label>
+                      Primary Feature Step
+                      <select
+                        value={feature.featureStepId}
+                        onChange={(event) =>
+                          setFeature((current) => ({
+                            ...current,
+                            featureStepId: event.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">Not part of onboarding</option>
+                        {featureSteps
+                          .filter(
+                            (step) => step.isActive || step.id === feature.featureStepId,
+                          )
+                          .map((step) => (
+                            <option key={step.id} value={step.id}>
+                              {step.parent ? `${step.parent.displayName} / ` : ""}
+                              {step.displayName}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span className="sa-label-text">
+                        Feature category <span className="sa-required-star">*</span>
+                      </span>
+                      <select
+                        required
+                        value={feature.category}
+                        onChange={(event) =>
+
+                          setFeature((current) => ({
+                            ...current,
+                            category: event.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">Select feature category</option>
+                        {featureCategories.map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <Select
+                      label="Feature type"
+                      value={feature.featureType}
+                      change={(value) =>
+                        setFeature((current) => ({
+                          ...current,
+                          featureType: value,
+                        }))
+                      }
+                      options={featureTypes}
+                      required
+                    />
+                    <Select
+                      label="Billing unit"
+                      value={feature.billingUnit}
+                      change={(value) =>
+                        setFeature((current) => ({
+                          ...current,
+                          billingUnit: value,
+                        }))
+                      }
+                      options={featureBillingUnits}
+                      required
+                    />
+                    <label className="sa-toggle">
+                      <input
+                        type="checkbox"
+                        checked={feature.isActive}
+                        onChange={(event) =>
+
+                          setFeature((current) => ({
+                            ...current,
+                            isActive: event.target.checked,
+                          }))
+                        }
+
+                      />
+                      Active feature
+                    </label>
+                    <label className="sa-toggle">
+                      <input
+                        type="checkbox"
+                        checked={feature.isAddOnEligible}
+                        onChange={(event) =>
+                          setFeature((current) => ({
+                            ...current,
+                            isAddOnEligible: event.target.checked,
+                          }))
+                        }
+                      />{" "}
+                      Available as a client add-on
+                    </label>
+                  </CatalogFormDialog>
+                  {features.length ? (
+                    <DataTable
+                      headings={[
+                        "Code",
+                        "Feature",
+                        "Category",
+                        "Feature Step",
+                        "Type",
+                        "Billing unit",
+                        "Active",
+                        "Add-on eligible",
+                        "",
+                        "",
+                      ]}
+                      columnFilters={[
+                        { type: "text" },
+                        { type: "text" },
+                        { type: "select" },
+                        { type: "select" },
+                        { type: "select" },
+                        { type: "select" },
+                        { type: "select" },
+                        { type: "select" },
+                        null,
+                        null,
+                      ]}
+                      rows={features.map((item) => [
+                        item.code,
+                        item.name,
+                        featureCategories.find(
+                          ([value]) => value === item.category,
+                        )?.[1] ?? item.category,
+                        item.featureStep?.displayName ?? "—",
+                        item.featureType,
+                        item.billingUnit,
+                        item.isActive ? "YES" : "NO",
+                        item.isAddOnEligible ? "YES" : "NO",
+                        <span key="manage" className="sa-client-actions">
+                          <button className="secondary" onClick={(event) => openFeatureModal(event.currentTarget, item, true)}>Edit</button>
+                          <button className="secondary" onClick={(event) => void openRevisions("feature", item, event.currentTarget)}>Versions</button>
+                        </span>,
+                        <button
+                          key="delete"
+                          className="danger"
+                          onClick={() =>
+                            void remove(`/platform/features/${item.id}`, "Feature")
+                          }
+                        >
+                          Delete
+                        </button>,
+                      ])}
+                    />
+                  ) : (
+                    <section className="sa-empty-catalog">
+                      <h3>No Features yet</h3>
+                      <p>
+                        Start by adding a Feature individually or importing a
+                        completed template.
+                      </p>
+                      <div>
+                        <button
+                          onClick={(event) =>
+                            openFeatureModal(event.currentTarget)
+                          }
+                        >
+                          Add Feature
+                        </button>
+                        <button
+                          className="secondary"
+                          onClick={() => setBulkImportEntity("feature")}
+                        >
+                          Bulk upload
+                        </button>
+                      </div>
+                    </section>
+                  )}
+                </section>
+              </>
+            )}
+            {tab === "packages" && (
+              <>
+                <section className="sa-page-head">
+                  <div>
+                    <h2>Package</h2>
+                    <p>
+                      Define commercial packages and manage their versioned feature entitlements together.
+                    </p>
+                  </div>
+                  <div className="sa-actions">
+                    <button
+                      className="secondary"
+                      onClick={() => {
+                        setBulkImportEntity("package");
+                        setShowPackageForm(false);
+                      }}
+                    >
+                      Bulk upload
+                    </button>
+                    <button
+                      onClick={(event) => openPackageModal(event.currentTarget)}
+                    >
+                      + Add Package
+                    </button>
+                  </div>
+                </section>
+                <section className="sa-management oem-table-only">
+                  <CatalogFormDialog
+                    open={showPackageForm}
+                    title={editingPackageId ? "Edit Package" : "Add Package"}
+                    description="Package details and feature entitlements are versioned together. Changes create or update a draft revision."
+                    error={error}
+                    busy={loading}
+                    size="wide"
+                    triggerRef={packageTriggerRef}
+                    onClose={closePackageModal}
+                    onDialogClose={() => setShowPackageForm(false)}
+                    onSubmit={submitPackage}
+                    actions={
+                      <>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={closePackageModal}
+                          disabled={loading}
+                        >
+                          Cancel
+                        </button>
+                        <button type="submit" disabled={loading}>
+                          {editingPackageId ? "Update Package" : "Save Package"}
+                        </button>
+                      </>
+                    }
+                  >
+                    <TextFields
+                      value={pack}
+                      change={(key, value) =>
+                        setPack((current) => ({ ...current, [key]: value }))
+                      }
+                      fields={[
+                        ["code", "Package code"],
+                        ["name", "Package name"],
+                        ["description", "Description"],
+                        ["setupFee", "Setup fee"],
+                        ["trialDays", "Trial days"],
+                        ["displayOrder", "Display order"],
+                      ]}
+                    />
+                    <PackageLimitFields
+                      value={pack}
+                      change={(key, value) =>
+                        setPack((current) => ({ ...current, [key]: value }))
+                      }
+                    />
+                    <label className="sa-toggle">
+                      <input
+                        type="checkbox"
+                        checked={pack.isCustom}
+                        onChange={(event) =>
+                          setPack((current) => ({
+                            ...current,
+                            isCustom: event.target.checked,
+                          }))
+                        }
+                      />
+                      Custom package
+                    </label>
+                    <label className="sa-toggle">
+                      <input
+                        type="checkbox"
+                        checked={pack.isActive}
+                        onChange={(event) =>
+                          setPack((current) => ({
+                            ...current,
+                            isActive: event.target.checked,
+                          }))
+                        }
+                      />
+                      Active package
+                    </label>
+                  </CatalogFormDialog>
+                  {packages.length ? (
+                    <DataTable
+                      headings={[
+                        "Code",
+                        "Package",
+                        "Setup fee",
+                        "Limits",
+                        "Status",
+                        "Features",
+                        "",
+                        "",
+                      ]}
+                      columnFilters={[
+                        { type: "text" },
+                        { type: "text" },
+                        { type: "text" },
+                        { type: "text" },
+                        { type: "select" },
+                        { type: "text" },
+                        null,
+                        null,
+                      ]}
+                      rows={packages.map((item) => [
+                        item.code,
+                        item.name,
+                        item.setupFee ? `₹${item.setupFee}` : "₹0",
+                        `${displayPackageLimit(item.maxFleets)} fleets · ${displayPackageLimit(item.maxRiders)} riders`,
+                        `${item.isActive ? "ACTIVE" : "INACTIVE"}${item.isCustom ? " · CUSTOM" : ""}`,
+                        (() => {
+                          const names = (item.features ?? []).filter((link: Item) => link.isIncluded !== false).map((link: Item) => String(link.feature?.name ?? link.feature?.code ?? "Feature"));
+                          return names.length ? `${names.slice(0, 3).join(", ")}${names.length > 3 ? ` +${names.length - 3} more` : ""}` : "No features";
+                        })(),
+                        <span key="manage" className="sa-client-actions">
+                          <button className="secondary" onClick={(event) => openPackageModal(event.currentTarget, item)}>Edit</button>
+                          <button className="secondary" onClick={() => { setPackageFeaturePackageId(String(item.id)); setTab("packageFeatures"); }}>Features</button>
+                          <button className="secondary" onClick={(event) => void openRevisions("package", item, event.currentTarget)}>Versions</button>
+                        </span>,
+                        <button
+                          key="delete"
+                          className="danger"
+                          onClick={() =>
+                            void remove(`/platform/packages/${item.id}`, "package")
+                          }
+                        >
+                          Delete
+                        </button>,
+                      ])}
+                    />
+                  ) : (
+                    <section className="sa-empty-catalog">
+                      <h3>No Packages yet</h3>
+                      <p>
+                        Create a Package to group Features, commercial limits, and
+                        pricing.
+                      </p>
+                      <div>
+                        <button
+                          onClick={(event) =>
+                            openPackageModal(event.currentTarget)
+                          }
+                        >
+                          Add Package
+                        </button>
+                      </div>
+                    </section>
+                  )}
+                </section>
+              </>
+            )}
+            {tab === "packageFeatures" && (
+              <PackageFeaturesView
+                packages={packages}
+                features={features}
+                token={token}
+                packageId={packageFeaturePackageId}
+                onSaved={() => void load()}
+                onDelete={(path, label) => void remove(path, label)}
+                onBack={() => setTab("packages")}
+              />
+            )}
+            {tab === "packageTierPricing" && (
+              <PackageTierPricingView packages={packages} token={token} refreshKey={refreshKey} />
+            )}
+            {tab === "pricing" && (
+              <>
+                <section className="sa-page-head">
+                  <div>
+                    <h2>Feature Pricing</h2>
+                    <p>
+                      Define the platform-owned commercial terms for every feature.
+                    </p>
+                  </div>
+                  <div className="sa-actions">
+                    <button
+                      onClick={(event) => openPricingModal(event.currentTarget)}
+                    >
+                      + Add Feature Price
+                    </button>
+                  </div>
+                </section>
+                <section className="sa-management oem-table-only">
+                  <CatalogFormDialog
+                    open={showPricingForm}
+                    title={
+                      editingPricingId
+                        ? "Edit Feature Price"
+                        : "Add Feature Price"
+                    }
+                    description="Define the platform-owned commercial terms for every feature."
+                    error={error}
+                    busy={loading}
+                    size="wide"
+                    triggerRef={pricingTriggerRef}
+                    onClose={closePricingModal}
+                    onDialogClose={() => setShowPricingForm(false)}
+                    onSubmit={submitPricing}
+                    actions={
+                      <>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={closePricingModal}
+                          disabled={loading}
+
+                        >
+                          Cancel
+                        </button>
+                        <button type="submit" disabled={loading}>
+                          {editingPricingId
+                            ? "Update Feature Price"
+                            : "Save Feature Price"}
+                        </button>
+                      </>
+                    }
+                  >
+                    <label>
+                      <span className="sa-label-text">
+                        Feature <span className="sa-required-star">*</span>
+                      </span>
+                      <select
+                        value={price.featureId}
+                        onChange={(event) => {
+                          const selectedFeature = features.find(
+                            (feature) => feature.id === event.target.value,
+                          );
+                          setPrice((current) => ({
+                            ...current,
+                            featureId: event.target.value,
+                            billingUnit:
+                              selectedFeature?.billingUnit ?? current.billingUnit,
+                          }));
+                        }}
+                        required
+                      >
+                        <option value="">Select feature</option>
+                        {features
+                          .filter(
+                            (feature) =>
+                              feature.isActive || feature.id === price.featureId,
+                          )
+                          .map((feature) => (
+                            <option key={feature.id} value={feature.id}>
+                              {feature.name}
+                              {!feature.isActive ? " (inactive)" : ""}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                    <TextFields
+                      value={price}
+                      change={(key, value) =>
+                        setPrice((current) => ({ ...current, [key]: value }))
+                      }
+                      fields={[
+                        ["billingUnit", "Billing unit"],
+                        ["salePrice", "Sale price"],
+                        ["costPrice", "Cost price (internal)"],
+                        ["effectiveFrom", "Effective from"],
+                        ["effectiveTo", "Effective to"],
+                      ]}
+                      requiredKeys={["billingUnit", "salePrice", "effectiveFrom"]}
+                    />
+                    <label>
+                      Currency
+                      <select
+                        value={price.currency}
+                        onChange={(event) =>
+
+
+                          setPrice((current) => ({
+                            ...current,
+                            currency: event.target.value,
+                          }))
+                        }
+                      >
+                        <option value="INR">INR</option>
+                      </select>
+                    </label>
+                    <label>
+                      Pricing metadata (optional JSON)
+                      <textarea
+                        value={price.metadata}
+                        placeholder={'{"includedQuantity": 100}'}
+                        onChange={(event) =>
+                          setPrice((current) => ({
+                            ...current,
+                            metadata: event.target.value,
+                          }))
+                        }
+
+                      />
+                    </label>
+                    <label className="sa-check">
+                      <input
+                        type="checkbox"
+                        checked={price.isActive}
+                        onChange={(event) =>
+                          setPrice((current) => ({
+                            ...current,
+                            isActive: event.target.checked,
+                          }))
+                        }
+                      />
+                      Active
+                    </label>
+                  </CatalogFormDialog>
+
+
+                  {pricing.length ? (
+                    <DataTable
+                      headings={[
+                        "Feature",
+                        "Billing unit",
+                        "Sale price",
+                        "Effective from",
+                        "Status",
+                        "",
+                        "",
+                      ]}
+                      columnFilters={[
+                        { type: "text" },
+                        { type: "select" },
+                        { type: "text" },
+                        { type: "text" },
+                        { type: "select" },
+                        null,
+                        null,
+                      ]}
+                      rows={pricing.map((item) => [
+                        item.feature?.name,
+                        item.billingUnit,
+                        `${item.currency} ${item.salePrice}`,
+                        new Date(item.effectiveFrom).toLocaleDateString(),
+                        item.isActive ? "ACTIVE" : "INACTIVE",
+                        <button
+                          key="edit"
+                          className="secondary"
+                          onClick={(event) =>
+                            openPricingModal(event.currentTarget, item)
+                          }
+
+                        >
+                          Edit
+                        </button>,
+                        <button
+                          key="delete"
+                          className="danger"
+                          onClick={() =>
+                            void remove(
+                              `/platform/feature-pricing/${item.id}`,
+                              "price",
+                            )
+                          }
+                        >
+                          Delete
+                        </button>,
+                      ])}
+                    />
+                  ) : (
+                    <section className="sa-empty-catalog">
+                      <h3>No Feature Prices yet</h3>
+                      <p>
+                        Create pricing terms for a Feature, including its model,
+                        effective dates, and commercial amounts.
+                      </p>
+                      <div>
+                        <button
+                          onClick={(event) =>
+                            openPricingModal(event.currentTarget)
+                          }
+                        >
+                          Add Feature Price
+                        </button>
+                      </div>
+                    </section>
+                  )}
+                </section>
+              </>
+            )}
+            {tab === "featureAddOns" && (
+              <>
+                <section className="sa-page-head">
+                  <div>
+                    <h2>Feature Add-Ons</h2>
+                    <p>
+                      Define additional feature allowances that clients can purchase.
+                    </p>
+                  </div>
+                  <div className="sa-actions">
+                    <button
+                      onClick={(event) =>
+                        openFeatureAddOnModal(event.currentTarget)
+                      }
+                    >
+                      + Add Feature Add-On
+                    </button>
+                  </div>
+                </section>
+                <section className="sa-management oem-table-only">
+                  <CatalogFormDialog
+                    open={showFeatureAddOnForm}
+                    title={
+                      editingFeatureAddOnId
+                        ? "Edit Feature Add-On"
+                        : "Add Feature Add-On"
+                    }
+                    description="Set the purchasable quantity, commercial price, and validity period for a feature."
+                    error={error}
+                    busy={loading}
+                    size="wide"
+                    triggerRef={featureAddOnTriggerRef}
+                    onClose={closeFeatureAddOnModal}
+                    onDialogClose={() => setShowFeatureAddOnForm(false)}
+                    onSubmit={submitFeatureAddOn}
+                    actions={
+                      <>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={closeFeatureAddOnModal}
+                          disabled={loading}
+                        >
+                          Cancel
+                        </button>
+                        <button type="submit" disabled={loading}>
+                          {editingFeatureAddOnId
+                            ? "Update Feature Add-On"
+                            : "Save Feature Add-On"}
+                        </button>
+                      </>
+                    }
+                  >
+                    <TextFields
+                      value={featureAddOn}
+                      change={(key, value) =>
+                        setFeatureAddOn((current) => ({ ...current, [key]: value }))
+                      }
+                      fields={[
+                        ["code", "Add-on code"],
+                        ["name", "Add-on name"],
+                        ["description", "Description"],
+                        ["quantity", "Included quantity"],
+                        ["discount", "Discount (%)"],
+                        ["validityDays", "Validity days"],
+                        ["validityMonths", "Validity months"],
+                        ["effectiveFrom", "Effective from"],
+                        ["effectiveTo", "Effective to"],
+                      ]}
+                      requiredKeys={[
+                        "code",
+                        "name",
+                        "quantity",
+                        "effectiveFrom",
+                      ]}
+                    />
+                    <label>
+                      <span className="sa-label-text">
+                        Feature <span className="sa-required-star">*</span>
+                      </span>
+                      <select
+                        value={featureAddOn.featureId}
+                        onChange={(event) =>
+                          setFeatureAddOn((current) => ({
+                            ...current,
+                            featureId: event.target.value,
+                          }))
+                        }
+                        required
+                      >
+                        <option value="">Select feature</option>
+                        {features
+                          .filter(
+                            (feature) =>
+                              feature.isActive ||
+                              feature.id === featureAddOn.featureId,
+                          )
+                          .map((feature) => (
+                            <option key={feature.id} value={feature.id}>
+                              {feature.name}
+                              {!feature.isActive ? " (inactive)" : ""}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                    <section className="sa-feature-addon-calculation" aria-live="polite">
+                      {featureAddOnUnitPrice ? (
+                        <>
+                          <p>
+                            Unit prices from Feature Pricing: {featureAddOnUnitPrice.currency}{" "}
+                            {featureAddOnUnitPrice.salePrice} sale
+                            {featureAddOnUnitPrice.costPrice === null
+                              ? ""
+                              : ` · ${featureAddOnUnitPrice.costPrice} cost`}
+                          </p>
+                          <p>
+                            Calculated cost: {featureAddOnUnitPrice.currency}{" "}
+                            {featureAddOnBaseCost === null
+                              ? "Not configured"
+                              : featureAddOnBaseCost.toFixed(2)}
+                          </p>
+                          <p>
+                            Calculated sale price: {featureAddOnUnitPrice.currency}{" "}
+                            {featureAddOnSaleAfterDiscount?.toFixed(2)}
+                            {featureAddOnDiscount > 0
+                              ? ` after ${featureAddOnDiscount}% discount`
+                              : ""}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="sa-field-warning">
+                          Select a Feature with active pricing for the effective date to calculate this add-on.
+                        </p>
+                      )}
+                    </section>
+                    <label className="sa-check">
+                      <input
+                        type="checkbox"
+                        checked={featureAddOn.isActive}
+                        onChange={(event) =>
+                          setFeatureAddOn((current) => ({
+                            ...current,
+                            isActive: event.target.checked,
+                          }))
+                        }
+                      />
+                      Active
+                    </label>
+                  </CatalogFormDialog>
+                  {featureAddOns.length ? (
+                    <DataTable
+                      headings={[
+                        "Code",
+                        "Feature",
+                        "Quantity",
+                        "Sale price",
+                        "Validity",
+                        "Status",
+                        "",
+                        "",
+                      ]}
+                      columnFilters={[
+                        { type: "text" },
+                        { type: "select" },
+                        { type: "text" },
+                        { type: "text" },
+                        { type: "text" },
+                        { type: "select" },
+                        null,
+                        null,
+                      ]}
+                      rows={featureAddOns.map((item) => [
+                        item.code,
+                        item.feature?.name,
+                        item.quantity,
+                        `${item.currency} ${item.salePrice}`,
+                        item.validityMonths ? `${item.validityMonths} months` : item.validityDays ? `${item.validityDays} days` : "No expiry",
+                        item.isActive ? "ACTIVE" : "INACTIVE",
+                        <button
+                          key="edit"
+                          className="secondary"
+                          onClick={(event) =>
+                            openFeatureAddOnModal(event.currentTarget, item)
+                          }
+                        >
+                          Edit
+                        </button>,
+                        <button
+                          key="status"
+                          className={item.isActive ? "danger" : "secondary"}
+                          onClick={() =>
+                            void submit(
+                              () =>
+                                request(
+                                  `/platform/commercial/feature-addons/${item.id}/status`,
+                                  {
+                                    method: "PATCH",
+                                    body: JSON.stringify({
+                                      isActive: !item.isActive,
+                                    }),
+                                  },
+                                  token,
+                                ),
+                              item.isActive
+                                ? "Feature add-on deactivated."
+                                : "Feature add-on activated.",
+                            )
+                          }
+                        >
+                          {item.isActive ? "Deactivate" : "Activate"}
+                        </button>,
+                      ])}
+                    />
+                  ) : (
+                    <section className="sa-empty-catalog">
+                      <h3>No Feature Add-Ons yet</h3>
+                      <p>
+                        Create an add-on to sell additional feature usage or
+                        allowance to clients.
+                      </p>
+                      <div>
+                        <button
+                          onClick={(event) =>
+                            openFeatureAddOnModal(event.currentTarget)
+                          }
+                        >
+                          Add Feature Add-On
+                        </button>
+                      </div>
+                    </section>
+                  )}
+                </section>
+              </>
+            )}
+            {loading && <p className="platform-loading">Working…</p>}
           </>
         )}
-        {loading && <p className="platform-loading">Working…</p>}
       </section>
+      <DeleteConfirmationDialog
+        confirmation={deleteConfirmation}
+        busy={loading}
+        onClose={() => setDeleteConfirmation(null)}
+      />
     </main>
+  );
+}
+
+function PackageRevisionReview({ snapshot, baseline }: { snapshot: Item; baseline?: Item }) {
+  const limits = (snapshot.limits ?? {}) as Item;
+  const features = Array.isArray(snapshot.features) ? snapshot.features as Item[] : [];
+  const previousFeatures = new Map((Array.isArray(baseline?.features) ? baseline.features : []).map((item: Item) => [String(item.featureId), item]));
+  const currentIds = new Set(features.map((item) => String(item.featureId)));
+  const added = features.filter((item) => !previousFeatures.has(String(item.featureId))).length;
+  const removed = [...previousFeatures.keys()].filter((id) => !currentIds.has(id)).length;
+  const changed = features.filter((item) => {
+    const previous = previousFeatures.get(String(item.featureId));
+    return previous && JSON.stringify({ includedQuantity: previous.includedQuantity, resetPeriod: previous.resetPeriod, isUnlimited: previous.isUnlimited, rolloverAllowed: previous.rolloverAllowed, displayOrder: previous.displayOrder }) !== JSON.stringify({ includedQuantity: item.includedQuantity, resetPeriod: item.resetPeriod, isUnlimited: item.isUnlimited, rolloverAllowed: item.rolloverAllowed, displayOrder: item.displayOrder });
+  }).length;
+  return <div className="sa-package-revision-review">
+    <div className="sa-package-review-summary">
+      <div><span>Package</span><strong>{String(snapshot.name ?? snapshot.code ?? "—")}</strong></div>
+      <div><span>Setup fee</span><strong>{snapshot.setupFee ? `₹${String(snapshot.setupFee)}` : "₹0"}</strong></div>
+      <div><span>Trial days</span><strong>{String(snapshot.trialDays ?? 0)}</strong></div>
+      <div><span>Features</span><strong>{features.length}</strong></div>
+    </div>
+    <div className="sa-package-review-limits"><strong>Limits</strong><span>{["maxFleets", "maxRiders", "maxAdmins", "maxHubs"].map((key) => `${key.replace(/^max/, "")} ${displayPackageLimit(limits[key])}`).join(" · ")}</span></div>
+    {baseline && <div className="sa-package-review-limits"><strong>Changes</strong><span>{added} added · {removed} removed · {changed} feature settings changed</span></div>}
+    <div className="sa-commercial-table-wrap"><table className="sa-commercial-table"><thead><tr><th>Feature</th><th>Display order</th><th>Included quantity</th><th>Reset</th><th>Unlimited</th><th>Rollover</th></tr></thead><tbody>{features.length ? features.map((item) => <tr key={String(item.featureId)}><td>{String(item.feature?.name ?? item.feature?.code ?? item.featureId ?? "—")}</td><td>{String(item.displayOrder ?? 0)}</td><td>{item.isUnlimited ? "Unlimited" : String(item.includedQuantity ?? "—")}</td><td>{String(item.resetPeriod ?? "NONE")}</td><td>{item.isUnlimited ? "Yes" : "No"}</td><td>{item.rolloverAllowed ? "Yes" : "No"}</td></tr>) : <tr><td colSpan={6} className="sa-commercial-empty">No features in this snapshot.</td></tr>}</tbody></table></div>
+  </div>;
+}
+
+type LegalTemplate = {
+  id: string;
+  appCode: string;
+  role: string;
+  kind: string;
+  locale: string;
+  version: string;
+  title: string;
+  content: string;
+  acceptance?: LegalAcceptanceCopy | null;
+  isActive: boolean;
+};
+
+type LegalTemplateForm = Omit<LegalTemplate, "id">;
+
+function emptyLegalTemplate(): LegalTemplateForm {
+  return {
+    appCode: "RIDER",
+    role: "RIDER",
+    kind: "TERMS_AND_CONDITIONS",
+    locale: "en",
+    version: "1.0.0",
+    title: "Rider Terms & Conditions",
+    content: "",
+    isActive: true,
+  };
+}
+
+function LegalDocumentsView({ token, refreshKey = 0 }: { token: string; refreshKey?: number }) {
+  const [templates, setTemplates] = useState<LegalTemplate[]>([]);
+  const [languages, setLanguages] = useState<Array<{ code: string; name: string; nativeName: string }>>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(true);
+  const [form, setForm] = useState<LegalTemplateForm>(emptyLegalTemplate);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [preview, setPreview] = useState<LegalTemplate | null>(null);
+  const [confirmation, setConfirmation] = useState<DeleteConfirmation | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const formTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const previewTriggerRef = useRef<HTMLButtonElement | null>(null);
+
+  const loadTemplates = useCallback(async () => {
+    setLoadingTemplates(true);
+    try {
+      const [templates, languages] = await Promise.all([
+        request("/platform/legal-templates", {}, token),
+        request("/public/app/languages"),
+      ]);
+      setTemplates(templates);
+      setLanguages(languages);
+      setError("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to load legal documents.");
+    } finally {
+      setLoadingTemplates(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadTemplates(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadTemplates, refreshKey]);
+
+  function openForm(trigger: HTMLButtonElement, template?: LegalTemplate) {
+    formTriggerRef.current = trigger;
+    setEditingId(template?.id ?? null);
+    setForm(template ? {
+      appCode: template.appCode, role: template.role, kind: template.kind,
+      locale: template.locale, version: template.version, title: template.title,
+      content: template.content, acceptance: template.acceptance, isActive: template.isActive,
+    } : emptyLegalTemplate());
+    setError("");
+    setNotice("");
+    setFormOpen(true);
+  }
+
+  async function saveTemplate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const payload = {
+        ...form,
+        appCode: form.appCode.trim().toUpperCase(),
+        locale: form.locale.trim().toLowerCase(),
+        version: form.version.trim(),
+        title: form.title.trim(),
+        content: form.content.trim(),
+      };
+      await request(`/platform/legal-templates${editingId ? `/${editingId}` : ""}`, {
+        method: editingId ? "PATCH" : "POST", body: JSON.stringify(payload),
+      }, token);
+      setFormOpen(false);
+      setEditingId(null);
+      setNotice(editingId ? "Legal document template updated." : "Legal document template created.");
+      setTemplates(await request("/platform/legal-templates", {}, token));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to save legal document template.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function confirmRemove(template: LegalTemplate) {
+    setConfirmation({
+      title: `Remove ${template.title}?`,
+      description: "This template will no longer be copied to new clients. Existing client drafts remain available.",
+      confirmLabel: "Remove template",
+      onConfirm: async () => {
+        setBusy(true);
+        setError("");
+        try {
+          await request(`/platform/legal-templates/${template.id}`, { method: "DELETE" }, token);
+          setTemplates(await request("/platform/legal-templates", {}, token));
+          setNotice("Legal document template removed.");
+        } catch (cause) {
+          setError(cause instanceof Error ? cause.message : "Unable to remove legal document template.");
+        } finally {
+          setBusy(false);
+        }
+      },
+    });
+  }
+
+  const kindOptions = ["TERMS_AND_CONDITIONS", "PRIVACY_POLICY", "PRIVACY_CONSENT"];
+  const roleOptions = ["RIDER", "FLEET_MANAGER", "TEAM_LEAD", "ADVISOR", "QC_MANAGER", "CLIENT_ADMIN", "KYC_OPERATOR"];
+  return (
+    <section className="sa-legal-documents">
+      <section className="sa-page-head">
+        <div className="sa-actions">
+          <button type="button" onClick={(event) => openForm(event.currentTarget)}>
+            + Add Legal Document
+          </button>
+        </div>
+      </section>
+      {notice && <p className="notice" role="status">{notice}</p>}
+      {error && !formOpen && <p className="error" role="alert">{error}</p>}
+      {loadingTemplates && templates.length > 0 && <p className="muted" role="status">Refreshing legal documents…</p>}
+      {loadingTemplates && templates.length === 0 ? <p className="muted">Loading legal documents…</p> : templates.length ? (
+        <DataTable
+          headings={["Document", "Type", "App", "Role", "Language", "Version", "Status", "Actions"]}
+          columnFilters={[{ type: "text" }, { type: "select", options: kindOptions.map((kind) => kind.replaceAll("_", " ")) }, { type: "text" },
+          { type: "select", options: roleOptions.map((role) => role.replaceAll("_", " ")) }, { type: "text" }, { type: "text" },
+          { type: "select", options: ["Active", "Active · Translation pending", "Inactive"] }, null]}
+          nonSortableColumns={[7]}
+          rows={templates.map((template) => [
+            template.title,
+            template.kind.replaceAll("_", " "),
+            template.appCode,
+            template.role.replaceAll("_", " "),
+            template.locale,
+            template.version,
+            template.isActive ? template.content.includes("[CLIENT_REVIEW_REQUIRED: English placeholder")
+              ? "Active · Translation pending" : "Active" : "Inactive",
+            <span key={template.id} className="sa-client-actions">
+              <button type="button" className="secondary" onClick={(event) => {
+                previewTriggerRef.current = event.currentTarget;
+                setPreview(template);
+              }}>Preview</button>
+              <button type="button" className="secondary" onClick={(event) => openForm(event.currentTarget, template)}>Edit</button>
+              <button type="button" className="danger" disabled={template.appCode === "RIDER" && template.role === "RIDER" && template.kind === "PRIVACY_CONSENT"} title={template.appCode === "RIDER" && template.role === "RIDER" && template.kind === "PRIVACY_CONSENT" ? "Required template cannot be removed" : undefined} onClick={() => confirmRemove(template)}>Remove</button>
+            </span>,
+          ])}
+        />
+      ) : !error && (
+        <section className="sa-empty-catalog">
+          <h3>No legal document templates yet</h3>
+          <p>Add a default document to prepare drafts for newly created clients.</p>
+          <div><button type="button" onClick={(event) => openForm(event.currentTarget)}>Add Legal Document</button></div>
+        </section>
+      )}
+      <CatalogFormDialog
+        open={formOpen}
+        title={editingId ? "Edit Legal Document" : "Add Legal Document"}
+        description="Active templates are copied to new clients as unpublished drafts. Review client-specific details before publishing."
+        error={error}
+        busy={busy}
+        size="wide"
+        triggerRef={formTriggerRef}
+        onClose={() => setFormOpen(false)}
+        onDialogClose={() => setFormOpen(false)}
+        onSubmit={saveTemplate}
+        actions={<>
+          <button type="button" className="secondary" disabled={busy} onClick={() => setFormOpen(false)}>Cancel</button>
+          <button type="submit" disabled={busy}>{busy ? "Saving…" : editingId ? "Update Document" : "Save Document"}</button>
+        </>}
+      >
+        <div className="sa-field-grid">
+          <label>App code *<input required maxLength={40} value={form.appCode} onChange={(event) => setForm({ ...form, appCode: event.target.value })} /></label>
+          <label>User role *<select required value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}>{roleOptions.map((role) => <option key={role} value={role}>{role.replaceAll("_", " ")}</option>)}</select></label>
+          <label>Document type *<select required value={form.kind} onChange={(event) => setForm({ ...form, kind: event.target.value, isActive: event.target.value === "PRIVACY_CONSENT" ? true : form.isActive })}>{kindOptions.map((kind) => <option key={kind} value={kind}>{kind.replaceAll("_", " ")}</option>)}</select></label>
+          <label>Language *<select required value={form.locale} onChange={(event) => setForm({ ...form, locale: event.target.value })}>
+            {languages.map((language) => <option key={language.code} value={language.code}>{language.nativeName} ({language.name})</option>)}
+            {form.locale && !languages.some((language) => language.code === form.locale) && <option value={form.locale}>{form.locale}</option>}
+          </select></label>
+          <label>Version *<input required maxLength={80} value={form.version} onChange={(event) => setForm({ ...form, version: event.target.value })} /></label>
+          <label>Title *<input required maxLength={200} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
+        </div>
+        <label className="sa-legal-active"><input type="checkbox" checked={form.isActive} disabled={form.appCode === "RIDER" && form.role === "RIDER" && form.kind === "PRIVACY_CONSENT"} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} /> Active for new clients</label>
+        <label>Document HTML *<textarea required rows={14} maxLength={100000} value={form.content} onChange={(event) => setForm({ ...form, content: event.target.value })} /></label>
+        {form.kind === "PRIVACY_CONSENT" && <LegalAcceptanceFields locale={form.locale} value={form.acceptance} onChange={(acceptance) => setForm({ ...form, acceptance })} />}
+        <p className="sa-legal-help">Use {"{{CLIENT_LEGAL_NAME}}"}, {"{{CLIENT_NAME}}"}, and {"{{CLIENT_CODE}}"} for client details. Mark facts needing review with [CLIENT_REVIEW_REQUIRED].</p>
+      </CatalogFormDialog>
+      <CatalogFormDialog
+        open={preview !== null}
+        title={preview ? `${preview.title} · ${preview.version}` : "Document preview"}
+        description="Preview of the saved document template."
+        error=""
+        busy={false}
+        size="wide"
+        triggerRef={previewTriggerRef}
+        onClose={() => setPreview(null)}
+        onDialogClose={() => setPreview(null)}
+        onSubmit={(event) => event.preventDefault()}
+        actions={<button type="button" className="secondary" onClick={() => setPreview(null)}>Close</button>}
+      >
+        {preview && <><div className="legal-documents-preview"><iframe key={preview.id} title={`${preview.title} preview`} sandbox="" srcDoc={preview.content} /></div></>}
+      </CatalogFormDialog>
+      <DeleteConfirmationDialog confirmation={confirmation} busy={busy} onClose={() => setConfirmation(null)} />
+    </section>
+  );
+}
+
+function DeleteConfirmationDialog({
+  confirmation,
+  busy,
+  onClose,
+}: {
+  confirmation: DeleteConfirmation | null;
+  busy: boolean;
+  onClose: () => void;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const previousFocus = useRef<HTMLElement | null>(null);
+  const titleId = useId();
+  const descriptionId = useId();
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (confirmation && !dialog.open) {
+      previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      dialog.showModal();
+      window.requestAnimationFrame(() => cancelRef.current?.focus());
+    }
+    if (!confirmation && dialog.open) { dialog.close(); previousFocus.current?.focus(); }
+  }, [confirmation]);
+  const confirm = async () => {
+    if (!confirmation) return;
+    await confirmation.onConfirm();
+    onClose();
+  };
+  return (
+    <dialog
+      ref={dialogRef}
+      className="sa-dialog sa-delete-dialog"
+      aria-labelledby={titleId}
+      aria-describedby={descriptionId}
+      aria-modal="true"
+      aria-busy={busy}
+      onCancel={(event) => {
+        event.preventDefault();
+        if (!busy) onClose();
+      }}
+      onClose={() => {
+        if (confirmation) onClose();
+      }}
+    >
+      <div className="sa-dialog-surface sa-delete-dialog-surface">
+        <span className="sa-delete-dialog-icon" aria-hidden="true">!</span>
+        <div className="sa-delete-dialog-copy">
+          <p className="sa-eyebrow">CONFIRM DELETION</p>
+          <h2 id={titleId}>{confirmation?.title}</h2>
+          <p id={descriptionId}>{confirmation?.description}</p>
+        </div>
+        <div className="sa-dialog-actions">
+          <button ref={cancelRef} type="button" className="secondary" onClick={onClose} disabled={busy}>
+            Keep it
+          </button>
+          <button type="button" className="danger" onClick={() => void confirm()} disabled={busy}>
+            {busy ? "Deleting…" : confirmation?.confirmLabel ?? "Delete"}
+          </button>
+        </div>
+      </div>
+    </dialog>
   );
 }
 
 function DashboardView({
   summary,
   clients,
-  packages,
   oems,
   setTab,
 }: {
   summary: Item;
   clients: Item[];
-  packages: Item[];
   oems: Item[];
   setTab: (tab: Tab) => void;
 }) {
+  const { t } = useLocale();
+  const fleetStatus = summary.fleetsByStatus ?? {};
+  const riderStatus = summary.ridersByStatus ?? {};
+  const clientStatus = summary.clientsByStatus ?? {};
+  const clientSlices = [
+    ["Created", Number(clientStatus.CREATED ?? 0), "#367eb5"],
+    ["Active", Number(clientStatus.ACTIVE ?? 0), "#2d8662"],
+    ["Pending", Number(clientStatus.PENDING_APPROVAL ?? 0), "#d5913a"],
+    ["Draft", Number(clientStatus.DRAFT ?? 0), "#8092a2"],
+    ["Rejected", Number(clientStatus.REJECTED ?? 0), "#c15e5e"],
+    ["Suspended", Number(clientStatus.SUSPENDED ?? 0), "#d26551"],
+  ] as const;
+  const clientTotal = clientSlices.reduce(
+    (total, [, count]) => total + count,
+    0,
+  );
+  let cursor = 0;
+  const clientGradient = clientSlices
+    .filter(([, count]) => count > 0)
+    .map(([, count, color]) => {
+      const start = (cursor / Math.max(clientTotal, 1)) * 100;
+      cursor += count;
+      const end = (cursor / Math.max(clientTotal, 1)) * 100;
+      return `${color} ${start}% ${end}%`;
+    })
+    .join(", ");
+  const fleetBars = [
+    ["Available", Number(fleetStatus.AVAILABLE ?? 0), "#2d8662"],
+    [
+      "Allocated",
+      Number(fleetStatus.ALLOCATED ?? 0) + Number(fleetStatus.IN_USE ?? 0),
+      "#367eb5",
+    ],
+    ["Maintenance", Number(fleetStatus.MAINTENANCE ?? 0) + Number(fleetStatus.BROKEN ?? 0) + Number(fleetStatus.AWAITING_PARTS ?? 0), "#d5913a"],
+    [
+      "Offline",
+      Number(fleetStatus.OFFLINE ?? 0) +
+      Number(fleetStatus.OUT_OF_SERVICE ?? 0),
+      "#d26551",
+    ],
+  ] as const;
+  const maxFleetBar = Math.max(...fleetBars.map(([, count]) => count), 1);
+  const catalogItems = [
+    [
+      "Vehicle categories",
+      Number(summary.vehicleCategories ?? 0),
+      "vehicleCategories",
+    ],
+    ["Vehicle types", Number(summary.vehicleTypes ?? 0), "vehicleTypes"],
+    ["OEMs", Number(summary.oems ?? oems.length), "oems"],
+    ["Features", Number(summary.features ?? 0), "features"],
+    ["Price rules", Number(summary.pricing ?? 0), "pricing"],
+  ] as const;
+
   return (
     <>
       <section className="sa-metrics">
         <Metric
-          label="Total clients"
-          value={summary.clients ?? 0}
+          label="Active clients"
+          value={summary.activeClients ?? 0}
+          detail={`${summary.pendingClients ?? 0} pending`}
           tone="green"
         />
         <Metric
-          label="Active vehicles"
+          label="Total fleet"
           value={summary.fleets ?? 0}
+          detail={`${fleetStatus.AVAILABLE ?? 0} available`}
+          tone="blue"
+        />
+        <Metric
+          label="Active riders"
+          value={riderStatus.ACTIVE ?? 0}
+          detail={`${summary.riders ?? 0} total`}
+          tone="gold"
+        />
+        <Metric
+          label="Live subscriptions"
+          value={summary.subscriptions ?? 0}
+          detail={`${summary.packages ?? 0} packages`}
+          tone="purple"
+        />
+      </section>
+      <section className="sa-metrics sa-metrics-secondary">
+        <Metric
+          label="Approval pending"
+          value={summary.pendingClients ?? 0}
+          detail="Clients awaiting decision"
+          tone="gold"
+        />
+        <Metric
+          label="Client pipeline"
+          value={summary.clients ?? 0}
+          detail={`${summary.pendingClients ?? 0} awaiting review`}
           tone="coral"
         />
-        <Metric label="Active riders" value={summary.riders ?? 0} tone="gold" />
         <Metric
-          label="Active packages"
-          value={summary.packages ?? 0}
-          tone="green"
+          label="Platform OEMs"
+          value={summary.oems ?? oems.length}
+          detail="Master controlled"
+          tone="blue"
+        />
+        <Metric
+          label="Billable features"
+          value={summary.pricing ?? 0}
+          detail={`${summary.features ?? 0} catalog features`}
+          tone="gold"
+        />
+        <Metric
+          label="Riders awaiting activation"
+          value={riderStatus.PENDING ?? 0}
+          detail={`${riderStatus.BLOCKED ?? 0} blocked`}
+          tone="coral"
         />
       </section>
       <section className="sa-dashboard-grid">
-        <article className="sa-card sa-revenue">
+        <article className="sa-card sa-fleet-chart">
           <div className="sa-card-head">
             <div>
-              <h3>Platform revenue</h3>
-              <p>Commercial catalogue health</p>
+              <h3>{t("Fleet operational health")}</h3>
+              <p>{t("Current fleet availability across all clients")}</p>
             </div>
-            <button className="secondary" onClick={() => setTab("packages")}>
-              Manage packages
+            <button className="secondary" onClick={() => setTab("clients")}>
+              {t("View clients")}
             </button>
           </div>
-          <div className="sa-revenue-bars">
-            {["Jan", "Feb", "Mar", "Apr", "May", "Jun"].map((month, index) => (
-              <div key={month}>
-                <span style={{ height: `${35 + index * 9}%` }}></span>
-                <small>{month}</small>
+          <div className="sa-health-bars">
+            {fleetBars.map(([label, count, color]) => (
+              <div key={label}>
+                <div className="sa-health-label">
+                  <span>{t(label)}</span>
+                  <strong>{count}</strong>
+                </div>
+                <span className="sa-health-track">
+                  <i
+                    style={{
+                      width: `${(count / maxFleetBar) * 100}%`,
+                      background: color,
+                    }}
+                  />
+                </span>
               </div>
             ))}
           </div>
           <p className="sa-footnote">
-            Pricing and usage reporting begins as clients activate
-            subscriptions.
+            {summary.fleets ?? 0} {t("active fleet records are monitored from one platform view.")}
           </p>
         </article>
         <article className="sa-card">
           <div className="sa-card-head">
             <div>
-              <h3>Client performance</h3>
-              <p>Top clients by fleet size</p>
+              <h3>{t("Client performance")}</h3>
+              <p>{t("Top clients by fleet size")}</p>
             </div>
             <button className="secondary" onClick={() => setTab("clients")}>
-              View all
+              {t("View all")}
             </button>
           </div>
           <div className="sa-ranked-list">
@@ -2541,52 +4575,98 @@ function DashboardView({
                 <section>
                   <strong>{client.name}</strong>
                   <small>
-                    {client._count?.riders ?? 0} riders ·{" "}
-                    {client._count?.users ?? 0} users
+                    {client._count?.riders ?? 0} {t("riders")} ·{" "}
+                    {client._count?.users ?? 0} {t("users")}
                   </small>
                 </section>
-                <b>{client.isActive ? "Active" : "Inactive"}</b>
+                <b>{t(client.isActive ? "Active" : "Inactive")}</b>
               </div>
             ))}
             {!clients.length && (
-              <p className="muted">No clients have been onboarded yet.</p>
+              <p className="muted">{t("No clients have been onboarded yet.")}</p>
             )}
           </div>
         </article>
         <article className="sa-card">
           <div className="sa-card-head">
             <div>
-              <h3>Platform catalogue</h3>
-              <p>Master data available to all clients</p>
+              <h3>{t("Client lifecycle")}</h3>
+              <p>{t("Onboarding and account-status distribution")}</p>
             </div>
           </div>
-          <div className="sa-summary-list">
-            <button onClick={() => setTab("oems")}>
-              <strong>{summary.oems ?? oems.length}</strong>
-              <span>OEMs</span>
+          <div className="sa-lifecycle">
+            <div
+              className="sa-donut"
+              style={{
+                background: clientGradient
+                  ? `conic-gradient(${clientGradient})`
+                  : "#edf1ee",
+              }}
+            >
+              <div>
+                <strong>{clientTotal}</strong>
+                <small>{t("clients")}</small>
+              </div>
+            </div>
+            <div className="sa-legend">
+              {clientSlices.map(([label, count, color]) => (
+                <div key={label}>
+                  <i style={{ background: color }} />
+                  <span>{t(label)}</span>
+                  <strong>{count}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
+        </article>
+        <article className="sa-card sa-catalog-card">
+          <div className="sa-card-head">
+            <div>
+              <h3>{t("Platform catalogue")}</h3>
+              <p>{t("Master records ready for client configuration")}</p>
+            </div>
+            <button className="secondary" onClick={() => setTab("features")}>
+              {t("Manage")}
             </button>
-            <button onClick={() => setTab("packages")}>
-              <strong>{packages.length}</strong>
-              <span>Packages</span>
-            </button>
-            <button onClick={() => setTab("pricing")}>
-              <strong>₹</strong>
-              <span>Feature pricing</span>
-            </button>
+          </div>
+          <div className="sa-catalog-coverage">
+            {catalogItems.map(([label, count, target]) => (
+              <button key={label} onClick={() => setTab(target as Tab)}>
+                <span>
+                  <strong>{count}</strong>
+                  <small>{t(label)}</small>
+                </span>
+                <i
+                  style={{ width: `${Math.min(100, Math.max(8, count * 8))}%` }}
+                />
+              </button>
+            ))}
           </div>
         </article>
         <article className="sa-card">
           <div className="sa-card-head">
             <div>
-              <h3>Recent activity</h3>
-              <p>Platform-wide events</p>
+              <h3>{t("Recent activity")}</h3>
+              <p>{t("Platform-wide events")}</p>
             </div>
-            <span className="sa-live">● Live</span>
+            <span className="sa-live">● {t("Live")}</span>
           </div>
           <ul className="sa-activity">
-            <li>Client catalogue is ready for commercial onboarding</li>
-            <li>Rider onboarding master workflow is active</li>
-            <li>Package and feature pricing are platform controlled</li>
+            <li>
+              {summary.pendingClients ?? 0} client application
+              {Number(summary.pendingClients ?? 0) === 1 ? " is" : "s are"}{" "}
+              awaiting review
+            </li>
+            <li>
+              {summary.subscriptions ?? 0} active subscription
+              {Number(summary.subscriptions ?? 0) === 1 ? " is" : "s are"} using
+              platform pricing
+            </li>
+            <li>
+              {summary.pricing ?? 0} feature price rule
+              {Number(summary.pricing ?? 0) === 1 ? " is" : "s are"} available
+              for commercial configuration
+            </li>
           </ul>
         </article>
       </section>
@@ -2594,9 +4674,75 @@ function DashboardView({
   );
 }
 
+function ClientCommercialDirectory({
+  clients,
+  section,
+}: {
+  clients: Item[];
+  section: ClientCommercialSection;
+}) {
+  const details: Record<ClientCommercialSection, { title: string; description: string }> = {
+    pricing: {
+      title: "Client Pricing Adjustments",
+      description: "Create and review client-specific commercial adjustments without changing package or Feature master prices.",
+    },
+    addOns: {
+      title: "Client Add-ons",
+      description: "Review each client's purchased add-ons and activate new add-on capacity.",
+    },
+    quotaPacks: {
+      title: "Client Quota Add-Ons",
+      description: "Activate purchasable quota packs against a client's active package subscription.",
+    },
+    creditLots: {
+      title: "Client Feature Credit Lots",
+      description: "Inspect package allowances, purchased credits, available balances, and expiry dates.",
+    },
+    ledger: {
+      title: "Client Feature Usage Ledger",
+      description: "Review the auditable record of feature credit grants, consumption, adjustments, and expiry.",
+    },
+  };
+  const activeClients = clients.filter((client) => client.status === "ACTIVE");
+  return (
+    <>
+      <section className="sa-page-head">
+        <div>
+          <h2>{details[section].title}</h2>
+          <p>{details[section].description}</p>
+        </div>
+      </section>
+      {activeClients.length ? (
+        <DataTable
+          headings={["Client", "Company code", "Status", "Action"]}
+          columnFilters={[{ type: "text" }, { type: "text" }, null, null]}
+          rows={activeClients.map((client) => [
+            client.name,
+            client.companyCode ?? client.slug,
+            client.status,
+            <ClientCommercialSettings
+              key={`${client.id}-${section}`}
+              clientId={client.id}
+              clientName={client.name}
+              section={section}
+            />,
+          ])}
+        />
+      ) : (
+        <section className="sa-empty-catalog">
+          <h3>No active clients</h3>
+          <p>Activate a client and create its subscription before managing commercial records.</p>
+        </section>
+      )}
+    </>
+  );
+}
+
 function ClientsView({
   clients,
+  languages,
   packages,
+  vehicleCategories,
   showForm,
   setShowForm,
   client,
@@ -2604,370 +4750,1876 @@ function ClientsView({
   step,
   setStep,
   submit,
+  error,
+  loading,
+  triggerRef,
+  openDialog,
+  closeDialog,
+  documentFiles,
+  setDocumentFiles,
+  logoFile,
+  setLogoFile,
+  approveClient,
+  rejectClient,
+  editClient,
+  activeClientEdit,
+  request,
+  token,
 }: any) {
+  const stepHeadingRef = useRef<HTMLHeadingElement>(null);
+  const stepHeadingId = useId();
+  const wasOpenRef = useRef(showForm);
+  const previousStepRef = useRef(step);
+  useEffect(() => {
+    if (showForm && wasOpenRef.current && previousStepRef.current !== step) {
+      stepHeadingRef.current?.focus();
+    }
+    previousStepRef.current = step;
+    wasOpenRef.current = showForm;
+  }, [showForm, step]);
+
+
   const fields =
     step === 1
       ? [
-          ["name", "Client / company name"],
-          ["slug", "Client workspace slug"],
-          ["legalCompanyName", "Legal company name"],
-          ["clientType", "Client type"],
-          ["businessType", "Business type"],
-          ["industry", "Industry"],
-          ["gstin", "GSTIN"],
-          ["pan", "PAN"],
-          ["website", "Website"],
-        ]
+        ["businessFleetName", "Business / fleet name"],
+        ["companyCode", "Company code (client login)"],
+        ["legalEntityName", "Legal entity name"],
+        ["pan", "PAN"],
+        ["gstin", "GSTIN"],
+        ["cinOrLlpin", "CIN / LLPIN"],
+        ["website", "Website"],
+        ["yearEstablished", "Year of establishment"],
+        ["estimatedFleetSize", "Approx. fleet size"],
+        ["estimatedRiderCount", "Approx. rider count"],
+        ["estimatedUserCount", "Approx. employee / user count"],
+      ]
       : step === 2
         ? [
-            ["primaryContactName", "Primary contact name"],
-            ["primaryContactTitle", "Designation"],
-            ["primaryContactMobile", "Primary mobile"],
-            ["primaryContactEmail", "Primary email"],
-            ["alternateMobile", "Alternate mobile"],
-            ["adminName", "Admin name"],
-            ["adminEmail", "Admin email"],
-            ["adminMobile", "Admin mobile"],
-          ]
+          ["primaryContactName", "Primary contact name"],
+          ["primaryDesignation", "Primary designation"],
+          ["primaryMobile", "Primary mobile"],
+          ["primaryEmail", "Primary email"],
+          ["alternateMobile", "Alternate mobile"],
+          ["registeredAddressLine1", "Registered address line 1"],
+          ["registeredAddressLine2", "Registered address line 2"],
+          ["landmark", "Landmark"],
+          ["city", "City"],
+          ["district", "District"],
+          ["state", "State"],
+          ["country", "Country"],
+          ["pinCode", "PIN code"],
+        ]
         : step === 3
           ? [
-              ["registeredAddressLine1", "Address line 1"],
-              ["registeredAddressLine2", "Address line 2"],
-              ["landmark", "Landmark"],
-              ["city", "City"],
-              ["district", "District"],
-              ["state", "State"],
-              ["country", "Country"],
-              ["pinCode", "PIN code"],
+            ["numberOfFleets", "Number of fleets"],
+            ["approximateRiderCount", "Approx. riders"],
+            ["operationalHubCount", "Number of operational hubs"],
+          ]
+          : step === 4
+            ? [
+              ["startDate", "Package start date"],
+              ["endDate", "Package end date"],
             ]
-          : [
-              ["packageStartDate", "Package start date"],
-              ["billingFrequency", "Billing frequency"],
-              ["discountType", "Discount type"],
-              ["discount", "Discount"],
-              ["taxRate", "Tax / GST"],
-              ["paymentTerms", "Payment terms"],
-              ["poNumber", "PO number"],
-            ];
+            : step === 5
+              ? [
+                ["billingContactName", "Billing contact name"],
+                ["billingEmail", "Billing email"],
+                ["billingMobile", "Billing mobile"],
+                ["poNumber", "PO number"],
+                ["paymentTerms", "Payment terms"],
+              ]
+              : [
+                ["authorizedSignatoryName", "Authorized signatory name"],
+                ["signatoryDesignation", "Signatory designation"],
+              ];
+  const requiredFields = [
+    "businessFleetName",
+    "companyCode",
+    "legalEntityName",
+    "businessType",
+    "clientType",
+    "pan",
+    "estimatedFleetSize",
+    "estimatedRiderCount",
+    "primaryContactName",
+    "primaryDesignation",
+    "primaryMobile",
+    "primaryEmail",
+    "registeredAddressLine1",
+    "city",
+    "state",
+    "pinCode",
+    "numberOfFleets",
+    "approximateRiderCount",
+    "packageId",
+    "startDate",
+    "billingContactName",
+    "billingEmail",
+    "authorizedSignatoryName",
+    "signatoryDesignation",
+  ];
+  const inputTypes = {
+    website: "url",
+    primaryMobile: "tel",
+    primaryEmail: "email",
+    alternateMobile: "tel",
+    adminEmail: "email",
+    adminMobile: "tel",
+    billingEmail: "email",
+    billingMobile: "tel",
+  } as const;
+  const panPattern = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+  const gstinPattern = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+  const softWarnings = {
+    ...(client.pan && !panPattern.test(String(client.pan).trim().toUpperCase())
+      ? { pan: "PAN format looks unusual. Expected: ABCDE1234F." }
+      : {}),
+    ...(client.gstin &&
+      !gstinPattern.test(String(client.gstin).trim().toUpperCase())
+      ? { gstin: "GSTIN format looks unusual. Expected: 22ABCDE1234F1Z5." }
+      : {}),
+  };
+  const uploadedDocumentTypes = new Set(
+    ((client.uploadedDocuments ?? []) as Item[]).map(
+      (document) => document.documentType,
+    ),
+  );
+  const progress = Math.round((step / clientStepLabels.length) * 100);
+  const eligiblePackages = packages.filter(
+    (item: Item) =>
+      item.isActive &&
+      item.setupFee !== null &&
+      item.setupFee !== undefined,
+  );
+
   return (
     <>
       <section className="sa-page-head">
         <div>
           <h2>Clients</h2>
           <p>
-            Onboard a client with contacts, address, package, and commercial
-            terms.
+            Manage onboarding drafts, approvals, subscriptions, and documents.
           </p>
         </div>
-        <button
-          onClick={() => {
-            setShowForm(!showForm);
-            setStep(1);
-          }}
-        >
+        <button onClick={(event) => openDialog(event.currentTarget)}>
           + Onboard client
         </button>
       </section>
-      {showForm && (
-        <form className="sa-wizard" onSubmit={submit}>
-          <header>
-            <span>Client onboarding</span>
-            <strong>Step {step} of 4</strong>
-          </header>
-          <div className="sa-wizard-progress">
-            <span style={{ width: `${step * 25}%` }} />
-          </div>
-          <section>
-            <h3>
-              {
-                [
-                  "Company information",
-                  "Contact information",
-                  "Registered & billing address",
-                  "Package & commercials",
-                ][step - 1]
-              }
-            </h3>
-            <div className="sa-field-grid">
-              <TextFields value={client} change={change} fields={fields} />
-              {step === 4 && (
-                <>
-                  <label>
-                    Package
-                    <select
-                      value={client.packageId}
-                      onChange={(event) =>
-                        change("packageId", event.target.value)
-                      }
-                      required
-                    >
-                      <option value="">Select package</option>
-                      {packages.map((item: Item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name} · ₹{item.monthlyPrice}/month
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Billing cycle
-                    <select
-                      value={client.billingCycle}
-                      onChange={(event) =>
-                        change("billingCycle", event.target.value)
-                      }
-                    >
-                      <option>MONTHLY</option>
-                      <option>QUARTERLY</option>
-                      <option>HALF_YEARLY</option>
-                      <option>YEARLY</option>
-                    </select>
-                  </label>
-                  <label className="sa-toggle">
-                    <input
-                      type="checkbox"
-                      checked={client.trialApplicable}
-                      onChange={(event) =>
-                        change("trialApplicable", event.target.checked)
-                      }
-                    />{" "}
-                    Trial applicable
-                  </label>
-                  <label className="sa-toggle">
-                    <input
-                      type="checkbox"
-                      checked={client.autoRenewal}
-                      onChange={(event) =>
-                        change("autoRenewal", event.target.checked)
-                      }
-                    />{" "}
-                    Auto renewal
-                  </label>
-                </>
-              )}
-            </div>
-          </section>
-          <footer>
-            {step > 1 && (
+      <CatalogFormDialog
+        open={showForm}
+        title={activeClientEdit ? "Edit client" : "Client onboarding"}
+        description={
+          activeClientEdit
+            ? "Update the client configuration. Every update is recorded in the audit log."
+            : "Onboard a client through six saved steps, then create its workspace."
+        }
+        error={error}
+        busy={loading}
+        size="wide"
+        triggerRef={triggerRef}
+        onClose={closeDialog}
+        onDialogClose={() => setShowForm(false)}
+        onSubmit={submit}
+        actions={
+          <>
+            <button
+              type="button"
+              className="secondary"
+              onClick={closeDialog}
+              disabled={loading}
+            >
+              Cancel
+            </button>
+            {step > 2 && (
               <button
                 type="button"
                 className="secondary"
                 onClick={() => setStep(step - 1)}
+                disabled={loading}
               >
                 Back
               </button>
             )}
-            <button>{step === 4 ? "Create client" : "Continue"}</button>
-          </footer>
-        </form>
-      )}
+            <button type="submit" disabled={loading}>
+              {step === 6
+                ? activeClientEdit
+                ? "Save changes"
+                  : "Create client workspace"
+                : activeClientEdit
+                  ? "Save changes"
+                  : "Save & continue"}
+            </button>
+          </>
+        }
+      >
+        <>
+          <div className="sa-client-wizard">
+            <nav className="sa-client-stepper" aria-label="Client onboarding steps">
+              <ol>
+                {clientStepLabels.map((label, index) => {
+                  const stepNumber = index + 1;
+                  const state =
+                    stepNumber < step
+                      ? "completed"
+                      : stepNumber === step
+                        ? "current"
+                        : "future";
+                  return (
+                    <li
+                      key={label}
+                      className={`sa-client-step ${state}`}
+                      aria-current={stepNumber === step ? "step" : undefined}
+                    >
+                      <span className="sa-client-step-number" aria-hidden="true">
+                        {stepNumber}
+                      </span>
+                      {activeClientEdit ? (
+                        <button
+                          type="button"
+                          className="sa-client-step-jump"
+                          onClick={() => setStep(stepNumber)}
+                        >
+                          {label}
+                        </button>
+                      ) : (
+                        <span>{label}</span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ol>
+              <div className="sa-client-progress">
+                <div className="sa-client-progress-label">
+                  <span>
+                    Step {step} of {clientStepLabels.length}
+                  </span>
+                  <strong>{progress}%</strong>
+                </div>
+                <div
+                  className="sa-client-progress-track"
+                  role="progressbar"
+                  aria-label="Client onboarding progress"
+                  aria-valuemin={1}
+                  aria-valuemax={clientStepLabels.length}
+                  aria-valuenow={step}
+                  aria-valuetext={`Step ${step} of ${clientStepLabels.length}, ${progress}% complete`}
+                >
+                  <span style={{ width: `${progress}%` }} />
+                </div>
+              </div>
+            </nav>
+            <section
+              className="sa-client-step-content"
+              aria-labelledby={stepHeadingId}
+            >
+              <h3 id={stepHeadingId} ref={stepHeadingRef} tabIndex={-1}>
+                {clientStepLabels[step - 1]}
+              </h3>
+              <div className="sa-field-grid">
+                <TextFields
+                  value={client}
+                  change={change}
+                  fields={fields}
+                  requiredKeys={requiredFields}
+                  inputTypes={inputTypes}
+                  softWarnings={step === 1 ? softWarnings : undefined}
+                  disabledKeys={
+                    activeClientEdit && step === 1 ? ["companyCode"] : undefined
+                  }
+                />
+                {step === 1 && (
+                  <>
+                    <fieldset className="sa-client-language-picker">
+                      <legend>App languages</legend>
+                      <p className="muted">English is the fallback. Other languages stay in a draft workflow until their legal documents and app copy are reviewed and published.</p>
+                      <div>
+                        {languages.map((language: { code: string; name: string; nativeName: string }) => (
+                          <label key={language.code}>
+                            <input type="checkbox" checked={(client.requestedLocales as string[]).includes(language.code)}
+                              disabled={language.code === "en"}
+                              onChange={(event) => change("requestedLocales", event.target.checked
+                                ? [...(client.requestedLocales as string[]), language.code]
+                                : (client.requestedLocales as string[]).filter((code) => code !== language.code))} />
+                            <span>{language.nativeName} <small>({language.name})</small></span>
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
+                    <ClientLogoUpload file={logoFile} savedUrl={client.logoUrl} onChange={setLogoFile} />
+                    <Select
+                      label="Industry"
+                      value={client.industry}
+                      change={(value) => change("industry", value)}
+                      allowEmpty
+                      options={clientIndustries}
+                    />
+                    <Select
+                      label="Client type"
+                      value={client.clientType}
+                      change={(value) => change("clientType", value)}
+                      options={[
+                        "FLEET_OWNER",
+                        "FLEET_OPERATOR",
+                        "LOGISTICS_COMPANY",
+                        "DELIVERY_PARTNER",
+                        "LEASING_COMPANY",
+                        "VEHICLE_AGGREGATOR",
+                        "ENTERPRISE",
+                        "OTHER",
+                      ]}
+                      required
+                    />
+                    <Select
+                      label="Business type"
+                      value={client.businessType}
+                      change={(value) => change("businessType", value)}
+                      options={[
+                        "PVT_LTD",
+                        "LLP",
+                        "PARTNERSHIP",
+                        "PROPRIETORSHIP",
+                        "HUF",
+                        "INDIVIDUAL",
+                        "OTHER",
+                      ]}
+                      required
+                    />
+                  </>
+                )}
+                {step === 2 && (
+                  <>
+                    <label className="sa-toggle">
+                      <input
+                        type="checkbox"
+                        checked={client.adminSameAsPrimary}
+                        onChange={(event) =>
+                          change("adminSameAsPrimary", event.target.checked)
+                        }
+                      />{" "}
+                      Admin is same as Primary Contact
+                    </label>
+                    {!client.adminSameAsPrimary && (
+                      <TextFields
+                        value={client}
+                        change={change}
+                        fields={[
+                          ["adminName", "Admin name"],
+                          ["adminDesignation", "Admin designation"],
+                          ["adminMobile", "Admin mobile"],
+                          ["adminEmail", "Admin email"],
+                        ]}
+                        requiredKeys={[
+                          "adminName",
+                          "adminMobile",
+                          "adminEmail",
+                        ]}
+                        inputTypes={inputTypes}
+                      />
+                    )}
+                    <label className="sa-toggle">
+                      <input
+                        type="checkbox"
+                        checked={client.billingSameAsRegistered}
+                        onChange={(event) =>
+                          change("billingSameAsRegistered", event.target.checked)
+                        }
+                      />{" "}
+                      Billing address is same as registered
+                    </label>
+                    {!client.billingSameAsRegistered && (
+                      <TextFields
+                        value={client}
+                        change={change}
+                        fields={[
+                          ["billingAddressLine1", "Billing address line 1"],
+                          ["billingAddressLine2", "Billing address line 2"],
+                          ["billingLandmark", "Billing landmark"],
+                          ["billingCity", "Billing city"],
+                          ["billingDistrict", "Billing district"],
+                          ["billingState", "Billing state"],
+                          ["billingCountry", "Billing country"],
+                          ["billingPinCode", "Billing PIN code"],
+                        ]}
+                        requiredKeys={[
+                          "billingAddressLine1",
+                          "billingCity",
+                          "billingState",
+                          "billingPinCode",
+                        ]}
+                      />
+                    )}
+                  </>
+                )}
+                {step === 3 && (
+                  <>
+                    <Select
+                      label="Fleet business model"
+                      value={client.fleetBusinessModel}
+                      change={(value) => change("fleetBusinessModel", value)}
+                      options={fleetBusinessModels}
+                      required
+                    />
+                    <Select
+                      label="Vehicle ownership"
+                      value={client.vehicleOwnership}
+                      change={(value) => change("vehicleOwnership", value)}
+                      options={vehicleOwnerships}
+                      required
+                    />
+                    <label>
+                      <span className="sa-label-text">
+                        Vehicle categories{" "}
+                        <span className="sa-required-star">*</span>
+                      </span>
+                      <select
+                        required
+                        multiple
+                        value={client.vehicleCategoryIds ?? []}
+                        onChange={(event) =>
+                          change(
+                            "vehicleCategoryIds",
+                            Array.from(
+                              event.target.selectedOptions,
+                              (option) => option.value,
+                            ),
+                          )
+                        }
+                      >
+                        {vehicleCategories
+                          .filter((item: Item) => item.status === "ACTIVE")
+                          .map((item: Item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.code} · {item.name}
+                            </option>
+                          ))}
+                      </select>
+                      <small>Select one or more vehicle categories.</small>
+                    </label>
+                  </>
+                )}
+                {step === 4 && (
+                  <>
+                    <label>
+                      <span className="sa-label-text">
+                        Package <span className="sa-required-star">*</span>
+                      </span>
+                      <select
+                        value={client.packageId}
+                        onChange={(event) =>
+                          change("packageId", event.target.value)
+                        }
+                        required
+                      >
+                        <option value="">
+                          {eligiblePackages.length
+                            ? "Select package"
+                            : "No eligible packages available"}
+                        </option>
+                        {eligiblePackages.map((item: Item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name} · ₹{item.setupFee ?? 0} setup fee
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Billing cycle
+                      <select
+                        value={client.billingCycle}
+                        onChange={(event) =>
+                          change("billingCycle", event.target.value)
+                        }
+                      >
+                        <option value="">Select billing cycle</option>
+                        {billingCycles.map((cycle) => (
+                          <option key={cycle} value={cycle}>{enumLabel(cycle)}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="sa-toggle">
+                      <input
+                        type="checkbox"
+                        checked={client.autoRenew}
+                        onChange={(event) =>
+                          change("autoRenew", event.target.checked)
+                        }
+                      />{" "}
+                      Auto renew
+                    </label>
+                    <label className="sa-toggle">
+                      <input
+                        type="checkbox"
+                        checked={client.trialRequired}
+                        onChange={(event) =>
+                          change("trialRequired", event.target.checked)
+                        }
+                      />{" "}
+                      Trial required
+                    </label>
+                  </>
+                )}
+                {step === 5 && (
+                  <>
+                    <label className="sa-toggle">
+                      <input
+                        type="checkbox"
+                        checked={client.purchaseOrderRequired}
+                        onChange={(event) =>
+                          change("purchaseOrderRequired", event.target.checked)
+                        }
+                      />{" "}
+                      Purchase order required
+                    </label>
+                    {[
+                      ["PAN_CARD", "PAN Card · required"],
+                      ["GST_CERTIFICATE", "GST Certificate"],
+                      ["INCORPORATION_CERTIFICATE", "Incorporation Certificate"],
+                      ["FLEET_AGREEMENT", "Fleet / Business Agreement"],
+                    ].map(([type, label]) => (
+                      <label key={type} className="sa-logo-input">
+                        {label}
+                        <input
+                          type="file"
+                          accept="application/pdf,image/jpeg,image/png"
+                          onChange={(event) =>
+                            setDocumentFiles((current: any) => ({
+                              ...current,
+                              [type]: event.target.files?.[0],
+                            }))
+                          }
+                        />
+                        {documentFiles[type] && (
+                          <small>{documentFiles[type]?.name}</small>
+                        )}
+                        {!documentFiles[type] &&
+                          uploadedDocumentTypes.has(type) && (
+                            <small>Previously uploaded</small>
+                          )}
+                      </label>
+                    ))}
+                  </>
+                )}
+                {step === 6 && (
+                  activeClientEdit ? (
+                    <p className="muted">
+                      Review the approved updates, then select Finish. The Client
+                      remains active and every saved change is linked to the email
+                      reference above.
+                    </p>
+                  ) : (
+                    <>
+                      <p className="muted">
+                        Review the saved Client profile, contacts, operations,
+                        package, billing, and uploaded documents. Creating the
+                        workspace makes it available to the Client Admin.
+                      </p>
+                      <p>Requested app languages: {(client.requestedLocales as string[]).map((code) => languages.find((language: { code: string; name: string }) => language.code === code)?.name ?? code).join(", ")}</p>
+                      <label className="sa-toggle">
+                        <input
+                          type="checkbox"
+                          checked={client.termsAccepted}
+                          onChange={(event) =>
+                            change("termsAccepted", event.target.checked)
+                          }
+                        />{" "}
+                        I accept the Terms
+                      </label>
+                      <label className="sa-toggle">
+                        <input
+                          type="checkbox"
+                          checked={client.privacyAccepted}
+                          onChange={(event) =>
+                            change("privacyAccepted", event.target.checked)
+                          }
+                        />{" "}
+                        I accept the Privacy Policy
+                      </label>
+                      <label className="sa-toggle">
+                        <input
+                          type="checkbox"
+                          checked={client.dataProcessingConsent}
+                          onChange={(event) =>
+                            change("dataProcessingConsent", event.target.checked)
+                          }
+                        />{" "}
+                        I give Data Processing Consent
+                      </label>
+                      <label className="sa-toggle">
+                        <input
+                          type="checkbox"
+                          checked={client.kycConsent}
+                          onChange={(event) =>
+                            change("kycConsent", event.target.checked)
+                          }
+                        />{" "}
+                        KYC consent
+                      </label>
+                      <label className="sa-toggle">
+                        <input
+                          type="checkbox"
+                          checked={client.marketingConsent}
+                          onChange={(event) =>
+                            change("marketingConsent", event.target.checked)
+                          }
+                        />{" "}
+                        Marketing consent
+                      </label>
+                    </>
+                  )
+                )}
+              </div>
+            </section>
+          </div>
+        </>
+      </CatalogFormDialog>
+
       <DataTable
-        headings={[
-          "Client",
-          "Workspace",
-          "Riders",
-          "Workflow versions",
-          "Status",
+        headings={["Client", "Workspace", "Riders", "Status", "Actions"]}
+        columnFilters={[
+          { type: "text" },
+          { type: "text" },
+          { type: "number" },
+          { type: "select" },
+          null,
         ]}
         rows={clients.map((item: Item) => [
           item.name,
-          item.slug,
+          item.companyCode ?? item.slug,
           item._count?.riders ?? 0,
-          item._count?.onboardingConfigs ?? 0,
-          item.isActive ? "ACTIVE" : "INACTIVE",
+          item.status ?? (item.isActive ? "ACTIVE" : "INACTIVE"),
+          item.status === "DRAFT" || item.status === "CREATED" ? (
+            <span className="sa-client-actions" key={item.id}>
+              <button type="button" onClick={(event) => void editClient(item.id, event.currentTarget)}>
+                {item.status === "DRAFT" ? "Edit & resume" : "Edit client"}
+              </button>
+              {item.status === "CREATED" ? <>
+                <ClientConfigurationSettings
+                  clientId={item.id}
+                  clientName={item.name}
+                  request={request}
+                  token={token}
+                />
+                <ClientCommercialSettings clientId={item.id} clientName={item.name} section="pricing" />
+                <ClientDomainSettings clientId={item.id} clientName={item.name} />
+                <ClientWorkflowSettings clientId={item.id} clientName={item.name} />
+              </> : null}
+            </span>
+          ) : item.status === "PENDING_APPROVAL" ? (
+            <span className="sa-client-actions" key={item.id}>
+              <button type="button" onClick={() => void approveClient(item.id)}>
+                Approve
+              </button>
+              <button
+                type="button"
+                className="danger"
+                onClick={() => void rejectClient(item.id)}
+              >
+                Reject
+              </button>
+            </span>
+          ) : item.status === "ACTIVE" ? (
+            <span className="sa-client-actions" key={item.id}>
+              <button
+                type="button"
+                onClick={(event) =>
+                  void editClient(item.id, event.currentTarget)
+                }
+              >
+                Edit client
+              </button>
+              <ClientConfigurationSettings
+                clientId={item.id}
+                clientName={item.name}
+                request={request}
+                token={token}
+              />
+              <ClientCommercialSettings clientId={item.id} clientName={item.name} section="pricing" />
+              <ClientDomainSettings clientId={item.id} clientName={item.name} />
+              <ClientWorkflowSettings clientId={item.id} clientName={item.name} />
+              <ClientPaymentSettings clientId={item.id} clientName={item.name} />
+            </span>
+          ) : item.status === "SUSPENDED" ? (
+            <span className="sa-client-actions" key={item.id}>
+              <button
+                type="button"
+                onClick={(event) => void editClient(item.id, event.currentTarget)}
+              >
+                Edit client
+              </button>
+            </span>
+          ) : (
+            "—"
+          ),
         ])}
       />
     </>
   );
 }
+
+function ClientConfigurationSettings({
+  clientId,
+  clientName,
+  request,
+  token,
+}: {
+  clientId: string;
+  clientName: string;
+  request: (path: string, options?: RequestInit, token?: string) => Promise<any>;
+  token: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [configuration, setConfiguration] = useState<any>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const [supportEmail, setSupportEmail] = useState("");
+  const [supportPhone, setSupportPhone] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [commercialDraft, setCommercialDraft] = useState<any>({});
+  const [overrideDraft, setOverrideDraft] = useState("[]");
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [featureSearch, setFeatureSearch] = useState("");
+  const [featureFilter, setFeatureFilter] = useState<"ALL" | "ENABLED" | "DISABLED" | "OVERRIDDEN">("ALL");
+  const [featureConfigurationDrafts, setFeatureConfigurationDrafts] = useState<Record<string, string>>({});
+  const [showFeatureHistory, setShowFeatureHistory] = useState(false);
+  const [selectedFeatureRevisionId, setSelectedFeatureRevisionId] = useState<string | null>(null);
+
+  async function openConfiguration() {
+    setOpen(true);
+    setShowFeatureHistory(false);
+    setSelectedFeatureRevisionId(null);
+    setLoading(true);
+    setError("");
+    try {
+      const response = await request(`/platform/clients/${clientId}/configuration`, undefined, token);
+      const loaded = response.data ?? response;
+      setConfiguration(loaded);
+      setFeatureConfigurationDrafts(Object.fromEntries((loaded.featureEntitlements ?? []).map((item: any) => [
+        item.packageFeature.featureId,
+        item.configuration ? JSON.stringify(item.configuration, null, 2) : "",
+      ])));
+      setSupportEmail(loaded.branding?.supportEmail ?? "");
+      setSupportPhone(loaded.branding?.supportPhone ?? "");
+      setCommercialDraft({
+        billingCycle: loaded.commercials?.billingCycle ?? "",
+        vehicleCount: loaded.commercials?.vehicleCount ?? "",
+        setupFee: loaded.commercials?.setupFee ?? "",
+        pricePerVehicle: loaded.commercials?.pricePerVehicle ?? "",
+        recurringAmount: loaded.commercials?.recurringAmount ?? "",
+        autoRenew: loaded.commercials?.autoRenew ?? false,
+      });
+      setOverrideDraft(JSON.stringify(loaded.riderOnboarding?.revisions?.[0]?.snapshot?.overrides ?? [], null, 2));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to load client configuration.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function saveBranding() {
+    setSaving(true);
+    setError("");
+    try {
+      const response = await request(`/platform/clients/${clientId}/branding`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          supportEmail: supportEmail.trim() || undefined,
+          supportPhone: supportPhone.trim() || undefined,
+        }),
+      }, token);
+      setConfiguration(response.data ?? response);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to save branding details.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveCommercials() {
+    setSaving(true);
+    setError("");
+    try {
+      const response = await request(`/platform/clients/${clientId}/commercials`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          billingCycle: commercialDraft.billingCycle || undefined,
+          vehicleCount: commercialDraft.vehicleCount === "" ? undefined : Number(commercialDraft.vehicleCount),
+          setupFee: commercialDraft.setupFee === "" ? undefined : Number(commercialDraft.setupFee),
+          pricePerVehicle: commercialDraft.pricePerVehicle === "" ? undefined : Number(commercialDraft.pricePerVehicle),
+          recurringAmount: commercialDraft.recurringAmount === "" ? undefined : Number(commercialDraft.recurringAmount),
+          autoRenew: Boolean(commercialDraft.autoRenew),
+        }),
+      }, token);
+      setConfiguration(response.data ?? response);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to save commercial details.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function uploadLogo() {
+    if (!logoFile) return;
+    setSaving(true);
+    setError("");
+    try {
+      const intentResponse = await request(`/platform/clients/${clientId}/logo-upload-intents`, {
+        method: "POST",
+        body: JSON.stringify({ mimeType: logoFile.type, sizeBytes: logoFile.size }),
+      }, token);
+      const intent = intentResponse.data ?? intentResponse;
+      const uploaded = await fetch(intent.uploadUrl, { method: "PUT", headers: { "Content-Type": logoFile.type }, body: logoFile });
+      if (!uploaded.ok) throw new Error("The client logo could not be uploaded. Please retry.");
+      await request(`/platform/clients/${clientId}/logo-upload-complete`, {
+        method: "POST",
+        body: JSON.stringify({ objectKey: intent.objectKey }),
+      }, token);
+      setLogoFile(null);
+      await openConfiguration();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to upload the client logo.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function createWorkflowDraft() {
+    const subscriptionId = configuration?.riderOnboarding?.subscriptionId;
+    if (!subscriptionId) return;
+    setSaving(true);
+    setError("");
+    try {
+      let overrides: unknown;
+      try {
+        overrides = JSON.parse(overrideDraft);
+      } catch {
+        throw new Error("Workflow overrides must contain valid JSON.");
+      }
+      if (!Array.isArray(overrides)) throw new Error("Workflow overrides must be a JSON array.");
+      const response = await request(`/platform/subscriptions/${subscriptionId}/workflow-revisions`, {
+        method: "POST",
+        body: JSON.stringify({ overrides }),
+      }, token);
+      setConfiguration((current: any) => ({
+        ...current,
+        riderOnboarding: {
+          ...current.riderOnboarding,
+          revisions: [response.data ?? response, ...(current.riderOnboarding?.revisions ?? [])],
+        },
+      }));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to create rider onboarding draft.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function publishWorkflowDraft() {
+    if (!latestRevision?.id || latestRevision.publishedAt) return;
+    setSaving(true);
+    setError("");
+    try {
+      const response = await request(`/platform/workflow-revisions/${latestRevision.id}/publish`, { method: "POST" }, token);
+      const published = response.data ?? response;
+      setConfiguration((current: any) => ({
+        ...current,
+        riderOnboarding: {
+          ...current.riderOnboarding,
+          revisions: (current.riderOnboarding?.revisions ?? []).map((revision: any) => revision.id === published.id ? published : revision),
+        },
+      }));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to publish rider onboarding configuration.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveFeatureOverride(item: any, enabled: boolean, configurationText: string) {
+    const subscriptionId = configuration?.riderOnboarding?.subscriptionId;
+    if (!subscriptionId) return;
+    let featureConfiguration: Record<string, unknown> | undefined;
+    try {
+      featureConfiguration = configurationText.trim()
+        ? JSON.parse(configurationText)
+        : undefined;
+    } catch {
+      setError(`Configuration for ${item.packageFeature.feature.name} must be valid JSON.`);
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const existing = item.clientFeature;
+      const response = await request(
+        existing
+          ? `/platform/clients/${clientId}/features/${existing.id}`
+          : `/platform/clients/${clientId}/features`,
+        {
+          method: existing ? "PATCH" : "POST",
+          body: JSON.stringify(existing
+            ? { enabled, configuration: featureConfiguration }
+            : {
+                subscriptionId,
+                featureId: item.packageFeature.featureId,
+                source: "CUSTOM",
+                enabled,
+                effectiveFrom: new Date().toISOString().slice(0, 10),
+                configuration: featureConfiguration,
+              }),
+        },
+        token,
+      );
+      const saved = response.data ?? response;
+      setConfiguration((current: any) => ({
+        ...current,
+        featureEntitlements: (current.featureEntitlements ?? []).map((entry: any) =>
+          entry.packageFeature.featureId === item.packageFeature.featureId
+            ? { ...entry, clientFeature: saved, enabled: saved.enabled, overridden: true, configuration: saved.configuration ?? null }
+            : entry,
+        ),
+      }));
+      setFeatureConfigurationDrafts((drafts) => ({
+        ...drafts,
+        [item.packageFeature.featureId]: saved.configuration ? JSON.stringify(saved.configuration, null, 2) : "",
+      }));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to save feature configuration.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function resetFeatureOverride(item: any) {
+    if (!item.clientFeature?.id) return;
+    setSaving(true);
+    setError("");
+    try {
+      await request(`/platform/clients/${clientId}/features/${item.clientFeature.id}`, { method: "DELETE" }, token);
+      setConfiguration((current: any) => ({
+        ...current,
+        featureEntitlements: (current.featureEntitlements ?? []).map((entry: any) =>
+          entry.packageFeature.featureId === item.packageFeature.featureId
+            ? { ...entry, clientFeature: null, enabled: entry.packageFeature.isIncluded, overridden: false, configuration: entry.packageFeature.feature.configuration ?? null }
+            : entry,
+        ),
+      }));
+      setFeatureConfigurationDrafts((drafts) => ({
+        ...drafts,
+        [item.packageFeature.featureId]: item.packageFeature.feature.configuration
+          ? JSON.stringify(item.packageFeature.feature.configuration, null, 2)
+          : "",
+      }));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to reset feature override.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveFeatureDraft() {
+    setSaving(true);
+    setError("");
+    try {
+      const response = await request(`/platform/clients/${clientId}/feature-revisions/draft`, { method: "POST" }, token);
+      const draft = response.data ?? response;
+      setConfiguration((current: any) => ({
+        ...current,
+        riderOnboarding: { ...current.riderOnboarding, featureRevisions: [draft, ...(current.riderOnboarding?.featureRevisions ?? []).filter((revision: any) => revision.id !== draft.id)] },
+      }));
+      setSelectedFeatureRevisionId(draft.id);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to save feature draft.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function publishFeatureDraft() {
+    setSaving(true); setError("");
+    try {
+      const response = await request(`/platform/clients/${clientId}/feature-revisions/publish`, { method: "POST" }, token);
+      const published = response.data ?? response;
+      setConfiguration((current: any) => ({ ...current, riderOnboarding: { ...current.riderOnboarding, featureRevisions: (current.riderOnboarding?.featureRevisions ?? []).map((revision: any) => revision.id === published.id ? published : revision) } }));
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to publish feature draft."); }
+    finally { setSaving(false); }
+  }
+
+  async function discardFeatureDraft() {
+    setSaving(true); setError("");
+    try {
+      await request(`/platform/clients/${clientId}/feature-revisions/draft`, { method: "DELETE" }, token);
+      setConfiguration((current: any) => ({ ...current, riderOnboarding: { ...current.riderOnboarding, featureRevisions: (current.riderOnboarding?.featureRevisions ?? []).filter((revision: any) => revision.publishedAt) } }));
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to discard feature draft."); }
+    finally { setSaving(false); }
+  }
+
+  const commercial = configuration?.commercials;
+  const branding = configuration?.branding;
+  const revisions = configuration?.riderOnboarding?.revisions ?? [];
+  const latestRevision = revisions[0];
+  const featureRevisions = configuration?.riderOnboarding?.featureRevisions ?? [];
+  const featureDraft = featureRevisions.find((revision: any) => !revision.publishedAt);
+  const latestPublishedFeatureRevision = featureRevisions.find((revision: any) => Boolean(revision.publishedAt));
+  const effectiveFeatureRevision = featureDraft ?? latestPublishedFeatureRevision;
+  const selectedFeatureRevision = featureRevisions.find((revision: any) => revision.id === selectedFeatureRevisionId) ?? effectiveFeatureRevision;
+  const selectedFeatureRevisionEditable = Boolean(selectedFeatureRevision && featureDraft && selectedFeatureRevision.id === featureDraft.id);
+  const effectiveFeatureSnapshot = Array.isArray(selectedFeatureRevision?.snapshot)
+    ? selectedFeatureRevision.snapshot
+    : null;
+  const effectiveFeatureById = new Map((effectiveFeatureSnapshot ?? []).map((item: any) => [String(item.featureId), item]));
+  const displayFeatureEntitlements = effectiveFeatureSnapshot
+    ? (configuration?.featureEntitlements ?? []).filter((item: any) => effectiveFeatureById.has(String(item.packageFeature.featureId))).map((item: any) => {
+        const snapshot: any = effectiveFeatureById.get(String(item.packageFeature.featureId));
+        return { ...item, enabled: snapshot.enabled, overridden: snapshot.source !== "PACKAGE", configuration: snapshot.configuration ?? null };
+      })
+    : (configuration?.featureEntitlements ?? []);
+  const visibleDisplayFeatureEntitlements = displayFeatureEntitlements.filter((item: any) => {
+    const feature = item.packageFeature.feature;
+    const haystack = `${feature.name} ${feature.code} ${feature.category ?? ""}`.toLowerCase();
+    return haystack.includes(featureSearch.trim().toLowerCase())
+      && (featureFilter === "ALL"
+        || (featureFilter === "ENABLED" && item.enabled)
+        || (featureFilter === "DISABLED" && !item.enabled)
+        || (featureFilter === "OVERRIDDEN" && item.overridden));
+  });
+  const displayEnabledFeatureCount = displayFeatureEntitlements.filter((item: any) => item.enabled).length;
+  const displayOverrideFeatureCount = displayFeatureEntitlements.filter((item: any) => item.overridden).length;
+
+  return (
+    <>
+      <button type="button" className="secondary" onClick={() => void openConfiguration()}>
+        Features
+      </button>
+      <CatalogFormDialog
+        open={open}
+        title={`${clientName} features`}
+        description="Review and manage the features included for this client."
+        error={error}
+        busy={loading}
+        size="extra-wide"
+        triggerRef={triggerRef}
+        onClose={() => setOpen(false)}
+        onDialogClose={() => setOpen(false)}
+        onSubmit={(event) => event.preventDefault()}
+        actions={
+          <button type="button" className="secondary" onClick={() => setOpen(false)}>
+            Close
+          </button>
+        }
+      >
+        {loading ? (
+          <p className="muted">Loading client configuration…</p>
+        ) : configuration ? (
+          <div className="sa-client-configuration">
+            <section className="sa-card">
+              <div className="sa-card-head">
+                <div>
+                  <h3>Package features</h3>
+                  <p>Features from the latest effective client revision. Client changes are stored as overrides.</p>
+                </div>
+                <div className="sa-feature-card-summary">
+                  <strong>{displayEnabledFeatureCount}/{displayFeatureEntitlements.length} enabled · {displayOverrideFeatureCount} overridden</strong>
+                  {selectedFeatureRevision && <span className="sa-feature-revision-meta">Viewing v{selectedFeatureRevision.version} · {selectedFeatureRevision.publishedAt ? "Published" : "Draft"}{selectedFeatureRevision.publishedAt ? ` · ${new Date(selectedFeatureRevision.publishedAt).toLocaleDateString("en-IN")}` : ""}{!selectedFeatureRevisionEditable && " · Read-only"}</span>}
+                  {featureDraft && <span className="sa-feature-draft-status">Draft v{featureDraft.version}</span>}
+                  <button type="button" className="secondary" onClick={() => setShowFeatureHistory((value) => !value)}>{showFeatureHistory ? "Hide version history" : "Version history"}</button>
+                  {featureDraft && !selectedFeatureRevisionEditable
+                    ? <button type="button" onClick={() => setSelectedFeatureRevisionId(featureDraft.id)} disabled={saving}>Edit draft</button>
+                    : <button type="button" onClick={() => void saveFeatureDraft()} disabled={saving || !configuration.featureEntitlements?.length}>{saving ? (featureDraft ? "Saving…" : "Creating…") : (featureDraft ? "Save draft" : "Create draft")}</button>}
+                  {featureDraft && <><button type="button" onClick={() => void publishFeatureDraft()} disabled={saving}>Publish</button><button type="button" className="danger" onClick={() => void discardFeatureDraft()} disabled={saving}>Discard</button></>}
+                </div>
+              </div>
+              {featureDraft && <details className="sa-feature-draft-review">
+                <summary>Review draft snapshot · v{featureDraft.version}</summary>
+                <p>This snapshot is isolated from the live client configuration until published.</p>
+                <pre>{JSON.stringify(featureDraft.snapshot, null, 2)}</pre>
+              </details>}
+              {selectedFeatureRevisionEditable && <div className="sa-feature-draft-banner">Editing draft v{featureDraft.version} — changes are not live until published.</div>}
+              {showFeatureHistory && <div className="sa-feature-version-history">
+                <h4>Feature version history</h4>
+                <table><thead><tr><th>Version</th><th>Status</th><th>Features</th><th>Published</th></tr></thead><tbody>
+                  {featureRevisions.map((revision: any) => { const snapshot = Array.isArray(revision.snapshot) ? revision.snapshot : []; const enabledCount = snapshot.filter((item: any) => item.enabled).length; const overrideCount = snapshot.filter((item: any) => item.source !== "PACKAGE").length; return <tr key={revision.id} className={selectedFeatureRevision?.id === revision.id ? "is-selected" : ""} aria-selected={selectedFeatureRevision?.id === revision.id} tabIndex={0} onClick={() => setSelectedFeatureRevisionId(revision.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedFeatureRevisionId(revision.id); } }}><td><button type="button" className="sa-feature-version-link" onClick={(event) => { event.stopPropagation(); setSelectedFeatureRevisionId(revision.id); }}>v{revision.version}</button></td><td>{revision.publishedAt ? "Published" : "Draft"}</td><td>{enabledCount}/{snapshot.length} enabled · {overrideCount} overridden</td><td>{revision.publishedAt ? new Date(revision.publishedAt).toLocaleDateString("en-IN") : "—"}</td></tr>; })}
+                  {!featureRevisions.length && <tr><td colSpan={4}>No feature revisions yet.</td></tr>}
+                </tbody></table>
+              </div>}
+              <div className="sa-feature-toolbar">
+                <input value={featureSearch} onChange={(event) => setFeatureSearch(event.target.value)} placeholder="Search features" aria-label="Search package features" />
+                <select value={featureFilter} onChange={(event) => setFeatureFilter(event.target.value as typeof featureFilter)} aria-label="Filter package features">
+                  <option value="ALL">All features</option>
+                  <option value="ENABLED">Enabled</option>
+                  <option value="DISABLED">Disabled</option>
+                  <option value="OVERRIDDEN">Overridden</option>
+                </select>
+                {(featureSearch || featureFilter !== "ALL") && <button type="button" className="secondary" onClick={() => { setFeatureSearch(""); setFeatureFilter("ALL"); }}>Clear</button>}
+              </div>
+              <div className="sa-client-feature-table-wrap">
+                <table className="sa-client-feature-table">
+                  <thead><tr><th>Feature</th><th>Step</th><th>Package default</th><th>Client state</th><th>Configuration override</th><th>Action</th></tr></thead>
+                  <tbody>
+                    {visibleDisplayFeatureEntitlements.map((item: any) => {
+                      const feature = item.packageFeature.feature;
+                      const configText = featureConfigurationDrafts[item.packageFeature.featureId]
+                        ?? (item.configuration ? JSON.stringify(item.configuration, null, 2) : "");
+                      return (
+                        <tr key={item.packageFeature.featureId}>
+                          <td><strong>{feature.name}</strong><small>{feature.code}</small></td>
+                          <td>{feature.featureStep?.displayName ?? feature.category ?? "—"}</td>
+                          <td>{item.packageFeature.isIncluded ? "Included" : "Not included"}</td>
+                          <td>
+                            <label className="sa-inline-checkbox"><input type="checkbox" checked={Boolean(item.enabled)} disabled={!selectedFeatureRevisionEditable || saving} onChange={(event) => void saveFeatureOverride(item, event.target.checked, configText)} /> {item.enabled ? "Enabled" : "Disabled"}</label>
+                            {item.overridden && <small>Client override</small>}
+                          </td>
+                          <td><details><summary>{item.configuration ? "Override configured" : "Use package default"}</summary><textarea value={configText} rows={4} aria-label={`${feature.name} configuration`} disabled={!selectedFeatureRevisionEditable || saving} onChange={(event) => setFeatureConfigurationDrafts((drafts) => ({ ...drafts, [item.packageFeature.featureId]: event.target.value }))} placeholder="{}" /><button type="button" className="secondary" onClick={() => void saveFeatureOverride(item, Boolean(item.enabled), configText)} disabled={!selectedFeatureRevisionEditable || saving}>Save configuration</button></details></td>
+                          <td><button type="button" className="secondary" onClick={() => void resetFeatureOverride(item)} disabled={!selectedFeatureRevisionEditable || saving || !item.clientFeature}>Reset</button></td>
+                        </tr>
+                      );
+                    })}
+                    {!visibleDisplayFeatureEntitlements.length && <tr><td colSpan={6} className="sa-client-feature-empty">No package features match the current search or filter.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        ) : null}
+      </CatalogFormDialog>
+    </>
+  );
+}
+
 function TextFields({
   value,
   change,
   fields,
+  requiredKeys,
+  inputTypes,
+  softWarnings,
+  disabledKeys,
 }: {
   value: Item;
   change: (key: string, value: string) => void;
   fields: string[][];
+  requiredKeys?: string[];
+  inputTypes?: Record<string, "email" | "tel" | "url">;
+  softWarnings?: Record<string, string>;
+  disabledKeys?: string[];
 }) {
+  const defaultRequiredFields = [
+    "code",
+    "name",
+    "displayName",
+    "businessFleetName",
+    "companyCode",
+    "legalCompanyName",
+    "legalEntityName",
+    "setupFee",
+    "maxFleets",
+    "maxRiders",
+    "maxAdmins",
+    "maxFleetManagers",
+    "maxHubs",
+    "maxTeamLeaders",
+    "maxClusterManagers",
+    "maxUsers",
+    "pan",
+    "estimatedFleetSize",
+    "estimatedRiderCount",
+    "numberOfFleets",
+    "approximateRiderCount",
+    "primaryContactName",
+    "primaryDesignation",
+    "primaryContactMobile",
+    "primaryContactEmail",
+    "primaryMobile",
+    "primaryEmail",
+    "adminName",
+    "adminEmail",
+    "adminMobile",
+    "registeredAddressLine1",
+    "city",
+    "district",
+    "state",
+    "pinCode",
+    "startDate",
+    "effectiveFrom",
+    "billingUnit",
+    "billingContactName",
+    "billingEmail",
+    "authorizedSignatoryName",
+    "signatoryDesignation",
+  ];
+  const required = new Set(requiredKeys ?? defaultRequiredFields);
   return (
     <>
       {fields.map(([key, label]) => {
         const normalizedKey = key.toLowerCase();
+        const isRequired = required.has(key);
         return (
           <label key={key}>
-            {label}
+            <span className="sa-label-text">
+              {label}
+              {isRequired && <span className="sa-required-star">*</span>}
+            </span>
             <input
               value={value[key] ?? ""}
               type={
-                normalizedKey.includes("date") ||
-                normalizedKey.includes("effective")
+                inputTypes?.[key] ??
+                (normalizedKey.includes("date") ||
+                  normalizedKey.includes("effective")
                   ? "date"
                   : normalizedKey.includes("price") ||
-                      normalizedKey.includes("charge") ||
-                      normalizedKey.includes("fee") ||
-                      key === "discount" ||
-                      key === "taxRate"
+                    normalizedKey.includes("charge") ||
+                    normalizedKey.includes("fee") ||
+                    normalizedKey.startsWith("max") ||
+                    key === "discountValue"
                     ? "number"
-                    : "text"
+                    : "text")
               }
               step={
                 normalizedKey.includes("price") ||
-                normalizedKey.includes("charge") ||
-                normalizedKey.includes("fee")
+                  normalizedKey.includes("charge") ||
+                  normalizedKey.includes("fee")
                   ? "0.0001"
-                  : undefined
+                  : normalizedKey.startsWith("max")
+                    ? "1"
+                    : undefined
               }
               min={
                 normalizedKey.includes("price") ||
-                normalizedKey.includes("charge") ||
-                normalizedKey.includes("fee")
+                  normalizedKey.includes("charge") ||
+                  normalizedKey.includes("fee") ||
+                  normalizedKey.startsWith("max")
                   ? 0
                   : undefined
               }
               onChange={(event) => change(key, event.target.value)}
-              required={[
-                "code",
-                "name",
-                "displayName",
-                "monthlyPrice",
-                "legalCompanyName",
-                "pan",
-                "primaryContactName",
-                "primaryContactMobile",
-                "primaryContactEmail",
-                "adminName",
-                "adminEmail",
-                "adminMobile",
-                "registeredAddressLine1",
-                "city",
-                "district",
-                "state",
-                "pinCode",
-                "packageStartDate",
-                "effectiveFrom",
-              ].includes(key)}
+              required={isRequired}
+              disabled={disabledKeys?.includes(key)}
             />
+            {softWarnings?.[key] && (
+              <small className="sa-field-warning">{softWarnings[key]}</small>
+            )}
           </label>
         );
       })}
     </>
   );
 }
+function PackageLimitFields({
+  value,
+  change,
+}: {
+  value: Item;
+  change: (key: string, value: string) => void;
+}) {
+  return (
+    <section className="sa-package-limits" aria-label="Package limits">
+      <p>Package limits</p>
+      <div>
+        {packageLimitFields.map(([key, label]) => {
+          const unlimited = isUnlimitedPackageLimit(value[key]);
+          return (
+            <label key={key}>
+              <span className="sa-label-text">
+                {label} <span className="sa-required-star">*</span>
+              </span>
+              <span className="sa-package-limit-control">
+                {unlimited ? (
+                  <output className="sa-package-limit-unlimited">Unlimited</output>
+                ) : (
+                  <input
+                    aria-label={`${label} limit`}
+                    min="0"
+                    required
+                    step="1"
+                    type="number"
+                    value={value[key] ?? ""}
+                    onChange={(event) => change(key, event.target.value)}
+                  />
+                )}
+                <span className="sa-toggle">
+                  <input
+                    aria-label={`${label} is unlimited`}
+                    checked={unlimited}
+                    type="checkbox"
+                    onChange={(event) =>
+                      change(
+                        key,
+                        event.target.checked
+                          ? String(PACKAGE_UNLIMITED_LIMIT)
+                          : "0",
+                      )
+                    }
+                  />
+                  Unlimited
+                </span>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function Select({
   label = "Selection",
   value,
   change,
   options,
+  allowEmpty = false,
+  required = false,
 }: {
   label?: string;
   value: string;
   change: (value: string) => void;
   options: string[];
+  allowEmpty?: boolean;
+  required?: boolean;
 }) {
   return (
     <label>
-      {label}
-      <select value={value} onChange={(event) => change(event.target.value)}>
+      <span className="sa-label-text">
+        {label}
+        {required && <span className="sa-required-star">*</span>}
+      </span>
+      <select
+        required={required}
+        value={value}
+        onChange={(event) => change(event.target.value)}
+      >
+        {(allowEmpty || label.toLowerCase() !== "status") && (
+          <option value="">Select {label.toLowerCase()}</option>
+        )}
         {options.map((option) => (
-          <option key={option}>{option}</option>
+          <option key={option} value={option}>
+            {enumLabel(option)}
+          </option>
         ))}
       </select>
     </label>
   );
 }
-function BulkUploadPanel({
-  title,
-  description,
-  onChoose,
-}: {
-  title: string;
-  description: string;
-  onChoose: (file: File) => void;
-}) {
+
+function enumLabel(value: string) {
+  const labels: Record<string, string> = {
+    LOGISTICS: "Logistics",
+    LAST_MILE: "Last-mile",
+    DELIVERY: "Delivery",
+    MOBILITY: "Mobility",
+    RENTAL: "Rental",
+    OTHER: "Other",
+    PVT_LTD: "Pvt Ltd",
+    DRIVER_OWNED: "Driver Owned",
+    FLEET_OWNER: "Fleet Owner",
+    FLEET_OPERATOR: "Fleet Operator",
+    LOGISTICS_COMPANY: "Logistics Company",
+    DELIVERY_PARTNER: "Delivery Partner",
+    LEASING_COMPANY: "Leasing Company",
+    VEHICLE_AGGREGATOR: "Vehicle Aggregator",
+  };
   return (
-    <section className="sa-oem-bulk">
-      <div>
-        <h3>{title}</h3>
-        <p>{description}</p>
+    labels[value] ??
+    value
+      .toLowerCase()
+      .split("_")
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ")
+  );
+}
+function BulkImportWorkspace({
+  entity,
+  title,
+  requiredColumns,
+  history,
+  busy,
+  onBack,
+  onDownloadTemplate,
+  onUpload,
+  onRetry,
+}: {
+  entity: BulkImportEntity;
+  title: string;
+  requiredColumns: string;
+  history: BulkImportHistoryEntry[];
+  busy: boolean;
+  onBack: () => void;
+  onDownloadTemplate: () => void;
+  onUpload: (file: File) => void;
+  onRetry?: (entry: BulkImportHistoryEntry, rows: Array<Record<string, unknown>>) => Promise<void>;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
+  const editingEntry = editing ? history.find((item) => item.id === editing) : undefined;
+  const downloadFailureReport = async (entry: BulkImportHistoryEntry) => {
+    if (entry.jobId) {
+      const entityPath = { oem: "oems", "vehicle-category": "vehicle-categories", "vehicle-type": "vehicle-types", feature: "features", package: "packages" }[entity];
+      const response = await fetch(`${API_URL}/platform/${entityPath}/imports/${entry.jobId}/failed-records`);
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a"); link.href = url; link.download = `${entity}-failed-records.csv`; link.click(); URL.revokeObjectURL(url); return;
+      }
+    }
+    const failures = entry.failures ?? [];
+    const csv = failures.length
+      ? Object.keys(failures[0].raw ?? {}).join(",") + "\n" + failures.map((failure) => Object.keys(failure.raw ?? {}).map((key) => `"${String(failure.raw?.[key] ?? "").replaceAll('"', '""')}"`).join(",")).join("\n")
+      : `file_name,outcome,failure_reason\n"${entry.fileName}","${entry.status}","${entry.error ?? "Row-level validation failed."}"`;
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${entity}-failed-records.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+  return (
+    <section className="sa-bulk-workspace">
+      <div className="sa-bulk-workspace-head">
+        <button className="secondary" type="button" onClick={onBack}>
+          ← Back to {title}
+        </button>
+        <div>
+          <p className="sa-eyebrow">PLATFORM DATA IMPORT</p>
+          <h2>Bulk import {title}</h2>
+          <p>Use the template to add master data safely and consistently.</p>
+        </div>
+        <button className="secondary" type="button" onClick={onDownloadTemplate}>
+          Download template
+        </button>
       </div>
-      <label className="sa-file-input">
-        Choose completed CSV
-        <input
-          type="file"
-          accept=".csv,text/csv"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) onChoose(file);
-            event.currentTarget.value = "";
-          }}
-        />
-      </label>
+
+      <div className="sa-bulk-workspace-body has-history">
+        <section className="sa-bulk-upload-card">
+          <div>
+            <p className="sa-eyebrow">{history.length ? "IMPORT ANOTHER FILE" : "GET STARTED"}</p>
+            <h3>Upload a CSV</h3>
+            <p>Required columns: {requiredColumns}.</p>
+            <p className="sa-bulk-help">CSV only · Maximum 5 MB · Files are validated before records are saved.</p>
+          </div>
+          <label className="sa-bulk-file-picker">
+            <span>{file ? file.name : "Choose CSV file"}</span>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              onChange={(event) => setFile(event.currentTarget.files?.[0] ?? null)}
+            />
+          </label>
+          <div className="sa-bulk-upload-actions">
+            <button className="secondary" type="button" onClick={onDownloadTemplate}>
+              Download template
+            </button>
+            <button
+              type="button"
+              disabled={!file || busy}
+              onClick={() => file && onUpload(file)}
+            >
+              {busy ? "Importing…" : `Import ${title}`}
+            </button>
+          </div>
+        </section>
+        <section className="sa-bulk-history">
+          <div className="sa-bulk-section-head">
+            <div>
+              <h3>Import history</h3>
+              <p>Previous uploads for {title}.</p>
+            </div>
+            <span>{history.length} upload{history.length === 1 ? "" : "s"}</span>
+          </div>
+          <DataTable
+            headings={["Imported on", "File name", "Outcome", "Records", ""]}
+            rows={history.map((entry) => [
+              new Date(entry.createdAt).toLocaleString(),
+              entry.fileName,
+              <span key="status" className={`sa-import-status ${entry.status.toLowerCase()}`}>
+                {entry.status === "PARTIAL_PASS" ? "Partial pass" : entry.status === "PASS" ? "Passed" : "Failed"}
+              </span>,
+              `${entry.passedRows} / ${entry.totalRows}`,
+              entry.status !== "PASS" ? (
+                <span key="failures"><button type="button" className="secondary" onClick={() => void downloadFailureReport(entry)}>Download failures</button>{onRetry && entry.jobId && entry.failures?.length ? <button type="button" className="secondary" onClick={() => setEditing(entry.id)}>Edit & retry</button> : null}</span>
+              ) : "—",
+            ])}
+          />
+          {editingEntry && onRetry ? <section className="sa-bulk-upload-card"><h3>Correct failed rows</h3><ImportFailureRemediation
+            failures={editingEntry.failures ?? []}
+            correctedRows={editingEntry.failures?.flatMap((failure) => failure.raw ? [failure.raw] : [])}
+            onRetry={async (rows) => { await onRetry(editingEntry, rows); setEditing(null); }}
+          /><div className="sa-bulk-upload-actions"><button className="secondary" type="button" onClick={() => setEditing(null)}>Cancel</button></div></section> : null}
+        </section>
+      </div>
     </section>
   );
 }
 
-function DataTable({ headings, rows }: { headings: string[]; rows: any[][] }) {
-  const pageSize = 10;
-  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
-  const [page, setPage] = useState(1);
-  const currentPage = Math.min(page, pageCount);
-  const pageRows = rows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+function PackageTierPricingView({
+  packages,
+  token,
+  refreshKey = 0,
+}: {
+  packages: Item[];
+  token: string;
+  refreshKey?: number;
+}) {
+  const activePackages = packages.filter((item) => item.isActive);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const [packageId, setPackageId] = useState("");
+  const [tiers, setTiers] = useState<Item[]>([]);
+  const [editing, setEditing] = useState<Item | null>(null);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [form, setForm] = useState<Item>({
+    minVehicles: "1",
+    maxVehicles: "",
+    pricePerVehicle: "",
+    currency: "INR",
+    billingPeriod: "MONTHLY",
+    tierMode: "VOLUME",
+    effectiveFrom: new Date().toISOString().slice(0, 10),
+    effectiveTo: "",
+    isActive: true,
+  });
+
+  const firstPackageId = activePackages[0]?.id;
+  useEffect(() => {
+    if (packageId || !firstPackageId) return;
+    const timer = window.setTimeout(() => setPackageId(firstPackageId), 0);
+    return () => window.clearTimeout(timer);
+  }, [firstPackageId, packageId]);
+
+  const loadTiers = useCallback(async () => {
+    if (!packageId) {
+      setTiers([]);
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      setTiers(await request(`/platform/commercial/packages/${packageId}/vehicle-tiers`, {}, token));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to load Package Tier Pricing.");
+    } finally {
+      setLoading(false);
+    }
+  }, [packageId, token, setTiers, setError, setLoading]);
+
+  useEffect(() => {
+    if (!packageId) return;
+    const timer = window.setTimeout(() => void loadTiers(), 0);
+    return () => window.clearTimeout(timer);
+  }, [packageId, loadTiers, refreshKey]);
+
+  const openForm = (trigger: HTMLButtonElement, item?: Item) => {
+    triggerRef.current = trigger;
+    setError("");
+    setEditing(item ?? null);
+    setForm(item ? {
+      minVehicles: String(item.minVehicles),
+      maxVehicles: item.maxVehicles === null ? "" : String(item.maxVehicles),
+      pricePerVehicle: String(item.pricePerVehicle),
+      currency: item.currency,
+      billingPeriod: item.billingPeriod,
+      tierMode: item.tierMode,
+      effectiveFrom: item.effectiveFrom.slice(0, 10),
+      effectiveTo: item.effectiveTo ? item.effectiveTo.slice(0, 10) : "",
+      isActive: item.isActive,
+    } : {
+      minVehicles: "1", maxVehicles: "", pricePerVehicle: "", currency: "INR", billingPeriod: "MONTHLY", tierMode: "VOLUME", effectiveFrom: new Date().toISOString().slice(0, 10), effectiveTo: "", isActive: true,
+    });
+    setOpen(true);
+  };
+
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!packageId) return;
+    setLoading(true);
+    setError("");
+    try {
+      const payload = {
+        minVehicles: Number(form.minVehicles),
+        ...(form.maxVehicles ? { maxVehicles: Number(form.maxVehicles) } : {}),
+        pricePerVehicle: Number(form.pricePerVehicle),
+        currency: form.currency,
+        billingPeriod: form.billingPeriod,
+        tierMode: form.tierMode,
+        effectiveFrom: form.effectiveFrom,
+        ...(form.effectiveTo ? { effectiveTo: form.effectiveTo } : {}),
+        isActive: Boolean(form.isActive),
+      };
+      await request(
+        editing ? `/platform/commercial/vehicle-tiers/${editing.id}` : `/platform/commercial/packages/${packageId}/vehicle-tiers`,
+        { method: editing ? "PUT" : "POST", body: JSON.stringify(payload) },
+        token,
+      );
+      setOpen(false);
+      await loadTiers();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to save Package Tier Pricing.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deactivate = async (tier: Item) => {
+    setLoading(true);
+    setError("");
+    try {
+      await request(`/platform/commercial/vehicle-tiers/${tier.id}`, { method: "DELETE" }, token);
+      await loadTiers();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to deactivate Package Tier Pricing.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <div>
-      <div className="sa-table-wrap">
-        <table>
-          <thead>
-            <tr>
-              {headings.map((heading) => (
-                <th key={heading}>{heading}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {pageRows.length ? (
-              pageRows.map((row, index) => (
-                <tr key={(currentPage - 1) * pageSize + index}>
-                  {row.map((cell, cellIndex) => (
-                    <td key={cellIndex}>{cell}</td>
-                  ))}
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={headings.length}>No records yet.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      {rows.length > pageSize && (
-        <div className="sa-pagination" aria-label="Table pagination">
-          <span>
-            Showing {(currentPage - 1) * pageSize + 1}–
-            {Math.min(currentPage * pageSize, rows.length)} of {rows.length}
-          </span>
-          <div>
-            <button
-              className="secondary"
-              disabled={currentPage === 1}
-              onClick={() => setPage((value) => Math.max(1, value - 1))}
-            >
-              Previous
-            </button>
-            <span>
-              Page {currentPage} of {pageCount}
-            </span>
-            <button
-              className="secondary"
-              disabled={currentPage === pageCount}
-              onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
-            >
-              Next
-            </button>
-          </div>
+    <>
+      <section className="sa-page-head">
+        <div><h2>Package Tier Pricing</h2><p>Set the recurring per-vehicle price for each Package fleet-size range.</p></div>
+        <div className="sa-actions"><button disabled={!packageId} onClick={(event) => openForm(event.currentTarget)}>+ Add Vehicle Tier</button></div>
+      </section>
+      <section className="sa-management oem-table-only">
+        <label className="sa-client-picker">Package<select value={packageId} onChange={(event) => setPackageId(event.target.value)}><option value="">Select Package</option>{activePackages.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        {error && <p className="error" role="alert">{error}</p>}
+        <CatalogFormDialog
+          open={open}
+          title={editing ? "Edit Vehicle Tier" : "Add Vehicle Tier"}
+          description="Define one effective per-vehicle price for a fleet-size range. Leave the maximum empty for an open-ended range."
+          error={error}
+          busy={loading}
+          triggerRef={triggerRef}
+          onClose={() => { setError(""); setOpen(false); }}
+          onDialogClose={() => setOpen(false)}
+          onSubmit={save}
+          actions={<><button type="button" className="secondary" disabled={loading} onClick={() => setOpen(false)}>Cancel</button><button type="submit" disabled={loading}>{editing ? "Save changes" : "Add Vehicle Tier"}</button></>}
+        >
+          <TextFields
+            value={form}
+            change={(key, value) => setForm((current) => ({ ...current, [key]: value }))}
+            fields={[["minVehicles", "Minimum vehicles"], ["maxVehicles", "Maximum vehicles (optional)"], ["pricePerVehicle", "Price per vehicle"], ["effectiveFrom", "Effective from"], ["effectiveTo", "Effective to"]]}
+            requiredKeys={["minVehicles", "pricePerVehicle", "effectiveFrom"]}
+          />
+          <label>Currency<select value={form.currency} onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value }))}><option value="INR">INR</option></select></label>
+          <label>Billing period<select value={form.billingPeriod} onChange={(event) => setForm((current) => ({ ...current, billingPeriod: event.target.value }))}>{billingCycles.map((cycle) => <option key={cycle} value={cycle}>{enumLabel(cycle)}</option>)}</select></label>
+          <label>Pricing mode<select value={form.tierMode} onChange={(event) => setForm((current) => ({ ...current, tierMode: event.target.value }))}><option value="VOLUME">Volume</option></select></label>
+          <label className="sa-toggle"><input type="checkbox" checked={form.isActive} onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.checked }))} /> Active tier</label>
+        </CatalogFormDialog>
+        {packageId && tiers.length ? (
+          <DataTable
+            headings={["Minimum vehicles", "Maximum vehicles", "Price per vehicle", "Billing period", "Effective period", "Status", "", ""]}
+            columnFilters={[{ type: "number" }, { type: "number" }, { type: "text" }, { type: "select" }, { type: "text" }, { type: "select" }, null, null]}
+            rows={tiers.map((tier) => [tier.minVehicles, tier.maxVehicles ?? "Unlimited", `${tier.currency} ${tier.pricePerVehicle}`, enumLabel(tier.billingPeriod), `${new Date(tier.effectiveFrom).toLocaleDateString()}${tier.effectiveTo ? ` – ${new Date(tier.effectiveTo).toLocaleDateString()}` : " onward"}`, tier.isActive ? "ACTIVE" : "INACTIVE", <button key="edit" className="secondary" onClick={(event) => openForm(event.currentTarget, tier)}>Edit</button>, tier.isActive ? <button key="deactivate" className="danger" disabled={loading} onClick={() => void deactivate(tier)}>Deactivate</button> : "—"])}
+          />
+        ) : packageId && !loading ? <section className="sa-empty-catalog"><h3>No vehicle tiers yet</h3><p>Add a tier before offering this Package to clients.</p></section> : null}
+      </section>
+    </>
+  );
+}
+
+function PackageFeaturesView({
+  packages,
+  features,
+  token,
+  packageId,
+  onSaved,
+  onDelete,
+  onBack,
+}: {
+  packages: Item[];
+  features: Item[];
+  token: string;
+  packageId: string | null;
+  onSaved: () => void;
+  onDelete: (path: string, label: string) => void;
+  onBack: () => void;
+}) {
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const [editing, setEditing] = useState<Item | null>(null);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [form, setForm] = useState<Item>({
+    packageId: packageId ?? "",
+    featureId: "",
+    isIncluded: true,
+    isUnlimited: false,
+    includedQuantity: "",
+    resetPeriod: "NONE",
+    rolloverAllowed: false,
+  });
+  const links = packages.flatMap((pack) =>
+    (pack.features ?? []).map((link: Item) => ({ ...link, package: pack })),
+  ).filter((link) => !packageId || link.packageId === packageId);
+  const openForm = (trigger: HTMLButtonElement, item?: Item) => {
+    triggerRef.current = trigger;
+    setError("");
+    setEditing(item ?? null);
+    setForm(
+      item
+        ? {
+          packageId: item.packageId,
+          featureId: item.featureId,
+          isIncluded: item.isIncluded,
+          isUnlimited: item.isUnlimited,
+          includedQuantity: item.includedQuantity ?? "",
+          resetPeriod: item.resetPeriod ?? "NONE",
+          rolloverAllowed: item.rolloverAllowed ?? false,
+        }
+        : {
+          packageId: packageId ?? "",
+          featureId: "",
+          isIncluded: true,
+          isUnlimited: false,
+          includedQuantity: "",
+          resetPeriod: "NONE",
+          rolloverAllowed: false,
+        },
+    );
+    setOpen(true);
+  };
+  const close = () => {
+    setError("");
+    setOpen(false);
+  };
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const selected = features.find((feature) => feature.id === form.featureId);
+      const payload = {
+        ...(!editing ? { packageId: form.packageId, featureId: form.featureId } : {}),
+        isIncluded: Boolean(form.isIncluded),
+        isUnlimited: Boolean(form.isUnlimited),
+        resetPeriod: form.resetPeriod,
+        rolloverAllowed: Boolean(form.rolloverAllowed),
+        displayOrder: Number(selected?.displayOrder ?? 0),
+        ...(form.includedQuantity !== ""
+          ? { includedQuantity: Number(form.includedQuantity) }
+          : {}),
+      };
+      await request(
+        editing
+          ? `/platform/package-features/${editing.id}`
+          : "/platform/package-features",
+        { method: editing ? "PUT" : "POST", body: JSON.stringify(payload) },
+        token,
+      );
+      close();
+      onSaved();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to save Package Feature.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const removeLink = (item: Item) =>
+    onDelete(
+      `/platform/package-features/${item.id}`,
+      `${item.feature?.name ?? "Feature"} from ${item.package?.name ?? "Package"}`,
+    );
+  const assignedToSelectedPackage = new Set(
+    links.filter((link) => link.packageId === form.packageId).map((link) => link.featureId),
+  );
+  return (
+    <>
+      <section className="sa-bulk-workspace-head sa-package-feature-head">
+        <button className="secondary" type="button" onClick={onBack}>
+          ← Back to {packages.find((item) => item.id === packageId)?.name ?? "Package"}
+        </button>
+        <div>
+          <p className="sa-eyebrow">PACKAGE CONFIGURATION</p>
+          <h2>{packages.find((item) => item.id === packageId)?.name ?? "Package"} Features</h2>
+          <p>Add and manage the Features supplied by this Package.</p>
         </div>
-      )}
-    </div>
+        <div className="sa-actions">
+          <button onClick={(event) => openForm(event.currentTarget)}>
+            + Add Package Feature
+          </button>
+        </div>
+      </section>
+      <CatalogFormDialog
+        open={open}
+        title={editing ? "Edit Package Feature" : "Add Package Feature"}
+        description="Feature assignment is managed independently from Package details."
+        error={error}
+        busy={busy}
+        triggerRef={triggerRef}
+        onClose={close}
+        onDialogClose={() => setOpen(false)}
+        onSubmit={save}
+        actions={<><button type="button" className="secondary" onClick={close} disabled={busy}>Cancel</button><button type="submit" disabled={busy}>{editing ? "Save changes" : "Add Feature"}</button></>}
+      >
+        <label>
+          <span className="sa-label-text">
+            Package <span className="sa-required-star">*</span>
+          </span>
+          <select disabled={Boolean(editing)} value={form.packageId} onChange={(event) => setForm((current) => ({ ...current, packageId: event.target.value, featureId: "" }))} required>
+            <option value="">Select Package</option>
+            {packages.filter((item) => item.isActive).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+        </label>
+        <label>
+          <span className="sa-label-text">
+            Feature <span className="sa-required-star">*</span>
+          </span>
+          <select disabled={Boolean(editing) || !form.packageId} value={form.featureId} onChange={(event) => setForm((current) => ({ ...current, featureId: event.target.value }))} required>
+            <option value="">Select Feature</option>
+            {features.filter((item) => item.isActive && (editing?.featureId === item.id || !assignedToSelectedPackage.has(item.id))).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+        </label>
+        <div className="sa-feature-fields">
+          <label className="sa-toggle"><input type="checkbox" checked={form.isIncluded} onChange={(event) => setForm((current) => ({ ...current, isIncluded: event.target.checked }))} /> Included in package</label>
+          <label className="sa-toggle"><input type="checkbox" checked={form.isUnlimited} onChange={(event) => setForm((current) => ({ ...current, isUnlimited: event.target.checked }))} /> Unlimited usage</label>
+          <label>Included quantity<input type="number" min="0" step="1" value={form.includedQuantity} onChange={(event) => setForm((current) => ({ ...current, includedQuantity: event.target.value }))} /></label>
+          <label>Allowance reset<select value={form.resetPeriod} onChange={(event) => setForm((current) => ({ ...current, resetPeriod: event.target.value }))}>{allowanceResetPeriods.map((period) => <option key={period} value={period}>{period === "NONE" ? "No reset" : enumLabel(period)}</option>)}</select></label>
+          <label className="sa-toggle"><input type="checkbox" checked={form.rolloverAllowed} onChange={(event) => setForm((current) => ({ ...current, rolloverAllowed: event.target.checked }))} /> Allow unused credits to roll over</label>
+        </div>
+      </CatalogFormDialog>
+      {error && !open ? <p className="error">{error}</p> : null}
+      <section className="sa-management oem-table-only">
+        {links.length ? (
+          <DataTable
+            headings={[
+              "Package",
+              "Feature",
+              "Included",
+              "Allowance reset",
+              "Status",
+              "",
+              "",
+            ]}
+            columnFilters={[
+              { type: "text" },
+              { type: "text" },
+              null,
+              { type: "text" },
+              { type: "select" },
+              null,
+              null,
+            ]}
+            nonSortableColumns={[2]}
+            rows={links.map((link) => [
+              link.package?.name ?? "—",
+              link.feature?.name ?? "—",
+              link.isUnlimited
+                ? "Unlimited"
+                : (link.includedQuantity ?? "0"),
+              link.resetPeriod ?? "NONE",
+              link.isIncluded ? "INCLUDED" : "NOT INCLUDED",
+              <button key="edit" className="secondary" onClick={(event) => openForm(event.currentTarget, link)}>Edit</button>,
+              <button key="delete" className="danger" onClick={() => void removeLink(link)}>Delete</button>,
+            ])}
+          />
+        ) : (
+          <section className="sa-empty-catalog">
+            <h3>No Package Features yet</h3>
+            <p>
+              Add Features to a Package to configure its entitlements.
+            </p>
+          </section>
+        )}
+      </section>
+    </>
   );
 }

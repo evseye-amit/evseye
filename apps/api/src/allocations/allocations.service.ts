@@ -1,3 +1,4 @@
+import { DeploymentCommercialService } from './deployment-commercial.service.js';
 import {
   ConflictException,
   Injectable,
@@ -8,20 +9,20 @@ import {
   FleetStatus,
   InspectionStatus,
   InspectionType,
-  PhotoEntityType,
-  PhotoStatus,
   Prisma,
   RiderStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { ListAllocationsDto } from './dto/list-allocations.dto.js';
+import { RiderDocumentReviewService } from '../riders/rider-document-review.service.js';
 
 @Injectable()
 export class AllocationsService {
-  constructor(private readonly prisma: PrismaService) {}
-  async list(tenantId: string, query: ListAllocationsDto) {
+  constructor(private readonly prisma: PrismaService, private readonly commercial: DeploymentCommercialService, private readonly riderDocuments?: RiderDocumentReviewService) {}
+  async list(clientId: string, query: ListAllocationsDto, hubIds?: string[]) {
     const where = {
-      tenantId,
+      clientId,
+      ...(hubIds ? { fleet: { currentHubId: { in: hubIds } } } : {}),
       ...(query.status ? { status: query.status as AllocationStatus } : {}),
       ...(query.riderId ? { riderId: query.riderId } : {}),
       ...(query.fleetId ? { fleetId: query.fleetId } : {}),
@@ -54,7 +55,7 @@ export class AllocationsService {
         where,
         include: {
           rider: true,
-          fleet: { include: { hub: true } },
+          fleet: { include: { currentHub: true } },
           inspections: true,
         },
         orderBy: { createdAt: 'desc' },
@@ -69,12 +70,19 @@ export class AllocationsService {
     };
   }
 
-  async get(tenantId: string, allocationId: string) {
+  async get(clientId: string, allocationId: string, hubIds?: string[]) {
     const allocation = await this.prisma.allocation.findFirst({
-      where: { id: allocationId, tenantId },
+      where: { id: allocationId, clientId, ...(hubIds ? { fleet: { currentHubId: { in: hubIds } } } : {}) },
       include: {
         rider: true,
-        fleet: { include: { hub: true } },
+        fleet: { include: {
+          currentHub: true,
+          batteryHistory: {
+            where: { removedAt: null, battery: { clientId } },
+            orderBy: { installedAt: 'asc' },
+            select: { battery: { select: { batteryType: true, serialNumber: true } } },
+          },
+        } },
         inspections: true,
       },
     });
@@ -82,50 +90,85 @@ export class AllocationsService {
     return allocation;
   }
 
+  async fleetManagerHubIds(clientId: string, userId: string) {
+    return (await this.prisma.userHub.findMany({ where: { clientId, userId, hub: { clientId, status: 'ACTIVE', deletedAt: null } }, select: { hubId: true } })).map((entry) => entry.hubId);
+  }
+  async assertFleetManagerFleet(clientId: string, userId: string, fleetId: string) {
+    const hubIds = await this.fleetManagerHubIds(clientId, userId);
+    const fleet = await this.prisma.fleet.findFirst({ where: { id: fleetId, clientId, currentHubId: { in: hubIds }, deletedAt: null }, select: { id: true } });
+    if (!fleet) throw new NotFoundException('Fleet not found in an assigned Hub.');
+    return hubIds;
+  }
+  async assertFleetManagerAllocation(clientId: string, userId: string, allocationId: string) {
+    const hubIds = await this.fleetManagerHubIds(clientId, userId);
+    const allocation = await this.prisma.allocation.findFirst({ where: { id: allocationId, clientId, fleet: { currentHubId: { in: hubIds } } }, select: { id: true } });
+    if (!allocation) throw new NotFoundException('Allocation not found in an assigned Hub.');
+    return hubIds;
+  }
   async initiate(
-    tenantId: string,
+    clientId: string,
     fleetId: string,
     riderId: string,
     actorId: string,
     idempotencyKey?: string,
   ) {
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "Fleet" WHERE "id" = ${fleetId} AND "clientId" = ${clientId} FOR UPDATE`;
+      const exchangeId = idempotencyKey?.startsWith('exchange:') ? idempotencyKey.slice('exchange:'.length) : null;
+      const hold = await tx.vehicleExchangeRequest.findFirst({
+        where: { clientId, replacementVehicleId: fleetId, OR: [{ status: { in: ['REPLACEMENT_SELECTED', 'OFFER_PRESENTED'] }, reservationExpiresAt: { gt: new Date() } }, { status: { in: ['ACCEPTED', 'RETURN_PENDING', 'DEPOSIT_PENDING', 'HANDOVER_PENDING'] } }] },
+      });
+      if (hold && (hold.id !== exchangeId || hold.riderId !== riderId || hold.status !== 'HANDOVER_PENDING'))
+        throw new ConflictException('Fleet is reserved for a vehicle exchange.');
       const rider = await tx.rider.findFirst({
-        where: { id: riderId, tenantId, deletedAt: null },
+        where: { id: riderId, clientId, deletedAt: null },
       });
       if (!rider) throw new NotFoundException('Rider not found.');
+      if (!exchangeId) {
+        const restriction = await tx.commercialRestriction.findFirst({ where: { clientId, riderId, code: 'BLOCK_NEW_VEHICLE_ALLOCATION', status: 'ACTIVE' } });
+        if (restriction) throw new ConflictException({ code: 'COLLECTION_RESTRICTION_ACTIVE', collectionCaseId: restriction.caseId });
+      }
       if (rider.status !== RiderStatus.ACTIVE) {
         throw new ConflictException('Rider must be active before allocation.');
+      }
+      const documentBlockers = this.riderDocuments ? await this.riderDocuments.allocationBlockers(clientId, riderId) : [];
+      if (documentBlockers.length) {
+        throw new ConflictException({ message: 'Rider documents must be approved before Fleet allocation.', documents: documentBlockers });
       }
       const reserved = await tx.fleet.updateMany({
         where: {
           id: fleetId,
-          tenantId,
+          clientId,
           status: FleetStatus.AVAILABLE,
           deletedAt: null,
+          allocations: { none: { status: { notIn: [AllocationStatus.COMPLETED, AllocationStatus.CANCELLED] } } },
         },
         data: { status: FleetStatus.RESERVED },
       });
       if (reserved.count !== 1)
         throw new ConflictException('Fleet is not available for allocation.');
-      await this.assertRequiredFleetPhotos(tx, tenantId, fleetId);
+      await this.assertRequiredFleetPhotos(tx, clientId, fleetId);
       const allocation = await tx.allocation.create({
         data: {
-          tenantId,
+          clientId,
           fleetId,
           riderId,
           initiatedById: actorId,
           idempotencyKey,
           status: 'INSPECTION_PENDING',
+          ...(hold ? { rentalAgreementId: hold.agreementId } : {}),
         },
       });
       await tx.inspection.create({
         data: {
-          tenantId,
+          clientId,
           allocationId: allocation.id,
           type: InspectionType.PRE_ALLOCATION,
           status: InspectionStatus.DRAFT,
         },
+      });
+      await tx.mobileDeploymentWorkflow.create({
+        data: { clientId, allocationId: allocation.id, status: 'RIDER_WAITING' },
       });
       return allocation;
     });
@@ -133,49 +176,45 @@ export class AllocationsService {
 
   private async assertRequiredFleetPhotos(
     tx: Prisma.TransactionClient,
-    tenantId: string,
+    clientId: string,
     fleetId: string,
   ) {
-    const requirements = await tx.photoRequirement.findMany({
-      where: {
-        tenantId,
-        entityType: PhotoEntityType.FLEET,
-        isRequired: true,
-      },
-      select: { photoType: true },
+    const client = await tx.client.findUniqueOrThrow({
+      where: { id: clientId },
+      select: { fleetOperatingMode: true },
     });
-    if (requirements.length === 0) return;
-
-    const completedPhotos = await tx.photo.findMany({
-      where: {
-        tenantId,
-        entityType: PhotoEntityType.FLEET,
-        entityId: fleetId,
-        status: PhotoStatus.COMPLETE,
-        photoType: {
-          in: requirements.map((requirement) => requirement.photoType),
-        },
+    const fleet = await tx.fleet.findFirst({
+      where: { id: fleetId, clientId },
+      select: {
+        readinessWorkflow: true,
+        readinessApprovedPreparationId: true,
+        allocationBlockedByAdmin: true,
+        allocationEnabled: true,
       },
-      select: { photoType: true },
     });
-    const completeTypes = new Set(
-      completedPhotos.map((photo) => photo.photoType),
-    );
-    const missing = requirements
-      .map((requirement) => requirement.photoType)
-      .filter((photoType) => !completeTypes.has(photoType));
-    if (missing.length > 0) {
+    const workflow = fleet?.readinessWorkflow === 'ONBOARDING_EVIDENCE'
+      ? 'SIMPLE'
+      : fleet?.readinessWorkflow ?? client.fleetOperatingMode;
+    if (fleet?.allocationBlockedByAdmin || fleet?.allocationEnabled === false)
       throw new ConflictException(
-        `Fleet onboarding photos are incomplete: ${missing.join(', ')}.`,
+        'Allocation is administratively disabled for this scooter.',
       );
+    if (['PREPARATION_QC', 'STAGED_PREPARATION_QC'].includes(workflow)) {
+      if (!fleet?.readinessApprovedPreparationId)
+        throw new ConflictException(
+          'Preparation and QC approval are required before allocation.',
+        );
     }
+    // Keep onboarding media readable as history, but never use it as an
+    // allocation gate. Preparation media remains enforced by readiness.
   }
-  async activate(tenantId: string, allocationId: string) {
+  async activate(clientId: string, allocationId: string) {
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Allocation" WHERE id = ${allocationId} AND "clientId" = ${clientId} FOR UPDATE`;
       const allocation = await tx.allocation.findFirst({
         where: {
           id: allocationId,
-          tenantId,
+          clientId,
           status: AllocationStatus.OTP_PENDING,
         },
       });
@@ -186,7 +225,7 @@ export class AllocationsService {
 
       const inspection = await tx.inspection.findFirst({
         where: {
-          tenantId,
+          clientId,
           allocationId,
           type: InspectionType.PRE_ALLOCATION,
           status: InspectionStatus.COMPLETED,
@@ -195,13 +234,15 @@ export class AllocationsService {
       if (!inspection)
         throw new ConflictException('Pre-allocation inspection is incomplete.');
 
+      const handedOverAt = new Date();
+      await this.commercial.activateInTransaction(tx, clientId, allocationId, handedOverAt);
       const activated = await tx.allocation.updateMany({
         where: {
           id: allocationId,
-          tenantId,
+          clientId,
           status: AllocationStatus.OTP_PENDING,
         },
-        data: { status: AllocationStatus.ACTIVE, allocatedAt: new Date() },
+        data: { status: AllocationStatus.ACTIVE, allocatedAt: handedOverAt },
       });
       if (activated.count !== 1)
         throw new ConflictException(
@@ -211,7 +252,7 @@ export class AllocationsService {
       const fleet = await tx.fleet.updateMany({
         where: {
           id: allocation.fleetId,
-          tenantId,
+          clientId,
           status: FleetStatus.RESERVED,
           deletedAt: null,
         },
@@ -225,13 +266,30 @@ export class AllocationsService {
       return { activated: true, allocationId };
     });
   }
-  async initiateDeallocation(tenantId: string, allocationId: string) {
+  async initiateDeallocation(clientId: string, allocationId: string) {
     return this.prisma.$transaction(async (tx) => {
-      const allocation = await tx.allocation.findFirst({
-        where: { id: allocationId, tenantId, status: AllocationStatus.ACTIVE },
-      });
-      if (!allocation)
-        throw new NotFoundException('Active allocation not found.');
+      return this.initiateDeallocationInTransaction(tx, clientId, allocationId);
+    });
+  }
+  async initiateDeallocationInTransaction(
+    tx: Prisma.TransactionClient,
+    clientId: string,
+    allocationId: string,
+  ) {
+    const allocation = await tx.allocation.findFirst({
+      where: {
+        id: allocationId,
+        clientId,
+        status: {
+          in: [
+            AllocationStatus.ACTIVE,
+            AllocationStatus.DEALLOCATION_INITIATED,
+          ],
+        },
+      },
+    });
+    if (!allocation) throw new NotFoundException('Active allocation not found.');
+    if (allocation.status === AllocationStatus.ACTIVE) {
       await tx.allocation.update({
         where: { id: allocation.id },
         data: { status: AllocationStatus.DEALLOCATION_INITIATED },
@@ -239,80 +297,116 @@ export class AllocationsService {
       await tx.fleet.updateMany({
         where: {
           id: allocation.fleetId,
-          tenantId,
+          clientId,
           status: { in: [FleetStatus.ALLOCATED, FleetStatus.IN_USE] },
         },
-        data: { status: FleetStatus.DEALLOCATION_IN_PROGRESS },
+        data: { status: FleetStatus.DEALLOCATION_IN_PROGRESS, allocationEnabled: false },
       });
-      const inspection = await tx.inspection.upsert({
-        where: {
-          allocationId_type: {
-            allocationId: allocation.id,
-            type: InspectionType.POST_DEALLOCATION,
-          },
-        },
-        create: {
-          tenantId,
+    }
+    const inspection = await tx.inspection.upsert({
+      where: {
+        allocationId_type: {
           allocationId: allocation.id,
           type: InspectionType.POST_DEALLOCATION,
-          status: InspectionStatus.DRAFT,
         },
-        update: {},
-      });
-      return { allocationId: allocation.id, inspectionId: inspection.id };
+      },
+      create: {
+        clientId,
+        allocationId: allocation.id,
+        type: InspectionType.POST_DEALLOCATION,
+        status: InspectionStatus.DRAFT,
+      },
+      update: {},
+    });
+    return { allocationId: allocation.id, inspectionId: inspection.id };
+  }
+  async completeDeallocation(clientId: string, allocationId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      return this.completeDeallocationInTransaction(tx, clientId, allocationId);
     });
   }
-  async completeDeallocation(tenantId: string, allocationId: string) {
-    return this.prisma.$transaction(async (tx) => {
-      const a = await tx.allocation.findFirst({
-        where: {
-          id: allocationId,
-          tenantId,
-          status: AllocationStatus.DEALLOCATION_INITIATED,
+
+  /**
+   * Finalize a post-deallocation inspection without duplicating the legacy
+   * route's OTP and fleet-state rules. A physically received return is
+   * identified by its RETURNED termination request; standalone legacy
+   * deallocations still require both legacy OTPs.
+   */
+  async completeDeallocationInTransaction(
+    tx: Prisma.TransactionClient,
+    clientId: string,
+    allocationId: string,
+  ) {
+    const allocation = await tx.allocation.findFirst({
+      where: {
+        id: allocationId,
+        clientId,
+        status: {
+          in: [AllocationStatus.DEALLOCATION_INITIATED, AllocationStatus.OTP_PENDING],
         },
-      });
-      if (!a) throw new NotFoundException('Deallocation not found.');
-      const inspection = await tx.inspection.findFirst({
-        where: {
-          allocationId,
-          type: InspectionType.POST_DEALLOCATION,
-          status: InspectionStatus.COMPLETED,
-        },
-      });
-      if (!inspection)
-        throw new ConflictException(
-          'Post-deallocation inspection is incomplete.',
-        );
+      },
+    });
+    if (!allocation) throw new NotFoundException('Deallocation not found.');
+
+    const inspection = await tx.inspection.findFirst({
+      where: {
+        allocationId,
+        type: InspectionType.POST_DEALLOCATION,
+        status: InspectionStatus.COMPLETED,
+      },
+    });
+    if (!inspection)
+      throw new ConflictException('Post-deallocation inspection is incomplete.');
+
+    const submission = await tx.vehicleSubmission.findUnique({ where: { allocationId } });
+    const requiredReturn = await tx.rentalTerminationRequest.findFirst({ where: { clientId, allocationId, submissionRequired: true, status: { not: 'CANCELLED' } }, select: { id: true } });
+    const requiredExchange = await tx.vehicleExchangeRequest.findFirst({ where: { clientId, oldAllocationId: allocationId, submissionRequired: true, status: { notIn: ['CANCELLED', 'REJECTED'] } }, select: { id: true } });
+    if ((submission || requiredReturn || requiredExchange) && submission?.status !== 'CONFIRMED')
+      throw new ConflictException('Vehicle photos, mechanic report and rider/team lead confirmation are required.');
+
+    const receivedReturn = await tx.rentalTerminationRequest.findFirst({
+      where: { clientId, allocationId, status: 'RETURNED' },
+      select: { id: true },
+    });
+    if (receivedReturn && typeof inspection.safeForReuse !== 'boolean')
+      throw new ConflictException('Return inspection safety outcome is required.');
+
+    if (!receivedReturn && !submission) {
       const otps = await tx.otpRequest.findMany({
         where: {
-          tenantId,
+          clientId,
           status: 'VERIFIED',
-          purpose: { in: ['DEALLOCATION_RIDER', 'DEALLOCATION_OPERATOR'] },
+          purpose: { in: ['HANDOVER_RIDER', 'HANDOVER_OPERATOR'] },
         },
       });
       const purposes = new Set(
         otps
           .filter(
-            (o) =>
-              (o.context as { allocationId?: string } | null)?.allocationId ===
+            (otp) =>
+              (otp.context as { allocationId?: string } | null)?.allocationId ===
               allocationId,
           )
-          .map((o) => o.purpose),
+          .map((otp) => otp.purpose),
       );
-      if (
-        !purposes.has('DEALLOCATION_RIDER') ||
-        !purposes.has('DEALLOCATION_OPERATOR')
-      )
+      if (!purposes.has('HANDOVER_RIDER') || !purposes.has('HANDOVER_OPERATOR'))
         throw new ConflictException('Both deallocation OTPs must be verified.');
-      await tx.allocation.update({
-        where: { id: allocationId },
-        data: { status: AllocationStatus.COMPLETED, deallocatedAt: new Date() },
-      });
-      await tx.fleet.update({
-        where: { id: a.fleetId },
-        data: { status: FleetStatus.AVAILABLE },
-      });
-      return { completed: true };
+    }
+
+    const safeForReuse = (inspection.safeForReuse ?? true) && (!submission || submission.mechanicChecksComplete);
+    await tx.allocation.update({
+      where: { id: allocationId },
+      data: {
+        status: AllocationStatus.COMPLETED,
+        deallocatedAt: allocation.deallocatedAt ?? new Date(),
+      },
     });
+    await tx.fleet.update({
+      where: { id: allocation.fleetId },
+      data: {
+        status: safeForReuse ? FleetStatus.AVAILABLE : FleetStatus.MAINTENANCE,
+        allocationEnabled: safeForReuse,
+      },
+    });
+    return { completed: true };
   }
 }

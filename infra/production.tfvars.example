@@ -1,0 +1,24 @@
+# Bootstrap inputs only. Services remain stopped until images and live SMS are ready.
+aws_region      = "ap-south-2"
+environment     = "production"
+root_domain     = "evseye.com"
+web_subdomain   = "app"
+api_subdomain   = "api"
+media_subdomain = "media"
+# Enable the private media CDN for production.
+enable_cloudfront = true
+
+# Initial infrastructure. Increase service counts only after image publication,
+# migration, live SMS configuration, and end-to-end checks.
+db_multi_az       = true
+api_desired_count = 0
+web_desired_count = 0
+
+# Populate Telipia and MSG91 Secrets Manager values before starting API tasks.
+# Sandbox credentials are only needed when paid KYC is enabled later.
+sms_provider = "telipia"
+kyc_provider = "sandbox"
+kyc_enabled  = false
+kyc_sandbox_environment = "PRODUCTION"
+# Replace with the production Sandbox API URL when credentials are supplied.
+kyc_sandbox_api_url = "https://api.sandbox.co.in"

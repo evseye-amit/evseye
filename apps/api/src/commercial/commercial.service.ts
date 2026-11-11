@@ -1,0 +1,241 @@
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BillingCycle, ClientStatus, Prisma, PricingAdjustmentScope, PricingAdjustmentType } from '@prisma/client';
+import { AuditService } from '../audit/audit.service.js';
+import { PrismaService } from '../prisma/prisma.service.js';
+import { AdjustmentDto, ConsumeFeatureDto, FeatureAddOnDto, PackageChangeDto, PurchaseAddOnDto, QuoteDto, SubscriptionDto, UpdateFeatureAddOnDto, VehicleCountDto, VehicleTierDto } from './dto/commercial.dto.js';
+
+const D = Prisma.Decimal;
+const money = (value: Prisma.Decimal.Value) => new D(value).toDecimalPlaces(2);
+
+@Injectable()
+export class CommercialService {
+  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService) {}
+
+  async listTiers(packageId: string) { return this.prisma.packageVehicleTierPricing.findMany({ where: { packageId }, orderBy: [{ effectiveFrom: 'desc' }, { minVehicles: 'asc' }] }); }
+  async addTier(packageId: string, dto: VehicleTierDto, actorId: string) {
+    await this.requirePackage(packageId); this.validateTier(dto); await this.assertNoTierOverlap(packageId, dto);
+    const row = await this.prisma.packageVehicleTierPricing.create({ data: { packageId, ...this.tierData(dto) } });
+    await this.audit.record({ actorId, action: 'PACKAGE_VEHICLE_TIER_CREATED', entityType: 'PackageVehicleTierPricing', entityId: row.id, newData: { packageId } }); return row;
+  }
+  async updateTier(id: string, dto: VehicleTierDto, actorId: string) {
+    const current = await this.prisma.packageVehicleTierPricing.findUnique({ where: { id } }); if (!current) throw new NotFoundException('Vehicle tier not found.');
+    this.validateTier(dto); await this.assertNoTierOverlap(current.packageId, dto, id);
+    const row = await this.prisma.packageVehicleTierPricing.update({ where: { id }, data: this.tierData(dto) });
+    await this.audit.record({ actorId, action: 'PACKAGE_VEHICLE_TIER_UPDATED', entityType: 'PackageVehicleTierPricing', entityId: id }); return row;
+  }
+  async deactivateTier(id: string, actorId: string) { const row = await this.prisma.packageVehicleTierPricing.update({ where: { id }, data: { isActive: false } }); await this.audit.record({ actorId, action: 'PACKAGE_VEHICLE_TIER_DEACTIVATED', entityType: 'PackageVehicleTierPricing', entityId: id }); return row; }
+  async resolvePackageVehiclePrice(packageId: string, vehicleCount: number, effectiveDate = new Date()) {
+    if (vehicleCount < 1) throw new BadRequestException('Vehicle count must be greater than zero.');
+    const tier = await this.prisma.packageVehicleTierPricing.findFirst({ where: { packageId, isActive: true, effectiveFrom: { lte: effectiveDate }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: effectiveDate } }], minVehicles: { lte: vehicleCount }, AND: [{ OR: [{ maxVehicles: null }, { maxVehicles: { gte: vehicleCount } }] }] }, orderBy: [{ minVehicles: 'desc' }, { effectiveFrom: 'desc' }] });
+    if (!tier) throw new BadRequestException(`No active vehicle-tier pricing is configured for ${vehicleCount} vehicles on this package.`); return tier;
+  }
+  async calculateSubscriptionPrice(dto: QuoteDto) {
+    const effectiveDate = dto.effectiveDate ? new Date(dto.effectiveDate) : new Date(); const pkg = await this.prisma.package.findUnique({ where: { code: dto.packageCode }, include: { features: { where: { isIncluded: true }, include: { feature: true } } } });
+    if (!pkg || !pkg.isActive) throw new NotFoundException('Active package not found.'); const tier = await this.resolvePackageVehiclePrice(pkg.id, dto.vehicleCount, effectiveDate);
+    if (pkg.maxFleets < dto.vehicleCount) throw new BadRequestException('Vehicle count exceeds the selected package limit.');
+    if (pkg.features.some((link) => !link.feature.isActive)) throw new BadRequestException('The selected package contains an inactive Feature. Publish a corrected Package revision.');
+    const baseRecurringAmount = money(new D(tier.pricePerVehicle).mul(dto.vehicleCount)); const adjustments = await this.activeAdjustments(dto.clientId, effectiveDate, [PricingAdjustmentScope.PACKAGE, PricingAdjustmentScope.TOTAL_INVOICE], pkg.id);
+    const recurringAdjustment = this.applyAdjustments(baseRecurringAmount, adjustments); const setupAdjustments = await this.activeAdjustments(dto.clientId, effectiveDate, [PricingAdjustmentScope.SETUP_FEE, PricingAdjustmentScope.TOTAL_INVOICE], pkg.id);
+    const setup = this.applyAdjustments(pkg.setupFee, setupAdjustments);
+    const availableAddOns = await this.prisma.featureAddOn.findMany({ where: { isActive: true, feature: { isActive: true }, effectiveFrom: { lte: effectiveDate }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: effectiveDate } }] }, include: { feature: true }, orderBy: { code: 'asc' } });
+    return { packageCode: pkg.code, packageId: pkg.id, vehicleCount: dto.vehicleCount, billingCycle: dto.billingCycle ?? BillingCycle.MONTHLY, tier: { minVehicles: tier.minVehicles, maxVehicles: tier.maxVehicles, tierMode: tier.tierMode }, pricePerVehicle: tier.pricePerVehicle, baseRecurringAmount, discountAmount: recurringAdjustment.discount, finalRecurringAmount: recurringAdjustment.final, setupFee: setup.final, setupFeeDiscountAmount: setup.discount, currency: tier.currency, includedFeatures: pkg.features.map((link) => ({ featureCode: link.feature.code, featureName: link.feature.name, includedQuantity: link.includedQuantity, resetPeriod: link.resetPeriod, isUnlimited: link.isUnlimited })), availableAddOns: availableAddOns.map((addOn) => ({ id: addOn.id, code: addOn.code, name: addOn.name, featureId: addOn.featureId, quantity: addOn.quantity, salePrice: addOn.salePrice, currency: addOn.currency, validityDays: addOn.validityDays, validityMonths: addOn.validityMonths })), adjustments };
+  }
+  private async validatePackageCapacity(clientId: string, packageId: string, vehicleCount: number) {
+    const [pkg, counts] = await Promise.all([
+      this.prisma.package.findUnique({ where: { id: packageId } }),
+      this.prisma.client.findUnique({ where: { id: clientId }, select: { _count: { select: { riders: true, users: true, hubs: true, fleets: true } } } }),
+    ]);
+    if (!pkg || !counts) throw new NotFoundException('Client or package not found.');
+    const limits: Array<[string, number, number]> = [
+      ['fleets', vehicleCount, pkg.maxFleets], ['riders', counts._count.riders, pkg.maxRiders],
+      ['users', counts._count.users, pkg.maxUsers], ['hubs', counts._count.hubs, pkg.maxHubs],
+    ];
+    const exceeded = limits.find(([, actual, limit]) => actual > limit);
+    if (exceeded) throw new BadRequestException(`Client ${exceeded[0]} count exceeds the selected package limit.`);
+  }
+  async createSubscription(dto: SubscriptionDto, actorId: string) {
+    const startDate = new Date(dto.startDate);
+    const endDate = dto.endDate ? new Date(dto.endDate) : null;
+    if (Number.isNaN(startDate.valueOf()) || (endDate && Number.isNaN(endDate.valueOf()))) throw new BadRequestException('Subscription dates are invalid.');
+    if (endDate && endDate <= startDate) throw new BadRequestException('Subscription end date must be after the start date.');
+    const quote = await this.calculateSubscriptionPrice(dto);
+    await this.validatePackageCapacity(dto.clientId, quote.packageId, dto.vehicleCount);
+    const client = await this.prisma.client.findUnique({ where: { id: dto.clientId }, select: { status: true } });
+    if (!client) throw new NotFoundException('Client not found.');
+    const packageRevision = await this.prisma.packageRevision.findFirst({
+      where: { packageId: quote.packageId, publishedAt: { not: null } }, orderBy: { version: 'desc' },
+    });
+    if (!packageRevision) throw new BadRequestException('Publish a Package version before assigning it to a client.');
+    let row: Awaited<ReturnType<PrismaService['clientSubscription']['create']>>;
+    try {
+      row = await this.prisma.$transaction(async (tx) => {
+        await tx.clientSubscription.updateMany({ where: { clientId: dto.clientId, status: { in: ['PENDING', 'ACTIVE'] } },
+          data: { status: 'CANCELLED', endDate: startDate } });
+        const subscription = await tx.clientSubscription.create({ data: {
+          clientId: dto.clientId, packageId: quote.packageId, packageRevisionId: packageRevision.id,
+          status: client.status === ClientStatus.ACTIVE ? 'ACTIVE' : 'PENDING', billingCycle: quote.billingCycle, startDate,
+          endDate: dto.endDate ? new Date(dto.endDate) : undefined, vehicleCount: dto.vehicleCount,
+          setupFee: quote.setupFee, pricePerVehicle: quote.pricePerVehicle,
+          recurringAmount: quote.finalRecurringAmount, tierMinVehicles: quote.tier.minVehicles,
+          tierMaxVehicles: quote.tier.maxVehicles, tierMode: quote.tier.tierMode, currency: quote.currency,
+        } });
+        await this.grantPackageAllowances(tx, subscription.id, dto.clientId, packageRevision.id,
+          packageRevision.snapshot, startDate);
+        return subscription;
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError &&
+        (error.code === 'P2002' || error.code === 'P2034')) {
+        throw new ConflictException('Subscription change conflicted with another update; reload and retry.');
+      }
+      throw error;
+    }
+    await this.audit.record({ clientId: dto.clientId, actorId,
+      action: 'CLIENT_SUBSCRIPTION_CREATED', entityType: 'ClientSubscription', entityId: row.id,
+      newData: { packageId: quote.packageId, packageRevisionId: packageRevision.id, vehicleCount: dto.vehicleCount } });
+    return row;
+  }
+  async updateVehicleCount(subscriptionId: string, dto: VehicleCountDto, actorId: string) { const sub = await this.prisma.clientSubscription.findUnique({ where: { id: subscriptionId }, include: { package: true } }); if (!sub) throw new NotFoundException('Subscription not found.'); const quote = await this.calculateSubscriptionPrice({ clientId: sub.clientId, packageCode: sub.package.code, vehicleCount: dto.vehicleCount, billingCycle: sub.billingCycle, effectiveDate: dto.effectiveDate }); const row = await this.prisma.clientSubscription.update({ where: { id: subscriptionId }, data: { vehicleCount: dto.vehicleCount, pricePerVehicle: quote.pricePerVehicle, recurringAmount: quote.finalRecurringAmount, tierMinVehicles: quote.tier.minVehicles, tierMaxVehicles: quote.tier.maxVehicles, tierMode: quote.tier.tierMode } }); await this.audit.record({ clientId: sub.clientId, actorId, action: 'CLIENT_SUBSCRIPTION_VEHICLE_COUNT_UPDATED', entityType: 'ClientSubscription', entityId: subscriptionId }); return row; }
+  async getSubscription(id: string) { const row = await this.prisma.clientSubscription.findUnique({ where: { id }, include: { package: true, featureAddOnPurchases: { include: { featureAddOn: true }, orderBy: { purchasedAt: 'desc' } } } }); if (!row) throw new NotFoundException('Subscription not found.'); return row; }
+  async listSubscriptions(clientId?: string) { return this.prisma.clientSubscription.findMany({ where: clientId ? { clientId } : {}, include: { client: { select: { id: true, name: true, companyCode: true } }, package: true, packageRevision: { select: { id: true, version: true, publishedAt: true } } }, orderBy: [{ status: 'asc' }, { createdAt: 'desc' }] }); }
+  async changePackage(subscriptionId: string, dto: PackageChangeDto, actorId: string) {
+    const current = await this.prisma.clientSubscription.findUnique({ where: { id: subscriptionId } });
+    const pkg = await this.requirePackage(dto.packageId);
+    if (!current) throw new NotFoundException('Subscription not found.');
+    await this.validatePackageCapacity(current.clientId, pkg.id, dto.vehicleCount);
+    if (dto.vehicleCount < current.vehicleCount && pkg.maxFleets < current.vehicleCount)
+      throw new BadRequestException('Cannot downgrade below the client\'s current fleet count.');
+    return this.createSubscription({ clientId: current.clientId, packageCode: pkg.code, vehicleCount: dto.vehicleCount, billingCycle: current.billingCycle, startDate: new Date().toISOString(), effectiveDate: dto.effectiveDate }, actorId);
+  }
+  async addAdjustment(dto: AdjustmentDto, actorId: string) { if (dto.validTo && new Date(dto.validTo) <= new Date(dto.validFrom)) throw new BadRequestException('Adjustment end must be after its start.'); const row = await this.prisma.clientPricingAdjustment.create({ data: { ...dto, validFrom: new Date(dto.validFrom), validTo: dto.validTo ? new Date(dto.validTo) : undefined, createdBy: actorId } }); await this.audit.record({ clientId: dto.clientId, actorId, action: 'CLIENT_PRICING_ADJUSTMENT_CREATED', entityType: 'ClientPricingAdjustment', entityId: row.id }); return row; }
+  async listAdjustments(clientId?: string) { return this.prisma.clientPricingAdjustment.findMany({ where: clientId ? { clientId } : {}, include: { client: { select: { id: true, name: true, companyCode: true } }, subscription: { select: { id: true, packageId: true } } }, orderBy: { createdAt: 'desc' } }); }
+  async createAddOn(dto: FeatureAddOnDto, actorId: string) { const row = await this.prisma.featureAddOn.create({ data: await this.addOnData(dto) }); await this.audit.record({ actorId, action: 'FEATURE_ADDON_CREATED', entityType: 'FeatureAddOn', entityId: row.id }); return row; }
+  async updateAddOn(id: string, dto: UpdateFeatureAddOnDto, actorId: string) { const current = await this.prisma.featureAddOn.findUnique({ where: { id } }); if (!current) throw new NotFoundException('Feature add-on not found.'); const row = await this.prisma.featureAddOn.update({ where: { id }, data: await this.addOnData(dto) }); await this.audit.record({ actorId, action: 'FEATURE_ADDON_UPDATED', entityType: 'FeatureAddOn', entityId: id }); return row; }
+  async setAddOnActive(id: string, isActive: boolean, actorId: string) { const current = await this.prisma.featureAddOn.findUnique({ where: { id } }); if (!current) throw new NotFoundException('Feature add-on not found.'); const row = await this.prisma.featureAddOn.update({ where: { id }, data: { isActive } }); await this.audit.record({ actorId, action: isActive ? 'FEATURE_ADDON_ACTIVATED' : 'FEATURE_ADDON_DEACTIVATED', entityType: 'FeatureAddOn', entityId: id }); return row; }
+  async listAddOns(featureId?: string) {
+    return this.prisma.featureAddOn.findMany({
+      where: featureId ? { featureId } : {},
+      include: { feature: true },
+      orderBy: { code: 'asc' },
+    });
+  }
+  async purchaseAddOn(clientId: string, dto: PurchaseAddOnDto, actorId: string) {
+    const reference = dto.activationReference.trim();
+    if (!reference) throw new BadRequestException('Activation reference is required.');
+    const prior = await this.prisma.clientFeatureAddOnPurchase.findUnique({
+      where: { clientId_activationReference: { clientId, activationReference: reference } },
+    });
+    if (prior) {
+      if (prior.featureAddOnId !== dto.featureAddOnId || prior.subscriptionId !== dto.subscriptionId)
+        throw new ConflictException('Activation reference has already been used for another purchase.');
+      return prior;
+    }
+    const now = new Date();
+    const sub = await this.prisma.clientSubscription.findFirst({
+      where: { id: dto.subscriptionId, clientId, status: 'ACTIVE', startDate: { lte: now }, OR: [{ endDate: null }, { endDate: { gt: now } }] },
+    });
+    if (!sub) throw new NotFoundException('Active subscription not found.');
+    const addOn = await this.prisma.featureAddOn.findUnique({ where: { id: dto.featureAddOnId }, include: { feature: true } });
+    if (!addOn || !addOn.isActive || !addOn.feature.isActive || addOn.effectiveFrom > now ||
+      (addOn.effectiveTo && addOn.effectiveTo < now))
+      throw new BadRequestException('This add-on is not currently available.');
+    const adjustments = await this.activeAdjustments(clientId, now, [PricingAdjustmentScope.FEATURE_ADDON], addOn.id);
+    const commercialPrice = this.applyAdjustments(addOn.salePrice, adjustments);
+    const expiresAt = addOn.validityMonths
+      ? (() => {
+          const target = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + addOn.validityMonths!, 1));
+          const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+          return new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth(), Math.min(now.getUTCDate(), lastDay), now.getUTCHours(), now.getUTCMinutes(), now.getUTCSeconds(), now.getUTCMilliseconds()));
+        })()
+      : addOn.validityDays ? new Date(now.getTime() + addOn.validityDays * 86400000) : null;
+    const purchase = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.clientFeatureAddOnPurchase.create({ data: {
+        clientId, subscriptionId: sub.id, featureAddOnId: addOn.id, featureId: addOn.featureId,
+        quantityPurchased: addOn.quantity, quantityConsumed: 0, quantityRemaining: addOn.quantity,
+        unitPrice: addOn.salePrice, amount: addOn.salePrice, discountAmount: commercialPrice.discount,
+        totalAmount: commercialPrice.final, currency: addOn.currency, purchasedAt: now,
+        validFrom: now, expiresAt, activationReference: reference, status: 'ACTIVE',
+      } });
+      const lot = await tx.featureCreditLot.create({ data: {
+        clientId, subscriptionId: sub.id, featureId: addOn.featureId, sourceType: 'FEATURE_ADDON',
+        sourceId: row.id, sourceKey: `purchase:${row.id}`, purchaseId: row.id,
+        quantityOriginal: addOn.quantity, quantityAvailable: addOn.quantity, expiresAt,
+      } });
+      await tx.featureUsageLedger.create({ data: {
+        clientId, subscriptionId: sub.id, featureId: addOn.featureId, creditLotId: lot.id,
+        sourceType: 'FEATURE_ADDON', sourceId: row.id, transactionType: 'CREDIT',
+        quantity: addOn.quantity, referenceType: 'ADDON_PURCHASE', referenceId: row.id,
+        occurredAt: now, expiresAt,
+      } });
+      return row;
+    });
+    await this.audit.record({ clientId, actorId, action: 'FEATURE_ADDON_PURCHASED', entityType: 'ClientFeatureAddOnPurchase', entityId: purchase.id });
+    return purchase;
+  }
+  async purchaseHistory(clientId: string) { return this.prisma.clientFeatureAddOnPurchase.findMany({ where: { clientId }, include: { featureAddOn: true, feature: true }, orderBy: { purchasedAt: 'desc' } }); }
+  async comparePackages(vehicleCount: number, clientId = 'comparison') { const packages = await this.prisma.package.findMany({ where: { isActive: true, isCustom: false }, orderBy: { displayOrder: 'asc' } }); return Promise.all(packages.map(async (pkg) => { try { return await this.calculateSubscriptionPrice({ clientId, packageCode: pkg.code, vehicleCount }); } catch (error) { return { packageCode: pkg.code, configurationError: error instanceof Error ? error.message : 'Pricing configuration error' }; } })); }
+  async getAvailableFeatureBalance(clientId: string, featureCode: string) { const feature = await this.prisma.feature.findUnique({ where: { code: featureCode } }); if (!feature) throw new NotFoundException('Feature not found.'); const now = new Date(); const aggregate = await this.prisma.featureCreditLot.aggregate({ where: { clientId, featureId: feature.id, quantityAvailable: { gt: 0 }, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }, _sum: { quantityAvailable: true } }); return { clientId, featureCode, availableQuantity: aggregate._sum?.quantityAvailable ?? new D(0) }; }
+  async creditLots(clientId: string, featureCode?: string) { const feature = featureCode ? await this.prisma.feature.findUnique({ where: { code: featureCode } }) : null; if (featureCode && !feature) throw new NotFoundException('Feature not found.'); return this.prisma.featureCreditLot.findMany({ where: { clientId, ...(feature ? { featureId: feature.id } : {}) }, include: { feature: { select: { code: true, name: true, billingUnit: true } }, purchase: { select: { id: true, status: true, purchasedAt: true } } }, orderBy: [{ expiresAt: 'asc' }, { createdAt: 'desc' }], take: 250 }); }
+  async consumeFeatureUsage(clientId: string, dto: ConsumeFeatureDto, actorId?: string) { const feature = await this.prisma.feature.findUnique({ where: { code: dto.featureCode } }); if (!feature) throw new NotFoundException('Feature not found.'); const now = new Date(); const required = new D(dto.quantity); const subscription = await this.prisma.clientSubscription.findFirst({ where: { id: dto.subscriptionId, clientId, status: 'ACTIVE' } }); if (!subscription) throw new BadRequestException('Active subscription not found.'); return this.prisma.$transaction(async (tx) => { const lots = await tx.$queryRaw<Array<{ id: string; quantityAvailable: Prisma.Decimal; sourceType: 'PACKAGE_ALLOWANCE' | 'FEATURE_ADDON' | 'MANUAL_ADJUSTMENT' | 'PROMOTIONAL_CREDIT'; sourceId: string | null; purchaseId: string | null }>>(Prisma.sql`SELECT "id", "quantityAvailable", "sourceType", "sourceId", "purchaseId" FROM "FeatureCreditLot" WHERE "clientId" = ${clientId} AND "featureId" = ${feature.id} AND "quantityAvailable" > 0 AND ("expiresAt" IS NULL OR "expiresAt" > ${now}) AND (("sourceType" = 'PACKAGE_ALLOWANCE' AND "subscriptionId" = ${subscription.id}) OR ("sourceType" = 'FEATURE_ADDON' AND EXISTS (SELECT 1 FROM "ClientFeatureAddOnPurchase" p WHERE p."id" = "purchaseId" AND p."status" = 'ACTIVE')) OR "sourceType" IN ('MANUAL_ADJUSTMENT', 'PROMOTIONAL_CREDIT')) ORDER BY CASE WHEN "sourceType" = 'PACKAGE_ALLOWANCE' THEN 0 ELSE 1 END, "expiresAt" ASC NULLS LAST FOR UPDATE`); let remaining = required; if (lots.reduce((sum, lot) => sum.plus(lot.quantityAvailable), new D(0)).lessThan(required)) throw new ConflictException('Insufficient feature balance.'); for (const lot of lots) { if (remaining.isZero()) break; const used = Prisma.Decimal.min(lot.quantityAvailable, remaining); const updated = lot.quantityAvailable.minus(used); await tx.featureCreditLot.update({ where: { id: lot.id }, data: { quantityAvailable: updated } }); if (lot.purchaseId) { const purchase = await tx.clientFeatureAddOnPurchase.update({ where: { id: lot.purchaseId }, data: { quantityConsumed: { increment: used }, quantityRemaining: { decrement: used } } }); if (purchase.quantityRemaining.lte(0)) await tx.clientFeatureAddOnPurchase.update({ where: { id: lot.purchaseId }, data: { status: 'CONSUMED', quantityRemaining: 0 } }); } await tx.featureUsageLedger.create({ data: { clientId, subscriptionId: dto.subscriptionId, featureId: feature.id, creditLotId: lot.id, sourceType: lot.sourceType, sourceId: lot.sourceId, transactionType: 'DEBIT', quantity: used.negated(), balanceAfter: updated, referenceType: dto.referenceType, referenceId: dto.referenceId, occurredAt: now, metadata: dto.metadata as Prisma.InputJsonValue | undefined } }); remaining = remaining.minus(used); } if (actorId) await this.audit.record({ clientId, actorId, action: 'FEATURE_USAGE_CONSUMED', entityType: 'FeatureUsageLedger', entityId: dto.referenceId ?? feature.id }); return { consumedQuantity: required, featureCode: dto.featureCode }; }); }
+  async usageHistory(clientId: string, featureCode?: string) { const feature = featureCode ? await this.prisma.feature.findUnique({ where: { code: featureCode } }) : null; return this.prisma.featureUsageLedger.findMany({ where: { clientId, ...(feature ? { featureId: feature.id } : {}) }, include: { feature: true }, orderBy: { occurredAt: 'desc' }, take: 250 }); }
+  private tierData(dto: VehicleTierDto) { return { minVehicles: dto.minVehicles, maxVehicles: dto.maxVehicles ?? null, pricePerVehicle: dto.pricePerVehicle, currency: dto.currency ?? 'INR', billingPeriod: dto.billingPeriod ?? BillingCycle.MONTHLY, tierMode: dto.tierMode ?? 'VOLUME', effectiveFrom: new Date(dto.effectiveFrom), effectiveTo: dto.effectiveTo ? new Date(dto.effectiveTo) : null, isActive: dto.isActive ?? true }; }
+  private validateTier(dto: VehicleTierDto) { if (dto.maxVehicles !== undefined && dto.maxVehicles < dto.minVehicles) throw new BadRequestException('Tier maximum must be greater than or equal to its minimum.'); if (dto.effectiveTo && new Date(dto.effectiveTo) <= new Date(dto.effectiveFrom)) throw new BadRequestException('Tier effective end must be after its start.'); }
+  private validateAddOn(dto: FeatureAddOnDto) {
+    if (dto.effectiveTo && new Date(dto.effectiveTo) <= new Date(dto.effectiveFrom)) throw new BadRequestException('Add-on effective end must be after its start.');
+    if (dto.discount !== undefined && (dto.discount < 0 || dto.discount > 100)) throw new BadRequestException('Add-on discount must be between 0 and 100 percent.');
+    if (Number(Boolean(dto.validityDays)) + Number(Boolean(dto.validityMonths)) !== 1) throw new BadRequestException('Choose either validity days or validity months.');
+  }
+  private async addOnData(dto: FeatureAddOnDto) {
+    this.validateAddOn(dto);
+    const effectiveFrom = new Date(dto.effectiveFrom);
+    const pricing = await this.prisma.featurePricing.findFirst({
+      where: {
+        featureId: dto.featureId,
+        isActive: true,
+        effectiveFrom: { lte: effectiveFrom },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: effectiveFrom } }],
+      },
+      orderBy: { effectiveFrom: 'desc' },
+    });
+    if (!pricing) throw new BadRequestException('No active Feature Pricing is available for this Feature on the add-on effective date.');
+    const quantity = new D(dto.quantity);
+    const discount = new D(dto.discount ?? 0);
+    const baseSalePrice = new D(pricing.salePrice).mul(quantity);
+    return {
+      code: dto.code,
+      name: dto.name,
+      description: dto.description,
+      featureId: dto.featureId,
+      quantity,
+      costPrice: pricing.costPrice ? money(new D(pricing.costPrice).mul(quantity)) : null,
+      salePrice: money(baseSalePrice.mul(new D(100).minus(discount)).div(100)),
+      discount,
+      currency: pricing.currency,
+      validityDays: dto.validityDays,
+      validityMonths: dto.validityMonths,
+      effectiveFrom,
+      effectiveTo: dto.effectiveTo ? new Date(dto.effectiveTo) : null,
+      isActive: dto.isActive ?? true,
+    };
+  }
+  private async assertNoTierOverlap(packageId: string, dto: VehicleTierDto, ignoreId?: string) { if (dto.isActive === false) return; const rows = await this.prisma.packageVehicleTierPricing.findMany({ where: { packageId, isActive: true, ...(ignoreId ? { id: { not: ignoreId } } : {}) } }); const from = new Date(dto.effectiveFrom), to = dto.effectiveTo ? new Date(dto.effectiveTo) : null; const overlaps = rows.some((row) => { const dateOverlap = row.effectiveFrom <= (to ?? new Date('9999-12-31')) && (row.effectiveTo ?? new Date('9999-12-31')) >= from; const quantityOverlap = row.minVehicles <= (dto.maxVehicles ?? Number.MAX_SAFE_INTEGER) && (row.maxVehicles ?? Number.MAX_SAFE_INTEGER) >= dto.minVehicles; return dateOverlap && quantityOverlap; }); if (overlaps) throw new ConflictException('Active vehicle-tier ranges cannot overlap for the same package and effective period.'); }
+  private async activeAdjustments(clientId: string, date: Date, scopes: PricingAdjustmentScope[], referenceId: string) { return this.prisma.clientPricingAdjustment.findMany({ where: { clientId, isActive: true, adjustmentScope: { in: scopes }, validFrom: { lte: date }, OR: [{ validTo: null }, { validTo: { gte: date } }], AND: [{ OR: [{ referenceId: null }, { referenceId }] }] } }); }
+  private applyAdjustments(amount: Prisma.Decimal, adjustments: Array<{ adjustmentType: PricingAdjustmentType; adjustmentValue: Prisma.Decimal }>) { let final = new D(amount); for (const adjustment of adjustments) final = adjustment.adjustmentType === 'PERCENTAGE' ? final.minus(final.mul(adjustment.adjustmentValue).div(100)) : adjustment.adjustmentType === 'FIXED_AMOUNT' ? final.minus(adjustment.adjustmentValue) : new D(adjustment.adjustmentValue); final = Prisma.Decimal.max(final, new D(0)); return { final: money(final), discount: money(new D(amount).minus(final)) }; }
+  private async grantPackageAllowances(tx: Prisma.TransactionClient, subscriptionId: string,
+    clientId: string, packageRevisionId: string, rawSnapshot: Prisma.JsonValue, startsAt: Date) {
+    const snapshot = rawSnapshot as { features?: Array<{ featureId: string; includedQuantity?: string | null; isUnlimited?: boolean }> };
+    for (const item of snapshot.features ?? []) {
+      const quantity = new D(item.includedQuantity ?? 0);
+      if (item.isUnlimited || quantity.lte(0)) continue;
+      const sourceKey = `allowance:${subscriptionId}:${packageRevisionId}:${item.featureId}:${startsAt.toISOString().slice(0, 10)}`;
+      const lot = await tx.featureCreditLot.create({ data: { clientId, subscriptionId,
+        featureId: item.featureId, sourceType: 'PACKAGE_ALLOWANCE', sourceId: packageRevisionId,
+        sourceKey, quantityOriginal: quantity, quantityAvailable: quantity, periodStart: startsAt } });
+      await tx.featureUsageLedger.create({ data: { clientId, subscriptionId, featureId: item.featureId,
+        creditLotId: lot.id, sourceType: 'PACKAGE_ALLOWANCE', sourceId: packageRevisionId,
+        transactionType: 'CREDIT', quantity, referenceType: 'SUBSCRIPTION_START',
+        referenceId: subscriptionId, occurredAt: startsAt } });
+    }
+  }
+  private async requirePackage(id: string) { const pkg = await this.prisma.package.findUnique({ where: { id } }); if (!pkg) throw new NotFoundException('Package not found.'); return pkg; }
+}

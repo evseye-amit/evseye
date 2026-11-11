@@ -1,0 +1,251 @@
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma, UserRole } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service.js';
+import { renderLegalTemplate, renderLegalAcceptance, validateLegalTemplate } from './legal-templates.js';
+
+import { consentAcceptance, legalHash } from './legal-acceptance.js';
+export { legalHash } from './legal-acceptance.js';
+const legalReviewMarkers = [
+  '[CLIENT_REVIEW_REQUIRED',
+  '[ক্লায়েন্টের পর্যালোচনা প্রয়োজন',
+  '[ક્લાયન્ટની સમીક્ષા જરૂરી',
+  '[क्लाइंट की समीक्षा ज़रूरी है',
+  '[ಗ್ರಾಹಕರ ಪರಿಶೀಲನೆ ಅಗತ್ಯ',
+  '[ക്ലയന്റ് പരിശോധന ആവശ്യമാണ്',
+  '[ग्राहकाने पुनरावलोकन करणे आवश्यक',
+  '[କ୍ଲାଏଣ୍ଟଙ୍କ ସମୀକ୍ଷା ଆବଶ୍ୟକ',
+  '[ਕਲਾਇੰਟ ਦੁਆਰਾ ਸਮੀਖਿਆ ਲੋੜੀਂਦੀ',
+  '[ਗਾਹਕ ਦੁਆਰਾ ਸਮੀਖਿਆ ਲੋੜੀਂਦੀ',
+  '[வாடிக்கையாளர் ஆய்வு தேவை',
+  '[క్లయింట్ సమీక్ష అవసరం',
+  '[کلائنٹ کا جائزہ درکار ہے',
+];
+const hasLegalReviewMarker = (value: string) => legalReviewMarkers.some((marker) => value.includes(marker));
+const mandatoryRiderConsent = (value: { appCode: string; role: UserRole; kind: string }) =>
+  value.appCode === 'RIDER' && value.role === UserRole.RIDER && value.kind === 'PRIVACY_CONSENT';
+
+@Injectable()
+export class LegalService {
+  constructor(private readonly db: PrismaService) {}
+
+  listTemplates() {
+    return this.db.appLegalTemplate.findMany({ where: { deletedAt: null }, orderBy: [{ appCode: 'asc' }, { role: 'asc' }, { kind: 'asc' }, { locale: 'asc' }] });
+  }
+
+  async createTemplate(input: { appCode: string; role: UserRole; kind: string; locale: string; version: string; title: string; content: string; acceptance?: Prisma.InputJsonObject; isActive?: boolean }) {
+    input = { ...input, acceptance: consentAcceptance(input.kind, input.locale, input.acceptance) };
+    validateLegalTemplate(input.title);
+    validateLegalTemplate(input.content);
+    for (const text of Object.values(input.acceptance ?? {})) validateLegalTemplate(String(text));
+    if (mandatoryRiderConsent(input) && input.isActive === false)
+      throw new BadRequestException('Rider privacy consent templates must remain active.');
+    const identity = { appCode: input.appCode, role: input.role, kind: input.kind, locale: input.locale, version: input.version };
+    if (await this.db.appLegalTemplate.findFirst({ where: identity })) throw new BadRequestException('This template version already exists.');
+    if (!mandatoryRiderConsent(input))
+      return this.db.appLegalTemplate.create({ data: { ...identity, title: input.title, content: input.content, acceptance: input.acceptance, isActive: input.isActive ?? true } });
+    return this.db.$transaction(async (tx) => {
+      const template = await tx.appLegalTemplate.create({ data: {
+        ...identity, title: input.title, content: input.content, acceptance: input.acceptance, isActive: true,
+      } });
+      const clients = await tx.client.findMany({ include: { businessProfile: true } });
+      for (const client of clients) {
+        const existing = await tx.appLegalDocument.findFirst({ where: {
+          clientId: client.id, appCode: input.appCode, role: input.role,
+          kind: input.kind, locale: input.locale, deletedAt: null,
+        } });
+        if (existing) continue;
+        const legalName = client.businessProfile?.legalCompanyName?.trim() ||
+          '[CLIENT_REVIEW_REQUIRED: legal company name]';
+        const content = renderLegalTemplate(input.content, client, legalName, true);
+        const acceptance = renderLegalAcceptance(input.acceptance, input.kind, input.locale, client, legalName);
+        await tx.appLegalDocument.create({ data: {
+          clientId: client.id, appCode: input.appCode, role: input.role,
+          kind: input.kind, locale: input.locale, version: input.version,
+          title: renderLegalTemplate(input.title, client, legalName), content,
+          acceptance: acceptance ?? Prisma.DbNull, contentHash: legalHash(content, acceptance), effectiveAt: new Date(),
+        } });
+      }
+      return template;
+    });
+  }
+
+  async updateTemplate(id: string, input: { appCode: string; role: UserRole; kind: string; locale: string; version: string; title: string; content: string; acceptance?: Prisma.InputJsonObject; isActive?: boolean }) {
+    input = { ...input, acceptance: consentAcceptance(input.kind, input.locale, input.acceptance) };
+    validateLegalTemplate(input.title);
+    validateLegalTemplate(input.content);
+    for (const text of Object.values(input.acceptance ?? {})) validateLegalTemplate(String(text));
+    const current = await this.db.appLegalTemplate.findUnique({ where: { id } });
+    if (!current || current.deletedAt) throw new NotFoundException('Legal template unavailable.');
+    if (mandatoryRiderConsent(current) && (!mandatoryRiderConsent(input) || input.isActive === false ||
+      current.locale !== input.locale))
+      throw new BadRequestException('The mandatory Rider privacy consent template must remain active for this language.');
+    const duplicate = await this.db.appLegalTemplate.findFirst({ where: { id: { not: id }, appCode: input.appCode, role: input.role, kind: input.kind, locale: input.locale, version: input.version } });
+    if (duplicate) throw new BadRequestException('This template version already exists.');
+    return this.db.appLegalTemplate.update({ where: { id }, data: { ...input, acceptance: input.acceptance ?? Prisma.DbNull } });
+  }
+
+  async deleteTemplate(id: string) {
+    const current = await this.db.appLegalTemplate.findUnique({ where: { id } });
+    if (!current || current.deletedAt) throw new NotFoundException('Legal template unavailable.');
+    if (mandatoryRiderConsent(current))
+      throw new BadRequestException('The mandatory Rider privacy consent template cannot be removed.');
+    return this.db.appLegalTemplate.update({ where: { id }, data: { isActive: false, deletedAt: new Date() } });
+  }
+
+  async clientIdForCode(companyCode: string, resolvedClientId?: string) {
+    const client = await this.db.client.findFirst({
+      where: { OR: [{ companyCode }, { slug: companyCode }], isActive: true, status: { notIn: ['DRAFT', 'SUSPENDED'] } },
+      select: { id: true },
+    });
+    if (!client) throw new NotFoundException('Client unavailable.');
+    if (resolvedClientId && resolvedClientId !== client.id) throw new ForbiddenException('Client mismatch.');
+    return client.id;
+  }
+
+  async current(clientId: string, appCode: string, role: UserRole, kind: string, locale: string) {
+    const now = new Date();
+    const documents = await this.db.appLegalDocument.findMany({
+      where: { clientId, appCode, role, kind, locale, publishedAt: { not: null }, deletedAt: null,
+        effectiveAt: { lte: now }, OR: [{ retiredAt: null }, { retiredAt: { gt: now } }] },
+      orderBy: [{ effectiveAt: 'desc' }, { publishedAt: 'desc' }], take: 1,
+    });
+    const document = documents[0] ?? await this.db.appLegalDocument.findFirst({
+      where: { clientId: null, appCode, role, kind, locale, publishedAt: { not: null }, deletedAt: null,
+        effectiveAt: { lte: now }, OR: [{ retiredAt: null }, { retiredAt: { gt: now } }] },
+      orderBy: [{ effectiveAt: 'desc' }, { publishedAt: 'desc' }],
+    });
+    if (!document) throw new NotFoundException('Legal document unavailable.');
+    return document;
+  }
+
+  async accept(clientId: string, userId: string, roles: UserRole[], input: {
+    documentId: string; contentHash: string; accepted?: boolean; deviceId?: string; deviceAcceptedAt?: string;
+  }) {
+    const document = await this.db.appLegalDocument.findUnique({ where: { id: input.documentId } });
+    if (!document || !document.publishedAt || document.deletedAt || !roles.includes(document.role) || (document.clientId && document.clientId !== clientId))
+      throw new NotFoundException('Legal document unavailable.');
+    if (document.kind === 'PRIVACY_CONSENT' && input.accepted !== true)
+      throw new BadRequestException('Explicit consent acceptance is required.');
+    const current = await this.current(clientId, document.appCode, document.role, document.kind, document.locale);
+    if (current.id !== document.id || current.contentHash !== input.contentHash)
+      throw new BadRequestException('The legal document has changed. Please review the current version.');
+    const deviceAcceptedAt = input.deviceAcceptedAt ? new Date(input.deviceAcceptedAt) : undefined;
+    if (deviceAcceptedAt && (Number.isNaN(deviceAcceptedAt.valueOf()) || deviceAcceptedAt > new Date()))
+      throw new BadRequestException('Invalid device acceptance time.');
+    return this.db.appLegalAcceptance.upsert({
+      where: { userId_documentId: { userId, documentId: document.id } },
+      create: { clientId, userId, documentId: document.id, contentHash: document.contentHash,
+        deviceId: input.deviceId, deviceAcceptedAt },
+      update: {},
+    });
+  }
+
+  async publish(clientId: string | null, input: {
+    appCode: string; role: UserRole; kind: string; locale: string; version: string;
+    title: string; content: string; acceptance?: Prisma.InputJsonObject; effectiveAt: string;
+  }) {
+    input = { ...input, acceptance: consentAcceptance(input.kind, input.locale, input.acceptance, true) };
+    if (hasLegalReviewMarker(input.title) || hasLegalReviewMarker(input.content) || hasLegalReviewMarker(JSON.stringify(input.acceptance ?? {})))
+      throw new BadRequestException('Resolve all legal review markers, including pending translations, before publishing.');
+    const effectiveAt = new Date(input.effectiveAt);
+    if (Number.isNaN(effectiveAt.valueOf())) throw new BadRequestException('Invalid effective date.');
+    const existing = await this.db.appLegalDocument.findFirst({ where: {
+      clientId, appCode: input.appCode, role: input.role, kind: input.kind,
+      locale: input.locale, version: input.version,
+    } });
+    if (existing) throw new BadRequestException('This document version is already published.');
+    return this.db.appLegalDocument.create({ data: {
+      clientId, appCode: input.appCode, role: input.role, kind: input.kind,
+      locale: input.locale, version: input.version, title: input.title,
+      content: input.content, acceptance: input.acceptance ?? Prisma.DbNull, contentHash: legalHash(input.content, input.acceptance), effectiveAt, publishedAt: new Date(),
+    } });
+  }
+
+  async retire(id: string, clientId: string | null, isPlatformAdmin: boolean) {
+    const document = await this.db.appLegalDocument.findUnique({ where: { id } });
+    if (!document || (!isPlatformAdmin && document.clientId !== clientId))
+      throw new NotFoundException('Legal document unavailable.');
+    if (!document.publishedAt || document.deletedAt) throw new BadRequestException('Only published documents can be retired.');
+    if (document.retiredAt) return document;
+    return this.db.appLegalDocument.update({ where: { id }, data: { retiredAt: new Date() } });
+  }
+
+  async list(clientId: string | null, isPlatformAdmin: boolean) {
+    return this.db.appLegalDocument.findMany({
+      where: isPlatformAdmin ? { deletedAt: null } : { clientId, deletedAt: null },
+      orderBy: [{ createdAt: 'desc' }],
+    });
+  }
+
+  async createDraft(clientId: string | null, input: {
+    appCode: string; role: UserRole; kind: string; locale: string; version: string;
+    title: string; content: string; acceptance?: Prisma.InputJsonObject; effectiveAt: string;
+  }) {
+    input = { ...input, acceptance: consentAcceptance(input.kind, input.locale, input.acceptance, false) };
+    const effectiveAt = new Date(input.effectiveAt);
+    if (Number.isNaN(effectiveAt.valueOf())) throw new BadRequestException('Invalid effective date.');
+    const existing = await this.db.appLegalDocument.findFirst({ where: {
+      clientId, appCode: input.appCode, role: input.role, kind: input.kind,
+      locale: input.locale, version: input.version,
+    } });
+    if (existing) throw new BadRequestException('This document version already exists.');
+    return this.db.appLegalDocument.create({ data: {
+      clientId, appCode: input.appCode, role: input.role, kind: input.kind,
+      locale: input.locale, version: input.version, title: input.title,
+      content: input.content, acceptance: input.acceptance ?? Prisma.DbNull, contentHash: legalHash(input.content, input.acceptance), effectiveAt,
+    } });
+  }
+
+  async updateDraft(id: string, clientId: string | null, isPlatformAdmin: boolean, input: {
+    appCode: string; role: UserRole; kind: string; locale: string; version: string;
+    title: string; content: string; acceptance?: Prisma.InputJsonObject; effectiveAt: string;
+  }) {
+    input = { ...input, acceptance: consentAcceptance(input.kind, input.locale, input.acceptance, false) };
+    const effectiveAt = new Date(input.effectiveAt);
+    if (Number.isNaN(effectiveAt.valueOf())) throw new BadRequestException('Invalid effective date.');
+    const document = await this.db.appLegalDocument.findUnique({ where: { id } });
+    if (!document || (!isPlatformAdmin && document.clientId !== clientId)) throw new NotFoundException('Legal document unavailable.');
+    if (document.publishedAt || document.deletedAt) throw new BadRequestException('Published or deleted documents cannot be edited.');
+    const duplicate = await this.db.appLegalDocument.findFirst({ where: {
+      id: { not: id }, clientId: document.clientId, appCode: input.appCode,
+      role: input.role, kind: input.kind, locale: input.locale, version: input.version,
+    } });
+    if (duplicate) throw new BadRequestException('This document version already exists.');
+    const updated = await this.db.appLegalDocument.updateMany({
+      where: { id, publishedAt: null, deletedAt: null },
+      data: { appCode: input.appCode, role: input.role, kind: input.kind,
+        locale: input.locale, version: input.version, title: input.title,
+        content: input.content, acceptance: input.acceptance ?? Prisma.DbNull, contentHash: legalHash(input.content, input.acceptance), effectiveAt },
+    });
+    if (updated.count !== 1) throw new BadRequestException('Document is no longer editable.');
+    return this.db.appLegalDocument.findUniqueOrThrow({ where: { id } });
+  }
+
+  async publishDraft(id: string, clientId: string | null, isPlatformAdmin: boolean) {
+    const document = await this.db.appLegalDocument.findUnique({ where: { id } });
+    if (!document || (!isPlatformAdmin && document.clientId !== clientId)) throw new NotFoundException('Legal document unavailable.');
+    if (document.publishedAt || document.deletedAt) throw new BadRequestException('Only active drafts can be published.');
+    if (hasLegalReviewMarker(document.title) || hasLegalReviewMarker(document.content))
+      throw new BadRequestException('Resolve all legal review markers, including pending translations, before publishing.');
+    const acceptance = consentAcceptance(document.kind, document.locale, document.acceptance, true);
+    if (hasLegalReviewMarker(JSON.stringify(acceptance ?? {})))
+      throw new BadRequestException('Resolve consent acceptance review markers before publishing.');
+    const updated = await this.db.appLegalDocument.updateMany({
+      where: { id, publishedAt: null, deletedAt: null }, data: { publishedAt: new Date(),
+        acceptance: acceptance ?? Prisma.DbNull, contentHash: legalHash(document.content, acceptance) },
+    });
+    if (updated.count !== 1) throw new BadRequestException('Document is no longer a draft.');
+    return this.db.appLegalDocument.findUniqueOrThrow({ where: { id } });
+  }
+
+  async deleteDraft(id: string, clientId: string | null, isPlatformAdmin: boolean) {
+    const document = await this.db.appLegalDocument.findUnique({ where: { id } });
+    if (!document || (!isPlatformAdmin && document.clientId !== clientId)) throw new NotFoundException('Legal document unavailable.');
+    if (document.publishedAt || document.deletedAt) throw new BadRequestException('Published documents cannot be deleted.');
+    const updated = await this.db.appLegalDocument.updateMany({
+      where: { id, publishedAt: null, deletedAt: null }, data: { deletedAt: new Date() },
+    });
+    if (updated.count !== 1) throw new BadRequestException('Document is no longer a draft.');
+    return this.db.appLegalDocument.findUniqueOrThrow({ where: { id } });
+  }
+}

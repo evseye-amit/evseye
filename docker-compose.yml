@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgis/postgis:16-3.5-alpine
     environment:
       POSTGRES_USER: evseye
       POSTGRES_PASSWORD: evseye
@@ -26,7 +26,7 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    image: docker.io/pgsty/silo:RELEASE.2026-10-26T00-00-00Z
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: evseye-minio
@@ -43,7 +43,7 @@ services:
       retries: 10
 
   minio-init:
-    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    image: docker.io/pgsty/silo:RELEASE.2026-10-26T00-00-00Z
     environment:
       MINIO_ROOT_USER: evseye-minio
       MINIO_ROOT_PASSWORD: evseye-minio-local-password
@@ -57,9 +57,11 @@ services:
         mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
         mc mb --ignore-existing local/evs-eye-local
         mc anonymous set none local/evs-eye-local
+        mc anonymous set download local/evs-eye-local/platform/oems
 
   api:
     image: evseye-api:local
+    pull_policy: build
     build:
       context: .
       dockerfile: apps/api/Dockerfile
@@ -67,9 +69,13 @@ services:
     environment:
       DATABASE_URL: postgresql://evseye:evseye@postgres:5432/evseye?schema=public
       REDIS_URL: redis://redis:6379
+      APP_BASE_DOMAINS: localhost
+      APP_GENERIC_HOSTS: localhost,127.0.0.1
+      CLIENT_PROXY_SECRET: ${CLIENT_PROXY_SECRET:-local-client-gateway-development-secret-please-change}
       S3_BUCKET: evs-eye-local
       S3_ENDPOINT: http://minio:9000
       S3_PUBLIC_ENDPOINT: http://localhost:9000
+      MEDIA_PUBLIC_BASE_URL: http://localhost:9000/evs-eye-local
       AWS_ACCESS_KEY_ID: evseye-minio
       AWS_SECRET_ACCESS_KEY: evseye-minio-local-password
     ports:
@@ -88,6 +94,7 @@ services:
 
   migrate:
     image: evseye-api:local
+    pull_policy: build
     build:
       context: .
       dockerfile: apps/api/Dockerfile
@@ -99,7 +106,7 @@ services:
         "./apps/api/node_modules/.bin/prisma",
         "migrate",
         "deploy",
-        "--schema=apps/api/prisma/schema.prisma",
+        "--config=apps/api/prisma.config.ts",
       ]
     depends_on:
       postgres:
@@ -107,24 +114,36 @@ services:
 
   seed:
     image: evseye-api:local
+    pull_policy: build
     build:
       context: .
       dockerfile: apps/api/Dockerfile
     env_file: .env
     environment:
       DATABASE_URL: postgresql://evseye:evseye@postgres:5432/evseye?schema=public
+      S3_BUCKET: evs-eye-local
+      S3_ENDPOINT: http://minio:9000
+      AWS_REGION: ap-south-1
+      AWS_ACCESS_KEY_ID: evseye-minio
+      AWS_SECRET_ACCESS_KEY: evseye-minio-local-password
     command: ["node", "apps/api/prisma/seed.mjs"]
     depends_on:
       migrate:
         condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
 
   web:
     image: evseye-web:local
+    pull_policy: build
     build:
       context: .
       dockerfile: apps/web/Dockerfile
     environment:
       NODE_ENV: production
+      API_INTERNAL_URL: http://api:3000/api/v1
+      CLIENT_PROXY_SECRET: ${CLIENT_PROXY_SECRET:-local-client-gateway-development-secret-please-change}
+      SESSION_COOKIE_SECURE: "false"
       PORT: 3001
     ports:
       - "3001:3001"

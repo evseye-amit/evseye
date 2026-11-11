@@ -1,0 +1,66 @@
+name: Deploy marketing site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/site/**'
+      - '.github/workflows/deploy-site.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: marketing-site-production
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: Validate marketing infrastructure
+        working-directory: infra/site
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+  publish:
+    if: vars.SITE_DEPLOY_ENABLED == 'true'
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build and validate static site
+        run: node apps/site/scripts/build.mjs
+      - name: Configure AWS credentials through GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ap-south-1
+      - name: Publish files
+        env:
+          SITE_BUCKET: ${{ vars.SITE_BUCKET }}
+        run: |
+          set -euo pipefail
+          : "${SITE_BUCKET:?Set SITE_BUCKET from the Terraform output}"
+          aws s3 sync apps/site/dist/ "s3://${SITE_BUCKET}/" \
+            --delete --cache-control 'public,max-age=300'
+          for page in index.html 404.html; do
+            aws s3 cp "apps/site/dist/${page}" "s3://${SITE_BUCKET}/${page}" \
+              --content-type 'text/html; charset=utf-8' --cache-control 'no-cache'
+          done
+      - name: Invalidate CloudFront
+        env:
+          SITE_DISTRIBUTION_ID: ${{ vars.SITE_DISTRIBUTION_ID }}
+        run: |
+          set -euo pipefail
+          : "${SITE_DISTRIBUTION_ID:?Set SITE_DISTRIBUTION_ID from the Terraform output}"
+          aws cloudfront create-invalidation \
+            --distribution-id "$SITE_DISTRIBUTION_ID" --paths '/*'

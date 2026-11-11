@@ -1,27 +1,33 @@
 import {
   IsIn,
   IsInt,
+  IsOptional,
+  IsEnum,
   IsString,
   IsUUID,
   Max,
   MaxLength,
   Min,
 } from 'class-validator';
+import { PhotoSubjectType, PhotoType, PhotoWorkflowType } from '@prisma/client';
 
 export class CreateUploadIntentDto {
-  @IsIn(['RIDER', 'FLEET', 'BATTERY', 'CONTROLLER', 'INSPECTION'])
-  entityType!: 'RIDER' | 'FLEET' | 'BATTERY' | 'CONTROLLER' | 'INSPECTION';
+  @IsOptional() @IsEnum(PhotoWorkflowType)
+  workFlowType?: PhotoWorkflowType;
+
+  @IsOptional() @IsEnum(PhotoSubjectType)
+  subjectType?: PhotoSubjectType;
 
   @IsUUID()
   entityId!: string;
 
   @IsString()
-  @MaxLength(80)
-  photoType!: string;
+  @IsEnum(PhotoType)
+  photoType!: PhotoType;
 
   @IsString()
-  @IsIn(['image/jpeg', 'image/png', 'image/webp'])
-  mimeType!: 'image/jpeg' | 'image/png' | 'image/webp';
+  @IsIn(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
+  mimeType!: 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf';
 
   @IsString()
   @MaxLength(255)

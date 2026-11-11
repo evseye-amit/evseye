@@ -2,15 +2,17 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { Environment } from '../config/environment.js';
+import { RiderKycStatusService } from '../riders/rider-kyc-status.service.js';
 
 @Injectable()
 export class DashboardService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<Environment, true>,
+    private readonly riderKyc: RiderKycStatusService,
   ) {}
 
-  async summary(tenantId: string) {
+  async summary(clientId: string) {
     const cutoff = new Date(
       Date.now() -
         this.config.getOrThrow('IOT_OFFLINE_THRESHOLD_SECONDS') * 1000,
@@ -29,30 +31,26 @@ export class DashboardService {
     ] = await Promise.all([
       this.prisma.fleet.groupBy({
         by: ['status'],
-        where: { tenantId, deletedAt: null },
+        where: { clientId, deletedAt: null },
         _count: true,
       }),
       this.prisma.rider.groupBy({
         by: ['status'],
-        where: { tenantId, deletedAt: null },
+        where: { clientId, deletedAt: null },
         _count: true,
       }),
-      this.prisma.riderKyc.groupBy({
-        by: ['status'],
-        where: { tenantId },
-        _count: true,
-      }),
-      this.prisma.allocation.count({ where: { tenantId, status: 'ACTIVE' } }),
+      this.riderKyc.summary(clientId),
+      this.prisma.allocation.count({ where: { clientId, status: 'ACTIVE' } }),
       this.prisma.allocation.count({
-        where: { tenantId, allocatedAt: { gte: today } },
+        where: { clientId, allocatedAt: { gte: today } },
       }),
       this.prisma.allocation.count({
-        where: { tenantId, deallocatedAt: { gte: today } },
+        where: { clientId, deallocatedAt: { gte: today } },
       }),
       this.prisma.vehicleCurrentState.count({
-        where: { tenantId, lastHeartbeat: { gte: cutoff } },
+        where: { clientId, lastHeartbeatAt: { gte: cutoff } },
       }),
-      this.prisma.vehicleCurrentState.count({ where: { tenantId } }),
+      this.prisma.vehicleCurrentState.count({ where: { clientId } }),
     ]);
 
     return {
@@ -62,7 +60,7 @@ export class DashboardService {
       riders: Object.fromEntries(
         riders.map((item) => [item.status, item._count]),
       ),
-      kyc: Object.fromEntries(kyc.map((item) => [item.status, item._count])),
+      kyc,
       operations: {
         allocationsToday,
         deallocationsToday,

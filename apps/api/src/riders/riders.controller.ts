@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  Header,
   Param,
   Patch,
   Post,
@@ -15,11 +17,12 @@ import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
-import { TenantContextService } from '../auth/tenant-context.service.js';
-import { CreateRiderDto } from './dto/create-rider.dto.js';
+import { ClientContextService } from '../auth/client-context.service.js';
+import { BulkRiderDto, CreateRiderDto } from './dto/create-rider.dto.js';
 import { ListRidersDto } from './dto/list-riders.dto.js';
 import { UpdateRiderDto } from './dto/update-rider.dto.js';
 import { RidersService } from './riders.service.js';
+import { RiderOnboardingConfigurationService } from './rider-onboarding-configuration.service.js';
 
 @Controller('riders')
 @UseGuards(AccessTokenGuard, RolesGuard)
@@ -27,32 +30,44 @@ export class RidersController {
   constructor(
     private readonly ridersService: RidersService,
     private readonly audit: AuditService,
-    private readonly tenantContext: TenantContextService,
+    private readonly clientContext: ClientContextService,
+    private readonly riderOnboardingConfiguration: RiderOnboardingConfigurationService,
   ) {}
 
   @Get()
   @Roles(
-    UserRole.TENANT_ADMIN,
-    UserRole.OPERATIONS_MANAGER,
+    UserRole.CLIENT_ADMIN,
     UserRole.FLEET_MANAGER,
     UserRole.KYC_OPERATOR,
   )
   async list(@CurrentUser() user: AuthUser, @Query() query: ListRidersDto) {
     return {
       data: await this.ridersService.list(
-        this.tenantContext.requireTenantId(user),
+        this.clientContext.requireClientId(user),
         query,
       ),
     };
   }
 
+  @Get('onboarding-configuration')
+  @Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
+  async onboardingConfiguration(@CurrentUser() user: AuthUser) {
+    return {
+      data: this.riderOnboardingConfiguration.toPublicConfiguration(
+        await this.riderOnboardingConfiguration.getEffectiveConfiguration(
+          this.clientContext.requireClientId(user),
+        ),
+      ),
+    };
+  }
+
   @Post()
-  @Roles(UserRole.TENANT_ADMIN, UserRole.OPERATIONS_MANAGER)
+  @Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
   async create(@CurrentUser() user: AuthUser, @Body() dto: CreateRiderDto) {
-    const tenantId = this.tenantContext.requireTenantId(user);
-    const rider = await this.ridersService.create(tenantId, dto);
+    const clientId = this.clientContext.requireClientId(user);
+    const rider = await this.ridersService.create(clientId, dto);
     await this.audit.record({
-      tenantId,
+      clientId,
       actorId: user.id,
       action: 'RIDER_CREATED',
       entityType: 'RIDER',
@@ -61,18 +76,54 @@ export class RidersController {
     });
     return { data: rider };
   }
+  @Post('bulk')
+  @Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
+  async bulkCreate(@CurrentUser() user: AuthUser, @Body() dto: BulkRiderDto) {
+    return {
+      data: await this.ridersService.bulkCreate(
+        this.clientContext.requireClientId(user),
+        user.id,
+        dto.filename,
+        dto.rows,
+      ),
+    };
+  }
+  @Get('imports/:id/failed-records')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  async failedRecords(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const rows = await this.ridersService.failedRows(
+      this.clientContext.requireClientId(user),
+      id,
+    );
+    if (!rows.length) return '';
+    const headers = Object.keys(rows[0] as Record<string, unknown>);
+    const cell = (value: unknown) =>
+      `"${String(value ?? '').replaceAll('"', '""')}"`;
+    return [
+      headers.join(','),
+      ...rows.map((row) =>
+        headers
+          .map((header) => cell((row as Record<string, unknown>)[header]))
+          .join(','),
+      ),
+    ].join('\n');
+  }
+  @Post('imports/:id/retry')
+  @Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
+  async retryImport(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: { rows: CreateRiderDto[] }) {
+    return { data: await this.ridersService.retryImport(this.clientContext.requireClientId(user), user.id, id, body.rows) };
+  }
 
   @Get(':id')
   @Roles(
-    UserRole.TENANT_ADMIN,
-    UserRole.OPERATIONS_MANAGER,
+    UserRole.CLIENT_ADMIN,
     UserRole.FLEET_MANAGER,
     UserRole.KYC_OPERATOR,
   )
   async getById(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return {
       data: await this.ridersService.getById(
-        this.tenantContext.requireTenantId(user),
+        this.clientContext.requireClientId(user),
         id,
       ),
     };
@@ -80,8 +131,8 @@ export class RidersController {
 
   @Patch(':id')
   @Roles(
-    UserRole.TENANT_ADMIN,
-    UserRole.OPERATIONS_MANAGER,
+    UserRole.CLIENT_ADMIN,
+    UserRole.FLEET_MANAGER,
     UserRole.KYC_OPERATOR,
   )
   async update(
@@ -89,10 +140,10 @@ export class RidersController {
     @Param('id') id: string,
     @Body() dto: UpdateRiderDto,
   ) {
-    const tenantId = this.tenantContext.requireTenantId(user);
-    const rider = await this.ridersService.update(tenantId, id, dto);
+    const clientId = this.clientContext.requireClientId(user);
+    const rider = await this.ridersService.update(clientId, id, dto);
     await this.audit.record({
-      tenantId,
+      clientId,
       actorId: user.id,
       action: 'RIDER_UPDATED',
       entityType: 'RIDER',
@@ -103,5 +154,13 @@ export class RidersController {
       },
     });
     return { data: rider };
+  }
+  @Delete(':id')
+  @Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
+  async remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const clientId = this.clientContext.requireClientId(user);
+    const data = await this.ridersService.remove(clientId, id);
+    await this.audit.record({ clientId, actorId: user.id, action: 'RIDER_DELETED', entityType: 'RIDER', entityId: id });
+    return { data };
   }
 }

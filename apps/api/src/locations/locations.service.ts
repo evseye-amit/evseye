@@ -1,22 +1,223 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  ClientOnboardingStep,
+  ClientOnboardingStepStatus,
+  ClientStatus,
+  ImportEntityType,
+  ImportStatus,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { normalizeImportFailures } from '../imports/import-failure.js';
 import type { CreateHubDto } from './dto/create-hub.dto.js';
-import type { CreateZoneDto } from './dto/create-zone.dto.js';
+import { ImportAuthorizationService } from '../imports/import-authorization.service.js';
 
 @Injectable()
 export class LocationsService {
-  constructor(private readonly prisma: PrismaService) {}
-  listZones(tenantId: string) { return this.prisma.zone.findMany({ where: { tenantId }, orderBy: { name: 'asc' } }); }
-  async createZone(tenantId: string, dto: CreateZoneDto) {
-    try { return await this.prisma.zone.create({ data: { ...dto, tenantId } }); }
-    catch (error) { if (this.unique(error)) throw new ConflictException('Zone code already exists.'); throw error; }
+  constructor(private readonly prisma: PrismaService, private readonly imports: ImportAuthorizationService) {}
+  listHubs(clientId: string) {
+    return this.prisma.hub.findMany({
+      where: { clientId, deletedAt: null },
+      orderBy: { name: 'asc' },
+    });
   }
-  listHubs(tenantId: string) { return this.prisma.hub.findMany({ where: { tenantId }, include: { zone: true }, orderBy: { name: 'asc' } }); }
-  async createHub(tenantId: string, dto: CreateHubDto) {
-    const zone = await this.prisma.zone.findFirst({ where: { id: dto.zoneId, tenantId } });
-    if (!zone) throw new NotFoundException('Zone not found.');
-    try { return await this.prisma.hub.create({ data: { ...dto, tenantId } }); }
-    catch (error) { if (this.unique(error)) throw new ConflictException('Hub code already exists.'); throw error; }
+  async createHub(clientId: string, dto: CreateHubDto) {
+    await this.assertParent(clientId, dto.parentHubId);
+    const data = { ...dto, code: dto.code.trim().toUpperCase(), clientId };
+    try {
+      const hub = await this.prisma.hub.create({ data });
+      await this.completeOnboardingStep(clientId);
+      return hub;
+    } catch (error) {
+      if (this.unique(error))
+        throw new ConflictException('Hub code already exists.');
+      throw error;
+    }
   }
-  private unique(error: unknown) { return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002'; }
+  async updateHub(clientId: string, id: string, dto: CreateHubDto) {
+    if (dto.parentHubId === id)
+      throw new ConflictException('A Hub cannot be its own parent.');
+    await this.assertParent(clientId, dto.parentHubId);
+    const existing = await this.prisma.hub.findFirst({
+      where: { id, clientId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundException('Hub not found.');
+    try {
+      return await this.prisma.hub.update({
+        where: { id },
+        data: { ...dto, code: dto.code.trim().toUpperCase() },
+      });
+    } catch (error) {
+      if (this.unique(error))
+        throw new ConflictException('Hub code already exists.');
+      throw error;
+    }
+  }
+  async deleteHub(clientId: string, id: string) {
+    const hub = await this.prisma.hub.findFirst({
+      where: { id, clientId, deletedAt: null },
+      select: { _count: { select: {
+        userHubs: { where: { user: { isActive: true } } },
+        homeFleets: { where: { deletedAt: null } },
+        currentFleets: { where: { deletedAt: null } },
+        childHubs: { where: { deletedAt: null } },
+      } } },
+    });
+    if (!hub) throw new NotFoundException('Hub not found.');
+    if (Object.values(hub._count).some((count) => count > 0)) {
+      throw new ConflictException('Move assigned managers, fleets, and child hubs before deleting this hub.');
+    }
+    const result = await this.prisma.hub.updateMany({
+      where: { id, clientId, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+    if (!result.count) throw new NotFoundException('Hub not found.');
+    return { deleted: true };
+  }
+  async bulkCreateHubs(
+    clientId: string,
+    actorId: string,
+    filename: string,
+    rows: CreateHubDto[],
+  ) {
+    const existing = new Set(
+      (
+        await this.prisma.hub.findMany({
+          where: { clientId },
+          select: { code: true },
+        })
+      ).map((hub) => hub.code.trim().toUpperCase()),
+    );
+    const seen = new Set<string>();
+    const valid: CreateHubDto[] = [];
+    const failures: Array<
+      CreateHubDto & {
+        row_number: number;
+        failure_reason: string;
+        failure_fields: string;
+      }
+    > = [];
+    rows.forEach((row, index) => {
+      const code = row.code?.trim().toUpperCase();
+      const missing = [
+        !code && 'code',
+        !row.name?.trim() && 'name',
+        !row.city?.trim() && 'city',
+        !row.state?.trim() && 'state',
+      ].filter(Boolean);
+      const duplicate =
+        !missing.length && (seen.has(code) || existing.has(code));
+      if (missing.length || duplicate) {
+        failures.push({
+          ...row,
+          row_number: index + 2,
+          failure_reason: missing.length
+            ? 'Required fields are missing.'
+            : 'Hub code already exists for this client.',
+          failure_fields: missing.length ? missing.join(',') : 'code',
+        });
+      } else {
+        seen.add(code);
+        valid.push({ ...row, code });
+      }
+    });
+    let created = 0;
+    if (valid.length) {
+      await this.prisma.$transaction(
+        valid.map((row) =>
+          this.prisma.hub.create({ data: { ...row, clientId } }),
+        ),
+      );
+      created = valid.length;
+      await this.completeOnboardingStep(clientId);
+    }
+    const status = !created
+      ? ImportStatus.FAIL
+      : failures.length
+        ? ImportStatus.PARTIAL_PASS
+        : ImportStatus.PASS;
+    const job = await this.prisma.importJob.create({
+      data: {
+        clientId,
+        entityType: ImportEntityType.HUB,
+        status,
+        originalFilename: filename,
+        totalRows: rows.length,
+        passedRows: created,
+        failedRows: failures.length,
+        duplicateRows: failures.filter((row) => row.failure_fields === 'code')
+          .length,
+        createdRows: created,
+        createdById: actorId,
+        completedAt: new Date(),
+        metadata: JSON.parse(JSON.stringify({ failures })),
+      },
+    });
+    return {
+      jobId: job.id,
+      status,
+      totalRows: rows.length,
+      passedRows: created,
+      failedRows: failures.length,
+      createdRows: created,
+      failures: normalizeImportFailures(failures),
+    };
+  }
+  async retryImport(clientId: string, actorId: string, jobId: string, rows: CreateHubDto[], role: import('@prisma/client').UserRole) {
+    const job = await this.imports.authorizeJob({ jobId, clientId, entityType: ImportEntityType.HUB, role });
+    return this.bulkCreateHubs(clientId, actorId, job.originalFilename, rows);
+  }
+  async failedRows(clientId: string, jobId: string) {
+    const job = await this.prisma.importJob.findFirst({
+      where: { id: jobId, clientId, entityType: ImportEntityType.HUB },
+    });
+    if (!job) throw new NotFoundException('Import job not found.');
+    return normalizeImportFailures((job.metadata as { failures?: unknown[] } | null)?.failures);
+  }
+  private async assertParent(clientId: string, parentHubId?: string) {
+    if (!parentHubId) return;
+    const parent = await this.prisma.hub.findFirst({
+      where: { id: parentHubId, clientId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!parent) throw new NotFoundException('Parent hub not found.');
+  }
+  private async completeOnboardingStep(clientId: string) {
+    const progress = await this.prisma.clientOnboardingProgress.findUnique({
+      where: { clientId },
+      include: { client: { select: { status: true } } },
+    });
+    if (
+      !progress ||
+      progress.client.status !== ClientStatus.CREATED ||
+      progress.currentStep !== ClientOnboardingStep.HUBS
+    )
+      return;
+    await this.prisma.$transaction([
+      this.prisma.clientOnboardingStepRecord.updateMany({
+        where: { progressId: progress.id, step: ClientOnboardingStep.HUBS },
+        data: {
+          status: ClientOnboardingStepStatus.COMPLETED,
+          savedAt: new Date(),
+          completedAt: new Date(),
+        },
+      }),
+      this.prisma.clientOnboardingProgress.update({
+        where: { id: progress.id },
+        data: { currentStep: ClientOnboardingStep.FLEET_MANAGERS },
+      }),
+    ]);
+  }
+  private unique(error: unknown) {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      error.code === 'P2002'
+    );
+  }
 }

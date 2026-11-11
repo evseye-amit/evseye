@@ -1,0 +1,23 @@
+# API builds need shared dependency metadata and only API runtime/build sources.
+**
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!apps/
+!apps/api/
+!apps/api/package.json
+!apps/api/tsconfig.json
+!apps/api/tsconfig.build.json
+!apps/api/nest-cli.json
+!apps/api/Dockerfile
+!apps/api/src/
+!apps/api/src/**
+!apps/api/prisma/
+!apps/api/prisma/**
+!apps/api/scripts/
+!apps/api/scripts/**
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+**/*.spec.ts
+**/.env*

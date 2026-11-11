@@ -1,7 +1,12 @@
 import { FleetStatus } from '@prisma/client';
-import { IsEnum } from 'class-validator';
+import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class ChangeFleetStatusDto {
   @IsEnum(FleetStatus)
   status!: FleetStatus;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  reason?: string;
 }

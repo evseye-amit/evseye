@@ -1,7 +1,7 @@
 import type { KycStatus, KycType } from '@prisma/client';
 
 export interface KycVerificationRequest {
-  tenantId: string;
+  clientId: string;
   riderId: string;
   type: KycType;
   referenceHint?: string;

@@ -1,0 +1,334 @@
+import { expandRiderBankComponent, normalizeRiderBankValues } from './rider-bank-fields.js';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { FeatureCategory } from '@prisma/client';
+import { normalizeIndianMobile } from '../common/phone.js';
+import { PrismaService } from '../prisma/prisma.service.js';
+import { WorkflowResolverService } from '../workflow/workflow-resolver.service.js';
+import { translatedProperty, type ApiLocale } from '../common/locale.js';
+import { riderCatalogLabel } from './rider-field-locales.js';
+import { profileAddressFields } from './rider-profile-values.js';
+
+type JsonRecord = Record<string, unknown>;
+type RiderField = {
+  fieldId: string;
+  featureId: string;
+  featureCode: string;
+  fieldCode: string;
+  storageKey: string;
+  fieldName: string;
+  label: string;
+  description?: string;
+  placeholder?: string;
+  fieldType: string;
+  dataType?: string;
+  required: boolean;
+  readOnly: boolean;
+  disabled: boolean;
+  editable: boolean;
+  importable: boolean;
+  billingUnit: string;
+  isUpload: boolean;
+  sequence: number;
+  validation: JsonRecord;
+  configuration: JsonRecord;
+};
+
+type RiderOnboardingConfiguration = {
+  package: { id: string; code: string; name: string };
+  effectivePackageRevision?: { id: string; version: number; contentHash: string; effectiveAt: Date | null };
+  pendingPackageRevision?: { id: string; version: number; contentHash: string; publishedAt: Date } | null;
+  onboarding: {
+    category: FeatureCategory;
+    steps: Array<{
+      stepId: string;
+      stepCode: string;
+      stepName: string;
+      description: string | null;
+      parentId: string | null;
+      sequence: number;
+      active: boolean;
+      enabled: boolean;
+      translations?: unknown;
+      fields: RiderField[];
+    }>;
+  };
+};
+
+const asRecord = (value: unknown): JsonRecord =>
+  value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as JsonRecord)
+    : {};
+
+const structuredAddressStorageKeys = new Set(
+  Object.entries(profileAddressFields)
+    .filter(([fieldCode]) => /^(CURRENT_ADDRESS|PERMANENT_ADDRESS|SAME_AS_CURRENT_ADDRESS)/.test(fieldCode))
+    .map(([, storageKey]) => storageKey),
+);
+
+function riderStorageKey(storageKey: string) {
+  if (storageKey.startsWith('metadata.') || !structuredAddressStorageKeys.has(storageKey)) return storageKey;
+  return `metadata.${storageKey}`;
+}
+
+@Injectable()
+export class RiderOnboardingConfigurationService {
+  constructor(private readonly prisma: PrismaService, private readonly workflows: WorkflowResolverService) {}
+
+  /** Keep the resolved validation model private; expose each rule only in configuration. */
+  toPublicConfiguration(effective: RiderOnboardingConfiguration, locale: ApiLocale = 'en') {
+    return {
+      package: effective.package,
+      effectivePackageRevision: effective.effectivePackageRevision,
+      pendingPackageRevision: effective.pendingPackageRevision,
+      onboarding: {
+        category: effective.onboarding.category,
+        steps: effective.onboarding.steps.map((step) => ({
+          stepId: step.stepId,
+          stepCode: step.stepCode,
+          stepName: translatedProperty(step.stepName, step.translations, locale, 'displayName'),
+          description: translatedProperty(step.description, step.translations, locale, 'description'),
+          parentId: step.parentId,
+          sequence: step.sequence,
+          fields: step.fields.map((field) => {
+            const storedConfiguration = Object.fromEntries(
+              Object.entries(field.configuration).filter(([key]) =>
+                ![
+                  'fieldCode', 'fieldId', 'featureId', 'featureCode', 'billingUnit',
+                  'sequence', 'translations', 'placeholder',
+                ].includes(key),
+              ),
+            );
+            const placeholder = translatedProperty(
+              field.placeholder,
+              field.configuration.translations,
+              locale,
+              'placeholder',
+            );
+            return {
+              featureId: field.featureId,
+              featureCode: field.featureCode,
+              ...(field.fieldCode ? { fieldCode: field.fieldCode } : {}),
+              name: translatedProperty(undefined, field.configuration.translations, locale, 'name') ?? riderCatalogLabel(field.fieldCode, locale) ?? riderCatalogLabel(field.featureCode, locale) ?? field.fieldName,
+              description: translatedProperty(field.description ?? null, field.configuration.translations, locale, 'description'),
+              billingUnit: field.billingUnit,
+              sequence: field.sequence,
+              configuration: {
+                ...storedConfiguration,
+                label: translatedProperty(undefined, field.configuration.translations, locale, 'label') ?? riderCatalogLabel(field.fieldCode, locale) ?? riderCatalogLabel(field.featureCode, locale) ?? field.label,
+                ...(placeholder ? { placeholder } : {}),
+                fieldType: field.isUpload ? 'UPLOAD' : field.fieldType,
+                ...(field.storageKey ? { storageKey: field.storageKey } : {}),
+                required: field.required,
+                readOnly: field.readOnly,
+                disabled: field.disabled,
+                editable: field.editable,
+                importable: field.importable,
+                validation: field.validation,
+              },
+            };
+          }),
+        })),
+      },
+    };
+  }
+
+  async getEffectiveConfiguration(clientId: string): Promise<RiderOnboardingConfiguration> {
+    const resolved = await this.workflows.resolve(clientId, 'RIDER_ONBOARDING', 'RIDER');
+
+    const grouped = new Map<
+      string,
+      RiderOnboardingConfiguration['onboarding']['steps'][number]
+    >();
+    for (const component of resolved.components.flatMap(expandRiderBankComponent)) {
+      const feature = { id: component.featureId, code: component.featureCode,
+        name: component.featureName, description: component.description,
+        billingUnit: component.billingUnit, displayOrder: component.order };
+      const step = component.step;
+      const featureConfiguration = component.configuration;
+      const packageConfiguration: JsonRecord = {};
+      const featureTranslations = asRecord(featureConfiguration.translations);
+      const packageTranslations = asRecord(packageConfiguration.translations);
+      const translations = Object.fromEntries(
+        [...new Set([...Object.keys(featureTranslations), ...Object.keys(packageTranslations)])].map((locale) => [locale, {
+          ...asRecord(featureTranslations[locale]),
+          ...asRecord(packageTranslations[locale]),
+        }]),
+      );
+      const configuration: JsonRecord = {
+        ...featureConfiguration,
+        ...packageConfiguration,
+        translations,
+        validation: {
+          ...asRecord(featureConfiguration.validation),
+          ...asRecord(packageConfiguration.validation),
+        },
+      };
+      const configuredFieldCode = String(configuration.fieldCode ?? '').trim();
+      const fieldCode = configuredFieldCode || (feature.code === 'CAPTURE_REFERENCE' ? 'RIDER_REFERENCES' : feature.code === 'CAPTURE_REFERRAL' ? 'REFERRAL_CODE' : feature.billingUnit === 'UPLOAD' ? feature.code : '');
+      const storageKey = String(configuration.storageKey ?? (feature.code === 'CAPTURE_REFERENCE' ? 'metadata.references' : '')).trim();
+      if (configuration.enabled === false) continue;
+
+      const field: RiderField = {
+        fieldId: feature.id,
+        featureId: feature.id,
+        featureCode: feature.code,
+        fieldCode,
+        storageKey,
+        fieldName: feature.name,
+        label: String(configuration.label ?? feature.name),
+        description: feature.description ?? undefined,
+        placeholder:
+          typeof configuration.placeholder === 'string'
+            ? configuration.placeholder
+            : undefined,
+        fieldType: String(configuration.fieldType ?? (feature.code === 'CAPTURE_REFERENCE' ? 'REFERENCE' : 'TEXT')),
+        dataType:
+          typeof configuration.dataType === 'string'
+            ? configuration.dataType
+            : undefined,
+        required: configuration.required === true,
+        readOnly: configuration.readOnly === true,
+        disabled: configuration.disabled === true,
+        editable: configuration.editable !== false,
+        importable: configuration.importable === true,
+        billingUnit: feature.billingUnit,
+        isUpload: feature.billingUnit === 'UPLOAD',
+        sequence:
+          component.order,
+        validation: asRecord(configuration.validation),
+        configuration,
+      };
+      const current = grouped.get(step.id) ?? {
+        stepId: step.id,
+        stepCode: step.code,
+        stepName: step.name,
+        description: step.description,
+        parentId: step.parentId,
+        sequence: step.order,
+        active: true,
+        enabled: true,
+        translations: step.translations,
+        fields: [] as RiderField[],
+      };
+      current.fields.push(field);
+      grouped.set(step.id, current);
+    }
+
+    const steps = [...grouped.values()]
+      .map((step) => ({
+        ...step,
+        fields: step.fields.sort((left, right) => left.sequence - right.sequence),
+      }))
+      .sort((left, right) => left.sequence - right.sequence);
+    return {
+      package: resolved.package,
+      onboarding: { category: FeatureCategory.RIDER_ONBOARDING, steps },
+    };
+  }
+
+  async validateAndMapValues(
+    clientId: string,
+    values: Record<string, unknown>,
+    mode: 'CREATE' | 'EDIT' | 'IMPORT',
+    existingMetadata: unknown = {},
+    options: { requireAll?: boolean } = {},
+  ) {
+    const configuration = await this.getEffectiveConfiguration(clientId);
+    const fields = configuration.onboarding.steps.flatMap((step) => step.fields);
+    const inputFields = fields.filter((field): field is RiderField & { fieldCode: string; storageKey: string } => Boolean(field.fieldCode && field.storageKey));
+    const allowed = new Map(inputFields.map((field) => [field.fieldCode, field]));
+    for (const code of Object.keys(values)) {
+      if (!allowed.has(code)) {
+        throw new BadRequestException(`${code} is not available in the client's active package.`);
+      }
+    }
+    values = normalizeRiderBankValues(values, new Set(allowed.keys()));
+    const mapped: Record<string, unknown> = {};
+    const metadata = { ...asRecord(existingMetadata) };
+    for (const field of inputFields) {
+      if (mode === 'EDIT' && (!field.editable || field.readOnly || field.disabled)) continue;
+      const storageKey = riderStorageKey(field.storageKey);
+      const supplied = values[field.fieldCode];
+      if (field.fieldType === 'REFERENCE') {
+        if (supplied === undefined && (mode === 'EDIT' || options.requireAll === false)) continue;
+        const entries = supplied == null ? [] : supplied;
+        if (!Array.isArray(entries)) throw new BadRequestException(`${field.fieldCode} must be a list.`);
+        const minimum = Math.max(0, Number(field.configuration.minReferences ?? 0));
+        const maximum = Math.max(minimum, Number(field.configuration.maxReferences ?? 10));
+        if (entries.length < minimum || entries.length > maximum) throw new BadRequestException(`${field.fieldCode} requires ${minimum} to ${maximum} references.`);
+        const references = entries.map((entry, index) => {
+          const reference = asRecord(entry);
+          const name = String(reference.name ?? '').trim();
+          const mobile = String(reference.mobile ?? '').trim();
+          const relation = String(reference.relation ?? '').trim();
+          if (!name || name.length > 120 || !relation || relation.length > 80 || !/^(?:\+?91|0)?[6-9]\d{9}$/.test(mobile)) throw new BadRequestException(`Reference ${index + 1} needs a valid name, mobile and relation.`);
+          return { name, mobile: normalizeIndianMobile(mobile), relation };
+        });
+        if (storageKey.startsWith('metadata.')) metadata[storageKey.slice('metadata.'.length)] = references;
+        else mapped[storageKey] = references;
+        continue;
+      }
+      const rawValue = supplied === undefined || supplied === null ? '' : String(supplied).trim();
+      const value = field.fieldCode === 'PAN_NUMBER' ? rawValue.toUpperCase() : rawValue;
+      if (options.requireAll !== false && field.required && !value) {
+        throw new BadRequestException(`${field.fieldCode} is required.`);
+      }
+      if (!value) continue;
+      this.validateValue(field, value);
+      const normalized = field.fieldType === 'MOBILE' ? normalizeIndianMobile(value) : value;
+      if (storageKey.startsWith('metadata.')) {
+        metadata[storageKey.slice('metadata.'.length)] = normalized;
+      } else {
+        mapped[storageKey] =
+          field.dataType === 'DATE' ? this.parseDate(field, normalized) : normalized;
+      }
+    }
+    if (Object.keys(metadata).length) mapped.metadata = metadata;
+    return { configuration, data: mapped };
+  }
+
+  private validateValue(field: RiderField, value: string) {
+    const validation = field.validation;
+    const minLength = Number(validation.minLength ?? 0);
+    const maxLength = Number(validation.maxLength ?? 0);
+    if (minLength && value.length < minLength) {
+      throw new BadRequestException(`${field.fieldCode} must contain at least ${minLength} characters.`);
+    }
+    if (maxLength && value.length > maxLength) {
+      throw new BadRequestException(`${field.fieldCode} must contain at most ${maxLength} characters.`);
+    }
+    if (typeof validation.pattern === 'string' && !new RegExp(validation.pattern).test(value)) {
+      throw new BadRequestException(`${field.fieldCode} is invalid.`);
+    }
+    const options = Array.isArray(validation.allowedValues)
+      ? validation.allowedValues
+      : Array.isArray(field.configuration.options)
+        ? field.configuration.options
+        : [];
+    if (options.length && !options.map(String).includes(value)) {
+      throw new BadRequestException(`${field.fieldCode} value is not allowed.`);
+    }
+    const ageRule = field.configuration.minAge ?? field.configuration.minimumAge ?? field.validation.minAge ?? field.validation.minimumAge;
+    const minAge = Number(ageRule ?? 0);
+    if (field.dataType === 'DATE' && Number.isFinite(minAge) && minAge > 0) {
+      const birth = this.parseDate(field, value);
+      const now = new Date();
+      let age = now.getUTCFullYear() - birth.getUTCFullYear();
+      if (now.getUTCMonth() < birth.getUTCMonth() || (now.getUTCMonth() === birth.getUTCMonth() && now.getUTCDate() < birth.getUTCDate())) age -= 1;
+      if (age < minAge) throw new BadRequestException(`${field.fieldCode} does not meet the minimum age requirement.`);
+    }
+  }
+
+  private parseDate(field: RiderField, value: string): Date {
+    const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    const display = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value);
+    const year = Number(iso?.[1] ?? display?.[3]);
+    const month = Number(iso?.[2] ?? display?.[2]);
+    const day = Number(iso?.[3] ?? display?.[1]);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if ((!iso && !display) || date.getUTCFullYear() !== year || date.getUTCMonth() + 1 !== month || date.getUTCDate() !== day) {
+      throw new BadRequestException(`${field.fieldCode} is invalid.`);
+    }
+    return date;
+  }
+}

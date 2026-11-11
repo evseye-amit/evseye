@@ -8,62 +8,70 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { OtpPurpose, UserRole } from '@prisma/client';
+import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
-import { TenantContextService } from '../auth/tenant-context.service.js';
-import { AuthService } from '../auth/auth.service.js';
+import { ClientContextService } from '../auth/client-context.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { AllocationsService } from './allocations.service.js';
 import { CreateAllocationDto } from './dto/create-allocation.dto.js';
 import { ListAllocationsDto } from './dto/list-allocations.dto.js';
-import { RequestDeallocationOtpDto } from './dto/request-deallocation-otp.dto.js';
-import { VerifyDeallocationOtpDto } from './dto/verify-deallocation-otp.dto.js';
 @Controller('allocations')
 @UseGuards(AccessTokenGuard, RolesGuard)
-@Roles(
-  UserRole.TENANT_ADMIN,
-  UserRole.OPERATIONS_MANAGER,
-  UserRole.FLEET_MANAGER,
-)
+@Roles(UserRole.CLIENT_ADMIN, UserRole.FLEET_MANAGER)
 export class AllocationsController {
   constructor(
     private readonly allocations: AllocationsService,
-    private readonly auth: AuthService,
     private readonly audit: AuditService,
-    private readonly tenants: TenantContextService,
+    private readonly clients: ClientContextService,
   ) {}
+  private isHubScopedFleetManager(user: AuthUser) {
+    return (
+      user.roles.includes(UserRole.FLEET_MANAGER) &&
+      !user.roles.includes(UserRole.CLIENT_ADMIN)
+    );
+  }
   @Get() async list(
     @CurrentUser() u: AuthUser,
     @Query() query: ListAllocationsDto,
   ) {
-    return {
-      data: await this.allocations.list(this.tenants.requireTenantId(u), query),
-    };
+    const clientId = this.clients.requireClientId(u);
+    const hubIds = this.isHubScopedFleetManager(u)
+      ? await this.allocations.fleetManagerHubIds(clientId, u.id)
+      : undefined;
+    return { data: await this.allocations.list(clientId, query, hubIds) };
   }
   @Get(':id') async get(@CurrentUser() u: AuthUser, @Param('id') id: string) {
-    return {
-      data: await this.allocations.get(this.tenants.requireTenantId(u), id),
-    };
+    const clientId = this.clients.requireClientId(u);
+    const hubIds = this.isHubScopedFleetManager(u)
+      ? await this.allocations.assertFleetManagerAllocation(clientId, u.id, id)
+      : undefined;
+    return { data: await this.allocations.get(clientId, id, hubIds) };
   }
   @Post() async initiate(
     @CurrentUser() u: AuthUser,
     @Body() dto: CreateAllocationDto,
     @Headers('idempotency-key') key?: string,
   ) {
-    const tenantId = this.tenants.requireTenantId(u);
+    const clientId = this.clients.requireClientId(u);
+    if (this.isHubScopedFleetManager(u))
+      await this.allocations.assertFleetManagerFleet(
+        clientId,
+        u.id,
+        dto.fleetId,
+      );
     const allocation = await this.allocations.initiate(
-      tenantId,
+      clientId,
       dto.fleetId,
       dto.riderId,
       u.id,
       key,
     );
     await this.audit.record({
-      tenantId,
+      clientId,
       actorId: u.id,
       action: 'ALLOCATION_INITIATED',
       entityType: 'ALLOCATION',
@@ -82,10 +90,12 @@ export class AllocationsController {
     @CurrentUser() u: AuthUser,
     @Param('id') id: string,
   ) {
-    const tenantId = this.tenants.requireTenantId(u);
-    const activation = await this.allocations.activate(tenantId, id);
+    const clientId = this.clients.requireClientId(u);
+    if (this.isHubScopedFleetManager(u))
+      await this.allocations.assertFleetManagerAllocation(clientId, u.id, id);
+    const activation = await this.allocations.activate(clientId, id);
     await this.audit.record({
-      tenantId,
+      clientId,
       actorId: u.id,
       action: 'ALLOCATION_ACTIVATED',
       entityType: 'ALLOCATION',
@@ -100,13 +110,15 @@ export class AllocationsController {
     @CurrentUser() u: AuthUser,
     @Param('id') id: string,
   ) {
-    const tenantId = this.tenants.requireTenantId(u);
+    const clientId = this.clients.requireClientId(u);
+    if (this.isHubScopedFleetManager(u))
+      await this.allocations.assertFleetManagerAllocation(clientId, u.id, id);
     const deallocation = await this.allocations.initiateDeallocation(
-      tenantId,
+      clientId,
       id,
     );
     await this.audit.record({
-      tenantId,
+      clientId,
       actorId: u.id,
       action: 'DEALLOCATION_INITIATED',
       entityType: 'ALLOCATION',
@@ -117,45 +129,19 @@ export class AllocationsController {
       data: deallocation,
     };
   }
-  @Post(':id/deallocation/otp/request') async otp(
-    @CurrentUser() u: AuthUser,
-    @Param('id') id: string,
-    @Body() dto: RequestDeallocationOtpDto,
-  ) {
-    return {
-      data: await this.auth.requestDeallocationOtp(
-        this.tenants.requireTenantId(u),
-        dto.phone,
-        id,
-        dto.party === 'RIDER'
-          ? OtpPurpose.DEALLOCATION_RIDER
-          : OtpPurpose.DEALLOCATION_OPERATOR,
-      ),
-    };
-  }
-  @Post(':id/deallocation/otp/verify') async verifyOtp(
-    @CurrentUser() u: AuthUser,
-    @Body() dto: VerifyDeallocationOtpDto,
-  ) {
-    return {
-      data: await this.auth.verifyDeallocationOtp(
-        this.tenants.requireTenantId(u),
-        dto.otpRequestId,
-        dto.code,
-      ),
-    };
-  }
   @Post(':id/deallocation/complete') async complete(
     @CurrentUser() u: AuthUser,
     @Param('id') id: string,
   ) {
-    const tenantId = this.tenants.requireTenantId(u);
+    const clientId = this.clients.requireClientId(u);
+    if (this.isHubScopedFleetManager(u))
+      await this.allocations.assertFleetManagerAllocation(clientId, u.id, id);
     const completion = await this.allocations.completeDeallocation(
-      tenantId,
+      clientId,
       id,
     );
     await this.audit.record({
-      tenantId,
+      clientId,
       actorId: u.id,
       action: 'DEALLOCATION_COMPLETED',
       entityType: 'ALLOCATION',

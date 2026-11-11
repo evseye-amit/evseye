@@ -1,0 +1,17 @@
+; Import into production account Route 53 public zone evseye.com (Z00675772S7AEIZEMRYG1).
+; Existing NS, SOA and staging delegation are intentionally omitted.
+$ORIGIN evseye.com.
+$TTL 300
+
+_30420d0f532f22033a6b2786cca4a9d3.evseye.com. 60 IN CNAME _ade37b45d902e22005a8b0c94aa75bce.wzccmgtwzk.acm-validations.aws.
+
+mail.evseye.com. 300 IN MX 5 mx1.mailer91.com.
+mail.evseye.com. 300 IN MX 10 mx2.mailer91.com.
+
+mail.evseye.com. 300 IN TXT "v=spf1 include:mailer91.com ~all"
+
+spaceship._domainkey.mail.evseye.com. 300 IN TXT "v=DKIM1;k=rsa;p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCW2UxfSdaD6l2YHlbGetsh0naUlhBYNrPFziLUKNsw1VTtk/UOM5j9zDQpEHbn9jTGiNooKjVU/i4uWBNEi3jn4409W/yeQeqF4/ye/ZYUCuZscGn+9OBHuDye9FwOz7SVnAnJpA0WxWOFZrrk2zepaweOytLSH1FKGkx2CsbvTwIDAQAB"
+
+mailer91.mail.evseye.com. 300 IN CNAME email.mailer91.com.
+
+_77c7b3957f86fc74dfd6e34e2b0975ca.www.evseye.com. 60 IN CNAME _d55d605abed3db772a0aea53ee8b85f4.wzccmgtwzk.acm-validations.aws.

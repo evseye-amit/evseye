@@ -1,0 +1,15 @@
+# Web builds do not send API code, database exports, or unrelated workspace files.
+**
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!apps/
+!apps/web/
+!apps/web/**
+**/node_modules
+**/.next
+**/dist
+**/*.tsbuildinfo
+**/.env*
+**/coverage
+**/.git

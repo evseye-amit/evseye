@@ -7,6 +7,9 @@ import {
   Logger,
 } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { requestLocale } from '../locale.js';
+import { localizeApiError } from '../mobile-error-translations.js';
+import { Prisma } from '@prisma/client';
 
 function getExceptionMessage(exceptionResponse: unknown): string {
   if (typeof exceptionResponse === 'string') {
@@ -39,6 +42,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpExceptionFilter.name);
 
   catch(exception: unknown, host: ArgumentsHost): void {
+    if ((exception instanceof Prisma.PrismaClientKnownRequestError || exception instanceof Prisma.PrismaClientUnknownRequestError) && exception.message.includes('PREPARATION_QC_REQUIRED:')) {
+      exception = new HttpException({ code: 'PREPARATION_QC_REQUIRED', message: 'Scooter requires current preparation and QC approval before allocation or handover.' }, HttpStatus.CONFLICT);
+    }
+    if ((exception instanceof Prisma.PrismaClientKnownRequestError || exception instanceof Prisma.PrismaClientUnknownRequestError) && exception.message.includes('FLEET_ALLOCATION_BLOCKED:')) {
+      exception = new HttpException({ code: 'FLEET_ALLOCATION_BLOCKED', message: 'Allocation is administratively disabled for this scooter.' }, HttpStatus.CONFLICT);
+    }
     const context = host.switchToHttp();
     const response = context.getResponse<FastifyReply>();
     const request = context.getRequest<FastifyRequest>();
@@ -49,19 +58,24 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const exceptionResponse =
       exception instanceof HttpException ? exception.getResponse() : undefined;
     const message = getExceptionMessage(exceptionResponse);
+    const domainCode = typeof exceptionResponse === 'object' && exceptionResponse !== null && 'code' in exceptionResponse && typeof exceptionResponse.code === 'string' && /^[A-Z][A-Z0-9_]{2,80}$/.test(exceptionResponse.code) ? exceptionResponse.code : undefined;
+    const details = typeof exceptionResponse === 'object' && exceptionResponse !== null && 'issues' in exceptionResponse && Array.isArray((exceptionResponse as { issues?: unknown }).issues)
+      ? (exceptionResponse as { issues: unknown[] }).issues
+      : undefined;
+    const locale = requestLocale(request.headers['accept-language']);
 
     if (!(exception instanceof HttpException)) {
       this.logger.error(
-        'Unhandled request exception',
+        { event: 'unhandled_request_exception', requestId: request.id, method: request.method, route: request.routeOptions?.url ?? request.url?.split('?')[0] },
         exception instanceof Error ? exception.stack : String(exception),
       );
     }
 
-    response.status(status).send({
+    response.header('Content-Language', locale).header('Vary', 'Accept-Language').status(status).send({
       error: {
-        code:
-          exception instanceof HttpException ? 'HTTP_ERROR' : 'INTERNAL_ERROR',
-        message,
+        code: domainCode ?? (exception instanceof HttpException ? 'HTTP_ERROR' : 'INTERNAL_ERROR'),
+        message: localizeApiError(message, locale),
+        ...(details ? { issues: details } : {}),
       },
       requestId: request.id,
     });

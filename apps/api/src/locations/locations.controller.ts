@@ -1,57 +1,103 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Header,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
-import { TenantContextService } from '../auth/tenant-context.service.js';
+import { ClientContextService } from '../auth/client-context.service.js';
 import { CreateHubDto } from './dto/create-hub.dto.js';
-import { CreateZoneDto } from './dto/create-zone.dto.js';
+import { BulkHubDto } from './dto/bulk-hub.dto.js';
 import { LocationsService } from './locations.service.js';
+import { importFailuresToCsv } from '../imports/import-failure.js';
 
 @Controller()
 @UseGuards(AccessTokenGuard, RolesGuard)
 @Roles(
-  UserRole.TENANT_ADMIN,
-  UserRole.OPERATIONS_MANAGER,
+  UserRole.CLIENT_ADMIN,
   UserRole.FLEET_MANAGER,
 )
 export class LocationsController {
   constructor(
     private readonly locations: LocationsService,
-    private readonly tenants: TenantContextService,
+    private readonly clients: ClientContextService,
   ) {}
-  @Get('zones') async zones(@CurrentUser() user: AuthUser) {
-    return {
-      data: await this.locations.listZones(this.tenants.requireTenantId(user)),
-    };
-  }
-  @Post('zones') async createZone(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: CreateZoneDto,
-  ) {
-    return {
-      data: await this.locations.createZone(
-        this.tenants.requireTenantId(user),
-        dto,
-      ),
-    };
-  }
   @Get('hubs') async hubs(@CurrentUser() user: AuthUser) {
     return {
-      data: await this.locations.listHubs(this.tenants.requireTenantId(user)),
+      data: await this.locations.listHubs(this.clients.requireClientId(user)),
     };
   }
+  @Roles(UserRole.CLIENT_ADMIN)
   @Post('hubs') async createHub(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateHubDto,
   ) {
     return {
       data: await this.locations.createHub(
-        this.tenants.requireTenantId(user),
+        this.clients.requireClientId(user),
         dto,
       ),
     };
+  }
+  @Roles(UserRole.CLIENT_ADMIN)
+  @Patch('hubs/:id') async updateHub(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: CreateHubDto,
+  ) {
+    return {
+      data: await this.locations.updateHub(
+        this.clients.requireClientId(user),
+        id,
+        dto,
+      ),
+    };
+  }
+  @Roles(UserRole.CLIENT_ADMIN)
+  @Delete('hubs/:id') async deleteHub(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    return { data: await this.locations.deleteHub(this.clients.requireClientId(user), id) };
+  }
+  @Roles(UserRole.CLIENT_ADMIN)
+  @Post('hubs/bulk') async bulkHubs(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: BulkHubDto,
+  ) {
+    return {
+      data: await this.locations.bulkCreateHubs(
+        this.clients.requireClientId(user),
+        user.id,
+        dto.filename,
+        dto.rows,
+      ),
+    };
+  }
+  @Get('hubs/imports/:id/failed-records')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  async failedHubRecords(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    const rows = await this.locations.failedRows(
+      this.clients.requireClientId(user),
+      id,
+    );
+    return importFailuresToCsv(rows);
+  }
+  @Roles(UserRole.CLIENT_ADMIN)
+  @Post('hubs/imports/:id/retry') async retryHubImport(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { rows: CreateHubDto[] }) {
+    return { data: await this.locations.retryImport(this.clients.requireClientId(user), user.id, id, dto.rows, user.roles[0] as UserRole) };
   }
 }

@@ -3,9 +3,12 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Logger,
+  Optional,
 } from '@nestjs/common';
 import { KycStatus, KycType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { ReferralQualificationService } from '../referrals/referral-qualification.service.js';
 import type { CompleteKycDto } from './dto/complete-kyc.dto.js';
 import type { StartKycDto } from './dto/start-kyc.dto.js';
 import {
@@ -15,21 +18,24 @@ import {
 
 @Injectable()
 export class KycService {
+  private readonly logger = new Logger(KycService.name);
   constructor(
     private readonly prisma: PrismaService,
     @Inject(KYC_PROVIDER) private readonly provider: KycProvider,
+    @Optional() private readonly referralQualification?: ReferralQualificationService,
   ) {}
 
-  async list(tenantId: string, riderId: string) {
-    await this.assertRider(tenantId, riderId);
-    return this.prisma.riderKyc.findMany({
-      where: { tenantId, riderId },
+  async list(clientId: string, riderId: string) {
+    await this.assertRider(clientId, riderId);
+    const records = await this.prisma.riderKyc.findMany({
+      where: { clientId, riderId },
       orderBy: { type: 'asc' },
     });
+    return records.map(safeLegacyRecord);
   }
 
-  async start(tenantId: string, riderId: string, dto: StartKycDto) {
-    await this.assertRider(tenantId, riderId);
+  async start(clientId: string, riderId: string, dto: StartKycDto) {
+    await this.assertRider(clientId, riderId);
     const existing = await this.prisma.riderKyc.findUnique({
       where: { riderId_type: { riderId, type: dto.type as KycType } },
     });
@@ -42,21 +48,21 @@ export class KycService {
       );
     }
     const result = await this.provider.start({
-      tenantId,
+      clientId,
       riderId,
       type: dto.type as KycType,
       referenceHint: dto.referenceHint,
     });
-    return this.prisma.riderKyc.upsert({
+    const record = await this.prisma.riderKyc.upsert({
       where: { riderId_type: { riderId, type: dto.type as KycType } },
       create: {
-        tenantId,
+        clientId,
         riderId,
         type: dto.type as KycType,
         status: result.status,
         provider: result.provider,
         providerReference: result.providerReference,
-        maskedData: result.maskedData as Prisma.InputJsonValue | undefined,
+        maskedData: safeLegacyMaskedData(result.maskedData) as Prisma.InputJsonValue | undefined,
         safeFailureCode: result.safeFailureCode,
         verifiedAt: result.status === KycStatus.VERIFIED ? new Date() : null,
       },
@@ -64,40 +70,61 @@ export class KycService {
         status: result.status,
         provider: result.provider,
         providerReference: result.providerReference,
-        maskedData: result.maskedData as Prisma.InputJsonValue | undefined,
+        maskedData: safeLegacyMaskedData(result.maskedData) as Prisma.InputJsonValue | undefined,
         safeFailureCode: result.safeFailureCode,
         verifiedAt: result.status === KycStatus.VERIFIED ? new Date() : null,
       },
     });
+    if (record.status === KycStatus.VERIFIED) await this.referralVerified(clientId, riderId, record.id);
+    return safeLegacyRecord(record);
   }
 
   async complete(
-    tenantId: string,
+    clientId: string,
     riderId: string,
     kycId: string,
     dto: CompleteKycDto,
   ) {
     const kyc = await this.prisma.riderKyc.findFirst({
-      where: { id: kycId, riderId, tenantId },
+      where: { id: kycId, riderId, clientId },
     });
     if (!kyc) throw new NotFoundException('KYC record not found.');
     if (kyc.status !== KycStatus.PENDING)
       throw new BadRequestException('KYC record is not pending.');
-    return this.prisma.riderKyc.update({
+    const record = await this.prisma.riderKyc.update({
       where: { id: kyc.id },
       data: {
         status: dto.status as KycStatus,
-        maskedData: dto.maskedData as Prisma.InputJsonValue | undefined,
+        maskedData: safeLegacyMaskedData(dto.maskedData) as Prisma.InputJsonValue | undefined,
         safeFailureCode: dto.safeFailureCode,
         verifiedAt: dto.status === 'VERIFIED' ? new Date() : null,
       },
     });
+    if (record.status === KycStatus.VERIFIED) await this.referralVerified(clientId, riderId, record.id);
+    return safeLegacyRecord(record);
   }
 
-  private async assertRider(tenantId: string, riderId: string) {
+  private async referralVerified(clientId: string, riderId: string, kycId: string) {
+    try { await this.referralQualification?.recordEvent(clientId, riderId, 'KYC_VERIFIED', `kyc-verified:${kycId}`, '1'); }
+    catch (cause) { this.logger.error(`Referral KYC update failed for Rider ${riderId}`, cause); }
+  }
+
+  private async assertRider(clientId: string, riderId: string) {
     const rider = await this.prisma.rider.findFirst({
-      where: { id: riderId, tenantId, deletedAt: null },
+      where: { id: riderId, clientId, deletedAt: null },
     });
     if (!rider) throw new NotFoundException('Rider not found.');
   }
+}
+
+function safeLegacyMaskedData(value: unknown): { lastFour: string } | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const lastFour = (value as Record<string, unknown>).lastFour;
+  if (typeof lastFour !== 'string' || !/^\d{4}$/.test(lastFour)) return undefined;
+  return { lastFour };
+}
+
+function safeLegacyRecord<T extends { maskedData?: unknown }>(record: T): T {
+  if (record.maskedData === undefined) return record;
+  return { ...record, maskedData: safeLegacyMaskedData(record.maskedData) ?? null };
 }

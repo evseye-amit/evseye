@@ -3,24 +3,30 @@ import {
   HttpStatus,
   Inject,
   Injectable,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { OtpPurpose, OtpStatus, UserRole, type User } from '@prisma/client';
 import {
-  createHmac,
-  randomInt,
-  randomUUID,
-  timingSafeEqual,
-} from 'node:crypto';
+  OtpPurpose,
+  OtpStatus,
+  Prisma,
+  UserRole,
+  type User,
+} from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import type { Environment } from '../config/environment.js';
+import { indianMobileVariants } from '../common/phone.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from './interfaces/auth-user.interface.js';
+import { SmsQuotaService } from './sms-quota.service.js';
+import { LoginFlowService, type LoginAppCode } from './login-flow.service.js';
 import {
   SMS_PROVIDER,
   type SmsProvider,
 } from './sms/sms-provider.interface.js';
+import { OtpSecurity } from './otp-security.js';
 
 interface RefreshPayload extends AuthUser {
   sid: string;
@@ -34,48 +40,110 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly config: ConfigService<Environment, true>,
     @Inject(SMS_PROVIDER) private readonly smsProvider: SmsProvider,
-  ) {}
+    private readonly smsQuota: SmsQuotaService,
+    private readonly loginFlow: LoginFlowService,
+  ) {
+    this.otpSecurity = new OtpSecurity(config);
+  }
+
+  private readonly otpSecurity: OtpSecurity;
+
+  private async serializable<T>(
+    fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.prisma.$transaction(fn, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          timeout: 10000,
+        });
+      } catch (error) {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2034' &&
+          attempt < 3
+        )
+          continue;
+        throw error;
+      }
+    }
+  }
 
   async requestLoginOtp(
     phone: string,
-    tenantSlug?: string,
+    companyCode?: string,
     requestedIp?: string,
+    expectedClientId?: string,
+    requestedAppCode?: string,
   ) {
-    const tenant = tenantSlug
-      ? await this.prisma.tenant.findFirst({
-          where: { slug: tenantSlug, isActive: true },
-          select: { id: true },
+    const mobileCandidates = indianMobileVariants(phone);
+    const client = companyCode
+      ? await this.prisma.client.findFirst({
+          where: { OR: [{ companyCode }, { slug: companyCode }] },
+          select: { id: true, isActive: true, status: true },
         })
       : null;
 
-    if (tenantSlug && !tenant) {
-      throw new UnauthorizedException('Invalid tenant or account.');
+    if (client && !this.isClientLoginAllowed(client)) {
+      if (client.status === 'SUSPENDED') throw this.loginAccessError('CLIENT_SUSPENDED');
+      throw this.loginAccessError('CLIENT_INACTIVE');
     }
 
+    if (
+      (companyCode && !client) ||
+      (expectedClientId && client?.id !== expectedClientId)
+    ) {
+      return {
+        otpRequestId: randomUUID(),
+        expiresAt: this.otpSecurity.expiresAt(),
+      };
+    }
+
+    const appCode = client ? (requestedAppCode ?? 'CLIENT_PANEL') : undefined;
+    if (client && appCode && !this.loginFlow.isAppCode(appCode)) {
+      throw this.loginAccessError('UNSUPPORTED_APP_ROLE');
+    }
+    if (client && appCode) await this.loginFlow.resolve(companyCode!, appCode);
     const user = await this.prisma.user.findFirst({
-      where: tenant
-        ? { tenantId: tenant.id, mobile: phone, isActive: true }
+      where: client
+        ? {
+            clientId: client.id,
+            mobile: { in: mobileCandidates },
+          }
         : {
-            tenantId: null,
-            mobile: phone,
+            clientId: null,
+            mobile: { in: mobileCandidates },
             role: UserRole.SUPER_ADMIN,
-            isActive: true,
           },
-      select: { id: true },
+      select: { id: true, mobile: true, role: true, isActive: true, deletedAt: true },
     });
 
-    if (!user) {
-      throw new UnauthorizedException('Invalid tenant or account.');
+    if (user && (user.isActive === false || user.deletedAt)) throw this.loginAccessError('USER_INACTIVE');
+
+    if (
+      !user ||
+      (client &&
+        !this.loginFlow.roleAllowed(appCode as LoginAppCode, user.role))
+    ) {
+      if (user && client) throw this.loginAccessError('UNSUPPORTED_APP_ROLE');
+      return {
+        otpRequestId: randomUUID(),
+        expiresAt: this.otpSecurity.expiresAt(),
+      };
     }
+    // Use the stored representation for OTP audit and dispatch. This supports
+    // existing records saved as +91XXXXXXXXXX, 0XXXXXXXXXX, or XXXXXXXXXX.
+    phone = user.mobile;
 
     const cooldownAt = new Date(
       Date.now() - this.config.getOrThrow('OTP_RESEND_COOLDOWN_SECONDS') * 1000,
     );
     const recent = await this.prisma.otpRequest.findFirst({
       where: {
-        tenantId: tenant?.id,
+        clientId: client?.id,
         phone,
         purpose: OtpPurpose.LOGIN,
+        status: OtpStatus.PENDING,
         createdAt: { gte: cooldownAt },
       },
       orderBy: { createdAt: 'desc' },
@@ -83,48 +151,97 @@ export class AuthService {
     });
 
     if (recent) {
-      throw new HttpException(
-        'Please wait before requesting another OTP.',
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
+      // Use the same accepted shape for unknown accounts and cooldown requests.
+      return {
+        otpRequestId: randomUUID(),
+        expiresAt: this.otpSecurity.expiresAt(),
+      };
     }
 
-    const code = this.generateOtpCode();
-    const expiresAt = new Date(
-      Date.now() + this.config.getOrThrow('OTP_TTL_SECONDS') * 1000,
-    );
+    const code = this.otpSecurity.generateLoginCode(user.role);
+    const expiresAt = this.otpSecurity.expiresAt();
     const otpRequest = await this.prisma.otpRequest.create({
       data: {
-        tenantId: tenant?.id,
+        clientId: client?.id,
         purpose: OtpPurpose.LOGIN,
         phone,
-        otpHash: this.hashSecret(code),
+        otpHash: this.otpSecurity.hash(code),
         expiresAt,
         maxAttempts: this.config.getOrThrow('OTP_MAX_ATTEMPTS'),
         requestedIp,
+        ...(appCode
+          ? { context: { loginAppCode: appCode, method: 'SMS_OTP' } }
+          : {}),
       },
       select: { id: true, expiresAt: true },
     });
 
-    await this.smsProvider.send({
-      phone,
-      purpose: OtpPurpose.LOGIN,
-      message: `Your EVs Eye login code is ${code}. It expires in ${this.config.getOrThrow('OTP_TTL_SECONDS') / 60} minutes.`,
-    });
+    try {
+      if (client) await this.smsQuota.reserve(client.id, otpRequest.id);
+      await this.smsProvider.send({
+        phone,
+        purpose: OtpPurpose.LOGIN,
+        code,
+        otpRequestId: otpRequest.id,
+      });
+    } catch (error) {
+      if (client) await this.smsQuota.refund(client.id, otpRequest.id);
+      await this.prisma.otpRequest.update({
+        where: { id: otpRequest.id },
+        data: { status: OtpStatus.FAILED },
+      });
+      if (error instanceof HttpException) throw error;
+      throw new ServiceUnavailableException(
+        'SMS delivery is temporarily unavailable.',
+      );
+    }
 
     return { otpRequestId: otpRequest.id, expiresAt: otpRequest.expiresAt };
   }
 
-  async verifyLoginOtp(otpRequestId: string, code: string) {
+  async verifyLoginOtp(
+    otpRequestId: string,
+    code: string,
+    expectedClientId?: string,
+    requestedAppCode?: string,
+  ) {
     const otp = await this.prisma.otpRequest.findUnique({
       where: { id: otpRequestId },
     });
     if (
       !otp ||
+      (expectedClientId && otp.clientId !== expectedClientId) ||
       otp.purpose !== OtpPurpose.LOGIN ||
       otp.status !== OtpStatus.PENDING
     ) {
       throw new UnauthorizedException('Invalid OTP request.');
+    }
+
+    const boundAppCode =
+      otp.context &&
+      typeof otp.context === 'object' &&
+      !Array.isArray(otp.context)
+        ? (otp.context as Record<string, unknown>).loginAppCode
+        : undefined;
+    if (
+      otp.clientId &&
+      boundAppCode &&
+      (typeof boundAppCode !== 'string' ||
+        !this.loginFlow.isAppCode(boundAppCode) ||
+        (requestedAppCode !== boundAppCode))
+    ) {
+      throw this.loginAccessError('UNSUPPORTED_APP_ROLE');
+    }
+
+    if (otp.clientId) {
+      const client = await this.prisma.client.findUnique({
+        where: { id: otp.clientId },
+        select: { isActive: true, status: true },
+      });
+      if (!this.isClientLoginAllowed(client)) {
+        if (client?.status === 'SUSPENDED') throw this.loginAccessError('CLIENT_SUSPENDED');
+        throw this.loginAccessError('CLIENT_INACTIVE');
+      }
     }
 
     if (otp.expiresAt <= new Date()) {
@@ -132,10 +249,10 @@ export class AuthService {
         where: { id: otp.id },
         data: { status: OtpStatus.EXPIRED },
       });
-      throw new UnauthorizedException('OTP has expired.');
+      throw new HttpException({ code: 'OTP_EXPIRED', message: 'OTP has expired.' }, HttpStatus.UNAUTHORIZED);
     }
 
-    if (!this.verifySecret(code, otp.otpHash)) {
+    if (!this.otpSecurity.verify(code, otp.otpHash)) {
       const attempts = otp.attempts + 1;
       await this.prisma.otpRequest.update({
         where: { id: otp.id },
@@ -145,7 +262,7 @@ export class AuthService {
             attempts >= otp.maxAttempts ? OtpStatus.FAILED : OtpStatus.PENDING,
         },
       });
-      throw new UnauthorizedException('Invalid OTP.');
+      throw new HttpException({ code: 'OTP_INVALID', message: 'Invalid OTP.' }, HttpStatus.UNAUTHORIZED);
     }
 
     const markedVerified = await this.prisma.otpRequest.updateMany({
@@ -153,135 +270,246 @@ export class AuthService {
       data: { status: OtpStatus.VERIFIED, verifiedAt: new Date() },
     });
     if (markedVerified.count !== 1) {
-      throw new UnauthorizedException('OTP has already been used.');
+      throw new HttpException({ code: 'OTP_ALREADY_USED', message: 'OTP has already been used.' }, HttpStatus.UNAUTHORIZED);
     }
 
     const user = await this.prisma.user.findFirst({
-      where: otp.tenantId
-        ? { tenantId: otp.tenantId, mobile: otp.phone, isActive: true }
+      where: otp.clientId
+        ? { clientId: otp.clientId, mobile: otp.phone, isActive: true, deletedAt: null }
         : {
-            tenantId: null,
+            clientId: null,
             mobile: otp.phone,
             role: UserRole.SUPER_ADMIN,
             isActive: true,
+            deletedAt: null,
           },
     });
     if (!user) {
+      const inactiveUser = await this.prisma.user.findFirst({
+        where: otp.clientId
+          ? { clientId: otp.clientId, mobile: otp.phone }
+          : { clientId: null, mobile: otp.phone, role: UserRole.SUPER_ADMIN },
+        select: { isActive: true, deletedAt: true },
+      });
+      if (inactiveUser && (inactiveUser.isActive === false || inactiveUser.deletedAt)) {
+        throw this.loginAccessError('USER_INACTIVE');
+      }
       throw new UnauthorizedException('Account is unavailable.');
+    }
+
+    if (otp.clientId && boundAppCode) {
+      if (
+        !this.loginFlow.roleAllowed(boundAppCode as LoginAppCode, user.role)
+      ) {
+        throw this.loginAccessError('UNSUPPORTED_APP_ROLE');
+      }
     }
 
     return this.issueTokens(user);
   }
 
-  async requestDeallocationOtp(
-    tenantId: string,
-    phone: string,
-    allocationId: string,
-    purpose: OtpPurpose,
-  ) {
-    const allocation = await this.prisma.allocation.findFirst({
-      where: { id: allocationId, tenantId, status: 'DEALLOCATION_INITIATED' },
-      select: { id: true },
-    });
-    if (!allocation)
-      throw new UnauthorizedException('Deallocation is not active.');
+  private loginAccessError(code: string): UnauthorizedException {
+    const messages: Record<string, string> = {
+      CLIENT_INACTIVE: 'This client account is inactive.',
+      CLIENT_PENDING_APPROVAL: 'This client account is pending approval.',
+      CLIENT_SUSPENDED: 'This client account is suspended.',
+      USER_INACTIVE: 'This user account is inactive.',
+      UNSUPPORTED_APP_ROLE: 'This application is not available for your role.',
+    };
+    return new UnauthorizedException({ code, message: messages[code] ?? 'Login is unavailable.' });
+  }
 
-    const cooldownAt = new Date(
-      Date.now() - this.config.getOrThrow('OTP_RESEND_COOLDOWN_SECONDS') * 1000,
-    );
+  private isClientLoginAllowed(client: {
+    isActive: boolean;
+    status: string;
+  } | null | undefined): boolean {
+    return !!client && client.isActive === true &&
+      ['CREATED', 'PENDING_APPROVAL', 'ACTIVE', 'REJECTED'].includes(client.status);
+  }
+
+  async requestVehicleSubmissionOtp(
+    clientId: string,
+    reportId: string,
+    digest: string,
+    party: 'RIDER' | 'TEAM_LEAD',
+    recipientId: string,
+    phone: string,
+  ) {
+    const report = await this.prisma.vehicleSubmissionReport.findFirst({
+      where: { id: reportId, clientId, status: 'SUBMITTED', digest },
+    });
+    if (!report)
+      throw new UnauthorizedException(
+        'Submission report is no longer current.',
+      );
+    const purpose =
+      party === 'RIDER'
+        ? OtpPurpose.HANDOVER_RIDER
+        : OtpPurpose.HANDOVER_OPERATOR;
     const recent = await this.prisma.otpRequest.findFirst({
       where: {
-        tenantId,
+        clientId,
         phone,
         purpose,
-        status: OtpStatus.PENDING,
-        createdAt: { gte: cooldownAt },
-        context: { path: ['allocationId'], equals: allocationId },
+        status: 'PENDING',
+        createdAt: {
+          gte: new Date(
+            Date.now() -
+              this.config.getOrThrow<number>('OTP_RESEND_COOLDOWN_SECONDS') *
+                1000,
+          ),
+        },
       },
-      select: { id: true },
     });
-    if (recent) {
+    if (recent)
       throw new HttpException(
         'Please wait before requesting another OTP.',
         HttpStatus.TOO_MANY_REQUESTS,
       );
-    }
-
-    const code = this.generateOtpCode();
-    const expiresAt = new Date(
-      Date.now() + this.config.getOrThrow('OTP_TTL_SECONDS') * 1000,
-    );
+    await this.prisma.otpRequest.updateMany({
+      where: {
+        clientId,
+        purpose,
+        status: 'PENDING',
+        context: { path: ['reportId'], equals: reportId },
+      },
+      data: { status: 'CANCELLED' },
+    });
+    const code = this.otpSecurity.generateCode();
     const otp = await this.prisma.otpRequest.create({
       data: {
-        tenantId,
+        clientId,
         purpose,
         phone,
-        otpHash: this.hashSecret(code),
-        expiresAt,
-        maxAttempts: this.config.getOrThrow('OTP_MAX_ATTEMPTS'),
-        context: { allocationId },
+        otpHash: this.otpSecurity.hash(code),
+        expiresAt: this.otpSecurity.expiresAt(),
+        maxAttempts: this.config.getOrThrow<number>('OTP_MAX_ATTEMPTS'),
+        context: { reportId, digest, party, recipientId },
       },
       select: { id: true, expiresAt: true },
     });
-    await this.smsProvider.send({
-      phone,
-      purpose,
-      message: `Your EVs Eye deallocation code is ${code}.`,
-    });
+    try {
+      await this.smsProvider.send({ phone, purpose, code, otpRequestId: otp.id });
+    } catch {
+      await this.prisma.otpRequest.update({
+        where: { id: otp.id },
+        data: { status: 'FAILED' },
+      });
+      throw new ServiceUnavailableException(
+        'SMS delivery is temporarily unavailable.',
+      );
+    }
     return { otpRequestId: otp.id, expiresAt: otp.expiresAt };
   }
 
-  async verifyDeallocationOtp(
-    tenantId: string,
-    otpRequestId: string,
+  async verifyVehicleSubmissionOtp(
+    clientId: string,
+    requestId: string,
     code: string,
+    expected: {
+      reportId: string;
+      digest: string;
+      party: 'RIDER' | 'TEAM_LEAD';
+      recipientId: string;
+      phone: string;
+    },
+    actorId: string,
   ) {
-    const otp = await this.prisma.otpRequest.findFirst({
-      where: {
-        id: otpRequestId,
-        tenantId,
-        status: OtpStatus.PENDING,
-        purpose: {
-          in: [OtpPurpose.DEALLOCATION_RIDER, OtpPurpose.DEALLOCATION_OPERATOR],
-        },
-      },
-    });
-    if (!otp) {
-      throw new UnauthorizedException('Invalid deallocation OTP request.');
-    }
-
-    if (otp.expiresAt <= new Date()) {
-      await this.prisma.otpRequest.update({
-        where: { id: otp.id },
-        data: { status: OtpStatus.EXPIRED },
+    const outcome = await this.serializable(async (tx) => {
+      const purpose =
+        expected.party === 'RIDER'
+          ? OtpPurpose.HANDOVER_RIDER
+          : OtpPurpose.HANDOVER_OPERATOR;
+      const otp = await tx.otpRequest.findFirst({
+        where: { id: requestId, clientId, purpose, status: 'PENDING' },
       });
-      throw new UnauthorizedException('Deallocation OTP has expired.');
-    }
-
-    if (!this.verifySecret(code, otp.otpHash)) {
-      const attempts = otp.attempts + 1;
-      await this.prisma.otpRequest.update({
-        where: { id: otp.id },
+      if (!otp) return 'MISSING';
+      const context = otp.context as Record<string, unknown> | null;
+      if (
+        !context ||
+        context.reportId !== expected.reportId ||
+        context.digest !== expected.digest ||
+        context.party !== expected.party ||
+        context.recipientId !== expected.recipientId ||
+        otp.phone !== expected.phone
+      )
+        return 'STALE';
+      if (otp.expiresAt <= new Date()) {
+        await tx.otpRequest.update({
+          where: { id: otp.id },
+          data: { status: 'EXPIRED' },
+        });
+        return 'EXPIRED';
+      }
+      if (!this.otpSecurity.verify(code, otp.otpHash)) {
+        const attempts = otp.attempts + 1;
+        await tx.otpRequest.update({
+          where: { id: otp.id },
+          data: {
+            attempts,
+            status: attempts >= otp.maxAttempts ? 'FAILED' : 'PENDING',
+          },
+        });
+        return 'INVALID';
+      }
+      const report = await tx.vehicleSubmissionReport.findFirst({
+        where: {
+          id: expected.reportId,
+          clientId,
+          status: 'SUBMITTED',
+          digest: expected.digest,
+        },
+      });
+      if (!report) return 'STALE';
+      const consumed = await tx.otpRequest.updateMany({
+        where: { id: otp.id, status: 'PENDING' },
+        data: { status: 'VERIFIED', verifiedAt: new Date() },
+      });
+      if (consumed.count !== 1) return 'USED';
+      await tx.vehicleSubmissionReport.update({
+        where: { id: report.id },
+        data:
+          expected.party === 'RIDER'
+            ? {
+                riderOtpRequestId: otp.id,
+                riderVerifiedUserId: expected.recipientId,
+              }
+            : {
+                teamLeadOtpRequestId: otp.id,
+                teamLeadVerifiedUserId: expected.recipientId,
+              },
+      });
+      await tx.auditLog.create({
         data: {
-          attempts,
-          status:
-            attempts >= otp.maxAttempts ? OtpStatus.FAILED : OtpStatus.PENDING,
+          clientId,
+          actorId,
+          action: 'VEHICLE_SUBMISSION_OTP_VERIFIED',
+          entityType: 'VehicleSubmission',
+          entityId: report.submissionId,
+          newData: {
+            reportId: report.id,
+            party: expected.party,
+            digest: expected.digest,
+          },
         },
       });
-      throw new UnauthorizedException('Invalid deallocation OTP.');
-    }
-
-    const updated = await this.prisma.otpRequest.updateMany({
-      where: { id: otp.id, status: OtpStatus.PENDING },
-      data: { status: OtpStatus.VERIFIED, verifiedAt: new Date() },
+      return 'VERIFIED';
     });
-    if (updated.count !== 1) {
-      throw new UnauthorizedException('OTP has already been used.');
-    }
-    return { verified: true };
+    if (outcome !== 'VERIFIED')
+      throw new UnauthorizedException(
+        outcome === 'INVALID'
+          ? 'Invalid submission OTP.'
+          : outcome === 'EXPIRED'
+            ? 'Submission OTP has expired.'
+            : 'Submission OTP is unavailable or no longer current.',
+      );
+    return {
+      verified: true,
+      reportId: expected.reportId,
+      party: expected.party,
+    };
   }
-
-  async refresh(refreshToken: string) {
+  async refresh(refreshToken: string, expectedClientId?: string) {
     let payload: RefreshPayload;
     try {
       payload = await this.jwtService.verifyAsync<RefreshPayload>(
@@ -291,11 +519,16 @@ export class AuthService {
         },
       );
     } catch {
-      throw new UnauthorizedException('Invalid or expired refresh token.');
+      throw new HttpException({ code: 'REFRESH_TOKEN_EXPIRED', message: 'Invalid or expired refresh token.' }, HttpStatus.UNAUTHORIZED);
     }
 
-    if (payload.typ !== 'refresh' || !payload.sid) {
-      throw new UnauthorizedException('Invalid refresh token.');
+    if (
+      payload.typ !== 'refresh' ||
+      !payload.id ||
+      !payload.sid ||
+      (expectedClientId && payload.clientId !== expectedClientId)
+    ) {
+      throw new HttpException({ code: 'REFRESH_TOKEN_INVALID', message: 'Invalid refresh token.' }, HttpStatus.UNAUTHORIZED);
     }
 
     const session = await this.prisma.session.findFirst({
@@ -308,55 +541,78 @@ export class AuthService {
     });
     if (
       !session ||
-      !this.verifySecret(refreshToken, session.refreshTokenHash)
+      !this.otpSecurity.verify(refreshToken, session.refreshTokenHash)
     ) {
-      throw new UnauthorizedException('Refresh session is unavailable.');
+      throw new HttpException({ code: 'SESSION_UNAVAILABLE', message: 'Refresh session is unavailable.' }, HttpStatus.UNAUTHORIZED);
     }
 
-    await this.prisma.session.update({
-      where: { id: session.id },
+    const consumed = await this.prisma.session.updateMany({
+      where: { id: session.id, revokedAt: null, expiresAt: { gt: new Date() } },
       data: { revokedAt: new Date() },
     });
+    if (consumed.count !== 1)
+      throw new HttpException({ code: 'SESSION_REVOKED', message: 'Refresh session has already been used.' }, HttpStatus.UNAUTHORIZED);
     const user = await this.prisma.user.findFirst({
-      where: { id: payload.id, isActive: true },
+      where: { id: payload.id, isActive: true, deletedAt: null },
     });
-    if (!user) {
+    if (
+      !user ||
+      user.clientId !== (payload.clientId ?? null) ||
+      (expectedClientId && user.clientId !== expectedClientId)
+    ) {
       throw new UnauthorizedException('Account is unavailable.');
     }
 
-    return this.issueTokens(user);
+    return this.issueTokens(user, session.id);
   }
 
-  private generateOtpCode(): string {
-    return this.config.getOrThrow('NODE_ENV') === 'development'
-      ? '123456'
-      : randomInt(100_000, 1_000_000).toString();
-  }
-
-  async revokeSession(refreshToken: string): Promise<void> {
+  async revokeSession(
+    refreshToken: string,
+    expectedClientId?: string,
+  ): Promise<void> {
     const payload = await this.jwtService.verifyAsync<RefreshPayload>(
       refreshToken,
       {
         secret: this.config.getOrThrow('JWT_REFRESH_SECRET'),
       },
     );
-    if (payload.typ === 'refresh') {
+    if (expectedClientId && payload.clientId !== expectedClientId)
+      throw new UnauthorizedException('Invalid refresh token.');
+    if (payload.typ === 'refresh' && payload.sid && payload.id) {
       await this.prisma.session.updateMany({
         where: { id: payload.sid, userId: payload.id, revokedAt: null },
         data: { revokedAt: new Date() },
       });
+      await this.prisma.pushDevice.updateMany({
+        where: { userId: payload.id, sessionId: payload.sid, isActive: true },
+        data: { isActive: false, disabledReason: 'LOGGED_OUT' },
+      });
     }
   }
 
-  private async issueTokens(user: User) {
+  private async issueTokens(user: User, previousSessionId?: string) {
+    if (user.deletedAt)
+      throw new UnauthorizedException('Account is unavailable.');
+    if (
+      user.clientId &&
+      !(await this.prisma.client.findFirst({
+        where: {
+          id: user.clientId,
+          isActive: true,
+          status: { notIn: ['DRAFT', 'SUSPENDED'] },
+        },
+        select: { id: true },
+      }))
+    )
+      throw new UnauthorizedException('Account is unavailable.');
     const authUser: AuthUser = {
       id: user.id,
-      tenantId: user.tenantId,
+      clientId: user.clientId,
       roles: [user.role],
     };
     const sessionId = randomUUID();
     const accessToken = await this.jwtService.signAsync(
-      { ...authUser, typ: 'access' },
+      { ...authUser, sid: sessionId, typ: 'access' },
       {
         secret: this.config.getOrThrow('JWT_ACCESS_SECRET'),
         expiresIn: this.config.getOrThrow('JWT_ACCESS_TTL'),
@@ -373,26 +629,22 @@ export class AuthService {
       data: {
         id: sessionId,
         userId: user.id,
-        refreshTokenHash: this.hashSecret(refreshToken),
+        refreshTokenHash: this.otpSecurity.hash(refreshToken),
         expiresAt: this.futureDate(this.config.getOrThrow('JWT_REFRESH_TTL')),
       },
     });
 
+    if (previousSessionId)
+      await this.prisma.pushDevice.updateMany({
+        where: {
+          userId: user.id,
+          sessionId: previousSessionId,
+          isActive: true,
+        },
+        data: { sessionId },
+      });
+
     return { accessToken, refreshToken, tokenType: 'Bearer' as const };
-  }
-
-  private hashSecret(value: string): string {
-    return createHmac('sha256', this.config.getOrThrow('OTP_HASH_SECRET'))
-      .update(value)
-      .digest('hex');
-  }
-
-  private verifySecret(value: string, hash: string): boolean {
-    const expected = Buffer.from(hash, 'hex');
-    const actual = Buffer.from(this.hashSecret(value), 'hex');
-    return (
-      expected.length === actual.length && timingSafeEqual(expected, actual)
-    );
   }
 
   private futureDate(ttl: string): Date {

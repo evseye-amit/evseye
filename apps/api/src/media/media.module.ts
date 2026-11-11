@@ -14,6 +14,6 @@ import { STORAGE_PROVIDER } from './storage/storage-provider.interface.js';
     S3StorageProvider,
     { provide: STORAGE_PROVIDER, useExisting: S3StorageProvider },
   ],
-  exports: [STORAGE_PROVIDER],
+  exports: [STORAGE_PROVIDER, MediaService],
 })
 export class MediaModule {}

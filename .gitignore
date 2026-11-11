@@ -9,4 +9,8 @@ coverage/
 *.tsbuildinfo
 .DS_Store
 .pnpm-store/
+backups/
 apps/api/prisma/migrations/*/migration_lock.toml
+
+# Local TLS keys and certificates (generated, never committed)
+deployment/client-access/local-tls/

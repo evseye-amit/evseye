@@ -1,16 +1,23 @@
-import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsObject,
+  IsString,
+  MaxLength,
+  ValidateNested,
+} from 'class-validator';
 
 export class CreateRiderDto {
-  @IsString()
-  @MaxLength(120)
-  name!: string;
+  @IsObject()
+  values!: Record<string, unknown>;
+}
 
-  @IsString()
-  @Matches(/^\+?[1-9]\d{7,14}$/)
-  mobile!: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  address?: string;
+export class BulkRiderDto {
+  @IsString() @MaxLength(255) filename!: string;
+  @IsArray()
+  @ArrayMaxSize(1000)
+  @ValidateNested({ each: true })
+  @Type(() => CreateRiderDto)
+  rows!: CreateRiderDto[];
 }

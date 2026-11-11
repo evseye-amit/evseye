@@ -1,7 +1,8 @@
 export interface SendSmsInput {
   phone: string;
-  message: string;
+  code: string;
   purpose: string;
+  otpRequestId?: string;
 }
 
 export interface SmsProvider {
