@@ -389,14 +389,15 @@ export class RiderAppService {
         const riderMetadata = riderValues.metadata && typeof riderValues.metadata === 'object' && !Array.isArray(riderValues.metadata)
           ? riderValues.metadata as Record<string, unknown> : {};
         const { first_name: _firstName, middle_name: _middleName, last_name: _lastName, ...persistedValues } = riderValues;
+        const normalizedName = displayRiderName(components, String(riderValues.name ?? ''));
         const data: Record<string, unknown> = {
           ...persistedValues,
           clientId,
           userId,
           status: requiresDocumentReview ? 'ONBOARDING' : 'ACTIVE',
-          name: displayRiderName(components, String(riderValues.name ?? 'Rider')),
+          name: normalizedName || 'Rider',
           mobile: String(riderValues.mobile ?? ''),
-          metadata: { ...riderMetadata, name: components },
+          metadata: { ...riderMetadata, ...(nameFields.length > 0 && normalizedName ? { name: components } : {}) },
         };
         const rider = await tx.rider.create({ data: data as never });
         await tx.riderOnboardingDocument.updateMany({ where: { clientId, userId, riderId: null }, data: { riderId: rider.id } });
@@ -406,12 +407,15 @@ export class RiderAppService {
         const metadata = riderValues.metadata as Record<string, unknown> | undefined;
         const components = normalizeRiderName(riderValues, nameFields);
         const { first_name: _firstName, middle_name: _middleName, last_name: _lastName, ...persistedValues } = riderValues;
+        const normalizedName = displayRiderName(components, String(riderValues.name ?? ''));
         await tx.rider.update({ where: { id: existingRider.id }, data: {
           ...persistedValues,
-          name: displayRiderName(components, existingRider.name),
-          metadata: { ...previous, ...(metadata ?? {}), name: components } as Prisma.InputJsonValue,
+          ...(normalizedName ? { name: normalizedName } : {}),
+          ...((metadata || (nameFields.length > 0 && normalizedName)) && !(nameFields.length === 0 && normalizedName)
+            ? { metadata: { ...previous, ...(metadata ?? {}), ...(nameFields.length > 0 && normalizedName ? { name: components } : {}) } as Prisma.InputJsonValue }
+            : {}),
         } });
-        await tx.user.update({ where: { id: userId }, data: { name: displayRiderName(components, existingRider.name) } });
+        if (normalizedName) await tx.user.update({ where: { id: userId }, data: { name: normalizedName } });
       }
       if (allFinished) await this.kyc.sync(tx, clientId, userId, effective.onboarding.steps.flatMap(step => step.fields));
     });
