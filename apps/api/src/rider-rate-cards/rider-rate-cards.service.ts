@@ -342,7 +342,17 @@ export class RiderRateCardsService {
   async list(clientId: string) {
     return this.prisma.riderRateCard.findMany({
       where: { clientId },
-      include: { versions: true },
+      include: {
+        versions: {
+          include: {
+            rentalRates: true,
+            fees: true,
+            deposits: true,
+            adjustments: true,
+          },
+          orderBy: { version: 'desc' },
+        },
+      },
       orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
     });
   }

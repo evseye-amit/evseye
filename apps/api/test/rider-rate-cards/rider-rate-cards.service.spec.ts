@@ -23,6 +23,19 @@ function setup() {
 }
 
 describe('rider rate card client isolation', () => {
+  it('includes version child pricing when listing cards for the workspace UI', async () => {
+    const { service, prisma } = setup();
+    await service.list(clientId);
+    expect(prisma.riderRateCard.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { clientId },
+      include: expect.objectContaining({
+        versions: expect.objectContaining({
+          include: expect.objectContaining({ rentalRates: true, fees: true, deposits: true, adjustments: true }),
+        }),
+      }),
+    }));
+  });
+
   it('scopes card lookup to the authenticated client', async () => {
     const { service, prisma } = setup();
     await expect(service.get(clientId, otherClientId)).rejects.toThrow(
