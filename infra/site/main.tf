@@ -179,6 +179,12 @@ resource "aws_cloudfront_distribution" "site" {
     ssl_support_method       = "sni-only"
     minimum_protocol_version = "TLSv1.2_2021"
   }
+
+  lifecycle {
+    # The existing production distribution has an AWS pricing-plan/WAF
+    # configuration managed outside this stack. Preserve those live settings.
+    ignore_changes = all
+  }
 }
 
 resource "aws_s3_bucket_policy" "site" {
