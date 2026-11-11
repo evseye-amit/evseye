@@ -104,7 +104,7 @@ export default function KycAdministration() {
   return <main className="client-dashboard client-operations-main kyc-workspace" onClickCapture={guardLinkNavigation}>
     <header className="client-dashboard-header"><div><p className="eyebrow">CLIENT WORKSPACE</p><h1>KYC &amp; Verification</h1>
       <p>Client scoped verification operations</p></div><div><Link href="/client/kyc/operations">Command Center</Link>{" · "}<Link className="button secondary" href="/?tab=dashboard">Back to dashboard</Link></div></header>
-    {authorized && <nav aria-label="KYC sections" style={{ display: "flex", gap: "1rem", margin: "1.5rem 0" }}>
+    {authorized && <nav className="kyc-section-nav" aria-label="KYC sections">
       {(["overview", "workflows", "verifications", "reviews", "definitions", "providers", "routing", "health", "commercial", "rate-cards"] as const).map((item) =>
         <button key={item} type="button" aria-current={tab === item ? "page" : undefined}
           onClick={() => requestNavigation(() => { setTab(item); setSelected(null); })}>{item === "reviews" ? "Manual Review" : item === "routing" ? "Routing Policies" : item === "definitions" ? "Definitions" : item === "commercial" ? "Policy & Usage" : item === "rate-cards" ? "Rider Rate Cards" : item[0].toUpperCase() + item.slice(1)}</button>)}
