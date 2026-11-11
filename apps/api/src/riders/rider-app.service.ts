@@ -15,6 +15,7 @@ import { parseSnapshot } from '../rider-rate-cards/commercial-snapshot.js';
 import { RiderKycStatusService } from './rider-kyc-status.service.js';
 import { IfscBankService } from '../banks/banks.service.js';
 import { AuditService } from '../audit/audit.service.js';
+import { displayRiderName, normalizeRiderName } from './name.util.js';
 
 @Injectable()
 export class RiderAppService {
@@ -369,6 +370,9 @@ export class RiderAppService {
     const riderValues = allFinished
       ? (await this.configuration.validateAndMapValues(clientId, storedValues, 'CREATE', {}, { requireAll: true })).data
       : {};
+    const nameFields = effective.onboarding.steps.flatMap((item) => item.fields)
+      .filter((field) => ['first_name', 'middle_name', 'last_name'].includes(field.storageKey))
+      .map((field) => ({ first_name: 'firstName', middle_name: 'middleName', last_name: 'lastName' } as const)[field.storageKey as 'first_name' | 'middle_name' | 'last_name']);
     await this.prisma.$transaction(async (tx) => {
       await this.kyc.lockUser(tx, clientId, userId);
       await tx.riderOnboardingProgress.update({ where: { userId }, data: { currentStepId: nextStep?.stepId ?? null, values: merged as Prisma.InputJsonValue, completedStepIds: [...completed], skippedStepIds: [...skipped], ...(allFinished ? { completedAt: new Date() } : {}) } });
@@ -381,13 +385,18 @@ export class RiderAppService {
       const existingRider = allFinished ? await tx.rider.findUnique({ where: { userId } }) : null;
       if (allFinished && !existingRider) {
         const requiresDocumentReview = uploadedDocumentCount > 0;
+        const components = normalizeRiderName(riderValues, nameFields);
+        const riderMetadata = riderValues.metadata && typeof riderValues.metadata === 'object' && !Array.isArray(riderValues.metadata)
+          ? riderValues.metadata as Record<string, unknown> : {};
+        const { first_name: _firstName, middle_name: _middleName, last_name: _lastName, ...persistedValues } = riderValues;
         const data: Record<string, unknown> = {
-          ...riderValues,
+          ...persistedValues,
           clientId,
           userId,
           status: requiresDocumentReview ? 'ONBOARDING' : 'ACTIVE',
-          name: String(riderValues.name ?? 'Rider'),
+          name: displayRiderName(components, String(riderValues.name ?? 'Rider')),
           mobile: String(riderValues.mobile ?? ''),
+          metadata: { ...riderMetadata, name: components },
         };
         const rider = await tx.rider.create({ data: data as never });
         await tx.riderOnboardingDocument.updateMany({ where: { clientId, userId, riderId: null }, data: { riderId: rider.id } });
@@ -395,11 +404,14 @@ export class RiderAppService {
       } else if (existingRider && existingRider.clientId === clientId) {
         const previous = existingRider.metadata && typeof existingRider.metadata === 'object' && !Array.isArray(existingRider.metadata) ? existingRider.metadata : {};
         const metadata = riderValues.metadata as Record<string, unknown> | undefined;
+        const components = normalizeRiderName(riderValues, nameFields);
+        const { first_name: _firstName, middle_name: _middleName, last_name: _lastName, ...persistedValues } = riderValues;
         await tx.rider.update({ where: { id: existingRider.id }, data: {
-          ...riderValues,
-          ...(metadata ? { metadata: { ...previous, ...metadata } as Prisma.InputJsonValue } : {}),
+          ...persistedValues,
+          name: displayRiderName(components, existingRider.name),
+          metadata: { ...previous, ...(metadata ?? {}), name: components } as Prisma.InputJsonValue,
         } });
-        if (typeof riderValues.name === 'string') await tx.user.update({ where: { id: userId }, data: { name: riderValues.name } });
+        await tx.user.update({ where: { id: userId }, data: { name: displayRiderName(components, existingRider.name) } });
       }
       if (allFinished) await this.kyc.sync(tx, clientId, userId, effective.onboarding.steps.flatMap(step => step.fields));
     });
