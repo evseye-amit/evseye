@@ -43,7 +43,7 @@ jobs:
           if [ "$current_sha" != "$PASSED_SHA" ]; then
             echo "::error::CI passed for $PASSED_SHA, but main now points to $current_sha"
             exit 1
-          }
+          fi
 
   # ─── Build and push Docker images ─────────────────────────────────────────
   build:
