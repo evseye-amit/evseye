@@ -65,6 +65,30 @@ const structuredAddressStorageKeys = new Set(
     .map(([, storageKey]) => storageKey),
 );
 
+// Package configuration can contain fields that are intentionally persisted as
+// metadata (for example medical declarations). Keep those values out of the
+// Prisma Rider scalar input so a package edit cannot cause an internal error.
+const riderScalarStorageKeys = new Set([
+  'name',
+  'mobile',
+  'address',
+  'riderCode',
+  'dateOfBirth',
+  'gender',
+  'addressLine1',
+  'addressLine2',
+  'city',
+  'state',
+  'postalCode',
+  'emergencyContactName',
+  'emergencyContactMobile',
+  'status',
+  'kycStatus',
+  'kycVerifiedAt',
+  'joiningDate',
+  'exitDate',
+]);
+
 function riderStorageKey(storageKey: string) {
   if (storageKey.startsWith('metadata.') || !structuredAddressStorageKeys.has(storageKey)) return storageKey;
   return `metadata.${storageKey}`;
@@ -276,8 +300,8 @@ export class RiderOnboardingConfigurationService {
       if (!value) continue;
       this.validateValue(field, value);
       const normalized = field.fieldType === 'MOBILE' ? normalizeIndianMobile(value) : value;
-      if (storageKey.startsWith('metadata.')) {
-        metadata[storageKey.slice('metadata.'.length)] = normalized;
+      if (storageKey.startsWith('metadata.') || !riderScalarStorageKeys.has(storageKey)) {
+        metadata[storageKey.startsWith('metadata.') ? storageKey.slice('metadata.'.length) : storageKey] = normalized;
       } else {
         mapped[storageKey] =
           field.dataType === 'DATE' ? this.parseDate(field, normalized) : normalized;
