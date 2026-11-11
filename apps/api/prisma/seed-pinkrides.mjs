@@ -25,10 +25,15 @@ export async function seedPinkrides(prisma) {
     await prisma.clientAddress.upsert({ where: { clientId_type: { clientId: client.id, type: address.type } }, create: { clientId: client.id, ...address }, update: address });
   }
   const pkg = await prisma.package.findUniqueOrThrow({ where: { code: seed.subscription.packageCode }, select: { id: true } });
+  const packageRevision = await prisma.packageRevision.findFirst({
+    where: { packageId: pkg.id, publishedAt: { not: null } },
+    orderBy: { version: 'desc' },
+    select: { id: true },
+  });
   const startDate = new Date(seed.subscription.startDate);
   const { packageCode: _packageCode, startDate: _startDate, endDate, ...subscriptionData } = seed.subscription;
   const existing = await prisma.clientSubscription.findFirst({ where: { clientId: client.id, packageId: pkg.id, startDate } });
-  const data = { ...subscriptionData, endDate: endDate ? new Date(endDate) : null };
+  const data = { ...subscriptionData, endDate: endDate ? new Date(endDate) : null, ...(packageRevision ? { packageRevisionId: packageRevision.id } : {}) };
   const subscription = existing
     ? await prisma.clientSubscription.update({ where: { id: existing.id }, data })
     : await prisma.clientSubscription.create({ data: { clientId: client.id, packageId: pkg.id, startDate, ...data } });
@@ -46,10 +51,21 @@ export async function seedPinkrides(prisma) {
     prisma.vehicleType.findUniqueOrThrow({ where: { code: 'SCOOTER_ELECTRIC' } }),
   ]);
   for (const fleetSeed of fleets) {
+    // Fleet catalog identifiers are resolved to relations above. Keep the
+    // static seed readable with its source codes, but do not pass those
+    // legacy code fields to Prisma (they are not columns on Fleet).
+    const {
+      oemCode: _oemCode,
+      vehicleCategoryCode: _vehicleCategoryCode,
+      vehicleTypeCode: _vehicleTypeCode,
+      homeHubCode: _homeHubCode,
+      currentHubCode: _currentHubCode,
+      ...fleetData
+    } = fleetSeed;
     const fleet = await prisma.fleet.upsert({
       where: { clientId_fleetCode: { clientId: client.id, fleetCode: fleetSeed.fleetCode } },
-      create: { ...fleetSeed, clientId: client.id, oemId: oem.id, vehicleCategoryId: category.id, vehicleTypeId: vehicleType.id, homeHubId: hub.id, currentHubId: hub.id },
-      update: { ...fleetSeed, oemId: oem.id, vehicleCategoryId: category.id, vehicleTypeId: vehicleType.id, homeHubId: hub.id, currentHubId: hub.id },
+      create: { ...fleetData, clientId: client.id, oemId: oem.id, vehicleCategoryId: category.id, vehicleTypeId: vehicleType.id, homeHubId: hub.id, currentHubId: hub.id },
+      update: { ...fleetData, oemId: oem.id, vehicleCategoryId: category.id, vehicleTypeId: vehicleType.id, homeHubId: hub.id, currentHubId: hub.id },
     });
     const mapping = fleetComponentMappings.find((item) => item.fleetCode === fleet.fleetCode);
     const controller = await prisma.controller.findUniqueOrThrow({ where: { clientId_controllerNumber: { clientId: client.id, controllerNumber: mapping.controllerNumber } } });
