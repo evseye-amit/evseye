@@ -1,0 +1,297 @@
+name: Deploy — Production
+
+# Deploy the exact main commit that passed CI.
+on:
+  workflow_run:
+    workflows: [CI]
+    branches: [main]
+    types: [completed]
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  id-token: write   # required for OIDC → AWS
+  contents: read
+
+env:
+  AWS_REGION: ap-south-2
+  # Set these in GitHub repo Settings → Secrets and variables → Actions
+  # AWS_ROLE_ARN and ECS/ECR settings come from the production GitHub environment.
+
+jobs:
+  # ─── Guard: only run if CI passed ─────────────────────────────────────────
+  check-ci:
+    name: Verify CI succeeded
+    runs-on: ubuntu-latest
+    if: >
+      vars.PRODUCTION_DEPLOY_ENABLED == 'true' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    steps:
+      - name: Verify this is the latest main commit
+        env:
+          PASSED_SHA: ${{ github.event.workflow_run.head_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          current_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
+          test -n "$current_sha"
+          if [ "$current_sha" != "$PASSED_SHA" ]; then
+            echo "::error::CI passed for $PASSED_SHA, but main now points to $current_sha"
+            exit 1
+          }
+
+  # ─── Build and push Docker images ─────────────────────────────────────────
+  build:
+    name: Build & push images
+    runs-on: ubuntu-latest
+    environment: production
+    needs: check-ci
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Generate image tag
+        id: meta
+        run: echo "tag=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_API_REPO }}:${{ steps.meta.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_WEB_REPO }}:${{ steps.meta.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ─── Run Prisma migration (one-shot ECS task) ──────────────────────────────
+  migrate:
+    name: Run DB migration
+    runs-on: ubuntu-latest
+    environment: production
+    needs: build
+
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve public ECS subnets
+        id: network
+        run: |
+          subnets="$(aws ec2 describe-subnets \
+            --filters \
+              "Name=tag:Project,Values=evseye" \
+              "Name=tag:Environment,Values=production" \
+              "Name=tag:Name,Values=evseye-production-public-*" \
+            --query 'sort_by(Subnets, &AvailabilityZone)[].SubnetId' \
+            --output text | tr '\t' ',')"
+          test -n "$subnets"
+          IFS=',' read -r -a subnet_list <<< "$subnets"
+          test "${#subnet_list[@]}" -ge 2
+          echo "subnets=$subnets" >> "$GITHUB_OUTPUT"
+
+      - name: Download current migration task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "${{ secrets.ECS_MIGRATE_TASK }}" \
+            --query taskDefinition \
+            > migrate-task-def.json
+
+      - name: Update migration image in task definition
+        id: migrate-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: migrate-task-def.json
+          container-name: migrate
+          image: ${{ secrets.ECR_API_URL }}:${{ needs.build.outputs.image_tag }}
+
+      - name: Run Prisma migrate deploy
+        id: migrate-task-run
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.migrate-task-def.outputs.task-definition }}
+          cluster: ${{ secrets.ECS_CLUSTER }}
+          run-task: true
+          run-task-launch-type: FARGATE
+          run-task-container-overrides: >-
+            [{"name":"migrate","command":["sh","-c","exec node apps/api/scripts/deploy-migrations.mjs"]}]
+          run-task-subnets: ${{ steps.network.outputs.subnets }}
+          run-task-security-groups: ${{ secrets.ECS_TASK_SG }}
+          run-task-assign-public-IP: ENABLED
+          wait-for-task-stopped: true
+
+      - name: Diagnose failed migration task
+        if: failure() && steps.migrate-task-run.outcome == 'failure'
+        continue-on-error: true
+        env:
+          ECS_CLUSTER_NAME: ${{ secrets.ECS_CLUSTER }}
+          TASK_ARNS_JSON: ${{ steps.migrate-task-run.outputs.run-task-arn }}
+          TASK_DEFINITION_FILE: ${{ steps.migrate-task-def.outputs.task-definition }}
+        run: |
+          task_arns_json="$(jq -n --arg raw "${TASK_ARNS_JSON:-}" 'if $raw == "" then [] else (try ($raw | fromjson) catch [$raw]) | if type == "array" then . else [.] end end')"
+          mapfile -t task_arns < <(jq -r '.[]' <<< "$task_arns_json")
+
+          if [ "${#task_arns[@]}" -eq 0 ]; then
+            echo "::warning::The ECS action did not return a migration task ARN. Check the RunTask failure details above."
+            exit 0
+          fi
+
+          task_details="$(aws ecs describe-tasks \
+            --cluster "$ECS_CLUSTER_NAME" \
+            --tasks "${task_arns[@]}" \
+            --output json)"
+
+          echo "Migration task stopped details:"
+          jq '{failures, tasks: [.tasks[] | {
+            taskArn,
+            lastStatus,
+            desiredStatus,
+            stopCode,
+            stoppedReason,
+            containers: [.containers[] | {
+              name,
+              lastStatus,
+              exitCode,
+              reason,
+              image,
+              logStreamName
+            }]
+          }]}' <<< "$task_details"
+
+          log_options="$(jq -c '.containerDefinitions[] | select(.name == "migrate") | .logConfiguration.options // {}' "$TASK_DEFINITION_FILE")"
+          log_group="$(jq -r '."awslogs-group" // empty' <<< "$log_options")"
+          log_prefix="$(jq -r '."awslogs-stream-prefix" // empty' <<< "$log_options")"
+          log_stream="$(jq -r '[.tasks[].containers[] | select(.name == "migrate") | .logStreamName][0] // empty' <<< "$task_details")"
+
+          if [ -z "$log_stream" ] && [ -n "$log_prefix" ]; then
+            task_id="$(jq -r '[.tasks[].taskArn][0] // empty' <<< "$task_details" | awk -F/ '{print $NF}')"
+            if [ -n "$task_id" ]; then
+              log_stream="$log_prefix/migrate/$task_id"
+            fi
+          fi
+
+          if [ -n "$log_group" ] && [ -n "$log_stream" ]; then
+            echo "CloudWatch log stream: $log_group/$log_stream"
+            if ! aws logs get-log-events \
+              --log-group-name "$log_group" \
+              --log-stream-name "$log_stream" \
+              --start-from-head \
+              --limit 100 \
+              --query 'events[].message' \
+              --output text; then
+              echo "::warning::Could not read the migration task log stream. Check CloudWatch permissions or open the stream above."
+            fi
+          else
+            echo "::warning::Migration task log configuration is incomplete (group='$log_group', stream-prefix='$log_prefix'). Inspect the task in the ECS console."
+          fi
+
+  # ─── Update ECS services ───────────────────────────────────────────────────
+  deploy:
+    name: Update ECS services
+    runs-on: ubuntu-latest
+    environment: production
+    needs: [build, migrate]
+
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ── API ──
+      - name: Download current API task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "${{ secrets.ECS_API_TASK }}" \
+            --query taskDefinition \
+            > api-task-def.json
+
+      - name: Update API image in task definition
+        id: api-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: api-task-def.json
+          container-name: api
+          image: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_API_REPO }}:${{ needs.build.outputs.image_tag }}
+
+      - name: Deploy API to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.api-task-def.outputs.task-definition }}
+          service: ${{ secrets.ECS_API_SERVICE }}
+          cluster: ${{ secrets.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      # ── Web ──
+      - name: Download current Web task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "${{ secrets.ECS_WEB_TASK }}" \
+            --query taskDefinition \
+            > web-task-def.json
+
+      - name: Update Web image in task definition
+        id: web-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: web-task-def.json
+          container-name: web
+          image: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_WEB_REPO }}:${{ needs.build.outputs.image_tag }}
+
+      - name: Deploy Web to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.web-task-def.outputs.task-definition }}
+          service: ${{ secrets.ECS_WEB_SERVICE }}
+          cluster: ${{ secrets.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      - name: Deployment summary
+        run: |
+          echo "### ✅ Production deployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Image tag**: \`${{ needs.build.outputs.image_tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Web**: https://${{ secrets.WEB_URL }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **API health**: https://${{ secrets.API_URL }}/health" >> "$GITHUB_STEP_SUMMARY"

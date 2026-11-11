@@ -8,7 +8,12 @@ variable "root_domain" {
   default = "evseye.com"
 }
 
-variable "github_deploy_role_name" {
+variable "github_org" {
   type    = string
-  default = "evseye-staging-github-actions-deploy"
+  default = "evseye-amit"
+}
+
+variable "github_repo" {
+  type    = string
+  default = "evseye"
 }

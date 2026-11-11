@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, rm, stat } from 'node:fs/promises';
+import { cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -23,4 +23,11 @@ await mkdir(output, { recursive: true });
 await cp(path.join(site, 'index.html'), path.join(output, 'index.html'));
 await cp(path.join(site, '404.html'), path.join(output, '404.html'));
 await cp(path.join(site, 'assets'), path.join(output, 'assets'), { recursive: true });
+if (process.env.SITE_ENVIRONMENT === 'staging') {
+  for (const page of ['index.html', '404.html']) {
+    const file = path.join(output, page);
+    const html = await readFile(file, 'utf8');
+    await writeFile(file, html.replace('<head>', '<head>\n<meta name="robots" content="noindex,nofollow">'));
+  }
+}
 console.log(`Built static marketing site in ${output}`);

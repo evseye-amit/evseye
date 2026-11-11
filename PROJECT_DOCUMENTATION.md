@@ -322,7 +322,7 @@ See section 5 for provider config. Push-device registration is per app/platform 
 
 ### 12.1 Application deployment
 
-Deployment source of truth is `.github/workflows/deploy-staging.yml`, `.github/workflows/deploy-site.yml`, `infra`, and `deployment`. Before rollout:
+Deployment source of truth is `.github/workflows/deploy-staging.yml`, `.github/workflows/deploy-production.yml`, `.github/workflows/deploy-site.yml`, `infra`, and `deployment`. Branch routing, GitHub environment values, and cutover steps are in `docs/branch-deployments.md`. Before rollout:
 
 1. Configure production secrets/settings and verify provider credentials in sandbox.
 2. Run `pnpm verify` plus release acceptance checks.
@@ -338,9 +338,9 @@ Application AWS setup documentation covers account prerequisites, Terraform remo
 
 ### 12.3 Public marketing site
 
-`infra/site` is an independent Terraform root/state. It provisions private S3, CloudFront OAC, ACM certificate in `us-east-1`, Route 53 `www.evseye.com`/apex records and apex redirect; it attaches narrowly scoped publish permission to the existing GitHub Actions role. It does not create registrar nameservers or public S3 website hosting. Before apply, verify hosted-zone authority, existing apex/www record ownership, role name and CloudFront availability. Move client operations to `app.evseye.com` before routing `www` to marketing; retain wildcard client hosts and `api.evseye.com` on application ALB. Review public claims/contact details and keep unpublished blog out of build.
+`infra/site` is an independent Terraform root/state for the production marketing site. It provisions private S3, CloudFront OAC, ACM certificate in `us-east-1`, Route 53 `www.evseye.com`/apex records and apex redirect; it creates a narrowly scoped production site deploy role. `infra/site-staging` is a separate staging marketing site state for `www.staging.evseye.com`, with its own private S3 bucket, CloudFront distribution, certificate, and staging site deploy role. Neither stack creates registrar nameservers or public S3 website hosting. Before apply, verify hosted-zone authority, existing apex/www record ownership, role name and CloudFront availability. Move client operations to `app.evseye.com` before routing `www` to marketing; retain wildcard client hosts and `api.evseye.com` on application ALB. Review public claims/contact details and keep unpublished blog out of build.
 
-Provision with `terraform init`, `plan`, reviewed `apply`; use outputs for GitHub Actions variables `SITE_BUCKET`, `SITE_DISTRIBUTION_ID`, and set `SITE_DEPLOY_ENABLED=true` only when resources and domain cutover are ready. Workflow uses OIDC short-lived credentials, uploads `dist/`, sets HTML no-cache and invalidates CloudFront. Expected verification: site and stylesheet 200, unpublished blog 404, apex 301 to www; inspect desktop/mobile rendering.
+Provision with `terraform init`, `plan`, reviewed `apply`; use each site's outputs for its matching GitHub environment variables `SITE_BUCKET` and `SITE_DISTRIBUTION_ID`, plus `SITE_AWS_ROLE_ARN` as an environment secret. Workflow uses OIDC short-lived credentials, uploads `dist/`, sets HTML no-cache and invalidates CloudFront after CI succeeds. Expected verification: site and stylesheet 200, unpublished blog 404, production apex 301 to www, and staging pages marked noindex; inspect desktop/mobile rendering.
 
 ### 12.4 Production client domain hardening
 

@@ -7,7 +7,7 @@ output "cloudfront_distribution_id" {
 }
 
 output "github_actions_role_arn" {
-  value = data.aws_iam_role.github_actions_deploy.arn
+  value = aws_iam_role.site_deploy.arn
 }
 
 output "site_url" {
