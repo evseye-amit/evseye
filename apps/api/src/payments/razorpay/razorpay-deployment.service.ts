@@ -92,6 +92,7 @@ export class RazorpayDeploymentService {
   }
   async createOrder(clientId: string, userId: string, allocationId: string) {
     this.gateway.assertConfigured(clientId);
+    const keyId = await this.gateway.keyIdFor(clientId);
     const { attempt, fresh } = await this.db.$transaction(async (tx) => {
       await this.lock(tx, clientId, allocationId);
       const a = await this.allocation(tx, clientId, allocationId, userId);
@@ -135,7 +136,7 @@ export class RazorpayDeploymentService {
       const existing = await tx.razorpayDeploymentOrder.findFirst({
         where: {
           deploymentPaymentId: p.id,
-          keyId: this.gateway.keyId,
+          keyId,
           amountPaise: BigInt(amount),
           currency: p.currency,
           status: 'OPEN',
@@ -152,7 +153,7 @@ export class RazorpayDeploymentService {
           data: {
             clientId,
             deploymentPaymentId: p.id,
-            keyId: this.gateway.keyId,
+            keyId,
             amountPaise: BigInt(amount),
             currency: p.currency,
           },
