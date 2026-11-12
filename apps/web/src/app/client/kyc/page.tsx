@@ -10,6 +10,9 @@ import WorkflowPanel from "./workflow-panel";
 import RoutingPanel from "./routing-panel";
 import CommercialPanel from "./commercial-panel";
 import RiderRateCardsPanel from "./rider-rate-cards-panel";
+import { ClientBrand } from "../../components/client-brand";
+import { LanguageSwitcher } from "../../components/locale-provider";
+import { UiIcon } from "../../components/ui-icon";
 
 type Status = "CREATED" | "PROCESSING" | "OTP_REQUIRED" | "VERIFIED" | "FAILED" | "MANUAL_REVIEW";
 type Verification = { id: string; riderId: string; verificationType: string; status: Status;
@@ -101,9 +104,23 @@ export default function KycAdministration() {
     catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load verification."); }
   }
 
-  return <main className="client-dashboard client-operations-main kyc-workspace" onClickCapture={guardLinkNavigation}>
-    <header className="client-dashboard-header"><div><p className="eyebrow">CLIENT WORKSPACE</p><h1>KYC &amp; Verification</h1>
-      <p>Client scoped verification operations</p></div><div><Link href="/client/kyc/operations">Command Center</Link>{" · "}<Link className="button secondary" href="/?tab=dashboard">Back to dashboard</Link></div></header>
+  return <main className="sa-shell client-operations-shell" onClickCapture={guardLinkNavigation}>
+    <aside className="sa-sidebar">
+      <ClientBrand />
+      <nav className="client-navigation" aria-label="Client operations">
+        <Link className="client-nav-utility sa-nav-child" href="/?tab=dashboard"><UiIcon name="dashboard" /> Dashboard</Link>
+        <p className="sa-nav-label">OPERATIONS</p>
+        <Link className="client-nav-utility sa-nav-child active" aria-current="page" href="/client/kyc"><UiIcon name="shield" /> KYC &amp; Verification</Link>
+        <Link className="client-nav-utility sa-nav-child" href="/client/kyc/operations"><UiIcon name="usage" /> Command Center</Link>
+        <p className="sa-nav-label">WORKSPACE</p>
+        <Link className="client-nav-utility sa-nav-child" href="/?tab=dashboard">Dashboard workspace</Link>
+      </nav>
+      <div className="sa-user client-sidebar-footer"><span aria-hidden="true">C</span><div><strong>Client Operations</strong><small>EVs Eye workspace</small></div></div>
+    </aside>
+    <section className="sa-main workspace client-operations-main kyc-workspace">
+      <header className="sa-topbar"><div><h1>KYC &amp; Verification</h1><p>Client operations workspace</p></div><div className="header-actions"><LanguageSwitcher /><button className="secondary" type="button" onClick={() => window.location.reload()}>↻ Refresh</button><Link className="button" href="/">Sign out</Link></div></header>
+      <Link className="button secondary kyc-back-link" href="/?tab=dashboard">← Back to dashboard</Link>
+      <div className="kyc-subpage-heading"><p className="eyebrow">CLIENT OPERATIONS · KYC</p><h2>Verification administration</h2><p>Client scoped verification operations</p></div>
     {authorized && <nav className="kyc-section-nav" aria-label="KYC sections">
       {(["overview", "workflows", "verifications", "reviews", "definitions", "providers", "routing", "health", "commercial", "rate-cards"] as const).map((item) =>
         <button key={item} type="button" aria-current={tab === item ? "page" : undefined}
@@ -196,5 +213,6 @@ export default function KycAdministration() {
           <p key={event.id}>{new Date(event.createdAt).toLocaleString()} · {event.action}</p>) : <p>No audit events yet.</p>}
       </ClientFormDialog>}
     </section>}
+    </section>
   </main>;
 }
