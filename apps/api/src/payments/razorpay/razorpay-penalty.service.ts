@@ -37,6 +37,7 @@ export class RazorpayPenaltyService {
 
   async createOrder(clientId: string, userId: string, body: unknown) {
     this.gateway.assertConfigured(clientId);
+    const keyId = await this.gateway.keyIdFor(clientId);
     // Only amount is accepted; the purpose and invoice scope are server-owned.
     if (
       body &&
@@ -171,7 +172,7 @@ export class RazorpayPenaltyService {
           data: {
             id,
             collectionId: collection.id,
-            keyId: this.gateway.keyId,
+            keyId,
             amountPaise: BigInt(paise.toString()),
             currency: 'INR',
           },
