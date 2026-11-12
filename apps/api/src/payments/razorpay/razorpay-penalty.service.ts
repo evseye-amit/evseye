@@ -293,10 +293,11 @@ export class RazorpayPenaltyService {
     });
     if (!order) throw new NotFoundException('Payment order not found.');
     this.gateway.assertConfigured(clientId, order.keyId);
-    this.gateway.verifyCheckout(
+    await this.gateway.verifyCheckout(
       body.razorpayOrderId,
       body.razorpayPaymentId,
       body.razorpaySignature,
+      clientId,
     );
     const payment = await this.gateway.fetchPayment(body.razorpayPaymentId, clientId);
     if (payment.id !== body.razorpayPaymentId)

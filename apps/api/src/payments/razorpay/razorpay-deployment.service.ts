@@ -278,10 +278,11 @@ export class RazorpayDeploymentService {
         'This Razorpay order does not belong to the allocation payment.',
       );
     this.gateway.assertConfigured(clientId, order.providerKeyReference!);
-    this.gateway.verifyCheckout(
+    await this.gateway.verifyCheckout(
       order.providerOrderId!,
       input.razorpayPaymentId,
       input.razorpaySignature,
+      clientId,
     );
     const remote = await this.gateway.fetchPayment(input.razorpayPaymentId, clientId);
     this.assertPayment(order, remote);
