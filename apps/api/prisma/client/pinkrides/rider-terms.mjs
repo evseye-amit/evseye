@@ -8,5 +8,5 @@ export const riderTerms = {
   title: 'Pink Rides Rider Commercial Terms',
   content,
   contentHash: createHash('sha256').update(content).digest('hex'),
-  status: 'DRAFT',
+  status: 'ACTIVE',
 };

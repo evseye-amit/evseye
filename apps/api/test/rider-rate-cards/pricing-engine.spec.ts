@@ -3,6 +3,7 @@ import {
   Prisma,
   type RateCardAdjustment,
   type RateCardDeposit,
+  type RateCardFee,
   type RateCardRentalRate,
   type RiderBatteryPlan,
   type RiderPromotion,
@@ -13,6 +14,7 @@ import {
   batteryLine,
   chooseBaseRate,
   chooseDeposits,
+  chooseFees,
   money,
   promotionChange,
   taxLine,
@@ -38,6 +40,7 @@ const facts: VehicleFacts = {
   city: 'Gurugram',
   zone: 'Cyber City',
   hubId: 'sector18',
+  workPartnerId: 'partner-a',
   batteryPlanId: null,
   rentalPeriodType: 'WEEKLY',
   durationValue: null,
@@ -309,5 +312,18 @@ describe('money, age, battery and deposits', () => {
         facts,
       ),
     ).toThrow('Ambiguous');
+  });
+  it('ranks deposit rules by work partner, OEM, location and age before default', () => {
+    const base = { id: 'base', code: 'base', depositType: 'VEHICLE_SECURITY', amount: new D('500'), isActive: true, vehicleCategoryId: null, vehicleTypeId: null, fleetId: null, city: null, hubId: null, oemId: null, clientWorkPartnerId: null, minVehicleAgeMonths: null, maxVehicleAgeMonths: null } as RateCardDeposit;
+    const city = { ...base, id: 'city', code: 'city', amount: new D('600'), city: 'Gurugram' };
+    const partner = { ...city, id: 'partner', code: 'partner', amount: new D('900'), clientWorkPartnerId: 'partner-a' };
+    const oem = { ...partner, id: 'oem', code: 'oem', amount: new D('800'), clientWorkPartnerId: null, oemId: 'vida' };
+    expect(chooseDeposits([base, city, partner, oem], facts)[0].id).toBe('partner');
+  });
+  it('chooses age-specific fees and falls back to the default fee', () => {
+    const base = { id: 'default-fee', code: 'ONBOARDING_FEE', name: 'Onboarding fee', amount: new D('1939'), isActive: true, chargeType: 'ONBOARDING_FEE', city: null, hubId: null, oemId: null, clientWorkPartnerId: null, minVehicleAgeMonths: null, maxVehicleAgeMonths: null } as RateCardFee;
+    const age = { ...base, id: 'young-fee', amount: new D('2500'), minVehicleAgeMonths: 0, maxVehicleAgeMonths: 12 };
+    expect(chooseFees([base, age], { ...facts, ageMonths: 6 })[0].id).toBe('young-fee');
+    expect(chooseFees([base, age], { ...facts, ageMonths: 18 })[0].id).toBe('default-fee');
   });
 });

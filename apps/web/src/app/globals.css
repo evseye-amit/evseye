@@ -5105,6 +5105,24 @@ body:has(.sa-dialog[open]) {
   .client-dashboard-sections .dashboard-grid { grid-template-columns: minmax(0, 1fr); }
 }
 .kyc-workspace .sa-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 16px; }
+.kyc-back-link { align-self: flex-start; margin: 0 0 24px; }
+.kyc-subpage-heading { margin: 0 0 28px; }
+.kyc-subpage-heading h2 { margin: 0 0 8px; font-size: clamp(26px, 3vw, 36px); }
+.kyc-subpage-heading p:last-child { margin: 0; color: var(--muted); font-size: 17px; }
+.kyc-config-panel { margin: 20px 0 28px; padding: 24px; border: 1px solid var(--line); border-radius: 14px; background: #f8fbf9; }
+.kyc-config-panel label { display: grid; gap: 7px; color: var(--muted); font-weight: 600; }
+.kyc-config-panel :is(input, select, textarea) { width: 100%; min-width: 0; padding: 11px 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: white; }
+.kyc-config-panel small { color: var(--muted); font-size: 12px; font-weight: 400; }
+.kyc-rule-scope { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 0; padding: 18px; border: 1px dashed #b7d5c3; border-radius: 10px; }
+.kyc-rule-scope legend { padding: 0 6px; color: var(--green); font-weight: 700; }
+.kyc-rule-scope > p { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 13px; }
+@media (max-width: 700px) { .kyc-rule-scope { grid-template-columns: minmax(0, 1fr); } }
+.kyc-rule-editor { margin-top: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: #f8fbf9; }
+.kyc-rule-editor summary { cursor: pointer; color: var(--green); font-weight: 700; }
+.kyc-rule-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.kyc-rule-editor .form-grid { margin-top: 10px; }
+.kyc-preview-result { margin-top: 12px; padding: 12px; border-radius: 8px; background: white; }
+.kyc-preview-result p { margin: 10px 0 0; }
 .kyc-workspace :is(input, select, textarea):disabled,
 .client-dialog-content :is(input, select, textarea):disabled { background: #f0f3f1; color: #657168; cursor: not-allowed; }
 .client-dialog-content input[readonly] { background: #f5f8f6; border-style: dashed; }

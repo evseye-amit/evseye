@@ -32,6 +32,7 @@ const previewSchema = z
     rateCardVersionId: z.string().uuid().optional(),
     vehicleId: z.string().uuid(),
     hubId: z.string().uuid().optional(),
+    workPartnerId: z.string().uuid().optional(),
     rentalPeriodType: z.enum([
       'DAILY',
       'WEEKLY',
@@ -91,7 +92,7 @@ export class CommercialOfferService {
     const effectiveDate = new Date(
       `${input.effectiveDate ?? businessToday()}T00:00:00.000Z`,
     );
-    const [client, rider, fleet, requestedHub, batteryPlan] = await Promise.all(
+    const [client, rider, fleet, requestedHub, batteryPlan, workPartner] = await Promise.all(
       [
         this.prisma.client.findFirst({
           where: { id: clientId, isActive: true },
@@ -122,6 +123,9 @@ export class CommercialOfferService {
               where: { id: input.batteryPlanId, clientId, isActive: true },
             })
           : Promise.resolve(null),
+        input.workPartnerId
+          ? this.prisma.clientWorkPartner.findFirst({ where: { id: input.workPartnerId, clientId, status: 'ACTIVE' } })
+          : Promise.resolve(null),
       ],
     );
     if (!client) throw new NotFoundException({ code: 'CLIENT_NOT_FOUND' });
@@ -133,6 +137,8 @@ export class CommercialOfferService {
       throw new NotFoundException({ code: 'HUB_NOT_FOUND' });
     if (input.batteryPlanId && !batteryPlan)
       throw new NotFoundException({ code: 'BATTERY_PLAN_NOT_AVAILABLE' });
+    if (input.workPartnerId && !workPartner)
+      throw new NotFoundException({ code: 'WORK_PARTNER_NOT_AVAILABLE' });
     if (fleet.status !== 'AVAILABLE' && !fleet.allocations.length)
       fail('VEHICLE_NOT_AVAILABLE');
     if (rider.status === 'BLOCKED' || rider.status === 'EXITED')
@@ -193,6 +199,7 @@ export class CommercialOfferService {
           ? (hub!.metadata as { zone: string }).zone
           : null,
       hubId: hub?.id ?? null,
+      workPartnerId: workPartner?.id ?? null,
       batteryPlanId: batteryPlan?.id ?? null,
       rentalPeriodType: input.rentalPeriodType,
       durationValue: input.durationValue ?? null,

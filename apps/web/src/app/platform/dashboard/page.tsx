@@ -5679,6 +5679,19 @@ function ClientConfigurationSettings({
             ? { ...entry, clientFeature: saved, enabled: saved.enabled, overridden: true, configuration: saved.configuration ?? null }
             : entry,
         ),
+        riderOnboarding: {
+          ...current.riderOnboarding,
+          featureRevisions: (current.riderOnboarding?.featureRevisions ?? []).map((revision: any) =>
+            revision.id !== featureDraft?.id ? revision : {
+              ...revision,
+              snapshot: (revision.snapshot ?? []).map((snapshotItem: any) =>
+                String(snapshotItem.featureId) === String(item.packageFeature.featureId)
+                  ? { ...snapshotItem, enabled, source: "CUSTOM", configuration: featureConfiguration ?? null }
+                  : snapshotItem,
+              ),
+            },
+          ),
+        },
       }));
       setFeatureConfigurationDrafts((drafts) => ({
         ...drafts,
@@ -5704,6 +5717,19 @@ function ClientConfigurationSettings({
             ? { ...entry, clientFeature: null, enabled: entry.packageFeature.isIncluded, overridden: false, configuration: entry.packageFeature.feature.configuration ?? null }
             : entry,
         ),
+        riderOnboarding: {
+          ...current.riderOnboarding,
+          featureRevisions: (current.riderOnboarding?.featureRevisions ?? []).map((revision: any) =>
+            revision.id !== featureDraft?.id ? revision : {
+              ...revision,
+              snapshot: (revision.snapshot ?? []).map((snapshotItem: any) =>
+                String(snapshotItem.featureId) === String(item.packageFeature.featureId)
+                  ? { ...snapshotItem, enabled: item.packageFeature.isIncluded, source: "PACKAGE", configuration: item.packageFeature.feature.configuration ?? null }
+                  : snapshotItem,
+              ),
+            },
+          ),
+        },
       }));
       setFeatureConfigurationDrafts((drafts) => ({
         ...drafts,

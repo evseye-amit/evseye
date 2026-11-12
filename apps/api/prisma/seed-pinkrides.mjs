@@ -1,4 +1,5 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { clientSeed } from './client/pinkrides/client.mjs';
@@ -8,6 +9,7 @@ import { riderTerms } from './client/pinkrides/rider-terms.mjs';
 import { seedPinkridesManagers, seedPinkridesWorkPartners, seedPinkridesSpares, seedPinkridesReferral, seedPinkridesRateCard, seedPinkridesLegal } from './client/pinkrides/related.mjs';
 
 const logoPath = fileURLToPath(new URL('./client/pinkrides/assets/logo.png', import.meta.url));
+const contentHash = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 function storageClient() {
   const endpoint = process.env.S3_ENDPOINT;
@@ -24,14 +26,131 @@ export async function seedPinkrides(prisma) {
   for (const address of seed.addresses) {
     await prisma.clientAddress.upsert({ where: { clientId_type: { clientId: client.id, type: address.type } }, create: { clientId: client.id, ...address }, update: address });
   }
+  if (seed.operationsProfile) {
+    const { vehicleCategoryCodes, ...operationsData } = seed.operationsProfile;
+    const operationsProfile = await prisma.clientOperationsProfile.upsert({
+      where: { clientId: client.id },
+      create: { clientId: client.id, ...operationsData },
+      update: operationsData,
+    });
+    for (const vehicleCategoryCode of vehicleCategoryCodes) {
+      const vehicleCategory = await prisma.vehicleCategory.findUniqueOrThrow({ where: { code: vehicleCategoryCode } });
+      await prisma.clientOperationsVehicleCategory.upsert({
+        where: {
+          operationsProfileId_vehicleCategoryId: {
+            operationsProfileId: operationsProfile.id,
+            vehicleCategoryId: vehicleCategory.id,
+          },
+        },
+        create: {
+          clientId: client.id,
+          operationsProfileId: operationsProfile.id,
+          vehicleCategoryId: vehicleCategory.id,
+        },
+        update: {},
+      });
+    }
+  }
+  if (seed.billingProfile) {
+    await prisma.clientBillingProfile.upsert({
+      where: { clientId: client.id },
+      create: { clientId: client.id, ...seed.billingProfile },
+      update: seed.billingProfile,
+    });
+  }
+  if (seed.agreement) {
+    const agreementData = {
+      ...seed.agreement,
+      termsAcceptedAt: new Date(seed.agreement.termsAcceptedAt),
+      privacyAcceptedAt: new Date(seed.agreement.privacyAcceptedAt),
+      dataProcessingConsentAt: new Date(seed.agreement.dataProcessingConsentAt),
+      kycConsentAt: seed.agreement.kycConsentAt ? new Date(seed.agreement.kycConsentAt) : null,
+      marketingConsentAt: seed.agreement.marketingConsentAt ? new Date(seed.agreement.marketingConsentAt) : null,
+      submittedAt: seed.agreement.submittedAt ? new Date(seed.agreement.submittedAt) : null,
+      approvedAt: seed.agreement.approvedAt ? new Date(seed.agreement.approvedAt) : null,
+      rejectedAt: seed.agreement.rejectedAt ? new Date(seed.agreement.rejectedAt) : null,
+    };
+    await prisma.clientAgreement.upsert({
+      where: { clientId: client.id },
+      create: { clientId: client.id, ...agreementData },
+      update: agreementData,
+    });
+  }
   const pkg = await prisma.package.findUniqueOrThrow({ where: { code: seed.subscription.packageCode }, select: { id: true } });
+  const packageRevision = await prisma.packageRevision.findFirst({
+    where: { packageId: pkg.id, publishedAt: { not: null } },
+    orderBy: { version: 'desc' },
+    select: { id: true },
+  });
   const startDate = new Date(seed.subscription.startDate);
   const { packageCode: _packageCode, startDate: _startDate, endDate, ...subscriptionData } = seed.subscription;
-  const existing = await prisma.clientSubscription.findFirst({ where: { clientId: client.id, packageId: pkg.id, startDate } });
-  const data = { ...subscriptionData, endDate: endDate ? new Date(endDate) : null };
+  const existing = await prisma.clientSubscription.findFirst({
+    where: {
+      clientId: client.id,
+      OR: [
+        { packageId: pkg.id, startDate },
+        { status: { in: ['PENDING', 'ACTIVE'] }, endDate: null },
+      ],
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+  const data = { packageId: pkg.id, ...subscriptionData, endDate: endDate ? new Date(endDate) : null, ...(packageRevision ? { packageRevisionId: packageRevision.id } : {}) };
   const subscription = existing
     ? await prisma.clientSubscription.update({ where: { id: existing.id }, data })
     : await prisma.clientSubscription.create({ data: { clientId: client.id, packageId: pkg.id, startDate, ...data } });
+
+  // Reproduce the client configuration snapshot, not just the subscription shell.
+  // Pink Rides is seeded from the published PREMIUM package: every package feature
+  // gets a client entitlement and immutable v1 feature/workflow/pricing snapshots.
+  const packageFeatures = await prisma.packageFeature.findMany({
+    where: { packageId: pkg.id },
+    include: { feature: { select: { id: true, code: true, configuration: true } } },
+    orderBy: { displayOrder: 'asc' },
+  });
+  for (const item of packageFeatures) {
+    await prisma.clientFeature.upsert({
+      where: { subscriptionId_featureId: { subscriptionId: subscription.id, featureId: item.featureId } },
+      create: {
+        clientId: client.id, subscriptionId: subscription.id, featureId: item.featureId,
+        source: 'PACKAGE', enabled: item.isIncluded, includedQuantity: item.includedQuantity ?? 0,
+        usageLimit: item.includedQuantity, unlimitedUsage: item.isUnlimited,
+        effectiveFrom: startDate, effectiveTo: item.effectiveTo, configuration: item.feature.configuration,
+      },
+      update: {
+        source: 'PACKAGE', enabled: item.isIncluded, includedQuantity: item.includedQuantity ?? 0,
+        usageLimit: item.includedQuantity, unlimitedUsage: item.isUnlimited,
+        effectiveFrom: startDate, effectiveTo: item.effectiveTo, configuration: item.feature.configuration,
+      },
+    });
+  }
+  await prisma.clientFeatureRevision.deleteMany({ where: { subscriptionId: subscription.id, version: { not: 1 } } });
+  const featureSnapshot = packageFeatures.map((item) => ({ featureId: item.featureId, source: 'PACKAGE', enabled: item.isIncluded, configuration: item.feature.configuration }));
+  await prisma.clientFeatureRevision.upsert({
+    where: { subscriptionId_version: { subscriptionId: subscription.id, version: 1 } },
+    create: { subscriptionId: subscription.id, version: 1, snapshot: featureSnapshot, contentHash: contentHash(featureSnapshot), publishedAt: new Date() },
+    update: { snapshot: featureSnapshot, contentHash: contentHash(featureSnapshot), publishedAt: new Date() },
+  });
+  const workflowSnapshot = {
+    subscriptionId: subscription.id,
+    packageRevisionId: subscription.packageRevisionId ?? packageRevision?.id ?? null,
+    overrides: [],
+  };
+  await prisma.clientWorkflowRevision.upsert({
+    where: { subscriptionId_version: { subscriptionId: subscription.id, version: 1 } },
+    create: { subscriptionId: subscription.id, version: 1, snapshot: workflowSnapshot, contentHash: contentHash(workflowSnapshot), publishedAt: new Date() },
+    update: { snapshot: workflowSnapshot, contentHash: contentHash(workflowSnapshot), publishedAt: new Date() },
+  });
+  const pricingSnapshot = { setupFee: subscription.setupFee, pricePerVehicle: subscription.pricePerVehicle, recurringAmount: subscription.recurringAmount, currency: subscription.currency };
+  await prisma.clientPricingRevision.upsert({
+    where: { subscriptionId_version: { subscriptionId: subscription.id, version: 1 } },
+    create: { subscriptionId: subscription.id, version: 1, setupDiscountPercent: 0, vehicleDiscountPercent: 0, setupDiscountType: 'PERCENTAGE', setupDiscountValue: 0, vehicleDiscountType: 'PERCENTAGE', vehicleDiscountValue: 0, snapshot: pricingSnapshot, publishedAt: new Date() },
+    update: { setupDiscountPercent: 0, vehicleDiscountPercent: 0, setupDiscountType: 'PERCENTAGE', setupDiscountValue: 0, vehicleDiscountType: 'PERCENTAGE', vehicleDiscountValue: 0, snapshot: pricingSnapshot, publishedAt: new Date() },
+  });
+  await prisma.clientPaymentProvider.upsert({
+    where: { clientId_provider_environment: { clientId: client.id, provider: 'RAZORPAY', environment: 'TEST' } },
+    create: { clientId: client.id, provider: 'RAZORPAY', environment: 'TEST', keyId: 'rzp_test_PINKRIDES', secretReference: 'env:PINKRIDES_RAZORPAY_SECRETS', status: 'ACTIVE' },
+    update: { keyId: 'rzp_test_PINKRIDES', secretReference: 'env:PINKRIDES_RAZORPAY_SECRETS', status: 'ACTIVE', merchantAccountId: null },
+  });
 
   for (const hubSeed of hubCatalog) {
     await prisma.hub.upsert({ where: { clientId_code: { clientId: client.id, code: hubSeed.code } }, create: { clientId: client.id, ...hubSeed }, update: hubSeed });
@@ -46,11 +165,39 @@ export async function seedPinkrides(prisma) {
     prisma.vehicleType.findUniqueOrThrow({ where: { code: 'SCOOTER_ELECTRIC' } }),
   ]);
   for (const fleetSeed of fleets) {
-    const fleet = await prisma.fleet.upsert({
-      where: { clientId_fleetCode: { clientId: client.id, fleetCode: fleetSeed.fleetCode } },
-      create: { ...fleetSeed, clientId: client.id, oemId: oem.id, vehicleCategoryId: category.id, vehicleTypeId: vehicleType.id, homeHubId: hub.id, currentHubId: hub.id },
-      update: { ...fleetSeed, oemId: oem.id, vehicleCategoryId: category.id, vehicleTypeId: vehicleType.id, homeHubId: hub.id, currentHubId: hub.id },
+    // Fleet catalog identifiers are resolved to relations above. Keep the
+    // static seed readable with its source codes, but do not pass those
+    // legacy code fields to Prisma (they are not columns on Fleet).
+    const {
+      oemCode: _oemCode,
+      vehicleCategoryCode: _vehicleCategoryCode,
+      vehicleTypeCode: _vehicleTypeCode,
+      homeHubCode: _homeHubCode,
+      currentHubCode: _currentHubCode,
+      ...fleetData
+    } = fleetSeed;
+    const fleetDataWithRelations = {
+      ...fleetData,
+      clientId: client.id,
+      oemId: oem.id,
+      vehicleCategoryId: category.id,
+      vehicleTypeId: vehicleType.id,
+      homeHubId: hub.id,
+      currentHubId: hub.id,
+    };
+    const existingFleet = await prisma.fleet.findFirst({
+      where: {
+        clientId: client.id,
+        OR: [
+          { fleetCode: fleetSeed.fleetCode },
+          { chassisNumber: fleetSeed.chassisNumber },
+        ],
+      },
+      select: { id: true },
     });
+    const fleet = existingFleet
+      ? await prisma.fleet.update({ where: { id: existingFleet.id }, data: fleetDataWithRelations })
+      : await prisma.fleet.create({ data: fleetDataWithRelations });
     const mapping = fleetComponentMappings.find((item) => item.fleetCode === fleet.fleetCode);
     const controller = await prisma.controller.findUniqueOrThrow({ where: { clientId_controllerNumber: { clientId: client.id, controllerNumber: mapping.controllerNumber } } });
     const installedAt = new Date('2026-10-01T00:00:00.000Z');

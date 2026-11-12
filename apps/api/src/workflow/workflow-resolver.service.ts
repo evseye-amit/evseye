@@ -112,7 +112,12 @@ export class WorkflowResolverService {
           : { ...base, validation: object(base.validation), translations: object(base.translations) };
       if (hasClientConfiguration || hasWorkflowConfiguration) clientConfiguredFeatures.add(featureId);
       const appCodes = configuration.appCodes ?? configuration.loginAppCodes;
-      if (Array.isArray(appCodes) && !appCodes.includes(appCode)) continue;
+      // Rider feature configuration historically used the product-facing code
+      // `RIDER`, while authentication requests use the concrete app code
+      // `RIDER_APP`. Treat those two codes as aliases so existing published
+      // client workflows continue to resolve their OTP login components.
+      const requestedAppCodes = appCode === 'RIDER_APP' ? ['RIDER_APP', 'RIDER'] : [appCode];
+      if (Array.isArray(appCodes) && !requestedAppCodes.some((code) => appCodes.includes(code))) continue;
       if (configuration.enabled === false) continue;
       components.push({
         featureId,
