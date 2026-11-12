@@ -72,6 +72,11 @@ export class RazorpayClient {
     }
     return this.keyId;
   }
+  async environmentFor(clientId?: string): Promise<string> {
+    if (clientId && this.clientConfiguration)
+      return (await this.clientConfiguration.resolve(clientId)).environment;
+    return this.config.get<string>('RAZORPAY_ENVIRONMENT') ?? 'LEGACY';
+  }
   get enabled() {
     return this.config.get<string>('RAZORPAY_ENABLED') === 'true';
   }

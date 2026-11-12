@@ -3158,6 +3158,7 @@ model DeploymentPaymentAttempt {
   payment              DeploymentPayment @relation(fields: [clientId, deploymentPaymentId], references: [clientId, id], onDelete: Restrict)
   provider             String          @db.VarChar(32)
   providerKeyReference String?         @db.VarChar(512)
+  providerEnvironment  String?         @db.VarChar(32)
   providerOrderId      String?         @unique @db.VarChar(160)
   amountPaise          BigInt
   currency             String          @db.Char(3)

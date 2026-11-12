@@ -78,6 +78,22 @@ describe('Razorpay authentication and provider requests', () => {
       ),
     ).rejects.toThrow('Invalid Razorpay signature');
   });
+  it('verifies webhooks with the client-specific webhook secret', async () => {
+    const resolve = vi.fn().mockResolvedValue({
+      keyId: 'rzp_test_client',
+      keySecret: 'client-secret',
+      webhookSecret: 'client-webhook-secret',
+    });
+    const client = new RazorpayClient(configFixture(), { resolve } as never);
+    const body = Buffer.from('{"event":"payment.captured"}');
+    const signature = createHmac('sha256', 'client-webhook-secret')
+      .update(body)
+      .digest('hex');
+
+    await expect(client.verifyWebhook(body, signature, 'client')).resolves
+      .toBeUndefined();
+    expect(resolve).toHaveBeenCalledWith('client');
+  });
   it.each(['', 'a', 'z'.repeat(64), 'a'.repeat(66)])(
     'rejects malformed signature %s without comparison errors',
     (signature) => {
