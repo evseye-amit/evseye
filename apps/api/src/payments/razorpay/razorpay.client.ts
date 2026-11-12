@@ -66,6 +66,12 @@ export class RazorpayClient {
   get keyId(): string {
     return this.config.get<string>('RAZORPAY_KEY_ID') ?? '';
   }
+  async keyIdFor(clientId?: string): Promise<string> {
+    if (clientId && this.clientConfiguration) {
+      return (await this.clientConfiguration.resolve(clientId)).keyId;
+    }
+    return this.keyId;
+  }
   get enabled() {
     return this.config.get<string>('RAZORPAY_ENABLED') === 'true';
   }

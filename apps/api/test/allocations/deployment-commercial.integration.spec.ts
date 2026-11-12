@@ -79,7 +79,7 @@ describe.skipIf(!url)(
       const remotes: RazorpayPayment[] = [];
       let remoteOrder: { id: string; amount: number; currency: string; receipt: string; status: string };
       const gateway = {
-        enabled: true, keyId: 'rzp_test_fixture', assertConfigured: vi.fn(), verifyCheckout: vi.fn(), verifyWebhook: vi.fn(),
+        enabled: true, keyId: 'rzp_test_fixture', keyIdFor: vi.fn().mockResolvedValue('rzp_test_fixture'), assertConfigured: vi.fn(), verifyCheckout: vi.fn(), verifyWebhook: vi.fn(),
         createOrder: vi.fn(async (amount: number, currency: string, receipt: string) => remoteOrder = { id: `order_${randomUUID().replaceAll('-', '')}`, amount, currency, receipt, status: 'created' }),
         findOrders: vi.fn(async () => remoteOrder ? [remoteOrder] : []),
         fetchOrder: vi.fn(async () => remoteOrder),
