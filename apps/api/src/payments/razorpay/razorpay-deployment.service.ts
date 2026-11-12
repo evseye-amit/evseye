@@ -101,6 +101,7 @@ export class RazorpayDeploymentService {
   async createOrder(clientId: string, userId: string, allocationId: string) {
     this.gateway.assertConfigured(clientId);
     const keyId = await this.gateway.keyIdFor(clientId);
+    const environment = await this.gateway.environmentFor(clientId);
     const { attempt, fresh } = await this.db.$transaction(async (tx) => {
       await this.lock(tx, clientId, allocationId);
       const a = await this.allocation(tx, clientId, allocationId, userId);
@@ -163,6 +164,7 @@ export class RazorpayDeploymentService {
             deploymentPaymentId: p.id,
             provider: 'RAZORPAY',
             providerKeyReference: keyId,
+            providerEnvironment: environment,
             amountPaise: BigInt(amount),
             currency: p.currency,
           },
