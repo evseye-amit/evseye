@@ -8,7 +8,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { Prisma, type RazorpayDeploymentOrder } from '@prisma/client';
+import { Prisma, type DeploymentPaymentAttempt } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { PrismaService } from '../../prisma/prisma.service.js';
@@ -105,9 +105,9 @@ export class RazorpayDeploymentService {
         throw new ConflictException(
           'This allocation payment is not eligible for online checkout.',
         );
-      const unresolvedCapture = await tx.razorpayDeploymentCapture.findFirst({
+      const unresolvedCapture = await tx.deploymentPaymentCapture.findFirst({
         where: {
-          order: { deploymentPaymentId: p.id },
+          attempt: { deploymentPaymentId: p.id },
           status: { not: 'REFUNDED' },
         },
         select: { id: true },
@@ -124,7 +124,7 @@ export class RazorpayDeploymentService {
           'Razorpay handover payments currently support INR only.',
         );
       const amount = toPaise(p.amount);
-      const unresolved = await tx.razorpayDeploymentOrder.findFirst({
+      const unresolved = await tx.deploymentPaymentAttempt.findFirst({
         where: {
           deploymentPaymentId: p.id,
           providerOrderId: null,
@@ -133,10 +133,10 @@ export class RazorpayDeploymentService {
         orderBy: { createdAt: 'desc' },
       });
       if (unresolved) return { attempt: unresolved, fresh: false };
-      const existing = await tx.razorpayDeploymentOrder.findFirst({
+      const existing = await tx.deploymentPaymentAttempt.findFirst({
         where: {
           deploymentPaymentId: p.id,
-          keyId,
+          providerKeyReference: keyId,
           amountPaise: BigInt(amount),
           currency: p.currency,
           status: 'OPEN',
@@ -144,16 +144,17 @@ export class RazorpayDeploymentService {
         orderBy: { createdAt: 'desc' },
       });
       if (existing) return { attempt: existing, fresh: false };
-      await tx.razorpayDeploymentOrder.updateMany({
+      await tx.deploymentPaymentAttempt.updateMany({
         where: { deploymentPaymentId: p.id, status: 'OPEN' },
         data: { status: 'SUPERSEDED' },
       });
       return {
-        attempt: await tx.razorpayDeploymentOrder.create({
+        attempt: await tx.deploymentPaymentAttempt.create({
           data: {
             clientId,
             deploymentPaymentId: p.id,
-            keyId,
+            provider: 'RAZORPAY',
+            providerKeyReference: keyId,
             amountPaise: BigInt(amount),
             currency: p.currency,
           },
@@ -163,7 +164,7 @@ export class RazorpayDeploymentService {
     });
     let order = attempt;
     if (!order.providerOrderId) {
-      this.gateway.assertConfigured(clientId, order.keyId);
+      this.gateway.assertConfigured(clientId, order.providerKeyReference!);
       if (!fresh && Date.now() - order.createdAt.getTime() < 30000)
         throw new ConflictException({
           code: 'RAZORPAY_ORDER_PROCESSING',
@@ -187,7 +188,7 @@ export class RazorpayDeploymentService {
           : (await this.gateway.findOrders(order.id, clientId))[0];
       } catch (error) {
         if (fresh && error instanceof RazorpayProviderError && error.definitive)
-          await this.db.razorpayDeploymentOrder.update({
+          await this.db.deploymentPaymentAttempt.update({
             where: { id: order.id },
             data: { status: 'FAILED' },
           });
@@ -221,16 +222,17 @@ export class RazorpayDeploymentService {
       throw new ConflictException(
         'Payment amount changed. Refresh the payment request.',
       );
-    this.gateway.assertConfigured(clientId, order.keyId);
+    this.gateway.assertConfigured(clientId, order.providerKeyReference!);
     return {
-      keyId: order.keyId,
-      orderId: order.providerOrderId,
+      provider: 'RAZORPAY',
+      providerKeyReference: order.providerKeyReference,
+      orderId: order.providerOrderId!,
       amount: Number(order.amountPaise),
       currency: order.currency,
     };
   }
   private async bindOrder(
-    order: RazorpayDeploymentOrder,
+    order: DeploymentPaymentAttempt,
     remote: {
       id: string;
       receipt: string | null;
@@ -246,7 +248,7 @@ export class RazorpayDeploymentService {
       throw new ConflictException(
         'Gateway order does not match the saved payment request.',
       );
-    return this.db.razorpayDeploymentOrder.update({
+    return this.db.deploymentPaymentAttempt.update({
       where: { id: order.id },
       data: { providerOrderId: remote.id, status: 'OPEN' },
     });
@@ -264,7 +266,7 @@ export class RazorpayDeploymentService {
       );
     const input = parsed.data;
     const a = await this.allocation(this.db, clientId, allocationId, userId);
-    const order = await this.db.razorpayDeploymentOrder.findFirst({
+    const order = await this.db.deploymentPaymentAttempt.findFirst({
       where: {
         deploymentPaymentId: a.mobileDeployment!.payment!.id,
         clientId,
@@ -275,7 +277,7 @@ export class RazorpayDeploymentService {
       throw new BadRequestException(
         'This Razorpay order does not belong to the allocation payment.',
       );
-    this.gateway.assertConfigured(clientId, order.keyId);
+    this.gateway.assertConfigured(clientId, order.providerKeyReference!);
     this.gateway.verifyCheckout(
       order.providerOrderId!,
       input.razorpayPaymentId,
@@ -300,7 +302,7 @@ export class RazorpayDeploymentService {
       throw new ConflictException(
         'This allocation was already paid with a different payment. The additional payment is tracked for refund.',
       );
-    const capture = await this.db.razorpayDeploymentCapture.findUnique({
+    const capture = await this.db.deploymentPaymentCapture.findUnique({
       where: { providerPaymentId: remote.id },
     });
     const receipts = await this.db.photo.findMany({
@@ -336,7 +338,7 @@ export class RazorpayDeploymentService {
     };
   }
   private assertPayment(
-    order: RazorpayDeploymentOrder,
+    order: DeploymentPaymentAttempt,
     payment: RazorpayPayment,
   ) {
     if (
@@ -353,10 +355,10 @@ export class RazorpayDeploymentService {
       );
   }
   private async settle(
-    order: RazorpayDeploymentOrder,
+    order: DeploymentPaymentAttempt,
     remote: RazorpayPayment,
   ) {
-    this.gateway.assertConfigured(order.clientId, order.keyId);
+    this.gateway.assertConfigured(order.clientId, order.providerKeyReference!);
     this.assertPayment(order, remote);
     if (!['captured', 'refunded'].includes(remote.status) || !remote.captured)
       return;
@@ -373,14 +375,14 @@ export class RazorpayDeploymentService {
       );
       const w = a.mobileDeployment!,
         p = w.payment!;
-      const existing = await tx.razorpayDeploymentCapture.findUnique({
+      const existing = await tx.deploymentPaymentCapture.findUnique({
         where: { providerPaymentId: remote.id },
       });
       if (existing) {
-        if (existing.orderId !== order.id)
+        if (existing.attemptId !== order.id)
           throw new ConflictException('Gateway payment has already been used.');
         if (existing.status === 'SETTLED' && remote.amount_refunded > 0)
-          await tx.razorpayDeploymentCapture.update({
+          await tx.deploymentPaymentCapture.update({
             where: { id: existing.id },
             data: {
               status: 'REVIEW_REQUIRED',
@@ -388,7 +390,7 @@ export class RazorpayDeploymentService {
             },
           });
         if (existing.status === 'SETTLED' && a.status === 'CANCELLED')
-          await tx.razorpayDeploymentCapture.update({
+          await tx.deploymentPaymentCapture.update({
             where: { id: existing.id },
             data: {
               status: 'REVIEW_REQUIRED',
@@ -440,9 +442,9 @@ export class RazorpayDeploymentService {
         status = 'REVIEW_REQUIRED';
         reason = 'PAYMENT_REFERENCE_ALREADY_USED';
       }
-      await tx.razorpayDeploymentCapture.create({
+      await tx.deploymentPaymentCapture.create({
         data: {
-          orderId: order.id,
+          attemptId: order.id,
           providerPaymentId: remote.id,
           amountPaise: BigInt(remote.amount),
           currency: remote.currency,
@@ -450,7 +452,7 @@ export class RazorpayDeploymentService {
           reason,
         },
       });
-      await tx.razorpayDeploymentOrder.update({
+      await tx.deploymentPaymentAttempt.update({
         where: { id: order.id },
         data: { status: 'PAID', checkedAt: new Date() },
       });
@@ -502,7 +504,7 @@ export class RazorpayDeploymentService {
     }
     const providerOrderId = input.payload.payment?.entity.order_id ?? input.payload.order?.entity.id;
     const deployment = providerOrderId
-      ? await this.db.razorpayDeploymentOrder.findUnique({ where: { providerOrderId }, select: { clientId: true } })
+      ? await this.db.deploymentPaymentAttempt.findUnique({ where: { providerOrderId }, select: { clientId: true } })
       : null;
     const penalty = !deployment && providerOrderId
       ? await this.db.razorpayPenaltyOrder.findUnique({ where: { providerOrderId }, include: { collection: { select: { clientId: true } } } })
@@ -564,28 +566,28 @@ export class RazorpayDeploymentService {
           'Payment and order IDs are required for this webhook event.',
         );
       if (handled && entity.orderId && entity.paymentId) {
-        let order = await this.db.razorpayDeploymentOrder.findUnique({
+        let order = await this.db.deploymentPaymentAttempt.findUnique({
           where: { providerOrderId: entity.orderId },
         });
         if (!order) {
           const remote = await this.gateway.fetchOrder(entity.orderId, undefined);
           const pending = remote.receipt
-            ? await this.db.razorpayDeploymentOrder.findUnique({
+            ? await this.db.deploymentPaymentAttempt.findUnique({
                 where: { id: remote.receipt },
               })
             : null;
           if (pending) {
-            this.gateway.assertConfigured(pending.clientId, pending.keyId);
+            this.gateway.assertConfigured(pending.clientId, pending.providerKeyReference!);
             order = await this.bindOrder(pending, remote);
           }
         }
         if (!order && this.penalties) owned = await this.penalties.processEvent(event.id, entity.orderId, entity.paymentId);
         if (order) {
           owned = true;
-          this.gateway.assertConfigured(order.clientId, order.keyId);
+          this.gateway.assertConfigured(order.clientId, order.providerKeyReference!);
           await this.db.paymentProviderEvent.update({
             where: { id: event.id },
-            data: { deploymentOrderId: order.id, clientId: order.clientId },
+            data: { deploymentAttemptId: order.id, clientId: order.clientId },
           });
           const payment = await this.gateway.fetchPayment(entity.paymentId, order.clientId);
           this.assertPayment(order, payment);
@@ -613,12 +615,12 @@ export class RazorpayDeploymentService {
       throw error;
     }
   }
-  async reconcileOrder(order: RazorpayDeploymentOrder) {
-    await this.db.razorpayDeploymentOrder.update({
+  async reconcileOrder(order: DeploymentPaymentAttempt) {
+    await this.db.deploymentPaymentAttempt.update({
       where: { id: order.id },
       data: { checkedAt: new Date() },
     });
-    this.gateway.assertConfigured(order.clientId, order.keyId);
+    this.gateway.assertConfigured(order.clientId, order.providerKeyReference!);
     if (!order.providerOrderId) {
       if (Date.now() - order.createdAt.getTime() < 30000) return;
       const matches = await this.gateway.findOrders(order.id, order.clientId);
@@ -632,24 +634,24 @@ export class RazorpayDeploymentService {
         await this.settle(order, payment);
   }
   private async reconcileRefund(id: string) {
-    const capture = await this.db.razorpayDeploymentCapture.findUniqueOrThrow({
+    const capture = await this.db.deploymentPaymentCapture.findUniqueOrThrow({
       where: { id },
-      include: { order: true },
+      include: { attempt: true },
     });
-    await this.db.razorpayDeploymentCapture.update({
+    await this.db.deploymentPaymentCapture.update({
       where: { id },
       data: { updatedAt: new Date() },
     });
-    this.gateway.assertConfigured(capture.order.clientId, capture.order.keyId);
+    this.gateway.assertConfigured(capture.attempt.clientId, capture.attempt.providerKeyReference!);
     let remote;
     if (capture.providerRefundId)
-      remote = await this.gateway.fetchRefund(capture.providerRefundId, capture.order.clientId);
+      remote = await this.gateway.fetchRefund(capture.providerRefundId, capture.attempt.clientId);
     else if (capture.status === 'REFUND_PENDING') {
       const payment = await this.gateway.fetchPayment(
-        capture.providerPaymentId, capture.order.clientId,
+        capture.providerPaymentId, capture.attempt.clientId,
       );
       if (payment.amount_refunded !== 0) {
-        await this.db.razorpayDeploymentCapture.update({
+        await this.db.deploymentPaymentCapture.update({
           where: { id },
           data: {
             status: 'REVIEW_REQUIRED',
@@ -658,7 +660,7 @@ export class RazorpayDeploymentService {
         });
         return;
       }
-      const claim = await this.db.razorpayDeploymentCapture.updateMany({
+      const claim = await this.db.deploymentPaymentCapture.updateMany({
         where: { id, status: 'REFUND_PENDING' },
         data: { status: 'REFUND_UNKNOWN' },
       });
@@ -667,11 +669,11 @@ export class RazorpayDeploymentService {
         remote = await this.gateway.refund(
           capture.providerPaymentId,
           Number(capture.amountPaise),
-          capture.id, capture.order.clientId,
+          capture.id, capture.attempt.clientId,
         );
       } catch (error) {
         if (error instanceof RazorpayProviderError && error.definitive)
-          await this.db.razorpayDeploymentCapture.update({
+          await this.db.deploymentPaymentCapture.update({
             where: { id },
             data: {
               status: 'REFUND_FAILED',
@@ -681,11 +683,11 @@ export class RazorpayDeploymentService {
         throw error;
       }
     } else
-      remote = (await this.gateway.findRefunds(capture.providerPaymentId, capture.order.clientId)).find(
+      remote = (await this.gateway.findRefunds(capture.providerPaymentId, capture.attempt.clientId)).find(
         (r) => r.receipt === capture.id,
       );
     if (!remote) {
-      await this.db.razorpayDeploymentCapture.update({
+      await this.db.deploymentPaymentCapture.update({
         where: { id },
         data: { updatedAt: new Date() },
       });
@@ -697,7 +699,7 @@ export class RazorpayDeploymentService {
     )
       throw new ConflictException('Refund does not match captured payment.');
     await this.db.$transaction(async (tx) => {
-      await tx.razorpayDeploymentCapture.update({
+      await tx.deploymentPaymentCapture.update({
         where: { id },
         data: {
           providerRefundId: remote.id,
@@ -711,10 +713,10 @@ export class RazorpayDeploymentService {
       });
       await tx.auditLog.create({
         data: {
-          clientId: capture.order.clientId,
+          clientId: capture.attempt.clientId,
           action: 'RAZORPAY_REFUND_RECONCILED',
           entityType: 'DeploymentPayment',
-          entityId: capture.order.deploymentPaymentId,
+          entityId: capture.attempt.deploymentPaymentId,
           newData: {
             captureId: id,
             refundId: remote.id,
@@ -726,7 +728,7 @@ export class RazorpayDeploymentService {
   }
   async details(clientId: string, allocationId: string) {
     const a = await this.allocation(this.db, clientId, allocationId);
-    const orders = await this.db.razorpayDeploymentOrder.findMany({
+    const orders = await this.db.deploymentPaymentAttempt.findMany({
       where: { clientId, deploymentPaymentId: a.mobileDeployment!.payment!.id },
       include: { captures: true },
       orderBy: { createdAt: 'desc' },
@@ -743,7 +745,7 @@ export class RazorpayDeploymentService {
   async reconcileAllocation(clientId: string, allocationId: string) {
     const a = await this.allocation(this.db, clientId, allocationId);
     this.gateway.assertConfigured(clientId);
-    const orders = await this.db.razorpayDeploymentOrder.findMany({
+    const orders = await this.db.deploymentPaymentAttempt.findMany({
       where: { clientId, deploymentPaymentId: a.mobileDeployment!.payment!.id },
     });
     const events = orders.length
@@ -764,9 +766,9 @@ export class RazorpayDeploymentService {
       : [];
     for (const event of events) await this.processEvent(event);
     for (const order of orders) await this.reconcileOrder(order);
-    const captures = await this.db.razorpayDeploymentCapture.findMany({
+    const captures = await this.db.deploymentPaymentCapture.findMany({
       where: {
-        orderId: { in: orders.map((order) => order.id) },
+        attemptId: { in: orders.map((order) => order.id) },
         status: {
           in: ['REFUND_PENDING', 'REFUND_UNKNOWN', 'REFUND_PROCESSING'],
         },
@@ -793,7 +795,7 @@ export class RazorpayDeploymentService {
         }
       }
       // Include paid/superseded orders: a second capture or late capture still needs recording.
-      const orders = await this.db.razorpayDeploymentOrder.findMany({
+      const orders = await this.db.deploymentPaymentAttempt.findMany({
         where: { status: { not: 'FAILED' } },
         orderBy: { checkedAt: 'asc' },
         take: 10,
@@ -808,7 +810,7 @@ export class RazorpayDeploymentService {
         }
       }
       if (this.penalties) await this.penalties.reconcile();
-      const refunds = await this.db.razorpayDeploymentCapture.findMany({
+      const refunds = await this.db.deploymentPaymentCapture.findMany({
         where: {
           status: {
             in: ['REFUND_PENDING', 'REFUND_UNKNOWN', 'REFUND_PROCESSING'],

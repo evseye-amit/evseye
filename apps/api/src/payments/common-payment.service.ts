@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -8,7 +9,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RiderBillingService } from '../rider-billing/rider-billing.service.js';
 import { CheckoutCollectionService } from './checkout-collection.service.js';
-import { RazorpayDeploymentService } from './razorpay/razorpay-deployment.service.js';
+import { DEPLOYMENT_PAYMENT_PROVIDER, type DeploymentPaymentOperations } from './deployment-payment-provider.interface.js';
 import { RazorpayPenaltyService } from './razorpay/razorpay-penalty.service.js';
 import {
   parseOrderInput,
@@ -55,10 +56,18 @@ export class CommonPaymentService {
     private readonly db: PrismaService,
     private readonly billing: RiderBillingService,
     private readonly checkout: CheckoutCollectionService,
-    private readonly deployments: RazorpayDeploymentService,
+    @Inject(DEPLOYMENT_PAYMENT_PROVIDER)
+    private readonly deployments: DeploymentPaymentOperations,
     private readonly penalties: RazorpayPenaltyService,
     private readonly invoices?: RazorpayInvoiceService,
   ) {}
+
+  private deploymentAttemptStore() {
+    // The fallback keeps older test fixtures and already-running migrations
+    // readable while the provider-neutral deployment migration rolls out.
+    return (this.db as PrismaService & { razorpayDeploymentOrder?: any }).deploymentPaymentAttempt
+      ?? (this.db as PrismaService & { razorpayDeploymentOrder: any }).razorpayDeploymentOrder;
+  }
 
   async create(clientId: string, userId: string, body: unknown, key?: string) {
     const input = parseOrderInput(body);
@@ -69,7 +78,7 @@ export class CommonPaymentService {
         userId,
         input.allocationId,
       );
-      const order = await this.db.razorpayDeploymentOrder.findFirst({
+      const order = await this.deploymentAttemptStore().findFirst({
         where: {
           clientId,
           providerOrderId: remote.orderId,
@@ -170,7 +179,7 @@ export class CommonPaymentService {
     const { kind, recordId } = parsePaymentRequestId(requestId);
     const riderId = await this.billing.riderForUser(clientId, userId);
     if (kind === 'deployment') {
-      const order = await this.db.razorpayDeploymentOrder.findFirst({
+      const order = await this.deploymentAttemptStore().findFirst({
         where: {
           id: recordId,
           clientId,
@@ -237,7 +246,7 @@ export class CommonPaymentService {
       return {
         paymentRequestId: requestId,
         purpose: 'DEPLOYMENT',
-        provider: 'RAZORPAY',
+        provider: order.provider ?? 'RAZORPAY',
         status,
         amount: new Prisma.Decimal(order.amountPaise.toString())
           .div(100)
@@ -255,7 +264,7 @@ export class CommonPaymentService {
           !cancelled
             ? {
                 orderId: order.providerOrderId,
-                keyId: order.keyId,
+                keyId: (order as any).providerKeyReference ?? (order as any).keyId,
                 amountPaise: Number(order.amountPaise),
               }
             : null,
@@ -313,28 +322,21 @@ export class CommonPaymentService {
   ) {
     const owned = await this.owned(clientId, userId, requestId);
     const provider =
-      owned.kind === 'deployment' ? 'RAZORPAY' : owned.collection.provider;
+      owned.kind === 'deployment' ? owned.order.provider ?? 'RAZORPAY' : owned.collection.provider;
     let action: string | undefined;
-    if (provider === 'RAZORPAY') {
-      const input = parseRazorpayCallback(body);
-      const orderId =
-        owned.kind === 'deployment'
-          ? owned.order.providerOrderId
-          : owned.collection.providerOrderId;
-      if (input.razorpayOrderId !== orderId)
-        throw new ConflictException(
-          'The gateway order does not match this payment request.',
-        );
-      const result =
-        owned.kind === 'deployment'
-          ? await this.deployments.verify(
-              clientId,
-              userId,
-              owned.order.payment.workflow.allocationId,
-              input,
-            )
-          : await this.penalties.verify(clientId, userId, input);
+    if (owned.kind === 'deployment') {
+      const result = await this.deployments.verify(
+        clientId,
+        userId,
+        owned.order.payment.workflow.allocationId,
+        body,
+      );
       action = result.nextAction;
+    } else if (provider === 'RAZORPAY') {
+      const input = parseRazorpayCallback(body);
+      if (input.razorpayOrderId !== owned.collection.providerOrderId)
+        throw new ConflictException('The gateway order does not match this payment request.');
+      action = (await this.penalties.verify(clientId, userId, input)).nextAction;
     } else {
       if (
         body !== undefined &&
