@@ -50,6 +50,14 @@ const hook = z.object({
           }),
         })
         .optional(),
+      refund: z
+        .object({
+          entity: z.object({
+            id: z.string(),
+            payment_id: z.string().nullable().optional(),
+          }),
+        })
+        .optional(),
     })
     .passthrough(),
 });
@@ -503,10 +511,13 @@ export class RazorpayDeploymentService {
     } catch {
       throw new BadRequestException('Invalid Razorpay webhook payload.');
     }
+    const providerPaymentId = input.payload.payment?.entity.id ?? input.payload.refund?.entity.payment_id;
     const providerOrderId = input.payload.payment?.entity.order_id ?? input.payload.order?.entity.id;
     const deployment = providerOrderId
       ? await this.db.deploymentPaymentAttempt.findUnique({ where: { providerOrderId }, select: { clientId: true } })
-      : null;
+      : providerPaymentId
+        ? await this.db.deploymentPaymentCapture.findUnique({ where: { providerPaymentId }, select: { attempt: { select: { clientId: true } } } }).then((capture) => capture?.attempt)
+        : null;
     const penalty = !deployment && providerOrderId
       ? await this.db.razorpayPenaltyOrder.findUnique({ where: { providerOrderId }, include: { collection: { select: { clientId: true } } } })
       : null;
@@ -521,8 +532,9 @@ export class RazorpayDeploymentService {
         payloadHash: hash,
         recurringPayload: { tokenId: (input.payload.token as { entity: { id: string } } | undefined)?.entity.id ?? null },
         deploymentPayload: {
-          paymentId: input.payload.payment?.entity.id ?? null,
+          paymentId: providerPaymentId ?? null,
           orderId: input.payload.payment?.entity.order_id ?? input.payload.order?.entity.id ?? null,
+          refundId: input.payload.refund?.entity.id ?? null,
         },
       },
     });
@@ -554,19 +566,41 @@ export class RazorpayDeploymentService {
         .object({
           paymentId: z.string().nullable(),
           orderId: z.string().nullable(),
+          refundId: z.string().nullable().optional(),
         })
         .parse(event.deploymentPayload);
       const handled = [
+        'payment.authorized',
         'payment.captured',
         'order.paid',
         'payment.failed',
+        'refund.processed',
+        'refund.failed',
       ].includes(event.eventType);
       let owned = false;
+      if (entity.refundId && entity.paymentId) {
+        const capture = await this.db.deploymentPaymentCapture.findUnique({
+          where: { providerPaymentId: entity.paymentId },
+          include: { attempt: true },
+        });
+        if (capture) {
+          owned = true;
+          await this.db.paymentProviderEvent.update({
+            where: { id: event.id },
+            data: {
+              deploymentAttemptId: capture.attemptId,
+              clientId: capture.attempt.clientId,
+            },
+          });
+          await this.reconcileRefund(capture.id);
+        }
+      }
       if (handled && (!entity.paymentId || !entity.orderId))
-        throw new BadRequestException(
+        if (!entity.refundId)
+          throw new BadRequestException(
           'Payment and order IDs are required for this webhook event.',
-        );
-      if (handled && entity.orderId && entity.paymentId) {
+          );
+      if (handled && !entity.refundId && entity.orderId && entity.paymentId) {
         let order = await this.db.deploymentPaymentAttempt.findUnique({
           where: { providerOrderId: entity.orderId },
         });
