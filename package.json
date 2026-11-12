@@ -17,6 +17,7 @@
     "db:seed": "node --env-file=.env apps/api/prisma/seed.mjs",
     "db:seed:super-admin": "node --env-file=.env apps/api/prisma/seed-super-admin.mjs",
     "db:seed:master-data": "node --env-file=.env apps/api/prisma/seed-master-data.mjs",
+    "db:seed:pinkrides:production": "node apps/api/prisma/seed-pinkrides-production.mjs",
     "db:seed:yogmaya": "node --env-file=.env -e \"import { createPrismaClient } from './apps/api/prisma/prisma-client.mjs'; import { seedYogmaya } from './apps/api/prisma/seed-yogmaya.mjs'; const prisma = createPrismaClient(); seedYogmaya(prisma).finally(() => prisma.\\$disconnect());\"",
     "db:seed:features": "node --env-file=.env apps/api/prisma/seed-features.mjs",
     "db:seed:third-party-config": "node --env-file=.env apps/api/prisma/create-third-party-config.mjs",
