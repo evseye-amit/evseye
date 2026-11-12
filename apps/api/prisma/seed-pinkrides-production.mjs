@@ -76,10 +76,15 @@ async function seedPinkridesInventory(prisma, clientId) {
         ...fleet
       } = seed;
       const existing = await tx.fleet.findUnique({
-        where: { clientId_fleetCode: { clientId, fleetCode: fleet.fleetCode } },
+        where: {
+          clientId_chassisNumber: {
+            clientId,
+            chassisNumber: fleet.chassisNumber,
+          },
+        },
         select: { id: true },
       });
-      // Existing vehicles may have moved or had their controllers replaced.
+      // A vehicle may have been renamed, moved, or had its controller replaced.
       if (existing) continue;
 
       const mapping = fleetComponentMappings.find(
