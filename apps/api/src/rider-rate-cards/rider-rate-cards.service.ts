@@ -8,6 +8,7 @@ import { Prisma, RiderRateCardStatus } from '@prisma/client';
 import { z } from 'zod';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AuditService } from '../audit/audit.service.js';
+import { chooseDeposits, chooseFees, type VehicleFacts } from './pricing-engine.js';
 
 const signedMoney = z
   .string()
@@ -44,6 +45,14 @@ const versionInput = z
     (v) => !v.effectiveTo || v.effectiveFrom < v.effectiveTo,
     'Invalid effective period',
   );
+const rulePreviewInput = z.object({
+  versionId: z.string().uuid(),
+  city: z.string().max(100).nullable().optional(),
+  hubId: z.string().uuid().nullable().optional(),
+  oemId: z.string().uuid().nullable().optional(),
+  workPartnerId: z.string().uuid().nullable().optional(),
+  ageMonths: z.number().int().nonnegative().nullable().optional(),
+}).strict();
 const rentalInput = z
   .object({
     rentalPeriodType: z.enum([
@@ -82,8 +91,11 @@ const feeInput = z
     selectionGroup: z.string().min(1).max(80).optional(),
     city: z.string().min(1).max(100).optional(),
     hubId: z.string().uuid().optional(),
+    oemId: z.string().uuid().optional(),
+    clientWorkPartnerId: z.string().uuid().optional(),
     minVehicleAgeMonths: z.number().int().nonnegative().optional(),
     maxVehicleAgeMonths: z.number().int().nonnegative().optional(),
+    isActive: z.boolean().optional(),
     priority: z.number().int().default(0),
     code: z.string().min(1),
     name: z.string().min(1),
@@ -133,11 +145,22 @@ const depositInput = z
     vehicleCategoryId: z.string().uuid().optional(),
     vehicleTypeId: z.string().uuid().optional(),
     fleetId: z.string().uuid().optional(),
+    city: z.string().min(1).max(100).optional(),
+    hubId: z.string().uuid().optional(),
+    oemId: z.string().uuid().optional(),
+    clientWorkPartnerId: z.string().uuid().optional(),
+    minVehicleAgeMonths: z.number().int().nonnegative().optional(),
+    maxVehicleAgeMonths: z.number().int().nonnegative().optional(),
+    isActive: z.boolean().optional(),
   })
   .strict()
   .refine(
     (v) => new Prisma.Decimal(v.waiverAmount).lte(v.amount),
     'Waiver exceeds required deposit',
+  )
+  .refine(
+    (v) => v.minVehicleAgeMonths === undefined || v.maxVehicleAgeMonths === undefined || v.minVehicleAgeMonths <= v.maxVehicleAgeMonths,
+    'Invalid vehicle age range',
   );
 const adjustmentInput = z
   .object({
@@ -356,6 +379,28 @@ export class RiderRateCardsService {
       orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
     });
   }
+  async previewRules(clientId: string, body: unknown) {
+    const input = this.parse(rulePreviewInput, body);
+    const version = await this.prisma.riderRateCardVersion.findFirst({ where: { clientId, id: input.versionId }, include: { fees: true, deposits: true } });
+    if (!version) throw new NotFoundException('Rate-card version not found');
+    const facts: VehicleFacts = {
+      id: 'preview', vehicleCategoryId: '', vehicleTypeId: '', oemId: input.oemId ?? '', modelName: null, variantName: null,
+      ageMonths: input.ageMonths ?? null, ageSourceField: null, ageSourceDate: null, grade: null, country: null, state: null,
+      city: input.city ?? null, zone: null, hubId: input.hubId ?? null, workPartnerId: input.workPartnerId ?? null,
+      batteryPlanId: null, rentalPeriodType: 'MONTHLY', durationValue: null, durationUnit: null, effectiveDate: new Date(),
+    };
+    const selectedFees = chooseFees(version.fees, facts);
+    const selectedDeposits = chooseDeposits(version.deposits, facts);
+    const explain = (rule: { city?: string | null; hubId?: string | null; oemId?: string | null; clientWorkPartnerId?: string | null; minVehicleAgeMonths?: number | null; maxVehicleAgeMonths?: number | null }) => {
+      const dimensions = [rule.city && 'city', rule.hubId && 'hub', rule.oemId && 'OEM', rule.clientWorkPartnerId && 'work partner', (rule.minVehicleAgeMonths != null || rule.maxVehicleAgeMonths != null) && 'vehicle age'].filter(Boolean);
+      return dimensions.length ? `Matched by ${dimensions.join(' + ')}; most-specific eligible rule wins.` : 'Default rule: no targeting conditions were configured.';
+    };
+    return {
+      versionId: version.id,
+      fees: selectedFees.map((rule) => ({ id: rule.id, code: rule.code, name: rule.name, amount: rule.amount.toFixed(2), reason: explain(rule) })),
+      deposits: selectedDeposits.map((rule) => ({ id: rule.id, code: rule.code, name: rule.name, amount: rule.amount.toFixed(2), reason: explain(rule) })),
+    };
+  }
   async get(clientId: string, id: string) {
     const card = await this.prisma.riderRateCard.findFirst({
       where: { clientId, id },
@@ -451,6 +496,33 @@ export class RiderRateCardsService {
         updatedById: actorId,
       },
     });
+    await this.prisma.rateCardDeposit.create({
+      data: {
+        clientId,
+        rateCardVersionId: version.id,
+        code: 'VEHICLE-SECURITY',
+        name: 'Vehicle security deposit',
+        depositType: 'VEHICLE_SECURITY',
+        amount: '500.00',
+        waiverAmount: '0.00',
+        createdById: actorId,
+        updatedById: actorId,
+      },
+    });
+    await this.prisma.rateCardFee.create({
+      data: {
+        clientId,
+        rateCardVersionId: version.id,
+        code: 'ONBOARDING_FEE',
+        name: 'Onboarding fee',
+        chargeType: 'ONBOARDING_FEE',
+        nature: 'ONE_TIME',
+        eligibility: 'ONCE_PER_CLIENT_RIDER_RELATIONSHIP',
+        amount: '1939.00',
+        createdById: actorId,
+        updatedById: actorId,
+      },
+    });
     await this.record(
       clientId,
       actorId,
@@ -539,6 +611,7 @@ export class RiderRateCardsService {
         vehicleCategoryId?: string;
         vehicleTypeId?: string;
         oemId?: string;
+        clientWorkPartnerId?: string;
       },
     );
     const common = {
@@ -601,6 +674,7 @@ export class RiderRateCardsService {
         vehicleCategoryId?: string;
         vehicleTypeId?: string;
         oemId?: string;
+        clientWorkPartnerId?: string;
       },
     );
     const delegate =
@@ -812,6 +886,7 @@ export class RiderRateCardsService {
       vehicleCategoryId?: string;
       vehicleTypeId?: string;
       oemId?: string;
+      clientWorkPartnerId?: string;
     },
   ) {
     if (
@@ -854,5 +929,10 @@ export class RiderRateCardsService {
       !(await this.prisma.oem.findUnique({ where: { id: data.oemId } }))
     )
       throw new BadRequestException('Unknown OEM');
+    if (
+      data.clientWorkPartnerId &&
+      !(await this.prisma.clientWorkPartner.findFirst({ where: { id: data.clientWorkPartnerId, clientId } }))
+    )
+      throw new BadRequestException('Work partner does not belong to client');
   }
 }

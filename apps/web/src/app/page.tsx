@@ -25,6 +25,7 @@ import {
   ReadinessWorkflowPicker,
 } from "./components/readiness-workflow-picker";
 import { SupportTickets } from "./components/support-tickets";
+import RiderRateCardsPanel from "./client/kyc/rider-rate-cards-panel";
 import { RiderReferenceReview } from "./components/rider-reference-review";
 import { FleetEvidenceDialog } from "./components/fleet-evidence";
 import { RiderWalletDialog } from "./components/rider-wallet";
@@ -81,6 +82,7 @@ type Tab =
   | "rider-document-review"
   | "rider-reference-review"
   | "support-tickets"
+  | "rider-rate-cards"
   | "notifications"
   | "zones"
   | "reports"
@@ -189,7 +191,7 @@ const CLIENT_NAVIGATION: Array<{
   },
   {
     label: "Engagement & Support",
-    items: [{ id: "refer-and-earn", label: "Refer & Earn" }, { id: "support-tickets", label: "Support Tickets" }, { id: "notifications", label: "Notification" }],
+    items: [{ id: "refer-and-earn", label: "Refer & Earn" }, { id: "rider-rate-cards", label: "Rider Rate Cards" }, { id: "support-tickets", label: "Support Tickets" }, { id: "notifications", label: "Notification" }],
   },
   {
     label: "Monitoring & Compliance",
@@ -237,6 +239,7 @@ const CLIENT_TAB_TITLES: Record<Tab, string> = {
   "rider-document-review": "Rider Document Verification",
   "rider-reference-review": "Rider Reference Verification",
   "support-tickets": "Support Tickets",
+  "rider-rate-cards": "Rider Rate Cards",
   notifications: "Notification",
   zones: "Zone",
   reports: "Reports",
@@ -273,6 +276,7 @@ const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
   "rider-document-review": "shield",
   "rider-reference-review": "shield",
   "support-tickets": "support",
+  "rider-rate-cards": "pricing",
   notifications: "notification",
   zones: "zone",
   reports: "reports",
@@ -306,6 +310,7 @@ const ACTIVE_CLIENT_TABS = new Set<Tab>([
   "rider-document-review",
   "rider-reference-review",
   "support-tickets",
+  "rider-rate-cards",
   "notifications",
 ]);
 
@@ -905,7 +910,7 @@ export default function Home() {
       setRecordRefreshKey((key) => key + 1); setLoading(false); return;
     }
     if (["spares-penalties","installation-board","vehicle-preparation","quality-check","readiness-settings","advisors","qc-managers"].includes(nextTab)) { setItems([]); setLoading(false); return; }
-    if (nextTab === "payment-transactions" || nextTab === "legal-documents" || nextTab === "refer-and-earn" || nextTab === "work-partners" || nextTab === "rider-reference-review" || nextTab === "support-tickets" || nextTab === "notifications") {
+    if (nextTab === "payment-transactions" || nextTab === "legal-documents" || nextTab === "refer-and-earn" || nextTab === "work-partners" || nextTab === "rider-reference-review" || nextTab === "support-tickets" || nextTab === "notifications" || nextTab === "rider-rate-cards") {
       setItems([]);
       setLoading(false);
       return;
@@ -2433,6 +2438,7 @@ export default function Home() {
         {tab === "installation-board" && <InstallationBoard refreshKey={panelRefreshKey} />}
         {["vehicle-preparation","quality-check","readiness-settings","advisors","qc-managers"].includes(tab) && <FleetReadiness refreshKey={panelRefreshKey} key={`${tab}:${readinessFleetId}`} fleetId={tab === "vehicle-preparation" ? readinessFleetId : undefined} onBack={() => navigateTo("fleets")} onOpenPreparation={() => navigateTo("vehicle-preparation")} view={tab === "quality-check" ? "qc" : tab === "readiness-settings" ? "settings" : tab === "advisors" ? "advisors" : tab === "qc-managers" ? "qc-managers" : "preparation"} />}
         {tab === "support-tickets" && <SupportTickets refreshKey={panelRefreshKey} />}
+        {tab === "rider-rate-cards" && <RiderRateCardsPanel canManage={userRoles.includes("CLIENT_ADMIN")} />}
         {tab === "notifications" && userRoles.some((role) => ["CLIENT_ADMIN", "FLEET_MANAGER"].includes(role)) && <ClientNotifications refreshKey={panelRefreshKey} />}
         {tab === "rider-document-review" && <section className="client-page-intro client-review-intro"><p className="muted">Open each uploaded document, then approve it or record a rejection reason.</p><div className="client-review-counts"><span><strong>{items.filter((item) => item.status === "PENDING").length}</strong> Pending</span><span><strong>{items.filter((item) => item.status === "APPROVED").length}</strong> Approved</span><span><strong>{items.filter((item) => item.status === "REJECTED").length}</strong> Rejected</span></div></section>}
         {(tab === "fleets" || tab === "riders" || tab === "batteries" || tab === "controllers" || tab === "iot-devices" || tab === "fleet-component-mapping") && <section className="sa-page-head client-page-head"><div className="sa-actions"><button className="secondary" onClick={() => openBulkImport(tab as ClientBulkTab)}>Bulk upload</button>{tab === "fleets" ? <button onClick={() => void openFleetForm()}>+ Add Fleet</button> : tab === "riders" ? <button onClick={() => void openRiderForm()}>+ Add Rider</button> : tab === "iot-devices" ? <button onClick={() => void openIotForm()}>+ Add IoT device</button> : tab === "fleet-component-mapping" ? <button onClick={() => void openMappingForm()}>+ Add mapping</button> : <button onClick={() => void openComponentForm(tab)}>+ Add {tab === "batteries" ? "Battery" : "Controller"}</button>}</div></section>}
