@@ -176,11 +176,28 @@ export async function seedPinkrides(prisma) {
       currentHubCode: _currentHubCode,
       ...fleetData
     } = fleetSeed;
-    const fleet = await prisma.fleet.upsert({
-      where: { clientId_fleetCode: { clientId: client.id, fleetCode: fleetSeed.fleetCode } },
-      create: { ...fleetData, clientId: client.id, oemId: oem.id, vehicleCategoryId: category.id, vehicleTypeId: vehicleType.id, homeHubId: hub.id, currentHubId: hub.id },
-      update: { ...fleetData, oemId: oem.id, vehicleCategoryId: category.id, vehicleTypeId: vehicleType.id, homeHubId: hub.id, currentHubId: hub.id },
+    const fleetDataWithRelations = {
+      ...fleetData,
+      clientId: client.id,
+      oemId: oem.id,
+      vehicleCategoryId: category.id,
+      vehicleTypeId: vehicleType.id,
+      homeHubId: hub.id,
+      currentHubId: hub.id,
+    };
+    const existingFleet = await prisma.fleet.findFirst({
+      where: {
+        clientId: client.id,
+        OR: [
+          { fleetCode: fleetSeed.fleetCode },
+          { chassisNumber: fleetSeed.chassisNumber },
+        ],
+      },
+      select: { id: true },
     });
+    const fleet = existingFleet
+      ? await prisma.fleet.update({ where: { id: existingFleet.id }, data: fleetDataWithRelations })
+      : await prisma.fleet.create({ data: fleetDataWithRelations });
     const mapping = fleetComponentMappings.find((item) => item.fleetCode === fleet.fleetCode);
     const controller = await prisma.controller.findUniqueOrThrow({ where: { clientId_controllerNumber: { clientId: client.id, controllerNumber: mapping.controllerNumber } } });
     const installedAt = new Date('2026-10-01T00:00:00.000Z');
