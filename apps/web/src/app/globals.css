@@ -5105,6 +5105,10 @@ body:has(.sa-dialog[open]) {
   .client-dashboard-sections .dashboard-grid { grid-template-columns: minmax(0, 1fr); }
 }
 .kyc-workspace .sa-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 16px; }
+.kyc-back-link { align-self: flex-start; margin: 0 0 24px; }
+.kyc-subpage-heading { margin: 0 0 28px; }
+.kyc-subpage-heading h2 { margin: 0 0 8px; font-size: clamp(26px, 3vw, 36px); }
+.kyc-subpage-heading p:last-child { margin: 0; color: var(--muted); font-size: 17px; }
 .kyc-workspace :is(input, select, textarea):disabled,
 .client-dialog-content :is(input, select, textarea):disabled { background: #f0f3f1; color: #657168; cursor: not-allowed; }
 .client-dialog-content input[readonly] { background: #f5f8f6; border-style: dashed; }
