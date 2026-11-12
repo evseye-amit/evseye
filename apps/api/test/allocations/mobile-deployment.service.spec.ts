@@ -290,15 +290,7 @@ describe('deployment without IoT pairing', () => {
       },
       clientSubscription: {
         findFirst: vi.fn().mockResolvedValue({
-          package: {
-            features: [
-              {
-                feature: {
-                  trainingContents: [{ code: 'SAFETY', isMandatory: true }],
-                },
-              },
-            ],
-          },
+          features: [{ feature: { trainingContents: [{ code: 'SAFETY', isMandatory: true }] } }],
         }),
       },
       $transaction: vi.fn().mockImplementation((fn) => fn(tx)),
@@ -383,7 +375,7 @@ describe('deployment without IoT pairing', () => {
     prisma: ReturnType<typeof fixture>['prisma'],
   ) {
     prisma.clientSubscription.findFirst.mockResolvedValue({
-      package: { features: [] },
+      features: [],
     });
   }
   it('finishes a stuck training workflow when the package excludes training without recording fake training completion', async () => {
@@ -402,7 +394,7 @@ describe('deployment without IoT pairing', () => {
     async ({ contents }) => {
       const { service, prisma } = fixture('TRAINING_PENDING', []);
       prisma.clientSubscription.findFirst.mockResolvedValue({
-        package: { features: [{ feature: { trainingContents: contents } }] },
+        features: [{ feature: { trainingContents: contents } }],
       });
       await expect(
         service.completeTraining('client-1', 'rider-user', 'allocation-1'),
