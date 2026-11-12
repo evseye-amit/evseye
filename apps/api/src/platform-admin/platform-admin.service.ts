@@ -991,7 +991,7 @@ export class PlatformAdminService {
   }
 
   /** Create or refresh the client feature draft without changing live entitlements. */
-  async createClientFeatureDraft(clientId: string, actorId: string) {
+  async createClientFeatureDraft(clientId: string, actorId: string, requestedSnapshot?: unknown[]) {
     const client = await this.prisma.client.findUnique({ where: { id: clientId } });
     if (!client) throw new NotFoundException('Client not found.');
     const subscription = await this.requireClientSubscription(clientId);
@@ -1005,7 +1005,17 @@ export class PlatformAdminService {
           orderBy: { version: 'desc' },
         });
     let snapshot: unknown[];
-    if (published && Array.isArray(published.snapshot)) {
+    if (requestedSnapshot) {
+      const packageFeatures = (await this.clientEntitlements(clientId)).packageFeatures;
+      const allowed = new Set(packageFeatures.map((item) => item.featureId));
+      const seen = new Set<string>();
+      snapshot = requestedSnapshot.map((item: any) => {
+        if (!item || typeof item.featureId !== 'string' || !allowed.has(item.featureId) || seen.has(item.featureId)) throw new BadRequestException('Feature draft contains an invalid or duplicate feature.');
+        seen.add(item.featureId);
+        return { featureId: item.featureId, enabled: Boolean(item.enabled), source: item.source === 'PACKAGE' ? 'PACKAGE' : 'CUSTOM', configuration: item.configuration ?? null };
+      });
+      if (seen.size !== allowed.size) throw new BadRequestException('Feature draft must contain every package feature.');
+    } else if (published && Array.isArray(published.snapshot)) {
       snapshot = published.snapshot as unknown[];
     } else {
       const entitlements = await this.clientEntitlements(clientId);
@@ -1038,7 +1048,9 @@ export class PlatformAdminService {
     const published = await this.prisma.$transaction(async (tx) => {
       for (const item of snapshot) {
         const existing = await tx.clientFeature.findUnique({ where: { subscriptionId_featureId: { subscriptionId: subscription.id, featureId: item.featureId } } });
-        if (existing) await tx.clientFeature.update({ where: { id: existing.id }, data: { enabled: item.enabled, configuration: item.configuration as Prisma.InputJsonValue } });
+        if (item.source === 'PACKAGE') {
+          if (existing) await tx.clientFeature.delete({ where: { id: existing.id } });
+        } else if (existing) await tx.clientFeature.update({ where: { id: existing.id }, data: { source: 'CUSTOM', enabled: item.enabled, configuration: item.configuration as Prisma.InputJsonValue } });
         else await tx.clientFeature.create({ data: { clientId, subscriptionId: subscription.id, featureId: item.featureId, source: 'CUSTOM', enabled: item.enabled, effectiveFrom: new Date(), configuration: item.configuration as Prisma.InputJsonValue } });
       }
       return tx.clientFeatureRevision.update({ where: { id: draft.id }, data: { publishedAt: new Date() } });

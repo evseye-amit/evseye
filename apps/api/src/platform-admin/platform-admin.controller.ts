@@ -30,6 +30,7 @@ import { PlatformAdminService } from './platform-admin.service.js';
 import { ClientLogoUploadDto, CompleteClientLogoDto } from './dto/client-logo.dto.js';
 import { UpdateClientBrandingDto } from './dto/client-branding.dto.js';
 import { UpdateClientCommercialsDto } from './dto/client-commercials.dto.js';
+import { SaveClientFeatureDraftDto } from './dto/client-feature-revision.dto.js';
 import { UpsertClientPaymentProviderDto } from './dto/client-payment-provider.dto.js';
 import {
   CreateClientFeatureDto,
@@ -84,9 +85,10 @@ export class PlatformAdminController {
   }
   @Post('clients/:clientId/feature-revisions/draft') createClientFeatureDraft(
     @Param('clientId') clientId: string,
+    @Body() dto: SaveClientFeatureDraftDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.platform.createClientFeatureDraft(clientId, user.id).then((data) => ({ data }));
+    return this.platform.createClientFeatureDraft(clientId, user.id, dto.snapshot).then((data) => ({ data }));
   }
   @Post('clients/:clientId/feature-revisions/publish') publishClientFeatureDraft(
     @Param('clientId') clientId: string,
