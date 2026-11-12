@@ -72,6 +72,11 @@ export class RazorpayClient {
     }
     return this.keyId;
   }
+  async environmentFor(clientId?: string): Promise<string> {
+    if (clientId && this.clientConfiguration)
+      return (await this.clientConfiguration.resolve(clientId)).environment;
+    return this.config.get<string>('RAZORPAY_ENVIRONMENT') ?? 'LEGACY';
+  }
   get enabled() {
     return this.config.get<string>('RAZORPAY_ENABLED') === 'true';
   }
@@ -94,12 +99,20 @@ export class RazorpayClient {
           'Online payment is unavailable for this workspace or merchant account.',
       });
   }
-  verifyCheckout(orderId: string, paymentId: string, signature: string) {
-    this.assertConfigured();
+  async verifyCheckout(
+    orderId: string,
+    paymentId: string,
+    signature: string,
+    clientId?: string,
+  ) {
+    this.assertConfigured(clientId);
+    const secret = clientId && this.clientConfiguration
+      ? (await this.clientConfiguration.resolve(clientId)).keySecret
+      : this.config.getOrThrow<string>('RAZORPAY_KEY_SECRET');
     verifyRazorpaySignature(
       `${orderId}|${paymentId}`,
       signature,
-      this.config.getOrThrow<string>('RAZORPAY_KEY_SECRET'),
+      secret,
     );
   }
   async verifyWebhook(body: Buffer, signature: string, clientId?: string) {

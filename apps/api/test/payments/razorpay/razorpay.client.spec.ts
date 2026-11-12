@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { RazorpayClient, verifyRazorpaySignature } from '../../../src/payments/razorpay/razorpay.client.js';
 import { toPaise } from '../../../src/payments/razorpay/razorpay-deployment.service.js';
-function fixture(overrides: Record<string, string> = {}) {
+function configFixture(overrides: Record<string, string> = {}) {
   const settings: Record<string, string> = {
     RAZORPAY_ENABLED: 'true',
     RAZORPAY_CLIENT_IDS: 'client',
@@ -12,10 +12,13 @@ function fixture(overrides: Record<string, string> = {}) {
     RAZORPAY_WEBHOOK_SECRET: 'hook-secret',
     ...overrides,
   };
-  return new RazorpayClient({
+  return {
     get: (key: string) => settings[key],
     getOrThrow: (key: string) => settings[key],
-  } as never);
+  } as never;
+}
+function fixture(overrides: Record<string, string> = {}) {
+  return new RazorpayClient(configFixture(overrides));
 }
 afterEach(() => vi.unstubAllGlobals());
 describe('Razorpay authentication and provider requests', () => {
@@ -23,18 +26,18 @@ describe('Razorpay authentication and provider requests', () => {
     const client = fixture();
     const sign = (body: string, key: string) =>
       createHmac('sha256', key).update(body).digest('hex');
-    client.verifyCheckout(
+    await client.verifyCheckout(
       'order_1',
       'pay_1',
       sign('order_1|pay_1', 'api-secret'),
     );
-    expect(() =>
+    await expect(
       client.verifyCheckout(
         'order_2',
         'pay_1',
         sign('order_1|pay_1', 'api-secret'),
       ),
-    ).toThrow('signature');
+    ).rejects.toThrow('signature');
     await client.verifyWebhook(
       Buffer.from('{ "event": 1 }'),
       sign('{ "event": 1 }', 'hook-secret'),
@@ -48,6 +51,48 @@ describe('Razorpay authentication and provider requests', () => {
     await expect(
       client.verifyWebhook(Buffer.from('body'), sign('body', 'api-secret')),
     ).rejects.toThrow('signature');
+  });
+  it('verifies checkout with the client-specific Razorpay secret', async () => {
+    const resolve = vi.fn().mockResolvedValue({
+      keyId: 'rzp_test_client',
+      keySecret: 'client-secret',
+      webhookSecret: 'client-webhook-secret',
+    });
+    const client = new RazorpayClient(configFixture(), { resolve } as never);
+    const signature = createHmac('sha256', 'client-secret')
+      .update('order_1|pay_1')
+      .digest('hex');
+
+    await expect(
+      client.verifyCheckout('order_1', 'pay_1', signature, 'client'),
+    ).resolves.toBeUndefined();
+    expect(resolve).toHaveBeenCalledWith('client');
+    await expect(
+      client.verifyCheckout(
+        'order_1',
+        'pay_1',
+        createHmac('sha256', 'api-secret')
+          .update('order_1|pay_1')
+          .digest('hex'),
+        'client',
+      ),
+    ).rejects.toThrow('Invalid Razorpay signature');
+  });
+  it('verifies webhooks with the client-specific webhook secret', async () => {
+    const resolve = vi.fn().mockResolvedValue({
+      keyId: 'rzp_test_client',
+      keySecret: 'client-secret',
+      webhookSecret: 'client-webhook-secret',
+    });
+    const client = new RazorpayClient(configFixture(), { resolve } as never);
+    const body = Buffer.from('{"event":"payment.captured"}');
+    const signature = createHmac('sha256', 'client-webhook-secret')
+      .update(body)
+      .digest('hex');
+
+    await expect(client.verifyWebhook(body, signature, 'client')).resolves
+      .toBeUndefined();
+    expect(resolve).toHaveBeenCalledWith('client');
   });
   it.each(['', 'a', 'z'.repeat(64), 'a'.repeat(66)])(
     'rejects malformed signature %s without comparison errors',

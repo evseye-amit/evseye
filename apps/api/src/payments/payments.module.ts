@@ -40,7 +40,11 @@ import { RiderPaymentHomeController } from './payment-home.controller.js';
 import { RiderRateCardsModule } from '../rider-rate-cards/rider-rate-cards.module.js';
 import { PaymentRefundService } from './payment-refund.service.js';
 import { ProviderSettlementService } from './provider-settlement.service.js';
+import { DeploymentPaymentProviderRouter } from './deployment-payment-provider-router.service.js';
+import { RazorpayDeploymentProviderAdapter } from './razorpay/razorpay-deployment-provider.adapter.js';
+import { DEPLOYMENT_PAYMENT_PROVIDER } from './deployment-payment-provider.interface.js';
 import { ProviderSettlementController } from './provider-settlement.controller.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 import { AutoPayOperationsController } from './autopay-operations.controller.js';
 import {
   PaymentRefundAdminController,
@@ -86,6 +90,13 @@ import {
     PaymentReconciliationService,
     PaymentRefundService,
     ProviderSettlementService,
+    RazorpayDeploymentProviderAdapter,
+    {
+      provide: DEPLOYMENT_PAYMENT_PROVIDER,
+      inject: [PrismaService, ConfigService, RazorpayDeploymentProviderAdapter],
+      useFactory: (db: PrismaService, config: ConfigService<Environment, true>, razorpay: RazorpayDeploymentProviderAdapter) =>
+        new DeploymentPaymentProviderRouter(db, config, razorpay),
+    },
     {
       provide: PAYMENT_PROVIDER,
       inject: [

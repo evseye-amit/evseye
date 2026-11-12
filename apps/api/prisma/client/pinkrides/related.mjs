@@ -6,6 +6,7 @@ import rateCardSeed from '../yogmaya/rate-card.staging.json' with { type: 'json'
 import { legalDocumentCatalog as baseLegalDocuments } from '../yogmaya/yogmaya-legal-documents.mjs';
 import { clientManagerCatalog as baseManagers } from '../yogmaya/client-managers.mjs';
 import { createHash } from 'node:crypto';
+import { pinkridesStagingLegalDocuments } from './staging-legal-documents.mjs';
 
 // These are deliberately static snapshots. Pink Rides owns independent rows and
 // can change them later without mutating the master catalog or Yogmaya data.
@@ -91,5 +92,6 @@ export async function seedPinkridesRateCard(prisma) {
 }
 
 export async function seedPinkridesLegal(prisma) {
-  for (const doc of pinkridesLegalDocumentCatalog) { const { clientCode: _clientCode, ...fields } = doc; const c = await client(prisma); const identity = { clientId: c.id, appCode: fields.appCode, role: fields.role, kind: fields.kind, locale: fields.locale, version: fields.version }; const existing = await prisma.appLegalDocument.findFirst({ where: identity }); if (existing?.publishedAt) continue; if (existing) await prisma.appLegalDocument.update({ where: { id: existing.id }, data: { ...fields, effectiveAt: new Date(fields.effectiveAt), publishedAt: fields.publishedAt ? new Date(fields.publishedAt) : null } }); else await prisma.appLegalDocument.create({ data: { ...identity, ...fields, effectiveAt: new Date(fields.effectiveAt), publishedAt: fields.publishedAt ? new Date(fields.publishedAt) : null } }); }
+  const catalog = pinkridesStagingLegalDocuments.length ? pinkridesStagingLegalDocuments : pinkridesLegalDocumentCatalog;
+  for (const doc of catalog) { const { clientCode: _clientCode, ...fields } = doc; const c = await client(prisma); const identity = { clientId: c.id, appCode: fields.appCode, role: fields.role, kind: fields.kind, locale: fields.locale, version: fields.version }; const existing = await prisma.appLegalDocument.findFirst({ where: identity }); if (existing?.publishedAt) continue; if (existing) await prisma.appLegalDocument.update({ where: { id: existing.id }, data: { ...fields, effectiveAt: new Date(fields.effectiveAt), publishedAt: fields.publishedAt ? new Date(fields.publishedAt) : null, retiredAt: fields.retiredAt ? new Date(fields.retiredAt) : null } }); else await prisma.appLegalDocument.create({ data: { ...identity, ...fields, effectiveAt: new Date(fields.effectiveAt), publishedAt: fields.publishedAt ? new Date(fields.publishedAt) : null, retiredAt: fields.retiredAt ? new Date(fields.retiredAt) : null } }); }
 }

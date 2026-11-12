@@ -5585,6 +5585,7 @@ function ClientConfigurationSettings({
   }
 
   async function createWorkflowDraft() {
+    if (!featureDraft) return;
     const subscriptionId = configuration?.riderOnboarding?.subscriptionId;
     if (!subscriptionId) return;
     setSaving(true);
@@ -5637,8 +5638,6 @@ function ClientConfigurationSettings({
   }
 
   async function saveFeatureOverride(item: any, enabled: boolean, configurationText: string) {
-    const subscriptionId = configuration?.riderOnboarding?.subscriptionId;
-    if (!subscriptionId) return;
     let featureConfiguration: Record<string, unknown> | undefined;
     try {
       featureConfiguration = configurationText.trim()
@@ -5651,27 +5650,9 @@ function ClientConfigurationSettings({
     setSaving(true);
     setError("");
     try {
-      const existing = item.clientFeature;
-      const response = await request(
-        existing
-          ? `/platform/clients/${clientId}/features/${existing.id}`
-          : `/platform/clients/${clientId}/features`,
-        {
-          method: existing ? "PATCH" : "POST",
-          body: JSON.stringify(existing
-            ? { enabled, configuration: featureConfiguration }
-            : {
-                subscriptionId,
-                featureId: item.packageFeature.featureId,
-                source: "CUSTOM",
-                enabled,
-                effectiveFrom: new Date().toISOString().slice(0, 10),
-                configuration: featureConfiguration,
-              }),
-        },
-        token,
-      );
-      const saved = response.data ?? response;
+      const saved = featureDraft
+        ? { ...item.clientFeature, enabled, configuration: featureConfiguration ?? null, source: "CUSTOM" }
+        : (() => { throw new Error("A feature draft must be selected before editing features."); })();
       setConfiguration((current: any) => ({
         ...current,
         featureEntitlements: (current.featureEntitlements ?? []).map((entry: any) =>
@@ -5705,11 +5686,11 @@ function ClientConfigurationSettings({
   }
 
   async function resetFeatureOverride(item: any) {
-    if (!item.clientFeature?.id) return;
+    if (!featureDraft) return;
     setSaving(true);
     setError("");
     try {
-      await request(`/platform/clients/${clientId}/features/${item.clientFeature.id}`, { method: "DELETE" }, token);
+      if (!featureDraft) throw new Error("A feature draft must be selected before editing features.");
       setConfiguration((current: any) => ({
         ...current,
         featureEntitlements: (current.featureEntitlements ?? []).map((entry: any) =>
@@ -5748,7 +5729,10 @@ function ClientConfigurationSettings({
     setSaving(true);
     setError("");
     try {
-      const response = await request(`/platform/clients/${clientId}/feature-revisions/draft`, { method: "POST" }, token);
+      const snapshot = Array.isArray(featureDraft?.snapshot)
+        ? featureDraft.snapshot
+        : (configuration?.featureEntitlements ?? []).map((entry: any) => ({ featureId: entry.packageFeature.featureId, enabled: Boolean(entry.enabled), source: entry.overridden ? "CUSTOM" : "PACKAGE", configuration: entry.overridden ? (entry.configuration ?? null) : (entry.packageFeature.feature.configuration ?? null) }));
+      const response = await request(`/platform/clients/${clientId}/feature-revisions/draft`, { method: "POST", body: JSON.stringify({ snapshot }) }, token);
       const draft = response.data ?? response;
       setConfiguration((current: any) => ({
         ...current,
@@ -5897,7 +5881,7 @@ function ClientConfigurationSettings({
                             {item.overridden && <small>Client override</small>}
                           </td>
                           <td><details><summary>{item.configuration ? "Override configured" : "Use package default"}</summary><textarea value={configText} rows={4} aria-label={`${feature.name} configuration`} disabled={!selectedFeatureRevisionEditable || saving} onChange={(event) => setFeatureConfigurationDrafts((drafts) => ({ ...drafts, [item.packageFeature.featureId]: event.target.value }))} placeholder="{}" /><button type="button" className="secondary" onClick={() => void saveFeatureOverride(item, Boolean(item.enabled), configText)} disabled={!selectedFeatureRevisionEditable || saving}>Save configuration</button></details></td>
-                          <td><button type="button" className="secondary" onClick={() => void resetFeatureOverride(item)} disabled={!selectedFeatureRevisionEditable || saving || !item.clientFeature}>Reset</button></td>
+                          <td><button type="button" className="secondary" onClick={() => void resetFeatureOverride(item)} disabled={!selectedFeatureRevisionEditable || saving || !item.overridden}>Reset</button></td>
                         </tr>
                       );
                     })}
