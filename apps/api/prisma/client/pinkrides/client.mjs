@@ -22,7 +22,24 @@ export const clientSeed = {
     estimatedRiderCount: 2000,
     estimatedUserCount: 100,
   },
-  contacts: [{ role: 'ACCOUNT_ADMIN', name: 'Bachanolla Maheshwar Reddy', designation: 'Founder & Director', mobile: '9948423040', email: null, alternateMobile: null }],
+  contacts: [
+    {
+      role: 'PRIMARY',
+      name: 'Bachanolla Maheshwar Reddy',
+      designation: 'Founder & Director',
+      mobile: '9948423040',
+      email: 'admin@pinkridesev.com',
+      alternateMobile: null,
+    },
+    {
+      role: 'ACCOUNT_ADMIN',
+      name: 'Bachanolla Maheshwar Reddy',
+      designation: 'Founder & Director',
+      mobile: '9948423040',
+      email: 'admin@pinkridesev.com',
+      alternateMobile: null,
+    },
+  ],
   addresses: [{ type: 'REGISTERED', line1: 'Hyderabad', line2: null, landmark: null, district: 'Hyderabad', city: 'Hyderabad', state: 'Telangana', country: 'India', pinCode: '500001' }],
   operationsProfile: {
     fleetBusinessModel: 'OWNED',
@@ -43,7 +60,7 @@ export const clientSeed = {
   },
   agreement: {
     authorizedSignatoryName: 'Bachanolla Maheshwar Reddy',
-    authorizedSignatoryDesignation: 'Founder & Director',
+    designation: 'Founder & Director',
     termsAcceptedAt: '2026-11-09T00:00:00.000Z',
     privacyAcceptedAt: '2026-11-09T00:00:00.000Z',
     dataProcessingConsentAt: '2026-11-09T00:00:00.000Z',
