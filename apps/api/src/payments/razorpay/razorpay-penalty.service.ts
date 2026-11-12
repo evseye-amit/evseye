@@ -67,7 +67,9 @@ export class RazorpayPenaltyService {
               },
             ],
           },
-          include: { razorpayPenaltyOrder: true },
+          include: {
+            razorpayPenaltyOrder: { include: { captures: true } },
+          },
         });
         if (active) {
           if (active.failureCode)
@@ -82,7 +84,31 @@ export class RazorpayPenaltyService {
               !active.amount.eq(selection.requestedAmount))
           )
             throw new ConflictException('PAYMENT_ALREADY_IN_PROGRESS');
-          return existing;
+          if (existing.keyId === keyId) return existing;
+          if (!existing.providerOrderId)
+            throw new ConflictException(
+              'PAYMENT_CONFIGURATION_PENDING: retry shortly while the previous payment order is being created.',
+            );
+          if (
+            active.providerPaymentId ||
+            existing.captures.some((capture) =>
+              ['AUTHORIZED', 'CAPTURED', 'SETTLED'].includes(capture.status),
+            )
+          )
+            throw new ConflictException(
+              'PAYMENT_CONFIGURATION_REVIEW: the previous payment order has gateway activity. Please contact support before retrying.',
+            );
+          await tx.razorpayPenaltyOrder.update({
+            where: { id: existing.id },
+            data: { status: 'FAILED' },
+          });
+          await tx.paymentCollectionRequest.update({
+            where: { id: active.id },
+            data: {
+              status: 'FAILED',
+              failureCode: 'PROVIDER_CONFIGURATION_MISMATCH',
+            },
+          });
         }
         if (
           await tx.paymentTransaction.findFirst({
