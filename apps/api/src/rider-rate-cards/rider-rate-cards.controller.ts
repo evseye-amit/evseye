@@ -35,6 +35,9 @@ export class RiderRateCardsController {
   @Get() list(@CurrentUser() user: AuthUser) {
     return this.service.list(this.context.requireClientId(user));
   }
+  @Post('preview-rules') previewRules(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    return this.service.previewRules(this.context.requireClientId(user), body);
+  }
   @Get(':id') get(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.get(this.context.requireClientId(user), id);
   }

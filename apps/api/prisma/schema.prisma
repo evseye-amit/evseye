@@ -4493,6 +4493,8 @@ model RateCardFee {
   selectionGroup    String? @db.VarChar(80)
   city              String? @db.VarChar(100)
   hubId             String?
+  oemId             String?
+  clientWorkPartnerId String?
   minVehicleAgeMonths Int?
   maxVehicleAgeMonths Int?
   priority          Int @default(0)
@@ -4519,6 +4521,7 @@ model RateCardFee {
 
   @@unique([clientId, rateCardVersionId, code])
   @@index([clientId, rateCardVersionId, nature, isActive])
+  @@index([clientId, rateCardVersionId, city, hubId, oemId, clientWorkPartnerId])
 }
 
 model RateCardDeposit {
@@ -4537,6 +4540,12 @@ model RateCardDeposit {
   vehicleCategoryId String?
   vehicleTypeId     String?
   fleetId           String?
+  city              String?              @db.VarChar(100)
+  hubId             String?
+  oemId             String?
+  clientWorkPartnerId String?
+  minVehicleAgeMonths Int?
+  maxVehicleAgeMonths Int?
   isActive          Boolean              @default(true)
   createdById       String?
   updatedById       String?
@@ -4545,6 +4554,7 @@ model RateCardDeposit {
 
   @@unique([clientId, rateCardVersionId, code])
   @@index([clientId, rateCardVersionId, depositType, isActive])
+  @@index([clientId, rateCardVersionId, city, hubId, oemId, clientWorkPartnerId])
 }
 
 model RateCardAdjustment {

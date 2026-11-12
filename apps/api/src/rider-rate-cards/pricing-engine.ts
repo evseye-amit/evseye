@@ -38,6 +38,7 @@ export interface VehicleFacts {
   city: string | null;
   zone: string | null;
   hubId: string | null;
+  workPartnerId: string | null;
   batteryPlanId: string | null;
   rentalPeriodType: string;
   durationValue: number | null;
@@ -369,7 +370,14 @@ export function batteryLine(plan: RiderBatteryPlan | null, period: string) {
 }
 
 export function eligibleDeposit(deposit: RateCardDeposit, facts: VehicleFacts) {
-  return deposit.isActive && dimensionSpecificity(deposit, facts) !== null;
+  return deposit.isActive &&
+    dimensionSpecificity(deposit, facts) !== null &&
+    (!deposit.city || deposit.city.toLowerCase() === facts.city?.toLowerCase()) &&
+    (!deposit.hubId || deposit.hubId === facts.hubId) &&
+    (!deposit.oemId || deposit.oemId === facts.oemId) &&
+    (!deposit.clientWorkPartnerId || deposit.clientWorkPartnerId === facts.workPartnerId) &&
+    (deposit.minVehicleAgeMonths == null || (facts.ageMonths !== null && facts.ageMonths >= deposit.minVehicleAgeMonths)) &&
+    (deposit.maxVehicleAgeMonths == null || (facts.ageMonths !== null && facts.ageMonths <= deposit.maxVehicleAgeMonths));
 }
 
 export function feeLine(fee: RateCardFee) {
@@ -388,7 +396,9 @@ export function chooseFees(
     if (
       !fee.isActive ||
       (fee.city && fee.city.toLowerCase() !== facts.city?.toLowerCase()) ||
-      (fee.hubId && fee.hubId !== facts.hubId)
+      (fee.hubId && fee.hubId !== facts.hubId) ||
+      (fee.oemId && fee.oemId !== facts.oemId) ||
+      (fee.clientWorkPartnerId && fee.clientWorkPartnerId !== facts.workPartnerId)
     )
       continue;
     if (
@@ -408,6 +418,8 @@ export function chooseFees(
     const specificity =
       (fee.hubId ? 4 : 0) +
       (fee.city ? 2 : 0) +
+      (fee.oemId ? 8 : 0) +
+      (fee.clientWorkPartnerId ? 32 : 0) +
       (fee.minVehicleAgeMonths != null || fee.maxVehicleAgeMonths != null
         ? 1
         : 0);
@@ -466,7 +478,12 @@ export function chooseDeposits(
   >();
   for (const deposit of deposits) {
     if (!eligibleDeposit(deposit, facts)) continue;
-    const specificity = dimensionSpecificity(deposit, facts)!;
+    const specificity = dimensionSpecificity(deposit, facts)! +
+      (deposit.hubId ? 4 : 0) +
+      (deposit.city ? 2 : 0) +
+      (deposit.oemId ? 8 : 0) +
+      (deposit.clientWorkPartnerId ? 32 : 0) +
+      (deposit.minVehicleAgeMonths != null || deposit.maxVehicleAgeMonths != null ? 1 : 0);
     groups.set(deposit.depositType, [
       ...(groups.get(deposit.depositType) ?? []),
       { deposit, specificity },
