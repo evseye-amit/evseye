@@ -98,6 +98,13 @@ data "aws_secretsmanager_secret" "staging_razorpay" {
   name  = "${local.name_prefix}/razorpay"
 }
 
+# Production Razorpay credentials are provisioned outside Terraform. Keep the
+# secret value out of state and inject only the named JSON fields into ECS.
+data "aws_secretsmanager_secret" "production_razorpay" {
+  count = var.environment == "production" ? 1 : 0
+  name  = "${local.name_prefix}/razorpay"
+}
+
 # Telipia credentials and approved DLT settings are provisioned outside
 # Terraform so their values never enter Terraform state or source control.
 data "aws_secretsmanager_secret" "telipia" {

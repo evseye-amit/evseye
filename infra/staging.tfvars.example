@@ -1,3 +1,7 @@
 # Staging keeps the console provider as its safe default. Real SMS is controlled
 # by STAGING_LIVE_SMS_ENABLED in evseye-staging/telipia in Secrets Manager.
 sms_provider = "console"
+
+# Cross-account image promotion: allow the production GitHub deploy role to
+# read only the staging API and Web ECR repositories.
+# cross_environment_deploy_role_arn = "arn:aws:iam::<production-account-id>:role/evseye-production-github-actions-deploy"

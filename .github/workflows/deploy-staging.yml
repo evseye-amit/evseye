@@ -52,6 +52,8 @@ jobs:
     needs: check-ci
     outputs:
       image_tag: ${{ steps.meta.outputs.tag }}
+      api_digest: ${{ steps.api-image.outputs.digest }}
+      web_digest: ${{ steps.web-image.outputs.digest }}
 
     steps:
       - name: Check out source
@@ -77,6 +79,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build and push API image
+        id: api-image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -88,6 +91,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push Web image
+        id: web-image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -140,7 +144,7 @@ jobs:
         with:
           task-definition: migrate-task-def.json
           container-name: migrate
-          image: ${{ secrets.ECR_API_URL }}:${{ needs.build.outputs.image_tag }}
+          image: ${{ secrets.ECR_API_URL }}@${{ needs.build.outputs.api_digest }}
 
       - name: Run Prisma migrate deploy
         id: migrate-task-run
@@ -254,7 +258,7 @@ jobs:
         with:
           task-definition: api-task-def.json
           container-name: api
-          image: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_API_REPO }}:${{ needs.build.outputs.image_tag }}
+          image: ${{ secrets.ECR_API_URL }}@${{ needs.build.outputs.api_digest }}
 
       - name: Deploy API to ECS
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
@@ -278,7 +282,7 @@ jobs:
         with:
           task-definition: web-task-def.json
           container-name: web
-          image: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_WEB_REPO }}:${{ needs.build.outputs.image_tag }}
+          image: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_WEB_REPO }}@${{ needs.build.outputs.web_digest }}
 
       - name: Deploy Web to ECS
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
@@ -288,9 +292,71 @@ jobs:
           cluster: ${{ secrets.ECS_CLUSTER }}
           wait-for-service-stability: true
 
+      - name: Verify running services use staged digests
+        env:
+          API_DIGEST: ${{ needs.build.outputs.api_digest }}
+          WEB_DIGEST: ${{ needs.build.outputs.web_digest }}
+          API_IMAGE_PREFIX: ${{ secrets.ECR_API_URL }}
+          WEB_IMAGE_PREFIX: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_WEB_REPO }}
+        run: |
+          set -euo pipefail
+          api_running="$(aws ecs describe-services --cluster "${{ secrets.ECS_CLUSTER }}" --services "${{ secrets.ECS_API_SERVICE }}" --query 'services[0].runningCount' --output text)"
+          web_running="$(aws ecs describe-services --cluster "${{ secrets.ECS_CLUSTER }}" --services "${{ secrets.ECS_WEB_SERVICE }}" --query 'services[0].runningCount' --output text)"
+          test "$api_running" -ge 1
+          test "$web_running" -ge 1
+          api_task_definition="$(aws ecs describe-services --cluster "${{ secrets.ECS_CLUSTER }}" --services "${{ secrets.ECS_API_SERVICE }}" --query 'services[0].taskDefinition' --output text)"
+          web_task_definition="$(aws ecs describe-services --cluster "${{ secrets.ECS_CLUSTER }}" --services "${{ secrets.ECS_WEB_SERVICE }}" --query 'services[0].taskDefinition' --output text)"
+          api_image="$(aws ecs describe-task-definition --task-definition "$api_task_definition" --query 'taskDefinition.containerDefinitions[?name==`api`].image | [0]' --output text)"
+          web_image="$(aws ecs describe-task-definition --task-definition "$web_task_definition" --query 'taskDefinition.containerDefinitions[?name==`web`].image | [0]' --output text)"
+          test "$api_image" = "$API_IMAGE_PREFIX@$API_DIGEST"
+          test "$web_image" = "$WEB_IMAGE_PREFIX@$WEB_DIGEST"
+
       - name: Deployment summary
         run: |
           echo "### ✅ Staging deployed" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Image tag**: \`${{ needs.build.outputs.image_tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **API digest**: \`${{ needs.build.outputs.api_digest }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Web digest**: \`${{ needs.build.outputs.web_digest }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Web**: https://${{ secrets.WEB_URL }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- **API health**: https://${{ secrets.API_URL }}/health" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish staging deployment provenance
+        env:
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SOURCE_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          SOURCE_WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+          STAGING_WORKFLOW_RUN_ID: ${{ github.run_id }}
+          STAGING_WORKFLOW_RUN_ATTEMPT: ${{ github.run_attempt }}
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+          API_DIGEST: ${{ needs.build.outputs.api_digest }}
+          WEB_DIGEST: ${{ needs.build.outputs.web_digest }}
+        run: |
+          set -euo pipefail
+          test -n "$SOURCE_SHA"
+          test "$SOURCE_SHA" = "$IMAGE_TAG"
+          test "$SOURCE_BRANCH" = "dev"
+          test "$SOURCE_REPOSITORY" = "$GITHUB_REPOSITORY"
+          [[ "$API_DIGEST" == sha256:* ]]
+          [[ "$WEB_DIGEST" == sha256:* ]]
+          jq -n \
+            --arg workflow "deploy-staging.yml" \
+            --arg stagingWorkflowRunId "$STAGING_WORKFLOW_RUN_ID" \
+            --arg stagingWorkflowRunAttempt "$STAGING_WORKFLOW_RUN_ATTEMPT" \
+            --arg sourceWorkflowRunId "$SOURCE_WORKFLOW_RUN_ID" \
+            --arg sourceSha "$SOURCE_SHA" \
+            --arg sourceBranch "$SOURCE_BRANCH" \
+            --arg sourceRepository "$SOURCE_REPOSITORY" \
+            --arg imageTag "$IMAGE_TAG" \
+            --arg apiDigest "$API_DIGEST" \
+            --arg webDigest "$WEB_DIGEST" \
+            '{workflow: $workflow, stagingWorkflowRunId: $stagingWorkflowRunId, stagingWorkflowRunAttempt: $stagingWorkflowRunAttempt, sourceWorkflowRunId: $sourceWorkflowRunId, sourceSha: $sourceSha, sourceBranch: $sourceBranch, sourceRepository: $sourceRepository, imageTag: $imageTag, apiDigest: $apiDigest, webDigest: $webDigest}' \
+            > staging-deployment-provenance.json
+
+      - name: Upload staging deployment provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-deployment-provenance-${{ github.run_attempt }}
+          path: staging-deployment-provenance.json
+          if-no-files-found: error
+          retention-days: 90

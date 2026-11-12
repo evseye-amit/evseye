@@ -22,3 +22,8 @@ kyc_enabled  = false
 kyc_sandbox_environment = "PRODUCTION"
 # Replace with the production Sandbox API URL when credentials are supplied.
 kyc_sandbox_api_url = "https://api.sandbox.co.in"
+
+# Cross-account image promotion: identify the staging ECR account and region so
+# the production deploy role can read only the two staging repositories.
+# staging_account_id = "<staging-account-id>"
+# staging_aws_region = "ap-south-1"

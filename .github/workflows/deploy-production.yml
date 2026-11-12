@@ -1,122 +1,194 @@
 name: Deploy — Production
 
-# Deploy the exact main commit that passed CI.
+# Promote the exact immutable images that completed the staging deployment.
+# This workflow is intentionally manual: production is never rebuilt from source.
 on:
-  workflow_run:
-    workflows: [CI]
-    branches: [main]
-    types: [completed]
+  workflow_dispatch:
+    inputs:
+      staging_sha:
+        description: "40-character source commit SHA recorded by staging provenance"
+        required: true
+        type: string
+      staging_run_id:
+        description: "Successful deploy-staging workflow run ID containing the provenance artifact"
+        required: true
+        type: string
 
 concurrency:
   group: deploy-production
   cancel-in-progress: false
 
 permissions:
-  id-token: write   # required for OIDC → AWS
+  id-token: write
   contents: read
+  actions: read
 
 env:
   AWS_REGION: ap-south-2
-  # Set these in GitHub repo Settings → Secrets and variables → Actions
-  # AWS_ROLE_ARN and ECS/ECR settings come from the production GitHub environment.
+  STAGING_AWS_REGION: ap-south-1
+  # Target ECR/ECS settings come from the production GitHub environment.
+  # STAGING_AWS_ACCOUNT_ID and optional repository variables identify the
+  # source ECR account; no source credentials or secrets enter the artifact.
 
 jobs:
-  # ─── Guard: only run if CI passed ─────────────────────────────────────────
-  check-ci:
-    name: Verify CI succeeded
+  # ─── Verify staging provenance and source/target tree equivalence ───────────
+  verify-staging:
+    name: Verify successful staging candidate
     runs-on: ubuntu-latest
-    if: >
-      vars.PRODUCTION_DEPLOY_ENABLED == 'true' &&
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'main' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
+    outputs:
+      staging_sha: ${{ steps.provenance.outputs.staging_sha }}
+      api_digest: ${{ steps.provenance.outputs.api_digest }}
+      web_digest: ${{ steps.provenance.outputs.web_digest }}
     steps:
-      - name: Verify this is the latest main commit
+      - name: Verify main ref and matching source tree
         env:
-          PASSED_SHA: ${{ github.event.workflow_run.head_sha }}
           GH_TOKEN: ${{ github.token }}
+          STAGING_SHA: ${{ inputs.staging_sha }}
+          PRODUCTION_DEPLOY_ENABLED: ${{ vars.PRODUCTION_DEPLOY_ENABLED }}
         run: |
           set -euo pipefail
-          current_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
-          test -n "$current_sha"
-          if [ "$current_sha" != "$PASSED_SHA" ]; then
-            echo "::error::CI passed for $PASSED_SHA, but main now points to $current_sha"
-            exit 1
-          fi
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$PRODUCTION_DEPLOY_ENABLED" = "true"
+          [[ "$STAGING_SHA" =~ ^[0-9a-fA-F]{40}$ ]]
+          target_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
+          test "$target_sha" = "$GITHUB_SHA"
+          staging_tree="$(gh api "repos/${GITHUB_REPOSITORY}/commits/$STAGING_SHA" --jq .commit.tree.sha)"
+          target_tree="$(gh api "repos/${GITHUB_REPOSITORY}/commits/$target_sha" --jq .commit.tree.sha)"
+          test "$staging_tree" = "$target_tree"
+          echo "Promoting source commit $STAGING_SHA; tree matches main $target_sha."
 
-  # ─── Build and push Docker images ─────────────────────────────────────────
-  build:
-    name: Build & push images
+      - name: Verify successful staging deployment run
+        id: provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STAGING_SHA: ${{ inputs.staging_sha }}
+          STAGING_RUN_ID: ${{ inputs.staging_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$STAGING_RUN_ID" =~ ^[0-9]+$ ]]
+          run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/$STAGING_RUN_ID")"
+          jq -e --arg repo "$GITHUB_REPOSITORY" --arg sha "$STAGING_SHA" '
+            .path == ".github/workflows/deploy-staging.yml" and
+            .head_repository.full_name == $repo and
+            .conclusion == "success" and
+            .event == "workflow_run"
+          ' <<< "$run_json" >/dev/null
+          run_attempt="$(jq -er '.run_attempt' <<< "$run_json")"
+          artifact="staging-deployment-provenance-${run_attempt}"
+          rm -rf staging-provenance
+          gh run download "$STAGING_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir staging-provenance
+          provenance_file="$(find staging-provenance -type f -name staging-deployment-provenance.json -print -quit)"
+          test -n "$provenance_file"
+          jq -e --arg repo "$GITHUB_REPOSITORY" --arg sha "$STAGING_SHA" --arg run "$STAGING_RUN_ID" --arg attempt "$run_attempt" '
+            .workflow == "deploy-staging.yml" and
+            .stagingWorkflowRunId == $run and
+            .stagingWorkflowRunAttempt == $attempt and
+            .sourceSha == $sha and
+            .sourceBranch == "dev" and
+            .sourceRepository == $repo and
+            .imageTag == $sha and
+            (.apiDigest | test("^sha256:[0-9a-f]{64}$")) and
+            (.webDigest | test("^sha256:[0-9a-f]{64}$"))
+          ' "$provenance_file" >/dev/null
+          echo "staging_sha=$STAGING_SHA" >> "$GITHUB_OUTPUT"
+          echo "api_digest=$(jq -er '.apiDigest' "$provenance_file")" >> "$GITHUB_OUTPUT"
+          echo "web_digest=$(jq -er '.webDigest' "$provenance_file")" >> "$GITHUB_OUTPUT"
+
+  # ─── Copy immutable staging images to production ECR ───────────────────────
+  promote-images:
+    name: Promote staging images by digest
+    if: github.run_attempt == 1
     runs-on: ubuntu-latest
     environment: production
-    needs: check-ci
+    needs: verify-staging
     outputs:
-      image_tag: ${{ steps.meta.outputs.tag }}
-
+      api_digest: ${{ steps.promote.outputs.api_digest }}
+      web_digest: ${{ steps.promote.outputs.web_digest }}
+    env:
+      STAGING_SHA: ${{ needs.verify-staging.outputs.staging_sha }}
+      EXPECTED_API_DIGEST: ${{ needs.verify-staging.outputs.api_digest }}
+      EXPECTED_WEB_DIGEST: ${{ needs.verify-staging.outputs.web_digest }}
+      STAGING_AWS_ACCOUNT_ID: ${{ vars.STAGING_AWS_ACCOUNT_ID }}
+      PRODUCTION_DEPLOY_ENABLED: ${{ vars.PRODUCTION_DEPLOY_ENABLED }}
     steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-
-      - name: Inspect OIDC claims (diagnostic)
+      - name: Recheck main and production switch after approval
         env:
-          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+          STAGING_SHA: ${{ needs.verify-staging.outputs.staging_sha }}
         run: |
           set -euo pipefail
-          token_response="$(curl -sS \
-            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")"
-          token="$(jq -er '.value' <<< "$token_response")"
-          payload="$(awk -F. '{print $2}' <<< "$token" | tr '_-' '/+' | awk '{ l=length($0)%4; if (l==2) $0=$0"=="; else if (l==3) $0=$0"="; print }' | base64 --decode 2>/dev/null)"
-          jq '{sub, aud, repository, ref, environment}' <<< "$payload"
+          test "$GITHUB_REF" = "refs/heads/main"
+          target_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
+          test "$target_sha" = "$GITHUB_SHA"
+          test "$PRODUCTION_DEPLOY_ENABLED" = "true"
+          echo "main and the production switch still match the approved candidate $STAGING_SHA."
 
-      - name: Configure AWS credentials (OIDC)
+      - name: Install Skopeo
+        run: |
+          set -euo pipefail
+          if ! command -v skopeo >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y skopeo
+          fi
+          skopeo --version
+
+      - name: Configure production AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Log in to ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+      - name: Promote source digests to production ECR
+        id: promote
+        env:
+          TARGET_API_REPO: ${{ secrets.ECR_API_REPO }}
+          TARGET_WEB_REPO: ${{ secrets.ECR_WEB_REPO }}
+        run: |
+          set -euo pipefail
+          test -n "$STAGING_AWS_ACCOUNT_ID"
+          test -n "$TARGET_API_REPO"
+          test -n "$TARGET_WEB_REPO"
+          source_registry="${STAGING_AWS_ACCOUNT_ID}.dkr.ecr.${STAGING_AWS_REGION}.amazonaws.com"
+          target_account="$(aws sts get-caller-identity --query Account --output text)"
+          target_registry="${target_account}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          aws ecr get-login-password --region "$STAGING_AWS_REGION" | docker login --username AWS --password-stdin "$source_registry"
+          aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$target_registry"
+          promotion_tag="promoted-${STAGING_SHA}"
 
-      - name: Generate image tag
-        id: meta
-        run: echo "tag=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          source_api_image="$source_registry/evseye-staging-api@$EXPECTED_API_DIGEST"
+          source_web_image="$source_registry/evseye-staging-web@$EXPECTED_WEB_DIGEST"
+          target_api_image="$target_registry/$TARGET_API_REPO:$promotion_tag"
+          target_web_image="$target_registry/$TARGET_WEB_REPO:$promotion_tag"
+          # Registry-to-registry copy preserves OCI indexes, layers, and
+          # attestations; docker pull/tag/push would reduce an index to the
+          # runner platform. Skopeo does not place image bytes on disk.
+          skopeo copy --all --preserve-digests --authfile "$HOME/.docker/config.json" \
+            "docker://$source_api_image" "docker://$target_api_image"
+          skopeo copy --all --preserve-digests --authfile "$HOME/.docker/config.json" \
+            "docker://$source_web_image" "docker://$target_web_image"
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and push API image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: apps/api/Dockerfile
-          push: true
-          tags: |
-            ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_API_REPO }}:${{ steps.meta.outputs.tag }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build and push Web image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: apps/web/Dockerfile
-          push: true
-          tags: |
-            ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_WEB_REPO }}:${{ steps.meta.outputs.tag }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          promoted_api_digest="$(aws ecr batch-get-image --region "$AWS_REGION" --repository-name "$TARGET_API_REPO" --image-ids imageTag="$promotion_tag" --query 'images[0].imageId.imageDigest' --output text)"
+          promoted_web_digest="$(aws ecr batch-get-image --region "$AWS_REGION" --repository-name "$TARGET_WEB_REPO" --image-ids imageTag="$promotion_tag" --query 'images[0].imageId.imageDigest' --output text)"
+          test "$promoted_api_digest" = "$EXPECTED_API_DIGEST"
+          test "$promoted_web_digest" = "$EXPECTED_WEB_DIGEST"
+          {
+            echo "api_digest=$promoted_api_digest"
+            echo "web_digest=$promoted_web_digest"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### ✅ Images promoted by digest" >> "$GITHUB_STEP_SUMMARY"
+            echo "- **Staging commit**: \`$STAGING_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "- **API digest**: \`$promoted_api_digest\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "- **Web digest**: \`$promoted_web_digest\`" >> "$GITHUB_STEP_SUMMARY"
+          }
 
   # ─── Run Prisma migration (one-shot ECS task) ──────────────────────────────
   migrate:
     name: Run DB migration
+    if: github.run_attempt == 1
     runs-on: ubuntu-latest
     environment: production
-    needs: build
+    needs: promote-images
 
     steps:
       - name: Configure AWS credentials (OIDC)
@@ -153,7 +225,7 @@ jobs:
         with:
           task-definition: migrate-task-def.json
           container-name: migrate
-          image: ${{ secrets.ECR_API_URL }}:${{ needs.build.outputs.image_tag }}
+          image: ${{ secrets.ECR_API_URL }}@${{ needs.promote-images.outputs.api_digest }}
 
       - name: Run Prisma migrate deploy
         id: migrate-task-run
@@ -238,9 +310,10 @@ jobs:
   # ─── Update ECS services ───────────────────────────────────────────────────
   deploy:
     name: Update ECS services
+    if: github.run_attempt == 1
     runs-on: ubuntu-latest
     environment: production
-    needs: [build, migrate]
+    needs: [promote-images, migrate]
 
     steps:
       - name: Configure AWS credentials (OIDC)
@@ -267,7 +340,7 @@ jobs:
         with:
           task-definition: api-task-def.json
           container-name: api
-          image: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_API_REPO }}:${{ needs.build.outputs.image_tag }}
+          image: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_API_REPO }}@${{ needs.promote-images.outputs.api_digest }}
 
       - name: Deploy API to ECS
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
@@ -291,7 +364,7 @@ jobs:
         with:
           task-definition: web-task-def.json
           container-name: web
-          image: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_WEB_REPO }}:${{ needs.build.outputs.image_tag }}
+          image: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_WEB_REPO }}@${{ needs.promote-images.outputs.web_digest }}
 
       - name: Deploy Web to ECS
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
@@ -301,9 +374,28 @@ jobs:
           cluster: ${{ secrets.ECS_CLUSTER }}
           wait-for-service-stability: true
 
+      - name: Verify running services use promoted digests
+        env:
+          API_IMAGE: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_API_REPO }}@${{ needs.promote-images.outputs.api_digest }}
+          WEB_IMAGE: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_WEB_REPO }}@${{ needs.promote-images.outputs.web_digest }}
+        run: |
+          set -euo pipefail
+          api_running="$(aws ecs describe-services --cluster "${{ secrets.ECS_CLUSTER }}" --services "${{ secrets.ECS_API_SERVICE }}" --query 'services[0].runningCount' --output text)"
+          web_running="$(aws ecs describe-services --cluster "${{ secrets.ECS_CLUSTER }}" --services "${{ secrets.ECS_WEB_SERVICE }}" --query 'services[0].runningCount' --output text)"
+          test "$api_running" -ge 1
+          test "$web_running" -ge 1
+          api_task_definition="$(aws ecs describe-services --cluster "${{ secrets.ECS_CLUSTER }}" --services "${{ secrets.ECS_API_SERVICE }}" --query 'services[0].taskDefinition' --output text)"
+          web_task_definition="$(aws ecs describe-services --cluster "${{ secrets.ECS_CLUSTER }}" --services "${{ secrets.ECS_WEB_SERVICE }}" --query 'services[0].taskDefinition' --output text)"
+          api_image="$(aws ecs describe-task-definition --task-definition "$api_task_definition" --query 'taskDefinition.containerDefinitions[?name==`api`].image | [0]' --output text)"
+          web_image="$(aws ecs describe-task-definition --task-definition "$web_task_definition" --query 'taskDefinition.containerDefinitions[?name==`web`].image | [0]' --output text)"
+          test "$api_image" = "$API_IMAGE"
+          test "$web_image" = "$WEB_IMAGE"
+
       - name: Deployment summary
         run: |
           echo "### ✅ Production deployed" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Image tag**: \`${{ needs.build.outputs.image_tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Staging commit**: \`${{ inputs.staging_sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **API digest**: \`${{ needs.promote-images.outputs.api_digest }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Web digest**: \`${{ needs.promote-images.outputs.web_digest }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Web**: https://${{ secrets.WEB_URL }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- **API health**: https://${{ secrets.API_URL }}/health" >> "$GITHUB_STEP_SUMMARY"

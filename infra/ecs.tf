@@ -1,6 +1,7 @@
 locals {
-  media_base_url     = var.enable_cloudfront ? "https://${var.media_subdomain}.${var.root_domain}" : "https://${aws_s3_bucket.media.bucket_regional_domain_name}"
-  client_base_domain = var.environment == "staging" ? "${var.web_subdomain}.${var.root_domain}" : var.root_domain
+  media_base_url      = var.enable_cloudfront ? "https://${var.media_subdomain}.${var.root_domain}" : "https://${aws_s3_bucket.media.bucket_regional_domain_name}"
+  client_base_domain  = var.environment == "staging" ? "${var.web_subdomain}.${var.root_domain}" : var.root_domain
+  razorpay_secret_arn = var.environment == "staging" ? data.aws_secretsmanager_secret.staging_razorpay[0].arn : var.environment == "production" ? data.aws_secretsmanager_secret.production_razorpay[0].arn : null
 }
 
 # ─── CloudWatch Log Groups ────────────────────────────────────────────────────
@@ -101,6 +102,7 @@ resource "aws_ecs_task_definition" "api" {
       { name = "KYC_ENABLED", value = tostring(var.kyc_enabled) },
       { name = "KYC_SANDBOX_ENVIRONMENT", value = var.kyc_sandbox_environment },
       { name = "KYC_SANDBOX_API_URL", value = var.kyc_sandbox_api_url },
+      { name = "RAZORPAY_ENVIRONMENT", value = var.environment == "production" ? "PRODUCTION" : "TEST" },
       { name = "REDIS_URL", value = "rediss://${aws_elasticache_replication_group.main.primary_endpoint_address}:6379" },
     ]
 
@@ -126,14 +128,14 @@ resource "aws_ecs_task_definition" "api" {
         name      = "CLIENT_PROXY_SECRET"
         valueFrom = "${aws_secretsmanager_secret.client_proxy.arn}"
       },
-      ], var.environment == "staging" ? [
+      ], contains(["staging", "production"], var.environment) ? [
       for name in [
         "RAZORPAY_ENABLED", "RAZORPAY_CLIENT_IDS", "RAZORPAY_KEY_ID",
         "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET",
         "AUTOPAY_PROVIDER", "RAZORPAY_AUTOPAY_ENABLED"
         ] : {
         name      = name
-        valueFrom = "${data.aws_secretsmanager_secret.staging_razorpay[0].arn}:${name}::"
+        valueFrom = "${local.razorpay_secret_arn}:${name}::"
       }
       ] : [], var.environment == "staging" || var.sms_provider == "telipia" ? [
       for name in [

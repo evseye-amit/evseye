@@ -249,3 +249,21 @@ variable "github_repository_id" {
   type        = string
   default     = "1364646469"
 }
+
+variable "cross_environment_deploy_role_arn" {
+  description = "On staging, optional production GitHub deploy role ARN allowed to read staging ECR images during promotion."
+  type        = string
+  default     = ""
+}
+
+variable "staging_account_id" {
+  description = "AWS account ID containing staging ECR repositories, used by the production deploy role policy."
+  type        = string
+  default     = ""
+}
+
+variable "staging_aws_region" {
+  description = "AWS region containing staging ECR repositories."
+  type        = string
+  default     = "ap-south-1"
+}

@@ -40,7 +40,7 @@ resource "aws_iam_role_policy" "ecs_task_execution_secrets" {
         aws_secretsmanager_secret.jwt_refresh.arn,
         aws_secretsmanager_secret.otp_hash.arn,
         aws_secretsmanager_secret.client_proxy.arn,
-        ], var.environment == "staging" ? [data.aws_secretsmanager_secret.staging_razorpay[0].arn] : [],
+        ], var.environment == "staging" ? [data.aws_secretsmanager_secret.staging_razorpay[0].arn] : var.environment == "production" ? [data.aws_secretsmanager_secret.production_razorpay[0].arn] : [],
       var.environment == "staging" || var.sms_provider == "telipia" ? [data.aws_secretsmanager_secret.telipia[0].arn] : [])
     }]
   })
@@ -171,7 +171,7 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
+    Statement = concat([
       {
         Sid      = "ECRAuth"
         Effect   = "Allow"
@@ -225,6 +225,18 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
           aws_iam_role.ecs_task_web.arn,
         ]
       }
-    ]
+      ], var.environment == "production" && var.staging_account_id != "" ? [{
+        Sid    = "ReadStagingEcrImages"
+        Effect = "Allow"
+        Action = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:BatchGetImage",
+          "ecr:GetDownloadUrlForLayer",
+        ]
+        Resource = [
+          "arn:aws:ecr:${var.staging_aws_region}:${var.staging_account_id}:repository/${var.project}-staging-api",
+          "arn:aws:ecr:${var.staging_aws_region}:${var.staging_account_id}:repository/${var.project}-staging-web",
+        ]
+    }] : [])
   })
 }
