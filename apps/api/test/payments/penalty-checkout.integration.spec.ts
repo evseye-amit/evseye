@@ -160,6 +160,7 @@ describe.skipIf(!url)(
       const captures = new Map<string, any>();
       const gateway = {
         keyId: 'rzp_test_penalty',
+        keyIdFor: vi.fn().mockResolvedValue('rzp_test_client_penalty'),
         enabled: true,
         verifyWebhook: vi.fn(),
         assertConfigured: vi.fn(),
@@ -226,6 +227,7 @@ describe.skipIf(!url)(
       const order = await r.service.createOrder(f.client.id, f.user.id, {
         amount: '500',
       });
+      expect(order).toMatchObject({ keyId: 'rzp_test_client_penalty' });
       expect(
         await r.service.createOrder(f.client.id, f.user.id, {
           amount: '500.00',

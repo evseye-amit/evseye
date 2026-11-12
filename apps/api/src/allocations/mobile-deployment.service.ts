@@ -86,12 +86,22 @@ export class MobileDeploymentService {
             },
           },
         },
+        features: {
+          where: { enabled: true, feature: { code: 'SHOW_TRAINING', isActive: true } },
+          include: {
+            feature: {
+              include: {
+                trainingContents: { where: { isActive: true }, orderBy: { displayOrder: 'asc' } },
+              },
+            },
+          },
+        },
       },
     });
     if (!subscription) throw new BadRequestException('No active package is available for this Client.');
     return {
-      included: subscription.package.features.length > 0,
-      contents: subscription.package.features.flatMap((packageFeature) => packageFeature.feature.trainingContents),
+      included: subscription.features.length > 0,
+      contents: subscription.features.flatMap((clientFeature) => clientFeature.feature.trainingContents),
     };
   }
   private async trainingContents(clientId: string) {

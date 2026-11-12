@@ -19,7 +19,7 @@ function fixture(checklist: unknown = [mandatory, optional], training = true) {
     rider: { findFirst: vi.fn().mockResolvedValue({ id: 'rider' }) },
     allocation: { findFirst: vi.fn().mockResolvedValue({ id: 'allocation' }) },
     mobileDeploymentWorkflow: { upsert: vi.fn().mockResolvedValue(workflow), update },
-    clientSubscription: { findFirst: vi.fn().mockResolvedValue({ package: { features: training ? [{ feature: { trainingContents: [] } }] : [] } }) },
+    clientSubscription: { findFirst: vi.fn().mockResolvedValue({ features: training ? [{ feature: { trainingContents: [] } }] : [] }) },
     photo: { findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn().mockResolvedValue(null) },
     $transaction: vi.fn().mockImplementation(fn => fn(tx)),
   };
