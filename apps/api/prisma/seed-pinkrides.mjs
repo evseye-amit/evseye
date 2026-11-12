@@ -130,7 +130,11 @@ export async function seedPinkrides(prisma) {
     create: { subscriptionId: subscription.id, version: 1, snapshot: featureSnapshot, contentHash: contentHash(featureSnapshot), publishedAt: new Date() },
     update: { snapshot: featureSnapshot, contentHash: contentHash(featureSnapshot), publishedAt: new Date() },
   });
-  const workflowSnapshot = { subscriptionId: subscription.id, overrides: [] };
+  const workflowSnapshot = {
+    subscriptionId: subscription.id,
+    packageRevisionId: subscription.packageRevisionId ?? packageRevision?.id ?? null,
+    overrides: [],
+  };
   await prisma.clientWorkflowRevision.upsert({
     where: { subscriptionId_version: { subscriptionId: subscription.id, version: 1 } },
     create: { subscriptionId: subscription.id, version: 1, snapshot: workflowSnapshot, contentHash: contentHash(workflowSnapshot), publishedAt: new Date() },
