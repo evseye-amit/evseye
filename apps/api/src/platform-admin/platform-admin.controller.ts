@@ -88,7 +88,7 @@ export class PlatformAdminController {
     @Body() dto: SaveClientFeatureDraftDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.platform.createClientFeatureDraft(clientId, user.id, dto.snapshot).then((data) => ({ data }));
+    return this.platform.createClientFeatureDraft(clientId, user.id, dto?.snapshot).then((data) => ({ data }));
   }
   @Post('clients/:clientId/feature-revisions/publish') publishClientFeatureDraft(
     @Param('clientId') clientId: string,

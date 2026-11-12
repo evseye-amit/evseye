@@ -9,6 +9,7 @@ export class ClientFeatureRevisionItemDto {
 }
 
 export class SaveClientFeatureDraftDto {
+  @IsOptional()
   @IsArray() @ValidateNested({ each: true }) @Type(() => ClientFeatureRevisionItemDto)
-  snapshot!: ClientFeatureRevisionItemDto[];
+  snapshot?: ClientFeatureRevisionItemDto[];
 }

@@ -32,4 +32,17 @@ describe('client feature revisions', () => {
 
     await expect(service.createClientFeatureDraft('client-1', 'actor-1', [])).rejects.toThrow('every package feature');
   });
+
+  it('keeps the create-draft request backward compatible when no snapshot is sent', async () => {
+    const create = vi.fn().mockResolvedValue({ id: 'draft-1', version: 1 });
+    const service = new PlatformAdminService({
+      client: { findUnique: vi.fn().mockResolvedValue({ id: 'client-1' }) },
+      clientFeatureRevision: { findFirst: vi.fn().mockResolvedValue(null), create },
+    } as never, { record: vi.fn() } as never, {} as never, {} as never);
+    (service as never as { requireClientSubscription: () => Promise<unknown> }).requireClientSubscription = vi.fn().mockResolvedValue({ id: 'sub-1' });
+    (service as never as { clientEntitlements: () => Promise<unknown> }).clientEntitlements = vi.fn().mockResolvedValue({ packageFeatures: [{ featureId: 'package-feature', isIncluded: true, feature: { configuration: null } }], clientFeatures: [] });
+
+    await expect(service.createClientFeatureDraft('client-1', 'actor-1')).resolves.toMatchObject({ id: 'draft-1' });
+    expect(create).toHaveBeenCalled();
+  });
 });
