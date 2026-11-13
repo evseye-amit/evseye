@@ -28,7 +28,6 @@ export const paymentOrderInput = z.discriminatedUnion('purpose', [
     })
     .strict(),
   z.object({ purpose: z.literal('OUTSTANDING'), amount }).strict(),
-  z.object({ purpose: z.literal('TOP_UP'), amount: z.string() }).strict(),
   z
     .object({
       purpose: z.literal('SECURITY_DEPOSIT'),

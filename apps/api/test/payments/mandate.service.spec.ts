@@ -338,7 +338,7 @@ describe('provider-specific AutoPay preflight', () => {
   it('rejects invalid Razorpay registration before persisting a blocking mandate', async () => {
     const f = fixture();
     const adapter = { assertMandateEligible: vi.fn(() => { throw new Error('Rider email required'); }) };
-    const router = { selectedFor: async () => 'RAZORPAY', forProvider: () => adapter };
+    const router = { selected: () => 'RAZORPAY', forProvider: () => adapter };
     const service = new MandateService(f.prisma as never, { getOrThrow: () => 'mock' } as never, f.provider as never, f.collections as never, router as never);
     await expect(service.create(clientId, userId, 'preflight-key-1')).rejects.toThrow('email required');
     expect(f.prisma.paymentMandate.create).not.toHaveBeenCalled();

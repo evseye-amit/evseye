@@ -18,8 +18,6 @@
     "lint": "oxlint src/ test/",
     "typecheck": "prisma generate && tsc --noEmit",
     "test": "vitest run",
-    "test:payments:release": "node scripts/test-payment-release.mjs",
-    "payment:readiness": "node --import tsx scripts/payment-readiness.ts",
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",
     "test:debug": "vitest --inspect-brk --no-file-parallelism",

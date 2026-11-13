@@ -66,44 +66,22 @@ export class RazorpayClient {
   get keyId(): string {
     return this.config.get<string>('RAZORPAY_KEY_ID') ?? '';
   }
-  async configurationFor(clientId?: string, configurationVersionId?: string | null) {
+  async keyIdFor(clientId?: string): Promise<string> {
     if (clientId && this.clientConfiguration) {
-      return configurationVersionId
-        ? this.clientConfiguration.resolveVersion(clientId, configurationVersionId)
-        : this.clientConfiguration.resolve(clientId);
-    }
-    if (configurationVersionId)
-      throw new ServiceUnavailableException('The saved merchant configuration cannot be resolved.');
-    await this.assertConfigured(clientId);
-    return { configurationVersionId: undefined, keyId: this.keyId,
-      keySecret: this.config.getOrThrow<string>('RAZORPAY_KEY_SECRET'),
-      webhookSecret: this.config.getOrThrow<string>('RAZORPAY_WEBHOOK_SECRET'),
-      environment: this.config.get<string>('RAZORPAY_ENVIRONMENT') ?? 'LEGACY' };
-  }
-  async keyIdFor(clientId?: string, configurationVersionId?: string | null): Promise<string> {
-    if (clientId && this.clientConfiguration) {
-      return (await this.configurationFor(clientId, configurationVersionId)).keyId;
+      return (await this.clientConfiguration.resolve(clientId)).keyId;
     }
     return this.keyId;
   }
-  async environmentFor(clientId?: string, configurationVersionId?: string | null): Promise<string> {
+  async environmentFor(clientId?: string): Promise<string> {
     if (clientId && this.clientConfiguration)
-      return (await this.configurationFor(clientId, configurationVersionId)).environment;
+      return (await this.clientConfiguration.resolve(clientId)).environment;
     return this.config.get<string>('RAZORPAY_ENVIRONMENT') ?? 'LEGACY';
   }
   get enabled() {
     return this.config.get<string>('RAZORPAY_ENABLED') === 'true';
   }
-  async assertConfigured(clientId?: string, keyId?: string, configurationVersionId?: string | null): Promise<void> {
-    if (clientId && this.clientConfiguration) {
-      const credentials = await this.configurationFor(clientId, configurationVersionId);
-      if (keyId && keyId !== credentials.keyId)
-        throw new ServiceUnavailableException({
-          code: 'RAZORPAY_CONFIGURATION_MISMATCH',
-          message: 'The saved payment merchant configuration is unavailable. Restore it before retrying.',
-        });
-      return;
-    }
+  assertConfigured(clientId?: string, keyId?: string) {
+    if (clientId && this.clientConfiguration) return;
     const clients = (this.config.get<string>('RAZORPAY_CLIENT_IDS') ?? '')
       .split(',')
       .map((v) => v.trim());
@@ -126,53 +104,38 @@ export class RazorpayClient {
     paymentId: string,
     signature: string,
     clientId?: string,
-    configurationVersionId?: string | null,
   ) {
-    const { keySecret: secret } = await this.configurationFor(clientId, configurationVersionId);
+    this.assertConfigured(clientId);
+    const secret = clientId && this.clientConfiguration
+      ? (await this.clientConfiguration.resolve(clientId)).keySecret
+      : this.config.getOrThrow<string>('RAZORPAY_KEY_SECRET');
     verifyRazorpaySignature(
       `${orderId}|${paymentId}`,
       signature,
       secret,
     );
   }
-  async verifyWebhook(body: Buffer, signature: string, clientId?: string, configurationVersionId?: string | null) {
-    if (clientId && this.clientConfiguration && !configurationVersionId) {
-      const versions = await this.clientConfiguration.webhookVersions(clientId);
-      let unavailable: ServiceUnavailableException | undefined;
-      for (const version of versions) {
-        try {
-          const credentials = await this.configurationFor(clientId, version);
-          verifyRazorpaySignature(body, signature, credentials.webhookSecret);
-          return version;
-        } catch (error) {
-          if (error instanceof ServiceUnavailableException) {
-            unavailable = error;
-            continue;
-          }
-          if (!(error instanceof BadRequestException)) throw error;
-        }
-      }
-      if (versions.length) {
-        if (unavailable) throw unavailable;
-        throw new BadRequestException('Invalid Razorpay signature.');
-      }
-    }
-    const { webhookSecret: secret } = await this.configurationFor(clientId, configurationVersionId);
+  async verifyWebhook(body: Buffer, signature: string, clientId?: string) {
+    this.assertConfigured(clientId);
+    const secret = clientId && this.clientConfiguration
+      ? (await this.clientConfiguration.resolve(clientId)).webhookSecret
+      : this.config.getOrThrow<string>('RAZORPAY_WEBHOOK_SECRET');
     verifyRazorpaySignature(
       body,
       signature,
       secret,
     );
-    return configurationVersionId ?? null;
   }
   protected async request(
     path: string,
     method = 'GET',
     body?: unknown,
     clientId?: string,
-    configurationVersionId?: string | null,
   ): Promise<unknown> {
-    const credentials = await this.configurationFor(clientId, configurationVersionId);
+    this.assertConfigured(clientId);
+    const credentials = clientId && this.clientConfiguration
+      ? await this.clientConfiguration.resolve(clientId)
+      : { keyId: this.keyId, keySecret: this.config.getOrThrow<string>('RAZORPAY_KEY_SECRET'), webhookSecret: this.config.getOrThrow<string>('RAZORPAY_WEBHOOK_SECRET') };
     try {
       const response = await fetch(`https://api.razorpay.com/v1/${path}`, {
         method,
@@ -200,7 +163,6 @@ export class RazorpayClient {
     receipt: string,
     notes: Record<string, string>,
     clientId?: string,
-    configurationVersionId?: string | null,
   ) {
     return decode(
       orderSchema,
@@ -210,36 +172,36 @@ export class RazorpayClient {
         receipt,
         notes,
         partial_payment: false,
-      }, clientId, configurationVersionId),
+      }, clientId),
     );
   }
-  async findOrders(receipt: string, clientId?: string, configurationVersionId?: string | null) {
+  async findOrders(receipt: string, clientId?: string) {
     return decode(
       z.object({ items: z.array(orderSchema) }),
       await this.request(
-        `orders?receipt=${encodeURIComponent(receipt)}&count=100`, 'GET', undefined, clientId, configurationVersionId,
+        `orders?receipt=${encodeURIComponent(receipt)}&count=100`, 'GET', undefined, clientId,
       ),
     ).items.filter((v) => v.receipt === receipt);
   }
-  async fetchOrder(id: string, clientId?: string, configurationVersionId?: string | null) {
+  async fetchOrder(id: string, clientId?: string) {
     if (!/^order_[A-Za-z0-9]+$/.test(id))
       throw new BadRequestException('Invalid Razorpay order ID.');
-    return decode(orderSchema, await this.request(`orders/${id}`, 'GET', undefined, clientId, configurationVersionId));
+    return decode(orderSchema, await this.request(`orders/${id}`, 'GET', undefined, clientId));
   }
-  async fetchPayment(id: string, clientId?: string, configurationVersionId?: string | null) {
+  async fetchPayment(id: string, clientId?: string) {
     if (!/^pay_[A-Za-z0-9]+$/.test(id))
       throw new BadRequestException('Invalid Razorpay payment ID.');
-    return decode(paymentSchema, await this.request(`payments/${id}`, 'GET', undefined, clientId, configurationVersionId));
+    return decode(paymentSchema, await this.request(`payments/${id}`, 'GET', undefined, clientId));
   }
-  async orderPayments(id: string, clientId?: string, configurationVersionId?: string | null) {
+  async orderPayments(id: string, clientId?: string) {
     if (!/^order_[A-Za-z0-9]+$/.test(id))
       throw new BadRequestException('Invalid Razorpay order ID.');
     return decode(
       z.object({ items: z.array(paymentSchema) }),
-      await this.request(`orders/${id}/payments`, 'GET', undefined, clientId, configurationVersionId),
+      await this.request(`orders/${id}/payments`, 'GET', undefined, clientId),
     ).items;
   }
-  async refund(paymentId: string, amount: number, receipt: string, clientId?: string, configurationVersionId?: string | null) {
+  async refund(paymentId: string, amount: number, receipt: string, clientId?: string) {
     return decode(
       refundSchema,
       await this.request(`payments/${paymentId}/refund`, 'POST', {
@@ -249,19 +211,19 @@ export class RazorpayClient {
           reason: 'Duplicate or cancelled deployment payment',
           captureId: receipt,
         },
-      }, clientId, configurationVersionId),
+      }, clientId),
     );
   }
-  async fetchRefund(id: string, clientId?: string, configurationVersionId?: string | null) {
+  async fetchRefund(id: string, clientId?: string) {
     return decode(
       refundSchema,
-      await this.request(`refunds/${encodeURIComponent(id)}`, 'GET', undefined, clientId, configurationVersionId),
+      await this.request(`refunds/${encodeURIComponent(id)}`, 'GET', undefined, clientId),
     );
   }
-  async findRefunds(paymentId: string, clientId?: string, configurationVersionId?: string | null) {
+  async findRefunds(paymentId: string, clientId?: string) {
     return decode(
       z.object({ items: z.array(refundSchema) }),
-      await this.request(`payments/${paymentId}/refunds?count=100`, 'GET', undefined, clientId, configurationVersionId),
+      await this.request(`payments/${paymentId}/refunds?count=100`, 'GET', undefined, clientId),
     ).items;
   }
 }

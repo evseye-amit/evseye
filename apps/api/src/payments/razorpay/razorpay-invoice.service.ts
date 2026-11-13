@@ -3,9 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
-  Optional,
 } from '@nestjs/common';
-import { PaymentGatewayPolicyService } from '../payment-gateway-policy.service.js';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { WalletService } from '../../wallet/wallet.service.js';
@@ -22,7 +20,6 @@ export class RazorpayInvoiceService {
     private readonly wallet: WalletService,
     private readonly walletBilling: WalletBillingService,
     private readonly collections: RazorpayPenaltyService,
-    @Optional() private readonly policy?: PaymentGatewayPolicyService,
   ) {}
 
   async payInvoice(
@@ -33,8 +30,7 @@ export class RazorpayInvoiceService {
     useWallet: boolean,
     actorId: string,
   ) {
-    await this.policy?.resolve(clientId, 'INVOICE', 'RAZORPAY');
-    await this.gateway.assertConfigured(clientId);
+    this.gateway.assertConfigured(clientId);
     if (!/^[A-Za-z0-9:_-]{8,120}$/.test(key))
       throw new BadRequestException(
         'Idempotency-Key must contain 8–120 letters, digits, colon, underscore, or hyphen.',
@@ -52,9 +48,6 @@ export class RazorpayInvoiceService {
       throw new BadRequestException(
         'Razorpay rental invoice payments support INR only.',
       );
-    // Resolve the same client merchant used by startOrder before financial mutation.
-    const merchant = await this.gateway.configurationFor(clientId);
-    const { keyId, configurationVersionId } = merchant;
     const wallet = await this.wallet.ensure(clientId, riderId, actorId);
     const result = await this.wallet.locked(wallet.id, async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Rider" WHERE id = ${riderId} AND "clientId" = ${clientId} FOR UPDATE`;
@@ -207,8 +200,7 @@ export class RazorpayInvoiceService {
         data: {
           id,
           collectionId: request.id,
-          keyId,
-          configurationVersionId,
+          keyId: this.gateway.keyId,
           amountPaise: BigInt(paise.toString()),
           currency: invoice.currency,
         },

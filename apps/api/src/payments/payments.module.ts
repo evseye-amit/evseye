@@ -1,6 +1,4 @@
 import { RazorpayRecurringClient } from './razorpay/razorpay-recurring.client.js';
-import { PaymentGatewayPolicyModule } from './payment-gateway-policy.module.js';
-import { PaymentGatewayPolicyService } from './payment-gateway-policy.service.js';
 import { RazorpayAutoPayProvider } from './razorpay/razorpay-autopay.provider.js';
 import { RazorpayAutoPayWorker } from './razorpay/razorpay-autopay.worker.js';
 import { AutoPayProviderRouter } from './autopay-provider-router.service.js';
@@ -59,7 +57,7 @@ import {
 } from './mandate.controller.js';
 
 @Module({
-  imports: [PaymentGatewayPolicyModule, AllocationsModule, RazorpayPenaltyModule, AuthModule, RiderBillingModule, RiderRateCardsModule, WalletModule],
+  imports: [AllocationsModule, RazorpayPenaltyModule, AuthModule, RiderBillingModule, RiderRateCardsModule, WalletModule],
   controllers: [
     CommonPaymentController,
     RiderMandateController,
@@ -95,9 +93,9 @@ import {
     RazorpayDeploymentProviderAdapter,
     {
       provide: DEPLOYMENT_PAYMENT_PROVIDER,
-      inject: [PrismaService, ConfigService, RazorpayDeploymentProviderAdapter, PaymentGatewayPolicyService],
-      useFactory: (db: PrismaService, config: ConfigService<Environment, true>, razorpay: RazorpayDeploymentProviderAdapter, policy: PaymentGatewayPolicyService) =>
-        new DeploymentPaymentProviderRouter(db, config, razorpay, policy),
+      inject: [PrismaService, ConfigService, RazorpayDeploymentProviderAdapter],
+      useFactory: (db: PrismaService, config: ConfigService<Environment, true>, razorpay: RazorpayDeploymentProviderAdapter) =>
+        new DeploymentPaymentProviderRouter(db, config, razorpay),
     },
     {
       provide: PAYMENT_PROVIDER,

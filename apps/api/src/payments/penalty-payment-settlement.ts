@@ -3,7 +3,6 @@ import { Prisma, type PaymentCollectionRequest } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RiderPaymentsService } from '../rider-billing/rider-payments.service.js';
 import { WalletService } from '../wallet/wallet.service.js';
-import { retryablePaymentTransaction } from './transaction-retry.js';
 import { PENALTY_PAYMENT, readPenaltySnapshot } from './outstanding-payment.js';
 
 /** Both gateways use the same immutable invoice plan and accounting transaction. */
@@ -119,12 +118,9 @@ export async function settlePenaltyPayment(
         },
       );
     } catch (error) {
-      // A concurrent callback can commit after this serializable snapshot.
-      // Retry the whole transaction so SUCCESS and payment identity are reread.
       if (
-        (retryablePaymentTransaction(error) ||
-          (error instanceof Prisma.PrismaClientKnownRequestError &&
-            error.code === 'P2002')) &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2034' &&
         attempt < 3
       )
         continue;

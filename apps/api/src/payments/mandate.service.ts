@@ -210,7 +210,7 @@ export class MandateService {
         currency: 'INR',
         validityDays,
         methods: paymentMethods,
-        provider: mandate?.provider ?? (this.providers ? await this.providers.selectedFor(clientId) : this.config.getOrThrow('PAYMENT_PROVIDER').toUpperCase()),
+        provider: this.providers?.selected() ?? this.config.getOrThrow('PAYMENT_PROVIDER').toUpperCase(),
       },
       mandate: mandate ? this.view(mandate) : null,
     };
@@ -292,7 +292,7 @@ export class MandateService {
       throw new ConflictException(
         'An AutoPay mandate already exists for this rider. Verify its status before creating another.',
       );
-    const providerName = this.providers ? await this.providers.selectedFor(clientId, method) : this.config.getOrThrow('PAYMENT_PROVIDER').toUpperCase();
+    const providerName = this.providers?.selected(method) ?? this.config.getOrThrow('PAYMENT_PROVIDER').toUpperCase();
     const provider: import('./autopay-provider.interface.js').AutoPayProvider = this.providers?.forProvider(providerName) ?? this.provider;
     const expiresAt = new Date(Date.now() + validityDays * 86400000);
     const providerMandateId = `EVSEYE_${randomUUID().replaceAll('-', '')}`;

@@ -1,5 +1,4 @@
 import { AutoPayProviderRouter } from './autopay-provider-router.service.js';
-import { retryablePaymentTransaction } from './transaction-retry.js';
 import { PENALTY_PAYMENT } from './outstanding-payment.js';
 import { randomUUID } from 'node:crypto';
 import {
@@ -46,7 +45,8 @@ export class PaymentOrchestratorService {
         });
       } catch (error) {
         if (
-          retryablePaymentTransaction(error) &&
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2034' &&
           attempt < 3
         )
           continue;
@@ -188,8 +188,6 @@ export class PaymentOrchestratorService {
             riderId,
             invoiceId,
             mandateId: mandate.id,
-            configurationVersionId: mandate.configurationVersionId,
-            providerKeyId: mandate.providerKeyId,
             requestKey,
             provider: mandate.provider ?? this.config.getOrThrow('PAYMENT_PROVIDER').toUpperCase(),
             providerPaymentId,
