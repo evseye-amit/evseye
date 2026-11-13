@@ -447,7 +447,13 @@ export class MediaService {
           ]),
         ),
       ];
-      if (photo.photoType !== PhotoType.DAMAGE)
+      // Onboarding documents share a progress entity and often use the
+      // generic DOCUMENT type. Their replacement/supersession is handled per
+      // field by RiderAppService, not by the generic media slot logic.
+      if (
+        photo.photoType !== PhotoType.DAMAGE &&
+        photo.workFlowType !== PhotoWorkflowType.RIDER_ONBOARDING
+      )
         await tx.photo.updateMany({
           where: {
             clientId,
@@ -481,6 +487,22 @@ export class MediaService {
       throw new ForbiddenException(
         'Support attachments use the support ticket routes.',
       );
+    // Older onboarding uploads may have been incorrectly marked DELETED by
+    // the generic slot replacement logic. If the photo is still attached to
+    // the current onboarding document, allow it to be opened and recover the
+    // production review flow. Unlinked/deleted media remains unavailable.
+    if (
+      photo.workFlowType === PhotoWorkflowType.RIDER_ONBOARDING &&
+      photo.status === PhotoStatus.DELETED
+    ) {
+      const activeDocument = await this.prisma.riderOnboardingDocument.findFirst({
+        where: { clientId, photoId, supersededAt: null },
+        select: { id: true },
+      });
+      if (activeDocument) {
+        return { url: await this.storage.createDownloadUrl(photo.objectKey) };
+      }
+    }
     return this.downloadPhoto(photo);
   }
 
