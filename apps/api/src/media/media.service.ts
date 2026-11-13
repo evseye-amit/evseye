@@ -447,7 +447,14 @@ export class MediaService {
           ]),
         ),
       ];
-      if (photo.photoType !== PhotoType.DAMAGE)
+      // Rider onboarding stores several document fields against the same
+      // progress entity.  The onboarding service supersedes replacements at
+      // the field level, so media completion must not delete another field's
+      // photo merely because it has the same generic photo type (DOCUMENT).
+      if (
+        photo.photoType !== PhotoType.DAMAGE &&
+        photo.workFlowType !== PhotoWorkflowType.RIDER_ONBOARDING
+      )
         await tx.photo.updateMany({
           where: {
             clientId,
