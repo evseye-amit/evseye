@@ -98,6 +98,7 @@ export class PaymentRefundService {
         include: { mandate: true },
       }),
     ]);
+    if (checkout?.collectionType === 'TOP_UP') throw new ConflictException('Wallet top-ups are non-refundable.');
     if (checkout?.provider === 'RAZORPAY') throw new ConflictException(checkout.collectionType === 'INVOICE_PAYMENT' ? 'Razorpay rental invoice refunds require support review.' : 'Razorpay penalty refunds require support review.');
     if (checkout?.providerOrderId)
       return {

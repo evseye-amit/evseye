@@ -76,6 +76,7 @@ function fixture() {
   };
   const billing = { riderForUser: vi.fn().mockResolvedValue('rider') };
   const checkout = {
+    payTopUp: vi.fn().mockResolvedValue({ collectionId: id }),
     payInvoice: vi.fn().mockResolvedValue({ collectionId: id }),
     payDeposit: vi.fn().mockResolvedValue({ collectionId: id }),
     payOutstanding: vi.fn().mockResolvedValue({ collectionId: id }),
@@ -101,6 +102,12 @@ function fixture() {
   return { c, order, db, billing, checkout, deployments, penalties, invoices, service };
 }
 describe('common payment purpose contract', () => {
+  it('accepts and routes top-up orders', async () => {
+    const f = fixture();
+    expect(parseOrderInput({ purpose: 'TOP_UP', amount: '500.00' })).toEqual({ purpose: 'TOP_UP', amount: '500.00' });
+    await f.service.create('client', 'user', { purpose: 'TOP_UP', amount: '500.00' }, 'topup-key-1');
+    expect(f.checkout.payTopUp).toHaveBeenCalledWith('client', 'rider', 'topup-key-1', '500.00');
+  });
   it.each([
     { purpose: 'DEPLOYMENT', allocationId: id, amount: '1' },
     { purpose: 'DEPLOYMENT' },

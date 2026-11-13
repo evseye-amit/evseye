@@ -208,6 +208,7 @@ export class WalletService {
   async reverse(clientId: string, transactionId: string, actorId: string, key: string) {
     const original = await this.prisma.walletTransaction.findFirst({ where: { clientId, id: transactionId }, include: { entries: true } });
     if (!original) throw new NotFoundException('TRANSACTION_NOT_FOUND');
+    if (original.transactionType === WalletTransactionType.TOP_UP) throw new ConflictException('Wallet top-ups are non-refundable and cannot be reversed.');
     if (original.referenceType === 'REWARD_CLAIM') throw new ConflictException('USE_REWARD_CLAIM_REVERSAL');
     if (await this.prisma.walletInvoiceAllocation.findFirst({ where: { clientId, transactionId } })) throw new ConflictException('INVOICE_SETTLEMENT_REQUIRES_BILLING_REVERSAL');
     if (original.status === 'REVERSED') {
