@@ -98,6 +98,15 @@ export class CommonPaymentController {
             depositId: { type: 'string', format: 'uuid' },
           },
         },
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['purpose', 'amount'],
+          properties: {
+            purpose: { type: 'string', enum: ['TOP_UP'] },
+            amount: { type: 'string', example: '500.00', description: 'INR 500.00 to INR 5000.00' },
+          },
+        },
       ],
     },
   })

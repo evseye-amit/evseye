@@ -24,6 +24,7 @@ const purposes: Record<string, string> = {
   OUTSTANDING_PAYMENT: 'OUTSTANDING',
   SECURITY_DEPOSIT: 'SECURITY_DEPOSIT',
   [PENALTY_PAYMENT]: 'SUBMISSION_PENALTY',
+  TOP_UP: 'TOP_UP',
 };
 export function commonPaymentStatus(
   status: string,
@@ -114,6 +115,10 @@ export class CommonPaymentService {
       if (!collection)
         throw new NotFoundException('Payment request not found.');
       return this.detail(clientId, userId, `collection:${collection.id}`);
+    }
+    if (input.purpose === 'TOP_UP') {
+      const result = await this.checkout.payTopUp(clientId, riderId, key ?? '', input.amount);
+      return this.detail(clientId, userId, `collection:${result.collectionId}`);
     }
     // Existing Cashfree checkout owns idempotency, wallet use and settlement.
     const result =
