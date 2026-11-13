@@ -37,6 +37,7 @@ function fixture() {
     providerPaymentId: null,
     paymentSessionId: 'cashfree_session',
     failureCode: null,
+    paymentSnapshot: { paymentEnvironment: 'SANDBOX' } as Record<string, unknown>,
     razorpayPenaltyOrder: {
       keyId: 'rzp_test',
       providerOrderId: 'order_test',
@@ -76,12 +77,14 @@ function fixture() {
   };
   const billing = { riderForUser: vi.fn().mockResolvedValue('rider') };
   const checkout = {
+    payTopUp: vi.fn().mockResolvedValue({ collectionId: id }),
     payInvoice: vi.fn().mockResolvedValue({ collectionId: id }),
     payDeposit: vi.fn().mockResolvedValue({ collectionId: id }),
     payOutstanding: vi.fn().mockResolvedValue({ collectionId: id }),
     verify: vi.fn(),
   };
   const deployments = {
+    reconcile: vi.fn().mockResolvedValue({}),
     createOrder: vi.fn().mockResolvedValue({ orderId: 'order_test' }),
     verify: vi.fn().mockResolvedValue({}),
   };
@@ -101,6 +104,60 @@ function fixture() {
   return { c, order, db, billing, checkout, deployments, penalties, invoices, service };
 }
 describe('common payment purpose contract', () => {
+  it('returns typed checkout payloads without inventing a legacy Cashfree environment', async () => {
+    const f = fixture();
+    expect((await f.service.detail('client', 'user', `collection:${id}`)).checkout).toEqual({
+      type: 'CASHFREE', orderId: 'order_test', paymentSessionId: 'cashfree_session', environment: 'SANDBOX',
+    });
+    f.c.paymentSnapshot = {};
+    expect((await f.service.detail('client', 'user', `collection:${id}`)).checkout).toMatchObject({ environment: null });
+    f.c.provider = 'RAZORPAY';
+    expect((await f.service.detail('client', 'user', `collection:${id}`)).checkout).toEqual({
+      type: 'RAZORPAY', orderId: 'order_test', keyId: 'rzp_test', amountPaise: 50000,
+    });
+  });
+  it.each(['CASHFREE', 'RAZORPAY'])('recovers %s without caller callback or current policy and returns refreshed state', async provider => {
+    const f = fixture(); f.c.provider = provider;
+    f.checkout.verify.mockImplementation(async () => { f.c.status = 'SUCCESS'; });
+    expect(await f.service.reconcile('client', 'user', `collection:${id}`)).toMatchObject({ status: 'SUCCEEDED', checkout: null });
+    expect(f.checkout.verify).toHaveBeenCalledWith('client', 'rider', id);
+    expect(f.penalties.verify).not.toHaveBeenCalled();
+  });
+  it('checks ownership before recovery and routes deployment by the saved attempt', async () => {
+    const f = fixture();
+    await f.service.reconcile('client', 'user', `deployment:${id}`);
+    expect(f.deployments.reconcile).toHaveBeenCalledWith('client', 'user', id, id);
+    f.db.paymentCollectionRequest.findFirst.mockResolvedValue(null);
+    await expect(f.service.reconcile('other-client', 'user', `collection:${id}`)).rejects.toThrow('not found');
+    expect(f.checkout.verify).not.toHaveBeenCalled();
+    f.db.razorpayDeploymentOrder.findFirst.mockResolvedValue(null);
+    f.deployments.reconcile.mockClear();
+    await expect(f.service.reconcile('other-client', 'user', `deployment:${id}`)).rejects.toThrow('not found');
+    expect(f.deployments.reconcile).not.toHaveBeenCalled();
+  });
+  it('requires a rider before returning client capabilities', async () => {
+    const f = fixture();
+    f.billing.riderForUser.mockRejectedValue(new Error('Rider not found'));
+    await expect(f.service.capabilities('client', 'stranger')).rejects.toThrow('Rider not found');
+  });
+  it.each([
+    ['CREATING', 'CREATING', 'AWAITING_GATEWAY_CONFIRMATION'],
+    ['UNKNOWN', 'UNKNOWN', 'AWAITING_GATEWAY_CONFIRMATION'],
+    ['FAILED', 'FAILED', 'RETRY_ONLINE_PAYMENT'],
+    ['CANCELLED', 'CANCELLED', 'RETRY_ONLINE_PAYMENT'],
+    ['EXPIRED', 'EXPIRED', 'RETRY_ONLINE_PAYMENT'],
+    ['REFUND_PROCESSING', 'REFUND_PENDING', 'CONTACT_SUPPORT'],
+    ['REVIEW_REQUIRED', 'REVIEW_REQUIRED', 'CONTACT_SUPPORT'],
+  ])('does not offer checkout for %s', async (stored, status, nextAction) => {
+    const f = fixture(); f.c.status = stored;
+    expect(await f.service.detail('client', 'user', `collection:${id}`)).toMatchObject({ status, nextAction, checkout: null });
+  });
+  it('accepts and routes top-up orders', async () => {
+    const f = fixture();
+    expect(parseOrderInput({ purpose: 'TOP_UP', amount: '500.00' })).toEqual({ purpose: 'TOP_UP', amount: '500.00' });
+    await f.service.create('client', 'user', { purpose: 'TOP_UP', amount: '500.00' }, 'topup-key-1');
+    expect(f.checkout.payTopUp).toHaveBeenCalledWith('client', 'rider', 'topup-key-1', '500.00');
+  });
   it.each([
     { purpose: 'DEPLOYMENT', allocationId: id, amount: '1' },
     { purpose: 'DEPLOYMENT' },

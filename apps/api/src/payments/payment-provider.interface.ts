@@ -180,3 +180,7 @@ export interface PaymentProvider {
   ): VerifiedWebhook;
 }
 export const PAYMENT_PROVIDER = Symbol('PAYMENT_PROVIDER');
+
+export type CheckoutProvider = Pick<PaymentProvider,
+  'createCheckoutOrder' | 'fetchCheckoutOrder' | 'fetchCheckoutPayments' | 'verifyCheckoutWebhook'>;
+export type CheckoutRefundProvider = Pick<PaymentProvider, 'createCheckoutRefund' | 'fetchCheckoutRefund'>;

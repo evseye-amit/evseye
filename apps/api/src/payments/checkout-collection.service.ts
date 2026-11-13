@@ -9,7 +9,11 @@ import {
   Injectable,
   NotFoundException,
   ServiceUnavailableException,
+  Optional,
 } from '@nestjs/common';
+import { PaymentGatewayPolicyService, type PaymentPurpose } from './payment-gateway-policy.service.js';
+import { CashfreePaymentProvider } from './cashfree/cashfree-payment.provider.js';
+import { MockPaymentProvider } from './mock-payment.provider.js';
 import { ConfigService } from '@nestjs/config';
 import { Prisma, type PaymentCollectionRequest } from '@prisma/client';
 import type { Environment } from '../config/environment.js';
@@ -23,6 +27,7 @@ import { ProviderRequestError } from './payment-provider.interface.js';
 import {
   PAYMENT_PROVIDER,
   type PaymentProvider,
+  type CheckoutProvider,
 } from './payment-provider.interface.js';
 
 const openStatuses = ['FINALIZED', 'PARTIALLY_PAID', 'OVERDUE'] as const;
@@ -39,7 +44,21 @@ export class CheckoutCollectionService {
     private readonly wallet: WalletService,
     private readonly walletDeposits: SecurityDepositService,
     private readonly razorpayPenalties?: RazorpayPenaltyService,
+    @Optional() private readonly policy?: PaymentGatewayPolicyService,
+    @Optional() private readonly cashfree?: CashfreePaymentProvider,
+    @Optional() private readonly mock?: MockPaymentProvider,
   ) {}
+  private async selected(clientId: string, purpose: PaymentPurpose) {
+    const name = this.policy ? await this.policy.resolve(clientId, purpose) : this.config.getOrThrow('PAYMENT_PROVIDER').toUpperCase();
+    if (!['CASHFREE', 'MOCK'].includes(name)) throw new ServiceUnavailableException('Use the configured gateway checkout endpoint for this purpose.');
+    return name.toLowerCase();
+  }
+  private savedProvider(name: string): CheckoutProvider {
+    if (name === 'CASHFREE' && this.cashfree) return this.cashfree;
+    if (name === 'MOCK' && this.mock) return this.mock;
+    if (name === this.config.getOrThrow('PAYMENT_PROVIDER').toUpperCase()) return this.provider;
+    throw new ServiceUnavailableException('The saved checkout provider is unavailable.');
+  }
   private async serializable<T>(
     fn: (tx: Prisma.TransactionClient) => Promise<T>,
   ): Promise<T> {
@@ -101,7 +120,7 @@ export class CheckoutCollectionService {
   ) {
     if (!/^[A-Za-z0-9:_-]{8,120}$/.test(key))
       throw new BadRequestException('Idempotency-Key is required.');
-    const providerName = this.config.getOrThrow('PAYMENT_PROVIDER');
+    const providerName = await this.selected(clientId, 'INVOICE');
     if (providerName === 'disabled')
       throw new ServiceUnavailableException('Payment provider is disabled.');
     const existing = await this.prisma.paymentCollectionRequest.findUnique({
@@ -235,7 +254,7 @@ export class CheckoutCollectionService {
     const collectionType = isPenalty ? PENALTY_PAYMENT : 'OUTSTANDING_PAYMENT';
     if (!/^[A-Za-z0-9:_-]{8,120}$/.test(key))
       throw new BadRequestException('Idempotency-Key is required.');
-    const providerName = this.config.getOrThrow('PAYMENT_PROVIDER');
+    const providerName = await this.selected(clientId, isPenalty ? 'SUBMISSION_PENALTY' : 'OUTSTANDING');
     if (providerName === 'disabled')
       throw new ServiceUnavailableException('Payment provider is disabled.');
     let created = false;
@@ -356,6 +375,36 @@ export class CheckoutCollectionService {
     if (!created) return this.view(request);
     return this.startProviderCheckout(request, riderId);
   }
+
+  async payTopUp(clientId: string, riderId: string, key: string, requestedAmount: string) {
+    if (!/^[A-Za-z0-9:_-]{8,120}$/.test(key)) throw new BadRequestException('Idempotency-Key is required.');
+    if (!/^(?:[5-9]\d{2}|[1-4]\d{3}|5000)\.\d{2}$/.test(requestedAmount)) throw new BadRequestException('Top-up amount must be between INR 500.00 and INR 5000.00.');
+    const amount = new Prisma.Decimal(requestedAmount);
+    const providerName = await this.selected(clientId, 'TOP_UP');
+    if (providerName === 'disabled') throw new ServiceUnavailableException('Payment provider is disabled.');
+    const wallet = await this.wallet.ensure(clientId, riderId, 'SYSTEM');
+    let created = false;
+    let request: PaymentCollectionRequest;
+    try {
+      request = await this.serializable(async (tx) => {
+        const previous = await tx.paymentCollectionRequest.findUnique({ where: { clientId_idempotencyKey: { clientId, idempotencyKey: key } } });
+        if (previous) {
+          if (previous.riderId !== riderId || previous.collectionType !== 'TOP_UP' || !previous.amount.eq(amount)) throw new ConflictException('Idempotency-Key was used with a different top-up.');
+          return previous;
+        }
+        const orderId = `EVSEYE_PG_${randomUUID().replaceAll('-', '')}`;
+        const result = await tx.paymentCollectionRequest.create({ data: { clientId, riderId, collectionType: 'TOP_UP', paymentNumber: paymentNumber(), method: 'UPI', provider: providerName.toUpperCase(), amount, currency: wallet.currency, idempotencyKey: key, providerOrderId: orderId, status: 'CREATING', paymentSnapshot: { purpose: 'TOP_UP', requestedAmount: amount.toFixed(2), refundable: false, withdrawable: false }, attempts: { create: { clientId, sequence: 1, providerPaymentId: orderId, status: 'CREATING' } } } });
+        await tx.walletTransaction.create({ data: { clientId, walletId: wallet.id, transactionNumber: `EVW-${new Date().toISOString().slice(0,10).replaceAll('-', '')}-${randomUUID().slice(0,8).toUpperCase()}`, transactionType: 'TOP_UP', status: 'PENDING', currency: wallet.currency, amount, description: 'Money added to wallet', idempotencyKey: `topup:${result.id}`, requestHash: createHash('sha256').update(`${result.id}:${amount.toFixed(2)}`).digest('hex'), referenceType: 'PAYMENT_COLLECTION', referenceId: result.id } });
+        created = true;
+        return result;
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException('PAYMENT_ALREADY_IN_PROGRESS');
+      throw error;
+    }
+    if (!created) return this.view(request);
+    return this.startProviderCheckout(request, riderId);
+  }
   async payDeposit(
     clientId: string,
     riderId: string,
@@ -364,7 +413,7 @@ export class CheckoutCollectionService {
   ) {
     if (!/^[A-Za-z0-9:_-]{8,120}$/.test(key))
       throw new BadRequestException('Idempotency-Key is required.');
-    const providerName = this.config.getOrThrow('PAYMENT_PROVIDER');
+    const providerName = await this.selected(clientId, 'SECURITY_DEPOSIT');
     if (providerName === 'disabled')
       throw new ServiceUnavailableException('Payment provider is disabled.');
     let created = false;
@@ -461,12 +510,18 @@ export class CheckoutCollectionService {
     riderId: string,
   ) {
     const clientId = request.clientId;
+    // Persist the launch environment before sending an order to the provider.
+    const paymentEnvironment = request.provider === 'CASHFREE' ? this.config.getOrThrow('CASHFREE_ENVIRONMENT') : null;
+    await this.prisma.paymentCollectionRequest.update({
+      where: { id: request.id },
+      data: { paymentSnapshot: { ...(request.paymentSnapshot as Prisma.JsonObject), paymentEnvironment } },
+    });
     const rider = await this.prisma.rider.findFirstOrThrow({
       where: { id: riderId, clientId },
       select: { name: true, mobile: true },
     });
     try {
-      const order = await this.provider.createCheckoutOrder({
+      const order = await this.savedProvider(request.provider).createCheckoutOrder({
         orderId: request.providerOrderId!,
         idempotencyKey: request.id,
         amount: request.amount.toFixed(2),
@@ -520,6 +575,7 @@ export class CheckoutCollectionService {
           },
         },
       });
+      if (request.collectionType === 'TOP_UP') await this.prisma.walletTransaction.updateMany({ where: { clientId, referenceType: 'PAYMENT_COLLECTION', referenceId: request.id, status: 'PENDING' }, data: { status: 'FAILED', failedAt: new Date() } });
       if (known)
         throw new BadRequestException(
           'Payment provider rejected the checkout order.',
@@ -541,7 +597,7 @@ export class CheckoutCollectionService {
     }
     if (!request.providerOrderId)
       throw new ConflictException('Collection has no provider order.');
-    const results = await this.provider.fetchCheckoutPayments(
+    const results = await this.savedProvider(request.provider).fetchCheckoutPayments(
       request.providerOrderId,
     );
     for (const result of results) {
@@ -605,6 +661,22 @@ export class CheckoutCollectionService {
         throw new ConflictException('PROVIDER_PAYMENT_MISMATCH');
       }
       if (request.collectionType === PENALTY_PAYMENT) return this.view(await settlePenaltyPayment(this.prisma, this.payments, this.wallet, request, confirmed.providerPaymentId));
+      if (request.collectionType === 'TOP_UP') {
+        const updated = await this.serializable(async (tx) => {
+          const current = await tx.paymentCollectionRequest.findUniqueOrThrow({ where: { id: request.id } });
+          if (current.status === 'SUCCESS') return current;
+          const pending = await tx.walletTransaction.findFirst({ where: { clientId, referenceType: 'PAYMENT_COLLECTION', referenceId: current.id, transactionType: 'TOP_UP' } });
+          if (!pending) throw new ConflictException('TOP_UP_TRANSACTION_NOT_FOUND');
+          const wallet = await tx.riderWallet.findFirstOrThrow({ where: { clientId, id: pending.walletId }, include: { accounts: true } });
+          const cash = wallet.accounts.find((a) => a.accountType === 'CASH');
+          const clearing = wallet.accounts.find((a) => a.accountType === 'PROVIDER_CLEARING');
+          if (!cash || !clearing) throw new ConflictException('WALLET_ACCOUNT_NOT_FOUND');
+          await this.wallet.postInTransaction(tx, { clientId, walletId: wallet.id, actorId: 'SYSTEM', type: 'TOP_UP', amount: current.amount.toFixed(2), currency: current.currency, description: 'Settled wallet top-up', idempotencyKey: `topup:post:${current.id}`, referenceType: 'PAYMENT_COLLECTION', referenceId: current.id, entries: [{ accountId: clearing.id, entryType: 'DEBIT', amount: current.amount.toFixed(2) }, { accountId: cash.id, entryType: 'CREDIT', amount: current.amount.toFixed(2) }] });
+          await tx.walletTransaction.update({ where: { id: pending.id }, data: { status: 'POSTED', postedAt: new Date() } });
+          return tx.paymentCollectionRequest.update({ where: { id: current.id }, data: { status: 'SUCCESS', providerPaymentId: confirmed.providerPaymentId, completedAt: new Date(), attempts: { update: { where: { collectionRequestId_sequence: { collectionRequestId: current.id, sequence: 1 } }, data: { status: 'SUCCESS', providerReference: confirmed.providerReference } } } } });
+        });
+        return this.view(updated);
+      }
       const wallet = request.invoiceId
         ? await this.wallet.ensure(clientId, riderId, 'SYSTEM')
         : null;
@@ -772,10 +844,11 @@ export class CheckoutCollectionService {
         }),
       );
     }
-    const orderStatus = await this.provider.fetchCheckoutOrder(request.providerOrderId);
+    const orderStatus = await this.savedProvider(request.provider).fetchCheckoutOrder(request.providerOrderId);
     if (orderStatus.orderId !== request.providerOrderId) throw new ConflictException('PROVIDER_ORDER_MISMATCH');
     if (orderStatus.status === 'EXPIRED') {
       await this.prisma.paymentCollectionRequest.updateMany({ where: { id: request.id, status: { not: 'SUCCESS' } }, data: { status: 'EXPIRED', failureCode: 'PROVIDER_ORDER_EXPIRED' } });
+      if (request.collectionType === 'TOP_UP') await this.prisma.walletTransaction.updateMany({ where: { clientId, referenceType: 'PAYMENT_COLLECTION', referenceId: request.id, status: 'PENDING' }, data: { status: 'FAILED', failedAt: new Date() } });
       return this.view(await this.prisma.paymentCollectionRequest.findUniqueOrThrow({ where: { id: request.id } }));
     }
     if (orderStatus.status === 'PAID') {
@@ -794,10 +867,11 @@ export class CheckoutCollectionService {
         failureCode: 'PROVIDER_DECLINED',
       },
     });
+    if (request.collectionType === 'TOP_UP') await this.prisma.walletTransaction.updateMany({ where: { clientId, referenceType: 'PAYMENT_COLLECTION', referenceId: request.id, status: 'PENDING' }, data: { status: 'FAILED', failedAt: new Date() } });
     return this.view(await this.prisma.paymentCollectionRequest.findUniqueOrThrow({ where: { id: request.id } }));
   }
   async webhook(rawBody: Buffer, timestamp: string, signature: string) {
-    const verified = this.provider.verifyCheckoutWebhook(
+    const verified = this.savedProvider('CASHFREE').verifyCheckoutWebhook(
       rawBody,
       timestamp,
       signature,

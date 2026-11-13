@@ -2,6 +2,7 @@ import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Environment } from '../config/environment.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { PaymentGatewayPolicyService } from './payment-gateway-policy.service.js';
 import type {
   DeploymentPaymentOrder,
   DeploymentPaymentProvider,
@@ -15,6 +16,7 @@ export class DeploymentPaymentProviderRouter {
     private readonly db: PrismaService,
     private readonly config: ConfigService<Environment, true>,
     razorpay: DeploymentPaymentProvider,
+    private readonly policy?: PaymentGatewayPolicyService,
   ) {
     this.providers = new Map([[razorpay.name, razorpay]]);
   }
@@ -36,7 +38,7 @@ export class DeploymentPaymentProviderRouter {
       orderBy: { createdAt: 'desc' },
       select: { provider: true },
     });
-    const providerName = configured?.provider?.trim().toUpperCase();
+    const providerName = this.policy ? await this.policy.resolve(clientId, 'DEPLOYMENT') : configured?.provider?.trim().toUpperCase();
     if (!providerName)
       throw new ServiceUnavailableException({
         code: 'PAYMENT_PROVIDER_UNAVAILABLE',
@@ -52,8 +54,10 @@ export class DeploymentPaymentProviderRouter {
   }
 
   async verify(clientId: string, userId: string, allocationId: string, body: unknown) {
+    const providerOrderId = body && typeof body === 'object' && 'razorpayOrderId' in body && typeof body.razorpayOrderId === 'string'
+      ? body.razorpayOrderId : undefined;
     const attempt = await this.db.deploymentPaymentAttempt.findFirst({
-      where: { clientId, payment: { workflow: { allocationId, allocation: { clientId } } } },
+      where: { clientId, ...(providerOrderId ? { providerOrderId } : {}), payment: { workflow: { allocationId, allocation: { clientId } } } },
       orderBy: { createdAt: 'desc' },
       select: { provider: true },
     });
@@ -64,5 +68,15 @@ export class DeploymentPaymentProviderRouter {
         message: attempt ? `The deployment payment provider ${attempt.provider} is not supported.` : 'No deployment payment attempt exists.',
       });
     return provider.verify(clientId, userId, allocationId, body);
+  }
+
+  async reconcile(clientId: string, userId: string, allocationId: string, attemptId: string) {
+    const attempt = await this.db.deploymentPaymentAttempt.findFirst({
+      where: { id: attemptId, clientId, payment: { workflow: { allocationId, allocation: { clientId } } } },
+      select: { provider: true },
+    });
+    const provider = attempt && this.providers.get(attempt.provider.toUpperCase());
+    if (!provider) throw new ServiceUnavailableException('The saved payment provider is unavailable.');
+    return provider.reconcile(clientId, userId, allocationId, attemptId);
   }
 }
