@@ -81,6 +81,24 @@ describe('MediaService upload completion', () => {
     expect(updateMany).not.toHaveBeenCalled();
     expect(update).toHaveBeenCalledWith({ where: { id: photo.id }, data: { status: 'COMPLETE', uploadedAt: expect.any(Date) } });
   });
+
+  it('opens legacy rider documents incorrectly marked deleted by slot replacement', async () => {
+    const photo = {
+      id: 'legacy-photo', clientId: 'client-a',
+      workFlowType: PhotoWorkflowType.RIDER_ONBOARDING,
+      subjectType: PhotoSubjectType.DECLARATION, entityId: 'progress-1',
+      photoType: PhotoType.DOCUMENT, status: 'DELETED', objectKey: 'legacy.jpg',
+    };
+    const createDownloadUrl = vi.fn().mockResolvedValue('https://storage/legacy.jpg');
+    const prisma = {
+      photo: { findFirst: vi.fn().mockResolvedValue(photo) },
+      riderOnboardingDocument: { findFirst: vi.fn().mockResolvedValue({ id: 'document-1' }) },
+    };
+    const service = new MediaService(prisma as never, { createDownloadUrl } as never);
+
+    await expect(service.downloadUrl('client-a', photo.id)).resolves.toEqual({ url: 'https://storage/legacy.jpg' });
+    expect(createDownloadUrl).toHaveBeenCalledWith(photo.objectKey);
+  });
 });
 
 describe('MediaService fleet-manager rider scope', () => {
