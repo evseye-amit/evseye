@@ -173,7 +173,7 @@ describe('independent AutoPay provider configuration', () => {
     expect(settings.RAZORPAY_AUTOPAY_ENABLED).toBe('false');
     expect(() => validateEnvironment({ AUTOPAY_PROVIDER: 'razorpay' })).toThrow('AutoPay requires');
   });
-  it('requires Cashfree credentials when it is selected only for AutoPay', () => {
-    expect(() => validateEnvironment({ PAYMENT_PROVIDER: 'disabled', AUTOPAY_PROVIDER: 'cashfree' })).toThrow('Cashfree configuration is missing');
+  it('defers missing Cashfree credentials to payment request time', () => {
+    expect(validateEnvironment({ PAYMENT_PROVIDER: 'disabled', AUTOPAY_PROVIDER: 'cashfree' }).CASHFREE_CLIENT_ID).toBeUndefined();
   });
 });

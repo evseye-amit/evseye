@@ -1,8 +1,13 @@
+import { z } from 'zod';
+import { normalizeCashfreeSettlement } from './cashfree-settlement.js';
+import { RazorpayConfigurationService } from '../razorpay/razorpay-configuration.service.js';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import {
   BadRequestException,
   Injectable,
+  Optional,
   UnauthorizedException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Environment } from '../../config/environment.js';
@@ -69,7 +74,54 @@ export class CashfreePaymentProvider implements PaymentProvider {
   constructor(
     private readonly http: CashfreeHttpClient,
     private readonly config: ConfigService<Environment, true>,
+    @Optional() private readonly configurations?: RazorpayConfigurationService,
   ) {}
+  configurationVersionId?: string;
+  environment?: string;
+
+  // undefined selects a merchant for NEW work; null explicitly preserves legacy work.
+  async forClient(clientId: string, versionId?: string | null): Promise<CashfreePaymentProvider> {
+    if (versionId === null) return this;
+    if (!this.configurations) throw new ServiceUnavailableException('Cashfree merchant resolution is unavailable.');
+    const credentials = versionId
+      ? await this.configurations.resolveVersion(clientId, versionId, 'CASHFREE')
+      : await this.configurations.resolve(clientId, undefined, 'CASHFREE');
+    const overrides: Record<string, unknown> = {
+      CASHFREE_CLIENT_ID: credentials.keyId,
+      CASHFREE_CLIENT_SECRET: credentials.keySecret,
+      CASHFREE_WEBHOOK_SECRET: credentials.webhookSecret,
+      CASHFREE_ENVIRONMENT: credentials.environment === 'PRODUCTION' ? 'PRODUCTION' : 'SANDBOX',
+    };
+    const config = new Proxy(this.config, {
+      get: (target, property) => {
+        if (property === 'get' || property === 'getOrThrow')
+          return (key: string, ...args: unknown[]) => key in overrides ? overrides[key] : (target[property] as Function).call(target, key, ...args);
+        const value = Reflect.get(target, property);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const bound = new CashfreePaymentProvider(new CashfreeHttpClient(config), config);
+    bound.configurationVersionId = credentials.configurationVersionId;
+    bound.environment = credentials.environment === 'PRODUCTION' ? 'PRODUCTION' : 'SANDBOX';
+    return bound;
+  }
+  async settlementReport(settlementId: string) {
+    const rows: unknown[] = [], seen = new Set<string>();
+    let cursor: string | undefined;
+    for (let page = 0; page < 100; page++) {
+      const response = z.object({ data: z.array(z.unknown()).max(100), cursor: z.string().nullable().optional() }).parse(await this.http.request('POST', '/settlement/recon', { filters: { cf_settlement_ids: [settlementId] }, pagination: { limit: 100, ...(cursor ? { cursor } : {}) } }, crypto.randomUUID(), '2025-01-01'));
+      rows.push(...response.data);
+      if (!response.cursor) return normalizeCashfreeSettlement(settlementId, rows);
+      if (seen.has(response.cursor)) throw new BadRequestException('SETTLEMENT_CURSOR_REPEATED');
+      seen.add(response.cursor); cursor = response.cursor;
+    }
+    throw new BadRequestException('SETTLEMENT_PAGE_LIMIT');
+  }
+  assertMandateEligible(_clientId: string, _input: CreateMandateInput) {
+    const returnUrl = this.config.get('CASHFREE_SUBSCRIPTION_RETURN_URL');
+    if (!returnUrl) throw new ServiceUnavailableException('Cashfree subscription return URL is not configured.');
+    if (this.config.get('NODE_ENV') === 'production' && new URL(returnUrl).protocol !== 'https:') throw new ServiceUnavailableException('Cashfree return URL must use HTTPS.');
+  }
   assertChargeEligible(input: {
     amount: string;
     currency: string;
@@ -93,6 +145,7 @@ export class CashfreePaymentProvider implements PaymentProvider {
   async createCheckoutOrder(
     input: CheckoutOrderInput,
   ): Promise<CheckoutOrderResult> {
+    if (input.notifyUrl && this.config.get('NODE_ENV') === 'production' && new URL(input.notifyUrl).protocol !== 'https:') throw new ServiceUnavailableException('Cashfree callback URL must use HTTPS.');
     if (input.currency !== 'INR')
       throw new BadRequestException(
         'Cashfree checkout currently supports INR.',

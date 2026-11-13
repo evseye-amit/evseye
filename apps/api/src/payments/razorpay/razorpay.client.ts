@@ -171,6 +171,7 @@ export class RazorpayClient {
     body?: unknown,
     clientId?: string,
     configurationVersionId?: string | null,
+    extraHeaders?: Record<string, string>,
   ): Promise<unknown> {
     const credentials = await this.configurationFor(clientId, configurationVersionId);
     try {
@@ -180,6 +181,7 @@ export class RazorpayClient {
         headers: {
           Authorization: `Basic ${Buffer.from(`${credentials.keyId}:${credentials.keySecret}`).toString('base64')}`,
           'Content-Type': 'application/json',
+          ...extraHeaders,
         },
         ...(body ? { body: JSON.stringify(body) } : {}),
       });
@@ -252,16 +254,31 @@ export class RazorpayClient {
       }, clientId, configurationVersionId),
     );
   }
+  async settlement(id: string, clientId: string, version: string) {
+    if (!/^setl_[A-Za-z0-9]+$/.test(id)) throw new BadRequestException('Invalid settlement ID.');
+    return this.request(`settlements/${id}`, 'GET', undefined, clientId, version);
+  }
+  async settlementRecon(date: string, skip: number, clientId: string, version: string) {
+    const [year, month, day] = date.split('-');
+    return this.request(`settlements/recon/combined?year=${year}&month=${month}&day=${day}&count=100&skip=${skip}`, 'GET', undefined, clientId, version);
+  }
   async fetchRefund(id: string, clientId?: string, configurationVersionId?: string | null) {
     return decode(
       refundSchema,
       await this.request(`refunds/${encodeURIComponent(id)}`, 'GET', undefined, clientId, configurationVersionId),
     );
   }
-  async findRefunds(paymentId: string, clientId?: string, configurationVersionId?: string | null) {
+  async createPaymentRefund(paymentId: string, amount: number, receipt: string, clientId: string, configurationVersionId: string) {
+    if (!/^pay_[A-Za-z0-9]+$/.test(paymentId) || !Number.isSafeInteger(amount) || amount <= 0)
+      throw new BadRequestException('Invalid refund request.');
+    return decode(refundSchema, await this.request(`payments/${paymentId}/refund`, 'POST', {
+      amount, receipt, speed: 'normal',
+    }, clientId, configurationVersionId, { 'X-Refund-Idempotency': receipt }));
+  }
+  async findRefunds(paymentId: string, clientId?: string, configurationVersionId?: string | null, skip = 0) {
     return decode(
       z.object({ items: z.array(refundSchema) }),
-      await this.request(`payments/${paymentId}/refunds?count=100`, 'GET', undefined, clientId, configurationVersionId),
+      await this.request(`payments/${paymentId}/refunds?count=100${skip ? `&skip=${skip}` : ''}`, 'GET', undefined, clientId, configurationVersionId),
     ).items;
   }
 }

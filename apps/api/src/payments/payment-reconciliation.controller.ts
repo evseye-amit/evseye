@@ -1,3 +1,4 @@
+import { operationsPage } from './operations-pagination.js';
 import {
   Body,
   Controller,
@@ -30,11 +31,13 @@ export class PaymentReconciliationController {
   @Get() async report(
     @CurrentUser() user: AuthUser,
     @Query('riderId') riderId?: string,
+    @Query('page') page?: string,
   ) {
     return {
       data: await this.reconciliation.report(
         this.clients.requireClientId(user),
         riderId,
+        operationsPage(page),
       ),
     };
   }

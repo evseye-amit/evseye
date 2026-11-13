@@ -41,12 +41,15 @@ export class PaymentGatewayPolicyService {
     if (rows.length) {
       if (active.length !== 1) throw new ServiceUnavailableException({ code: 'PAYMENT_POLICY_UNAVAILABLE', message: 'Exactly one active merchant must be configured for this workspace and environment.' });
       provider = active[0].provider.toUpperCase();
-      // Cashfree currently uses shared credentials. Never route a tenant merchant to that shared account.
-      if (provider !== 'RAZORPAY') throw new ServiceUnavailableException({ code: 'PAYMENT_MERCHANT_UNSUPPORTED', message: 'This provider does not yet support client-specific merchant credentials.' });
+      if (!['RAZORPAY', 'CASHFREE'].includes(provider)) throw new ServiceUnavailableException({ code: 'PAYMENT_MERCHANT_UNSUPPORTED', message: 'This provider does not support client-specific merchant credentials.' });
     } else {
       const recurring = purpose === 'UPI_AUTOPAY' ? this.config.get<string>('AUTOPAY_PROVIDER') : undefined;
       provider = (recurring && recurring !== 'configured' ? recurring : this.config.get<string>('PAYMENT_PROVIDER') ?? 'disabled').toUpperCase();
       if (purpose === 'DEPLOYMENT') provider = 'DISABLED';
+      if (provider === 'CASHFREE' && this.config.get<string>('NODE_ENV') === 'production' && this.config.get<string>('CASHFREE_ENVIRONMENT') !== 'PRODUCTION')
+        throw new ServiceUnavailableException({ code: 'PAYMENT_MERCHANT_UNAVAILABLE', message: 'Legacy Cashfree processing requires production credentials in this environment.' });
+      if (provider === 'CASHFREE' && (!this.config.get<string>('CASHFREE_CLIENT_ID')?.trim() || !this.config.get<string>('CASHFREE_CLIENT_SECRET')?.trim()))
+        throw new ServiceUnavailableException({ code: 'PAYMENT_MERCHANT_UNAVAILABLE', message: 'Cashfree is not configured for this workspace.' });
     }
     if (requested && requested.toUpperCase() !== provider)
       throw new ConflictException({ code: 'PAYMENT_PROVIDER_POLICY_MISMATCH', message: 'The requested gateway differs from the workspace payment policy.' });

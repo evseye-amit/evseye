@@ -5,9 +5,13 @@ const merchant = { provider: 'RAZORPAY', status: 'ACTIVE', validFrom: new Date(0
 function fixture(rows: unknown[] = [merchant]) {
   const db = { clientPaymentProvider: { findMany: vi.fn().mockResolvedValue(rows) } };
   const settings: Record<string, string> = { PAYMENT_PROVIDER: 'cashfree', AUTOPAY_PROVIDER: 'cashfree', RAZORPAY_ENVIRONMENT: 'TEST' };
-  return { db, policy: new PaymentGatewayPolicyService(db as never, { get: (key: string) => settings[key] } as never) };
+  return { db, settings, policy: new PaymentGatewayPolicyService(db as never, { get: (key: string) => settings[key] } as never) };
 }
 describe('Client gateway policy', () => {
+  it('disables unconfigured shared Cashfree without blocking configured Razorpay merchants', async () => {
+    await expect(fixture([]).policy.resolve('client', 'INVOICE')).rejects.toMatchObject({ response: { code: 'PAYMENT_MERCHANT_UNAVAILABLE' } });
+    await expect(fixture().policy.resolve('client', 'INVOICE')).resolves.toBe('RAZORPAY');
+  });
   it('advertises only supported policy capabilities, not connectivity', async () => {
     const result = await fixture().policy.capabilities('client-a');
     expect(result).toMatchObject({ contractVersion: 1, availabilityBasis: 'POLICY', connectivityVerified: false });
@@ -16,7 +20,7 @@ describe('Client gateway policy', () => {
     expect(JSON.stringify(result)).not.toMatch(/secret|keyId|configurationVersionId/);
   });
   it('disables every purpose for an unsupported client merchant', async () => {
-    const result = await fixture([{ ...merchant, provider: 'CASHFREE' }]).policy.capabilities('client-a');
+    const result = await fixture([{ ...merchant, provider: 'UNSUPPORTED' }]).policy.capabilities('client-a');
     expect(Object.values(result.purposes).every(purpose => !purpose.enabled)).toBe(true);
   });
   it('does not disguise database failures as unsupported payment purposes', async () => {
@@ -43,9 +47,11 @@ describe('Client gateway policy', () => {
     await expect(fixture(rows).policy.resolve('client-a', 'INVOICE')).rejects.toMatchObject({ response: { code: 'PAYMENT_POLICY_UNAVAILABLE' } });
   });
   it('retains explicit legacy shared-account checkout when there is no client configuration', async () => {
-    await expect(fixture([]).policy.resolve('legacy', 'TOP_UP')).resolves.toBe('CASHFREE');
+    const { policy, settings } = fixture([]);
+    settings.CASHFREE_CLIENT_ID = 'legacy-id'; settings.CASHFREE_CLIENT_SECRET = 'legacy-secret';
+    await expect(policy.resolve('legacy', 'TOP_UP')).resolves.toBe('CASHFREE');
   });
-  it('does not use shared Cashfree credentials for a client-specific Cashfree merchant', async () => {
-    await expect(fixture([{ ...merchant, provider: 'CASHFREE' }]).policy.resolve('client-a', 'INVOICE')).rejects.toMatchObject({ response: { code: 'PAYMENT_MERCHANT_UNSUPPORTED' } });
+  it('selects Cashfree for a configured client merchant', async () => {
+    await expect(fixture([{ ...merchant, provider: 'CASHFREE' }]).policy.resolve('client-a', 'INVOICE')).resolves.toBe('CASHFREE');
   });
 });

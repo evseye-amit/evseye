@@ -1,8 +1,8 @@
 import { Client } from 'pg';
 import { pathToFileURL } from 'node:url';
 
-const requiredTables = ['PaymentProviderConfigurationVersion', 'ClientPaymentProvider', 'DeploymentPaymentAttempt', 'RazorpayPenaltyOrder', 'PaymentMandate', 'PaymentTransaction', 'PaymentProviderEvent', 'PaymentCollectionRequest'];
-const migration = '20261113180000_payment_configuration_versions';
+const requiredTables = ['PaymentProviderConfigurationVersion', 'ClientPaymentProvider', 'DeploymentPaymentAttempt', 'RazorpayPenaltyOrder', 'PaymentMandate', 'PaymentTransaction', 'PaymentProviderEvent', 'PaymentCollectionRequest', 'PaymentAutomationJob', 'PaymentOperationalAlert'];
+const migrations = ['20261113180000_payment_configuration_versions', '20261114020000_payment_automation_jobs', '20261114030000_cashfree_merchant_binding', '20261114040000_payment_operations_evidence'];
 
 /** Read-only inventory. Never resolve/seal secrets or repair uncertain historical ownership. */
 export async function inspectPaymentReadiness(db: Pick<Client, 'query'>, environment: 'TEST' | 'PRODUCTION') {
@@ -19,12 +19,12 @@ export async function inspectPaymentReadiness(db: Pick<Client, 'query'>, environ
     const history = await db.query("SELECT to_regclass('public._prisma_migrations') IS NOT NULL AS present");
     let migrationRecorded = false;
     if (history.rows[0].present) {
-      const result = await db.query('SELECT COUNT(*)::int AS count FROM public._prisma_migrations WHERE migration_name = $1 AND finished_at IS NOT NULL AND rolled_back_at IS NULL', [migration]);
-      migrationRecorded = result.rows[0].count > 0;
+      const result = await db.query('SELECT COUNT(DISTINCT migration_name)::int AS count FROM public._prisma_migrations WHERE migration_name = ANY($1::text[]) AND finished_at IS NOT NULL AND rolled_back_at IS NULL', [migrations]);
+      migrationRecorded = result.rows[0].count === migrations.length;
     }
     const queries: Record<string, { sql: string; values?: string[] }> = {
       ambiguousActivePolicies: { sql: `SELECT COUNT(*)::int AS count FROM (SELECT "clientId" FROM "ClientPaymentProvider" WHERE environment=$1 AND status='ACTIVE' AND "validFrom" <= NOW() AND ("validUntil" IS NULL OR "validUntil" >= NOW()) GROUP BY "clientId" HAVING COUNT(*) > 1) policies`, values: [environment] },
-      unsupportedClientMerchants: { sql: `SELECT COUNT(*)::int AS count FROM "ClientPaymentProvider" WHERE environment=$1 AND status='ACTIVE' AND provider <> 'RAZORPAY'`, values: [environment] },
+      unsupportedClientMerchants: { sql: `SELECT COUNT(*)::int AS count FROM "ClientPaymentProvider" WHERE environment=$1 AND status='ACTIVE' AND provider NOT IN ('RAZORPAY','CASHFREE')`, values: [environment] },
       missingCurrentSnapshots: { sql: `SELECT COUNT(*)::int AS count FROM "ClientPaymentProvider" p LEFT JOIN "PaymentProviderConfigurationVersion" v ON v."providerConfigurationId"=p.id AND v.version=p."currentVersion" WHERE p.environment=$1 AND (v.id IS NULL OR v."keyId" IS DISTINCT FROM p."keyId" OR v."secretReference" IS DISTINCT FROM p."secretReference" OR v."merchantAccountId" IS DISTINCT FROM p."merchantAccountId")`, values: [environment] },
       unsealedSnapshots: { sql: `SELECT COUNT(*)::int AS count FROM "PaymentProviderConfigurationVersion" WHERE environment=$1 AND "credentialFingerprint" IS NULL`, values: [environment] },
       unboundDeploymentAttempts: { sql: `SELECT COUNT(*)::int AS count FROM "DeploymentPaymentAttempt" WHERE provider='RAZORPAY' AND "configurationVersionId" IS NULL AND status IN ('CREATING','CREATE_UNKNOWN','OPEN','PENDING','AUTHORIZED')` },

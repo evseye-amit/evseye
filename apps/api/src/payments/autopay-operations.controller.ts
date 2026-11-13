@@ -1,4 +1,5 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+import { operationsPage, pageResult } from './operations-pagination.js';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { ClientContextService } from '../auth/client-context.service.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
@@ -30,11 +31,13 @@ export class AutoPayOperationsController {
   }
 
   @Get('mandates')
-  async mandates(@CurrentUser() user: AuthUser) {
+  async mandates(@CurrentUser() user: AuthUser, @Query('page') page?: string) {
     const clientId = this.clients.requireClientId(user);
-    const items = await this.prisma.paymentMandate.findMany({ where: { clientId }, orderBy: { createdAt: 'desc' }, take: 100 });
-    return { data: items.map(item => ({ id: item.id, mandateNumber: item.mandateNumber, riderId: item.riderId,
-      provider: item.provider, method: item.method, status: item.status, autoDebitEnabled: item.autoDebitEnabled, expiresAt: item.expiresAt })) };
+    const number = operationsPage(page);
+    const items = await this.prisma.paymentMandate.findMany({ where: { clientId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: (number - 1) * 100, take: page === undefined ? 100 : 101 });
+    const mapped = items.map(item => ({ id: item.id, mandateNumber: item.mandateNumber, riderId: item.riderId,
+      provider: item.provider, method: item.method, status: item.status, autoDebitEnabled: item.autoDebitEnabled, expiresAt: item.expiresAt }));
+    return { data: page === undefined ? mapped : pageResult(mapped, number, 100) };
   }
 
   @Get('debits')

@@ -176,3 +176,15 @@ describe('Client-specific outbound credentials', () => {
     expect(request).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ headers: expect.objectContaining({ Authorization: `Basic ${Buffer.from(`key-${clientId}:secret-${clientId}`).toString('base64')}` }) }));
   });
 });
+
+describe('normal refund request idempotency', () => {
+  it('sends the stable receipt as X-Refund-Idempotency using saved credentials', async () => {
+    const client = fixture();
+    vi.spyOn(client, 'configurationFor').mockResolvedValue({ keyId: 'rzp_test_saved', keySecret: 'saved-secret', webhookSecret: 'saved-hook', environment: 'TEST', configurationVersionId: 'v1' });
+    const remote = { id: 'rfnd_test', payment_id: 'pay_test', amount: 500, status: 'pending', receipt: 'refund-key-123' };
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => remote }); vi.stubGlobal('fetch', fetcher);
+    await client.createPaymentRefund('pay_test', 500, 'refund-key-123', 'client', 'v1');
+    expect(fetcher).toHaveBeenCalledWith('https://api.razorpay.com/v1/payments/pay_test/refund', expect.objectContaining({ headers: expect.objectContaining({ 'X-Refund-Idempotency': 'refund-key-123' }), body: JSON.stringify({ amount: 500, receipt: 'refund-key-123', speed: 'normal' }) }));
+    expect(client.configurationFor).toHaveBeenCalledWith('client', 'v1');
+  });
+});

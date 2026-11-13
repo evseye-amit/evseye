@@ -177,9 +177,9 @@ const environmentSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .default('2025-01-01'),
-  CASHFREE_SUBSCRIPTION_RETURN_URL: z.string().url().optional(),
-  CASHFREE_WEBHOOK_URL: z.string().url().optional(),
-  CASHFREE_PG_WEBHOOK_URL: z.string().url().optional(),
+  CASHFREE_SUBSCRIPTION_RETURN_URL: z.preprocess(value => value === '' ? undefined : value, z.string().url().optional()),
+  CASHFREE_WEBHOOK_URL: z.preprocess(value => value === '' ? undefined : value, z.string().url().optional()),
+  CASHFREE_PG_WEBHOOK_URL: z.preprocess(value => value === '' ? undefined : value, z.string().url().optional()),
   CASHFREE_PG_WEBHOOK_SECRET: z.string().optional(),
 });
 
@@ -323,33 +323,13 @@ export function validateEnvironment(
       throw new Error('CLIENT_LOGIN_URL must use HTTPS in production.');
     }
   }
-  if (result.data.PAYMENT_PROVIDER === 'cashfree' || result.data.AUTOPAY_PROVIDER === 'cashfree') {
-    const required = [
-      'CASHFREE_CLIENT_ID',
-      'CASHFREE_CLIENT_SECRET',
-      'CASHFREE_WEBHOOK_SECRET',
-      'CASHFREE_SUBSCRIPTION_RETURN_URL',
-      'CASHFREE_WEBHOOK_URL',
-      'CASHFREE_PG_WEBHOOK_URL',
-    ] as const;
-    const missing = required.filter((key) => !result.data[key]?.trim());
-    if (missing.length)
-      throw new Error(
-        `Cashfree configuration is missing: ${missing.join(', ')}.`,
-      );
-    if (result.data.NODE_ENV === 'production') {
-      if (result.data.CASHFREE_ENVIRONMENT !== 'PRODUCTION')
-        throw new Error(
-          'Cashfree production deployment requires CASHFREE_ENVIRONMENT=PRODUCTION.',
-        );
-      for (const key of [
-        'CASHFREE_SUBSCRIPTION_RETURN_URL',
-        'CASHFREE_WEBHOOK_URL',
-        'CASHFREE_PG_WEBHOOK_URL',
-      ] as const) {
-        if (new URL(result.data[key]!).protocol !== 'https:')
-          throw new Error(`${key} must use HTTPS in production.`);
-      }
+  // Cashfree merchants are optional and may be configured per client after deployment.
+  // Missing shared credentials must not stop unrelated gateways from starting.
+  if (result.data.NODE_ENV === 'production' && result.data.CASHFREE_CLIENT_ID && result.data.CASHFREE_CLIENT_SECRET &&
+      (result.data.PAYMENT_PROVIDER === 'cashfree' || result.data.AUTOPAY_PROVIDER === 'cashfree')) {
+    for (const key of ['CASHFREE_SUBSCRIPTION_RETURN_URL', 'CASHFREE_WEBHOOK_URL', 'CASHFREE_PG_WEBHOOK_URL'] as const) {
+      const value = result.data[key];
+      if (value && new URL(value).protocol !== 'https:') throw new Error(`${key} must use HTTPS in production.`);
     }
   }
   if (

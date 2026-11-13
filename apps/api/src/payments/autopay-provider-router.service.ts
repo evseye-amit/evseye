@@ -30,6 +30,12 @@ export class AutoPayProviderRouter {
   verifyCashfreeWebhook(raw: Buffer, timestamp: string, signature: string) {
     return this.cashfree.verifyWebhook(raw, timestamp, signature);
   }
+  async forClient(name: string, clientId: string, versionId?: string | null): Promise<AutoPayProvider> {
+    return name === 'CASHFREE' ? this.cashfree.forClient(clientId, versionId) : this.forProvider(name);
+  }
+  async verifyCashfreeForClient(clientId: string, versionId: string | null, raw: Buffer, timestamp: string, signature: string) {
+    return (await this.cashfree.forClient(clientId, versionId)).verifyWebhook(raw, timestamp, signature);
+  }
   selected(method = 'UPI_AUTOPAY') {
     const requested =
       method === 'ENACH'

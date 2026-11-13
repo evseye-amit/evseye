@@ -1,3 +1,5 @@
+import { Optional } from '@nestjs/common';
+import { PaymentAutomationService } from './payment-automation.service.js';
 import { PENALTY_INVOICE } from '../submission-penalties/penalty-accounting.js';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -59,6 +61,7 @@ export class AutoCollectionService {
     private readonly checkout: CheckoutCollectionService,
     private readonly refunds: PaymentRefundService,
     private readonly walletBilling: WalletBillingService,
+    @Optional() private readonly automation?: PaymentAutomationService,
   ) {}
   async setPolicy(
     clientId: string,
@@ -446,6 +449,14 @@ export class AutoCollectionService {
   }
   @Cron(CronExpression.EVERY_HOUR)
   async run() {
+    // Missing lease infrastructure must fail closed for scheduled money work.
+    if (!this.automation) return;
+    await this.automation.run('worker:auto-collection', async () => {
+      await this.runScheduledBatch();
+      return true;
+    }, 30);
+  }
+  private async runScheduledBatch() {
     await this.expireMandates();
     await this.reconcileDunning();
     await this.processDue();

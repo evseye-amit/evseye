@@ -1,6 +1,45 @@
 # Payment integration implementation tracker
 
-## Current checkpoint — 2026-11-13 (supersedes historical status below)
+## Phase 7 and operations follow-up — 2026-11-14
+
+Implemented locally: optional client-specific Cashfree configuration and saved credential binding across checkout, mandates, debits, refunds and webhooks; direct Razorpay/Cashfree settlement ingestion for balanced supported reports; audited bank-evidence confirmation; verified Razorpay external-refund adoption; durable in-app client-admin alerts with assignment and acknowledgement. Existing Razorpay deployments do not require any Cashfree configuration. See [scope, API contracts and acceptance](phase-7-cashfree-and-operations.md).
+
+Validation: 338 payment/deployment tests passed across 41 files with database suites enabled, plus 15 environment tests and 24 web tests; API/web TypeScript, Prisma validation and targeted lint passed.
+
+This supersedes the older open-work notes below. Bank confirmation is an operator attestation, alert routing is in-app, and external-refund adoption currently covers Razorpay invoice/penalty/AutoPay sources. Unsupported settlement event types require review. Staging rollout and live merchant/mobile acceptance are still release gates.
+
+## Worker coordination follow-up — 2026-11-14
+
+The hourly collection job and minute-based Razorpay AutoPay/deployment recovery jobs now claim shared PostgreSQL leases before running. A shared module supplies the lease service without introducing an allocations/payments module cycle. Workers fail closed if lease infrastructure is absent; the automation migration must be applied before deployment. Successful scheduled batches use a 30-second cooldown so completion time does not suppress the next hourly or minute tick; failed batches retain exponential backoff. Existing provider idempotency and accounting protections remain necessary because crash recovery is at-least-once.
+
+Validation for this follow-up: 316 payment/deployment tests passed across 38 files with all database suites enabled; API TypeScript and whitespace checks passed. The disposable database was stopped after validation. No staging deployment was performed.
+
+Phase 7 (client-specific Cashfree rollout) is not implemented: new and historical checkout, mandate, debit, refund and webhook paths still need immutable merchant binding before policy routing can be enabled. Phase 6 also retains the open ingestion, bank evidence, external-refund adoption and alert-routing items below. Flutter source remains unchanged.
+
+## Phase 6 automation implementation — 2026-11-14
+
+Implemented locally: version-bound Razorpay invoice/penalty/AutoPay refund submission and recovery; signed refund inbox handling; idempotent rider/wallet reversals; tenant-scoped manual and scheduled settlement rematching; database leases/backoff for the new refund/settlement recovery workers; aged-refund log events. A new additive migration creates recovery jobs and repairs the missing refund-number sequence. Collection detail exposes refund totals/status without Flutter source changes. See [Phase 6 operations and boundaries](web-payment-operations.md#phase-6-refund-and-settlement-recovery--2026-11-14).
+
+This does not claim complete production acceptance or direct gateway statement ingestion. Normalized report imports remain the settlement input; bank confirmation, external-refund adoption and alert subscription setup remain open. Flutter owns final mobile acceptance. Changes are not committed/deployed by this implementation turn.
+
+
+## Phase 5 implementation — 2026-11-14
+
+Implemented the remaining Razorpay web configuration workflow: merchant account preservation/editing, retained-version history, change review, explicit reload and protection against stale admin edits. Added combined gateway/state/reference filters to payment operations. Existing reconciliation, supported refunds, mandate lists and normalized settlement import remain integrated. See [web operations scope](web-payment-operations.md). These additions are local and not yet deployed. Phase 5 history pagination, full-history CSV export and rider labels are now implemented locally. Additional gateway adapters, advanced refund/settlement workflows and worker coordination remain Phase 6/later scope. Operational history is live, not a point-in-time audit snapshot; see the documented export limitations. Mobile acceptance stays with the Flutter team and remains a release gate.
+
+## Staging verification — 2026-11-14
+
+Ownership update: final two-merchant payment execution and Android/iOS acceptance belong to the Flutter team on mobile. The detailed checkout, duplicate delivery, lost-callback reconciliation and tenant-isolation scenarios are in [Flutter acceptance criteria](flutter-team-handoff.md#two-merchant-sandbox-acceptance-android-and-ios). Backend support retains responsibility for fixture preparation, webhook configuration, historical credential recovery and financial-posting evidence. These tests remain pending, not implicitly passed by handoff. The next development scope is the remaining Phase 5 web configuration and operations work; mobile acceptance remains a release gate.
+
+Authenticated follow-up: the user completed staging RIDER_APP OTP login separately for the selected Pinkrides and Yogmaya riders. Both authenticated calls to `/api/v1/rider-app/payments/orders/capabilities` returned contractVersion 1, availabilityBasis POLICY and connectivityVerified false. Both enable Razorpay DEPLOYMENT, SUBMISSION_PENALTY, INVOICE and UPI_AUTOPAY for Android/iOS; OUTSTANDING, SECURITY_DEPOSIT, TOP_UP and ENACH explicitly return PAYMENT_CAPABILITY_UNAVAILABLE. This verifies two authenticated capability responses, not cross-tenant resource isolation or completed payment flows. The temporary loopback test page supports login and capabilities only; checkout, webhook delivery and callbackless recovery have not been exercised through it.
+
+Supersedes the missing-migration/deployment findings from November 13. Staging API revision `evseye-staging-api:201`, image commit `42558bc7510a61ddf1b00758f96261b4ecd73bed`, has completed rollout (1 desired / 1 running). Read-only inspection confirmed the configuration-version table and successful migration record for `20261113180000_payment_configuration_versions`. The deployed common service includes capabilities and callbackless reconciliation. Public `GET /api/v1/rider-app/payments/orders/capabilities` and `POST /api/v1/rider-app/payments/orders/probe-missing/reconcile` both returned 401 with `Missing access token.`; authenticated response behavior is not certified by this check.
+
+Yogmaya and Pinkrides both resolve distinct ACTIVE Razorpay TEST keys and returned HTTP 200 from read-only gateway order queries. Production credentials were not exercised. Inspected counts: 0 unsealed TEST configuration snapshots, 0 unbound pending Razorpay collection orders, and 0 unbound active/pending Razorpay mandates. This was a partial read-only inventory, not the full readiness command or an end-to-end payment test. The probe's initial HTTP paths omitted `/orders` and returned 404; the corrected public routes above were checked separately.
+
+Remaining: test invoice/allocation details; Flutter-owned two-merchant checkout, callback/webhook/recovery and isolation tests; backend-supported historical credential recovery; Flutter-team review and Android/iOS acceptance. Both selected riders have completed staging authentication. No payment mutations or Flutter edits were made during this verification.
+
+## Historical checkpoint — 2026-11-13 (superseded by staging verification above)
 
 Phase 1–4 closure takes priority; further Phase 5 implementation is on hold. Existing later-phase changes remain in the working tree and must not be bundled accidentally into a Phase 1–4 staging release.
 
@@ -74,8 +113,8 @@ Scope: EvsEye backend, Prisma, web, tests and documentation. Flutter changes bel
 | 2 | Immutable configuration versions; attempts/mandates reference origin | Rotation, legacy backfill and rollback integration tests | Implemented locally; PostgreSQL checks passed |
 | 3 | Client policy resolver and capability-based adapters | All purposes obey client policy | Implemented for existing capabilities; unsupported purposes fail explicitly |
 | 4 | Final mobile contract and executable contract tests | Flutter review; compatibility tests | Implemented locally; team/device/deployment acceptance pending |
-| 5 | Web configuration and operations UI | Admin workflow tests | Initial operations panel implemented; broader configuration workflows pending |
-| 6 | Refunds, settlement matching, worker coordination | Concurrent recovery/refund integration tests | Saved-provider refunds and provider-aware matching implemented; general Razorpay refunds/distributed workers pending |
+| 5 | Web configuration and operations UI | Admin workflow tests | Implemented locally, including version review, stale-edit protection, history pagination and CSV export; staging admin acceptance pending |
+| 6 | Refunds, settlement matching, worker coordination | Concurrent recovery/refund integration tests | Razorpay refunds and settlement rematching implemented locally; new recovery workers have leases/backoff. Direct ingestion, external-refund adoption, existing charging-worker coordination and release acceptance remain open |
 | 7 | Client-specific Cashfree rollout | Sandbox flows and gateway-switch validation | Pending |
 
 Each stage is a separate review checkpoint. Use additive schema migrations first. Preserve current mobile endpoints during transition. A gateway switch affects new payments; existing attempts retain their original merchant configuration. Never automatically fail over an uncertain charge to another gateway.

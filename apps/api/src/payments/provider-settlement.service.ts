@@ -1,3 +1,7 @@
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { Optional } from '@nestjs/common';
+import { PaymentAutomationService } from './payment-automation.service.js';
+import { pageResult } from './operations-pagination.js';
 import { createHash } from 'node:crypto';
 import {
   BadRequestException,
@@ -38,12 +42,13 @@ const decimal = (value: string, positive = false) => {
 
 @Injectable()
 export class ProviderSettlementService {
-  constructor(private readonly db: PrismaService) {}
+  constructor(private readonly db: PrismaService, @Optional() private readonly automation?: PaymentAutomationService) {}
 
   async importReport(
     clientId: string,
     actorId: string,
     input: SettlementImport,
+    provenance?: { configurationVersionId: string },
   ) {
     if (
       !input ||
@@ -139,6 +144,13 @@ export class ProviderSettlementService {
             if (existing) {
               if (existing.importHash !== importHash)
                 throw new ConflictException('SETTLEMENT_IMPORT_CONFLICT');
+              if (provenance && existing.configurationVersionId && existing.configurationVersionId !== provenance.configurationVersionId)
+                throw new ConflictException('SETTLEMENT_MERCHANT_VERSION_CONFLICT');
+              if (provenance && existing.source !== 'GATEWAY_API') {
+                await tx.providerSettlement.update({ where: { id: existing.id }, data: { source: 'GATEWAY_API', configurationVersionId: provenance.configurationVersionId } });
+                await tx.auditLog.create({ data: { clientId, actorId, action: 'SETTLEMENT_GATEWAY_VERIFIED', entityType: 'ProviderSettlement', entityId: existing.id, newData: { configurationVersionId: provenance.configurationVersionId } } });
+                return { ...existing, source: 'GATEWAY_API', configurationVersionId: provenance.configurationVersionId };
+              }
               return existing;
             }
             const resolved = [];
@@ -158,6 +170,8 @@ export class ProviderSettlementService {
             const settlement = await tx.providerSettlement.create({
               data: {
                 clientId,
+                source: provenance ? 'GATEWAY_API' : 'MANUAL',
+                configurationVersionId: provenance?.configurationVersionId,
                 provider,
                 providerSettlementId: input.providerSettlementId,
                 currency: input.currency,
@@ -230,7 +244,7 @@ export class ProviderSettlementService {
   ): Promise<{ localReferenceId?: string; status: string }> {
     const candidates: { id: string; amount: Prisma.Decimal; currency: string; successful: boolean }[] = [];
     if (item.kind === 'REFUND') {
-      const refunds = await tx.paymentRefund.findMany({ where: { clientId, provider, providerRefundId: item.providerReference } });
+      const refunds = await tx.paymentRefund.findMany({ where: { clientId, provider, OR: [{ providerRefundId: item.providerReference }, ...(provider === 'RAZORPAY' ? [{ providerReference: item.providerReference }] : [])] } });
       candidates.push(...refunds.map(row => ({ ...row, successful: row.status === 'SUCCESS' })));
     } else {
       const checkouts = await tx.paymentCollectionRequest.findMany({
@@ -264,8 +278,73 @@ export class ProviderSettlementService {
       : !local.successful ? 'STATUS_MISMATCH' : !local.amount.eq(item.amount) ? 'AMOUNT_MISMATCH' : 'MATCHED' };
   }
 
-  list(clientId: string) {
-    return this.db.providerSettlement.findMany({
+  async rematch(clientId: string, id: string, actorId: string | null) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.db.$transaction(async tx => {
+          await tx.$queryRaw`SELECT id FROM "ProviderSettlement" WHERE id=${id} AND "clientId"=${clientId} FOR UPDATE`;
+          const report = await tx.providerSettlement.findFirst({ where: { id, clientId }, include: { items: true } });
+          if (!report) throw new NotFoundException('SETTLEMENT_NOT_FOUND');
+          const seen = new Set<string>(); let allMatched = true;
+          const changes: Array<{ id: string; from: string; to: string }> = [];
+          for (const item of [...report.items].sort((a, b) => a.id.localeCompare(b.id))) {
+            const match = await this.matchItem(tx, clientId, report.provider, report.currency, item);
+            if (match.localReferenceId) {
+              const key = `${item.kind}:${match.localReferenceId}`;
+              if (seen.has(key)) match.status = 'DUPLICATE_PROVIDER_RECORD';
+              seen.add(key);
+            }
+            allMatched &&= match.status === 'MATCHED';
+            if (item.status !== match.status || item.localReferenceId !== (match.localReferenceId ?? null)) {
+              changes.push({ id: item.id, from: item.status, to: match.status });
+              await tx.providerSettlementItem.update({ where: { id: item.id }, data: {
+                localReferenceId: match.localReferenceId ?? null, status: match.status,
+                reviewCode: match.status === 'MATCHED' ? null : match.status,
+              } });
+            }
+          }
+          const status = allMatched ? 'REPORT_MATCHED' : 'REQUIRES_REVIEW';
+          await tx.providerSettlement.update({ where: { id }, data: { status } });
+          if (changes.length || report.status !== status) await tx.auditLog.create({ data: {
+            clientId, actorId, action: 'PROVIDER_SETTLEMENT_REMATCHED', entityType: 'ProviderSettlement', entityId: id,
+            newData: { previousStatus: report.status, status, changes },
+          } });
+          return tx.providerSettlement.findFirstOrThrow({ where: { id, clientId }, include: { items: true } });
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 20000 });
+      } catch (error) { if (retryablePaymentTransaction(error) && attempt < 3) continue; throw error; }
+    }
+  }
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  async rematchPending() {
+    if (!this.automation) return;
+    const reports = await this.db.$queryRaw<Array<{ id: string; clientId: string }>>`
+      SELECT s.id, s."clientId" FROM "ProviderSettlement" s LEFT JOIN "PaymentAutomationJob" j ON j.key='settlement:'||s.id
+      WHERE s.status='REQUIRES_REVIEW' AND (j."nextAttemptAt" IS NULL OR j."nextAttemptAt"<=NOW())
+        AND (j."leaseUntil" IS NULL OR j."leaseUntil"<NOW()) ORDER BY s."createdAt" ASC LIMIT 25`;
+    for (const report of reports) await this.automation.run(`settlement:${report.id}`, async () =>
+      (await this.rematch(report.clientId, report.id, null)).status === 'REPORT_MATCHED');
+  }
+  async confirmBank(clientId: string, id: string, actorId: string, input: { amount: string; currency: string; utr: string; creditedAt: string; accountLast4: string; evidenceReference: string }) {
+    if (!input || typeof input.utr !== 'string' || !/^[A-Za-z0-9_-]{6,160}$/.test(input.utr) ||
+        !/^\d{4}$/.test(input.accountLast4 ?? '') || typeof input.evidenceReference !== 'string' || input.evidenceReference.trim().length < 8 || input.evidenceReference.length > 300 ||
+        !Number.isFinite(Date.parse(input.creditedAt)) || Date.parse(input.creditedAt) > Date.now()) throw new BadRequestException('INVALID_BANK_EVIDENCE');
+    const amount = decimal(input.amount, true);
+    return this.db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM "ProviderSettlement" WHERE id=${id} AND "clientId"=${clientId} FOR UPDATE`;
+      const report = await tx.providerSettlement.findFirst({ where: { id, clientId } });
+      if (!report) throw new NotFoundException('SETTLEMENT_NOT_FOUND');
+      if (!amount.eq(report.netAmount) || input.currency !== report.currency || (report.utr && report.utr !== input.utr)) throw new ConflictException('BANK_RECEIPT_MISMATCH');
+      if (report.bankConfirmedAt) {
+        if (report.bankUtr !== input.utr || report.bankAccountLast4 !== input.accountLast4 || report.bankEvidenceReference !== input.evidenceReference.trim() || report.bankCreditedAt?.toISOString() !== new Date(input.creditedAt).toISOString()) throw new ConflictException('BANK_CONFIRMATION_IMMUTABLE');
+        return report;
+      }
+      const updated = await tx.providerSettlement.update({ where: { id }, data: { bankConfirmedAt: new Date(), bankConfirmedById: actorId, bankCreditedAt: new Date(input.creditedAt), bankUtr: input.utr, bankAccountLast4: input.accountLast4, bankEvidenceReference: input.evidenceReference.trim() } });
+      await tx.auditLog.create({ data: { clientId, actorId, action: 'SETTLEMENT_BANK_CONFIRMED', entityType: 'ProviderSettlement', entityId: id, newData: { amount: amount.toFixed(2), currency: input.currency, utr: input.utr, accountLast4: input.accountLast4, evidenceReference: input.evidenceReference.trim() } } });
+      return updated;
+    });
+  }
+  async list(clientId: string, page?: number) {
+    const rows = await this.db.providerSettlement.findMany({
       where: { clientId },
       select: {
         id: true,
@@ -278,13 +357,17 @@ export class ProviderSettlementService {
         netAmount: true,
         currency: true,
         utr: true,
+        bankConfirmedAt: true,
+        source: true,
+        configurationVersionId: true,
         settledAt: true,
         status: true,
         createdAt: true,
       },
-      orderBy: { settledAt: 'desc' },
-      take: 200,
+      orderBy: [{ settledAt: 'desc' }, { id: 'desc' }],
+      skip: ((page ?? 1) - 1) * 200, take: page === undefined ? 200 : 201,
     });
+    return page === undefined ? rows : pageResult(rows, page, 200);
   }
   async detail(clientId: string, id: string) {
     const row = await this.db.providerSettlement.findFirst({

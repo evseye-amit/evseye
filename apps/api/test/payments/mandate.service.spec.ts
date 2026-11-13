@@ -24,6 +24,7 @@ const subscription = {
   },
 };
 const mandate = {
+  provider: 'CASHFREE',
   id: 'mandate-1',
   clientId,
   riderId: rider.id,
@@ -335,10 +336,19 @@ describe('UPI AutoPay mandate service', () => {
 });
 
 describe('provider-specific AutoPay preflight', () => {
+  it('saves Cashfree merchant and environment before sending mandate authorization', async () => {
+    const f = fixture('cashfree');
+    const provider = { ...f.provider, configurationVersionId: 'saved-cashfree-version', environment: 'PRODUCTION' };
+    const router = { selectedFor: async () => 'CASHFREE', forClient: async () => provider };
+    const service = new MandateService(f.prisma as never, { getOrThrow: () => 'cashfree' } as never, f.provider as never, f.collections as never, router as never);
+    await service.create(clientId, userId, 'cashfree-version-key');
+    expect(f.prisma.paymentMandate.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ provider: 'CASHFREE', configurationVersionId: 'saved-cashfree-version', providerEnvironment: 'PRODUCTION' }) }));
+    expect(f.prisma.paymentMandate.create.mock.invocationCallOrder[0]).toBeLessThan(f.provider.createMandate.mock.invocationCallOrder[0]);
+  });
   it('rejects invalid Razorpay registration before persisting a blocking mandate', async () => {
     const f = fixture();
     const adapter = { assertMandateEligible: vi.fn(() => { throw new Error('Rider email required'); }) };
-    const router = { selectedFor: async () => 'RAZORPAY', forProvider: () => adapter };
+    const router = { selectedFor: async () => 'RAZORPAY', forClient: async () => adapter };
     const service = new MandateService(f.prisma as never, { getOrThrow: () => 'mock' } as never, f.provider as never, f.collections as never, router as never);
     await expect(service.create(clientId, userId, 'preflight-key-1')).rejects.toThrow('email required');
     expect(f.prisma.paymentMandate.create).not.toHaveBeenCalled();

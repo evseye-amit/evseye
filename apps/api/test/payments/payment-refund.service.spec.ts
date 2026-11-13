@@ -51,6 +51,7 @@ function fixture(providerResult: {
     ),
   };
   const provider = {
+    async forClient() { return this; },
     fetchCheckoutRefund: vi.fn().mockResolvedValue(providerResult),
   };
   const payments = {
@@ -129,9 +130,10 @@ describe('refund webhook dispatch', () => {
       data: { refund: { refund_id: refund.providerRefundId } },
     }),
   );
-  it('rejects an unsigned callback before querying any refund', async () => {
+  it('rejects an unsigned callback after a read-only routing lookup', async () => {
     const prisma = { paymentRefund: { findUnique: vi.fn() } };
     const provider = {
+    async forClient() { return this; },
       verifyCheckoutWebhook: vi.fn().mockImplementation(() => {
         throw new Error('Invalid signature');
       }),
@@ -144,7 +146,7 @@ describe('refund webhook dispatch', () => {
     await expect(service.webhook(body, 'timestamp', 'bad')).rejects.toThrow(
       'Invalid signature',
     );
-    expect(prisma.paymentRefund.findUnique).not.toHaveBeenCalled();
+    expect(prisma.paymentRefund.findUnique).toHaveBeenCalledOnce();
   });
   it('does not finalize a duplicate processed callback', async () => {
     const prisma = {
@@ -160,6 +162,7 @@ describe('refund webhook dispatch', () => {
       },
     };
     const provider = {
+    async forClient() { return this; },
       verifyCheckoutWebhook: vi
         .fn()
         .mockReturnValue({ payload: JSON.parse(body.toString()) }),

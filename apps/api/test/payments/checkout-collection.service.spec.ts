@@ -68,6 +68,7 @@ function fixture(result = success, depositInvoice = false) {
     ),
   };
   const provider = {
+    async forClient() { return this; },
     fetchCheckoutPayments: vi.fn().mockResolvedValue([result]),
     fetchCheckoutOrder: vi.fn().mockResolvedValue({ orderId: request.providerOrderId, status: 'ACTIVE' }),
     verifyCheckoutWebhook: vi
@@ -190,7 +191,7 @@ describe('checkout collection settlement', () => {
   it('ignores an already processed duplicate webhook without another financial effect', async () => {
     const { service, provider, payments, prisma } = fixture();
     expect(
-      await service.webhook(Buffer.from('{}'), 'timestamp', 'signature'),
+      await service.webhook(Buffer.from(JSON.stringify({ data: { order: { order_id: request.providerOrderId } } })), 'timestamp', 'signature'),
     ).toEqual({ accepted: true, duplicate: true });
     expect(provider.verifyCheckoutWebhook).toHaveBeenCalledOnce();
     expect(prisma.paymentProviderEvent.upsert).toHaveBeenCalledOnce();

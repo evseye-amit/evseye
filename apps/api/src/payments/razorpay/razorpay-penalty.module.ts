@@ -23,6 +23,7 @@ import { RazorpayConfigurationService } from './razorpay-configuration.service.j
     RazorpayConfigurationService,
   ],
   exports: [
+    RazorpayClient,
     RazorpayPenaltyService,
     RazorpayEventRouter,
     RazorpayInvoiceService,

@@ -14,5 +14,7 @@ export type AutoPayProvider = Pick<
   | 'createPayment'
   | 'fetchPayment'
 > & {
+  configurationVersionId?: string;
+  environment?: string;
   assertMandateEligible?(clientId: string, input: CreateMandateInput): void;
 };
