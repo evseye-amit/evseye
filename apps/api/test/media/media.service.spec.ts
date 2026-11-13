@@ -53,6 +53,7 @@ describe('MediaService upload completion', () => {
     await expect(service.complete('client-a', photo.id)).resolves.toMatchObject({ status: 'COMPLETE' });
     expect(storage.assertObjectExists).toHaveBeenCalledWith(photo.objectKey, { maxBytes: photo.sizeBytes });
     expect(storage.readObject).not.toHaveBeenCalled();
+    expect(updateMany).not.toHaveBeenCalled();
   });
 
   it('keeps multiple damage photos complete instead of replacing the previous photo', async () => {
