@@ -16,12 +16,11 @@ export interface DeploymentPaymentProvider {
     allocationId: string,
     body: unknown,
   ): Promise<{ nextAction?: string }>;
-  reconcile(clientId: string, userId: string, allocationId: string, attemptId: string): Promise<unknown>;
 }
 
 export type DeploymentPaymentOperations = Pick<
   DeploymentPaymentProvider,
-  'createOrder' | 'verify' | 'reconcile'
+  'createOrder' | 'verify'
 >;
 
 export const DEPLOYMENT_PAYMENT_PROVIDER = Symbol('DEPLOYMENT_PAYMENT_PROVIDER');

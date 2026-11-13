@@ -6,7 +6,6 @@ import {
 } from '../../src/payments/payment-refund.service.js';
 
 const refund = {
-  provider: 'CASHFREE',
   id: 'refund-1',
   clientId: 'client-1',
   riderId: 'rider-1',
@@ -43,7 +42,7 @@ function fixture(providerResult: {
       update: vi.fn(),
     },
     paymentCollectionRequest: {
-      findFirst: vi.fn().mockResolvedValue({ provider: 'CASHFREE', providerOrderId: 'ORDER-1' }),
+      findFirst: vi.fn().mockResolvedValue({ providerOrderId: 'ORDER-1' }),
     },
     paymentTransaction: { findFirst: vi.fn().mockResolvedValue(null) },
     $transaction: vi.fn(async (fn: (value: typeof tx) => Promise<unknown>) =>
@@ -64,19 +63,6 @@ function fixture(providerResult: {
   return { service, prisma, provider, payments };
 }
 describe('verified provider refunds', () => {
-  it('rejects a refund whose saved provider differs from its payment source', async () => {
-    const f = fixture({ providerRefundId: refund.providerRefundId, status: 'SUCCESS', rawStatus: 'SUCCESS', amount: '1200.00', currency: 'INR' });
-    f.prisma.paymentRefund.findFirst.mockResolvedValue({ ...refund, provider: 'MOCK' });
-    await expect(f.service.verify('client-1', 'rider-1', 'refund-1')).rejects.toThrow('REFUND_PROVIDER_MISMATCH');
-    expect(f.provider.fetchCheckoutRefund).not.toHaveBeenCalled();
-    expect(f.payments.confirmProviderRefundInTransaction).not.toHaveBeenCalled();
-  });
-  it('keeps unsupported Razorpay refunds out of the Cashfree adapter', async () => {
-    const f = fixture({ providerRefundId: refund.providerRefundId, status: 'SUCCESS', rawStatus: 'SUCCESS', amount: '1200.00', currency: 'INR' });
-    f.prisma.paymentCollectionRequest.findFirst.mockResolvedValue({ provider: 'RAZORPAY', providerOrderId: 'order_rzp' });
-    await expect(f.service.verify('client-1', 'rider-1', 'refund-1')).rejects.toThrow('support review');
-    expect(f.provider.fetchCheckoutRefund).not.toHaveBeenCalled();
-  });
   it('reserves concurrent partial refunds and permits only the remaining payment value', () => {
     const d = (value: string) => new Prisma.Decimal(value);
     expect(
@@ -150,7 +136,7 @@ describe('refund webhook dispatch', () => {
     const prisma = {
       paymentRefund: { findUnique: vi.fn().mockResolvedValue(refund) },
       paymentCollectionRequest: {
-        findFirst: vi.fn().mockResolvedValue({ provider: 'CASHFREE', providerOrderId: 'ORDER-1' }),
+        findFirst: vi.fn().mockResolvedValue({ providerOrderId: 'ORDER-1' }),
       },
       paymentTransaction: { findFirst: vi.fn().mockResolvedValue(null) },
       paymentProviderEvent: {

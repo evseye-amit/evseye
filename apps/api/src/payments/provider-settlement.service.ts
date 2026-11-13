@@ -7,7 +7,6 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { retryablePaymentTransaction } from './transaction-retry.js';
 
 type StatementItem = {
   kind: 'PAYMENT' | 'REFUND';
@@ -15,7 +14,6 @@ type StatementItem = {
   amount: string;
 };
 export type SettlementImport = {
-  provider?: 'CASHFREE' | 'RAZORPAY';
   providerSettlementId: string;
   currency: string;
   grossAmount: string;
@@ -60,8 +58,6 @@ export class ProviderSettlementService {
       (input.utr && (typeof input.utr !== 'string' || input.utr.length > 160))
     )
       throw new BadRequestException('INVALID_SETTLEMENT_REPORT');
-    const provider = input.provider ?? 'CASHFREE';
-    if (!['CASHFREE', 'RAZORPAY'].includes(provider)) throw new BadRequestException('UNSUPPORTED_SETTLEMENT_PROVIDER');
     const gross = decimal(input.grossAmount),
       refunds = decimal(input.refundAmount),
       fees = decimal(input.feeAmount),
@@ -130,7 +126,7 @@ export class ProviderSettlementService {
               where: {
                 clientId_provider_providerSettlementId: {
                   clientId,
-                  provider,
+                  provider: 'CASHFREE',
                   providerSettlementId: input.providerSettlementId,
                 },
               },
@@ -143,7 +139,61 @@ export class ProviderSettlementService {
             }
             const resolved = [];
             for (const item of normalized) {
-              resolved.push({ ...item, ...await this.matchItem(tx, clientId, provider, input.currency, item) });
+              if (item.kind === 'REFUND') {
+                const refund = await tx.paymentRefund.findFirst({
+                  where: {
+                    clientId,
+                    provider: 'CASHFREE',
+                    providerRefundId: item.providerReference,
+                  },
+                });
+                resolved.push({
+                  ...item,
+                  localReferenceId: refund?.id,
+                  status: !refund
+                    ? 'MISSING_INTERNAL'
+                    : refund.status !== 'SUCCESS'
+                      ? 'STATUS_MISMATCH'
+                      : refund.amount.eq(item.amount)
+                        ? 'MATCHED'
+                        : 'AMOUNT_MISMATCH',
+                });
+              } else {
+                const checkout = await tx.paymentCollectionRequest.findFirst({
+                  where: {
+                    clientId,
+                    provider: 'CASHFREE',
+                    OR: [
+                      { providerPaymentId: item.providerReference },
+                      { providerOrderId: item.providerReference },
+                    ],
+                  },
+                });
+                const autopay = checkout
+                  ? null
+                  : await tx.paymentTransaction.findFirst({
+                      where: {
+                        clientId,
+                        provider: 'CASHFREE',
+                        OR: [
+                          { providerPaymentId: item.providerReference },
+                          { providerReference: item.providerReference },
+                        ],
+                      },
+                    });
+                const local = checkout ?? autopay;
+                resolved.push({
+                  ...item,
+                  localReferenceId: local?.id,
+                  status: !local
+                    ? 'MISSING_INTERNAL'
+                    : local.status !== 'SUCCESS'
+                      ? 'STATUS_MISMATCH'
+                      : local.amount.eq(item.amount)
+                        ? 'MATCHED'
+                        : 'AMOUNT_MISMATCH',
+                });
+              }
             }
             const seenLocal = new Set<string>();
             for (const item of resolved) {
@@ -158,7 +208,7 @@ export class ProviderSettlementService {
             const settlement = await tx.providerSettlement.create({
               data: {
                 clientId,
-                provider,
+                provider: 'CASHFREE',
                 providerSettlementId: input.providerSettlementId,
                 currency: input.currency,
                 grossAmount: gross,
@@ -173,6 +223,7 @@ export class ProviderSettlementService {
                 importedById: actorId,
                 items: {
                   create: resolved.map((item) => ({
+                    clientId,
                     kind: item.kind,
                     providerReference: item.providerReference,
                     amount: item.amount,
@@ -210,7 +261,8 @@ export class ProviderSettlementService {
         );
       } catch (error) {
         if (
-          retryablePaymentTransaction(error) &&
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2034' &&
           attempt < 3
         )
           continue;
@@ -224,46 +276,6 @@ export class ProviderSettlementService {
       }
     }
   }
-  private async matchItem(
-    tx: Prisma.TransactionClient, clientId: string, provider: string, currency: string,
-    item: { kind: string; providerReference: string; amount: Prisma.Decimal },
-  ): Promise<{ localReferenceId?: string; status: string }> {
-    const candidates: { id: string; amount: Prisma.Decimal; currency: string; successful: boolean }[] = [];
-    if (item.kind === 'REFUND') {
-      const refunds = await tx.paymentRefund.findMany({ where: { clientId, provider, providerRefundId: item.providerReference } });
-      candidates.push(...refunds.map(row => ({ ...row, successful: row.status === 'SUCCESS' })));
-    } else {
-      const checkouts = await tx.paymentCollectionRequest.findMany({
-        where: { clientId, provider, OR: [
-          { providerPaymentId: item.providerReference },
-          ...(provider === 'CASHFREE' ? [{ providerOrderId: item.providerReference }] : []),
-        ] },
-      });
-      const debits = await tx.paymentTransaction.findMany({
-        where: { clientId, provider, OR: provider === 'RAZORPAY'
-          ? [{ gatewayPaymentId: item.providerReference }]
-          : [{ providerPaymentId: item.providerReference }, { providerReference: item.providerReference }] },
-      });
-      candidates.push(...[...checkouts, ...debits].map(row => ({ ...row, successful: row.status === 'SUCCESS' })));
-    }
-    if (provider === 'RAZORPAY') {
-      const captures = await tx.deploymentPaymentCapture.findMany({
-        where: { attempt: { clientId, provider },
-          ...(item.kind === 'REFUND' ? { providerRefundId: item.providerReference } : { providerPaymentId: item.providerReference }) },
-      });
-      candidates.push(...captures.map(row => ({
-        id: row.id, currency: row.currency,
-        amount: new Prisma.Decimal(row.amountPaise.toString()).div(100),
-        successful: item.kind === 'REFUND' ? row.status === 'REFUNDED' : ['SETTLED', 'REFUNDED'].includes(row.status),
-      })));
-    }
-    if (candidates.length > 1) return { status: 'AMBIGUOUS_INTERNAL' };
-    const local = candidates[0];
-    if (!local) return { status: 'MISSING_INTERNAL' };
-    return { localReferenceId: local.id, status: local.currency !== currency ? 'CURRENCY_MISMATCH'
-      : !local.successful ? 'STATUS_MISMATCH' : !local.amount.eq(item.amount) ? 'AMOUNT_MISMATCH' : 'MATCHED' };
-  }
-
   list(clientId: string) {
     return this.db.providerSettlement.findMany({
       where: { clientId },

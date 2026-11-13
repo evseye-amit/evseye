@@ -96,9 +96,6 @@ function fixture(result = success, depositInvoice = false) {
     walletBilling as never,
     wallet as never,
     walletDeposits as never,
-    undefined,
-    undefined,
-    provider as never,
   );
   return { service, prisma, provider, payments, tx, wallet, walletBilling };
 }

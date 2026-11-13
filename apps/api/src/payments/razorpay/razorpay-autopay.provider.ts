@@ -55,8 +55,8 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
     private readonly gateway: RazorpayRecurringClient,
     private readonly config: ConfigService,
   ) {}
-  private assertNew() {
-    // Credential checks are awaited by mandate()/transaction() before provider operations.
+  private assertNew(clientId: string, keyId?: string | null) {
+    this.gateway.assertConfigured(clientId, keyId ?? undefined);
     if (this.config.get('RAZORPAY_AUTOPAY_ENABLED') !== 'true')
       throw new ServiceUnavailableException({
         code: 'RAZORPAY_AUTOPAY_UNAVAILABLE',
@@ -69,7 +69,7 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
     });
     if (!m || m.provider !== 'RAZORPAY')
       throw new ConflictException('Razorpay mandate is not registered.');
-    await this.gateway.assertConfigured(m.clientId, m.providerKeyId ?? undefined, m.configurationVersionId);
+    this.gateway.assertConfigured(m.clientId, m.providerKeyId ?? undefined);
     return m;
   }
   private result(
@@ -94,8 +94,8 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
         'Schedule Razorpay AutoPay at least 25 hours ahead for pre-debit notification.',
       );
   }
-  assertMandateEligible(_clientId: string, input: CreateMandateInput) {
-    this.assertNew();
+  assertMandateEligible(clientId: string, input: CreateMandateInput) {
+    this.assertNew(clientId);
     if (
       input.paymentMethods.length !== 1 ||
       input.paymentMethods[0] !== 'UPI_AUTOPAY'
@@ -120,19 +120,17 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
   }
   async createMandate(input: CreateMandateInput): Promise<MandateResult> {
     let m = await this.mandate(input.providerMandateId);
-    this.assertNew();
+    this.assertNew(m.clientId, m.providerKeyId);
     this.assertMandateEligible(m.clientId, input);
     const maximum = paise(input.maxAmount);
     const authAmount = paise(input.authorizationAmount ?? '1.00');
     if (m.providerRegistrationId) return this.fetchMandate(m.providerMandateId);
-    const merchant = await this.gateway.configurationFor(m.clientId, m.configurationVersionId);
     const claim = await this.db.paymentMandate.updateMany({
       where: { id: m.id, providerCreateClaimedAt: null },
       data: {
         providerCustomerEmail: input.customer.email,
         providerCreateClaimedAt: new Date(),
-        providerKeyId: merchant.keyId,
-        configurationVersionId: merchant.configurationVersionId,
+        providerKeyId: this.gateway.keyId,
         providerFrequency: 'as_presented',
         authorizationAmount: new Prisma.Decimal(authAmount).div(100),
         providerTermsSnapshot: {
@@ -171,7 +169,7 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
         sms_notify: true,
         email_notify: true,
         notes: { purpose: 'AUTOPAY_AUTHORIZATION', mandateId: m.id },
-      }, m.clientId, m.configurationVersionId);
+      }, m.clientId);
       await this.bindRegistration(m, remote);
       return this.fetchMandate(m.providerMandateId);
     } catch (error) {
@@ -229,14 +227,14 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
       const matches = await this.gateway.findRegistrations(
         m.id,
         m.providerCreateClaimedAt,
-        m.clientId, m.configurationVersionId,
+        m.clientId,
       );
       if (matches.length !== 1)
         return this.result(m, 'UNKNOWN', 'REGISTRATION_CREATE_REQUIRES_REVIEW');
       m = await this.bindRegistration(m, matches[0]);
     }
     const registration = await this.gateway.fetchRegistration(
-      m.providerRegistrationId!, m.clientId, m.configurationVersionId,
+      m.providerRegistrationId!, m.clientId,
     );
     m = await this.bindRegistration(m, registration);
     if (registration.status === 'cancelled')
@@ -246,7 +244,7 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
     if (!registration.payment_id || !registration.order_id)
       return this.result(m, 'AUTHORIZATION_PENDING', 'REGISTRATION_PENDING');
     const payment = await this.gateway.recurringPayment(
-      registration.payment_id, m.clientId, m.configurationVersionId,
+      registration.payment_id, m.clientId,
     );
     if (
       payment.id !== registration.payment_id ||
@@ -272,7 +270,7 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
     const token = await this.gateway.fetchToken(
       registration.customer_id,
       payment.token_id,
-      m.clientId, m.configurationVersionId,
+      m.clientId,
     );
     if (
       token.id !== payment.token_id ||
@@ -327,16 +325,16 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
     if (m.providerTokenId && m.providerCustomerId) {
       const token = await this.gateway.fetchToken(
         m.providerCustomerId,
-        m.providerTokenId, m.clientId, m.configurationVersionId,
+        m.providerTokenId, m.clientId,
       );
       if (token.recurring_details.status !== 'cancelled')
-        await this.gateway.cancelToken(m.providerCustomerId, m.providerTokenId, m.clientId, m.configurationVersionId);
+        await this.gateway.cancelToken(m.providerCustomerId, m.providerTokenId, m.clientId);
     } else if (m.providerRegistrationId) {
       const registration = await this.gateway.fetchRegistration(
-        m.providerRegistrationId, m.clientId, m.configurationVersionId,
+        m.providerRegistrationId, m.clientId,
       );
       if (!['cancelled', 'expired'].includes(registration.status))
-        await this.gateway.cancelRegistration(m.providerRegistrationId, m.clientId, m.configurationVersionId);
+        await this.gateway.cancelRegistration(m.providerRegistrationId, m.clientId);
     } else
       throw new ConflictException(
         'Registration creation is uncertain. Reconcile it before cancellation.',
@@ -373,9 +371,6 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
     });
     if (!t)
       throw new ConflictException('Razorpay AutoPay debit is not registered.');
-    if (t.configurationVersionId && m.configurationVersionId && t.configurationVersionId !== m.configurationVersionId)
-      throw new ConflictException('AutoPay debit merchant differs from its mandate.');
-    await this.gateway.assertConfigured(m.clientId, t.providerKeyId ?? m.providerKeyId ?? undefined, m.configurationVersionId);
     return { m, t };
   }
   private paymentResult(
@@ -419,7 +414,7 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
       input.providerMandateId,
       input.providerPaymentId,
     );
-    this.assertNew();
+    this.assertNew(m.clientId, m.providerKeyId);
     if (
       !t.amount.eq(input.amount) ||
       new Date(input.scheduledAt).getTime() !== t.scheduledAt.getTime()
@@ -450,8 +445,7 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
         where: { id: t.id, providerOrderClaimedAt: null },
         data: {
           providerOrderClaimedAt: new Date(),
-          providerKeyId: m.providerKeyId,
-          configurationVersionId: m.configurationVersionId,
+          providerKeyId: this.gateway.keyId,
         },
       });
       t = (await this.transaction(m.providerMandateId, t.providerPaymentId)).t;
@@ -472,7 +466,7 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
               t.id,
               m.providerTokenId,
               t.scheduledAt,
-              m.clientId, m.configurationVersionId,
+              m.clientId,
             ),
           );
         } else {
@@ -481,7 +475,7 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
             Date.now() - t.providerOrderClaimedAt.getTime() < 30000
           )
             return this.paymentResult(m, t, 'UNKNOWN', 'ORDER_CREATE_PENDING');
-          const matches = await this.gateway.findOrders(t.id, m.clientId, m.configurationVersionId);
+          const matches = await this.gateway.findOrders(t.id, m.clientId);
           if (matches.length !== 1)
             return this.paymentResult(
               m,
@@ -504,9 +498,9 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
     paymentReference: string,
   ): Promise<PaymentResult> {
     let { m, t } = await this.transaction(reference, paymentReference);
-    await this.gateway.assertConfigured(
+    this.gateway.assertConfigured(
       m.clientId,
-      t.providerKeyId ?? m.providerKeyId ?? undefined, m.configurationVersionId,
+      t.providerKeyId ?? m.providerKeyId ?? undefined,
     );
     await this.db.paymentTransaction.update({
       where: { id: t.id },
@@ -514,7 +508,7 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
     });
     if (!t.providerOrderId) {
       if (t.providerOrderClaimedAt) {
-        const matches = await this.gateway.findOrders(t.id, m.clientId, m.configurationVersionId);
+        const matches = await this.gateway.findOrders(t.id, m.clientId);
         if (matches.length !== 1)
           return this.paymentResult(
             m,
@@ -540,13 +534,13 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
         });
     }
     const remotes = await this.gateway.recurringOrderPayments(
-      t.providerOrderId!, m.clientId, m.configurationVersionId,
+      t.providerOrderId!, m.clientId,
     );
     if (
       t.gatewayPaymentId &&
       !remotes.some((payment) => payment.id === t.gatewayPaymentId)
     ) {
-      const payment = await this.gateway.recurringPayment(t.gatewayPaymentId, m.clientId, m.configurationVersionId);
+      const payment = await this.gateway.recurringPayment(t.gatewayPaymentId, m.clientId);
       if (payment.id !== t.gatewayPaymentId)
         throw new ConflictException(
           'Razorpay recurring payment identity mismatch.',
@@ -664,7 +658,7 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
         'NO_DEBIT_SUBMITTED',
       );
     // Claim before the debit POST. Recovery polls this order rather than submitting twice.
-    this.assertNew();
+    this.assertNew(m.clientId, m.providerKeyId);
     const invoice = await this.db.riderInvoice.findFirst({
       where: { id: t.invoiceId, clientId: t.clientId, riderId: t.riderId },
     });
@@ -719,7 +713,6 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
         email: m.providerCustomerEmail!,
         contact: rider.mobile,
         clientId: m.clientId,
-        configurationVersionId: t.configurationVersionId ?? m.configurationVersionId,
       });
       await this.db.paymentTransaction.update({
         where: { id: t.id },

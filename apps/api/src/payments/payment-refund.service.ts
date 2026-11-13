@@ -2,11 +2,11 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
   ServiceUnavailableException,
-  Optional,
 } from '@nestjs/common';
 import { Prisma, type PaymentRefund } from '@prisma/client';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -14,12 +14,10 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { RiderPaymentsService } from '../rider-billing/rider-payments.service.js';
 import { ProviderRequestError } from './payment-provider.interface.js';
 import {
+  PAYMENT_PROVIDER,
   type PaymentProvider,
   type RefundResult,
 } from './payment-provider.interface.js';
-import { CashfreePaymentProvider } from './cashfree/cashfree-payment.provider.js';
-import { MockPaymentProvider } from './mock-payment.provider.js';
-import { retryablePaymentTransaction } from './transaction-retry.js';
 
 export function refundableAmount(
   paymentAmount: Prisma.Decimal,
@@ -42,15 +40,9 @@ export class PaymentRefundService {
   private readonly logger = new Logger(PaymentRefundService.name);
   constructor(
     private readonly prisma: PrismaService,
-    private readonly cashfree: CashfreePaymentProvider,
+    @Inject(PAYMENT_PROVIDER) private readonly provider: PaymentProvider,
     private readonly payments: RiderPaymentsService,
-    @Optional() private readonly mock?: MockPaymentProvider,
   ) {}
-  private savedProvider(name: string): PaymentProvider {
-    if (name === 'CASHFREE') return this.cashfree;
-    if (name === 'MOCK' && this.mock) return this.mock;
-    throw new ConflictException('The saved refund provider is unsupported; support review is required.');
-  }
   private async serializable<T>(
     fn: (tx: Prisma.TransactionClient) => Promise<T>,
   ): Promise<T> {
@@ -62,7 +54,8 @@ export class PaymentRefundService {
         });
       } catch (error) {
         if (
-          retryablePaymentTransaction(error) &&
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2034' &&
           attempt < 3
         )
           continue;
@@ -105,7 +98,6 @@ export class PaymentRefundService {
         include: { mandate: true },
       }),
     ]);
-    if (checkout?.collectionType === 'TOP_UP') throw new ConflictException('Wallet top-ups are non-refundable.');
     if (checkout?.provider === 'RAZORPAY') throw new ConflictException(checkout.collectionType === 'INVOICE_PAYMENT' ? 'Razorpay rental invoice refunds require support review.' : 'Razorpay penalty refunds require support review.');
     if (checkout?.providerOrderId)
       return {
@@ -147,7 +139,6 @@ export class PaymentRefundService {
     if (requestedAmount && !/^[1-9]\d*(\.\d{1,2})?$/.test(requestedAmount))
       throw new BadRequestException('Invalid refund amount.');
     const source = await this.source(clientId, riderId, paymentId);
-    const provider = this.savedProvider(source.provider);
     let created = false;
     let refund: PaymentRefund;
     try {
@@ -286,14 +277,14 @@ export class PaymentRefundService {
     try {
       result =
         source.kind === 'CHECKOUT'
-          ? await provider.createCheckoutRefund({
+          ? await this.provider.createCheckoutRefund({
               orderId: source.orderId,
               refundId: refund.providerRefundId,
               amount: refund.amount.toFixed(2),
               note: refund.reason,
               idempotencyKey: refund.id,
             })
-          : await provider.createRefund({
+          : await this.provider.createRefund({
               providerMandateId: source.mandateId,
               providerPaymentId: source.paymentId,
               providerRefundId: refund.providerRefundId,
@@ -333,15 +324,13 @@ export class PaymentRefundService {
     if (!refund) throw new NotFoundException('Refund not found.');
     if (refund.status === 'SUCCESS') return this.view(refund);
     const source = await this.source(clientId, riderId, refund.paymentId);
-    if (source.provider !== refund.provider) throw new ConflictException('REFUND_PROVIDER_MISMATCH');
-    const provider = this.savedProvider(refund.provider);
     const result =
       source.kind === 'CHECKOUT'
-        ? await provider.fetchCheckoutRefund(
+        ? await this.provider.fetchCheckoutRefund(
             source.orderId,
             refund.providerRefundId,
           )
-        : await provider.fetchRefund(
+        : await this.provider.fetchRefund(
             source.mandateId,
             refund.providerRefundId,
           );
@@ -400,8 +389,8 @@ export class PaymentRefundService {
   ) {
     const verified =
       rail === 'CHECKOUT'
-        ? this.cashfree.verifyCheckoutWebhook(rawBody, timestamp, signature)
-        : this.cashfree.verifyWebhook(rawBody, timestamp, signature);
+        ? this.provider.verifyCheckoutWebhook(rawBody, timestamp, signature)
+        : this.provider.verifyWebhook(rawBody, timestamp, signature);
     const payload = verified.payload as {
       type?: unknown;
       data?: { refund?: { refund_id?: unknown } };
@@ -419,7 +408,6 @@ export class PaymentRefundService {
       where: { providerRefundId: refundId },
     });
     if (refund) {
-      if (refund.provider !== 'CASHFREE') throw new BadRequestException('REFUND_WEBHOOK_PROVIDER_MISMATCH');
       const source = await this.source(
         refund.clientId,
         refund.riderId,

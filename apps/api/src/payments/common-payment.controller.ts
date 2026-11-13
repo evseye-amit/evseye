@@ -27,10 +27,6 @@ export class CommonPaymentController {
     private readonly payments: CommonPaymentService,
     private readonly clients: ClientContextService,
   ) {}
-  @Get('capabilities')
-  async capabilities(@CurrentUser() user: AuthUser) {
-    return { data: await this.payments.capabilities(this.clients.requireClientId(user), user.id) };
-  }
   @Post()
   @HttpCode(200)
   @ApiOperation({
@@ -63,7 +59,7 @@ export class CommonPaymentController {
             provider: {
               type: 'string',
               enum: ['RAZORPAY', 'CASHFREE'],
-              description: 'Optional assertion of the server-selected client policy; cannot override it.',
+              default: 'RAZORPAY',
             },
             amount: { type: 'string', example: '500.00' },
           },
@@ -87,7 +83,7 @@ export class CommonPaymentController {
               type: 'string',
               enum: ['RAZORPAY', 'CASHFREE'],
               description:
-                'RAZORPAY supports rental invoices. Omit to use the client policy; a different provider is rejected.',
+                'RAZORPAY supports rental invoices. Omit to retain the configured checkout provider.',
             },
             invoiceId: { type: 'string', format: 'uuid' },
             useWallet: { type: 'boolean' },
@@ -100,15 +96,6 @@ export class CommonPaymentController {
           properties: {
             purpose: { type: 'string', enum: ['SECURITY_DEPOSIT'] },
             depositId: { type: 'string', format: 'uuid' },
-          },
-        },
-        {
-          type: 'object',
-          additionalProperties: false,
-          required: ['purpose', 'amount'],
-          properties: {
-            purpose: { type: 'string', enum: ['TOP_UP'] },
-            amount: { type: 'string', example: '500.00', description: 'INR 500.00 to INR 5000.00' },
           },
         },
       ],
@@ -172,12 +159,5 @@ export class CommonPaymentController {
         body,
       ),
     };
-  }
-
-  @Post(':paymentRequestId/reconcile')
-  @HttpCode(200)
-  @ApiOperation({ summary: 'Recover an owned payment using server-side gateway evidence without an SDK callback' })
-  async reconcile(@CurrentUser() user: AuthUser, @Param('paymentRequestId') id: string) {
-    return { data: await this.payments.reconcile(this.clients.requireClientId(user), user.id, id) };
   }
 }

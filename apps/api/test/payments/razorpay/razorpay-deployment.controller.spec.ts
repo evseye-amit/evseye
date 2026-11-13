@@ -15,14 +15,3 @@ describe('Razorpay webhook endpoint', () => {
     expect(service.webhook).toHaveBeenCalledWith(raw, 'signature', 'event');
   });
 });
-
-describe('Client-scoped Razorpay webhook endpoint', () => {
-  it('forwards the route client and still requires raw bytes', () => {
-    const service = { webhook: vi.fn().mockReturnValue({ received: true }) };
-    const controller = new RazorpayWebhookController(service as never);
-    expect(() => controller.clientWebhook('client', {} as never, 'sig', 'evt')).toThrow('Raw webhook body');
-    const raw = Buffer.from('{}');
-    controller.clientWebhook('client', { rawBody: raw } as never, 'sig', 'evt');
-    expect(service.webhook).toHaveBeenCalledWith(raw, 'sig', 'evt', 'client');
-  });
-});

@@ -161,7 +161,6 @@ describe.skipIf(!url)(
       const gateway = {
         keyId: 'rzp_test_penalty',
         keyIdFor: vi.fn().mockResolvedValue('rzp_test_client_penalty'),
-        configurationFor: vi.fn().mockResolvedValue({ keyId: 'rzp_test_client_penalty', environment: 'TEST' }),
         enabled: true,
         verifyWebhook: vi.fn(),
         assertConfigured: vi.fn(),

@@ -970,32 +970,7 @@ model Client {
   updatedAt                   DateTime                           @updatedAt
 }
 
-model PaymentProviderConfigurationVersion {
-  id String @id @default(uuid())
-  clientId String
-  providerConfigurationId String
-  configuration ClientPaymentProvider @relation(fields: [providerConfigurationId, clientId], references: [id, clientId], onDelete: Restrict, map: "PaymentProviderConfigurationVersion_parent_fkey")
-  version Int
-  provider String @db.VarChar(32)
-  environment String @db.VarChar(16)
-  merchantAccountId String? @db.VarChar(128)
-  keyId String @db.VarChar(128)
-  secretReference String @db.VarChar(512)
-  credentialFingerprint String? @db.VarChar(64)
-  createdAt DateTime @default(now())
-  mandates PaymentMandate[]
-  transactions PaymentTransaction[]
-  deploymentAttempts DeploymentPaymentAttempt[]
-  collectionOrders RazorpayPenaltyOrder[]
-  webhookEvents PaymentProviderEvent[]
-  @@unique([providerConfigurationId, version], map: "PaymentProviderConfigurationVersion_parent_version_key")
-  @@unique([clientId, id])
-  @@index([clientId, provider, environment, keyId], map: "PaymentProviderConfigurationVersion_merchant_idx")
-}
-
 model ClientPaymentProvider {
-  currentVersion Int @default(1)
-  versions PaymentProviderConfigurationVersion[]
   id                String   @id @default(uuid())
   clientId          String
   client            Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -1010,7 +985,6 @@ model ClientPaymentProvider {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  @@unique([id, clientId])
   @@unique([clientId, provider, environment])
   @@index([clientId, provider, status])
 }
@@ -2197,8 +2171,6 @@ model Rider {
 }
 
 model PaymentMandate {
-  configurationVersionId String?
-  configurationVersion PaymentProviderConfigurationVersion? @relation(fields: [clientId, configurationVersionId], references: [clientId, id], onDelete: Restrict, map: "PaymentMandate_configurationVersion_fkey")
   id                     String                 @id @default(uuid())
   mandateNumber          String?                @unique @db.VarChar(50)
   autoDebitEnabled       Boolean                @default(true)
@@ -2260,8 +2232,6 @@ model PaymentMandateEvent {
 }
 
 model PaymentProviderEvent {
-  configurationVersionId String?
-  configurationVersion PaymentProviderConfigurationVersion? @relation(fields: [clientId, configurationVersionId], references: [clientId, id], onDelete: Restrict, map: "PaymentProviderEvent_configurationVersion_fkey")
   deploymentAttemptId String?
   deploymentAttempt DeploymentPaymentAttempt? @relation(fields: [deploymentAttemptId], references: [id], onDelete: Restrict)
   deploymentPayload Json?
@@ -2291,8 +2261,6 @@ model PaymentProviderEvent {
 }
 
 model PaymentTransaction {
-  configurationVersionId String?
-  configurationVersion PaymentProviderConfigurationVersion? @relation(fields: [clientId, configurationVersionId], references: [clientId, id], onDelete: Restrict, map: "PaymentTransaction_configurationVersion_fkey")
   razorpayCaptures RazorpayAutoPayCapture[]
   id                 String                   @id @default(uuid())
   debitNumber        String?                  @unique @db.VarChar(50)
@@ -3184,8 +3152,6 @@ model DeploymentPayment {
 /// Provider-specific payloads belong in metadata; business payment state remains
 /// on DeploymentPayment.
 model DeploymentPaymentAttempt {
-  configurationVersionId String?
-  configurationVersion PaymentProviderConfigurationVersion? @relation(fields: [clientId, configurationVersionId], references: [clientId, id], onDelete: Restrict, map: "DeploymentPaymentAttempt_configurationVersion_fkey")
   id                   String          @id @default(uuid())
   clientId             String
   deploymentPaymentId  String
@@ -6565,8 +6531,6 @@ model RazorpayDeploymentCapture {
 }
 
 model RazorpayPenaltyOrder {
-  configurationVersionId String?
-  configurationVersion PaymentProviderConfigurationVersion? @relation(fields: [configurationVersionId], references: [id], onDelete: Restrict, map: "RazorpayPenaltyOrder_configurationVersion_fkey")
   id String @id @default(uuid())
   collectionId String @unique
   collection PaymentCollectionRequest @relation(fields: [collectionId], references: [id], onDelete: Restrict)

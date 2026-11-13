@@ -3,7 +3,6 @@ import { Prisma, type PaymentCollectionRequest } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RiderPaymentsService } from '../rider-billing/rider-payments.service.js';
 import { WalletService } from '../wallet/wallet.service.js';
-import { retryablePaymentTransaction } from './transaction-retry.js';
 
 /** Settle only the saved rental invoice; surplus stays unallocated for review. */
 export async function settleRazorpayRentalInvoice(
@@ -126,12 +125,9 @@ export async function settleRazorpayRentalInvoice(
         },
       );
     } catch (error) {
-      // A concurrent callback can commit after this serializable snapshot.
-      // Retry the whole transaction so SUCCESS and payment identity are reread.
       if (
-        (retryablePaymentTransaction(error) ||
-          (error instanceof Prisma.PrismaClientKnownRequestError &&
-            error.code === 'P2002')) &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2034' &&
         attempt < 3
       )
         continue;
