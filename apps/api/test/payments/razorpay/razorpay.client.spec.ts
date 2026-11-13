@@ -58,7 +58,7 @@ describe('Razorpay authentication and provider requests', () => {
       keySecret: 'client-secret',
       webhookSecret: 'client-webhook-secret',
     });
-    const client = new RazorpayClient(configFixture(), { resolve } as never);
+    const client = new RazorpayClient(configFixture(), { resolve, webhookVersions: vi.fn().mockResolvedValue([]) } as never);
     const signature = createHmac('sha256', 'client-secret')
       .update('order_1|pay_1')
       .digest('hex');
@@ -84,14 +84,14 @@ describe('Razorpay authentication and provider requests', () => {
       keySecret: 'client-secret',
       webhookSecret: 'client-webhook-secret',
     });
-    const client = new RazorpayClient(configFixture(), { resolve } as never);
+    const client = new RazorpayClient(configFixture(), { resolve, webhookVersions: vi.fn().mockResolvedValue([]) } as never);
     const body = Buffer.from('{"event":"payment.captured"}');
     const signature = createHmac('sha256', 'client-webhook-secret')
       .update(body)
       .digest('hex');
 
     await expect(client.verifyWebhook(body, signature, 'client')).resolves
-      .toBeUndefined();
+      .toBeNull();
     expect(resolve).toHaveBeenCalledWith('client');
   });
   it.each(['', 'a', 'z'.repeat(64), 'a'.repeat(66)])(
@@ -102,17 +102,18 @@ describe('Razorpay authentication and provider requests', () => {
       ).toThrow('Invalid Razorpay signature');
     },
   );
-  it('is disabled by default and enforces merchant/client binding', () => {
-    expect(() =>
-      fixture({ RAZORPAY_ENABLED: 'false' }).assertConfigured('client'),
-    ).toThrow('unavailable');
-    expect(() => fixture().assertConfigured('foreign')).toThrow('unavailable');
-    expect(() =>
-      fixture().assertConfigured('client', 'rzp_live_other'),
-    ).toThrow('unavailable');
-    expect(() =>
-      fixture().assertConfigured('client', 'rzp_test_fixture'),
-    ).not.toThrow();
+  it('is disabled by default and enforces merchant/client binding', async () => {
+    await expect(fixture({ RAZORPAY_ENABLED: 'false' }).assertConfigured('client')).rejects.toThrow('unavailable');
+    await expect(fixture().assertConfigured('foreign')).rejects.toThrow('unavailable');
+    await expect(fixture().assertConfigured('client', 'rzp_live_other')).rejects.toThrow('unavailable');
+    await expect(fixture().assertConfigured('client', 'rzp_test_fixture')).resolves.toBeUndefined();
+  });
+  it('rejects a saved key from another merchant even with client configuration enabled', async () => {
+    const client = new RazorpayClient(configFixture(), {
+      resolve: vi.fn().mockResolvedValue({ keyId: 'client-key' }),
+    } as never);
+    await expect(client.assertConfigured('client', 'global-key')).rejects.toMatchObject({ response: { code: 'RAZORPAY_CONFIGURATION_MISMATCH' } });
+    await expect(client.assertConfigured('client', 'client-key')).resolves.toBeUndefined();
   });
   it('sends server amount, unique receipt and no partial payment to the fixed gateway URL', async () => {
     const request = vi.fn().mockResolvedValue({
@@ -163,5 +164,15 @@ describe('Razorpay authentication and provider requests', () => {
     expect(toPaise(new Prisma.Decimal('123.45'))).toBe(12345);
     for (const amount of ['0', '-1', '0.50', '1.001', '9007199254740992'])
       expect(() => toPaise(new Prisma.Decimal(amount))).toThrow();
+  });
+});
+
+describe('Client-specific outbound credentials', () => {
+  it.each(['a', 'b'])('uses merchant %s credentials on provider requests', async (clientId) => {
+    const request = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 'order_test', amount: 100, currency: 'INR', receipt: 'receipt', status: 'created' }) });
+    vi.stubGlobal('fetch', request);
+    const client = new RazorpayClient(configFixture(), { resolve: vi.fn(async (id: string) => ({ keyId: `key-${id}`, keySecret: `secret-${id}`, webhookSecret: `hook-${id}` })) } as never);
+    await client.createOrder(100, 'INR', 'receipt', {}, clientId);
+    expect(request).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ headers: expect.objectContaining({ Authorization: `Basic ${Buffer.from(`key-${clientId}:secret-${clientId}`).toString('base64')}` }) }));
   });
 });

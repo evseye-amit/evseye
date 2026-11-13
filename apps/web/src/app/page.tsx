@@ -2,6 +2,7 @@
 import { guardLinkNavigation, requestNavigation } from "./components/unsaved-changes";
 import { PanelLoadingContext } from "./components/panel-loading";
 import { PaymentTransactions } from "./components/payment-transactions";
+import { PaymentOperations } from "./components/payment-operations";
 import { SparesCatalogue } from "./components/spares-catalogue";
 import { sessionFetch as fetch } from "../lib/session-fetch";
 import {
@@ -2433,7 +2434,7 @@ export default function Home() {
         {tab === "refer-and-earn" && userRoles.includes("CLIENT_ADMIN") && <ClientReferAndEarn refreshKey={panelRefreshKey} />}
         {tab === "work-partners" && userRoles.includes("CLIENT_ADMIN") && <WorkPartnerManager refreshKey={panelRefreshKey} mode="client" request={request} token={token} />}
         {tab === "rider-reference-review" && <RiderReferenceReview refreshKey={panelRefreshKey} />}
-        {tab === "payment-transactions" && userRoles.includes("CLIENT_ADMIN") && <PaymentTransactions refreshKey={panelRefreshKey} />}
+        {tab === "payment-transactions" && userRoles.includes("CLIENT_ADMIN") && <><PaymentOperations key={identityKey} identityKey={identityKey} refreshKey={panelRefreshKey} /><PaymentTransactions refreshKey={panelRefreshKey} /></>}
         {tab === "spares-penalties" && <SparesCatalogue refreshKey={panelRefreshKey} />}
         {tab === "installation-board" && <InstallationBoard refreshKey={panelRefreshKey} />}
         {["vehicle-preparation","quality-check","readiness-settings","advisors","qc-managers"].includes(tab) && <FleetReadiness refreshKey={panelRefreshKey} key={`${tab}:${readinessFleetId}`} fleetId={tab === "vehicle-preparation" ? readinessFleetId : undefined} onBack={() => navigateTo("fleets")} onOpenPreparation={() => navigateTo("vehicle-preparation")} view={tab === "quality-check" ? "qc" : tab === "readiness-settings" ? "settings" : tab === "advisors" ? "advisors" : tab === "qc-managers" ? "qc-managers" : "preparation"} />}

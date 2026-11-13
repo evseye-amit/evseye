@@ -4,7 +4,9 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
+import { PaymentGatewayPolicyService } from './payment-gateway-policy.service.js';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RiderBillingService } from '../rider-billing/rider-billing.service.js';
@@ -61,7 +63,23 @@ export class CommonPaymentService {
     private readonly deployments: DeploymentPaymentOperations,
     private readonly penalties: RazorpayPenaltyService,
     private readonly invoices?: RazorpayInvoiceService,
+    @Optional() private readonly policy?: PaymentGatewayPolicyService,
   ) {}
+
+  async capabilities(clientId: string, userId: string) {
+    await this.billing.riderForUser(clientId, userId);
+    return this.policy ? this.policy.capabilities(clientId) : { contractVersion: 1, purposes: {} };
+  }
+
+  async reconcile(clientId: string, userId: string, requestId: string) {
+    const owned = await this.owned(clientId, userId, requestId);
+    if (owned.kind === 'deployment') {
+      await this.deployments.reconcile(clientId, userId, owned.order.payment.workflow.allocationId, owned.order.id);
+    } else {
+      await this.checkout.verify(clientId, owned.riderId, owned.collection.id);
+    }
+    return this.detail(clientId, userId, requestId);
+  }
 
   private deploymentAttemptStore() {
     // The fallback keeps older test fixtures and already-running migrations
@@ -73,6 +91,7 @@ export class CommonPaymentService {
   async create(clientId: string, userId: string, body: unknown, key?: string) {
     const input = parseOrderInput(body);
     const riderId = await this.billing.riderForUser(clientId, userId);
+    const selectedProvider = this.policy ? await this.policy.resolve(clientId, input.purpose, 'provider' in input ? input.provider : undefined) : ('provider' in input ? input.provider : undefined);
     if (input.purpose === 'DEPLOYMENT') {
       const remote = await this.deployments.createOrder(
         clientId,
@@ -96,7 +115,7 @@ export class CommonPaymentService {
     }
     if (
       input.purpose === 'SUBMISSION_PENALTY' &&
-      input.provider !== 'CASHFREE'
+      selectedProvider !== 'CASHFREE' && selectedProvider !== 'MOCK'
     ) {
       const remote = await this.penalties.createOrder(
         clientId,
@@ -122,7 +141,7 @@ export class CommonPaymentService {
     }
     // Existing Cashfree checkout owns idempotency, wallet use and settlement.
     const result =
-      input.purpose === 'INVOICE' && input.provider === 'RAZORPAY'
+      input.purpose === 'INVOICE' && selectedProvider === 'RAZORPAY'
         ? await this.invoices!.payInvoice(
             clientId,
             riderId,
@@ -268,6 +287,7 @@ export class CommonPaymentService {
           order.payment.workflow.status === 'PAYMENT_PENDING' &&
           !cancelled
             ? {
+                type: 'RAZORPAY',
                 orderId: order.providerOrderId,
                 keyId: (order as any).providerKeyReference ?? (order as any).keyId,
                 amountPaise: Number(order.amountPaise),
@@ -303,6 +323,7 @@ export class CommonPaymentService {
           ? c.provider === 'RAZORPAY'
             ? order?.providerOrderId
               ? {
+                  type: 'RAZORPAY',
                   orderId: order.providerOrderId,
                   keyId: order.keyId,
                   amountPaise: Number(order.amountPaise),
@@ -310,8 +331,10 @@ export class CommonPaymentService {
               : null
             : c.providerOrderId && c.paymentSessionId
               ? {
+                  type: c.provider,
                   orderId: c.providerOrderId,
                   paymentSessionId: c.paymentSessionId,
+                  environment: (c.paymentSnapshot as Record<string, unknown> | null)?.paymentEnvironment ?? null,
                 }
               : null
           : null,

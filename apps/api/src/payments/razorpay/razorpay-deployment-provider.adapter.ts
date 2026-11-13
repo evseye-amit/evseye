@@ -11,6 +11,10 @@ export class RazorpayDeploymentProviderAdapter
 {
   readonly name = 'RAZORPAY';
 
+  reconcile(clientId: string, _userId: string, allocationId: string, _attemptId: string) {
+    return this.deployment.reconcileAllocation(clientId, allocationId);
+  }
+
   constructor(private readonly deployment: RazorpayDeploymentService) {}
 
   async createOrder(

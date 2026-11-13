@@ -17,7 +17,7 @@ import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { PaymentReconciliationService } from './payment-reconciliation.service.js';
 class RetryDto {
-  @IsIn(['CHECKOUT', 'AUTOPAY']) source!: 'CHECKOUT' | 'AUTOPAY';
+  @IsIn(['CHECKOUT', 'AUTOPAY', 'DEPLOYMENT']) source!: 'CHECKOUT' | 'AUTOPAY' | 'DEPLOYMENT';
 }
 @Controller('client/payment-reconciliation')
 @UseGuards(AccessTokenGuard, RolesGuard)

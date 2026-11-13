@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 export type RazorpayInboxEvent = {
   id: string;
+  clientId?: string | null;
+  configurationVersionId?: string | null;
   eventType: string;
   recurringPayload?: unknown;
   deploymentPayload: unknown;
