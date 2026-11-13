@@ -132,7 +132,7 @@ export class RazorpayClient {
     body?: unknown,
     clientId?: string,
   ): Promise<unknown> {
-    this.assertConfigured(clientId);
+    this.assertConfigured();
     const credentials = clientId && this.clientConfiguration
       ? await this.clientConfiguration.resolve(clientId)
       : { keyId: this.keyId, keySecret: this.config.getOrThrow<string>('RAZORPAY_KEY_SECRET'), webhookSecret: this.config.getOrThrow<string>('RAZORPAY_WEBHOOK_SECRET') };
