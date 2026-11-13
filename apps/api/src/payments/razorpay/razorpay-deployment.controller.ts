@@ -8,6 +8,7 @@ import {
   Req,
   UseGuards,
   BadRequestException,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import type { RawBodyRequest } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
@@ -36,6 +37,19 @@ export class RazorpayWebhookController {
     if (!request.rawBody)
       throw new BadRequestException('Raw webhook body is required.');
     return this.service.webhook(request.rawBody, signature, eventId);
+  }
+  @Post('razorpay/clients/:clientId')
+  @HttpCode(200)
+  @ApiHeader({ name: 'x-razorpay-signature', required: true })
+  @ApiHeader({ name: 'x-razorpay-event-id', required: true })
+  clientWebhook(
+    @Param('clientId', new ParseUUIDPipe()) clientId: string,
+    @Req() request: RawBodyRequest<FastifyRequest>,
+    @Headers('x-razorpay-signature') signature = '',
+    @Headers('x-razorpay-event-id') eventId = '',
+  ) {
+    if (!request.rawBody) throw new BadRequestException('Raw webhook body is required.');
+    return this.service.webhook(request.rawBody, signature, eventId, clientId);
   }
 }
 @Controller('client/payments/razorpay/deployments')

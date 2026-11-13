@@ -51,24 +51,24 @@ export class RazorpayRecurringClient extends RazorpayClient {
   constructor(config: ConfigService, @Optional() configuration?: RazorpayConfigurationService) {
     super(config, configuration);
   }
-  async createRegistration(body: Record<string, unknown>, clientId?: string) {
+  async createRegistration(body: Record<string, unknown>, clientId?: string, configurationVersionId?: string | null) {
     return parse(
       registration,
-      await this.request('subscription_registration/auth_links', 'POST', body, clientId),
+      await this.request('subscription_registration/auth_links', 'POST', body, clientId, configurationVersionId),
     );
   }
-  async fetchRegistration(id: string, clientId?: string) {
+  async fetchRegistration(id: string, clientId?: string, configurationVersionId?: string | null) {
     remoteId('inv').parse(id);
-    return parse(registration, await this.request(`invoices/${id}`, 'GET', undefined, clientId));
+    return parse(registration, await this.request(`invoices/${id}`, 'GET', undefined, clientId, configurationVersionId));
   }
-  async findRegistrations(receipt: string, createdAt: Date, clientId?: string) {
+  async findRegistrations(receipt: string, createdAt: Date, clientId?: string, configurationVersionId?: string | null) {
     const found: RazorpayRegistration[] = [];
     // Receipt is not assumed to be a supported server-side invoice filter.
     for (let skip = 0; skip < 1000; skip += 100) {
       const page = parse(
         z.object({ items: z.array(z.unknown()) }),
         await this.request(
-          `invoices?from=${Math.floor(createdAt.getTime() / 1000) - 60}&count=100&skip=${skip}`, 'GET', undefined, clientId,
+          `invoices?from=${Math.floor(createdAt.getTime() / 1000) - 60}&count=100&skip=${skip}`, 'GET', undefined, clientId, configurationVersionId,
         ),
       );
       for (const item of page.items) {
@@ -85,29 +85,29 @@ export class RazorpayRecurringClient extends RazorpayClient {
     // Do not bind a partial search result: a second matching registration may exist.
     throw new RazorpayProviderError();
   }
-  async cancelRegistration(id: string, clientId?: string) {
+  async cancelRegistration(id: string, clientId?: string, configurationVersionId?: string | null) {
     remoteId('inv').parse(id);
     return parse(
       registration,
-      await this.request(`invoices/${id}/cancel`, 'POST', undefined, clientId),
+      await this.request(`invoices/${id}/cancel`, 'POST', undefined, clientId, configurationVersionId),
     );
   }
-  async fetchToken(customerId: string, tokenId: string, clientId?: string) {
+  async fetchToken(customerId: string, tokenId: string, clientId?: string, configurationVersionId?: string | null) {
     remoteId('cust').parse(customerId);
     remoteId('token').parse(tokenId);
     return parse(
       token,
-      await this.request(`customers/${customerId}/tokens/${tokenId}`, 'GET', undefined, clientId),
+      await this.request(`customers/${customerId}/tokens/${tokenId}`, 'GET', undefined, clientId, configurationVersionId),
     );
   }
-  async cancelToken(customerId: string, tokenId: string, clientId?: string) {
+  async cancelToken(customerId: string, tokenId: string, clientId?: string, configurationVersionId?: string | null) {
     remoteId('cust').parse(customerId);
     remoteId('token').parse(tokenId);
     return parse(
       z.object({ status: z.string() }),
       await this.request(
         `customers/${customerId}/tokens/${tokenId}/cancel`,
-        'PUT', undefined, clientId,
+        'PUT', undefined, clientId, configurationVersionId,
       ),
     );
   }
@@ -116,6 +116,7 @@ export class RazorpayRecurringClient extends RazorpayClient {
     receipt: string,
     tokenId: string,
     scheduledAt: Date, clientId?: string,
+    configurationVersionId?: string | null,
   ) {
     return parse(
       orderSchema,
@@ -130,7 +131,7 @@ export class RazorpayRecurringClient extends RazorpayClient {
           payment_after: Math.ceil(scheduledAt.getTime() / 1000),
         },
         notes: { purpose: 'AUTOPAY_DEBIT', reference: receipt },
-      }, clientId),
+      }, clientId, configurationVersionId),
     );
   }
   async createRecurringPayment(input: {
@@ -141,6 +142,7 @@ export class RazorpayRecurringClient extends RazorpayClient {
     email: string;
     contact: string;
     clientId?: string;
+    configurationVersionId?: string | null;
   }) {
     return parse(
       z.object({ razorpay_payment_id: remoteId('pay') }),
@@ -154,18 +156,18 @@ export class RazorpayRecurringClient extends RazorpayClient {
         contact: input.contact,
         recurring: true,
         description: 'EVsEye recurring invoice payment',
-      }, input.clientId),
+      }, input.clientId, input.configurationVersionId),
     );
   }
-  async recurringPayment(id: string, clientId?: string) {
+  async recurringPayment(id: string, clientId?: string, configurationVersionId?: string | null) {
     remoteId('pay').parse(id);
-    return parse(recurringPayment, await this.request(`payments/${id}`, 'GET', undefined, clientId));
+    return parse(recurringPayment, await this.request(`payments/${id}`, 'GET', undefined, clientId, configurationVersionId));
   }
-  async recurringOrderPayments(id: string, clientId?: string) {
+  async recurringOrderPayments(id: string, clientId?: string, configurationVersionId?: string | null) {
     remoteId('order').parse(id);
     return parse(
       z.object({ items: z.array(recurringPayment) }),
-      await this.request(`orders/${id}/payments`, 'GET', undefined, clientId),
+      await this.request(`orders/${id}/payments`, 'GET', undefined, clientId, configurationVersionId),
     ).items;
   }
 }
