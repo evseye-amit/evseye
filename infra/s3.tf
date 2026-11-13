@@ -9,7 +9,13 @@ resource "aws_s3_bucket_cors_configuration" "media" {
   bucket = aws_s3_bucket.media.id
 
   cors_rule {
-    allowed_origins = ["https://${var.web_subdomain}.${var.root_domain}"]
+    # Client operations runs on tenant subdomains (for example
+    # pinkrides.evseye.com), while the generic app host remains supported.
+    # Keep the bucket private; this only permits browser CORS for signed URLs.
+    allowed_origins = [
+      "https://${var.web_subdomain}.${var.root_domain}",
+      "https://*.${var.root_domain}",
+    ]
     allowed_methods = ["PUT", "GET", "HEAD"]
     allowed_headers = ["Content-Type"]
     expose_headers  = ["ETag"]
