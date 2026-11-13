@@ -79,6 +79,8 @@ describe.skipIf(!url)('Razorpay rental invoices through the common API', () => {
     const gateway = {
       enabled: true,
       keyId: 'rzp_test_rental',
+        keyIdFor: vi.fn().mockResolvedValue('rzp_test_rental'),
+        configurationFor: vi.fn().mockResolvedValue({ keyId: 'rzp_test_rental', environment: 'TEST' }),
       assertConfigured: vi.fn(),
       verifyCheckout: vi.fn(
         (order: string, payment: string, signature: string) =>

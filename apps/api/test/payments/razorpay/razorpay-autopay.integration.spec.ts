@@ -90,6 +90,8 @@ describe.skipIf(!url)(
       };
       const gateway = {
         keyId: 'rzp_test_example',
+        keyIdFor: vi.fn().mockResolvedValue('rzp_test_example'),
+        configurationFor: vi.fn().mockResolvedValue({ keyId: 'rzp_test_example', environment: 'TEST' }),
         assertConfigured: vi.fn(),
         createRegistration: vi.fn(async () => registration),
         fetchRegistration: vi.fn(async () => registration),

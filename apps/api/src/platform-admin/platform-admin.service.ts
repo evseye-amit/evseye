@@ -65,37 +65,26 @@ export class PlatformAdminService {
     const providers = await this.prisma.clientPaymentProvider.findMany({
       where: { clientId },
       orderBy: [{ provider: 'asc' }, { environment: 'asc' }],
-      select: { id: true, provider: true, environment: true, merchantAccountId: true, keyId: true, secretReference: true, status: true, validFrom: true, validUntil: true, createdAt: true, updatedAt: true },
+      select: { id: true, currentVersion: true, provider: true, environment: true, merchantAccountId: true, keyId: true, secretReference: true, status: true, validFrom: true, validUntil: true, createdAt: true, updatedAt: true },
     });
     return Promise.all(providers.map(async (provider) => {
       let resolved = false;
       if (provider.status === 'ACTIVE') {
         try {
-          if (this.razorpayConfiguration) await this.razorpayConfiguration.resolve(clientId, provider.environment);
-          resolved = true;
+          if (provider.provider === 'RAZORPAY' && this.razorpayConfiguration) {
+            await this.razorpayConfiguration.resolve(clientId, provider.environment);
+            resolved = true;
+          }
         } catch { /* keep the health result false without exposing secrets */ }
       }
-      return { ...provider, resolved };
+      return { ...provider, resolved, connectivityVerified: false };
     }));
   }
 
   async upsertClientPaymentProvider(clientId: string, dto: UpsertClientPaymentProviderDto, actorId: string) {
-    await this.prisma.client.findUniqueOrThrow({ where: { id: clientId }, select: { id: true } });
-    if (!dto.secretReference.startsWith('env:')) {
-      throw new UnprocessableEntityException('Payment secrets must be stored in the server secret store and referenced with env:<name>.');
-    }
-    if (!/^env:[A-Z][A-Z0-9_]{2,127}$/.test(dto.secretReference) || !/^rzp_(test|live)_[A-Za-z0-9]+$/.test(dto.keyId)) {
-      throw new UnprocessableEntityException('Provide a valid Razorpay key ID and an uppercase environment secret reference.');
-    }
-    const record = await this.prisma.clientPaymentProvider.upsert({
-      where: { clientId_provider_environment: { clientId, provider: dto.provider, environment: dto.environment } },
-      create: { clientId, provider: dto.provider, environment: dto.environment, keyId: dto.keyId, secretReference: dto.secretReference, merchantAccountId: dto.merchantAccountId, status: dto.status ?? 'ACTIVE' },
-      update: { keyId: dto.keyId, secretReference: dto.secretReference, merchantAccountId: dto.merchantAccountId, status: dto.status ?? 'ACTIVE' },
-      select: { id: true, provider: true, environment: true, merchantAccountId: true, keyId: true, status: true, validFrom: true, validUntil: true, updatedAt: true },
-    });
-    await this.audit.record({ actorId, action: 'CLIENT_PAYMENT_PROVIDER_UPDATED', entityType: 'ClientPaymentProvider', entityId: record.id, newData: { clientId, provider: record.provider, environment: record.environment, keyId: record.keyId, merchantAccountId: record.merchantAccountId, status: record.status } });
-    return record;
+    return this.razorpayConfiguration.save(clientId, dto, actorId);
   }
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,

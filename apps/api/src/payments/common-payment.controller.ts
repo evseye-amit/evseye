@@ -27,6 +27,10 @@ export class CommonPaymentController {
     private readonly payments: CommonPaymentService,
     private readonly clients: ClientContextService,
   ) {}
+  @Get('capabilities')
+  async capabilities(@CurrentUser() user: AuthUser) {
+    return { data: await this.payments.capabilities(this.clients.requireClientId(user), user.id) };
+  }
   @Post()
   @HttpCode(200)
   @ApiOperation({
@@ -59,7 +63,7 @@ export class CommonPaymentController {
             provider: {
               type: 'string',
               enum: ['RAZORPAY', 'CASHFREE'],
-              default: 'RAZORPAY',
+              description: 'Optional assertion of the server-selected client policy; cannot override it.',
             },
             amount: { type: 'string', example: '500.00' },
           },
@@ -83,7 +87,7 @@ export class CommonPaymentController {
               type: 'string',
               enum: ['RAZORPAY', 'CASHFREE'],
               description:
-                'RAZORPAY supports rental invoices. Omit to retain the configured checkout provider.',
+                'RAZORPAY supports rental invoices. Omit to use the client policy; a different provider is rejected.',
             },
             invoiceId: { type: 'string', format: 'uuid' },
             useWallet: { type: 'boolean' },
@@ -168,5 +172,12 @@ export class CommonPaymentController {
         body,
       ),
     };
+  }
+
+  @Post(':paymentRequestId/reconcile')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Recover an owned payment using server-side gateway evidence without an SDK callback' })
+  async reconcile(@CurrentUser() user: AuthUser, @Param('paymentRequestId') id: string) {
+    return { data: await this.payments.reconcile(this.clients.requireClientId(user), user.id, id) };
   }
 }
