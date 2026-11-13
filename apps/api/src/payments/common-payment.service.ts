@@ -233,6 +233,7 @@ export class CommonPaymentService {
     const collection = await this.db.paymentCollectionRequest.findFirst({
       where: { id: recordId, clientId, riderId },
       include: {
+        riderPayment: { select: { refundedAmount: true, refunds: { where: { status: { in: ['CREATING', 'UNKNOWN', 'PENDING', 'PROCESSING'] } }, select: { id: true } } } },
         razorpayPenaltyOrder: {
           include: { captures: { orderBy: { createdAt: 'desc' } } },
         },
@@ -301,8 +302,11 @@ export class CommonPaymentService {
     const review = order?.captures.find(
       (capture) => capture.status !== 'SETTLED',
     );
+    const refundedAmount = c.riderPayment?.refundedAmount ?? new Prisma.Decimal(0);
+    const refundState = refundedAmount.gte(c.amount) && refundedAmount.gt(0) ? 'REFUNDED'
+      : c.riderPayment?.refunds.length ? 'REFUND_PENDING' : null;
     const status = commonPaymentStatus(
-      review?.status ?? c.status,
+      review?.status ?? refundState ?? c.status,
       review?.reason ?? c.failureCode,
     );
     const action = nextAction(status);
@@ -312,6 +316,7 @@ export class CommonPaymentService {
       provider: c.provider,
       status,
       amount: c.amount.toFixed(2),
+      refundedAmount: refundedAmount.toFixed(2),
       currency: c.currency,
       invoiceId: c.invoiceId,
       depositId: c.depositId,

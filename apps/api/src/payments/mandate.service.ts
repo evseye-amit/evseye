@@ -172,6 +172,7 @@ export class MandateService {
     method?: string;
     provider?: string;
     providerKeyId?: string | null;
+    providerEnvironment?: string | null;
     authorizationUrl?: string | null;
     providerCancelRequestedAt?: Date | null;
   }) {
@@ -191,7 +192,7 @@ export class MandateService {
       currency: mandate.currency,
       expiresAt: mandate.expiresAt.toISOString(),
       authorizedAt: mandate.authorizedAt?.toISOString() ?? null,
-      environment: mandate.provider === 'RAZORPAY' ? (mandate.providerKeyId?.startsWith('rzp_live_') ? 'PRODUCTION' : 'SANDBOX') : this.config.getOrThrow('CASHFREE_ENVIRONMENT'),
+      environment: mandate.provider === 'RAZORPAY' ? (mandate.providerKeyId?.startsWith('rzp_live_') ? 'PRODUCTION' : 'SANDBOX') : mandate.providerEnvironment ?? this.config.getOrThrow('CASHFREE_ENVIRONMENT'),
     };
   }
 
@@ -269,7 +270,7 @@ export class MandateService {
     });
     if (previous) {
       if (previous.method && previous.method !== method) throw new ConflictException('Idempotency-Key was used for another mandate method.');
-      const provider = this.providers?.forProvider(previous.provider) ?? this.provider;
+      const provider = (await this.providers?.forClient(previous.provider, previous.clientId, previous.configurationVersionId ?? null)) ?? this.provider;
       if (previous.status === 'CREATING' || previous.status === 'UNKNOWN') {
         try {
           return this.view(
@@ -293,7 +294,7 @@ export class MandateService {
         'An AutoPay mandate already exists for this rider. Verify its status before creating another.',
       );
     const providerName = this.providers ? await this.providers.selectedFor(clientId, method) : this.config.getOrThrow('PAYMENT_PROVIDER').toUpperCase();
-    const provider: import('./autopay-provider.interface.js').AutoPayProvider = this.providers?.forProvider(providerName) ?? this.provider;
+    const provider: import('./autopay-provider.interface.js').AutoPayProvider = (await this.providers?.forClient(providerName, clientId)) ?? this.provider;
     const expiresAt = new Date(Date.now() + validityDays * 86400000);
     const providerMandateId = `EVSEYE_${randomUUID().replaceAll('-', '')}`;
     const input = {
@@ -318,6 +319,8 @@ export class MandateService {
           riderId: rider.id,
           requestKey,
           provider: providerName,
+          configurationVersionId: provider.configurationVersionId,
+          providerEnvironment: provider.environment,
           providerMandateId,
           status: 'CREATING',
           maxAmount,
@@ -486,7 +489,7 @@ export class MandateService {
       where: { id: mandateId, clientId, riderId: rider.id },
     });
     if (!mandate) throw new NotFoundException('AutoPay mandate not found.');
-    const result = await (this.providers?.forProvider(mandate.provider) ?? this.provider).fetchMandate(mandate.providerMandateId);
+    const result = await ((await this.providers?.forClient(mandate.provider, mandate.clientId, mandate.configurationVersionId ?? null)) ?? this.provider).fetchMandate(mandate.providerMandateId);
     return this.view(
       await this.applyProviderResult(mandate.id, result, 'VERIFY'),
     );
@@ -494,7 +497,7 @@ export class MandateService {
 
   async reconcileStored(mandateId: string) {
     const mandate = await this.prisma.paymentMandate.findUniqueOrThrow({ where: { id: mandateId } });
-    const provider = this.providers?.forProvider(mandate.provider) ?? this.provider;
+    const provider = (await this.providers?.forClient(mandate.provider, mandate.clientId, mandate.configurationVersionId ?? null)) ?? this.provider;
     return this.applyProviderResult(mandate.id, await provider.fetchMandate(mandate.providerMandateId), 'RECONCILE');
   }
 
@@ -516,7 +519,7 @@ export class MandateService {
     });
     if (!mandate) throw new NotFoundException('AutoPay mandate not found.');
     if (mandate.status === 'CANCELLED') return this.view(mandate);
-    const result = await (this.providers?.forProvider(mandate.provider) ?? this.provider).cancelMandate(
+    const result = await ((await this.providers?.forClient(mandate.provider, mandate.clientId, mandate.configurationVersionId ?? null)) ?? this.provider).cancelMandate(
       mandate.providerMandateId,
       requestKey,
     );
@@ -535,7 +538,7 @@ export class MandateService {
     if (action === 'RESUME' && mandate.status === 'ACTIVE') return this.view(mandate);
     if (action === 'PAUSE' && mandate.status !== 'ACTIVE') throw new ConflictException('Only an active mandate can be paused.');
     if (action === 'RESUME' && mandate.status !== 'PAUSED') throw new ConflictException('Only a paused mandate can be resumed.');
-    const provider = this.providers?.forProvider(mandate.provider) ?? this.provider;
+    const provider = (await this.providers?.forClient(mandate.provider, mandate.clientId, mandate.configurationVersionId ?? null)) ?? this.provider;
     const result = action === 'PAUSE'
       ? await provider.pauseMandate(mandate.providerMandateId, requestKey)
       : await provider.resumeMandate(mandate.providerMandateId, requestKey);
@@ -561,16 +564,11 @@ export class MandateService {
       throw new ServiceUnavailableException(
         'Cashfree webhooks are unavailable.',
       );
-    const verified = this.providers ? this.providers.verifyCashfreeWebhook(rawBody, timestamp, signature) : this.provider.verifyWebhook(rawBody, timestamp, signature);
-    const payload = verified.payload as Record<string, unknown>;
+    let payload: Record<string, unknown>;
+    try { payload = JSON.parse(rawBody.toString()); if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error(); } catch { throw new BadRequestException('Invalid webhook.'); }
     const eventType = typeof payload.type === 'string' ? payload.type : '';
     const hash = createHash('sha256').update(rawBody).digest('hex');
     const eventKey = hash;
-    const existing = await this.prisma.paymentProviderEvent.findUnique({
-      where: { provider_eventKey: { provider: 'CASHFREE', eventKey } },
-    });
-    if (existing?.status === 'PROCESSED' || existing?.status === 'IGNORED')
-      return { accepted: true, duplicate: true };
     const data =
       payload.data && typeof payload.data === 'object'
         ? (payload.data as Record<string, unknown>)
@@ -590,6 +588,15 @@ export class MandateService {
           where: { providerMandateId },
         })
       : null;
+    if (mandate && mandate.provider !== 'CASHFREE') throw new BadRequestException('Webhook provider mismatch.');
+    if (this.providers && mandate) await this.providers.verifyCashfreeForClient(mandate.clientId, mandate.configurationVersionId ?? null, rawBody, timestamp, signature);
+    else if (this.providers) this.providers.verifyCashfreeWebhook(rawBody, timestamp, signature);
+    else this.provider.verifyWebhook(rawBody, timestamp, signature);
+    const existing = await this.prisma.paymentProviderEvent.findUnique({
+      where: { provider_eventKey: { provider: 'CASHFREE', eventKey } },
+    });
+    if (existing?.status === 'PROCESSED' || existing?.status === 'IGNORED')
+      return { accepted: true, duplicate: true };
     const supported =
       eventType === 'SUBSCRIPTION_STATUS_CHANGED' ||
       eventType === 'SUBSCRIPTION_AUTH_STATUS';
@@ -617,6 +624,7 @@ export class MandateService {
         status: 'RECEIVED',
         clientId: mandate?.clientId,
         mandateId: mandate?.id,
+        configurationVersionId: mandate?.configurationVersionId,
       },
       update: {},
     });
@@ -638,7 +646,7 @@ export class MandateService {
         paymentTransactionId = await this.collections.processWebhook(mandate!.clientId, providerMandateId, providerPaymentId);
       }
       if (supported) {
-        const result = await (this.providers?.forProvider('CASHFREE') ?? this.provider).fetchMandate(providerMandateId);
+        const result = await ((await this.providers?.forClient('CASHFREE', mandate!.clientId, mandate!.configurationVersionId ?? null)) ?? this.provider).fetchMandate(providerMandateId);
         await this.applyProviderResult(
           mandate!.id,
           result,

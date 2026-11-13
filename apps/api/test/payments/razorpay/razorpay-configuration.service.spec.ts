@@ -102,3 +102,13 @@ describe('Explicit merchant configuration fails closed', () => {
     await expect(subject.resolve('client')).rejects.toMatchObject({ response: { code: 'RAZORPAY_UNAVAILABLE' } });
   });
 });
+
+describe('configuration edit concurrency', () => {
+  it.each(['NEW', '2026-11-13T00:00:00.000Z'])('rejects stale revision %s before any mutation', async expectedRevision => {
+    const tx = { $queryRaw: vi.fn().mockResolvedValue([{ id: 'client' }]), clientPaymentProvider: { findUnique: vi.fn().mockResolvedValue({ updatedAt: new Date('2026-11-14T00:00:00.000Z') }), upsert: vi.fn() } };
+    const db = { $transaction: (fn: (value: unknown) => unknown) => fn(tx) };
+    const subject = new RazorpayConfigurationService(db as never, { get: () => JSON.stringify({ keySecret: 'secret', webhookSecret: 'hook' }) } as never);
+    await expect(subject.save('client', { provider: 'RAZORPAY', environment: 'TEST', keyId: 'rzp_test_example', secretReference: 'env:CLIENT_V2', expectedRevision }, 'admin')).rejects.toMatchObject({ response: { code: 'PAYMENT_CONFIGURATION_CHANGED' } });
+    expect(tx.clientPaymentProvider.upsert).not.toHaveBeenCalled();
+  });
+});

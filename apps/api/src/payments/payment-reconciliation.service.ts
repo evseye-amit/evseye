@@ -28,7 +28,10 @@ export class PaymentReconciliationService {
       take: 200,
     });
   }
-  async report(clientId: string, riderId?: string) {
+  async report(clientId: string, riderId?: string, page = 1) {
+    const limit = 200;
+    const paging = { skip: (page - 1) * limit, take: limit + 1 };
+
     const [
       checkouts,
       subscriptions,
@@ -43,17 +46,18 @@ export class PaymentReconciliationService {
         where: { clientId, ...(riderId ? { riderId } : {}) },
         include: {
           riderPayment: true,
+          razorpayPenaltyOrder: { select: { configurationVersionId: true } },
           depositTransaction: true,
           invoice: { select: { invoiceType: true } },
         },
-        orderBy: { createdAt: 'desc' },
-        take: 200,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        ...paging,
       }),
       this.prisma.paymentTransaction.findMany({
         where: { clientId, ...(riderId ? { riderId } : {}) },
         include: { riderPayment: true },
-        orderBy: { createdAt: 'desc' },
-        take: 200,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        ...paging,
       }),
       this.prisma.riderPayment.findMany({
         where: {
@@ -63,12 +67,13 @@ export class PaymentReconciliationService {
           unallocatedAmount: { gt: 0 },
         },
         select: { id: true, riderId: true, unallocatedAmount: true },
+        orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }], ...paging,
       }),
       this.prisma.paymentRefund.findMany({
         where: { clientId, ...(riderId ? { riderId } : {}) },
         include: { payment: true },
-        orderBy: { requestedAt: 'desc' },
-        take: 200,
+        orderBy: [{ requestedAt: 'desc' }, { id: 'desc' }],
+        ...paging,
       }),
       this.prisma.paymentProviderEvent.findMany({
         where: {
@@ -77,8 +82,8 @@ export class PaymentReconciliationService {
           ...(riderId ? { collectionRequest: { is: { riderId } } } : {}),
         },
         include: { collectionRequest: { select: { riderId: true } } },
-        orderBy: { receivedAt: 'desc' },
-        take: 200,
+        orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }],
+        ...paging,
       }),
       this.prisma.providerPaymentObservation.findMany({
         where: {
@@ -87,8 +92,8 @@ export class PaymentReconciliationService {
           ...(riderId ? { riderId } : {}),
         },
         select: { id: true, riderId: true, amount: true, reviewCode: true },
-        orderBy: { observedAt: 'desc' },
-        take: 200,
+        orderBy: [{ observedAt: 'desc' }, { id: 'desc' }],
+        ...paging,
       }),
       this.prisma.providerSettlementItem.findMany({
         where: { clientId, status: { not: 'MATCHED' } },
@@ -99,24 +104,24 @@ export class PaymentReconciliationService {
           reviewCode: true,
           settlementId: true,
         },
-        orderBy: { createdAt: 'desc' },
-        take: 200,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        ...paging,
       }),
       this.prisma.deploymentPaymentAttempt.findMany({
         where: { clientId, payment: { workflow: { allocation: { clientId, ...(riderId ? { riderId } : {}) } } } },
         include: { captures: true, payment: { include: { workflow: { include: { allocation: { select: { riderId: true } } } } } } },
-        orderBy: { createdAt: 'desc' }, take: 200,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], ...paging,
       }),
     ]);
     const items = [
-      ...checkouts.map((request) => ({
+      ...checkouts.slice(0, limit).map((request) => ({
         source: 'CHECKOUT',
         id: request.id,
         riderId: request.riderId,
         provider: request.provider,
         paymentId: request.riderPaymentId,
-        refundSupported: request.provider === 'CASHFREE' && request.collectionType !== 'TOP_UP' && Boolean(request.riderPaymentId),
-        refundReviewReason: request.provider === 'RAZORPAY' ? 'Razorpay refunds require support review.' : request.collectionType === 'TOP_UP' ? 'Wallet top-ups are non-refundable.' : null,
+        refundSupported: request.collectionType !== 'TOP_UP' && Boolean(request.riderPaymentId) && request.riderPayment?.status === 'CONFIRMED' && (request.provider === 'CASHFREE' || (request.provider === 'RAZORPAY' && Boolean(request.razorpayPenaltyOrder?.configurationVersionId))),
+        refundReviewReason: request.provider === 'RAZORPAY' && !request.razorpayPenaltyOrder?.configurationVersionId ? 'Historical merchant binding requires support review.' : request.collectionType === 'TOP_UP' ? 'Wallet top-ups are non-refundable.' : null,
         state:
           request.failureCode?.endsWith('_REVIEW') ||
           request.failureCode === 'PROVIDER_PAYMENT_MISMATCH'
@@ -139,14 +144,14 @@ export class PaymentReconciliationService {
                       : request.status,
         amount: request.amount.toFixed(2),
       })),
-      ...subscriptions.map((transaction) => ({
+      ...subscriptions.slice(0, limit).map((transaction) => ({
         source: 'AUTOPAY',
         id: transaction.id,
         riderId: transaction.riderId,
         provider: transaction.provider,
         paymentId: transaction.riderPaymentId,
-        refundSupported: transaction.provider === 'CASHFREE' && Boolean(transaction.riderPaymentId),
-        refundReviewReason: transaction.provider === 'RAZORPAY' ? 'Razorpay AutoPay refunds require support review.' : null,
+        refundSupported: Boolean(transaction.riderPaymentId) && transaction.riderPayment?.status === 'CONFIRMED' && (transaction.provider === 'CASHFREE' || (transaction.provider === 'RAZORPAY' && Boolean(transaction.configurationVersionId && transaction.gatewayPaymentId))),
+        refundReviewReason: transaction.provider === 'RAZORPAY' && !transaction.configurationVersionId ? 'Historical merchant binding requires support review.' : null,
         state:
           transaction.status === 'SUCCESS' && !transaction.riderPaymentId
             ? 'LEGACY_SETTLED'
@@ -160,18 +165,21 @@ export class PaymentReconciliationService {
                   : transaction.status,
         amount: transaction.amount.toFixed(2),
       })),
-      ...payments.map((payment) => ({
+      ...payments.slice(0, limit).map((payment) => ({
         source: 'RECEIPT',
         id: payment.id,
         riderId: payment.riderId,
         state: 'UNALLOCATED_PAYMENT',
         amount: payment.unallocatedAmount.toFixed(2),
       })),
-      ...refunds.map((refund) => ({
+      ...refunds.slice(0, limit).map((refund) => ({
         source: 'REFUND',
         id: refund.id,
         riderId: refund.riderId,
         provider: refund.provider,
+        providerRefundId: refund.provider === 'RAZORPAY' ? refund.providerReference : refund.providerRefundId,
+        requestedAt: refund.requestedAt,
+        aged: !['SUCCESS', 'FAILED', 'CANCELLED'].includes(refund.status) && refund.requestedAt.getTime() < Date.now() - 86400000,
         paymentId: refund.paymentId,
         state:
           refund.status === 'SUCCESS' &&
@@ -184,21 +192,21 @@ export class PaymentReconciliationService {
                 : refund.status,
         amount: refund.amount.toFixed(2),
       })),
-      ...events.map((event) => ({
+      ...events.slice(0, limit).map((event) => ({
         source: 'WEBHOOK',
         id: event.id,
         riderId: event.collectionRequest?.riderId ?? null,
         state: 'MANUAL_REVIEW_REQUIRED',
         amount: null,
       })),
-      ...observations.map((observation) => ({
+      ...observations.slice(0, limit).map((observation) => ({
         source: 'PROVIDER_PAYMENT',
         id: observation.id,
         riderId: observation.riderId,
         state: 'MANUAL_REVIEW_REQUIRED',
         amount: observation.amount?.toFixed(2) ?? null,
       })),
-      ...settlementItems.map((item) => ({
+      ...settlementItems.slice(0, limit).map((item) => ({
         source: 'SETTLEMENT',
         id: item.id,
         riderId: null,
@@ -207,7 +215,7 @@ export class PaymentReconciliationService {
         settlementId: item.settlementId,
         reviewCode: item.reviewCode,
       })),
-      ...deploymentAttempts.map(attempt => ({
+      ...deploymentAttempts.slice(0, limit).map(attempt => ({
         source: 'DEPLOYMENT', id: attempt.id,
         riderId: attempt.payment.workflow.allocation.riderId,
         allocationId: attempt.payment.workflow.allocationId,
@@ -223,8 +231,13 @@ export class PaymentReconciliationService {
         })),
       })),
     ];
+    const riderIds = [...new Set(items.flatMap(item => item.riderId ? [item.riderId] : []))];
+    const riders = riderIds.length ? await this.prisma.rider.findMany({ where: { clientId, id: { in: riderIds } }, select: { id: true, name: true, riderCode: true } }) : [];
+    const labels = new Map(riders.map(rider => [rider.id, rider]));
     return {
-      items,
+      items: items.map(item => ({ ...item, riderName: labels.get(item.riderId ?? '')?.name ?? null, riderCode: labels.get(item.riderId ?? '')?.riderCode ?? null })),
+      page,
+      hasMore: [checkouts, subscriptions, payments, refunds, events, observations, settlementItems, deploymentAttempts].some(rows => rows.length > limit),
       reviewRequired: items.filter((item) =>
         [
           'PROVIDER_SUCCESS_LOCAL_PENDING',

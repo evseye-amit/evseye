@@ -1,3 +1,4 @@
+import { unaccountedRefund } from './razorpay-refund-evidence.js';
 import {
   BadRequestException,
   ConflictException,
@@ -574,7 +575,9 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
     const captures = remotes.filter(
       (p) => p.captured && ['captured', 'refunded'].includes(p.status),
     );
+    const externalRefunds = new Set<string>();
     for (const payment of captures) {
+      if (await unaccountedRefund(this.db, t.clientId, t.gatewayPaymentId === payment.id ? t.riderPaymentId : null, payment)) externalRefunds.add(payment.id);
       const existing = await this.db.razorpayAutoPayCapture.findUnique({
         where: { providerPaymentId: payment.id },
       });
@@ -585,7 +588,7 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
       const reason =
         captures.length > 1
           ? 'MULTIPLE_CAPTURES_REQUIRE_REVIEW'
-          : payment.amount_refunded > 0 || payment.status === 'refunded'
+          : externalRefunds.has(payment.id)
             ? 'EXTERNAL_REFUND_REQUIRES_REVIEW'
             : null;
       await this.db.razorpayAutoPayCapture.upsert({
@@ -612,7 +615,7 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
     }
     if (
       captures.length > 1 ||
-      captures.some((p) => p.amount_refunded > 0 || p.status === 'refunded')
+      externalRefunds.size > 0
     )
       return this.paymentResult(m, t, 'UNKNOWN', 'CAPTURE_REQUIRES_REVIEW', {
         failureCode:

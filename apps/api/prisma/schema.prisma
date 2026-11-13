@@ -861,6 +861,7 @@ enum FleetOperatingMode {
 }
 
 model Client {
+ paymentOperationalAlerts PaymentOperationalAlert[]
   readinessPolicies FleetReadinessPolicy[]
   fleetOperatingMode FleetOperatingMode @default(SIMPLE)
   penaltyHandoverExceptions PenaltyHandoverException[]
@@ -971,6 +972,8 @@ model Client {
 }
 
 model PaymentProviderConfigurationVersion {
+  collections PaymentCollectionRequest[]
+  settlements ProviderSettlement[]
   id String @id @default(uuid())
   clientId String
   providerConfigurationId String
@@ -2197,6 +2200,7 @@ model Rider {
 }
 
 model PaymentMandate {
+  providerEnvironment String? @db.VarChar(16)
   configurationVersionId String?
   configurationVersion PaymentProviderConfigurationVersion? @relation(fields: [clientId, configurationVersionId], references: [clientId, id], onDelete: Restrict, map: "PaymentMandate_configurationVersion_fkey")
   id                     String                 @id @default(uuid())
@@ -2401,6 +2405,8 @@ model AutoPayDunningCase {
 }
 
 model PaymentCollectionRequest {
+  configurationVersionId String?
+  configurationVersion PaymentProviderConfigurationVersion? @relation(fields: [configurationVersionId, clientId], references: [id, clientId], onDelete: Restrict)
   id                   String                       @id @default(uuid())
   paymentNumber        String?                      @unique @db.VarChar(50)
   clientId             String
@@ -2871,6 +2877,9 @@ model RiderPaymentAllocation {
 }
 
 model PaymentRefund {
+  origin String @default("INTERNAL") @db.VarChar(16)
+  externalReference String? @db.VarChar(120)
+  @@unique([clientId, provider, externalReference])
   id                String       @id @default(uuid())
   refundNumber      String?      @unique @db.VarChar(50)
   clientId          String
@@ -2896,8 +2905,31 @@ model PaymentRefund {
   @@index([clientId, riderId, status])
 }
 
+/// Database leases coordinate at-least-once recovery across API replicas.
+model PaymentAutomationJob {
+  key String @id
+  leaseToken String?
+  leaseUntil DateTime?
+  nextAttemptAt DateTime @default(now())
+  attempts Int @default(0)
+  lastError String?
+  lastSucceededAt DateTime?
+  updatedAt DateTime @default(now())
+  @@index([nextAttemptAt])
+}
+
 /// Provider statement import. No rider balance is inferred from an unmatched row.
 model ProviderSettlement {
+  source String @default("MANUAL") @db.VarChar(20)
+  configurationVersion PaymentProviderConfigurationVersion? @relation(fields: [configurationVersionId, clientId], references: [id, clientId], onDelete: Restrict, map: "ProviderSettlement_merchant_fkey")
+  configurationVersionId String?
+  bankConfirmedAt DateTime?
+  bankConfirmedById String?
+  bankCreditedAt DateTime?
+  bankUtr String? @db.VarChar(160)
+  bankAccountLast4 String? @db.VarChar(4)
+  bankEvidenceReference String? @db.VarChar(300)
+  @@unique([clientId, bankUtr])
   id                   String                   @id @default(uuid())
   clientId             String
   provider             String                   @db.VarChar(30)
@@ -6609,4 +6641,19 @@ model RazorpayAutoPayCapture {
   updatedAt DateTime @updatedAt
   @@index([transactionId, createdAt])
   @@index([status, createdAt])
+}
+
+model PaymentOperationalAlert {
+ client Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+ id String @id @default(uuid())
+ clientId String
+ kind String @db.VarChar(40)
+ referenceId String
+ routedRole String @default("CLIENT_ADMIN") @db.VarChar(30)
+ assigneeId String?
+ acknowledgedAt DateTime?
+ acknowledgedById String?
+ createdAt DateTime @default(now())
+ @@unique([clientId, kind, referenceId])
+ @@index([clientId, createdAt])
 }

@@ -21,10 +21,12 @@ export class RazorpayConfigurationService {
     private readonly config: ConfigService,
   ) {}
 
-  async resolve(clientId: string, environment?: string): Promise<RazorpayCredentials> {
-    environment ??= this.config.get<string>('RAZORPAY_ENVIRONMENT')?.toUpperCase();
+  async resolve(clientId: string, environment?: string, provider = 'RAZORPAY'): Promise<RazorpayCredentials> {
+    // Use the same deployment policy environment for all client merchants.
+    environment ??= this.config.get<string>('RAZORPAY_ENVIRONMENT')?.toUpperCase() ?? 'TEST';
+    if (environment === 'SANDBOX') environment = 'TEST';
     const configured = await this.db.clientPaymentProvider.findFirst({
-      where: { clientId, provider: 'RAZORPAY', ...(environment ? { environment } : {}) },
+      where: { clientId, provider, ...(environment ? { environment } : {}) },
       orderBy: { validFrom: 'desc' },
     });
     if (configured) {
@@ -37,9 +39,17 @@ export class RazorpayConfigurationService {
       });
       if (!version || version.keyId !== configured.keyId || version.secretReference !== configured.secretReference || version.environment !== configured.environment || (version.merchantAccountId ?? null) !== (configured.merchantAccountId ?? null))
         throw this.unavailable();
-      return this.resolveVersion(clientId, version.id);
+      return this.resolveVersion(clientId, version.id, provider);
     }
 
+    if (provider === 'CASHFREE') {
+      const keyId = this.config.get<string>('CASHFREE_CLIENT_ID');
+      const keySecret = this.config.get<string>('CASHFREE_CLIENT_SECRET');
+      const webhookSecret = this.config.get<string>('CASHFREE_WEBHOOK_SECRET');
+      if (keyId && keySecret && webhookSecret) return { keyId, keySecret, webhookSecret, environment: this.config.get<string>('CASHFREE_ENVIRONMENT') ?? 'SANDBOX' };
+      throw this.unavailable();
+    }
+    if (provider !== 'RAZORPAY') throw this.unavailable();
     const allowlist = (this.config.get<string>('RAZORPAY_CLIENT_IDS') ?? '').split(',').map((value) => value.trim()).filter(Boolean);
     if (allowlist.includes(clientId)) {
       const keyId = this.config.get<string>('RAZORPAY_KEY_ID');
@@ -50,8 +60,8 @@ export class RazorpayConfigurationService {
     throw this.unavailable();
   }
 
-  async resolveVersion(clientId: string, versionId: string): Promise<RazorpayCredentials> {
-    const version = await this.db.paymentProviderConfigurationVersion.findFirst({ where: { id: versionId, clientId, provider: 'RAZORPAY' } });
+  async resolveVersion(clientId: string, versionId: string, provider = 'RAZORPAY'): Promise<RazorpayCredentials> {
+    const version = await this.db.paymentProviderConfigurationVersion.findFirst({ where: { id: versionId, clientId, provider } });
     if (!version) throw this.unavailable();
     const secret = this.readSecretReference(version.secretReference);
     if (!secret) throw this.unavailable();
@@ -74,9 +84,11 @@ export class RazorpayConfigurationService {
   }
 
   async save(clientId: string, dto: UpsertClientPaymentProviderDto, actorId: string) {
-    if (dto.provider !== 'RAZORPAY' || !/^env:[A-Z][A-Z0-9_]{2,127}$/.test(dto.secretReference) ||
-        !new RegExp(dto.environment === 'TEST' ? '^rzp_test_[A-Za-z0-9]+$' : '^rzp_live_[A-Za-z0-9]+$').test(dto.keyId))
-      throw new UnprocessableEntityException('Provide a Razorpay key matching the environment and a versioned env secret reference.');
+    const validKey = dto.provider === 'RAZORPAY'
+      ? new RegExp(dto.environment === 'TEST' ? '^rzp_test_[A-Za-z0-9]+$' : '^rzp_live_[A-Za-z0-9]+$').test(dto.keyId)
+      : dto.provider === 'CASHFREE' && /^[A-Za-z0-9_-]{3,128}$/.test(dto.keyId);
+    if (!validKey || !/^env:[A-Z][A-Z0-9_]{2,127}$/.test(dto.secretReference))
+      throw new UnprocessableEntityException('Provide a supported merchant key and versioned env secret reference.');
     const secret = this.readSecretReference(dto.secretReference);
     if (!secret) throw this.unavailable();
     const fingerprint = this.fingerprint(dto.keyId, secret);
@@ -85,6 +97,10 @@ export class RazorpayConfigurationService {
       const rows = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "Client" WHERE id = ${clientId} FOR UPDATE`;
       if (!rows.length) throw this.unavailable();
       const previous = await tx.clientPaymentProvider.findUnique({ where: { clientId_provider_environment: { clientId, provider: dto.provider, environment: dto.environment } } });
+      if (dto.expectedRevision !== undefined && dto.expectedRevision !== (previous?.updatedAt.toISOString() ?? 'NEW'))
+        throw new ConflictException({ code: 'PAYMENT_CONFIGURATION_CHANGED', message: 'Payment configuration changed. Reload and review it before saving.' });
+      if ((dto.status ?? 'ACTIVE') === 'ACTIVE' && await tx.clientPaymentProvider.findFirst({ where: { clientId, environment: dto.environment, provider: { not: dto.provider }, status: 'ACTIVE' } }))
+        throw new ConflictException('Disable the current merchant before activating a different gateway.');
       const previousVersion = previous ? await tx.paymentProviderConfigurationVersion.findUnique({ where: { providerConfigurationId_version: { providerConfigurationId: previous.id, version: previous.currentVersion } } }) : null;
       const changed = !previousVersion || previousVersion.keyId !== dto.keyId || previousVersion.secretReference !== dto.secretReference || previousVersion.merchantAccountId !== (dto.merchantAccountId ?? null);
       if (previousVersion && previousVersion.secretReference === dto.secretReference && (previousVersion.keyId !== dto.keyId || (previousVersion.credentialFingerprint && previousVersion.credentialFingerprint !== fingerprint)))

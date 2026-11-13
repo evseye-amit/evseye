@@ -9,6 +9,21 @@ if (url && !new URL(url).pathname.includes('_test_')) throw new Error('Use a dis
 const db = createTestPrisma(url ?? 'postgresql://unused:unused@localhost:5432/unused');
 afterAll(() => db.$disconnect());
 describe.skipIf(!url)('Payment operations with PostgreSQL', () => {
+  it('reaches older collection records and labels riders without crossing clients', async () => {
+    const client = await db.client.create({ data: { name: 'History test', slug: randomUUID(), status: 'ACTIVE' } });
+    const rider = await db.rider.create({ data: { clientId: client.id, name: 'History rider', mobile: randomUUID(), status: 'ACTIVE' } });
+    await db.paymentCollectionRequest.createMany({ data: Array.from({ length: 201 }, (_, index) => ({ clientId: client.id, riderId: rider.id, collectionType: 'INVOICE_PAYMENT', method: 'UPI', provider: 'RAZORPAY', status: 'PENDING' as const, amount: '1.00', currency: 'INR', idempotencyKey: randomUUID(), createdAt: new Date(1700000000000 + index) })) });
+    const service = new PaymentReconciliationService(db as never, {} as never, {} as never, {} as never);
+    const first = await service.report(client.id, undefined, 1);
+    const second = await service.report(client.id, undefined, 2);
+    expect(first.items).toHaveLength(200); expect(first.hasMore).toBe(true);
+    expect(second.items).toHaveLength(1); expect(second.hasMore).toBe(false);
+    expect(new Set([...first.items, ...second.items].map(item => item.id)).size).toBe(201);
+    expect(second.items[0].riderName).toBe('History rider');
+    const empty = await service.report(randomUUID(), undefined, 2);
+    expect(empty.items).toEqual([]); expect(empty.hasMore).toBe(false);
+  });
+
   it('matches Razorpay payments once under concurrent import and isolates tenants', async () => {
     const client = await db.client.create({ data: { name: 'Operations test', slug: randomUUID(), status: 'ACTIVE' } });
     const user = await db.user.create({ data: { clientId: client.id, name: 'Operator', mobile: randomUUID(), role: 'CLIENT_ADMIN' } });

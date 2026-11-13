@@ -1,3 +1,4 @@
+import { unaccountedRefund } from './razorpay-refund-evidence.js';
 import {
   BadRequestException,
   ConflictException,
@@ -360,8 +361,9 @@ export class RazorpayPenaltyService {
     });
     if (previous && previous.orderId !== order.id)
       throw new ConflictException('PROVIDER_PAYMENT_IDENTITY_CONFLICT');
+    const externalRefund = await unaccountedRefund(this.db, request.clientId, request.providerPaymentId === payment.id ? request.riderPaymentId : null, payment);
     let reason =
-      payment.amount_refunded > 0 || payment.status === 'refunded'
+      externalRefund
         ? 'EXTERNAL_REFUND_REQUIRES_REVIEW'
         : request.status === 'SUCCESS' &&
             request.providerPaymentId !== payment.id
@@ -380,7 +382,7 @@ export class RazorpayPenaltyService {
           request,
           payment.id,
         );
-        reason = settled.failureCode;
+        reason = !externalRefund && settled.failureCode === 'EXTERNAL_REFUND_REQUIRES_REVIEW' ? null : settled.failureCode;
       } catch (error) {
         if (
           !(error instanceof ConflictException) ||
@@ -407,6 +409,7 @@ export class RazorpayPenaltyService {
         where: { id: order.id },
         data: { status: reason ? 'REVIEW_REQUIRED' : 'PAID' },
       });
+      if (!reason && !externalRefund) await tx.paymentCollectionRequest.updateMany({ where: { id: request.id, failureCode: 'EXTERNAL_REFUND_REQUIRES_REVIEW' }, data: { failureCode: null } });
       if (reason) {
         await tx.paymentCollectionRequest.updateMany({
           where: { id: request.id, status: { not: 'SUCCESS' } },

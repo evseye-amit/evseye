@@ -1,3 +1,5 @@
+import { Optional } from '@nestjs/common';
+import { PaymentAutomationService } from '../payment-automation.service.js';
 import { ConflictException, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { z } from 'zod';
@@ -20,6 +22,7 @@ export class RazorpayAutoPayWorker implements OnModuleInit {
     private readonly payments: PaymentOrchestratorService,
     private readonly gateway: RazorpayRecurringClient,
     private readonly events: RazorpayEventRouter,
+    @Optional() private readonly automation?: PaymentAutomationService,
   ) {}
   onModuleInit() {
     this.events.register((event) => this.processEvent(event));
@@ -114,6 +117,14 @@ export class RazorpayAutoPayWorker implements OnModuleInit {
   }
   @Cron(CronExpression.EVERY_MINUTE)
   async reconcile() {
+    // Missing lease infrastructure must fail closed for scheduled money work.
+    if (!this.automation) return;
+    await this.automation.run('worker:razorpay-autopay', async () => {
+      await this.runScheduledBatch();
+      return true;
+    }, 30);
+  }
+  private async runScheduledBatch() {
     if (this.running || !this.gateway.enabled) return;
     this.running = true;
     try {

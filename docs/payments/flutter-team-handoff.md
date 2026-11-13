@@ -34,6 +34,24 @@ Only verified ACTIVE establishes authorized AutoPay. Pause/cancel must be confir
 
 ## Acceptance checklist (Flutter team)
 
+Final payment testing is owned by the Flutter team on the mobile app, per the 2026-11-14 handoff decision. The temporary browser login/capabilities check is not mobile payment acceptance. Backend support supplies test fixtures and verifies server-side accounting/webhook evidence; it does not replace device testing.
+
+### Two-merchant sandbox acceptance (Android and iOS)
+
+Run separately for Pinkrides and Yogmaya using their distinct Razorpay TEST merchants. Obtain rider login access and unpaid test invoice/allocation IDs securely; do not use production credentials or real payments.
+
+- [ ] Select an unpaid rental invoice or deployment payment for each rider and record its server-issued ID and expected amount/currency.
+- [ ] Create checkout through the common payment API. Verify the returned provider, merchant key, order ID and amount belong to the selected client; launch the SDK with these returned values.
+- [ ] Complete the sandbox payment in the mobile app. Confirm server SUCCEEDED, updated invoice/allocation state and exactly one financial posting, with backend evidence.
+- [ ] Confirm the correct merchant webhook reaches staging and settles the correct client's request. Repeat callbacks/webhook delivery with backend support; no duplicate payment, allocation or ledger posting may result.
+- [ ] Test duplicate taps and retries using the same create body/idempotency key. Confirm one logical payment and no second charge.
+- [ ] Lose the SDK callback or close the app after payment, then restart and reconcile the saved request without callback fields. Confirm the original payment recovers without creating another order.
+- [ ] Switch client/rider and attempt detail, verify and reconcile for the other client's request. All must reject access without exposing payment data or changing either client's accounting.
+- [ ] Record client, Android/iOS build, device/OS, backend revision, request/order IDs, expected/actual results and redacted evidence for each case. Never include OTPs, tokens or merchant secrets.
+- [ ] Flutter QA signs off both clients and platforms; backend support confirms webhook/accounting evidence. Any failures remain open release blockers.
+
+### Additional mobile compatibility and recovery
+
 - [ ] Existing deployment/penalty calls still work with additive checkout fields.
 - [ ] Correct provider launches; unsupported capability launches no SDK.
 - [ ] Wallet-only SUCCEEDED refreshes balances without verify.
@@ -50,11 +68,29 @@ Only verified ACTIVE establishes authorized AutoPay. Pause/cancel must be confir
 
 ## Backend release checklist
 
-- [ ] Supply staging URL and deployed commit/build identifier; this document's revision is not a deployment ID.
-- [ ] Apply and verify merchant-version migration; retain historical secret references.
+- [x] Staging URL: `https://api.staging.evseye.com`; API image commit `42558bc7510a61ddf1b00758f96261b4ecd73bed`, ECS revision 201, verified 2026-11-14.
+- [x] Merchant-version table and successful migration record verified 2026-11-14. Historical credential recovery still requires its separate sandbox test below.
 - [ ] Configure sandbox merchant webhook URLs and test old/new credential recovery.
 - [ ] Provide two-client test accounts, supported capabilities and test invoice/deposit/allocation IDs securely.
-- [ ] Run real sandbox checkout/AutoPay flows with the Flutter team.
-- [ ] Record device results and approve staged rollout.
+- [ ] Flutter team runs sandbox checkout/AutoPay flows on mobile; backend team supports webhook, credential-recovery and accounting verification.
+- [ ] Flutter team records device results and acceptance; release owner approves staged rollout after outstanding backend gates close.
 
 Local regression results and remaining operational work are recorded in [implementation-plan.md](implementation-plan.md). No live credentials are included in this handoff.
+
+## Phase 6 additive refund acceptance
+
+After deploying the Phase 6 backend, collection detail includes `refundedAmount` as a decimal string. Complete refunds return REFUNDED; active refund requests return REFUND_PENDING; completed partial refunds retain the successful collection state with a nonzero refundedAmount. Never relaunch checkout for an already collected request merely because it was refunded.
+
+- [ ] For Pinkrides and Yogmaya, coordinate an admin-initiated sandbox invoice/penalty refund and verify pending, successful partial and successful full refund presentation on Android/iOS.
+- [ ] Verify refund callback duplication/app restart does not create a payment or refund request from the mobile app.
+- [ ] Backend support supplies evidence of exactly one rider/wallet reversal and the correct reopened invoice balance for PAYMENT_REVERSAL.
+- [ ] Confirm AutoPay history and invoice balances refresh after an admin refund; do not infer mandate cancellation from a refund.
+
+
+## Optional Cashfree merchant rollout acceptance — 2026-11-14
+
+No Flutter source was changed. Cashfree is optional and is not a release blocker while no client uses it. For the current staging release, verify existing Razorpay checkout/AutoPay/capabilities work with zero Cashfree client configuration. Do not offer Cashfree based solely on SDK availability; honor server capabilities and the checkout provider/environment.
+
+When Cashfree sandbox configuration is available, the Flutter team owns Android/iOS acceptance for two distinct client merchants: checkout and subscription authorization; provider callback plus authoritative backend reconciliation; cancelled/failed/unknown outcomes; duplicate and delayed webhook recovery; isolation across tenants; and refund status display. Rotate credentials after starting a payment/mandate, then confirm reconciliation and refunds still use the original merchant and launch environment. A disabled/newly unavailable merchant must prevent new work without switching an existing payment to another gateway. Retain the existing Phase 4 two-merchant tests.
+
+Settlement ingestion, bank evidence, external-refund adoption and alert assignment are web/admin workflows. Their implementation details and current supported sources are documented in [Phase 7 operations](phase-7-cashfree-and-operations.md).

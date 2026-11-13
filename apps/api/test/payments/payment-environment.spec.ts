@@ -5,10 +5,8 @@ describe('payment provider environment', () => {
   it('keeps payment processing disabled by default', () => {
     expect(validateEnvironment({}).PAYMENT_PROVIDER).toBe('disabled');
   });
-  it('requires credentials and callback URLs when Cashfree is selected', () => {
-    expect(() => validateEnvironment({ PAYMENT_PROVIDER: 'cashfree' })).toThrow(
-      'Cashfree configuration is missing',
-    );
+  it('keeps missing Cashfree credentials optional at startup', () => {
+    expect(validateEnvironment({ PAYMENT_PROVIDER: 'cashfree', CASHFREE_SUBSCRIPTION_RETURN_URL: '', CASHFREE_WEBHOOK_URL: '', CASHFREE_PG_WEBHOOK_URL: '' }).CASHFREE_CLIENT_ID).toBeUndefined();
     expect(
       validateEnvironment({
         PAYMENT_PROVIDER: 'cashfree',

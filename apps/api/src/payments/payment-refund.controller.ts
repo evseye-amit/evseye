@@ -36,6 +36,9 @@ class RefundDto {
   @IsOptional() @IsIn(['UNALLOCATED_RETURN', 'PAYMENT_REVERSAL']) treatment?:
     'UNALLOCATED_RETURN' | 'PAYMENT_REVERSAL';
 }
+class ExternalRefundDto extends RefundDto {
+  @IsString() @Matches(/^rfnd_[A-Za-z0-9]+$/) reference!: string;
+}
 @Controller('client/riders/:riderId/payments')
 @UseGuards(AccessTokenGuard, RolesGuard)
 @Roles(UserRole.CLIENT_ADMIN)
@@ -44,6 +47,11 @@ export class PaymentRefundAdminController {
     private readonly clients: ClientContextService,
     private readonly refunds: PaymentRefundService,
   ) {}
+  @Post(':paymentId/refunds/adopt-external')
+  adoptExternal(@CurrentUser() user: AuthUser, @Param('riderId') riderId: string, @Param('paymentId') paymentId: string, @Body() dto: ExternalRefundDto) {
+    if (!dto.treatment) throw new BadRequestException('Explicit accounting treatment is required.');
+    return this.refunds.adoptExternal(this.clients.requireClientId(user), riderId, paymentId, user.id, dto.reference, dto.reason, dto.treatment).then(data => ({ data }));
+  }
   @Post(':paymentId/refunds')
   async request(
     @CurrentUser() user: AuthUser,

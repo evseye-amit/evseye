@@ -59,6 +59,11 @@ export class CheckoutCollectionService {
     if (name === this.config.getOrThrow('PAYMENT_PROVIDER').toUpperCase()) return this.provider;
     throw new ServiceUnavailableException('The saved checkout provider is unavailable.');
   }
+  private async providerFor(request: PaymentCollectionRequest, newOperation = false) {
+    return request.provider === 'CASHFREE' && this.cashfree
+      ? this.cashfree.forClient(request.clientId, newOperation ? undefined : request.configurationVersionId ?? null)
+      : this.savedProvider(request.provider);
+  }
   private async serializable<T>(
     fn: (tx: Prisma.TransactionClient) => Promise<T>,
   ): Promise<T> {
@@ -511,17 +516,19 @@ export class CheckoutCollectionService {
   ) {
     const clientId = request.clientId;
     // Persist the launch environment before sending an order to the provider.
-    const paymentEnvironment = request.provider === 'CASHFREE' ? this.config.getOrThrow('CASHFREE_ENVIRONMENT') : null;
+    const provider = await this.providerFor(request, true);
+    const binding = provider as { configurationVersionId?: string; environment?: string };
+    const paymentEnvironment = binding.environment ?? (request.provider === 'CASHFREE' ? this.config.getOrThrow('CASHFREE_ENVIRONMENT') : null);
     await this.prisma.paymentCollectionRequest.update({
       where: { id: request.id },
-      data: { paymentSnapshot: { ...(request.paymentSnapshot as Prisma.JsonObject), paymentEnvironment } },
+      data: { configurationVersionId: binding.configurationVersionId, paymentSnapshot: { ...(request.paymentSnapshot as Prisma.JsonObject), paymentEnvironment } },
     });
     const rider = await this.prisma.rider.findFirstOrThrow({
       where: { id: riderId, clientId },
       select: { name: true, mobile: true },
     });
     try {
-      const order = await this.savedProvider(request.provider).createCheckoutOrder({
+      const order = await provider.createCheckoutOrder({
         orderId: request.providerOrderId!,
         idempotencyKey: request.id,
         amount: request.amount.toFixed(2),
@@ -597,7 +604,7 @@ export class CheckoutCollectionService {
     }
     if (!request.providerOrderId)
       throw new ConflictException('Collection has no provider order.');
-    const results = await this.savedProvider(request.provider).fetchCheckoutPayments(
+    const results = await (await this.providerFor(request)).fetchCheckoutPayments(
       request.providerOrderId,
     );
     for (const result of results) {
@@ -844,7 +851,7 @@ export class CheckoutCollectionService {
         }),
       );
     }
-    const orderStatus = await this.savedProvider(request.provider).fetchCheckoutOrder(request.providerOrderId);
+    const orderStatus = await (await this.providerFor(request)).fetchCheckoutOrder(request.providerOrderId);
     if (orderStatus.orderId !== request.providerOrderId) throw new ConflictException('PROVIDER_ORDER_MISMATCH');
     if (orderStatus.status === 'EXPIRED') {
       await this.prisma.paymentCollectionRequest.updateMany({ where: { id: request.id, status: { not: 'SUCCESS' } }, data: { status: 'EXPIRED', failureCode: 'PROVIDER_ORDER_EXPIRED' } });
@@ -871,12 +878,8 @@ export class CheckoutCollectionService {
     return this.view(await this.prisma.paymentCollectionRequest.findUniqueOrThrow({ where: { id: request.id } }));
   }
   async webhook(rawBody: Buffer, timestamp: string, signature: string) {
-    const verified = this.savedProvider('CASHFREE').verifyCheckoutWebhook(
-      rawBody,
-      timestamp,
-      signature,
-    );
-    const payload = verified.payload as Record<string, unknown>;
+    let payload: Record<string, unknown>;
+    try { payload = JSON.parse(rawBody.toString()); if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error(); } catch { throw new BadRequestException('Invalid webhook.'); }
     const data = payload.data as Record<string, unknown> | undefined;
     const order = data?.order as Record<string, unknown> | undefined;
     const orderId =
@@ -890,6 +893,9 @@ export class CheckoutCollectionService {
           where: { providerOrderId: orderId },
         })
       : null;
+    if (request && request.provider !== 'CASHFREE') throw new BadRequestException('Webhook provider mismatch.');
+    const gateway = request ? await this.providerFor(request) : this.savedProvider('CASHFREE');
+    gateway.verifyCheckoutWebhook(rawBody, timestamp, signature);
     const hash = createHash('sha256').update(rawBody).digest('hex');
     const event = await this.prisma.paymentProviderEvent.upsert({
       where: { provider_eventKey: { provider: 'CASHFREE', eventKey: hash } },
@@ -900,6 +906,7 @@ export class CheckoutCollectionService {
         payloadHash: hash,
         clientId: request?.clientId,
         collectionRequestId: request?.id,
+        configurationVersionId: request?.configurationVersionId,
         status: request ? 'RECEIVED' : 'FAILED',
         failureReason: request ? undefined : 'UNKNOWN_ORDER',
       },

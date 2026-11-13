@@ -502,3 +502,11 @@ describe('deposit duplicate collection guard', () => {
     expect(tx.paymentCollectionRequest.create).not.toHaveBeenCalled();
   });
 });
+
+describe('collection refund status', () => {
+  it.each([{ refunded: '500', pending: false, expected: 'REFUNDED' }, { refunded: '25', pending: true, expected: 'REFUND_PENDING' }, { refunded: '25', pending: false, expected: 'SUCCEEDED' }])('shows verified refund evidence: $expected', async ({ refunded, pending, expected }) => {
+    const f = fixture(); f.c.status = 'SUCCESS';
+    Object.assign(f.c, { riderPayment: { refundedAmount: new Prisma.Decimal(refunded), refunds: pending ? [{ id: 'refund' }] : [] } });
+    expect(await f.service.detail('client', 'user', `collection:${id}`)).toMatchObject({ status: expected, refundedAmount: new Prisma.Decimal(refunded).toFixed(2), checkout: null });
+  });
+});

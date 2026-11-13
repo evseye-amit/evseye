@@ -119,3 +119,7 @@ Cashfree mandate environment currently derives from runtime configuration; do no
 Executable backend coverage: test/payments/common-payment.spec.ts, payment-gateway-policy.spec.ts and deployment-payment-provider-router.spec.ts, plus existing checkout/idempotency and historical-version recovery suites. Tests cover payload variants, missing legacy environment, wallet success, state mapping, callback mismatch, ownership, callbackless recovery and stored-provider routing.
 
 Backend release operations must supply deployed revision, staging API base, capability fixtures, sandbox merchant setup and migration evidence. Flutter team must validate success/cancel/decline, kill-after-debit, offline callback, duplicate tap, expired session, review/refund, unsupported purpose, logout/client switch and both native platforms. These device and release gates are not satisfied by local backend tests.
+
+## Phase 6 additive collection refund fields
+
+Collection detail adds `refundedAmount` (decimal currency string, default `"0.00"`). A fully refunded collection reports `status: "REFUNDED"`; an active local refund reports `"REFUND_PENDING"`. A successful partial refund retains `"SUCCEEDED"` and exposes the returned amount. Existing review reasons can still take precedence. No new checkout is supplied for these states. This is backend contract work only; Flutter implementation and acceptance remain with the mobile team.

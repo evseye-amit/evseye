@@ -1,3 +1,4 @@
+import { PaymentAutomationService } from '../payment-automation.service.js';
 import { resolveWebhookMerchant } from './razorpay-webhook-merchant.js';
 import { Optional } from '@nestjs/common';
 import { PaymentGatewayPolicyService } from '../payment-gateway-policy.service.js';
@@ -76,6 +77,7 @@ export class RazorpayDeploymentService {
     private readonly penalties?: RazorpayPenaltyService,
     private readonly eventRouter?: RazorpayEventRouter,
     @Optional() private readonly policy?: PaymentGatewayPolicyService,
+    @Optional() private readonly automation?: PaymentAutomationService,
   ) {}
 
   private async allocation(
@@ -839,6 +841,14 @@ export class RazorpayDeploymentService {
   }
   @Cron(CronExpression.EVERY_MINUTE)
   async reconcile() {
+    // Missing lease infrastructure must fail closed for scheduled money work.
+    if (!this.automation) return;
+    await this.automation.run('worker:razorpay-deployment', async () => {
+      await this.runScheduledBatch();
+      return true;
+    }, 30);
+  }
+  private async runScheduledBatch() {
     if (!this.gateway.enabled || this.running) return;
     this.running = true;
     try {

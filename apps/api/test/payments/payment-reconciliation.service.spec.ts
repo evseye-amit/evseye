@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { PaymentReconciliationService } from '../../src/payments/payment-reconciliation.service.js';
 
 function fixture() {
-  const db = Object.fromEntries(['paymentCollectionRequest', 'paymentTransaction', 'riderPayment', 'paymentRefund', 'paymentProviderEvent', 'providerPaymentObservation', 'providerSettlementItem', 'deploymentPaymentAttempt'].map(name => [name, { findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn().mockResolvedValue(null) }]));
+  const db = Object.fromEntries(['rider', 'paymentCollectionRequest', 'paymentTransaction', 'riderPayment', 'paymentRefund', 'paymentProviderEvent', 'providerPaymentObservation', 'providerSettlementItem', 'deploymentPaymentAttempt'].map(name => [name, { findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn().mockResolvedValue(null) }]));
   const deployment = { reconcileAllocation: vi.fn() };
   const checkout = { verify: vi.fn() }, auto = { verify: vi.fn() };
   return { db, deployment, checkout, auto, service: new PaymentReconciliationService(db as never, checkout as never, auto as never, deployment as never) };
@@ -32,5 +32,23 @@ describe('payment operations', () => {
     f.db.deploymentPaymentAttempt.findFirst.mockResolvedValue({ provider: 'RAZORPAY', payment: { workflow: { allocationId: 'allocation' } } });
     await f.service.retry('client', 'rider', 'DEPLOYMENT', 'attempt');
     expect(f.deployment.reconcileAllocation).toHaveBeenCalledWith('client', 'allocation');
+  });
+});
+
+describe('reconciliation history navigation', () => {
+  it('reads the next tenant-scoped batch with a deterministic tie-breaker', async () => {
+    const f = fixture();
+    await f.service.report('client-a', undefined, 2);
+    for (const name of ['paymentCollectionRequest', 'paymentTransaction', 'riderPayment', 'paymentRefund', 'paymentProviderEvent', 'providerPaymentObservation', 'providerSettlementItem', 'deploymentPaymentAttempt']) {
+      expect(f.db[name].findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ clientId: 'client-a' }), skip: 200, take: 201, orderBy: expect.arrayContaining([{ id: 'desc' }]) }));
+    }
+  });
+  it('uses the extra record for hasMore without returning it', async () => {
+    const f = fixture();
+    f.db.paymentProviderEvent.findMany.mockResolvedValue(Array.from({ length: 201 }, (_, index) => ({ id: `event-${index}`, collectionRequest: null })));
+    const result = await f.service.report('client-a');
+    expect(result.items).toHaveLength(200);
+    expect(result.hasMore).toBe(true);
+    expect(result.items.at(-1)?.id).toBe('event-199');
   });
 });

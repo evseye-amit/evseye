@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { inspectPaymentReadiness } from '../../scripts/payment-readiness.js';
 
 describe('read-only payment release inventory', () => {
+  it('does not require Cashfree client configuration for a completed deployment', async () => {
+    const query = vi.fn(async (sql: string) => ({ rows: [{ present: true, count: sql.includes('COUNT(DISTINCT migration_name)') ? 4 : 0 }] }));
+    expect(await inspectPaymentReadiness({ query } as never, 'TEST')).toMatchObject({ status: 'LOCAL_CHECKS_CLEAR', migrationRecorded: true });
+  });
   it('does not imply readiness when the merchant-version migration is absent', async () => {
     const query = vi.fn(async (sql: string) => ({ rows: [{ present: !sql.includes('_prisma_migrations'), count: 0 }] }));
     const report = await inspectPaymentReadiness({ query } as never, 'TEST');

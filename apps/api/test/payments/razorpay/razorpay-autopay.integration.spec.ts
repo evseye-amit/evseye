@@ -143,6 +143,7 @@ describe.skipIf(!url)(
       );
       const wallet = new WalletService(db as never);
       const router = {
+        async forClient(provider: string) { return this.forProvider(provider); },
         forProvider: vi.fn((provider: string) => {
           expect(provider).toBe('RAZORPAY');
           return adapter;

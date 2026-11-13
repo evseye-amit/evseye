@@ -65,14 +65,15 @@ export class PlatformAdminService {
     const providers = await this.prisma.clientPaymentProvider.findMany({
       where: { clientId },
       orderBy: [{ provider: 'asc' }, { environment: 'asc' }],
-      select: { id: true, currentVersion: true, provider: true, environment: true, merchantAccountId: true, keyId: true, secretReference: true, status: true, validFrom: true, validUntil: true, createdAt: true, updatedAt: true },
+      select: { id: true, currentVersion: true, provider: true, environment: true, merchantAccountId: true, keyId: true, secretReference: true, status: true, validFrom: true, validUntil: true, createdAt: true, updatedAt: true,
+        versions: { orderBy: { version: 'desc' }, take: 100, select: { id: true, version: true, keyId: true, secretReference: true, merchantAccountId: true, createdAt: true } } },
     });
     return Promise.all(providers.map(async (provider) => {
       let resolved = false;
       if (provider.status === 'ACTIVE') {
         try {
-          if (provider.provider === 'RAZORPAY' && this.razorpayConfiguration) {
-            await this.razorpayConfiguration.resolve(clientId, provider.environment);
+          if (['RAZORPAY', 'CASHFREE'].includes(provider.provider) && this.razorpayConfiguration) {
+            await this.razorpayConfiguration.resolve(clientId, provider.environment, provider.provider);
             resolved = true;
           }
         } catch { /* keep the health result false without exposing secrets */ }

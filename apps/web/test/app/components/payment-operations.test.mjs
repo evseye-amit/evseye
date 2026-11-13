@@ -21,3 +21,21 @@ test('refund recovery preserves the exact financial request and rejects another 
   assert.throws(() => readRefundDraft('{', 'p', 'r'));
   assert.equal(readRefundDraft(null, 'p', 'r'), null);
 });
+
+test('operation filters combine gateway, state and nested gateway reference', async () => {
+  const { filterOperations } = await import('../../../src/app/components/payment-operations-model.ts');
+  const rows = [
+    { id: 'a', source: 'DEPLOYMENT', riderId: 'r1', provider: 'RAZORPAY', state: 'REVIEW', captures: [{ providerPaymentId: 'pay_ABC' }] },
+    { id: 'b', source: 'CHECKOUT', riderId: 'r2', provider: 'CASHFREE', state: 'PENDING' },
+  ];
+  assert.deepEqual(filterOperations(rows, ' PAY_abc ', 'RAZORPAY', 'REVIEW'), [rows[0]]);
+  assert.deepEqual(filterOperations(rows, 'pay_abc', 'CASHFREE', ''), []);
+  assert.deepEqual(filterOperations(rows, 'r2', '', 'PENDING'), [rows[1]]);
+  assert.deepEqual(filterOperations(rows, '', '', ''), rows);
+});
+
+test('CSV exports escape quotes, multiline fields and spreadsheet formulas', async () => {
+  const { operationsCsv } = await import('../../../src/app/components/payment-operations-model.ts');
+  assert.equal(operationsCsv([{ id: '=CMD()', reason: 'a,"b"\nc' }]), '"id","reason"\r\n"\'=CMD()","a,""b""\nc"');
+  assert.match(operationsCsv([{ reference: ' +SUM(1)', amount: '10.00' }]), /"' \+SUM/);
+});

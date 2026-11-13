@@ -176,7 +176,7 @@ export class PaymentOrchestratorService {
           throw new ConflictException(
             'An active AutoPay mandate valid on the scheduled date is required.',
           );
-        (this.providers?.forProvider(mandate.provider) ?? this.provider).assertChargeEligible({ amount: invoice.outstandingAmount.toFixed(2), currency: invoice.currency, scheduledAt });
+        ((await this.providers?.forClient(mandate.provider, mandate.clientId, mandate.configurationVersionId ?? null)) ?? this.provider).assertChargeEligible({ amount: invoice.outstandingAmount.toFixed(2), currency: invoice.currency, scheduledAt });
         if (invoice.outstandingAmount.gt(mandate.maxAmount))
           throw new ConflictException(
             'Invoice outstanding amount exceeds the AutoPay mandate limit.',
@@ -267,7 +267,7 @@ export class PaymentOrchestratorService {
         'Invoice outstanding changed before the provider debit request.',
       );
     }
-    const provider = this.providers?.forProvider(reserved.provider ?? mandate.provider) ?? this.provider;
+    const provider = (await this.providers?.forClient(reserved.provider ?? mandate.provider, mandate.clientId, reserved.configurationVersionId ?? null)) ?? this.provider;
     let result: PaymentResult;
     try {
       result = await provider.createPayment({
@@ -495,7 +495,7 @@ export class PaymentOrchestratorService {
     if (item.status === 'SUCCESS') {
       if (item.provider === 'RAZORPAY' && this.providers) {
         const mandate = await this.prisma.paymentMandate.findFirstOrThrow({ where: { id: item.mandateId, clientId } });
-        await this.providers.forProvider(item.provider).fetchPayment(mandate.providerMandateId, item.providerPaymentId);
+        await (await this.providers.forClient(item.provider, item.clientId, item.configurationVersionId ?? null)).fetchPayment(mandate.providerMandateId, item.providerPaymentId);
         return this.view(await this.prisma.paymentTransaction.findUniqueOrThrow({ where: { id: item.id } }));
       }
       return this.view(item);
@@ -503,7 +503,7 @@ export class PaymentOrchestratorService {
     const mandate = await this.prisma.paymentMandate.findFirstOrThrow({
       where: { id: item.mandateId, clientId },
     });
-    const result = await (this.providers?.forProvider(item.provider ?? mandate.provider) ?? this.provider).fetchPayment(
+    const result = await ((await this.providers?.forClient(item.provider ?? mandate.provider, item.clientId, item.configurationVersionId ?? null)) ?? this.provider).fetchPayment(
       mandate.providerMandateId,
       item.providerPaymentId,
     );
