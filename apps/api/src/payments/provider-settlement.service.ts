@@ -258,6 +258,12 @@ export class ProviderSettlementService {
           ? [{ gatewayPaymentId: item.providerReference }]
           : [{ providerPaymentId: item.providerReference }, { providerReference: item.providerReference }] },
       });
+      if (provider === 'RAZORPAY') {
+        const recharges = await tx.walletAutoRecharge.findMany({ where: {
+          clientId, providerPaymentId: item.providerReference, mandate: { provider: 'RAZORPAY', clientId },
+        } });
+        candidates.push(...recharges.map(row => ({ ...row, successful: row.status === 'SUCCESS' && !row.failureCode })));
+      }
       candidates.push(...[...checkouts, ...debits].map(row => ({ ...row, successful: row.status === 'SUCCESS' })));
     }
     if (provider === 'RAZORPAY') {

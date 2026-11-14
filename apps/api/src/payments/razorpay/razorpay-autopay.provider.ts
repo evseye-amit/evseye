@@ -1,3 +1,4 @@
+import { classifyRazorpayFailure } from './razorpay-failure.js';
 import { unaccountedRefund } from './razorpay-refund-evidence.js';
 import {
   BadRequestException,
@@ -643,11 +644,9 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
         'PENDING',
         'AWAITING_GATEWAY_CONFIRMATION',
       );
-    if (remotes.length)
-      return this.paymentResult(m, t, 'FAILED', 'FAILED', {
-        failureCode: remotes[0].error_code ?? 'PROVIDER_DECLINED',
-        retryability: 'UNKNOWN',
-      });
+    if (remotes.length && remotes.every(p => p.status === 'failed' && !p.captured))
+      return this.paymentResult(m, t, 'FAILED', 'FAILED', classifyRazorpayFailure(remotes));
+    if (remotes.length) return this.paymentResult(m, t, 'UNKNOWN', 'UNRECOGNIZED_GATEWAY_STATE');
     if (t.providerDebitClaimedAt)
       return this.paymentResult(
         m,

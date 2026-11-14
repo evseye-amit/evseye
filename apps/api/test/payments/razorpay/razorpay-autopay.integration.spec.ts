@@ -293,6 +293,20 @@ describe.skipIf(!url)(
       ).toBe('AUTHORIZATION_PENDING');
       expect(f.gateway.createRegistration).toHaveBeenCalledTimes(1);
     });
+    it('classifies a failed debit and keeps its failure/retry clock stable through polling', async () => {
+      const f = await fixture(); await f.active(); const invoice = await f.invoice();
+      await db.paymentCollectionPolicy.create({ data: { clientId: f.client.id, retryEnabled: true, retryIntervalsDays: [1, 2], maximumAttempts: 3 } });
+      const debit = await f.orchestrator.collect(f.client.id, f.rider.id, invoice.id, 'stable-failure-key', f.schedule());
+      Object.assign(f.payments[0], { status: 'failed', captured: false, error_reason: 'bank_not_available', error_code: 'BAD_REQUEST_ERROR' });
+      await f.orchestrator.verify(f.client.id, f.rider.id, debit.paymentId);
+      const failed = await db.paymentTransaction.findUniqueOrThrow({ where: { id: debit.paymentId } });
+      expect(failed).toMatchObject({ status: 'FAILED', retryability: 'RETRYABLE', failureCode: 'BANK_NOT_AVAILABLE', failedAt: expect.any(Date) });
+      const due = await db.autoPayDunningCase.findUniqueOrThrow({ where: { clientId_invoiceId: { clientId: f.client.id, invoiceId: invoice.id } } });
+      await f.orchestrator.verify(f.client.id, f.rider.id, debit.paymentId);
+      expect((await db.paymentTransaction.findUniqueOrThrow({ where: { id: debit.paymentId } })).failedAt).toEqual(failed.failedAt);
+      expect((await db.autoPayDunningCase.findUniqueOrThrow({ where: { id: due.id } })).nextRetryAt).toEqual(due.nextRetryAt);
+      expect(await db.auditLog.count({ where: { entityId: debit.paymentId, action: 'AUTODEBIT_FAILED' } })).toBe(1);
+    });
     it('settles a captured debit exactly once, using the saved provider despite a different checkout default', async () => {
       const f = await fixture();
       await f.active();

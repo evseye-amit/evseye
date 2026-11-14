@@ -208,3 +208,11 @@ describe('checkout collection settlement', () => {
     expect(prisma.paymentProviderEvent.upsert).not.toHaveBeenCalled();
   });
 });
+
+
+describe('top-up amount bounds', () => {
+  it.each(['499.99', '5000.01', '5000.99', '5001.00'])('rejects %s before creating a wallet or provider request', async amount => {
+    const service = new CheckoutCollectionService({} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
+    await expect(service.payTopUp('client', 'rider', 'valid-key', amount)).rejects.toThrow('between INR');
+  });
+});

@@ -293,6 +293,7 @@ export class PaymentOrchestratorService {
         where: { id: reserved.id },
         data: {
           status: knownRejection ? 'FAILED' : 'UNKNOWN',
+          failedAt: knownRejection ? new Date() : undefined,
           failureCode: knownRejection
             ? 'PROVIDER_REJECTED'
             : 'PROVIDER_UNAVAILABLE',
@@ -363,6 +364,9 @@ export class PaymentOrchestratorService {
         );
       if (item.status === 'SUCCESS') return item;
       const next = result.status as PaymentTransactionStatus;
+      const failedAt = item.failedAt ?? new Date();
+      const failureCode = result.failureCode ?? item.failureCode ?? 'UNKNOWN';
+      const retryability = result.retryability ?? item.retryability ?? 'UNKNOWN';
       let riderPaymentId: string | undefined;
       if (next === 'SUCCESS') {
         if (
@@ -447,8 +451,9 @@ export class PaymentOrchestratorService {
           ...(reviewCode ? { failureCode: reviewCode, retryability: 'NON_RETRYABLE' } : {}),
           ...(next === 'FAILED'
             ? {
-                failureCode: result.failureCode ?? 'UNKNOWN',
-                retryability: result.retryability ?? 'UNKNOWN',
+                failedAt,
+                failureCode,
+                retryability,
               }
             : {}),
           providerReference: result.providerReference ?? item.providerReference,
@@ -468,24 +473,27 @@ export class PaymentOrchestratorService {
         },
       });
       if (next === 'FAILED') {
-        await tx.auditLog.create({ data: { clientId: item.clientId, actorId: null, action: 'AUTODEBIT_FAILED', entityType: 'PaymentTransaction', entityId: item.id,
-          newData: { failureCode: result.failureCode ?? 'UNKNOWN', retryability: result.retryability ?? 'UNKNOWN' } } });
+        if (item.status !== 'FAILED') await tx.auditLog.create({ data: { clientId: item.clientId, actorId: null, action: 'AUTODEBIT_FAILED', entityType: 'PaymentTransaction', entityId: item.id,
+          newData: { failureCode, retryability } } });
+        // Polling historical failures must not overwrite a newer attempt's dunning state.
+        const latest = await tx.paymentTransaction.findFirst({ where: { clientId: item.clientId, invoiceId: item.invoiceId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
+        if (latest && latest.id !== item.id) return updated;
         const policy = await tx.paymentCollectionPolicy.findUnique({ where: { clientId: item.clientId } });
         const failedAttempts = await tx.paymentTransaction.count({ where: { clientId: item.clientId, invoiceId: item.invoiceId, status: 'FAILED' } });
-        const retryable = policy?.retryEnabled && result.retryability === 'RETRYABLE' && failedAttempts < policy.maximumAttempts;
+        const retryable = policy?.retryEnabled && retryability === 'RETRYABLE' && failedAttempts < policy.maximumAttempts;
         const intervals = Array.isArray(policy?.retryIntervalsDays) ? policy.retryIntervalsDays as number[] : [];
         const retryDays = intervals[failedAttempts - 1] ?? 1;
         const profile = await tx.riderPaymentProfile.findUnique({ where: { clientId_riderId: { clientId: item.clientId, riderId: item.riderId } } });
         await tx.autoPayDunningCase.upsert({ where: { clientId_invoiceId: { clientId: item.clientId, invoiceId: item.invoiceId } }, create: {
           clientId: item.clientId, riderId: item.riderId, invoiceId: item.invoiceId,
           status: retryable ? 'RETRY_SCHEDULED' : 'RIDER_ACTION_REQUIRED', failedAttempts,
-          nextRetryAt: retryable ? new Date(Date.now() + retryDays * 86400000) : null,
+          nextRetryAt: retryable ? new Date(failedAt.getTime() + retryDays * 86400000) : null,
           graceUntil: profile ? new Date(item.scheduledAt.getTime() + profile.gracePeriodDays * 86400000) : null,
-          failureCode: result.failureCode ?? 'UNKNOWN',
+          failureCode,
         }, update: {
           status: retryable ? 'RETRY_SCHEDULED' : 'RIDER_ACTION_REQUIRED', failedAttempts,
-          nextRetryAt: retryable ? new Date(Date.now() + retryDays * 86400000) : null,
-          failureCode: result.failureCode ?? 'UNKNOWN',
+          nextRetryAt: retryable ? new Date(failedAt.getTime() + retryDays * 86400000) : null,
+          failureCode,
         } });
       } else if (next === 'SUCCESS') {
         await tx.autoPayDunningCase.updateMany({ where: { clientId: item.clientId, invoiceId: item.invoiceId, status: { not: 'RESOLVED' } }, data: { status: 'RESOLVED', resolvedAt: new Date(), nextRetryAt: null } });

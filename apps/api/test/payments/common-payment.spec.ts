@@ -72,6 +72,7 @@ function fixture() {
     }[],
   };
   const db = {
+    riderInvoice: { findFirst: vi.fn().mockResolvedValue({ invoiceType: 'RENTAL' }) },
     paymentCollectionRequest: { findFirst: vi.fn().mockResolvedValue(c) },
     razorpayDeploymentOrder: { findFirst: vi.fn().mockResolvedValue(order) },
   };
@@ -182,6 +183,13 @@ describe('common payment purpose contract', () => {
     expect(f.checkout.payInvoice).not.toHaveBeenCalled();
     await f.service.create('client', 'user', { purpose: 'INVOICE', invoiceId: id }, 'cashfree-key-1');
     expect(f.checkout.payInvoice).toHaveBeenCalledWith('client', 'rider', id, 'cashfree-key-1', true, 'user');
+  });
+  it('routes an owned non-rental Razorpay invoice through shared checkout', async () => {
+    const f = fixture();
+    f.db.riderInvoice.findFirst.mockResolvedValue({ invoiceType: 'SECURITY_DEPOSIT' });
+    await f.service.create('client', 'user', { purpose: 'INVOICE', provider: 'RAZORPAY', invoiceId: id, useWallet: false }, 'deposit-invoice-key');
+    expect(f.checkout.payInvoice).toHaveBeenCalledWith('client', 'rider', id, 'deposit-invoice-key', false, 'user');
+    expect(f.invoices.payInvoice).not.toHaveBeenCalled();
   });
   it('rejects invalid IDs and caller-supplied verification purpose, amount and status', () => {
     expect(() => parsePaymentRequestId(id)).toThrow();

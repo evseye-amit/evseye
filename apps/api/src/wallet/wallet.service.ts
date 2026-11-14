@@ -9,7 +9,7 @@ export const money = (value: string) => {
   return new Prisma.Decimal(value);
 };
 type Entry = { accountId: string; entryType: WalletEntryType; amount: string };
-type PostInput = { clientId: string; walletId: string; actorId: string; type: WalletTransactionType; amount: string; currency: string; description: string; idempotencyKey: string; entries: Entry[]; referenceType?: string; referenceId?: string; parentTransactionId?: string };
+type PostInput = { pendingTransactionId?: string; clientId: string; walletId: string; actorId: string; type: WalletTransactionType; amount: string; currency: string; description: string; idempotencyKey: string; entries: Entry[]; referenceType?: string; referenceId?: string; parentTransactionId?: string };
 
 @Injectable()
 export class WalletService {
@@ -100,14 +100,18 @@ export class WalletService {
       for (const account of balance.accounts) {
         const net = input.entries.filter(e => e.accountId === account.accountId).reduce((s, e) => s.plus(e.entryType === WalletEntryType.CREDIT ? e.amount : new Prisma.Decimal(e.amount).neg()), new Prisma.Decimal(0));
         const limit = account.accountType === 'CASH' && policy.allowNegativeCashBalance ? policy.negativeBalanceLimit : new Prisma.Decimal(0);
-        if (new Prisma.Decimal(account.availableBalance).plus(net).lt(new Prisma.Decimal(limit).neg())) throw new ConflictException('INSUFFICIENT_AVAILABLE_BALANCE');
+        if (net.lt(0) && new Prisma.Decimal(account.availableBalance).plus(net).lt(new Prisma.Decimal(limit).neg())) throw new ConflictException('INSUFFICIENT_AVAILABLE_BALANCE');
       }
       if (input.parentTransactionId) {
         const original = await tx.walletTransaction.findFirst({ where: { id: input.parentTransactionId, clientId: input.clientId, walletId: input.walletId, status: 'POSTED' } });
         if (!original) throw new ConflictException('TRANSACTION_NOT_REVERSIBLE');
       }
-      const id = randomUUID();
-      const transaction = await tx.walletTransaction.create({ data: { id, clientId: input.clientId, walletId: input.walletId, transactionNumber: `EVW-${new Date().toISOString().slice(0,10).replaceAll('-', '')}-${id.slice(0,8).toUpperCase()}`, transactionType: input.type, status: WalletTransactionStatus.CREATED, amount, currency: input.currency, description: input.description, idempotencyKey: input.idempotencyKey, requestHash: hash, referenceType: input.referenceType, referenceId: input.referenceId, parentTransactionId: input.parentTransactionId, createdById: input.actorId } });
+      const pending = input.pendingTransactionId ? await tx.walletTransaction.findFirst({ where: { id: input.pendingTransactionId, clientId: input.clientId, walletId: input.walletId }, include: { entries: true } }) : null;
+      if (input.pendingTransactionId && (!pending || input.type !== 'TOP_UP' || pending.transactionType !== 'TOP_UP' || !['PENDING', 'FAILED'].includes(pending.status) || pending.entries.length || !pending.amount.eq(amount) || pending.currency !== input.currency || pending.referenceType !== input.referenceType || pending.referenceId !== input.referenceId)) throw new ConflictException('TOP_UP_TRANSACTION_IDENTITY_MISMATCH');
+      const id = pending?.id ?? randomUUID();
+      const transaction = pending
+        ? await tx.walletTransaction.update({ where: { id }, data: { status: 'CREATED', idempotencyKey: input.idempotencyKey, requestHash: hash, description: input.description, failedAt: null } })
+        : await tx.walletTransaction.create({ data: { id, clientId: input.clientId, walletId: input.walletId, transactionNumber: `EVW-${new Date().toISOString().slice(0,10).replaceAll('-', '')}-${id.slice(0,8).toUpperCase()}`, transactionType: input.type, status: WalletTransactionStatus.CREATED, amount, currency: input.currency, description: input.description, idempotencyKey: input.idempotencyKey, requestHash: hash, referenceType: input.referenceType, referenceId: input.referenceId, parentTransactionId: input.parentTransactionId, createdById: input.actorId } });
       await tx.walletLedgerEntry.createMany({ data: input.entries.map((e, i) => ({ clientId: input.clientId, walletId: input.walletId, transactionId: id, accountId: e.accountId, entryType: e.entryType, amount: money(e.amount), currency: input.currency, sequence: i + 1, createdById: input.actorId })) });
       const rewardDebit = input.entries.filter(entry => entry.entryType === 'DEBIT' && wallet.accounts.some(account => account.id === entry.accountId && account.accountType === 'REWARD')).reduce((sum, entry) => sum.plus(entry.amount), new Prisma.Decimal(0));
       if (rewardDebit.gt(0)) {
@@ -228,7 +232,7 @@ export class WalletService {
     const reversal = await this.post({ clientId, walletId: original.walletId, actorId, type: WalletTransactionType.REVERSAL, amount: original.amount.toFixed(2), currency: original.currency, description: `Reversal of ${original.transactionNumber}`, idempotencyKey: key, parentTransactionId: original.id, entries: original.entries.map(e => ({ accountId: e.accountId, entryType: e.entryType === 'CREDIT' ? 'DEBIT' : 'CREDIT', amount: e.amount.toFixed(2) })) });
     return reversal;
   }
-  transactions(clientId: string, walletId: string, page: number, pageSize: number) { return this.prisma.walletTransaction.findMany({ where: { clientId, walletId }, select: { id: true, transactionNumber: true, transactionType: true, status: true, amount: true, currency: true, description: true, referenceType: true, referenceId: true, createdAt: true, postedAt: true }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }); }
+  transactions(clientId: string, walletId: string, page: number, pageSize: number) { return this.prisma.walletTransaction.findMany({ where: { clientId, walletId, NOT: { transactionType: 'TOP_UP', status: 'POSTED', referenceType: 'PAYMENT_COLLECTION', entries: { none: {} } } }, select: { id: true, transactionNumber: true, transactionType: true, status: true, amount: true, currency: true, description: true, referenceType: true, referenceId: true, createdAt: true, postedAt: true }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }); }
   transaction(clientId: string, walletId: string, id: string) { return this.prisma.walletTransaction.findFirst({ where: { clientId, walletId, id }, select: { id: true, transactionNumber: true, transactionType: true, status: true, amount: true, currency: true, description: true, referenceType: true, referenceId: true, createdAt: true, postedAt: true } }); }
   async ledger(clientId: string, walletId: string, id: string) { const transaction = await this.prisma.walletTransaction.findFirst({ where: { clientId, walletId, id }, include: { entries: { orderBy: { sequence: 'asc' } } } }); if (!transaction) throw new NotFoundException('TRANSACTION_NOT_FOUND'); return transaction; }
 }

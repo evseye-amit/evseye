@@ -3,7 +3,7 @@ import { inspectPaymentReadiness } from '../../scripts/payment-readiness.js';
 
 describe('read-only payment release inventory', () => {
   it('does not require Cashfree client configuration for a completed deployment', async () => {
-    const query = vi.fn(async (sql: string) => ({ rows: [{ present: true, count: sql.includes('COUNT(DISTINCT migration_name)') ? 4 : 0 }] }));
+    const query = vi.fn(async (sql: string) => ({ rows: [{ present: true, count: sql.includes('COUNT(DISTINCT migration_name)') ? 7 : 0 }] }));
     expect(await inspectPaymentReadiness({ query } as never, 'TEST')).toMatchObject({ status: 'LOCAL_CHECKS_CLEAR', migrationRecorded: true });
   });
   it('does not imply readiness when the merchant-version migration is absent', async () => {
@@ -18,6 +18,10 @@ describe('read-only payment release inventory', () => {
   it('reports a missing schema without querying unavailable payment tables', async () => {
     const query = vi.fn(async () => ({ rows: [{ present: false }] }));
     expect(await inspectPaymentReadiness({ query } as never, 'TEST')).toMatchObject({ status: 'BLOCKED', missingTables: expect.arrayContaining(['PaymentProviderConfigurationVersion']) });
+  });
+  it('blocks release when wallet AutoPay tables are missing', async () => {
+    const query = vi.fn(async (_sql: string, values?: string[]) => ({ rows: [{ present: !values?.[0]?.includes('WalletAutoRecharge') }] }));
+    expect(await inspectPaymentReadiness({ query } as never, 'TEST')).toMatchObject({ status: 'BLOCKED', missingTables: ['WalletAutoRechargePolicy', 'WalletAutoRechargePreference', 'WalletAutoRecharge'] });
   });
   it('rolls back a failed inventory and rejects an implicit environment', async () => {
     const query = vi.fn(async (sql: string) => { if (sql.startsWith('SELECT')) throw new Error('read failed'); return { rows: [] }; });

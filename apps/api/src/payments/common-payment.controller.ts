@@ -87,7 +87,7 @@ export class CommonPaymentController {
               type: 'string',
               enum: ['RAZORPAY', 'CASHFREE'],
               description:
-                'RAZORPAY supports rental invoices. Omit to use the client policy; a different provider is rejected.',
+                'Omit to use the client policy; a different provider is rejected.',
             },
             invoiceId: { type: 'string', format: 'uuid' },
             useWallet: { type: 'boolean' },
@@ -127,6 +127,16 @@ export class CommonPaymentController {
         key,
       ),
     };
+  }
+  @Get('pending')
+  async pending(@CurrentUser() user: AuthUser) {
+    return { data: await this.payments.pending(this.clients.requireClientId(user), user.id) };
+  }
+  @Post(':paymentRequestId/abandon')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Release an unpaid Razorpay collection checkout locally; late captures remain reconciled' })
+  async abandon(@CurrentUser() user: AuthUser, @Param('paymentRequestId') id: string) {
+    return { data: await this.payments.abandon(this.clients.requireClientId(user), user.id, id) };
   }
   @Get(':paymentRequestId')
   async detail(

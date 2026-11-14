@@ -270,6 +270,23 @@ describe('invoice AutoPay collection', () => {
     expect(f.tx.riderInvoice.update).not.toHaveBeenCalled();
   });
 
+  it('does not overwrite a newer attempt’s dunning state while polling a historical failure', async () => {
+    const f = fixture();
+    f.tx.paymentTransaction.findFirst.mockResolvedValue({ id: 'newer-attempt' } as never);
+    f.provider.fetchPayment.mockResolvedValue({ providerMandateId: f.mandate.providerMandateId, providerPaymentId: f.payment().providerPaymentId, status: 'FAILED', rawStatus: 'FAILED', failureCode: 'BANK_NOT_AVAILABLE', retryability: 'RETRYABLE' });
+    await f.service.verify(clientId, riderId, f.payment().id);
+    expect(f.tx.autoPayDunningCase.upsert).not.toHaveBeenCalled();
+  });
+  it('preserves classified failure evidence when a later status-only response omits the reason', async () => {
+    const f = fixture();
+    const failed = { providerMandateId: f.mandate.providerMandateId, providerPaymentId: f.payment().providerPaymentId, status: 'FAILED', rawStatus: 'FAILED' };
+    f.provider.fetchPayment.mockResolvedValueOnce({ ...failed, failureCode: 'BANK_NOT_AVAILABLE', retryability: 'RETRYABLE' }).mockResolvedValue(failed);
+    await f.service.verify(clientId, riderId, f.payment().id);
+    const original = { ...f.payment() };
+    await f.service.verify(clientId, riderId, f.payment().id);
+    expect(f.payment()).toMatchObject({ failureCode: 'BANK_NOT_AVAILABLE', retryability: 'RETRYABLE', failedAt: (original as unknown as { failedAt: Date }).failedAt });
+    expect(f.tx.auditLog.create).toHaveBeenCalledTimes(1);
+  });
   it('keeps an uncertain charge reserved and does not repeat the provider POST', async () => {
     const f = fixture();
     f.provider.createPayment.mockRejectedValue(new Error('timeout'));

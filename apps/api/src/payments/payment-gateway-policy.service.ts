@@ -6,7 +6,7 @@ export type PaymentPurpose = 'DEPLOYMENT' | 'SUBMISSION_PENALTY' | 'INVOICE' | '
 
 // Advertise only capabilities implemented by the registered adapters.
 export const gatewayCapabilities: Readonly<Record<string, readonly PaymentPurpose[]>> = {
-  RAZORPAY: ['DEPLOYMENT', 'SUBMISSION_PENALTY', 'INVOICE', 'UPI_AUTOPAY'],
+  RAZORPAY: ['DEPLOYMENT', 'SUBMISSION_PENALTY', 'INVOICE', 'OUTSTANDING', 'SECURITY_DEPOSIT', 'TOP_UP', 'UPI_AUTOPAY'],
   CASHFREE: ['SUBMISSION_PENALTY', 'INVOICE', 'OUTSTANDING', 'SECURITY_DEPOSIT', 'TOP_UP', 'UPI_AUTOPAY', 'ENACH'],
   MOCK: ['SUBMISSION_PENALTY', 'INVOICE', 'OUTSTANDING', 'SECURITY_DEPOSIT', 'TOP_UP', 'UPI_AUTOPAY', 'ENACH'],
 };

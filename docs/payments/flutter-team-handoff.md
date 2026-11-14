@@ -1,11 +1,15 @@
 # Flutter team handoff — payment contract v1.1
 
+Latest update: [Phase 2 payment reliability](phase2-flutter-handoff.md), including home-screen fields and wallet transaction identity.
+
+Phase 1 update (2026-11-14): [payment reliability handoff](phase1-flutter-handoff.md) supersedes the capability restrictions below after its backend release. Flutter implementation remains owned by the Flutter team.
+
 Backend contract: [mobile-payment-api-contract-v1.md](mobile-payment-api-contract-v1.md). Revision: payment-contract-v1.1, 2026-11-13. Flutter implementation is owned entirely by the Flutter team. The backend work does not change Flutter source or dependencies.
 
 ## Backend delivery
 
 - Existing create/detail/verify routes remain; additive capabilities and callbackless reconcile routes are implemented.
-- Provider selection is enforced by client policy. Razorpay client capabilities are deployment, rental invoice, penalty and UPI AutoPay. Do not expose outstanding/deposit/top-up for a Razorpay client.
+- Provider selection is enforced by client policy. The Phase 1 backend adds Razorpay top-up, outstanding, security-deposit and non-rental invoice checkout. Enable only purposes returned by the deployed server capabilities.
 - Cashfree checkout returns its saved environment, or null on older rows where no reliable snapshot exists. Null means no SDK launch; support/status recovery remains available.
 - Capability eligibility is not a credential/connectivity test. Handle creation errors even after enabled:true.
 - Only server SUCCEEDED is a successful checkout. Wallet-only success does not need an SDK.

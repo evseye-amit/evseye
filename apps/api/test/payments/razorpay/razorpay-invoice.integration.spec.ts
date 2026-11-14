@@ -394,14 +394,11 @@ describe.skipIf(!url)('Razorpay rental invoices through the common API', () => {
       }),
     ).toBe(1);
   });
-  it('rejects paid, draft, non-rental, foreign and non-INR invoices', async () => {
+  it('rejects paid, draft, foreign and non-INR rental invoices while routing other types to shared checkout', async () => {
     const f = await fixture();
     const other = await fixture();
     const foreign = await other.invoice();
     await expect(f.create(foreign.id)).rejects.toThrow('INVOICE_NOT_FOUND');
-    await expect(
-      f.create((await f.invoice('50', 'SUBMISSION_PENALTY')).id),
-    ).rejects.toThrow('rental invoices only');
     await expect(
       f.create((await f.invoice('50', 'RENTAL', 'DRAFT')).id),
     ).rejects.toThrow('INVOICE_ALREADY_PAID');
