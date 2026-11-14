@@ -13,6 +13,7 @@ function fixture(lotAmounts: string[]) {
     walletLedgerEntry: { createMany: vi.fn().mockResolvedValue({}) },
     rewardLot: { findMany: vi.fn().mockResolvedValue(lots), update: vi.fn().mockResolvedValue({}) },
     rewardLotConsumption: { create: vi.fn().mockResolvedValue({}) },
+    walletAutoRechargePreference: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
   };
   const service = new WalletService({} as never);
@@ -25,10 +26,15 @@ describe('reward lot spending', () => {
     await service.postInTransaction(tx as never, { clientId: 'client', walletId: 'wallet', actorId: 'SYSTEM', type: 'RENTAL', amount: '150.00', currency: 'INR', description: 'Rental', idempotencyKey: 'reward-spend-1', entries: [{ accountId: 'reward', entryType: 'DEBIT', amount: '150.00' }, { accountId: 'clearing', entryType: 'CREDIT', amount: '150.00' }] });
     expect(tx.rewardLotConsumption.create).toHaveBeenNthCalledWith(1, { data: expect.objectContaining({ lotId: 'lot-1', amount: d('100.00'), kind: 'SPEND' }) });
     expect(tx.rewardLotConsumption.create).toHaveBeenNthCalledWith(2, { data: expect.objectContaining({ lotId: 'lot-2', amount: d('50.00'), kind: 'SPEND' }) });
+    expect(tx.walletAutoRechargePreference.updateMany).toHaveBeenCalledWith({
+      where: { walletId: 'wallet', clientId: 'client', enabled: true },
+      data: { evaluationRequestedAt: expect.any(Date) },
+    });
   });
   it('refuses to spend expired tracked reward as legacy balance', async () => {
     const { tx, service } = fixture(['100.00']);
     tx.rewardLot.findMany.mockResolvedValue([{ id: 'expired', remainingAmount: d('100.00'), expiresAt: new Date('2020-01-01'), status: 'AVAILABLE' }]);
     await expect(service.postInTransaction(tx as never, { clientId: 'client', walletId: 'wallet', actorId: 'SYSTEM', type: 'RENTAL', amount: '100.00', currency: 'INR', description: 'Rental', idempotencyKey: 'reward-spend-2', entries: [{ accountId: 'reward', entryType: 'DEBIT', amount: '100.00' }, { accountId: 'clearing', entryType: 'CREDIT', amount: '100.00' }] })).rejects.toThrow('REWARD_LOTS_INSUFFICIENT');
+    expect(tx.walletAutoRechargePreference.updateMany).not.toHaveBeenCalled();
   });
 });
