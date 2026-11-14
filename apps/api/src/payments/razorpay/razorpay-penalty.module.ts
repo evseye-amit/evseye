@@ -1,3 +1,4 @@
+import { CommercialCoreModule } from '../../rider-rate-cards/commercial-core.module.js';
 import { RazorpayInvoiceService } from './razorpay-invoice.service.js';
 import { RazorpayEventRouter } from './razorpay-event-router.service.js';
 import { Module } from '@nestjs/common';
@@ -11,6 +12,7 @@ import { RazorpayConfigurationService } from './razorpay-configuration.service.j
 @Module({
   imports: [
     AuthModule,
+    CommercialCoreModule,
     RiderBillingModule,
     WalletModule,
     SubmissionPenaltyModule,

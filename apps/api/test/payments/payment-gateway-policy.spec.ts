@@ -16,7 +16,7 @@ describe('Client gateway policy', () => {
     const result = await fixture().policy.capabilities('client-a');
     expect(result).toMatchObject({ contractVersion: 1, availabilityBasis: 'POLICY', connectivityVerified: false });
     expect(result.purposes.INVOICE).toEqual({ enabled: true, provider: 'RAZORPAY', platforms: ['ANDROID', 'IOS'] });
-    expect(result.purposes.TOP_UP).toMatchObject({ enabled: false, platforms: [], reason: 'PAYMENT_CAPABILITY_UNAVAILABLE' });
+    expect(result.purposes.TOP_UP).toMatchObject({ enabled: true, provider: 'RAZORPAY', platforms: ['ANDROID', 'IOS'] });
     expect(JSON.stringify(result)).not.toMatch(/secret|keyId|configurationVersionId/);
   });
   it('disables every purpose for an unsupported client merchant', async () => {
@@ -27,7 +27,7 @@ describe('Client gateway policy', () => {
     const { db, policy } = fixture(); db.clientPaymentProvider.findMany.mockRejectedValue(new Error('database offline'));
     await expect(policy.capabilities('client-a')).rejects.toThrow('database offline');
   });
-  it.each(['DEPLOYMENT', 'INVOICE', 'SUBMISSION_PENALTY', 'UPI_AUTOPAY'] as const)('uses the client merchant for %s despite global defaults', async purpose => {
+  it.each(['DEPLOYMENT', 'INVOICE', 'SUBMISSION_PENALTY', 'UPI_AUTOPAY', 'TOP_UP', 'OUTSTANDING', 'SECURITY_DEPOSIT'] as const)('uses the client merchant for %s despite global defaults', async purpose => {
     const { policy, db } = fixture();
     await expect(policy.resolve('client-a', purpose)).resolves.toBe('RAZORPAY');
     expect(db.clientPaymentProvider.findMany).toHaveBeenCalledWith({ where: { clientId: 'client-a', environment: 'TEST' } });
@@ -35,7 +35,7 @@ describe('Client gateway policy', () => {
   it('rejects a caller-selected gateway outside client policy', async () => {
     await expect(fixture().policy.resolve('client-a', 'INVOICE', 'CASHFREE')).rejects.toMatchObject({ response: { code: 'PAYMENT_PROVIDER_POLICY_MISMATCH' } });
   });
-  it.each(['TOP_UP', 'OUTSTANDING', 'SECURITY_DEPOSIT', 'ENACH'] as const)('does not silently route unsupported %s to a shared merchant', async purpose => {
+  it.each(['ENACH'] as const)('does not silently route unsupported %s to a shared merchant', async purpose => {
     await expect(fixture().policy.resolve('client-a', purpose)).rejects.toMatchObject({ response: { code: 'PAYMENT_CAPABILITY_UNAVAILABLE' } });
   });
   it.each([

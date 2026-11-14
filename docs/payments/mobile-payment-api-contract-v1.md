@@ -1,8 +1,12 @@
 # Mobile payment API contract v1
 
-Contract revision: payment-contract-v1.1, 2026-11-13. Implemented in the local backend; deployment identifier and staging URL must be supplied by backend release operations before mobile enables these additions. This is not a claim of production or device certification.
+Contract revision: payment-contract-v1.2, 2026-11-14. Implemented in the local backend; deployment identifier and staging URL must be supplied by backend release operations before mobile enables these additions. This is not a claim of production or device certification.
 
 Ownership: backend maintains this contract and its executable tests. The Flutter team implements all mobile changes. No Flutter source changes are included.
+
+Phase 2 home-screen and wallet-history changes: [phase2-flutter-handoff.md](phase2-flutter-handoff.md).
+
+Phase 1 recovery and Flutter implementation details: [phase1-flutter-handoff.md](phase1-flutter-handoff.md).
 
 ## Authentication and compatibility
 
@@ -14,6 +18,8 @@ Existing create, detail and verify paths and Razorpay fields remain compatible. 
 
 - GET /rider-app/payments/orders/capabilities — client policy eligibility.
 - POST /rider-app/payments/orders — create or reuse an order.
+- GET /rider-app/payments/orders/pending — up to 50 newest owned unresolved collection requests (not deployment attempts).
+- POST /rider-app/payments/orders/:paymentRequestId/abandon — guarded local release of an unpaid Razorpay collection; late captures remain reconciled.
 - GET /rider-app/payments/orders/:paymentRequestId — stored state only.
 - POST /rider-app/payments/orders/:paymentRequestId/verify — SDK callback verification.
 - POST /rider-app/payments/orders/:paymentRequestId/reconcile — fresh provider recovery without an SDK callback; send {}.
@@ -25,12 +31,12 @@ Reconcile verifies ownership before contacting the saved provider. It does not c
 Example:
 
 ```json
-{"data":{"contractVersion":1,"availabilityBasis":"POLICY","connectivityVerified":false,"purposes":{"INVOICE":{"enabled":true,"provider":"RAZORPAY","platforms":["ANDROID","IOS"]},"TOP_UP":{"enabled":false,"provider":null,"platforms":[],"reason":"PAYMENT_CAPABILITY_UNAVAILABLE"}}}}
+{"data":{"contractVersion":1,"availabilityBasis":"POLICY","connectivityVerified":false,"purposes":{"INVOICE":{"enabled":true,"provider":"RAZORPAY","platforms":["ANDROID","IOS"]},"TOP_UP":{"enabled":true,"provider":"RAZORPAY","platforms":["ANDROID","IOS"]}}}}
 ```
 
 The response includes DEPLOYMENT, SUBMISSION_PENALTY, INVOICE, OUTSTANDING, SECURITY_DEPOSIT, TOP_UP, UPI_AUTOPAY and ENACH. enabled means the selected policy has a registered capability; it does not certify secrets, gateway connectivity, merchant activation, rider eligibility or installed SDK availability. platforms lists supported native integration targets, not a certification of the current app build. Order creation performs authoritative validation and may still return 503.
 
-Client Razorpay supports deployment, rental invoices, submission penalties and UPI AutoPay. Legacy shared Cashfree supports non-deployment checkout and recurring purposes. Client-specific Cashfree is not enabled. MOCK is not advertised as usable on mobile. Do not enable unsupported purposes simply because a request constructor exists.
+Client Razorpay supports deployment, eligible invoices, outstanding, security deposits, top-ups, submission penalties and UPI AutoPay. Cashfree capabilities depend on the deployed client policy and configuration. MOCK is not advertised as usable on mobile. Do not enable unsupported purposes simply because a request constructor exists.
 
 ## Create requests
 
@@ -43,7 +49,7 @@ Client Razorpay supports deployment, rental invoices, submission penalties and U
 | SECURITY_DEPOSIT | depositId |
 | TOP_UP | amount |
 
-Amounts are INR decimal strings. TOP_UP is INR 500.00–5000.00. See ../rider-wallet-top-up-contract.md. Server computes/validates the payable amount and ownership. Provider omission uses client policy; a supplied different provider returns PAYMENT_PROVIDER_POLICY_MISMATCH. INVOICE on Razorpay currently means rental invoices.
+Amounts are INR decimal strings. TOP_UP is INR 500.00–5000.00. See ../rider-wallet-top-up-contract.md. Server computes/validates the payable amount and ownership. Provider omission uses client policy; a supplied different provider returns PAYMENT_PROVIDER_POLICY_MISMATCH. For wallet security-deposit invoices, use INVOICE; SECURITY_DEPOSIT takes a legacy rider deposit ID. OUTSTANDING refuses mixed security-deposit invoices with PAY_SECURITY_DEPOSIT_INVOICE_SEPARATELY; pay those through their invoice checkout first.
 
 Send Idempotency-Key (8–120 letters, digits, colon, underscore or hyphen). It is required for invoices and configured-provider checkout. Deployment and Razorpay penalties additionally have server-managed pending-order reuse; their header is not a general replay guarantee. Use one key and identical payload for the same logical payment. Never rotate the key on timeout.
 

@@ -14,6 +14,18 @@ jobs:
   verify:
     name: Verify application
     runs-on: ubuntu-latest
+    services:
+      payment-postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: payment_test
+          POSTGRES_PASSWORD: payment_test
+          POSTGRES_DB: evseye_test_payments
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U payment_test -d evseye_test_payments"
+          --health-interval 5s --health-timeout 5s --health-retries 20
 
     steps:
       - name: Check out source
@@ -108,6 +120,20 @@ jobs:
 
       - name: Run unit tests
         run: pnpm test
+
+      - name: Apply migrations to disposable payment test database
+        env:
+          DATABASE_URL: postgresql://payment_test:payment_test@127.0.0.1:5432/evseye_test_payments
+        run: pnpm --filter @evs-eye/api exec prisma migrate deploy
+
+      - name: Required payment release acceptance
+        env:
+          RENTAL_PAYMENT_TEST_DATABASE_URL: postgresql://payment_test:payment_test@127.0.0.1:5432/evseye_test_payments
+          AUTOPAY_TEST_DATABASE_URL: postgresql://payment_test:payment_test@127.0.0.1:5432/evseye_test_payments
+          PENALTY_PAYMENT_TEST_DATABASE_URL: postgresql://payment_test:payment_test@127.0.0.1:5432/evseye_test_payments
+          PAYMENT_CONFIGURATION_TEST_DATABASE_URL: postgresql://payment_test:payment_test@127.0.0.1:5432/evseye_test_payments
+          DEPLOYMENT_PLAN_TEST_DATABASE_URL: postgresql://payment_test:payment_test@127.0.0.1:5432/evseye_test_payments
+        run: pnpm --filter @evs-eye/api test:payments:release
 
       - name: Run API smoke test
         env:

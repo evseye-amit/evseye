@@ -31,6 +31,7 @@ describe('provider settlement report import', () => {
       providerSettlement: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn(async ({ data }) => (stored = { id: 's', ...data })), findUniqueOrThrow: vi.fn(async () => stored) },
       paymentCollectionRequest: { findMany: vi.fn().mockResolvedValue([]) },
       paymentTransaction: { findMany: vi.fn().mockResolvedValue([]) },
+      walletAutoRecharge: { findMany: vi.fn().mockResolvedValue([]) },
       deploymentPaymentCapture: { findMany: vi.fn().mockResolvedValue([{ id: 'capture', amountPaise, currency, status }]) },
       auditLog: { create: vi.fn() },
     };

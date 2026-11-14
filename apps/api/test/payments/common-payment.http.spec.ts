@@ -13,6 +13,8 @@ describe('mobile payment HTTP contract', () => {
   let app: NestFastifyApplication;
   const payment = { paymentRequestId: 'collection:00000000-0000-4000-a000-000000000001', provider: 'RAZORPAY', status: 'PENDING', checkout: { type: 'RAZORPAY', orderId: 'order_test', keyId: 'rzp_test_public', amountPaise: 50000 }, currency: 'INR', amount: '500.00' };
   const service = {
+    pending: vi.fn().mockResolvedValue([payment]),
+    abandon: vi.fn().mockResolvedValue({ ...payment, status: 'CANCELLED', checkout: null }),
     capabilities: vi.fn().mockResolvedValue({ contractVersion: 1, availabilityBasis: 'POLICY', connectivityVerified: false, purposes: {} }),
     create: vi.fn().mockResolvedValue(payment), detail: vi.fn().mockResolvedValue(payment),
     verify: vi.fn().mockResolvedValue({ ...payment, status: 'SUCCEEDED', checkout: null }),
@@ -50,6 +52,17 @@ describe('mobile payment HTTP contract', () => {
     expect(response.json()).toMatchObject({ data: { contractVersion: 1, availabilityBasis: 'POLICY', connectivityVerified: false } });
     expect(service.capabilities).toHaveBeenCalledWith('client-a', 'user-a');
     expect(service.detail).not.toHaveBeenCalled();
+  });
+  it('exposes authenticated pending lookup and explicit local abandonment', async () => {
+    const base = '/api/v1/rider-app/payments/orders';
+    expect((await app.inject({ method: 'GET', url: `${base}/pending`, headers: auth })).json()).toEqual({ data: [payment] });
+    expect(service.pending).toHaveBeenCalledWith('client-a', 'user-a');
+    expect(service.detail).not.toHaveBeenCalled();
+    const response = await app.inject({ method: 'POST', url: `${base}/${encodeURIComponent(payment.paymentRequestId)}/abandon`, headers: auth });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ data: { status: 'CANCELLED', checkout: null } });
+    expect(service.abandon).toHaveBeenCalledWith('client-a', 'user-a', payment.paymentRequestId);
+    expect((await app.inject({ method: 'POST', url: `${base}/${payment.paymentRequestId}/abandon` })).statusCode).toBe(401);
   });
   it('preserves old create calls and forwards stable idempotency headers for new clients', async () => {
     const url = '/api/v1/rider-app/payments/orders';

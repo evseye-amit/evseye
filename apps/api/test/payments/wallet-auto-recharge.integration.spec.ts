@@ -1,3 +1,4 @@
+import { ProviderSettlementService } from '../../src/payments/provider-settlement.service.js';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
@@ -289,6 +290,22 @@ describe.skipIf(!url)('Wallet AutoPay PostgreSQL', () => {
         },
       }),
     ).toBe(1);
+  });
+  it('matches wallet AutoPay settlements only for the owning merchant and verified successful amount', async () => {
+    const f = await fixture();
+    await f.service.evaluate(f.wallet.id);
+    const service = new ProviderSettlementService(db as never);
+    const report = (amount = '750.00') => ({ provider: 'RAZORPAY' as const, providerSettlementId: randomUUID(), currency: 'INR', grossAmount: amount, refundAmount: '0.00', feeAmount: '0.00', taxAmount: '0.00', netAmount: amount, settledAt: new Date().toISOString(), items: [{ kind: 'PAYMENT' as const, providerReference: f.payments[0].id, amount }] });
+    const pending = await service.importReport(f.client.id, f.user.id, report());
+    expect(pending.items[0].status).not.toBe('MATCHED');
+    f.payments[0].captured = true; f.payments[0].status = 'captured';
+    await f.reconcile();
+    const rematched = await service.rematch(f.client.id, pending.id, f.user.id);
+    expect(rematched.items[0]).toMatchObject({ status: 'MATCHED', localReferenceId: (await f.request()).id });
+    const wrong = await service.importReport(f.client.id, f.user.id, report('749.00'));
+    expect(wrong.items[0].status).toBe('AMOUNT_MISMATCH');
+    const other = await fixture();
+    expect((await service.importReport(other.client.id, other.user.id, report())).items[0].status).toBe('MISSING_INTERNAL');
   });
   it('evaluates immediately after rental commit, not at exactly the threshold', async () => {
     const f = await fixture('550.00');

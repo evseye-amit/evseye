@@ -106,6 +106,9 @@ export interface CheckoutOrderResult {
 }
 export interface CheckoutOrderStatus {
   orderId: string;
+  paymentSessionId?: string;
+  amount?: string;
+  currency?: string;
   status: 'ACTIVE' | 'PAID' | 'EXPIRED' | 'UNKNOWN';
   expiresAt?: string;
 }

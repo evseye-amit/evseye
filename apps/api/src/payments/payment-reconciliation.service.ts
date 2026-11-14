@@ -113,6 +113,21 @@ export class PaymentReconciliationService {
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], ...paging,
       }),
     ]);
+    const topups = checkouts.slice(0, limit).filter(r => r.collectionType === 'TOP_UP' && r.status === 'SUCCESS');
+    const postings = topups.length ? await this.prisma.walletTransaction.findMany({
+      where: { clientId, referenceType: 'PAYMENT_COLLECTION', referenceId: { in: topups.map(r => r.id) }, transactionType: 'TOP_UP', status: 'POSTED', entries: { some: {} } },
+      include: { wallet: { select: { riderId: true } }, entries: { include: { account: { select: { accountType: true } } } } },
+    }) : [];
+    const postedTopups = new Set(topups.filter(r => {
+      const rows = postings.filter(p => p.referenceId === r.id);
+      if (rows.length !== 1) return false;
+      const p = rows[0];
+      return p.wallet.riderId === r.riderId && p.currency === r.currency && p.amount.eq(r.amount)
+        && p.entries.every(e => e.currency === r.currency)
+        && p.entries.filter(e => e.entryType === 'DEBIT').reduce((sum, e) => sum.plus(e.amount), new Prisma.Decimal(0)).eq(r.amount)
+        && p.entries.filter(e => e.entryType === 'CREDIT').reduce((sum, e) => sum.plus(e.amount), new Prisma.Decimal(0)).eq(r.amount)
+        && p.entries.filter(e => e.account.accountType === 'CASH').reduce((sum, e) => sum.plus(e.entryType === 'CREDIT' ? e.amount : e.amount.neg()), new Prisma.Decimal(0)).eq(r.amount);
+    }).map(r => r.id));
     const items = [
       ...checkouts.slice(0, limit).map((request) => ({
         source: 'CHECKOUT',
@@ -129,7 +144,8 @@ export class PaymentReconciliationService {
             : request.status === 'SUCCESS' &&
                 !request.riderPaymentId &&
                 !request.depositTransactionId &&
-                request.invoice?.invoiceType !== 'SECURITY_DEPOSIT'
+                request.invoice?.invoiceType !== 'SECURITY_DEPOSIT' &&
+                !postedTopups.has(request.id)
               ? 'PROVIDER_SUCCESS_LOCAL_PENDING'
               : request.riderPayment &&
                   !request.riderPayment.amount.eq(request.amount)

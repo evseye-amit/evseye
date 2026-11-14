@@ -43,7 +43,7 @@ function fixture(
     riderPaymentProfile: {
       findUnique: vi.fn().mockResolvedValue({ autoPayEnabled: true }),
     },
-    paymentTransaction: { findMany: vi.fn().mockResolvedValue(transactions) },
+    paymentTransaction: { findMany: vi.fn().mockResolvedValue(transactions.map(t => ({ ...t, failedAt: t.updatedAt, createdAt: t.updatedAt }))) },
     paymentMandate: { findFirst: vi.fn().mockResolvedValue({ maxAmount: new Prisma.Decimal('5000.00') }) },
     autoPayDunningCase: { upsert: vi.fn().mockResolvedValue({}) },
   };
@@ -90,6 +90,18 @@ describe('automatic collection retry policy', () => {
     ]);
     await service.processDue(10, new Date('2026-09-27T00:00:00Z'));
     expect(orchestrator.collect).not.toHaveBeenCalled();
+  });
+  it('uses the original failure time even when reconciliation just updated the row', async () => {
+    const f = fixture();
+    f.prisma.paymentTransaction.findMany.mockResolvedValue([{ status: 'FAILED', retryability: 'RETRYABLE', failedAt: new Date('2026-09-20'), createdAt: new Date('2026-09-19'), updatedAt: new Date('2026-09-27') }] as never);
+    await f.service.processDue(10, new Date('2026-09-27T00:00:00Z'));
+    expect(f.orchestrator.collect).toHaveBeenCalledTimes(1);
+  });
+  it('does not retry before the failure interval even when the attempt was created much earlier', async () => {
+    const f = fixture();
+    f.prisma.paymentTransaction.findMany.mockResolvedValue([{ status: 'FAILED', retryability: 'RETRYABLE', failedAt: new Date('2026-09-27'), createdAt: new Date('2026-09-19'), updatedAt: new Date('2026-09-27') }] as never);
+    await f.service.processDue(10, new Date('2026-09-27T12:00:00Z'));
+    expect(f.orchestrator.collect).not.toHaveBeenCalled();
   });
   it('retries a classified transient failure with a new idempotency key', async () => {
     const { service, orchestrator } = fixture([

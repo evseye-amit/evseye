@@ -186,6 +186,9 @@ export class CashfreePaymentProvider implements PaymentProvider {
     const rawStatus = field(result.order_status);
     return {
       orderId,
+      paymentSessionId: field(result.payment_session_id) || undefined,
+      amount: result.order_amount == null ? undefined : String(result.order_amount),
+      currency: field(result.order_currency) || undefined,
       status: (['ACTIVE', 'PAID', 'EXPIRED'].includes(rawStatus) ? rawStatus : 'UNKNOWN') as 'ACTIVE' | 'PAID' | 'EXPIRED' | 'UNKNOWN',
       expiresAt: field(result.order_expiry_time) || undefined,
     };

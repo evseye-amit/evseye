@@ -1,3 +1,7 @@
+import { PaymentReconciliationService } from '../../src/payments/payment-reconciliation.service.js';
+import { ProviderRequestError } from '../../src/payments/payment-provider.interface.js';
+import { RiderDepositService } from '../../src/rider-deposits/deposit.service.js';
+import { SecurityDepositService } from '../../src/wallet/security-deposit.service.js';
 import { createTestPrisma } from '../helpers/prisma-client.js';
 import { CommonPaymentService } from '../../src/payments/common-payment.service.js';
 import { RiderBillingService } from '../../src/rider-billing/rider-billing.service.js';
@@ -198,6 +202,9 @@ describe.skipIf(!url)(
         new RiderPaymentsService(db as never),
         f.wallet,
         penalties as never,
+        undefined,
+        new RiderDepositService(db as never),
+        new SecurityDepositService(db as never, f.wallet, {} as never),
       );
       function capture(
         order: { orderId: string | null; amount: number; currency: string },
@@ -222,6 +229,135 @@ describe.skipIf(!url)(
       }
       return { service, gateway, capture, captures };
     }
+    function genericCheckout(f: Awaited<ReturnType<typeof fixture>>, r: ReturnType<typeof razorpay>) {
+      return new CheckoutCollectionService(db as never,
+        { getOrThrow: () => 'razorpay', get: () => undefined } as never, {} as never,
+        new RiderPaymentsService(db as never), new RiderDepositService(db as never), {} as never,
+        f.wallet, new SecurityDepositService(db as never, f.wallet, {} as never), r.service);
+    }
+    it('settles Razorpay top-up exactly once under concurrent reconciliation and never credits a mismatched capture', async () => {
+      const f = await fixture(), r = razorpay(f), checkout = genericCheckout(f, r);
+      const key = randomUUID();
+      const order = await checkout.payTopUp(f.client.id, f.rider.id, key, '500.00');
+      expect(await checkout.payTopUp(f.client.id, f.rider.id, key, '500.00')).toMatchObject({ collectionId: order.collectionId, orderId: order.orderId });
+      expect(r.gateway.createOrder).toHaveBeenCalledTimes(1);
+      const proof = r.capture({ orderId: order.orderId, amount: 50000, currency: 'INR' }, { amount: 49999 });
+      await expect(r.service.verify(f.client.id, f.user.id, proof)).rejects.toThrow('PROVIDER_PAYMENT_MISMATCH');
+      r.captures.get(proof.razorpayPaymentId).amount = 50000;
+      await Promise.all([r.service.verify(f.client.id, f.user.id, proof), checkout.verify(f.client.id, f.rider.id, order.collectionId)]);
+      const wallet = await f.wallet.ensure(f.client.id, f.rider.id, 'SYSTEM');
+      expect((await f.wallet.balance(f.client.id, wallet.id)).cash.totalBalance).toBe('500.00');
+      expect(await db.walletTransaction.count({ where: { clientId: f.client.id, referenceId: order.collectionId } })).toBe(1);
+      expect(await f.wallet.transactions(f.client.id, wallet.id, 1, 25)).toHaveLength(1);
+      const reconciliation = new PaymentReconciliationService(db as never, {} as never, {} as never, {} as never);
+      expect((await reconciliation.report(f.client.id)).items.find(i => i.id === order.collectionId)).toMatchObject({ state: 'MATCHED' });
+      const missing = await db.paymentCollectionRequest.create({ data: { clientId: f.client.id, riderId: f.rider.id, collectionType: 'TOP_UP', provider: 'RAZORPAY', method: 'UPI', status: 'SUCCESS', amount: '500', currency: 'INR', idempotencyKey: randomUUID() } });
+      expect((await reconciliation.report(f.client.id)).items.find(i => i.id === missing.id)).toMatchObject({ state: 'PROVIDER_SUCCESS_LOCAL_PENDING' });
+      await db.walletTransaction.create({ data: { clientId: f.client.id, walletId: wallet.id, transactionNumber: randomUUID(), transactionType: 'TOP_UP', status: 'POSTED', amount: '500', currency: 'INR', description: 'Historical placeholder', idempotencyKey: randomUUID(), requestHash: 'legacy', referenceType: 'PAYMENT_COLLECTION', referenceId: order.collectionId } });
+      expect(await f.wallet.transactions(f.client.id, wallet.id, 1, 25)).toHaveLength(1);
+      expect((await reconciliation.report(f.client.id)).items.find(i => i.id === order.collectionId)).toMatchObject({ state: 'MATCHED' });
+
+      expect(await db.walletLedgerEntry.count({ where: { clientId: f.client.id, account: { accountType: 'CASH' }, entryType: 'CREDIT' } })).toBe(1);
+      await expect(checkout.verify('other-client', f.rider.id, order.collectionId)).rejects.toThrow('not found');
+    });
+    it('settles a non-rental Razorpay invoice despite a cash reserve, without allowing cash spending', async () => {
+      const f = await fixture(), r = razorpay(f), checkout = genericCheckout(f, r);
+      await db.walletPolicy.create({ data: { clientId: f.client.id, version: 1, minimumCashBalance: '1000' } });
+      const invoice = await f.invoice('250', 'OTHER');
+      const order = await checkout.payInvoice(f.client.id, f.rider.id, invoice.id, randomUUID(), false, f.user.id);
+      const proof = r.capture({ orderId: order.orderId, amount: 25000, currency: 'INR' });
+      await r.service.verify(f.client.id, f.user.id, proof);
+      expect(await db.riderInvoice.findUnique({ where: { id: invoice.id } })).toMatchObject({ status: 'PAID' });
+      const wallet = await f.wallet.ensure(f.client.id, f.rider.id, 'SYSTEM');
+      const accounts = await db.walletAccount.findMany({ where: { walletId: wallet.id } });
+      const cash = accounts.find(a => a.accountType === 'CASH')!, clearing = accounts.find(a => a.accountType === 'CLEARING')!;
+      const posting = { clientId: f.client.id, walletId: wallet.id, actorId: 'SYSTEM', type: 'PAYMENT' as const, amount: '50.00', currency: 'INR', description: 'Test reserve', idempotencyKey: randomUUID(), entries: [{ accountId: clearing.id, entryType: 'DEBIT' as const, amount: '50.00' }, { accountId: cash.id, entryType: 'CREDIT' as const, amount: '50.00' }] };
+      await db.$transaction(tx => f.wallet.postInTransaction(tx, posting));
+      expect((await f.wallet.balance(f.client.id, wallet.id)).cash.totalBalance).toBe('50.00');
+      await expect(db.$transaction(tx => f.wallet.postInTransaction(tx, { ...posting, idempotencyKey: randomUUID(), entries: [{ accountId: cash.id, entryType: 'DEBIT', amount: '50.00' }, { accountId: clearing.id, entryType: 'CREDIT', amount: '50.00' }] }))).rejects.toThrow('INSUFFICIENT_AVAILABLE_BALANCE');
+    });
+    it('releases abandoned Razorpay invoice checkout and reviews a late surplus capture without double allocating', async () => {
+      const f = await fixture(), r = razorpay(f), checkout = genericCheckout(f, r);
+      const invoice = await f.invoice('250', 'OTHER');
+      const first = await checkout.payInvoice(f.client.id, f.rider.id, invoice.id, randomUUID(), false, f.user.id);
+      await r.service.abandon(f.client.id, f.rider.id, first.collectionId!);
+      const second = await checkout.payInvoice(f.client.id, f.rider.id, invoice.id, randomUUID(), false, f.user.id);
+      await r.service.verify(f.client.id, f.user.id, r.capture({ orderId: second.orderId, amount: 25000, currency: 'INR' }));
+      await r.service.verify(f.client.id, f.user.id, r.capture({ orderId: first.orderId, amount: 25000, currency: 'INR' }));
+      expect(await db.riderPaymentAllocation.count({ where: { invoiceId: invoice.id } })).toBe(1);
+      expect(await db.paymentCollectionRequest.findUnique({ where: { id: first.collectionId! } })).toMatchObject({ status: 'SUCCESS', failureCode: 'UNAPPLIED_PROVIDER_PAYMENT_REVIEW' });
+      await expect(r.service.abandon(f.client.id, f.rider.id, second.collectionId!)).rejects.toThrow();
+    });
+    it('does not abandon a Razorpay payment while gateway authorization is pending', async () => {
+      const f = await fixture(), r = razorpay(f), checkout = genericCheckout(f, r);
+      const order = await checkout.payTopUp(f.client.id, f.rider.id, randomUUID(), '500.00');
+      r.capture({ orderId: order.orderId, amount: 50000, currency: 'INR' }, { captured: false, status: 'authorized' });
+      await expect(r.service.abandon(f.client.id, f.rider.id, order.collectionId)).rejects.toThrow('still in progress');
+      expect(await db.paymentCollectionRequest.findUnique({ where: { id: order.collectionId } })).toMatchObject({ status: 'PENDING' });
+    });
+    it('recovers a lost checkout session by fetching the same order without a second POST', async () => {
+      const f = await fixture();
+      const key = randomUUID();
+      const order = await f.checkout.payTopUp(f.client.id, f.rider.id, key, '500.00');
+      await db.paymentCollectionRequest.update({ where: { id: order.collectionId }, data: { paymentSessionId: null, status: 'UNKNOWN' } });
+      f.provider.fetchCheckoutOrder.mockResolvedValue({ orderId: order.orderId!, status: 'ACTIVE', paymentSessionId: 'recovered-session', amount: '500.00', currency: 'INR' } as never);
+      expect(await f.checkout.payTopUp(f.client.id, f.rider.id, key, '500.00')).toMatchObject({ collectionId: order.collectionId, paymentSessionId: 'recovered-session', status: 'PENDING' });
+      expect(f.provider.createCheckoutOrder).toHaveBeenCalledTimes(1);
+    });
+    it('retries an interrupted checkout with the original payload and key after a verified missing order', async () => {
+      const f = await fixture();
+      f.provider.createCheckoutOrder.mockRejectedValueOnce(new ProviderRequestError('NETWORK_ERROR'));
+      const key = randomUUID();
+      await expect(f.checkout.payTopUp(f.client.id, f.rider.id, key, '500.00')).rejects.toThrow('uncertain');
+      const firstPayload = f.provider.createCheckoutOrder.mock.calls[0][0];
+      await db.rider.update({ where: { id: f.rider.id }, data: { name: 'Changed after timeout', mobile: randomUUID() } });
+      f.provider.fetchCheckoutOrder.mockRejectedValueOnce(new ProviderRequestError('INVALID_REQUEST', 404));
+      expect(await f.checkout.payTopUp(f.client.id, f.rider.id, key, '500.00')).toMatchObject({ status: 'PENDING' });
+      expect(f.provider.createCheckoutOrder.mock.calls[1][0]).toEqual(firstPayload);
+      expect(await db.paymentCollectionRequest.count({ where: { clientId: f.client.id, collectionType: 'TOP_UP' } })).toBe(1);
+    });
+    it('pins outstanding invoice allocations before checkout so late capture cannot pay new invoices', async () => {
+      const f = await fixture(), r = razorpay(f), checkout = genericCheckout(f, r);
+      const first = await checkout.payOutstanding(f.client.id, f.rider.id, randomUUID());
+      await r.service.abandon(f.client.id, f.rider.id, first.collectionId!);
+      const second = await checkout.payOutstanding(f.client.id, f.rider.id, randomUUID());
+      await r.service.verify(f.client.id, f.user.id, r.capture({ orderId: second.orderId, amount: 130000, currency: 'INR' }));
+      const later = await f.invoice('500', 'OTHER');
+      await r.service.verify(f.client.id, f.user.id, r.capture({ orderId: first.orderId, amount: 130000, currency: 'INR' }));
+      expect((await db.riderInvoice.findUniqueOrThrow({ where: { id: later.id } })).outstandingAmount.toFixed(2)).toBe('500.00');
+      expect(await db.paymentCollectionRequest.findUnique({ where: { id: first.collectionId! } })).toMatchObject({ failureCode: 'UNAPPLIED_PROVIDER_PAYMENT_REVIEW' });
+    });
+    it('funds the security deposit bucket through Razorpay invoice checkout, never the cash bucket', async () => {
+      const f = await fixture(), r = razorpay(f), checkout = genericCheckout(f, r);
+      const wallet = await f.wallet.ensure(f.client.id, f.rider.id, 'SYSTEM');
+      await db.walletAccount.create({ data: { clientId: f.client.id, walletId: wallet.id, accountType: 'SECURITY_DEPOSIT', currency: 'INR' } });
+      const deposit = await db.walletSecurityDeposit.create({ data: { clientId: f.client.id, riderId: f.rider.id, walletId: wallet.id, currency: 'INR', requiredAmount: '250', sourceType: 'TEST', sourceId: randomUUID(), policyVersion: 1 } });
+      const invoice = await db.riderInvoice.create({ data: { clientId: f.client.id, riderId: f.rider.id, invoiceNumber: randomUUID(), invoiceType: 'SECURITY_DEPOSIT', billingPeriodStart: new Date('2026-01-01'), billingPeriodEnd: new Date('2026-01-02'), dueDate: new Date('2026-01-03'), subtotal: '250', creditAmount: 0, totalAmount: '250', outstandingAmount: '250', currency: 'INR', lines: { create: { kind: 'CHARGE', sourceId: deposit.id, description: 'Deposit', amount: '250', currency: 'INR', chargeType: 'SECURITY_DEPOSIT' } } } });
+      await db.riderInvoice.update({ where: { id: invoice.id }, data: { status: 'FINALIZED' } });
+      await expect(checkout.payOutstanding(f.client.id, f.rider.id, randomUUID())).rejects.toThrow('PAY_SECURITY_DEPOSIT_INVOICE_SEPARATELY');
+      const order = await checkout.payInvoice(f.client.id, f.rider.id, invoice.id, randomUUID(), false, f.user.id);
+      await r.service.verify(f.client.id, f.user.id, r.capture({ orderId: order.orderId, amount: 25000, currency: 'INR' }));
+      const balance = await f.wallet.balance(f.client.id, wallet.id);
+      expect(balance.cash.totalBalance).toBe('0.00');
+      expect(balance.securityDepositBucket.totalBalance).toBe('250.00');
+      expect(await db.walletSecurityDeposit.findUnique({ where: { id: deposit.id } })).toMatchObject({ status: 'PAID' });
+    });
+    it('recovers a Razorpay collection interrupted before its gateway order record existed', async () => {
+      const f = await fixture(), r = razorpay(f), checkout = genericCheckout(f, r);
+      const key = randomUUID();
+      r.gateway.configurationFor.mockRejectedValueOnce(new Error('configuration temporarily unavailable'));
+      await expect(checkout.payTopUp(f.client.id, f.rider.id, key, '500.00')).rejects.toThrow('temporarily unavailable');
+      const saved = await db.paymentCollectionRequest.findUniqueOrThrow({ where: { clientId_idempotencyKey: { clientId: f.client.id, idempotencyKey: key } } });
+      expect(await checkout.verify(f.client.id, f.rider.id, saved.id)).toMatchObject({ status: 'PENDING' });
+      expect(r.gateway.createOrder).toHaveBeenCalledTimes(1);
+    });
+    it('rejects a sub-minimum Razorpay invoice before reserving a blocking collection', async () => {
+      const f = await fixture(), r = razorpay(f), checkout = genericCheckout(f, r);
+      const invoice = await f.invoice('0.50', 'OTHER');
+      await expect(checkout.payInvoice(f.client.id, f.rider.id, invoice.id, randomUUID(), false, f.user.id)).rejects.toThrow('at least INR 1.00');
+      expect(await db.paymentCollectionRequest.count({ where: { invoiceId: invoice.id } })).toBe(0);
+      expect(r.gateway.createOrder).not.toHaveBeenCalled();
+    });
     it('Razorpay reuses an open order, blocks Cashfree, and settles partial payment exactly once without paying later charges', async () => {
       const f = await fixture();
       const r = razorpay(f);

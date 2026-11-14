@@ -2332,6 +2332,7 @@ model PaymentTransaction {
   currency           String                   @default("INR") @db.Char(3)
   scheduledAt        DateTime
   preDebitNotifiedAt DateTime?
+  failedAt           DateTime?
   completedAt        DateTime?
   lastVerifiedAt     DateTime?
   riderPaymentId     String?                  @unique

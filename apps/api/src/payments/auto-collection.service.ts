@@ -262,7 +262,7 @@ export class AutoCollectionService {
         const intervals = policy.retryIntervalsDays as number[];
         const retryAfter = transactions.length
           ? new Date(
-              transactions.at(-1)!.updatedAt.getTime() +
+              (transactions.at(-1)!.failedAt ?? transactions.at(-1)!.createdAt).getTime() +
                 (intervals[transactions.length - 1] ?? 1) * 86400000,
             )
           : null;
@@ -371,8 +371,11 @@ export class AutoCollectionService {
     }
     const checkouts = await this.prisma.paymentCollectionRequest.findMany({
       where: {
-        provider: { not: 'RAZORPAY' },
-        status: { in: ['UNKNOWN', 'PENDING'] },
+        OR: [
+          { provider: { not: 'RAZORPAY' } },
+          { provider: 'RAZORPAY', status: 'CREATING', razorpayPenaltyOrder: { is: null } },
+        ],
+        status: { in: ['CREATING', 'UNKNOWN', 'PENDING'] },
         createdAt: { lt: new Date(Date.now() - 3600000) },
       },
       orderBy: { updatedAt: 'asc' },

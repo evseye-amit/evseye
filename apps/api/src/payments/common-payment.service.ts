@@ -81,6 +81,23 @@ export class CommonPaymentService {
     return this.detail(clientId, userId, requestId);
   }
 
+  async pending(clientId: string, userId: string) {
+    const riderId = await this.billing.riderForUser(clientId, userId);
+    const requests = await this.db.paymentCollectionRequest.findMany({
+      where: { clientId, riderId, status: { in: ['CREATING', 'PENDING', 'UNKNOWN'] } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 50,
+    });
+    return Promise.all(requests.map(r => this.detail(clientId, userId, `collection:${r.id}`)));
+  }
+
+  async abandon(clientId: string, userId: string, requestId: string) {
+    const owned = await this.owned(clientId, userId, requestId);
+    if (owned.kind !== 'collection' || owned.collection.provider !== 'RAZORPAY')
+      throw new BadRequestException('Only Razorpay collection checkout can be abandoned through this endpoint.');
+    await this.penalties.abandon(clientId, owned.riderId, owned.collection.id);
+    return this.detail(clientId, userId, requestId);
+  }
+
   private deploymentAttemptStore() {
     // The fallback keeps older test fixtures and already-running migrations
     // readable while the provider-neutral deployment migration rolls out.
@@ -139,9 +156,14 @@ export class CommonPaymentService {
       const result = await this.checkout.payTopUp(clientId, riderId, key ?? '', input.amount);
       return this.detail(clientId, userId, `collection:${result.collectionId}`);
     }
-    // Existing Cashfree checkout owns idempotency, wallet use and settlement.
+    // Existing rental orders retain their saved settlement contract; other invoice types use shared checkout.
+    const rentalInvoice = input.purpose === 'INVOICE' && selectedProvider === 'RAZORPAY'
+      ? await this.db.riderInvoice.findFirst({ where: { id: input.invoiceId, clientId, riderId }, select: { invoiceType: true } })
+      : null;
+    if (input.purpose === 'INVOICE' && selectedProvider === 'RAZORPAY' && !rentalInvoice)
+      throw new NotFoundException('INVOICE_NOT_FOUND');
     const result =
-      input.purpose === 'INVOICE' && selectedProvider === 'RAZORPAY'
+      input.purpose === 'INVOICE' && selectedProvider === 'RAZORPAY' && rentalInvoice?.invoiceType === 'RENTAL'
         ? await this.invoices!.payInvoice(
             clientId,
             riderId,

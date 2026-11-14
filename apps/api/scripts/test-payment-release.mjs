@@ -15,4 +15,5 @@ const result = spawnSync(process.execPath, ['node_modules/vitest/vitest.mjs', 'r
   cwd: fileURLToPath(new URL('../', import.meta.url)), stdio: 'inherit', env: process.env,
 });
 if (result.error) console.error('Unable to start the payment release test runner.');
+if (result.signal) console.error(`Payment release test runner terminated by ${result.signal}.`);
 process.exitCode = result.status ?? 1;
