@@ -23,6 +23,8 @@ export const paymentSchema = z.object({
   currency: z.string(),
   status: z.string(),
   captured: z.boolean(),
+  // Optional for historical provider fixtures; never infer UPI when absent.
+  method: z.string().nullable().optional(),
   amount_refunded: z.number().int().nonnegative().default(0),
 });
 export const refundSchema = z.object({
@@ -33,6 +35,12 @@ export const refundSchema = z.object({
   receipt: z.string().nullable().optional(),
 });
 export type RazorpayPayment = z.infer<typeof paymentSchema>;
+/** Keep gateway method metadata bounded and exclude all payer/card details. */
+export function razorpayPaymentMethod(payment: Pick<RazorpayPayment, 'method'>): string {
+  const method = payment.method?.toUpperCase();
+  return method && ['UPI', 'CARD', 'NETBANKING', 'WALLET', 'EMI', 'PAYLATER', 'BANK_TRANSFER'].includes(method)
+    ? method : 'UNKNOWN';
+}
 export function verifyRazorpaySignature(
   body: string | Buffer,
   signature: string,

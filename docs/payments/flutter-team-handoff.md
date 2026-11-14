@@ -1,10 +1,12 @@
-# Flutter team handoff — payment contract v1.1
+# Flutter team handoff — payment contract v1.3
 
-Latest update: [Phase 2 payment reliability](phase2-flutter-handoff.md), including home-screen fields and wallet transaction identity.
+Latest UPI delivery: [UPI backend and Flutter handoff](upi-flutter-handoff.md). This addition requires its own migration and release; the verified staging baseline below does not yet include it.
+
+Previous update: [Phase 2 payment reliability](phase2-flutter-handoff.md), including home-screen fields and wallet transaction identity.
 
 Phase 1 update (2026-11-14): [payment reliability handoff](phase1-flutter-handoff.md) supersedes the capability restrictions below after its backend release. Flutter implementation remains owned by the Flutter team.
 
-Backend contract: [mobile-payment-api-contract-v1.md](mobile-payment-api-contract-v1.md). Revision: payment-contract-v1.1, 2026-11-13. Flutter implementation is owned entirely by the Flutter team. The backend work does not change Flutter source or dependencies.
+Backend contract: [mobile-payment-api-contract-v1.md](mobile-payment-api-contract-v1.md). Revision: payment-contract-v1.3, 2026-11-14. Flutter implementation is owned entirely by the Flutter team. The backend work does not change Flutter source or dependencies.
 
 ## Backend delivery
 
@@ -72,7 +74,7 @@ Run separately for Pinkrides and Yogmaya using their distinct Razorpay TEST merc
 
 ## Backend release checklist
 
-- [x] Staging URL: `https://api.staging.evseye.com`; API image commit `42558bc7510a61ddf1b00758f96261b4ecd73bed`, ECS revision 201, verified 2026-11-14.
+- [x] Staging URL: `https://api.staging.evseye.com`; API image commit `e4676d02fc6061b7243fb3f5aee119bf46f0d37a`, ECS revision 204, verified by ECS DescribeServices/DescribeTaskDefinition on 2026-11-14. This is the baseline before v1.3 changes.
 - [x] Merchant-version table and successful migration record verified 2026-11-14. Historical credential recovery still requires its separate sandbox test below.
 - [ ] Configure sandbox merchant webhook URLs and test old/new credential recovery.
 - [ ] Provide two-client test accounts, supported capabilities and test invoice/deposit/allocation IDs securely.

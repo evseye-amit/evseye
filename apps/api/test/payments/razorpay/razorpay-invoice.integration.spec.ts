@@ -72,6 +72,7 @@ describe.skipIf(!url)('Razorpay rental invoices through the common API', () => {
         currency: string;
         status: string;
         captured: boolean;
+        method?: string;
         amount_refunded: number;
       }
     >();
@@ -203,6 +204,7 @@ describe.skipIf(!url)('Razorpay rental invoices through the common API', () => {
         currency: string;
         status: string;
         captured: boolean;
+        method?: string;
       }> = {},
     ) {
       const order = orders.get(orderId)!;
@@ -277,6 +279,30 @@ describe.skipIf(!url)('Razorpay rental invoices through the common API', () => {
       fund,
     };
   }
+
+  it.each([['upi', 'UPI'], ['card', 'CARD'], [undefined, 'UNKNOWN']])(
+    'settles %s with verified method and no duplicate accounting on replay', async (method, expected) => {
+      const f = await fixture();
+      const invoice = await f.invoice();
+      const created = await f.create(invoice.id);
+      expect(created).toMatchObject({ paymentMethod: null });
+      const callback = f.capture(created.providerOrderId!, { method });
+      const verified = await f.common.verify(f.client.id, f.user.id, created.paymentRequestId!, callback);
+      expect(verified).toMatchObject({ status: 'SUCCEEDED', paymentMethod: expected });
+      await f.penalties.reconcileCollection(f.client.id, f.rider.id, created.paymentRequestId!.slice(11));
+      const collection = await db.paymentCollectionRequest.findFirstOrThrow({ where: { providerPaymentId: callback.razorpayPaymentId } });
+      expect(collection.method).toBe(expected);
+      const receipt = await db.riderPayment.findUniqueOrThrow({ where: { id: collection.riderPaymentId! } });
+      expect(receipt.method).toBe(expected);
+      expect(await db.riderPayment.count({ where: { clientId: f.client.id } })).toBe(1);
+      expect(await db.razorpayPenaltyCapture.count({ where: { providerPaymentId: callback.razorpayPaymentId } })).toBe(1);
+      // A later sparse provider response must not erase previously verified evidence.
+      delete f.captures.get(callback.razorpayPaymentId)!.method;
+      await f.penalties.reconcileCollection(f.client.id, f.rider.id, collection.id);
+      expect(await f.common.detail(f.client.id, f.user.id, created.paymentRequestId!)).toMatchObject({ paymentMethod: expected });
+    },
+  );
+
   it('collects frozen rent and settles once across concurrent callbacks, preserving other obligations', async () => {
     const f = await fixture();
     const invoice = await f.invoice();

@@ -13,6 +13,7 @@ export async function settlePenaltyPayment(
   walletService: WalletService,
   request: PaymentCollectionRequest,
   paymentId: string,
+  verifiedMethod?: string,
 ) {
   if (request.collectionType !== PENALTY_PAYMENT)
     throw new ConflictException('NOT_A_PENALTY_COLLECTION');
@@ -40,7 +41,7 @@ export async function settlePenaltyPayment(
               riderId,
               amount: current.amount,
               currency: current.currency,
-              method: current.method,
+              method: verifiedMethod ?? current.method,
               provider: current.provider,
               providerPaymentId: paymentId,
               sourceId: current.id,
@@ -82,6 +83,7 @@ export async function settlePenaltyPayment(
             where: { id: current.id },
             data: {
               status: 'SUCCESS',
+              method: verifiedMethod ?? current.method,
               providerPaymentId: paymentId,
               riderPaymentId: payment.id,
               completedAt: new Date(),

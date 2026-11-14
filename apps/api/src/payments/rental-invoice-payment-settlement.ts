@@ -12,6 +12,7 @@ export async function settleRazorpayRentalInvoice(
   walletService: WalletService,
   request: PaymentCollectionRequest,
   paymentId: string,
+  verifiedMethod?: string,
 ) {
   const snapshot = request.paymentSnapshot as Record<string, unknown> | null;
   if (
@@ -47,7 +48,7 @@ export async function settleRazorpayRentalInvoice(
               riderId,
               amount: current.amount,
               currency: current.currency,
-              method: current.method,
+              method: verifiedMethod ?? current.method,
               provider: current.provider,
               providerPaymentId: paymentId,
               sourceId: current.id,
@@ -89,6 +90,7 @@ export async function settleRazorpayRentalInvoice(
             where: { id: current.id },
             data: {
               status: 'SUCCESS',
+              method: verifiedMethod ?? current.method,
               providerPaymentId: paymentId,
               riderPaymentId: payment.id,
               completedAt: new Date(),

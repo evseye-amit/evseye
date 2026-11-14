@@ -46,6 +46,7 @@ function fixture() {
         status: string;
         reason: string | null;
         providerPaymentId: string;
+        paymentMethod?: string | null;
       }[],
     },
   };
@@ -69,6 +70,7 @@ function fixture() {
       status: string;
       reason: string | null;
       providerPaymentId: string;
+      paymentMethod?: string | null;
     }[],
   };
   const db = {
@@ -516,5 +518,35 @@ describe('collection refund status', () => {
     const f = fixture(); f.c.status = 'SUCCESS';
     Object.assign(f.c, { riderPayment: { refundedAmount: new Prisma.Decimal(refunded), refunds: pending ? [{ id: 'refund' }] : [] } });
     expect(await f.service.detail('client', 'user', `collection:${id}`)).toMatchObject({ status: expected, refundedAmount: new Prisma.Decimal(refunded).toFixed(2), checkout: null });
+  });
+});
+
+
+describe('common API verified payment method', () => {
+  it('does not infer a method from a pending checkout or legacy collection label', async () => {
+    const f = fixture();
+    f.c.provider = 'RAZORPAY';
+    expect(await f.service.detail('client', 'user', `collection:${id}`)).toMatchObject({ paymentMethod: null });
+    expect(await f.service.detail('client', 'user', `deployment:${id}`)).toMatchObject({ paymentMethod: null });
+  });
+  it('keeps collection evidence attached to the credited payment, not a surplus capture', async () => {
+    const f = fixture();
+    f.c.provider = 'RAZORPAY';
+    f.c.status = 'SUCCESS';
+    Object.assign(f.c, { providerPaymentId: 'pay_original' });
+    f.c.razorpayPenaltyOrder.captures.push(
+      { status: 'REVIEW_REQUIRED', reason: 'DUPLICATE_CAPTURE_REQUIRES_REVIEW', providerPaymentId: 'pay_surplus', paymentMethod: 'CARD' },
+      { status: 'SETTLED', reason: null, providerPaymentId: 'pay_original', paymentMethod: 'UPI' },
+    );
+    expect(await f.service.detail('client', 'user', `collection:${id}`)).toMatchObject({
+      status: 'REVIEW_REQUIRED', providerPaymentId: 'pay_original', paymentMethod: 'UPI', checkout: null,
+    });
+  });
+  it('returns the selected deployment capture method without overriding refund state', async () => {
+    const f = fixture();
+    f.order.captures.push({ status: 'REFUND_PENDING', reason: 'DUPLICATE_PAYMENT', providerPaymentId: 'pay_duplicate', paymentMethod: 'CARD' });
+    expect(await f.service.detail('client', 'user', `deployment:${id}`)).toMatchObject({
+      status: 'REFUND_PENDING', providerPaymentId: 'pay_duplicate', paymentMethod: 'CARD', checkout: null,
+    });
   });
 });

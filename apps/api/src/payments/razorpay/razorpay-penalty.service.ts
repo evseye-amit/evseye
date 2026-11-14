@@ -25,6 +25,7 @@ import { settleRazorpayRentalInvoice } from '../rental-invoice-payment-settlemen
 import { settlePenaltyPayment } from '../penalty-payment-settlement.js';
 import {
   RazorpayClient,
+  razorpayPaymentMethod,
   RazorpayProviderError,
   type RazorpayPayment,
   type orderSchema,
@@ -399,6 +400,7 @@ export class RazorpayPenaltyService {
       (!payment.captured && payment.status !== 'refunded')
     )
       return;
+    const paymentMethod = razorpayPaymentMethod(payment);
     const request = await this.db.paymentCollectionRequest.findUniqueOrThrow({
       where: { id: order.collectionId },
     });
@@ -422,11 +424,11 @@ export class RazorpayPenaltyService {
         if (!legacyRental && request.collectionType !== PENALTY_PAYMENT && (!this.deposits || !this.walletDeposits))
           throw new ConflictException('Checkout settlement is unavailable.');
         const settled = legacyRental
-          ? await settleRazorpayRentalInvoice(this.db, this.payments, this.wallet, request, payment.id)
+          ? await settleRazorpayRentalInvoice(this.db, this.payments, this.wallet, request, payment.id, paymentMethod)
           : request.collectionType === PENALTY_PAYMENT
-            ? await settlePenaltyPayment(this.db, this.payments, this.wallet, request, payment.id)
+            ? await settlePenaltyPayment(this.db, this.payments, this.wallet, request, payment.id, paymentMethod)
             : await settleCheckoutPayment(this.db, this.payments, this.deposits!, this.wallet, this.walletDeposits!, request,
-                { providerPaymentId: payment.id, providerReference: payment.id });
+                { providerPaymentId: payment.id, providerReference: payment.id, paymentMethod });
         reason = !externalRefund && settled.failureCode === 'EXTERNAL_REFUND_REQUIRES_REVIEW' ? null : settled.failureCode;
       } catch (error) {
         if (
@@ -443,12 +445,16 @@ export class RazorpayPenaltyService {
         create: {
           orderId: order.id,
           providerPaymentId: payment.id,
+          paymentMethod,
           amountPaise: BigInt(payment.amount),
           currency: payment.currency,
           status: reason ? 'REVIEW_REQUIRED' : 'SETTLED',
           reason,
         },
-        update: { status: reason ? 'REVIEW_REQUIRED' : 'SETTLED', reason },
+        update: { status: reason ? 'REVIEW_REQUIRED' : 'SETTLED', reason,
+          ...(paymentMethod !== 'UNKNOWN' && (!previous?.paymentMethod || previous.paymentMethod === 'UNKNOWN')
+            ? { paymentMethod } : {}),
+        },
       });
       await tx.razorpayPenaltyOrder.update({
         where: { id: order.id },

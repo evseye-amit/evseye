@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createHmac } from 'node:crypto';
 import { Prisma } from '@prisma/client';
-import { RazorpayClient, verifyRazorpaySignature } from '../../../src/payments/razorpay/razorpay.client.js';
+import { RazorpayClient, verifyRazorpaySignature, razorpayPaymentMethod } from '../../../src/payments/razorpay/razorpay.client.js';
 import { toPaise } from '../../../src/payments/razorpay/razorpay-deployment.service.js';
 function configFixture(overrides: Record<string, string> = {}) {
   const settings: Record<string, string> = {
@@ -186,5 +186,26 @@ describe('normal refund request idempotency', () => {
     await client.createPaymentRefund('pay_test', 500, 'refund-key-123', 'client', 'v1');
     expect(fetcher).toHaveBeenCalledWith('https://api.razorpay.com/v1/payments/pay_test/refund', expect.objectContaining({ headers: expect.objectContaining({ 'X-Refund-Idempotency': 'refund-key-123' }), body: JSON.stringify({ amount: 500, receipt: 'refund-key-123', speed: 'normal' }) }));
     expect(client.configurationFor).toHaveBeenCalledWith('client', 'v1');
+  });
+});
+
+
+describe('verified payment method evidence', () => {
+  it.each([['upi', 'UPI'], ['card', 'CARD'], ['netbanking', 'NETBANKING'],
+    ['wallet', 'WALLET'], ['future_method', 'UNKNOWN'], [null, 'UNKNOWN'], [undefined, 'UNKNOWN']])(
+    'maps %s without assuming UPI', (method, expected) => {
+      expect(razorpayPaymentMethod({ method })).toBe(expected);
+    },
+  );
+  it('retains the fetched method without returning payer details', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({
+      id: 'pay_1', order_id: 'order_1', amount: 50000, currency: 'INR',
+      status: 'captured', captured: true, method: 'upi', vpa: 'private@example',
+      card: { number: 'private' },
+    }) }));
+    const payment = await fixture().fetchPayment('pay_1');
+    expect(payment.method).toBe('upi');
+    expect(payment).not.toHaveProperty('vpa');
+    expect(payment).not.toHaveProperty('card');
   });
 });
