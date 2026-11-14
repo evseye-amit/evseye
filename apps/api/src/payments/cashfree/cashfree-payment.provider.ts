@@ -33,6 +33,11 @@ import {
   refundStatus,
 } from './cashfree-mapper.js';
 
+/** Only retain bounded method metadata, never payer/card details. */
+export function cashfreeCheckoutMethod(group: unknown): string {
+  const methods: Record<string, string> = { upi: 'UPI', upi_ppi: 'UPI', upi_ppi_offline: 'UPI', upi_credit_card: 'UPI', credit_card: 'CARD', debit_card: 'CARD', prepaid_card: 'CARD', card: 'CARD', net_banking: 'NETBANKING', wallet: 'WALLET', app: 'WALLET', emi: 'EMI', credit_card_emi: 'EMI', debit_card_emi: 'EMI', cardless_emi: 'EMI', pay_later: 'PAYLATER', bank_transfer: 'BANK_TRANSFER' };
+  return typeof group === 'string' ? methods[group.toLowerCase()] ?? 'UNKNOWN' : 'UNKNOWN';
+}
 type Payload = Record<string, unknown>;
 const id = (value: string) => encodeURIComponent(value);
 const field = (value: unknown) => (typeof value === 'string' ? value : '');
@@ -217,6 +222,7 @@ export class CashfreePaymentProvider implements PaymentProvider {
           ? 'FAILED'
           : paymentStatus(item.payment_status),
       rawStatus: field(item.payment_status),
+      paymentMethod: cashfreeCheckoutMethod(item.payment_group),
       amount: item.payment_amount == null ? '' : String(item.payment_amount),
       currency: field(item.payment_currency),
       providerReference: field(item.bank_reference) || undefined,

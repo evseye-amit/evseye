@@ -204,7 +204,7 @@ export class AutoCollectionService {
       for (const invoice of invoices) {
         if (scheduled >= limit) break;
         if (invoice.invoiceType === PENALTY_INVOICE) continue;
-        const [policy, profile, transactions] = await Promise.all([
+        const [policy, profile, history] = await Promise.all([
           this.prisma.paymentCollectionPolicy.findUnique({
             where: { clientId: invoice.clientId },
           }),
@@ -219,9 +219,16 @@ export class AutoCollectionService {
           this.prisma.paymentTransaction.findMany({
             where: { clientId: invoice.clientId, invoiceId: invoice.id },
             orderBy: { createdAt: 'asc' },
+            include: { riderPayment: { select: { status: true } } },
           }),
         ]);
         if (!policy?.enabled || !profile?.autoPayEnabled) continue;
+        const reversedIndex = [...history].map((t, i) => ({ t, i })).reverse().find(({ t }) => t.status === 'SUCCESS' && t.riderPayment?.status === 'REFUNDED')?.i ?? -1;
+        const transactions = history.slice(reversedIndex + 1);
+        if (reversedIndex >= 0 && !transactions.length) {
+          await this.actionRequired(invoice.clientId, invoice.riderId, invoice.id, 'REFUND_RECOLLECTION_REQUIRES_APPROVAL');
+          continue;
+        }
         const categories = policy.autoCollectCategories as string[];
         const chargeLines = invoice.lines.filter(l => l.kind === 'CHARGE');
         if (
@@ -278,7 +285,7 @@ export class AutoCollectionService {
           continue;
         }
         if (mandate.provider === 'RAZORPAY') at = collectionDate(policy, invoice, now, 25);
-        const key = `autopay:${invoice.id}:${transactions.length + 1}`;
+        const key = `autopay:${invoice.id}:${history.length + 1}`;
         try {
           // The wallet service locks both wallet and invoice and calculates the
           // funding waterfall against current balances. The orchestrator then
@@ -348,8 +355,10 @@ export class AutoCollectionService {
   async reconcileOpen(limit = 50) {
     const transactions = await this.prisma.paymentTransaction.findMany({
       where: {
-        status: { in: ['UNKNOWN', 'PENDING'] },
-        scheduledAt: { lt: new Date(Date.now() - 3600000) },
+        OR: [
+          { status: 'CREATING', createdAt: { lt: new Date(Date.now() - 3600000) } },
+          { status: { in: ['UNKNOWN', 'PENDING'] }, scheduledAt: { lt: new Date(Date.now() - 3600000) } },
+        ],
       },
       orderBy: { updatedAt: 'asc' },
       take: limit,
@@ -367,6 +376,8 @@ export class AutoCollectionService {
         this.logger.warn(
           `Payment verification pending transaction=${transaction.id}: ${error instanceof Error ? error.message : String(error)}`,
         );
+      } finally {
+        await this.prisma.paymentTransaction.update({ where: { id: transaction.id }, data: { updatedAt: new Date() } });
       }
     }
     const checkouts = await this.prisma.paymentCollectionRequest.findMany({
@@ -393,6 +404,8 @@ export class AutoCollectionService {
         this.logger.warn(
           `Checkout verification pending collection=${request.id}: ${error instanceof Error ? error.message : String(error)}`,
         );
+      } finally {
+        await this.prisma.paymentCollectionRequest.update({ where: { id: request.id }, data: { updatedAt: new Date() } });
       }
     }
     const refunds = await this.prisma.paymentRefund.findMany({
@@ -411,6 +424,8 @@ export class AutoCollectionService {
         this.logger.warn(
           `Refund verification pending refund=${refund.id}: ${error instanceof Error ? error.message : String(error)}`,
         );
+      } finally {
+        await this.prisma.paymentRefund.update({ where: { id: refund.id }, data: { updatedAt: new Date() } });
       }
     }
     const failedEvents = await this.prisma.paymentProviderEvent.findMany({

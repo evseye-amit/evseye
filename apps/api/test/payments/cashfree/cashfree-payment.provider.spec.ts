@@ -250,4 +250,9 @@ describe('CashfreePaymentProvider', () => {
     });
     expect(() => provider.verifyWebhook(raw, timestamp, 'invalid')).toThrow();
   });
+  it.each([['upi','UPI'],['credit_card','CARD'],['net_banking','NETBANKING'],['credit_card_emi','EMI'],['unrecognized','UNKNOWN'],[undefined,'UNKNOWN']])('maps verified checkout group %s without guessing UPI',async(group,method)=>{
+    http.request.mockResolvedValue([{order_id:'order-test',cf_payment_id:1,payment_status:'SUCCESS',payment_amount:500,payment_currency:'INR',payment_group:group}]);
+    expect(await provider.fetchCheckoutPayments('order-test')).toMatchObject([{paymentMethod:method}]);
+  });
+
 });

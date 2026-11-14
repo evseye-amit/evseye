@@ -404,11 +404,17 @@ export class RazorpayPenaltyService {
     const request = await this.db.paymentCollectionRequest.findUniqueOrThrow({
       where: { id: order.collectionId },
     });
-    const previous = await this.db.razorpayPenaltyCapture.findUnique({
+    let previous = await this.db.razorpayPenaltyCapture.findUnique({
       where: { providerPaymentId: payment.id },
     });
     if (previous && previous.orderId !== order.id)
       throw new ConflictException('PROVIDER_PAYMENT_IDENTITY_CONFLICT');
+    // PostgreSQL ON CONFLICT keeps concurrent callback/poll observations idempotent.
+    await this.db.razorpayPenaltyCapture.createMany({ data: [{ orderId: order.id, providerPaymentId: payment.id,
+      paymentMethod, amountPaise: BigInt(payment.amount), currency: payment.currency,
+      status: 'REVIEW_REQUIRED', reason: 'CAPTURE_SETTLEMENT_PENDING_REVIEW' }], skipDuplicates: true });
+    previous = await this.db.razorpayPenaltyCapture.findUniqueOrThrow({ where: { providerPaymentId: payment.id } });
+    if (previous.orderId !== order.id) throw new ConflictException('PROVIDER_PAYMENT_IDENTITY_CONFLICT');
     const externalRefund = await unaccountedRefund(this.db, request.clientId, request.providerPaymentId === payment.id ? request.riderPaymentId : null, payment);
     let reason =
       externalRefund
@@ -432,11 +438,11 @@ export class RazorpayPenaltyService {
         reason = !externalRefund && settled.failureCode === 'EXTERNAL_REFUND_REQUIRES_REVIEW' ? null : settled.failureCode;
       } catch (error) {
         if (
-          !(error instanceof ConflictException) ||
-          error.message !== 'DUPLICATE_CAPTURE_REQUIRES_REVIEW'
+          !(error instanceof ConflictException || error instanceof BadRequestException) ||
+          !['DUPLICATE_CAPTURE_REQUIRES_REVIEW', 'WALLET_INACTIVE', 'ACCOUNT_NOT_FOUND', 'WALLET_ACCOUNT_NOT_FOUND'].includes(error.message)
         )
           throw error;
-        reason = 'DUPLICATE_CAPTURE_REQUIRES_REVIEW';
+        reason = error.message === 'DUPLICATE_CAPTURE_REQUIRES_REVIEW' ? error.message : 'WALLET_SETTLEMENT_REQUIRES_REVIEW';
       }
     }
     await this.db.$transaction(async (tx) => {

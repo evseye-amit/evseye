@@ -86,7 +86,7 @@ function fixture(result = success, depositInvoice = false) {
       .mockResolvedValue({ id: 'receipt-1' }),
   };
   const wallet = { ensure: vi.fn().mockResolvedValue({ id: 'wallet-1' }), postInTransaction: vi.fn().mockResolvedValue({ id: 'ledger-1' }) };
-  const walletBilling = { settle: vi.fn() };
+  const walletBilling = { settle: vi.fn(), settleInTransaction: vi.fn() };
   const walletDeposits = { summaryTx: vi.fn().mockResolvedValue({ outstandingAmount: '900.00' }) };
   const service = new CheckoutCollectionService(
     prisma as never,
@@ -105,16 +105,18 @@ function fixture(result = success, depositInvoice = false) {
 }
 
 describe('checkout collection settlement', () => {
-  it('skips provider order creation when eligible wallet funds pay the invoice', async () => {
-    const { service, prisma, walletBilling } = fixture();
-    prisma.paymentCollectionRequest.findUnique.mockResolvedValue(null);
-    prisma.riderInvoice.findFirst.mockResolvedValue({ paidAmount: new Prisma.Decimal(0) });
-    walletBilling.settle.mockResolvedValue({ paidAmount: request.amount, outstandingAmount: new Prisma.Decimal(0), currency: 'INR' });
+  it('reserves the obligation before spending wallet funds and skips the gateway when fully paid', async () => {
+    const { service, prisma, walletBilling, tx } = fixture();
+    tx.riderInvoice.findFirst.mockResolvedValue({ id: request.invoiceId, status: 'FINALIZED', paidAmount: new Prisma.Decimal(0), outstandingAmount: request.amount, currency: 'INR' } as never);
+    Object.assign(tx.paymentCollectionRequest, { findUnique: vi.fn().mockResolvedValue(null), findFirst: vi.fn().mockResolvedValue(null) });
+    Object.assign(tx, { walletTransaction: { findUnique: vi.fn().mockResolvedValue(null) }, paymentTransaction: { findFirst: vi.fn().mockResolvedValue(null) } });
+    walletBilling.settleInTransaction.mockResolvedValue({ paidAmount: request.amount, outstandingAmount: new Prisma.Decimal(0), currency: 'INR' });
     const result = await service.payInvoice(request.clientId, request.riderId, request.invoiceId, 'checkout-key-2', true, 'user-1');
     expect(result.status).toBe('PAID');
     expect(result.paymentSessionId).toBeNull();
-    expect(walletBilling.settle).toHaveBeenCalledWith(request.clientId, request.invoiceId, 'user-1', 'checkout:checkout-key-2');
-    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(walletBilling.settleInTransaction).toHaveBeenCalledWith(tx, request.clientId, request.invoiceId, 'user-1', 'checkout:checkout-key-2', expect.any(Object));
+    expect(prisma.$transaction).toHaveBeenCalledOnce();
+    expect(walletBilling.settle).not.toHaveBeenCalled();
   });
   it('checks invoice ownership before spending wallet funds', async () => {
     const { service, walletBilling, prisma } = fixture();

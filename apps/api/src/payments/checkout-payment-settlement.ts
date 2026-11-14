@@ -100,6 +100,7 @@ export async function settleCheckoutPayment(
         where: { id: current.id },
         data: {
           status: 'SUCCESS',
+          failureCode: null,
           method: confirmed.paymentMethod ?? current.method,
           providerPaymentId: confirmed.providerPaymentId,
           completedAt: new Date(),

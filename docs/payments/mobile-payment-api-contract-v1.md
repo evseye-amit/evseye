@@ -154,3 +154,7 @@ Do not introduce manual Collect/VPA entry or raw `upi://pay` URLs for this flow.
 ### Deployment prerequisite
 
 Apply `20261114150000_checkout_payment_method` before deploying the v1.3 API. Both new capture columns are nullable; there is no inferred historical backfill. The readiness checker now requires this migration. Older clients can ignore the additive field. Older API instances can run against the expanded schema; rollback should retain the columns. Release evidence and remaining gates are recorded in [UPI Flutter handoff](upi-flutter-handoff.md).
+
+## Reliability follow-up (2026-11-14)
+
+See [Phase 3 Flutter handoff](phase3-flutter-handoff.md) for review states, inactive-wallet rejection, Cashfree receipt methods, and refund recollection behavior. Payment home adds `balancesByCurrency`; its scalar totals and currency are nullable for mixed-currency invoices, with `UNSUPPORTED_INVOICE_CURRENCY` disabling Pay Now. INR-only behavior is unchanged. Flutter nullable parsing and review-state handling are required before release acceptance.

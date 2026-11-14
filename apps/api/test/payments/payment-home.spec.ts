@@ -33,4 +33,15 @@ describe('payment home eligibility', () => {
     const f = fixture(); f.policy.capabilities.mockRejectedValue(new Error('offline'));
     await expect(f.home()).rejects.toThrow('offline');
   });
+  it('labels a non-INR balance correctly and disables checkout', async () => {
+    const f=fixture();
+    f.db.riderInvoice.findMany.mockResolvedValue([{ outstandingAmount:new Prisma.Decimal(500), invoiceType:'RENTAL', dueDate:new Date(0), currency:'USD' }] as never);
+    expect((await f.home()).data).toMatchObject({amountDue:'500.00',currency:'USD',payNowAvailable:false,payNowUnavailableReason:'UNSUPPORTED_INVOICE_CURRENCY'});
+  });
+  it('does not sum mixed currencies into an INR amount', async () => {
+    const f=fixture();
+    f.db.riderInvoice.findMany.mockResolvedValue(['USD','INR'].map(currency=>({outstandingAmount:new Prisma.Decimal(500),invoiceType:'RENTAL',dueDate:new Date(0),currency})) as never);
+    expect((await f.home()).data).toMatchObject({amountDue:null,overdueAmount:null,currency:null,payNowAvailable:false});
+  });
+
 });
