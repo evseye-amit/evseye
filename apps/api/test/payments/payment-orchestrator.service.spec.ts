@@ -24,6 +24,8 @@ function fixture() {
     clientId,
     riderId,
     status: 'ACTIVE',
+    autoDebitEnabled: true,
+    expiresAt: new Date('2099-01-01'),
     method: 'UPI_AUTOPAY',
     providerMandateId: 'CF-MANDATE-1',
     maxAmount: new Prisma.Decimal('2500.00'),
@@ -94,10 +96,13 @@ function fixture() {
     $transaction: vi.fn(async (work: (value: typeof tx) => Promise<unknown>) =>
       work(tx),
     ),
+    riderPaymentProfile: { findUnique: vi.fn().mockResolvedValue({ autoPayEnabled: true }) },
     paymentMandate: { findFirstOrThrow: vi.fn().mockResolvedValue(mandate) },
     riderInvoice: { findFirst: vi.fn().mockResolvedValue(invoice) },
     paymentTransaction: {
       findFirst: vi.fn().mockImplementation(() => Promise.resolve(payment)),
+      findFirstOrThrow: vi.fn().mockImplementation(() => Promise.resolve(payment)),
+      updateMany: vi.fn().mockImplementation(({ data }) => { payment = { ...payment, ...data }; return Promise.resolve({ count: 1 }); }),
       update: vi.fn(),
     },
   };

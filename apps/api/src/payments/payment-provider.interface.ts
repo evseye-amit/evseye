@@ -113,6 +113,7 @@ export interface CheckoutOrderStatus {
   expiresAt?: string;
 }
 export interface CheckoutPaymentResult {
+  paymentMethod?: string;
   orderId: string;
   providerPaymentId: string;
   status: PaymentStatus;

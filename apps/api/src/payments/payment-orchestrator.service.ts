@@ -10,7 +10,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { PaymentTransactionStatus, Prisma } from '@prisma/client';
+import { PaymentTransactionStatus, Prisma, type PaymentTransaction } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import type { Environment } from '../config/environment.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -134,7 +134,10 @@ export class PaymentOrchestratorService {
           where: {
             clientId,
             invoiceId,
-            status: { in: ['CREATING', 'PENDING', 'UNKNOWN', 'SUCCESS'] },
+            OR: [
+              { status: { in: ['CREATING', 'PENDING', 'UNKNOWN'] } },
+              { status: 'SUCCESS', OR: [{ riderPaymentId: null }, { riderPayment: { status: { not: 'REFUNDED' } } }] },
+            ],
           },
           orderBy: { createdAt: 'desc' },
         });
@@ -240,9 +243,25 @@ export class PaymentOrchestratorService {
       }
       return this.view(reserved);
     }
+    return this.submitReserved(reserved);
+  }
+
+  private async failUnsent(reserved: PaymentTransaction, failureCode: string) {
+    return this.view(await this.prisma.paymentTransaction.update({ where: { id: reserved.id, status: 'CREATING' }, data: {
+      status: 'FAILED', failedAt: new Date(), failureCode, retryability: 'RETRYABLE',
+      attempts: { updateMany: { where: { status: 'CREATING' }, data: { status: 'FAILED', providerStatus: 'NOT_DISPATCHED' } } },
+    } }));
+  }
+
+  private async submitReserved(reserved: PaymentTransaction) {
+    const { clientId, riderId, invoiceId, scheduledAt } = reserved;
     const mandate = await this.prisma.paymentMandate.findFirstOrThrow({
       where: { id: reserved.mandateId, clientId },
     });
+    if (reserved.provider === 'CASHFREE') {
+      const claimed = await this.prisma.paymentTransaction.updateMany({ where: { id: reserved.id, status: 'CREATING', providerDebitClaimedAt: null }, data: { providerDebitClaimedAt: new Date() } });
+      if (!claimed.count) return this.view(await this.prisma.paymentTransaction.findFirstOrThrow({ where: { id: reserved.id } }));
+    }
     const latestInvoice = await this.prisma.riderInvoice.findFirst({
       where: { id: invoiceId, clientId, riderId },
     });
@@ -253,6 +272,7 @@ export class PaymentOrchestratorService {
       ) ||
       !latestInvoice.outstandingAmount.eq(reserved.amount)
     ) {
+      if (reserved.provider === 'CASHFREE') return this.failUnsent(reserved, 'UNSENT_INVOICE_CHANGED');
       await this.prisma.paymentTransaction.update({
         where: { id: reserved.id },
         data: {
@@ -275,6 +295,20 @@ export class PaymentOrchestratorService {
       );
     }
     const provider = (await this.providers?.forClient(reserved.provider ?? mandate.provider, mandate.clientId, reserved.configurationVersionId ?? null)) ?? this.provider;
+    if (reserved.provider === 'CASHFREE') {
+      // Claim before dispatch. A worker can resume a proven-unsent reservation;
+      // once claimed, uncertainty must be resolved by provider lookup, never a new debit.
+      const profile = await this.prisma.riderPaymentProfile.findUnique({ where: { clientId_riderId: { clientId, riderId } } });
+      const eligible = mandate.status === 'ACTIVE' && mandate.autoDebitEnabled && profile?.autoPayEnabled &&
+        mandate.expiresAt && mandate.expiresAt > scheduledAt && scheduledAt > new Date() && reserved.amount.lte(mandate.maxAmount);
+      if (!eligible) return this.failUnsent(reserved, 'UNSENT_COLLECTION_NO_LONGER_ELIGIBLE');
+      try {
+        provider.assertChargeEligible({ amount: reserved.amount.toFixed(2), currency: reserved.currency, scheduledAt });
+      } catch (error) {
+        if (error instanceof BadRequestException) return this.failUnsent(reserved, 'UNSENT_SCHEDULE_REJECTED');
+        throw error;
+      }
+    }
     let result: PaymentResult;
     try {
       result = await provider.createPayment({
@@ -507,6 +541,8 @@ export class PaymentOrchestratorService {
       where: { id: transactionId, clientId, riderId },
     });
     if (!item) throw new NotFoundException('Invoice collection not found.');
+    if (item.provider === 'CASHFREE' && item.status === 'CREATING' && !item.providerDebitClaimedAt)
+      return this.submitReserved(item);
     if (item.status === 'SUCCESS') {
       if (item.provider === 'RAZORPAY' && this.providers) {
         const mandate = await this.prisma.paymentMandate.findFirstOrThrow({ where: { id: item.mandateId, clientId } });
@@ -518,10 +554,19 @@ export class PaymentOrchestratorService {
     const mandate = await this.prisma.paymentMandate.findFirstOrThrow({
       where: { id: item.mandateId, clientId },
     });
-    const result = await ((await this.providers?.forClient(item.provider ?? mandate.provider, item.clientId, item.configurationVersionId ?? null)) ?? this.provider).fetchPayment(
+    let result: PaymentResult;
+    try { result = await ((await this.providers?.forClient(item.provider ?? mandate.provider, item.clientId, item.configurationVersionId ?? null)) ?? this.provider).fetchPayment(
       mandate.providerMandateId,
       item.providerPaymentId,
     );
+    } catch (error) {
+      if (item.provider === 'CASHFREE' && item.status === 'CREATING' && error instanceof ProviderRequestError && error.httpStatus === 404) {
+        await this.prisma.paymentTransaction.updateMany({ where: { id: item.id, status: 'CREATING' },
+          data: { status: 'UNKNOWN', failureCode: 'CREATE_UNCERTAIN_REQUIRES_REVIEW', retryability: 'UNKNOWN' } });
+        return this.view(await this.prisma.paymentTransaction.findFirstOrThrow({ where: { id: item.id } }));
+      }
+      throw error;
+    }
     return this.view(await this.applyResult(item.id, result, true));
   }
 

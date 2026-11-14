@@ -51,6 +51,7 @@ export class RiderPaymentHomeController {
           select: {
             id: true,
             outstandingAmount: true,
+            currency: true,
             invoiceType: true,
             dueDate: true,
             status: true,
@@ -109,18 +110,28 @@ export class RiderPaymentHomeController {
             UNKNOWN: 'SETUP_REQUIRED',
           } as Record<string, string>
         )[mandate.status] ?? 'SETUP_REQUIRED');
+    const currencies = [...new Set(invoices.map(i => i.currency ?? 'INR'))];
+    const unsupportedCurrency = currencies.some(currency => currency !== 'INR');
     const capability = capabilities.purposes.OUTSTANDING;
     const payNowUnavailableReason = amountDue.lte(0) ? 'NO_AMOUNT_DUE'
+      : unsupportedCurrency ? 'UNSUPPORTED_INVOICE_CURRENCY'
       : !capability?.enabled ? capability?.reason ?? 'PAYMENT_UNAVAILABLE'
       : pendingCheckout || nextAutoPay ? 'PAYMENT_ALREADY_IN_PROGRESS'
       : invoices.some(i => i.invoiceType === 'SECURITY_DEPOSIT') ? 'PAY_SECURITY_DEPOSIT_INVOICE_SEPARATELY'
       : amountDue.lt(1) ? 'PAYMENT_BELOW_GATEWAY_MINIMUM' : null;
     return {
       data: {
-        amountDue: amountDue.toFixed(2),
-        overdueAmount: overdueAmount.toFixed(2),
+        balancesByCurrency: currencies.map(currency => {
+          const matching = invoices.filter(invoice => (invoice.currency ?? 'INR') === currency);
+          return { currency,
+            amountDue: matching.reduce((sum, invoice) => sum.plus(invoice.outstandingAmount), new Prisma.Decimal(0)).toFixed(2),
+            overdueAmount: matching.filter(invoice => invoice.dueDate < now).reduce((sum, invoice) => sum.plus(invoice.outstandingAmount), new Prisma.Decimal(0)).toFixed(2),
+          };
+        }),
+        amountDue: currencies.length > 1 ? null : amountDue.toFixed(2),
+        overdueAmount: currencies.length > 1 ? null : overdueAmount.toFixed(2),
         dueDate: invoices[0]?.dueDate ?? null,
-        currency: profile?.currency ?? 'INR',
+        currency: currencies.length > 1 ? null : currencies[0] ?? profile?.currency ?? 'INR',
         autoPayStatus,
         autoPayEnabled: profile?.autoPayEnabled ?? false,
         paymentMethod: mandate?.method ?? null,

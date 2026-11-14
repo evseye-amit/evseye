@@ -8,6 +8,8 @@ function setup() {
   const invoice = { id: 'invoice-a', clientId: 'client-a', riderId: 'rider-a', invoiceType: 'RENTAL', invoiceNumber: 'EVS/1', currency: 'INR', status: 'FINALIZED', totalAmount: d('1500.00'), paidAmount: d('0.00'), outstandingAmount: d('1500.00'), lines: [] };
   const accounts = ['CASH', 'REWARD', 'CLEARING'].map(accountType => ({ id: accountType.toLowerCase(), accountType, status: 'ACTIVE' }));
   const tx = {
+    riderWallet: { findUniqueOrThrow: vi.fn().mockResolvedValue({ riderId: invoice.riderId }) },
+    paymentTransaction: { findFirst: vi.fn().mockResolvedValue(null) },
     paymentCollectionRequest: { findFirst: vi.fn().mockResolvedValue(null) },
     $queryRaw: vi.fn().mockResolvedValue([{ id: invoice.id }]),
     riderInvoice: { findFirst: vi.fn().mockResolvedValue(invoice), update: vi.fn().mockImplementation(({ data }) => ({ ...invoice, ...data })) },

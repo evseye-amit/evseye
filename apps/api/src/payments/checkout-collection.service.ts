@@ -135,27 +135,15 @@ export class CheckoutCollectionService {
     const providerName = await this.selected(clientId, 'INVOICE');
     if (providerName === 'disabled')
       throw new ServiceUnavailableException('Payment provider is disabled.');
-    const existing = await this.prisma.paymentCollectionRequest.findUnique({
-      where: { clientId_idempotencyKey: { clientId, idempotencyKey: key } },
-    });
+    const wallet = useWallet ? await this.wallet.ensure(clientId, riderId, actorId) : null;
     let walletContribution = new Prisma.Decimal(0);
-    if (!existing && useWallet) {
-      const ownedInvoice = await this.prisma.riderInvoice.findFirst({ where: { id: invoiceId, clientId, riderId } });
-      if (!ownedInvoice) throw new NotFoundException('INVOICE_NOT_FOUND');
-      const settled = await this.walletBilling.settle(clientId, invoiceId, actorId, `checkout:${key}`);
-      walletContribution = settled.paidAmount.minus(ownedInvoice.paidAmount);
-      if (settled.outstandingAmount.lte(0)) return {
-        collectionId: null, paymentNumber: null, invoiceId, depositId: null, status: 'PAID', amount: '0.00',
-        currency: settled.currency, method: 'WALLET', paymentSessionId: null,
-        orderId: null, paymentId: null, depositTransactionId: null, failureCode: null,
-      };
-    }
     let created = false;
     let request;
     try {
       request = await this.serializable(async (tx) => {
+        if (wallet) await tx.$queryRaw`SELECT id FROM "RiderWallet" WHERE id = ${wallet.id} FOR UPDATE`;
         await tx.$queryRaw`SELECT id FROM "Rider" WHERE id = ${riderId} AND "clientId" = ${clientId} FOR UPDATE`;
-        const invoice = await tx.riderInvoice.findFirst({
+        let invoice = await tx.riderInvoice.findFirst({
           where: { id: invoiceId, clientId, riderId },
         });
         if (!invoice) throw new NotFoundException('INVOICE_NOT_FOUND');
@@ -169,6 +157,13 @@ export class CheckoutCollectionService {
             );
           return previous;
         }
+        if (wallet) {
+          const priorWallet = await tx.walletTransaction.findUnique({ where: { clientId_idempotencyKey: { clientId, idempotencyKey: `checkout:${key}` } } });
+          if (priorWallet && invoice.outstandingAmount.lte(0)) {
+            if (!await tx.walletInvoiceAllocation.findFirst({ where: { clientId, transactionId: priorWallet.id, invoiceId } })) throw new ConflictException('IDEMPOTENCY_CONFLICT');
+            return null;
+          }
+        }
         if (
           !openStatuses.includes(
             invoice.status as (typeof openStatuses)[number],
@@ -178,7 +173,6 @@ export class CheckoutCollectionService {
           throw new ConflictException('INVOICE_ALREADY_PAID');
         if (invoice.currency !== 'INR')
           throw new BadRequestException('Checkout supports INR invoices.');
-        validateCheckoutAmount(providerName, invoice.outstandingAmount);
         const inProgress = await tx.paymentCollectionRequest.findFirst({
           where: {
             clientId,
@@ -198,6 +192,13 @@ export class CheckoutCollectionService {
           },
         });
         if (autoPay) throw new ConflictException('AUTOPAY_ALREADY_IN_PROGRESS');
+        if (wallet) {
+          const settled = await this.walletBilling.settleInTransaction(tx, clientId, invoiceId, actorId, `checkout:${key}`, wallet);
+          walletContribution = settled.paidAmount.minus(invoice.paidAmount);
+          invoice = settled;
+          if (invoice.outstandingAmount.lte(0)) return null;
+        }
+        validateCheckoutAmount(providerName, invoice.outstandingAmount);
         const rider = await tx.rider.findFirst({
           where: { id: riderId, clientId, deletedAt: null },
           select: { name: true, mobile: true },
@@ -259,6 +260,11 @@ export class CheckoutCollectionService {
         throw new ConflictException('PAYMENT_ALREADY_IN_PROGRESS');
       throw error;
     }
+    if (!request) return {
+      collectionId: null, paymentNumber: null, invoiceId, depositId: null, status: 'PAID', amount: '0.00',
+      currency: wallet!.currency, method: 'WALLET', paymentSessionId: null,
+      orderId: null, paymentId: null, depositTransactionId: null, failureCode: null,
+    };
     if (!created) return this.resume(request);
     return this.startProviderCheckout(request, riderId);
   }
@@ -411,6 +417,8 @@ export class CheckoutCollectionService {
           if (previous.riderId !== riderId || previous.collectionType !== 'TOP_UP' || !previous.amount.eq(amount)) throw new ConflictException('Idempotency-Key was used with a different top-up.');
           return previous;
         }
+        const currentWallet = await tx.riderWallet.findUniqueOrThrow({ where: { id: wallet.id } });
+        if (currentWallet.status !== 'ACTIVE') throw new ConflictException('WALLET_INACTIVE');
         const orderId = `EVSEYE_PG_${randomUUID().replaceAll('-', '')}`;
         const result = await tx.paymentCollectionRequest.create({ data: { clientId, riderId, collectionType: 'TOP_UP', paymentNumber: paymentNumber(), method: 'UPI', provider: providerName.toUpperCase(), amount, currency: wallet.currency, idempotencyKey: key, providerOrderId: providerName === 'razorpay' ? null : orderId, status: 'CREATING', paymentSnapshot: { purpose: 'TOP_UP', requestedAmount: amount.toFixed(2), refundable: false, withdrawable: false }, attempts: { create: { clientId, sequence: 1, providerPaymentId: orderId, status: 'CREATING' } } } });
         await tx.walletTransaction.create({ data: { clientId, walletId: wallet.id, transactionNumber: `EVW-${new Date().toISOString().slice(0,10).replaceAll('-', '')}-${randomUUID().slice(0,8).toUpperCase()}`, transactionType: 'TOP_UP', status: 'PENDING', currency: wallet.currency, amount, description: 'Money added to wallet', idempotencyKey: `topup:${result.id}`, requestHash: createHash('sha256').update(`${result.id}:${amount.toFixed(2)}`).digest('hex'), referenceType: 'PAYMENT_COLLECTION', referenceId: result.id } });
@@ -685,8 +693,16 @@ export class CheckoutCollectionService {
         } });
         throw new ConflictException('PROVIDER_PAYMENT_MISMATCH');
       }
-      if (request.collectionType === PENALTY_PAYMENT) return this.view(await settlePenaltyPayment(this.prisma, this.payments, this.wallet, request, confirmed.providerPaymentId));
-      return this.view(await settleCheckoutPayment(this.prisma, this.payments, this.deposits, this.wallet, this.walletDeposits, request, confirmed));
+      try {
+        if (request.collectionType === PENALTY_PAYMENT) return this.view(await settlePenaltyPayment(this.prisma, this.payments, this.wallet, request, confirmed.providerPaymentId, confirmed.paymentMethod ?? 'UNKNOWN'));
+        return this.view(await settleCheckoutPayment(this.prisma, this.payments, this.deposits, this.wallet, this.walletDeposits, request, { ...confirmed, paymentMethod: confirmed.paymentMethod ?? 'UNKNOWN' }));
+      } catch (error) {
+        if (!(error instanceof ConflictException || error instanceof BadRequestException) ||
+          !['WALLET_INACTIVE', 'ACCOUNT_NOT_FOUND', 'WALLET_ACCOUNT_NOT_FOUND'].includes(error.message)) throw error;
+        await this.prisma.paymentCollectionRequest.updateMany({ where: { id: request.id, status: { not: 'SUCCESS' } },
+          data: { status: 'UNKNOWN', failureCode: 'WALLET_SETTLEMENT_REQUIRES_REVIEW' } });
+        return this.view(await this.prisma.paymentCollectionRequest.findUniqueOrThrow({ where: { id: request.id } }));
+      }
     }
     const orderStatus = await (await this.providerFor(request)).fetchCheckoutOrder(request.providerOrderId);
     if (orderStatus.orderId !== request.providerOrderId) throw new ConflictException('PROVIDER_ORDER_MISMATCH');

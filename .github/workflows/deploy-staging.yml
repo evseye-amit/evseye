@@ -104,6 +104,8 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
     needs: build
+    outputs:
+      subnets: ${{ steps.network.outputs.subnets }}
 
     steps:
       - name: Configure AWS credentials (OIDC)
@@ -255,6 +257,20 @@ jobs:
           task-definition: api-task-def.json
           container-name: api
           image: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_API_REPO }}:${{ needs.build.outputs.image_tag }}
+
+      - name: Verify payment readiness with candidate API credentials
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.api-task-def.outputs.task-definition }}
+          cluster: ${{ secrets.ECS_CLUSTER }}
+          run-task: true
+          run-task-launch-type: FARGATE
+          run-task-container-overrides: >-
+            [{"name":"api","command":["node","--experimental-strip-types","apps/api/scripts/payment-deployment-gate.mjs"]}]
+          run-task-subnets: ${{ needs.migrate.outputs.subnets }}
+          run-task-security-groups: ${{ secrets.ECS_TASK_SG }}
+          run-task-assign-public-IP: ENABLED
+          wait-for-task-stopped: true
 
       - name: Deploy API to ECS
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2

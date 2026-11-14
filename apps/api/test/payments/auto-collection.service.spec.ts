@@ -145,4 +145,12 @@ describe('automatic collection retry policy', () => {
       create: expect.objectContaining({ status: 'RIDER_ACTION_REQUIRED', failureCode: 'MANDATE_NOT_ACTIVE' }),
     }));
   });
+  it('requires explicit recollection approval after a refund, instead of silently skipping or re-debiting',async()=>{
+    const f=fixture();
+    f.prisma.paymentTransaction.findMany.mockResolvedValue([{status:'SUCCESS',riderPayment:{status:'REFUNDED'}}] as never);
+    await f.service.processDue(10,new Date('2026-09-27'));
+    expect(f.orchestrator.collect).not.toHaveBeenCalled();
+    expect(f.prisma.autoPayDunningCase.upsert).toHaveBeenCalledWith(expect.objectContaining({update:expect.objectContaining({status:'RIDER_ACTION_REQUIRED',failureCode:'REFUND_RECOLLECTION_REQUIRES_APPROVAL'})}));
+  });
+
 });
