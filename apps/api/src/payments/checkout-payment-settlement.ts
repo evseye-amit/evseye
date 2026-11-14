@@ -16,7 +16,7 @@ export async function settleCheckoutPayment(
   walletService: WalletService,
   walletDeposits: SecurityDepositService,
   request: PaymentCollectionRequest,
-  confirmed: { providerPaymentId: string; providerReference?: string },
+  confirmed: { providerPaymentId: string; providerReference?: string; paymentMethod?: string },
 ) {
   const { clientId, riderId } = request;
   async function serializable<T>(
@@ -100,6 +100,7 @@ export async function settleCheckoutPayment(
         where: { id: current.id },
         data: {
           status: 'SUCCESS',
+          method: confirmed.paymentMethod ?? current.method,
           providerPaymentId: confirmed.providerPaymentId,
           completedAt: new Date(),
           attempts: {
@@ -180,7 +181,7 @@ export async function settleCheckoutPayment(
             riderId,
             amount: current.amount,
             currency: current.currency,
-            method: current.method,
+            method: confirmed.paymentMethod ?? current.method,
             provider: current.provider,
             providerPaymentId: confirmed.providerPaymentId,
             sourceId: current.id,
@@ -339,6 +340,7 @@ export async function settleCheckoutPayment(
       where: { id: current.id },
       data: {
         status: 'SUCCESS',
+        method: confirmed.paymentMethod ?? current.method,
         providerPaymentId: confirmed.providerPaymentId,
         riderPaymentId: payment?.id,
         depositTransactionId: depositTransaction?.id,

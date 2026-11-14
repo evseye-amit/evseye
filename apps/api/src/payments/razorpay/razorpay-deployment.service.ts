@@ -20,6 +20,7 @@ import { DeploymentCommercialService } from '../../allocations/deployment-commer
 import { allocationPaymentView } from '../../allocations/allocation-payment-view.js';
 import {
   RazorpayClient,
+  razorpayPaymentMethod,
   RazorpayProviderError,
   type RazorpayPayment,
 } from './razorpay.client.js';
@@ -400,6 +401,9 @@ export class RazorpayDeploymentService {
       if (existing) {
         if (existing.attemptId !== order.id)
           throw new ConflictException('Gateway payment has already been used.');
+        if (!existing.paymentMethod || existing.paymentMethod === 'UNKNOWN')
+          await tx.deploymentPaymentCapture.update({ where: { id: existing.id },
+            data: { paymentMethod: razorpayPaymentMethod(remote) } });
         if (existing.status === 'SETTLED' && remote.amount_refunded > 0)
           await tx.deploymentPaymentCapture.update({
             where: { id: existing.id },
@@ -465,6 +469,7 @@ export class RazorpayDeploymentService {
         data: {
           attemptId: order.id,
           providerPaymentId: remote.id,
+          paymentMethod: razorpayPaymentMethod(remote),
           amountPaise: BigInt(remote.amount),
           currency: remote.currency,
           status,

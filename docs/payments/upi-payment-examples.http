@@ -1,0 +1,56 @@
+# REST Client-style examples. Supply variables locally; never commit tokens.
+# Run create deliberately. Reuse the exact body and key on transport uncertainty.
+@baseUrl = https://api.staging.evseye.com/api/v1
+@riderToken = REPLACE_LOCALLY
+@idempotencyKey = REPLACE_WITH_ONE_UUID_PER_INTENTIONAL_PAYMENT
+@paymentRequestId = collection%3AREPLACE_WITH_RETURNED_UUID
+@invoiceId = REPLACE_WITH_OWNED_INVOICE_UUID
+
+### Check policy capabilities (does not verify gateway connectivity)
+GET {{baseUrl}}/rider-app/payments/orders/capabilities
+Authorization: Bearer {{riderToken}}
+
+### Create/recover the same top-up (INR 500 to 5000)
+POST {{baseUrl}}/rider-app/payments/orders
+Authorization: Bearer {{riderToken}}
+Idempotency-Key: {{idempotencyKey}}
+Content-Type: application/json
+
+{"purpose":"TOP_UP","amount":"500.00"}
+
+### Alternative invoice request: use a DIFFERENT key from the top-up
+POST {{baseUrl}}/rider-app/payments/orders
+Authorization: Bearer {{riderToken}}
+Idempotency-Key: REPLACE_WITH_INVOICE_SPECIFIC_UUID
+Content-Type: application/json
+
+{"purpose":"INVOICE","invoiceId":"{{invoiceId}}","useWallet":true}
+
+### Stored state only; does not contact gateway
+GET {{baseUrl}}/rider-app/payments/orders/{{paymentRequestId}}
+Authorization: Bearer {{riderToken}}
+
+### Verify genuine Razorpay SDK callback (never invent the signature)
+POST {{baseUrl}}/rider-app/payments/orders/{{paymentRequestId}}/verify
+Authorization: Bearer {{riderToken}}
+Content-Type: application/json
+
+{"razorpayOrderId":"REPLACE_FROM_SDK","razorpayPaymentId":"REPLACE_FROM_SDK","razorpaySignature":"REPLACE_FROM_SDK"}
+
+### Recover after lost callback, app restart, cancellation, or verification timeout
+POST {{baseUrl}}/rider-app/payments/orders/{{paymentRequestId}}/reconcile
+Authorization: Bearer {{riderToken}}
+Content-Type: application/json
+
+{}
+
+### Supplemental recovery inventory: collections only, up to 50
+GET {{baseUrl}}/rider-app/payments/orders/pending
+Authorization: Bearer {{riderToken}}
+
+### Explicit user abandonment only; reconcile first. This is not gateway cancellation.
+POST {{baseUrl}}/rider-app/payments/orders/{{paymentRequestId}}/abandon
+Authorization: Bearer {{riderToken}}
+Content-Type: application/json
+
+{}

@@ -302,6 +302,7 @@ export class CommonPaymentService {
         allocationId: order.payment.workflow.allocationId,
         providerOrderId: order.providerOrderId,
         providerPaymentId: capture?.providerPaymentId ?? null,
+        paymentMethod: capture?.paymentMethod ?? null,
         failureCode: capture?.reason ?? null,
         checkout:
           status === 'PENDING' &&
@@ -344,6 +345,9 @@ export class CommonPaymentService {
       depositId: c.depositId,
       providerOrderId: c.providerOrderId,
       providerPaymentId: c.providerPaymentId,
+      paymentMethod: c.provider === 'RAZORPAY'
+        ? order?.captures.find(capture => capture.providerPaymentId === c.providerPaymentId)?.paymentMethod ?? null
+        : null,
       failureCode: review?.reason ?? c.failureCode,
       checkout:
         status === 'PENDING'

@@ -241,12 +241,14 @@ describe.skipIf(!url)(
       const order = await checkout.payTopUp(f.client.id, f.rider.id, key, '500.00');
       expect(await checkout.payTopUp(f.client.id, f.rider.id, key, '500.00')).toMatchObject({ collectionId: order.collectionId, orderId: order.orderId });
       expect(r.gateway.createOrder).toHaveBeenCalledTimes(1);
-      const proof = r.capture({ orderId: order.orderId, amount: 50000, currency: 'INR' }, { amount: 49999 });
+      const proof = r.capture({ orderId: order.orderId, amount: 50000, currency: 'INR' }, { amount: 49999, method: 'upi' });
       await expect(r.service.verify(f.client.id, f.user.id, proof)).rejects.toThrow('PROVIDER_PAYMENT_MISMATCH');
       r.captures.get(proof.razorpayPaymentId).amount = 50000;
       await Promise.all([r.service.verify(f.client.id, f.user.id, proof), checkout.verify(f.client.id, f.rider.id, order.collectionId)]);
       const wallet = await f.wallet.ensure(f.client.id, f.rider.id, 'SYSTEM');
       expect((await f.wallet.balance(f.client.id, wallet.id)).cash.totalBalance).toBe('500.00');
+      expect(await db.paymentCollectionRequest.findUniqueOrThrow({ where: { id: order.collectionId } })).toMatchObject({ method: 'UPI' });
+      expect(await db.razorpayPenaltyCapture.findUniqueOrThrow({ where: { providerPaymentId: proof.razorpayPaymentId } })).toMatchObject({ paymentMethod: 'UPI' });
       expect(await db.walletTransaction.count({ where: { clientId: f.client.id, referenceId: order.collectionId } })).toBe(1);
       expect(await f.wallet.transactions(f.client.id, wallet.id, 1, 25)).toHaveLength(1);
       const reconciliation = new PaymentReconciliationService(db as never, {} as never, {} as never, {} as never);

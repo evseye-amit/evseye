@@ -2,7 +2,7 @@ import { Client } from 'pg';
 import { pathToFileURL } from 'node:url';
 
 const requiredTables = ['PaymentProviderConfigurationVersion', 'ClientPaymentProvider', 'DeploymentPaymentAttempt', 'RazorpayPenaltyOrder', 'PaymentMandate', 'PaymentTransaction', 'PaymentProviderEvent', 'PaymentCollectionRequest', 'PaymentAutomationJob', 'PaymentOperationalAlert', 'WalletAutoRechargePolicy', 'WalletAutoRechargePreference', 'WalletAutoRecharge'];
-const migrations = ['20261113180000_payment_configuration_versions', '20261114020000_payment_automation_jobs', '20261114030000_cashfree_merchant_binding', '20261114040000_payment_operations_evidence', '20261114120000_wallet_auto_recharge', '20261114133000_restore_commercial_number_sequences', '20261114140000_payment_failure_clock'];
+const migrations = ['20261113180000_payment_configuration_versions', '20261114020000_payment_automation_jobs', '20261114030000_cashfree_merchant_binding', '20261114040000_payment_operations_evidence', '20261114120000_wallet_auto_recharge', '20261114133000_restore_commercial_number_sequences', '20261114140000_payment_failure_clock', '20261114150000_checkout_payment_method'];
 
 /** Read-only inventory. Never resolve/seal secrets or repair uncertain historical ownership. */
 export async function inspectPaymentReadiness(db: Pick<Client, 'query'>, environment: 'TEST' | 'PRODUCTION') {

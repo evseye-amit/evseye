@@ -3254,6 +3254,7 @@ model DeploymentPaymentCapture {
   attempt           DeploymentPaymentAttempt  @relation(fields: [attemptId], references: [id], onDelete: Restrict)
   providerPaymentId String                    @unique @db.VarChar(160)
   amountPaise       BigInt
+  paymentMethod String? @db.VarChar(30)
   currency          String                    @db.Char(3)
   status            String                    @db.VarChar(32)
   reason            String?                   @db.VarChar(150)
@@ -6631,6 +6632,7 @@ model RazorpayPenaltyCapture {
   order RazorpayPenaltyOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
   providerPaymentId String @unique @db.VarChar(120)
   amountPaise BigInt
+  paymentMethod String? @db.VarChar(30)
   currency String @db.Char(3)
   status String @db.VarChar(30)
   reason String? @db.VarChar(100)

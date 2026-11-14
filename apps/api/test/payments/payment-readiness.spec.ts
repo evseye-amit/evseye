@@ -3,7 +3,7 @@ import { inspectPaymentReadiness } from '../../scripts/payment-readiness.js';
 
 describe('read-only payment release inventory', () => {
   it('does not require Cashfree client configuration for a completed deployment', async () => {
-    const query = vi.fn(async (sql: string) => ({ rows: [{ present: true, count: sql.includes('COUNT(DISTINCT migration_name)') ? 7 : 0 }] }));
+    const query = vi.fn(async (sql: string) => ({ rows: [{ present: true, count: sql.includes('COUNT(DISTINCT migration_name)') ? 8 : 0 }] }));
     expect(await inspectPaymentReadiness({ query } as never, 'TEST')).toMatchObject({ status: 'LOCAL_CHECKS_CLEAR', migrationRecorded: true });
   });
   it('does not imply readiness when the merchant-version migration is absent', async () => {

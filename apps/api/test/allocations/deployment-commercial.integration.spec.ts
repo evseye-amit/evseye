@@ -98,6 +98,7 @@ describe.skipIf(!url)(
 
     it('Razorpay settles concurrent callbacks and webhooks once, including deposits and ledger', async () => {
       const f = await razorpayFixture();
+      f.remote.method = 'upi';
       f.remotes.push(f.remote);
       await Promise.all([
         f.service.verify(f.client.id, f.user.id, f.allocation.id, f.input),
@@ -111,6 +112,7 @@ describe.skipIf(!url)(
       expect(await db.riderLedgerEntry.count({ where: { clientId: f.client.id, entryType: 'PAYMENT' } })).toBe(1);
       expect(await db.riderDepositTransaction.count({ where: { clientId: f.client.id, transactionType: 'COLLECTION' } })).toBe(1);
       expect(await db.deploymentPaymentCapture.count({ where: { providerPaymentId: f.remote.id } })).toBe(1);
+      expect(await db.deploymentPaymentCapture.findUniqueOrThrow({ where: { providerPaymentId: f.remote.id } })).toMatchObject({ paymentMethod: 'UPI' });
       expect(f.gateway.refund).not.toHaveBeenCalled();
     }, 30000);
     it('Razorpay reuses orders, waits for capture, rejects wrong owners and mismatched amounts', async () => {

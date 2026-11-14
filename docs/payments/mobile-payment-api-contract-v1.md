@@ -1,6 +1,6 @@
 # Mobile payment API contract v1
 
-Contract revision: payment-contract-v1.2, 2026-11-14. Implemented in the local backend; deployment identifier and staging URL must be supplied by backend release operations before mobile enables these additions. This is not a claim of production or device certification.
+Contract revision: payment-contract-v1.3, 2026-11-14. Implemented in the local backend; deployment identifier and staging URL must be supplied by backend release operations before mobile enables these additions. This is not a claim of production or device certification.
 
 Ownership: backend maintains this contract and its executable tests. The Flutter team implements all mobile changes. No Flutter source changes are included.
 
@@ -57,7 +57,7 @@ Example: {"purpose":"INVOICE","invoiceId":"<uuid>","useWallet":true}.
 
 ## Checkout payloads
 
-Common response fields: paymentRequestId, purpose, provider, status, amount (decimal string), currency, providerOrderId, providerPaymentId, failureCode, checkout, optional nextAction and purpose-specific invoiceId/depositId/allocationId.
+Common response fields: paymentRequestId, purpose, provider, status, paymentMethod (additive, nullable), amount (decimal string), currency, providerOrderId, providerPaymentId, failureCode, checkout, optional nextAction and purpose-specific invoiceId/depositId/allocationId.
 
 Razorpay checkout:
 
@@ -118,7 +118,7 @@ AutoPay is separate from common checkout; do not send UPI_AUTOPAY to the orders 
 
 Razorpay uses its hosted authorization URL. Cashfree uses the subscription ID/session and returned environment. Neither browser return nor SDK success establishes an active mandate: verify server status, refresh setup, and distinguish ACTIVE, authorization pending, paused and closed states. Do not create a second mandate after an uncertain setup.
 
-Cashfree mandate environment currently derives from runtime configuration; do not switch shared-account environment while unresolved mandates exist. Client-specific Cashfree and immutable Cashfree merchant recovery remain later work.
+Client-bound Cashfree mandates retain their merchant configuration version and saved provider environment. Legacy mandates without a saved environment fall back to runtime configuration; do not switch that shared-account environment while unresolved legacy mandates exist. See [Cashfree merchant binding and operations](phase-7-cashfree-and-operations.md).
 
 ## Acceptance and release gates
 
@@ -129,3 +129,28 @@ Backend release operations must supply deployed revision, staging API base, capa
 ## Phase 6 additive collection refund fields
 
 Collection detail adds `refundedAmount` (decimal currency string, default `"0.00"`). A fully refunded collection reports `status: "REFUNDED"`; an active local refund reports `"REFUND_PENDING"`. A successful partial refund retains `"SUCCEEDED"` and exposes the returned amount. Existing review reasons can still take precedence. No new checkout is supplied for these states. This is backend contract work only; Flutter implementation and acceptance remain with the mobile team.
+
+
+## v1.3: verified UPI/payment-method evidence
+
+Scope: one-time Razorpay checkout. Backend/API and handoff only; Flutter owns native implementation. See [UPI Flutter handoff](upi-flutter-handoff.md) and [executable HTTP examples](upi-payment-examples.http).
+
+`paymentMethod` is additive on stored deployment/collection order responses. It is independent of `provider`, `purpose` and `status`:
+
+- `null`: no stored Razorpay capture evidence, historical capture not yet refreshed, or provider not covered by this addition. Never infer UPI from a null field. Wallet-only success may omit this field.
+- `UPI`, `CARD`, `NETBANKING`, `WALLET`, `EMI`, `PAYLATER`, `BANK_TRANSFER`: normalized method from a server-fetched Razorpay capture.
+- `UNKNOWN`: a capture was fetched but its method was absent or unrecognized. This is not payment failure; status still controls financial success.
+
+For deployment, the field describes the capture selected by the existing status response and its `providerPaymentId`. For collections, it describes the capture matching the collection's `providerPaymentId`; a surplus/review capture does not overwrite the original payment's method. A review capture before settlement can therefore leave this field null. Refund/review status always takes precedence over method.
+
+The backend never accepts `paymentMethod`, a VPA, UPI PIN, transaction screenshot or a caller success flag as payment proof. Callback bodies remain unchanged. New Razorpay collection settlements use the normalized verified method in collection/receipt records; legacy already-posted receipts are not silently rewritten. Reconciliation can enrich historical capture evidence without reposting money. Deployment financial receipts retain the existing business-method label `DEPLOYMENT`; the capture/API field carries the gateway method separately.
+
+### Checkout-method policy
+
+This release retains Standard Checkout and the existing payload. It does **not** introduce a server-enforced UPI-only restriction or advertise a merchant-specific list of enabled payment methods. Capabilities describe purposes and gateway eligibility, not UPI activation. Flutter may present UPI prominently through the supported SDK configuration, but must accept and display the actual backend method if another enabled method is used. Valid captured money is accounted for; a non-UPI capture is not discarded or relabelled UPI. A strict UPI-only product requires a separately verified merchant/gateway restriction, not merely hiding other buttons.
+
+Do not introduce manual Collect/VPA entry or raw `upi://pay` URLs for this flow. Use gateway-managed Intent/QR and server verification. SDK cancellation is not gateway cancellation. Intent/QR device acceptance needs a controlled live test in addition to TEST-mode simulation.
+
+### Deployment prerequisite
+
+Apply `20261114150000_checkout_payment_method` before deploying the v1.3 API. Both new capture columns are nullable; there is no inferred historical backfill. The readiness checker now requires this migration. Older clients can ignore the additive field. Older API instances can run against the expanded schema; rollback should retain the columns. Release evidence and remaining gates are recorded in [UPI Flutter handoff](upi-flutter-handoff.md).
