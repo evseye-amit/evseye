@@ -113,6 +113,13 @@ export class PaymentOrchestratorService {
           where: { id: invoiceId, clientId, riderId },
         });
         if (!invoice) throw new NotFoundException('Rider invoice not found.');
+        if (invoice.invoiceType === 'RENTAL') {
+          // Same lock used by wallet opt-in and recharge reservation prevents two collection modes racing.
+          await tx.$queryRaw`SELECT id FROM "RiderWallet" WHERE "clientId"=${clientId} AND "riderId"=${riderId} AND currency=${invoice.currency} FOR UPDATE`;
+          const funding = await tx.walletAutoRechargePreference.findUnique({ where: { clientId_riderId: { clientId, riderId } } });
+          const pending = await tx.walletAutoRecharge.findFirst({ where: { clientId, riderId, status: { in: ['CREATING', 'PENDING', 'UNKNOWN', 'REVIEW_REQUIRED'] } } });
+          if (funding?.enabled || pending) throw new ConflictException('Rental is funded through wallet AutoPay. Resolve or disable wallet AutoPay before direct collection.');
+        }
         const retry = await tx.paymentTransaction.findUnique({
           where: { clientId_requestKey: { clientId, requestKey } },
         });

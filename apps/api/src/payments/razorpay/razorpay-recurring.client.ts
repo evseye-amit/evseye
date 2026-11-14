@@ -135,6 +135,7 @@ export class RazorpayRecurringClient extends RazorpayClient {
     );
   }
   async createRecurringPayment(input: {
+    description?: string;
     customerId: string;
     tokenId: string;
     orderId: string;
@@ -155,7 +156,7 @@ export class RazorpayRecurringClient extends RazorpayClient {
         email: input.email,
         contact: input.contact,
         recurring: true,
-        description: 'EVsEye recurring invoice payment',
+        description: input.description ?? 'EVsEye recurring invoice payment',
       }, input.clientId, input.configurationVersionId),
     );
   }
