@@ -1,3 +1,6 @@
+import { WalletAutoRechargeService } from './wallet-auto-recharge.service.js';
+import { WalletAutoRechargePolicyController, RiderWalletAutoRechargeController } from './wallet-auto-recharge.controller.js';
+import { NotificationModule } from '../notifications/notification.module.js';
 import { PaymentAlertService } from './payment-alert.service.js';
 import { PaymentAlertController } from './payment-alert.controller.js';
 import { SettlementIngestionService } from './settlement-ingestion.service.js';
@@ -64,8 +67,8 @@ import {
 } from './mandate.controller.js';
 
 @Module({
-  imports: [PaymentAutomationModule, PaymentGatewayPolicyModule, AllocationsModule, RazorpayPenaltyModule, AuthModule, RiderBillingModule, RiderRateCardsModule, WalletModule],
-  controllers: [PaymentAlertController,
+  imports: [NotificationModule, PaymentAutomationModule, PaymentGatewayPolicyModule, AllocationsModule, RazorpayPenaltyModule, AuthModule, RiderBillingModule, RiderRateCardsModule, WalletModule],
+  controllers: [WalletAutoRechargePolicyController, RiderWalletAutoRechargeController, PaymentAlertController,
     CommonPaymentController,
     RiderMandateController,
     AutoPayOperationsController,
@@ -83,7 +86,7 @@ import {
     CashfreeRefundWebhookController,
     ProviderSettlementController,
   ],
-  providers: [PaymentAlertService,
+  providers: [WalletAutoRechargeService, PaymentAlertService,
     RazorpayRecurringClient, RazorpayAutoPayProvider, RazorpayAutoPayWorker, AutoPayProviderRouter, RazorpayConfigurationService,
     CommonPaymentService,
     CashfreeHttpClient,

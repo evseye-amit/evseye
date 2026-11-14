@@ -861,6 +861,10 @@ enum FleetOperatingMode {
 }
 
 model Client {
+  walletAutoRechargePolicy WalletAutoRechargePolicy?
+  walletAutoRechargePreferences WalletAutoRechargePreference[]
+  walletAutoRecharges WalletAutoRecharge[]
+
  paymentOperationalAlerts PaymentOperationalAlert[]
   readinessPolicies FleetReadinessPolicy[]
   fleetOperatingMode FleetOperatingMode @default(SIMPLE)
@@ -2200,6 +2204,9 @@ model Rider {
 }
 
 model PaymentMandate {
+  walletAutoRechargePreferences WalletAutoRechargePreference[]
+  walletAutoRecharges WalletAutoRecharge[]
+
   providerEnvironment String? @db.VarChar(16)
   configurationVersionId String?
   configurationVersion PaymentProviderConfigurationVersion? @relation(fields: [clientId, configurationVersionId], references: [clientId, id], onDelete: Restrict, map: "PaymentMandate_configurationVersion_fkey")
@@ -5788,6 +5795,9 @@ enum WalletHoldStatus {
 }
 
 model RiderWallet {
+  autoRechargePreference WalletAutoRechargePreference?
+  autoRecharges WalletAutoRecharge[]
+
   securityDeposits WalletSecurityDeposit[]
   id               String                  @id @default(uuid())
   clientId         String
@@ -6656,4 +6666,70 @@ model PaymentOperationalAlert {
  createdAt DateTime @default(now())
  @@unique([clientId, kind, referenceId])
  @@index([clientId, createdAt])
+}
+
+// Wallet funding is independent of invoice collection. Existing riders are never opted in by migration.
+model WalletAutoRechargePolicy {
+  clientId String @id
+  client Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  enabled Boolean @default(false)
+  threshold Decimal @default(550) @db.Decimal(14, 2)
+  rechargeAmount Decimal @default(750) @db.Decimal(14, 2)
+  revision Int @default(1)
+  updatedAt DateTime @updatedAt
+}
+
+model WalletAutoRechargePreference {
+  id String @id @default(uuid())
+  clientId String
+  client Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId String
+  walletId String @unique
+  wallet RiderWallet @relation(fields: [clientId, riderId, walletId], references: [clientId, riderId, id], onDelete: Restrict)
+  mandateId String
+  mandate PaymentMandate @relation(fields: [clientId, mandateId], references: [clientId, id], onDelete: Restrict)
+  enabled Boolean @default(false)
+  consentRevision Int
+  consentedAt DateTime @default(now())
+  actionRequired Boolean @default(false)
+  nextEligibleAt DateTime @default(now())
+  checkedAt DateTime @default(now())
+  evaluationRequestedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([clientId, riderId])
+  @@index([checkedAt])
+  @@unique([clientId, riderId, walletId])
+}
+
+model WalletAutoRecharge {
+  id String @id @default(uuid())
+  clientId String
+  client Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId String
+  walletId String
+  wallet RiderWallet @relation(fields: [clientId, riderId, walletId], references: [clientId, riderId, id], onDelete: Restrict)
+  mandateId String
+  mandate PaymentMandate @relation(fields: [clientId, mandateId], references: [clientId, id], onDelete: Restrict)
+  allocationId String
+  policyRevision Int
+  threshold Decimal @db.Decimal(14, 2)
+  balanceAtTrigger Decimal @db.Decimal(14, 2)
+  amount Decimal @db.Decimal(14, 2)
+  currency String @default("INR") @db.Char(3)
+  status String @default("CREATING") @db.VarChar(32)
+  failureCode String? @db.VarChar(80)
+  configurationVersionId String?
+  providerKeyId String?
+  providerOrderId String? @unique
+  providerPaymentId String? @unique
+  orderClaimedAt DateTime?
+  debitClaimedAt DateTime?
+  scheduledAt DateTime
+  checkedAt DateTime @default(now())
+  completedAt DateTime?
+  notifiedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([status, checkedAt])
+  @@index([clientId, riderId, createdAt])
 }

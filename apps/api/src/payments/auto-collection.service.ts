@@ -288,6 +288,10 @@ export class AutoCollectionService {
           }
           const current = await this.prisma.riderInvoice.findFirst({ where: { id: invoice.id, clientId: invoice.clientId } });
           if (!current || current.outstandingAmount.lte(0)) continue;
+          if (invoice.invoiceType === 'RENTAL') {
+            const walletFunding = await this.prisma.walletAutoRechargePreference.findUnique({ where: { clientId_riderId: { clientId: invoice.clientId, riderId: invoice.riderId } } });
+            if (walletFunding?.enabled) continue;
+          }
           if (current.outstandingAmount.gt(mandate.maxAmount)) {
             await this.actionRequired(invoice.clientId, invoice.riderId, invoice.id, 'MANDATE_LIMIT_EXCEEDED');
             continue;

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma, WalletAccountType, WalletEntryType, WalletHoldStatus, WalletTransactionStatus, WalletTransactionType } from '@prisma/client';
 import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -13,12 +13,19 @@ type PostInput = { clientId: string; walletId: string; actorId: string; type: Wa
 
 @Injectable()
 export class WalletService {
+  private readonly balanceCallbacks: Array<(walletId: string) => Promise<void>> = [];
+  onCommittedBalanceChange(callback: (walletId: string) => Promise<void>) { this.balanceCallbacks.push(callback); }
   constructor(private readonly prisma: PrismaService) {}
   async locked<T>(walletId: string, action: (tx: Prisma.TransactionClient) => Promise<T>) {
-    return this.prisma.$transaction(async tx => {
+    const result = await this.prisma.$transaction(async tx => {
       await tx.$queryRaw`SELECT id FROM "RiderWallet" WHERE id = ${walletId} FOR UPDATE`;
       return action(tx);
     }, { timeout: 15000 });
+    // Run only after commit. A recovery scan handles errors; payment availability must never roll back rent.
+    for (const callback of this.balanceCallbacks) {
+      try { await callback(walletId); } catch { new Logger(WalletService.name).warn(`Post-commit wallet evaluation pending: ${walletId}`); }
+    }
+    return result;
   }
   async ensure(clientId: string, riderId: string, actorId?: string) {
     const rider = await this.prisma.rider.findFirst({ where: { id: riderId, clientId, deletedAt: null } });
@@ -135,6 +142,7 @@ export class WalletService {
         if (original.referenceType === 'WALLET_SECURITY_DEPOSIT' && original.referenceId) await this.reconcileDepositStateTx(tx, input.clientId, original.referenceId);
       }
       await tx.auditLog.create({ data: { clientId: input.clientId, actorId: input.actorId === 'SYSTEM' ? null : input.actorId, action: 'wallet.transaction.posted', entityType: 'WalletTransaction', entityId: id, newData: { transactionNumber: transaction.transactionNumber, type: input.type } } });
+      if (input.type === 'RENTAL') await tx.walletAutoRechargePreference.updateMany({ where: { walletId: input.walletId, clientId: input.clientId, enabled: true }, data: { evaluationRequestedAt: new Date() } });
       return posted;
     }
   }
