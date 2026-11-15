@@ -2823,6 +2823,7 @@ export default function Home() {
           tab !== "support-tickets" &&
           tab !== "notifications" &&
           tab !== "autopay-settings" &&
+          tab !== "rider-rate-cards" &&
           tab !== "payment-transactions" &&
           tab !== "payment-reconciliation" &&
           tab !== "payment-settlements" &&

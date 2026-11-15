@@ -5305,3 +5305,33 @@ body:has(.sa-dialog[open]) {
 .autopay-empty h3 { color: #202421; }
 .autopay-recharge-list { list-style: none; padding: 0; display: grid; gap: 12px; }
 .autopay-recharge-list li { padding: 16px; border: 1px solid #e8eae6; border-radius: 8px; line-height: 1.8; overflow-wrap: anywhere; }
+
+/* Rate cards share the AutoPay overview and focused settings layout. */
+.rate-cards-workspace { min-width: 0; }
+.rate-cards-workspace > .sa-card { display: grid; gap: 24px; }
+.rate-cards-workspace .rate-card-form { max-width: 1120px; margin: 0; background: white; gap: 20px 24px; }
+.rate-card-form h3 { margin: 8px 0 0; padding-top: 16px; border-top: 1px solid var(--line); font-size: 18px; }
+.rate-card-form h3:first-child { border: 0; padding-top: 0; }
+.rate-card-form label.rate-card-checkbox { display: flex; align-items: center; justify-content: flex-start; gap: 12px; }
+.rate-card-form .rate-card-checkbox input { order: -1; width: 20px; height: 20px; padding: 0; flex-shrink: 0; accent-color: #176d4d; }
+.rate-card-advanced summary { cursor: pointer; font-weight: 600; padding: 12px 0; }
+.rate-card-advanced .kyc-rule-scope { margin-top: 12px; }
+.rate-card-filters label, .rate-card-version label { display: grid; gap: 8px; color: var(--muted); font-weight: 600; }
+.rate-card-filters :is(input, select), .rate-card-version select { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--ink); }
+.rate-card-badges, .rate-card-version { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.rate-card-version { justify-content: space-between; margin-bottom: 24px; }
+.rate-card-version label { min-width: 220px; }
+.rate-card-detail { max-width: 1120px; }
+.rate-card-detail .autopay-tabs { margin-bottom: 0; }
+.rate-card-prices { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.rate-card-prices > div { display: grid; gap: 8px; border: 1px solid var(--line); padding: 20px; border-radius: 10px; }
+.rate-card-prices strong { font-size: 26px; color: #176d4d; }
+.rate-card-actions { position: relative; }
+.rate-card-actions summary { padding: 8px 14px; background: #eaf6ef; border-radius: 8px; }
+.rate-card-actions button { margin-top: 8px; }
+.rate-cards-workspace .status-inactive { background: #f0f2ef; color: #59635c; }
+@media (max-width: 720px) {
+  .rate-cards-workspace .rate-card-form, .rate-card-filters { grid-template-columns: minmax(0, 1fr); }
+  .rate-card-detail .autopay-tabs { gap: 12px; }
+  .rate-card-badges { gap: 8px; }
+}
