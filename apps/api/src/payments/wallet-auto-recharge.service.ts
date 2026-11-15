@@ -117,6 +117,19 @@ export class WalletAutoRechargeService implements OnModuleInit {
         }
       : RECHARGE_DEFAULTS;
   }
+  async policyHistory(clientId: string, page = 1) {
+    const rows = await this.db.auditLog.findMany({
+      where: { clientId, action: 'WALLET_AUTOPAY_POLICY_UPDATED',
+        entityType: 'WalletAutoRechargePolicy', entityId: clientId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      skip: (page - 1) * 20, take: 21,
+      select: { id: true, createdAt: true, actorId: true,
+        actor: { select: { name: true } }, previousData: true, newData: true },
+    });
+    return { items: rows.slice(0, 20).map(({ actor, id, ...row }) => ({
+      ...row, id: id.toString(), actorName: actor?.name ?? null,
+    })), page, hasMore: rows.length > 20 };
+  }
   async setPolicy(
     clientId: string,
     actorId: string,
@@ -140,6 +153,13 @@ export class WalletAutoRechargeService implements OnModuleInit {
       });
       if ((previous?.revision ?? 0) !== input.revision)
         throw new ConflictException('Policy changed. Reload before saving.');
+      const before = previous ? {
+        enabled: previous.enabled, threshold: previous.threshold.toFixed(2),
+        rechargeAmount: previous.rechargeAmount.toFixed(2), revision: previous.revision,
+      } : RECHARGE_DEFAULTS;
+      if (before.enabled === input.enabled &&
+          new Prisma.Decimal(before.threshold).eq(threshold) &&
+          new Prisma.Decimal(before.rechargeAmount).eq(amount)) return before;
       // Money changes require new rider consent. Disabling/re-enabling alone preserves agreed terms.
       const revision = previous
         ? previous.revision +
@@ -171,7 +191,8 @@ export class WalletAutoRechargeService implements OnModuleInit {
           action: 'WALLET_AUTOPAY_POLICY_UPDATED',
           entityType: 'WalletAutoRechargePolicy',
           entityId: clientId,
-          newData: { ...input, revision },
+          previousData: before,
+          newData: { enabled: input.enabled, threshold: threshold.toFixed(2), rechargeAmount: amount.toFixed(2), revision },
         },
       });
       return {

@@ -4,9 +4,9 @@ Implementation defaults: available cash threshold ₹550, fixed recharge ₹750,
 
 ## Client configuration
 
-Client Admin → Payment Settings → Auto Pay Settings.
+Client Admin → Payments → AutoPay → Settings.
 
-Automatic recharge history and payment verification remain under Online payment operations → AutoPay, alongside mandate operations. That view includes a shortcut to Auto Pay Settings.
+Mandates open by default. Recharge history and payment verification are available on the Recharge history tab. Settings opens wallet policy and its audit history.
 
 API: `GET /api/v1/client/wallet-autopay-policy`, then `PUT` with:
 
@@ -58,3 +58,7 @@ The payment tests use a disposable local PostgreSQL instance and a simulated Raz
 Ensure the client's existing rental billing setup actually deducts rent from the wallet (`RiderPaymentProfile.autoSettleInvoiceFromWallet` where applicable). Wallet AutoPay funds the wallet; it does not change the rider's ₹261 tariff or automatically rewrite their invoice settlement settings.
 
 Validation on 2026-11-14: API and web TypeScript checks passed; full `test-payment-release.mjs` passed 357 tests across 42 files with no skips, including 19 wallet AutoPay tests; existing payment-operations web tests passed (4/4); new API files passed oxlint and the new admin component passed ESLint. These results use the local environment described above, not a live Razorpay bank debit.
+
+Settings history is available at GET /client/wallet-autopay-policy/history?page=1 (Client Admin only). Successful changes record before/after values and the authenticated actor in the same transaction. Unchanged saves add no entry. Older audit entries may lack previous values; these are displayed as unavailable.
+
+AutoPay workspace: Payments → AutoPay opens Mandates by default. Recharge history is a separate, visibly selected tab. The top-right Settings action opens wallet policy and audit history; Back to mandates preserves mandate filters and pagination. Settlement and refund tools are excluded from the mandate view. Mandate search/status filters apply to the loaded batch; Export mandates exports the full mandate history.

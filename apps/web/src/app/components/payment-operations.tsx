@@ -1,6 +1,5 @@
 "use client";
 
-import { WalletAutoPayHistory } from './wallet-autopay-history';
 import { PaymentOperationsTools } from './payment-operations-tools';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { sessionFetch } from '../../lib/session-fetch';
@@ -11,7 +10,7 @@ import { operationsCsv, filterOperations, operationAction, readRefundDraft, type
 
 type Settlement = { id: string; provider: string; providerSettlementId: string; currency: string; netAmount: string; status: string; settledAt: string;
   items?: { id: string; kind: string; providerReference: string; amount: string; status: string; reviewCode: string | null }[] };
-type Mandate = { id: string; riderId: string; provider: string; mandateNumber: string; status: string; autoDebitEnabled: boolean };
+type Mandate = { id: string; riderId: string; provider: string; mandateNumber: string; status: string; autoDebitEnabled: boolean; maxAmount?: string; expiresAt?: string; method?: string };
 type Page<T> = { items: T[]; page: number; hasMore: boolean };
 type ImportReport = { provider?: string; providerSettlementId: string; currency: string; netAmount: string; items: unknown[] };
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -23,14 +22,14 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 const post = (body: unknown, key?: string): RequestInit => ({ method: 'POST', headers: { 'Content-Type': 'application/json', ...(key ? { 'Idempotency-Key': key } : {}) }, body: JSON.stringify(body) });
 const enc = encodeURIComponent;
 
-export function PaymentOperations({ identityKey, refreshKey = 0, onOpenAutoPaySettings }: { identityKey: string; refreshKey?: number; onOpenAutoPaySettings?: () => void }) {
-  const [open, setOpen] = useState(false);
+export function PaymentOperations({ identityKey, refreshKey = 0, onOpenAutoPaySettings, initialView = "payments", standalone = false }: { identityKey: string; initialView?: "payments" | "settlements" | "autopay"; standalone?: boolean; refreshKey?: number; onOpenAutoPaySettings?: () => void }) {
+  const [open, setOpen] = useState(standalone);
   const [page, setPage] = useState(1), [more, setMore] = useState({ payments: false, settlements: false, autopay: false });
   const [exporting, setExporting] = useState(false), [exportProgress, setExportProgress] = useState(0);
   const exportCancelled = useRef(false);
   const [items, setItems] = useState<Operation[]>([]), [settlements, setSettlements] = useState<Settlement[]>([]), [mandates, setMandates] = useState<Mandate[]>([]);
   const [error, setError] = useState(''), [notice, setNotice] = useState(''), [busy, setBusy] = useState(false);
-  const [view, setView] = useState<'payments' | 'settlements' | 'autopay'>('payments');
+  const [view, setView] = useState<'payments' | 'settlements' | 'autopay'>(initialView);
   const [query, setQuery] = useState(''), [providerFilter, setProviderFilter] = useState(''), [stateFilter, setStateFilter] = useState('');
   const [detail, setDetail] = useState<Operation | null>(null), [settlement, setSettlement] = useState<Settlement | null>(null);
   const [report, setReport] = useState<ImportReport | null>(null);
@@ -44,6 +43,11 @@ export function PaymentOperations({ identityKey, refreshKey = 0, onOpenAutoPaySe
     setItems([]); setSettlements([]); setMandates([]);
     setMore({ payments: false, settlements: false, autopay: false });
     try {
+      if (view === 'autopay') {
+        const result = await api<Page<Mandate>>(`autopay/mandates?page=${page}`);
+        if (active.current && current === generation.current) { setMandates(result.items); setMore({ payments: false, settlements: false, autopay: result.hasMore }); }
+        return;
+      }
       const [reconciliation, reports, subscriptions] = await Promise.all([
         api<Page<Operation>>(`payment-reconciliation?page=${page}`), api<Page<Settlement>>(`finance/provider-settlements?page=${page}`), api<Page<Mandate>>(`autopay/mandates?page=${page}`),
       ]);
@@ -52,7 +56,7 @@ export function PaymentOperations({ identityKey, refreshKey = 0, onOpenAutoPaySe
       setMore({ payments: reconciliation.hasMore, settlements: reports.hasMore, autopay: subscriptions.hasMore });
     } catch (cause) { if (active.current && current === generation.current) setError(cause instanceof Error ? cause.message : 'Unable to load operations.'); }
     finally { if (active.current && current === generation.current) setBusy(false); }
-  }, [page]);
+  }, [page, view]);
   useEffect(() => { if (!open) return; const timer = setTimeout(() => void load(), 0); return () => clearTimeout(timer); }, [open, refreshKey, load]);
   async function run(work: () => Promise<void>) {
     if (mutation.current) return;
@@ -127,12 +131,35 @@ export function PaymentOperations({ identityKey, refreshKey = 0, onOpenAutoPaySe
       if (active.current) setReport(parsed);
     } catch (cause) { if (active.current) setError(cause instanceof Error ? cause.message : 'Invalid report.'); }
   }
+  if (view === 'autopay') return <section className="sa-form autopay-card autopay-mandates" aria-label="AutoPay mandates">
+    <div className="autopay-heading"><div><h2>Mandates</h2><p className="muted">Rider authorizations for automatic payments.</p></div><div className="form-actions">
+      <button type="button" className="secondary" disabled={busy} onClick={() => void load()}>Refresh</button>
+      <button type="button" className="secondary" disabled={busy || exporting} onClick={() => void exportHistory()}>Export mandates</button>
+      {onOpenAutoPaySettings && <button type="button" className="secondary" onClick={onOpenAutoPaySettings}>⚙ Settings</button>}
+    </div></div>
+    <div className="autopay-amounts"><label>Search this batch<input value={query} placeholder="Rider or mandate reference" onChange={event => setQuery(event.target.value)} /></label>
+    <label>Status<select value={stateFilter} onChange={event => setStateFilter(event.target.value)}><option value="">All statuses</option>{Array.from(new Set([...mandates.map(item => item.status), ...(stateFilter ? [stateFilter] : [])])).sort().map(status => <option key={status}>{status}</option>)}</select></label></div>
+    {error && <p className="error" role="alert">{error}</p>}
+    {exporting && <div role="status">Preparing export: {exportProgress} records <button type="button" className="secondary" onClick={() => { exportCancelled.current = true; }}>Cancel export</button></div>}
+    {!busy && !error && mandates.length === 0 && page === 1 ? <div className="autopay-empty"><h3>No AutoPay mandates yet</h3><p>Mandates will appear after riders complete authorization.</p></div> :
+      <ClientDataTable rows={mandates.filter(item => (!stateFilter || item.status === stateFilter) && [item.riderId, item.mandateNumber].some(value => value?.toLowerCase().includes(query.trim().toLowerCase())))} loading={busy} getRowId={item => item.id} columns={[
+        { key: 'number', label: 'Mandate', value: item => item.mandateNumber },
+        { key: 'rider', label: 'Rider reference', value: item => item.riderId },
+        { key: 'provider', label: 'Gateway', value: item => item.provider },
+        { key: 'method', label: 'Method', value: item => item.method ?? '—' },
+        { key: 'status', label: 'Status', value: item => item.status, render: item => <span className={`autopay-status ${item.status === 'ACTIVE' ? 'is-enabled' : ''}`}>{item.status.replaceAll('_', ' ')}</span> },
+        { key: 'max', label: 'Maximum debit', value: item => item.maxAmount ?? '', render: item => item.maxAmount ? formatMoney(item.maxAmount, 'INR') : '—' },
+        { key: 'expires', label: 'Expires', value: item => item.expiresAt ?? '', render: item => item.expiresAt ? formatDateTime(item.expiresAt) : '—' },
+        { key: 'enabled', label: 'Auto debit', value: item => item.autoDebitEnabled ? 'Enabled' : 'Disabled' },
+      ]} />}
+    {(page > 1 || more.autopay) && <div className="form-actions"><button type="button" className="secondary" disabled={busy || page === 1} onClick={() => setPage(value => value - 1)}>Previous</button><span>Page {page}</span><button type="button" className="secondary" disabled={busy || !more.autopay} onClick={() => setPage(value => value + 1)}>Next</button></div>}
+  </section>;
   return <section className="client-manager-actions">
-    <button type="button" className="secondary" onClick={() => setOpen(!open)}>{open ? 'Hide online payment operations' : 'Online payment operations'}</button>
+    {!standalone && <button type="button" className="secondary" onClick={() => setOpen(!open)}>{open ? 'Hide online payment operations' : 'Online payment operations'}</button>}
     {open && <>
-      {view === 'autopay' && <>{onOpenAutoPaySettings && <button type="button" className="secondary" onClick={onOpenAutoPaySettings}>Auto Pay Settings</button>}<WalletAutoPayHistory key={identityKey} /></>}
+
       <p className="muted">Check gateway payments, refunds, AutoPay mandates and settlement exceptions. Browse history in batches of up to 200 per reconciliation source/report list, or 100 mandates. New records or status changes during browsing can move page boundaries; refresh from batch 1 before an audit export.</p>
-      <div className="row-actions">{(['payments', 'settlements', 'autopay'] as const).map(value => <button type="button" key={value} aria-pressed={view === value} disabled={busy} onClick={() => { setView(value); setPage(1); }}>{value === 'autopay' ? 'AutoPay' : value === 'payments' ? 'Payments and refunds' : 'Settlements'}</button>)}<button type="button" disabled={busy} onClick={() => void load()}>Refresh status</button></div>
+      <div className="row-actions">{!standalone && (['payments', 'settlements', 'autopay'] as const).map(value => <button type="button" key={value} aria-pressed={view === value} disabled={busy} onClick={() => { setView(value); setPage(1); }}>{value === 'autopay' ? 'AutoPay' : value === 'payments' ? 'Payments and refunds' : 'Settlements'}</button>)}<button type="button" disabled={busy} onClick={() => void load()}>Refresh status</button></div>
       <div className="row-actions"><button type="button" disabled={busy || page === 1} onClick={() => setPage(value => value - 1)}>Previous batch</button><span>History batch {page}</span><button type="button" disabled={busy || !more[view]} onClick={() => setPage(value => value + 1)}>Next batch</button><button type="button" disabled={busy || exporting} onClick={() => void exportHistory()}>Export full {view} history{view === 'payments' ? ' with filters' : ''}</button>{exporting && <><span role="status">Preparing export: {exportProgress} records</span><button type="button" onClick={() => { exportCancelled.current = true; }}>Cancel export</button></>}</div>
       {error && <p role="alert" className="error">{error}</p>}{notice && <p role="status">{notice}</p>}
       {view === 'payments' && <><div className="row-actions">
@@ -155,11 +182,7 @@ export function PaymentOperations({ identityKey, refreshKey = 0, onOpenAutoPaySe
           { key: 'date', label: 'Settled at', value: item => item.settledAt, render: item => formatDateTime(item.settledAt) },
         ]} actions={item => <button type="button" disabled={busy} onClick={() => void run(async () => { const result = await api<Settlement>(`finance/provider-settlements/${enc(item.id)}`); if (active.current) setSettlement(result); })}>View matching</button>} />
       </>}
-      {view === 'autopay' && <ClientDataTable rows={mandates} loading={busy} getRowId={item => item.id} columns={[
-        { key: 'number', label: 'Mandate', value: item => item.mandateNumber }, { key: 'rider', label: 'Rider reference', value: item => item.riderId },
-        { key: 'provider', label: 'Gateway', value: item => item.provider }, { key: 'status', label: 'State', value: item => item.status },
-        { key: 'enabled', label: 'Auto debit', value: item => item.autoDebitEnabled ? 'Enabled' : 'Disabled' },
-      ]} />}
+
     </>}
     {detail && <ClientFormDialog title="Payment operation" onClose={() => setDetail(null)}><p>{detail.source} · {detail.provider} · {detail.state}</p><p>Reference: {detail.id}</p>{detail.providerRefundId && <p>Gateway refund: {detail.providerRefundId}</p>}{detail.aged && <p role="status">Refund has been pending for over 24 hours. Check provider status and review the original request; do not submit a replacement.</p>}{detail.refundReviewReason && <p>{detail.refundReviewReason}</p>}{detail.reviewCode && <p>{detail.reviewCode}</p>}{detail.captures?.map(capture => <p key={capture.id}>{capture.providerPaymentId} · {formatMoney(capture.amount, 'INR')} · {capture.status} · {capture.reason} {capture.providerRefundId && `Refund: ${capture.providerRefundId}`}</p>)}</ClientFormDialog>}
     {settlement && <ClientFormDialog title="Settlement matching" wide onClose={() => setSettlement(null)}><p>{settlement.provider} · {settlement.providerSettlementId} · {settlement.status}</p><button type="button" disabled={busy} onClick={() => void run(async () => { const result = await api<Settlement>(`finance/provider-settlements/${enc(settlement.id)}/rematch`, post({})); if (active.current) { setSettlement(result); setNotice('Matching refreshed from current payment/refund evidence. No financial posting or bank confirmation was created.'); } })}>Recheck matching</button><ClientDataTable rows={settlement.items ?? []} getRowId={item => item.id} columns={[
