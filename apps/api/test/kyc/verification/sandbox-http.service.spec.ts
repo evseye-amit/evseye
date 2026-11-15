@@ -44,3 +44,13 @@ describe('Sandbox HTTP authentication and resilience', () => {
     expect(fetchMock.mock.calls[3][1].headers.Authorization).toBe('new-token');
   });
 });
+
+describe('Sandbox credential binding', () => {
+  it('binds the configured environment and reference to available credentials', () => {
+    const config: Record<string, string | boolean> = { ...values, KYC_SANDBOX_ENVIRONMENT: 'PRODUCTION' };
+    const service = new SandboxHttpService({ get: (key: string) => config[key] } as never);
+    expect(service.acceptsCredential('PRODUCTION', 'env:KYC_SANDBOX_PRODUCTION')).toBe(true);
+    expect(service.acceptsCredential('TEST', 'env:KYC_SANDBOX_TEST')).toBe(false);
+    expect(service.acceptsCredential('PRODUCTION', 'unresolved-client-secret')).toBe(false);
+  });
+});

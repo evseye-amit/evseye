@@ -3,7 +3,7 @@ import { KycVerificationType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
 const featureCode: Partial<Record<KycVerificationType, string>> = {
-  PAN_VERIFICATION: 'PAN_VERIFICATION',
+  PAN_VERIFICATION: 'VERIFY_PAN',
   AADHAAR_OTP: 'AADHAAR_VERIFICATION',
   BANK_ACCOUNT_VERIFICATION: 'BANK_VERIFICATION',
   IFSC_VERIFICATION: 'IFSC_VERIFICATION',

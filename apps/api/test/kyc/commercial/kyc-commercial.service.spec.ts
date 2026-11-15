@@ -14,6 +14,7 @@ describe('KycCommercialService add-on entitlement', () => {
     const service = new KycCommercialService(prisma as never);
 
     const entitlement = await service.entitlement('client-1', KycVerificationType.PAN_VERIFICATION);
+    expect(prisma.feature.findUnique).toHaveBeenCalledWith({ where: { code: 'VERIFY_PAN' } });
     expect(entitlement.clientFeature).toMatchObject({ source: 'ADD_ON', unlimitedUsage: false });
     expect(prisma.clientFeatureAddOnPurchase.findFirst).toHaveBeenCalledWith({ where: expect.objectContaining({
       clientId: 'client-1', featureId: 'pan-feature', status: 'ACTIVE',

@@ -60,7 +60,7 @@ export async function createThirdPartyConfig(
   {
     enabled = process.env.KYC_ENABLED === 'true',
     environment = process.env.KYC_SANDBOX_ENVIRONMENT ?? 'TEST',
-    secretReference = process.env.KYC_SANDBOX_SECRET_REFERENCE ?? 'env:KYC_SANDBOX_TEST',
+    secretReference = process.env.KYC_SANDBOX_SECRET_REFERENCE ?? `env:KYC_SANDBOX_${environment}`,
   } = {},
 ) {
   if (!['TEST', 'PRODUCTION'].includes(environment)) {

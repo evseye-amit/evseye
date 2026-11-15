@@ -64,9 +64,9 @@ describe.skipIf(!databaseUrl)('KYC PostgreSQL integration', () => {
       update: { isSupported: true, isEnabled: true } });
     const pkg = await prisma.package.create({ data: { code: `KYC_TEST_${marker}`, name: 'KYC test package' } });
     packageId = pkg.id;
-    const existingFeature = await prisma.feature.findUnique({ where: { code: 'PAN_VERIFICATION' } });
+    const existingFeature = await prisma.feature.findUnique({ where: { code: 'VERIFY_PAN' } });
     const feature = existingFeature
-      ?? await prisma.feature.create({ data: { code: 'PAN_VERIFICATION', name: 'PAN Verification',
+      ?? await prisma.feature.create({ data: { code: 'VERIFY_PAN', name: 'PAN Verification',
         featureType: 'USAGE_BASED', billingUnit: 'VERIFICATION' } });
     createdFeature = !existingFeature;
     featureId = feature.id;
@@ -78,7 +78,7 @@ describe.skipIf(!databaseUrl)('KYC PostgreSQL integration', () => {
     const credential = await prisma.kycProviderCredential.create({ data: { providerId: provider.id,
       environment: 'TEST', secretReference: 'env:KYC_SANDBOX_TEST' } });
     credentialId = credential.id;
-    const sandbox = new SandboxVerificationProvider({ circuitOpen: () => false, request: async (path: string, _method: string, body?: { pan?: string }) => {
+    const sandbox = new SandboxVerificationProvider({ acceptsCredential: () => true, circuitOpen: () => false, request: async (path: string, _method: string, body?: { pan?: string }) => {
       providerCalls += 1;
       if (path === '/kyc/pan/verify' && body?.pan === 'ABCDE9999F' && retryPanFailure) {
         retryPanFailure = false;
@@ -167,6 +167,7 @@ describe.skipIf(!databaseUrl)('KYC PostgreSQL integration', () => {
   it('persists fallback attempts under one verification using a test-only second provider', async () => {
     const mockProvider: VerificationProvider = {
       code: KycProviderCode.CASHFREE,
+      acceptsCredential: () => true,
       supports: (type) => type === 'IFSC_VERIFICATION',
       verify: async (input) => input.ifsc === 'HDFC0008888'
         ? { status: 'FAILED', data: { ifsc: null }, failureType: 'BUSINESS_FAILURE', failureCategory: 'IDENTITY_MISMATCH' }

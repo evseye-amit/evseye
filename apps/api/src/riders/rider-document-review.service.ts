@@ -168,10 +168,21 @@ export class RiderDocumentReviewService {
       ];
     const effective =
       await this.configuration.getEffectiveConfiguration(clientId);
+    const panFeature = await this.prisma.clientFeature.findFirst({
+      where: { clientId, enabled: true, feature: { code: 'VERIFY_PAN', isActive: true } },
+      select: { id: true },
+    });
+    const panKyc = panFeature
+      ? await this.prisma.riderKyc.findUnique({ where: { riderId_type: { riderId, type: 'PAN' } }, select: { status: true, safeFailureCode: true } })
+      : null;
     const uploadFields = effective.onboarding.steps.flatMap((step) =>
       step.fields.filter((field) => field.isUpload && field.fieldCode),
     );
-    if (!uploadFields.length) return [];
+    if (!uploadFields.length) {
+      return panFeature && panKyc?.status !== 'VERIFIED'
+        ? [{ fieldCode: 'PAN_VERIFICATION', reason: panKyc?.safeFailureCode === 'PAN_NOT_VERIFIED' ? 'PAN verification failed.' : 'PAN verification is pending.' }]
+        : [];
+    }
     const documents = await this.prisma.riderOnboardingDocument.findMany({
       where: { clientId, userId: rider.userId, supersededAt: null },
       select: { fieldCode: true, status: true, rejectionReason: true },
@@ -198,6 +209,9 @@ export class RiderDocumentReviewService {
               ? (document.rejectionReason ?? 'Document was rejected.')
               : 'Document verification is pending.',
         });
+    }
+    if (panFeature && panKyc?.status !== 'VERIFIED') {
+      blockers.push({ fieldCode: 'PAN_VERIFICATION', reason: panKyc?.safeFailureCode === 'PAN_NOT_VERIFIED' ? 'PAN verification failed.' : 'PAN verification is pending.' });
     }
     return blockers;
   }

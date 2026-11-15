@@ -1,4 +1,6 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import type { Environment } from '../../config/environment.js';
+import { Injectable, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { KycProviderCode, KycProviderEnvironment, KycVerificationType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { SandboxVerificationProvider } from './sandbox-verification.provider.js';
@@ -8,11 +10,12 @@ import type { VerificationProvider } from './kyc-types.js';
 export class ProviderRegistryService {
   private readonly providers: Map<KycProviderCode, VerificationProvider>;
 
-  constructor(private readonly prisma: PrismaService, sandbox: SandboxVerificationProvider) {
+  constructor(private readonly prisma: PrismaService, sandbox: SandboxVerificationProvider,
+    @Optional() private readonly settings?: ConfigService<Environment, true>) {
     this.providers = new Map([[sandbox.code, sandbox]]);
   }
 
-  /** Phase 4 providers register through DI; production never registers test doubles. */
+  /** Additional adapters register through DI; production never registers test doubles. */
   register(provider: VerificationProvider) { this.providers.set(provider.code, provider); }
   circuitOpen(code: KycProviderCode) { return this.providers.get(code)?.circuitOpen?.() ?? false; }
   async health(code: KycProviderCode) { return this.providers.get(code)?.health() ?? 'UNAVAILABLE'; }
@@ -28,7 +31,11 @@ export class ProviderRegistryService {
       this.prisma.kycProviderCredential.findFirst({ where: { ...base, clientId: null }, orderBy });
   }
 
-  async eligible(clientId: string, type: KycVerificationType, environment: KycProviderEnvironment = 'TEST') {
+  private environment(): KycProviderEnvironment {
+    return this.settings?.get('KYC_ENVIRONMENT') ?? this.settings?.get('KYC_SANDBOX_ENVIRONMENT') ?? 'TEST';
+  }
+
+  async eligible(clientId: string, type: KycVerificationType, environment: KycProviderEnvironment = this.environment()) {
     const now = new Date();
     const candidates = await this.prisma.kycProviderConfig.findMany({
       where: { isActive: true, status: 'ACTIVE', environment,
@@ -42,7 +49,7 @@ export class ProviderRegistryService {
       const capability = config.capabilities[0];
       if (!capability?.isSupported || !capability.isEnabled) continue;
       const credential = await this.credential(config.id, clientId, config.environment, now);
-      if (!credential || (config.code === 'SANDBOX' && credential.secretReference !== 'env:KYC_SANDBOX_TEST')) continue;
+      if (!credential || !provider.acceptsCredential(config.environment, credential.secretReference)) continue;
       eligible.push({ config, capability, provider, secretReference: credential.secretReference });
     }
     return eligible;
@@ -57,14 +64,14 @@ export class ProviderRegistryService {
   async pinned(clientId: string, type: KycVerificationType, providerId: string) {
     const config = await this.prisma.kycProviderConfig.findUnique({ where: { id: providerId },
       include: { capabilities: { where: { verificationType: type } } } });
-    if (!config || !config.isActive || config.status !== 'ACTIVE') throw new ServiceUnavailableException('KYC_PROVIDER_UNAVAILABLE');
+    if (!config || !config.isActive || config.status !== 'ACTIVE' || config.environment !== this.environment()) throw new ServiceUnavailableException('KYC_PROVIDER_UNAVAILABLE');
     const provider = this.providers.get(config.code);
     const capability = config.capabilities[0];
     if (!provider?.supports(type) || !capability?.isSupported || !capability.isEnabled)
       throw new ServiceUnavailableException('KYC_PROVIDER_UNAVAILABLE');
     const now = new Date();
     const credential = await this.credential(providerId, clientId, config.environment, now);
-    if (!credential) throw new ServiceUnavailableException('KYC_PROVIDER_UNAVAILABLE');
+    if (!credential || !provider.acceptsCredential(config.environment, credential.secretReference)) throw new ServiceUnavailableException('KYC_PROVIDER_UNAVAILABLE');
     return { config, capability, provider, secretReference: credential.secretReference };
   }
 }
