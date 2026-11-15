@@ -69,6 +69,14 @@ export default function PlatformPage() {
     }
   }
 
+  function changeMobileNumber() {
+    setOtpRequestId("");
+    setCode("");
+    setResendIn(0);
+    setNotice("");
+    setError("");
+  }
+
   async function resendOtp(event: MouseEvent<HTMLButtonElement>) {
     event.preventDefault();
     if (!otpRequestId || resendIn > 0 || loading) return;
@@ -155,6 +163,9 @@ export default function PlatformPage() {
             <button className="auth-submit" disabled={loading || code.length !== 6}>
               {t(loading ? "Verifying…" : "Verify OTP")}
               <UiIcon name="arrowRight" />
+            </button>
+            <button type="button" className="auth-text-button" disabled={loading} onClick={changeMobileNumber}>
+              {t("Change mobile number")}
             </button>
             <button type="button" className="auth-text-button" disabled={loading || resendIn > 0} onClick={resendOtp}>
               {loading ? t("Resending…") : resendIn > 0 ? t("Resend OTP in {seconds}s").replace("{seconds}", String(resendIn)) : t("Resend OTP")}
