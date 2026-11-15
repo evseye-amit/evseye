@@ -75,7 +75,6 @@ export class AuthService {
     requestedIp?: string,
     expectedClientId?: string,
     requestedAppCode?: string,
-    rejectCooldown = false,
   ) {
     const mobileCandidates = indianMobileVariants(phone);
     const client = companyCode
@@ -152,17 +151,10 @@ export class AuthService {
     });
 
     if (recent) {
-      if (rejectCooldown) {
-        throw new HttpException(
-          'Please wait before requesting another OTP.',
-          HttpStatus.TOO_MANY_REQUESTS,
-        );
-      }
-      // Use the same accepted shape for unknown accounts and cooldown requests.
-      return {
-        otpRequestId: randomUUID(),
-        expiresAt: this.otpSecurity.expiresAt(),
-      };
+      throw new HttpException(
+        'Please wait before requesting another OTP.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
     }
 
     const code = this.otpSecurity.generateLoginCode(user.role);
@@ -241,7 +233,6 @@ export class AuthService {
       undefined,
       previous.clientId ?? undefined,
       requestedAppCode ?? boundAppCode,
-      true,
     );
   }
 

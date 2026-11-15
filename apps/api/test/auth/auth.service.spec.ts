@@ -187,6 +187,18 @@ describe('AuthService', () => {
     });
   });
 
+  it('rejects a repeated OTP request with a cooldown message instead of an unusable challenge', async () => {
+    const { service, prisma, sms } = createService();
+    prisma.user.findFirst.mockResolvedValue({
+      id: 'admin-1', mobile: '+919999999999', role: UserRole.SUPER_ADMIN, isActive: true,
+    });
+    prisma.otpRequest.findFirst.mockResolvedValue({ id: 'existing-otp' });
+    await expect(service.requestLoginOtp('+919999999999', undefined, undefined, undefined, 'PLATFORM'))
+      .rejects.toMatchObject({ status: 429, message: 'Please wait before requesting another OTP.' });
+    expect(prisma.otpRequest.create).not.toHaveBeenCalled();
+    expect(sms.send).not.toHaveBeenCalled();
+  });
+
   it('enforces the resend cooldown', async () => {
     const { service, prisma, sms } = createService();
     prisma.otpRequest.findUnique.mockResolvedValue({
