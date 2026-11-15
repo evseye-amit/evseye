@@ -1,6 +1,6 @@
 "use client";
 
-import { WalletAutoPaySettings } from './wallet-autopay-settings';
+import { WalletAutoPayHistory } from './wallet-autopay-history';
 import { PaymentOperationsTools } from './payment-operations-tools';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { sessionFetch } from '../../lib/session-fetch';
@@ -23,7 +23,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 const post = (body: unknown, key?: string): RequestInit => ({ method: 'POST', headers: { 'Content-Type': 'application/json', ...(key ? { 'Idempotency-Key': key } : {}) }, body: JSON.stringify(body) });
 const enc = encodeURIComponent;
 
-export function PaymentOperations({ identityKey, refreshKey = 0 }: { identityKey: string; refreshKey?: number }) {
+export function PaymentOperations({ identityKey, refreshKey = 0, onOpenAutoPaySettings }: { identityKey: string; refreshKey?: number; onOpenAutoPaySettings?: () => void }) {
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState(1), [more, setMore] = useState({ payments: false, settlements: false, autopay: false });
   const [exporting, setExporting] = useState(false), [exportProgress, setExportProgress] = useState(0);
@@ -130,7 +130,7 @@ export function PaymentOperations({ identityKey, refreshKey = 0 }: { identityKey
   return <section className="client-manager-actions">
     <button type="button" className="secondary" onClick={() => setOpen(!open)}>{open ? 'Hide online payment operations' : 'Online payment operations'}</button>
     {open && <>
-      {view === 'autopay' && <WalletAutoPaySettings key={identityKey} />}
+      {view === 'autopay' && <>{onOpenAutoPaySettings && <button type="button" className="secondary" onClick={onOpenAutoPaySettings}>Auto Pay Settings</button>}<WalletAutoPayHistory key={identityKey} /></>}
       <p className="muted">Check gateway payments, refunds, AutoPay mandates and settlement exceptions. Browse history in batches of up to 200 per reconciliation source/report list, or 100 mandates. New records or status changes during browsing can move page boundaries; refresh from batch 1 before an audit export.</p>
       <div className="row-actions">{(['payments', 'settlements', 'autopay'] as const).map(value => <button type="button" key={value} aria-pressed={view === value} disabled={busy} onClick={() => { setView(value); setPage(1); }}>{value === 'autopay' ? 'AutoPay' : value === 'payments' ? 'Payments and refunds' : 'Settlements'}</button>)}<button type="button" disabled={busy} onClick={() => void load()}>Refresh status</button></div>
       <div className="row-actions"><button type="button" disabled={busy || page === 1} onClick={() => setPage(value => value - 1)}>Previous batch</button><span>History batch {page}</span><button type="button" disabled={busy || !more[view]} onClick={() => setPage(value => value + 1)}>Next batch</button><button type="button" disabled={busy || exporting} onClick={() => void exportHistory()}>Export full {view} history{view === 'payments' ? ' with filters' : ''}</button>{exporting && <><span role="status">Preparing export: {exportProgress} records</span><button type="button" onClick={() => { exportCancelled.current = true; }}>Cancel export</button></>}</div>

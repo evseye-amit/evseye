@@ -2,6 +2,7 @@
 import { guardLinkNavigation, requestNavigation } from "./components/unsaved-changes";
 import { PanelLoadingContext } from "./components/panel-loading";
 import { PaymentTransactions } from "./components/payment-transactions";
+import { WalletAutoPaySettings } from "./components/wallet-autopay-settings";
 import { PaymentOperations } from "./components/payment-operations";
 import { SparesCatalogue } from "./components/spares-catalogue";
 import { sessionFetch as fetch } from "../lib/session-fetch";
@@ -55,6 +56,7 @@ const indianMobileInput = (value: string) =>
 type LoginFlow = { appCode: string; version: string; methods: string[]; steps: Array<{ code: string; fields: Array<{ featureCode: string; label: string; placeholder: string }> }> };
 const loginField = (flow: LoginFlow | null, featureCode: string) => flow?.steps.flatMap((step) => step.fields).find((field) => field.featureCode === featureCode);
 type Tab =
+  | "autopay-settings"
   | "payment-transactions"
   | "spares-penalties"
   | "installation-board" | "vehicle-preparation" | "quality-check" | "readiness-settings" | "advisors" | "qc-managers"
@@ -204,6 +206,10 @@ const CLIENT_NAVIGATION: Array<{
     ],
   },
   {
+    label: "Payment Settings",
+    items: [{ id: "autopay-settings", label: "Auto Pay Settings" }],
+  },
+  {
     label: "Workspace Settings",
     branding: true,
     items: [{ id: "legal-documents", label: "Legal Documents" }],
@@ -211,6 +217,7 @@ const CLIENT_NAVIGATION: Array<{
 ];
 
 const CLIENT_TAB_TITLES: Record<Tab, string> = {
+  "autopay-settings": "Auto Pay Settings",
   "payment-transactions": "Payment Transactions",
   "spares-penalties": "Spares & Penalties",
   "installation-board": "Installation Board",
@@ -248,6 +255,7 @@ const CLIENT_TAB_TITLES: Record<Tab, string> = {
 };
 
 const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
+  "autopay-settings": "pricing",
   "payment-transactions": "pricing",
   "spares-penalties": "factory",
   "installation-board": "vehicle",
@@ -285,6 +293,7 @@ const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
 };
 
 const ACTIVE_CLIENT_TABS = new Set<Tab>([
+  "autopay-settings",
   "payment-transactions",
   "spares-penalties",
   "installation-board", "vehicle-preparation", "quality-check", "readiness-settings", "advisors","qc-managers",
@@ -781,7 +790,7 @@ function clientColumns(tab: Tab): ClientColumn<RecordItem>[] {
 
 function canAccessTab(id: Tab, userRoles: string[]) {
     if (userRoles.some(role => ["ADVISOR","QC_MANAGER"].includes(role))) return ["installation-board","vehicle-preparation","quality-check"].includes(id);
-    if (["audit","payment-transactions","spares-penalties","legal-documents","refer-and-earn","readiness-settings","work-partners"].includes(id)) return userRoles.includes("CLIENT_ADMIN");
+    if (["audit","autopay-settings","payment-transactions","spares-penalties","legal-documents","refer-and-earn","readiness-settings","work-partners"].includes(id)) return userRoles.includes("CLIENT_ADMIN");
     if (["notifications","advisors","qc-managers"].includes(id)) return userRoles.some(role => ["CLIENT_ADMIN","FLEET_MANAGER"].includes(role));
     return true;
 }
@@ -911,7 +920,7 @@ export default function Home() {
       setRecordRefreshKey((key) => key + 1); setLoading(false); return;
     }
     if (["spares-penalties","installation-board","vehicle-preparation","quality-check","readiness-settings","advisors","qc-managers"].includes(nextTab)) { setItems([]); setLoading(false); return; }
-    if (nextTab === "payment-transactions" || nextTab === "legal-documents" || nextTab === "refer-and-earn" || nextTab === "work-partners" || nextTab === "rider-reference-review" || nextTab === "support-tickets" || nextTab === "notifications" || nextTab === "rider-rate-cards") {
+    if (nextTab === "autopay-settings" || nextTab === "payment-transactions" || nextTab === "legal-documents" || nextTab === "refer-and-earn" || nextTab === "work-partners" || nextTab === "rider-reference-review" || nextTab === "support-tickets" || nextTab === "notifications" || nextTab === "rider-rate-cards") {
       setItems([]);
       setLoading(false);
       return;
@@ -2434,7 +2443,8 @@ export default function Home() {
         {tab === "refer-and-earn" && userRoles.includes("CLIENT_ADMIN") && <ClientReferAndEarn refreshKey={panelRefreshKey} />}
         {tab === "work-partners" && userRoles.includes("CLIENT_ADMIN") && <WorkPartnerManager refreshKey={panelRefreshKey} mode="client" request={request} token={token} />}
         {tab === "rider-reference-review" && <RiderReferenceReview refreshKey={panelRefreshKey} />}
-        {tab === "payment-transactions" && userRoles.includes("CLIENT_ADMIN") && <><PaymentOperations key={identityKey} identityKey={identityKey} refreshKey={panelRefreshKey} /><PaymentTransactions refreshKey={panelRefreshKey} /></>}
+        {tab === "autopay-settings" && userRoles.includes("CLIENT_ADMIN") && <WalletAutoPaySettings key={`${identityKey}:${panelRefreshKey}`} />}
+        {tab === "payment-transactions" && userRoles.includes("CLIENT_ADMIN") && <><PaymentOperations key={identityKey} identityKey={identityKey} refreshKey={panelRefreshKey} onOpenAutoPaySettings={() => requestNavigation(() => commitNavigation("autopay-settings"))} /><PaymentTransactions refreshKey={panelRefreshKey} /></>}
         {tab === "spares-penalties" && <SparesCatalogue refreshKey={panelRefreshKey} />}
         {tab === "installation-board" && <InstallationBoard refreshKey={panelRefreshKey} />}
         {["vehicle-preparation","quality-check","readiness-settings","advisors","qc-managers"].includes(tab) && <FleetReadiness refreshKey={panelRefreshKey} key={`${tab}:${readinessFleetId}`} fleetId={tab === "vehicle-preparation" ? readinessFleetId : undefined} onBack={() => navigateTo("fleets")} onOpenPreparation={() => navigateTo("vehicle-preparation")} view={tab === "quality-check" ? "qc" : tab === "readiness-settings" ? "settings" : tab === "advisors" ? "advisors" : tab === "qc-managers" ? "qc-managers" : "preparation"} />}
@@ -2797,6 +2807,7 @@ export default function Home() {
           tab !== "rider-reference-review" &&
           tab !== "support-tickets" &&
           tab !== "notifications" &&
+          tab !== "autopay-settings" &&
           tab !== "payment-transactions" &&
           !["spares-penalties","installation-board","vehicle-preparation","quality-check","readiness-settings","advisors","qc-managers"].includes(tab) &&
           tab !== "locations" &&
