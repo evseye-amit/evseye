@@ -27,7 +27,6 @@ import {
   useRef,
   useState,
 } from "react";
-import Link from "next/link";
 import { CatalogTranslationFields, completeCatalogTranslations, type CatalogTranslations } from "./catalog-translation-fields";
 import { ClientCommercialSettings, type ClientCommercialSection } from "../../components/client-commercial-settings";
 import { ClientWorkflowSettings } from "../../components/client-workflow-settings";
@@ -2113,9 +2112,10 @@ export default function SuperAdminDashboard() {
           <p className="eyebrow">EVS EYE · PLATFORM CONTROL</p>
           <h1>Session expired</h1>
           <p className="muted">Sign in again to access Super Admin.</p>
-          <Link className="platform-back-link" href="/platform">
+          {/* Reload auth state instead of restoring a cached sign-in page. */}
+          <a className="platform-back-link" href="/platform">
             Super Admin sign in
-          </Link>
+          </a>
         </section>
       </main>
     );
