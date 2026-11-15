@@ -7,10 +7,14 @@ describe('Sandbox verification mapper', () => {
       pan: 'ABCDE1234F', name_as_per_pan_match: true, date_of_birth_match: true, secret: 'do-not-store' } });
     const provider = new SandboxVerificationProvider({ request } as never);
     const result = await provider.verify({ type: 'PAN_VERIFICATION', pan: 'ABCDE1234F', name: 'Test Rider',
-      dateOfBirth: '01/01/2000', reason: 'Identity verification for rider onboarding' });
+      dateOfBirth: '2000-01-01', reason: 'caller input must be ignored' });
     expect(result.status).toBe('VERIFIED');
     expect(result.data).toEqual({ maskedPan: 'ABC****34F', panStatus: 'valid', nameMatch: true, dateOfBirthMatch: true });
     expect(JSON.stringify(result)).not.toContain('do-not-store');
+    expect(request).toHaveBeenCalledWith('/kyc/pan/verify', 'POST', {
+      '@entity': 'in.co.sandbox.kyc.pan_verification.request', pan: 'ABCDE1234F', name_as_per_pan: 'Test Rider',
+      date_of_birth: '01/01/2000', consent: 'Y', reason: 'For rider onboarding',
+    }, undefined);
   });
 
   it('rejects malformed provider data', async () => {

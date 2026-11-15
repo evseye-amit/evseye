@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { KycProviderCode, KycVerificationType } from '@prisma/client';
+import { KycProviderCode, KycProviderEnvironment, KycVerificationType } from '@prisma/client';
 import { maskLastFour, maskPan } from './kyc-security.js';
 import type { ProviderResult, VerificationInput, VerificationProvider } from './kyc-types.js';
 import { isRecord, SandboxHttpError, SandboxHttpService } from './sandbox-http.service.js';
@@ -11,10 +11,20 @@ function payload(response: unknown): { data: Record<string, unknown>; transactio
   return { data, transactionId: typeof response.transaction_id === 'string' ? response.transaction_id : undefined };
 }
 
+function sandboxDateOfBirth(value: string): string {
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
+  return value.trim();
+}
+
 @Injectable()
 export class SandboxVerificationProvider implements VerificationProvider {
   readonly code = KycProviderCode.SANDBOX;
   constructor(private readonly http: SandboxHttpService) {}
+
+  acceptsCredential(environment: KycProviderEnvironment, secretReference: string) {
+    return this.http.acceptsCredential(environment, secretReference);
+  }
 
   supports(type: KycVerificationType): boolean {
     return type === KycVerificationType.PAN_VERIFICATION || type === KycVerificationType.AADHAAR_OTP ||
@@ -24,10 +34,11 @@ export class SandboxVerificationProvider implements VerificationProvider {
   async verify(input: VerificationInput): Promise<ProviderResult> {
     switch (input.type) {
       case KycVerificationType.PAN_VERIFICATION: {
-        if (!input.pan || !input.name || !input.dateOfBirth || !input.reason) throw new BadRequestException('PAN verification details are required.');
+        if (!input.pan || !input.name || !input.dateOfBirth) throw new BadRequestException('PAN verification details are required.');
         const { data, transactionId } = payload(await this.http.request('/kyc/pan/verify', 'POST', {
           '@entity': 'in.co.sandbox.kyc.pan_verification.request', pan: input.pan,
-          name_as_per_pan: input.name, date_of_birth: input.dateOfBirth, consent: 'Y', reason: input.reason,
+          name_as_per_pan: input.name, date_of_birth: sandboxDateOfBirth(input.dateOfBirth), consent: 'Y',
+          reason: 'For rider onboarding',
         }, input.timeoutMs));
         if (typeof data.status !== 'string') throw new SandboxHttpError('PROVIDER_ERROR');
         const verified = data.status.toLowerCase() === 'valid' && data.name_as_per_pan_match === true && data.date_of_birth_match === true;
