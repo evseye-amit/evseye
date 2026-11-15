@@ -36,8 +36,8 @@ export class ProviderSettlementController {
       body,
     );
   }
-  @Get() list(@CurrentUser() user: AuthUser, @Query('page') page?: string) {
-    return this.settlements.list(this.clients.requireClientId(user), page === undefined ? undefined : operationsPage(page));
+  @Get() list(@CurrentUser() user: AuthUser, @Query('page') page?: string, @Query('search') search?: string, @Query('provider') provider?: string, @Query('status') status?: string, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.settlements.list(this.clients.requireClientId(user), page === undefined ? undefined : operationsPage(page), { search, provider, status, from, to });
   }
   @Post(':id/bank-confirmation') confirmBank(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: { amount: string; currency: string; utr: string; creditedAt: string; accountLast4: string; evidenceReference: string }) {
     return this.settlements.confirmBank(this.clients.requireClientId(user), id, user.id, body);

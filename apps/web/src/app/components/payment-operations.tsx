@@ -6,7 +6,7 @@ import { sessionFetch } from '../../lib/session-fetch';
 import { formatMoney, formatDateTime } from '../../lib/presentation';
 import { ClientDataTable } from './client-data-table';
 import { ClientFormDialog } from './client-form-dialog';
-import { operationsCsv, filterOperations, operationAction, readRefundDraft, type Operation, type RefundDraft } from './payment-operations-model';
+import { operationsCsv, selectOperationView, type OperationView, filterOperations, operationAction, readRefundDraft, type Operation, type RefundDraft } from './payment-operations-model';
 
 type Settlement = { id: string; provider: string; providerSettlementId: string; currency: string; netAmount: string; status: string; settledAt: string;
   items?: { id: string; kind: string; providerReference: string; amount: string; status: string; reviewCode: string | null }[] };
@@ -23,6 +23,9 @@ const post = (body: unknown, key?: string): RequestInit => ({ method: 'POST', he
 const enc = encodeURIComponent;
 
 export function PaymentOperations({ identityKey, refreshKey = 0, onOpenAutoPaySettings, initialView = "payments", standalone = false }: { identityKey: string; initialView?: "payments" | "settlements" | "autopay"; standalone?: boolean; refreshKey?: number; onOpenAutoPaySettings?: () => void }) {
+  const [operationView, setOperationView] = useState<OperationView>('attention');
+  const [adoption, setAdoption] = useState<Operation | null>(null);
+  const [toolBusy, setToolBusy] = useState(false);
   const [open, setOpen] = useState(standalone);
   const [page, setPage] = useState(1), [more, setMore] = useState({ payments: false, settlements: false, autopay: false });
   const [exporting, setExporting] = useState(false), [exportProgress, setExportProgress] = useState(0);
@@ -46,6 +49,11 @@ export function PaymentOperations({ identityKey, refreshKey = 0, onOpenAutoPaySe
       if (view === 'autopay') {
         const result = await api<Page<Mandate>>(`autopay/mandates?page=${page}`);
         if (active.current && current === generation.current) { setMandates(result.items); setMore({ payments: false, settlements: false, autopay: result.hasMore }); }
+        return;
+      }
+      if (view === 'payments') {
+        const result = await api<Page<Operation>>(`payment-reconciliation?page=${page}`);
+        if (active.current && current === generation.current) { setItems(result.items); setMore({ payments: result.hasMore, settlements: false, autopay: false }); }
         return;
       }
       const [reconciliation, reports, subscriptions] = await Promise.all([
@@ -76,7 +84,7 @@ export function PaymentOperations({ identityKey, refreshKey = 0, onOpenAutoPaySe
         if (index > 999999) throw new Error('Export exceeds the supported page range. Narrow the report.');
         const result = await api<Page<Operation | Settlement | Mandate>>(`${path}?page=${index}`);
         if (!active.current || exportCancelled.current) return;
-        const selected = view === 'payments' ? filterOperations(result.items as Operation[], query, providerFilter, stateFilter) : result.items;
+        const selected = view === 'payments' ? filterOperations(selectOperationView(result.items as Operation[], operationView), query, providerFilter, stateFilter) : result.items;
         for (const item of selected) {
           const key = `${'source' in item ? item.source : view}:${item.id}`;
           if (!seen.has(key)) { rows.push({ ...item }); seen.add(key); }
@@ -154,25 +162,44 @@ export function PaymentOperations({ identityKey, refreshKey = 0, onOpenAutoPaySe
       ]} />}
     {(page > 1 || more.autopay) && <div className="form-actions"><button type="button" className="secondary" disabled={busy || page === 1} onClick={() => setPage(value => value - 1)}>Previous</button><span>Page {page}</span><button type="button" className="secondary" disabled={busy || !more.autopay} onClick={() => setPage(value => value + 1)}>Next</button></div>}
   </section>;
-  return <section className="client-manager-actions">
+  return <section className="client-manager-actions reconciliation-workspace sa-form">
     {!standalone && <button type="button" className="secondary" onClick={() => setOpen(!open)}>{open ? 'Hide online payment operations' : 'Online payment operations'}</button>}
     {open && <>
 
-      <p className="muted">Check gateway payments, refunds, AutoPay mandates and settlement exceptions. Browse history in batches of up to 200 per reconciliation source/report list, or 100 mandates. New records or status changes during browsing can move page boundaries; refresh from batch 1 before an audit export.</p>
-      <div className="row-actions">{!standalone && (['payments', 'settlements', 'autopay'] as const).map(value => <button type="button" key={value} aria-pressed={view === value} disabled={busy} onClick={() => { setView(value); setPage(1); }}>{value === 'autopay' ? 'AutoPay' : value === 'payments' ? 'Payments and refunds' : 'Settlements'}</button>)}<button type="button" disabled={busy} onClick={() => void load()}>Refresh status</button></div>
-      <div className="row-actions"><button type="button" disabled={busy || page === 1} onClick={() => setPage(value => value - 1)}>Previous batch</button><span>History batch {page}</span><button type="button" disabled={busy || !more[view]} onClick={() => setPage(value => value + 1)}>Next batch</button><button type="button" disabled={busy || exporting} onClick={() => void exportHistory()}>Export full {view} history{view === 'payments' ? ' with filters' : ''}</button>{exporting && <><span role="status">Preparing export: {exportProgress} records</span><button type="button" onClick={() => { exportCancelled.current = true; }}>Cancel export</button></>}</div>
+      <div className="reconciliation-heading"><div><h2>Payment review</h2><p className="muted">Review payment exceptions and track refunds.</p></div><div className="form-actions">
+        <button type="button" className="secondary" disabled={busy || toolBusy || exporting} onClick={() => page === 1 ? void load() : setPage(1)}>Refresh</button>
+        <button type="button" className="secondary" disabled={busy || exporting} onClick={() => void exportHistory()}>Export</button>
+      </div></div>
+      {!standalone && <div className="form-actions">{(['payments', 'settlements', 'autopay'] as const).map(value => <button type="button" className="secondary" key={value} aria-pressed={view === value} disabled={busy} onClick={() => { setView(value); setPage(1); }}>{value}</button>)}</div>}
       {error && <p role="alert" className="error">{error}</p>}{notice && <p role="status">{notice}</p>}
-      {view === 'payments' && <><div className="row-actions">
-        <label>Find reference or rider<input value={query} onChange={event => setQuery(event.target.value)} /></label>
-        <label>Gateway<select value={providerFilter} onChange={event => setProviderFilter(event.target.value)}><option value="">All gateways</option>{[...new Set(['RAZORPAY', 'CASHFREE', ...items.map(item => item.provider)].filter((value): value is string => Boolean(value)))].sort().map(value => <option key={value}>{value}</option>)}</select></label>
-        <label>State<select value={stateFilter} onChange={event => setStateFilter(event.target.value)}><option value="">All states</option>{[...new Set([...items.map(item => item.state), ...(stateFilter ? [stateFilter] : [])])].sort().map(value => <option key={value}>{value}</option>)}</select></label>
-        <button type="button" onClick={() => { setQuery(''); setProviderFilter(''); setStateFilter(''); }}>Clear filters</button>
-      </div><p>Showing {filterOperations(items, query, providerFilter, stateFilter).length} of {items.length} loaded records. Filters apply to this batch; full-history export applies the same filters to every batch.</p><ClientDataTable rows={filterOperations(items, query, providerFilter, stateFilter)} loading={busy} getRowId={item => `${item.source}:${item.id}`} columns={[
-        { key: 'source', label: 'Source', value: item => item.source }, { key: 'provider', label: 'Gateway', value: item => item.provider ?? '—' },
-        { key: 'rider', label: 'Rider', value: item => [item.riderName, item.riderCode].filter(Boolean).join(' · ') || item.riderId || '—' }, { key: 'state', label: 'State', value: item => item.state },
-        { key: 'amount', label: 'Amount', value: item => Number(item.amount ?? 0), render: item => item.amount ? formatMoney(item.amount, 'INR') : '—' },
-      ]} actions={item => <div className="row-actions"><button type="button" onClick={() => setDetail(item)}>Details</button>{operationAction(item) && <button type="button" disabled={busy} onClick={() => recover(item)}>Check provider</button>}{item.refundSupported && <button type="button" disabled={busy} onClick={() => openRefund(item)}>Request refund</button>}</div>} /></>}
-      <PaymentOperationsTools key={identityKey} settlements={settlements} payments={items} onChanged={() => void load()} />
+      {exporting && <p role="status">Preparing export: {exportProgress} records <button type="button" className="secondary" onClick={() => { exportCancelled.current = true; }}>Cancel export</button></p>}
+      {view === 'payments' && <>
+        <div className="reconciliation-tabs" aria-label="Payment views">{([['attention', 'Needs attention'], ['refunds', 'Refund history'], ['all', 'All records']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={operationView === value} disabled={busy || exporting} onClick={() => { setOperationView(value); setStateFilter(''); setPage(1); }}>{label}</button>)}</div>
+        <div className="reconciliation-card">
+          <div className="reconciliation-filters">
+            <label>Search this batch<input value={query} placeholder="Rider or payment reference" disabled={exporting} onChange={event => setQuery(event.target.value)} /></label>
+            <label>Gateway<select value={providerFilter} disabled={exporting} onChange={event => setProviderFilter(event.target.value)}><option value="">All gateways</option><option>RAZORPAY</option><option>CASHFREE</option></select></label>
+            <label>Status<select value={stateFilter} disabled={exporting} onChange={event => setStateFilter(event.target.value)}><option value="">All statuses</option>{[...new Set([...selectOperationView(items, operationView).map(item => item.state), ...(stateFilter ? [stateFilter] : [])])].sort().map(value => <option key={value} value={value}>{value.replaceAll('_', ' ')}</option>)}</select></label>
+            <button type="button" className="secondary" disabled={exporting} onClick={() => { setQuery(''); setProviderFilter(''); setStateFilter(''); }}>Clear</button>
+          </div>
+          <p className="muted reconciliation-hint">Filters apply to the loaded batch. Export includes all batches for this view and these filters.</p>
+          <ClientDataTable rows={filterOperations(selectOperationView(items, operationView), query, providerFilter, stateFilter)} searchable={false} filterable={false} pagination={false} loading={busy} getRowId={item => `${item.source}:${item.id}`} emptyMessage={operationView === 'attention' ? 'No matching items need attention in this batch.' : 'No matching records in this batch.'} columns={[
+            { key: 'source', label: 'Source', value: item => item.source },
+            { key: 'reference', label: 'Reference', value: item => item.providerRefundId ?? item.paymentId ?? item.id },
+            { key: 'provider', label: 'Gateway', value: item => item.provider ?? '—' },
+            { key: 'rider', label: 'Rider', value: item => [item.riderName, item.riderCode].filter(Boolean).join(' · ') || item.riderId || '—' },
+            { key: 'state', label: 'Status', value: item => item.state, render: item => <span className="reconciliation-status">{item.state.replaceAll('_', ' ')}</span> },
+            { key: 'amount', label: 'Amount', value: item => Number(item.amount ?? 0), render: item => item.amount ? formatMoney(item.amount, 'INR') : '—' },
+          ]} actions={item => <div className="row-actions">
+            <button type="button" className="secondary" onClick={() => setDetail(item)}>Details</button>
+            {operationAction(item) && <button type="button" className="secondary" disabled={busy || toolBusy} onClick={() => recover(item)}>Check provider</button>}
+            {item.refundSupported && <button type="button" className="secondary" disabled={busy || toolBusy} onClick={() => openRefund(item)}>Request refund</button>}
+            {item.refundSupported && item.provider === 'RAZORPAY' && <button type="button" className="secondary" disabled={busy || toolBusy} onClick={() => setAdoption(item)}>Record existing refund</button>}
+          </div>} />
+          {(page > 1 || more.payments) && <div className="reconciliation-pagination"><button type="button" className="secondary" disabled={busy || page === 1} onClick={() => setPage(value => value - 1)}>Previous</button><span>Batch {page}</span><button type="button" className="secondary" disabled={busy || !more.payments} onClick={() => setPage(value => value + 1)}>Next</button></div>}
+        </div>
+        <PaymentOperationsTools key={identityKey} mode="payment-alerts" settlements={[]} payments={[]} onChanged={() => void load()} />
+      </>}
       {view === 'settlements' && <>
         <label>Import normalized settlement report (.json)<input type="file" accept=".json,application/json" disabled={busy} onChange={event => void selectReport(event.target.files?.[0])} /></label>
         {report && <p>{report.provider ?? 'CASHFREE'} · {report.providerSettlementId} · {report.items.length} entries · Net {formatMoney(report.netAmount, report.currency)} <button type="button" disabled={busy} onClick={() => void run(async () => { await api('finance/provider-settlements/imports', post(report)); if (active.current) { setReport(null); setNotice('Settlement report imported. Matching does not certify bank receipt.'); } })}>Import and match</button></p>}
@@ -184,6 +211,7 @@ export function PaymentOperations({ identityKey, refreshKey = 0, onOpenAutoPaySe
       </>}
 
     </>}
+    {adoption && <ClientFormDialog title="Record existing gateway refund" busy={toolBusy} onClose={() => setAdoption(null)}><p>Verify and record a refund already issued in Razorpay. This action does not issue a new refund.</p><PaymentOperationsTools mode="adoption" settlements={[]} payments={[adoption]} onBusyChange={setToolBusy} onChanged={() => void load()} /></ClientFormDialog>}
     {detail && <ClientFormDialog title="Payment operation" onClose={() => setDetail(null)}><p>{detail.source} · {detail.provider} · {detail.state}</p><p>Reference: {detail.id}</p>{detail.providerRefundId && <p>Gateway refund: {detail.providerRefundId}</p>}{detail.aged && <p role="status">Refund has been pending for over 24 hours. Check provider status and review the original request; do not submit a replacement.</p>}{detail.refundReviewReason && <p>{detail.refundReviewReason}</p>}{detail.reviewCode && <p>{detail.reviewCode}</p>}{detail.captures?.map(capture => <p key={capture.id}>{capture.providerPaymentId} · {formatMoney(capture.amount, 'INR')} · {capture.status} · {capture.reason} {capture.providerRefundId && `Refund: ${capture.providerRefundId}`}</p>)}</ClientFormDialog>}
     {settlement && <ClientFormDialog title="Settlement matching" wide onClose={() => setSettlement(null)}><p>{settlement.provider} · {settlement.providerSettlementId} · {settlement.status}</p><button type="button" disabled={busy} onClick={() => void run(async () => { const result = await api<Settlement>(`finance/provider-settlements/${enc(settlement.id)}/rematch`, post({})); if (active.current) { setSettlement(result); setNotice('Matching refreshed from current payment/refund evidence. No financial posting or bank confirmation was created.'); } })}>Recheck matching</button><ClientDataTable rows={settlement.items ?? []} getRowId={item => item.id} columns={[
       { key: 'kind', label: 'Type', value: item => item.kind }, { key: 'reference', label: 'Gateway reference', value: item => item.providerReference },

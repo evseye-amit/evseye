@@ -69,6 +69,14 @@ export class PaymentAlertService {
       take: 200,
     });
   }
+  async settlementAlerts(clientId: string, page = 1) {
+    const where = { clientId, kind: 'SETTLEMENT_REVIEW' };
+    const [rows, unacknowledgedCount] = await Promise.all([
+      this.db.paymentOperationalAlert.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: (page - 1) * 100, take: 101 }),
+      this.db.paymentOperationalAlert.count({ where: { ...where, acknowledgedAt: null } }),
+    ]);
+    return { items: rows.slice(0, 100), hasMore: rows.length > 100, unacknowledgedCount };
+  }
   list(clientId: string, page = 1) {
     return this.db.paymentOperationalAlert.findMany({
       where: { clientId },

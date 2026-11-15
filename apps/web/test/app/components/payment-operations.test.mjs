@@ -39,3 +39,18 @@ test('CSV exports escape quotes, multiline fields and spreadsheet formulas', asy
   assert.equal(operationsCsv([{ id: '=CMD()', reason: 'a,"b"\nc' }]), '"id","reason"\r\n"\'=CMD()","a,""b""\nc"');
   assert.match(operationsCsv([{ reference: ' +SUM(1)', amount: '10.00' }]), /"' \+SUM/);
 });
+
+test('review views keep exceptions visible and successful payments available for refunds', async () => {
+  const { selectOperationView } = await import('../../../src/app/components/payment-operations-model.ts');
+  const rows = [
+    { source: 'CHECKOUT', state: 'MATCHED' },
+    { source: 'CHECKOUT', state: 'AMOUNT_MISMATCH' },
+    { source: 'REFUND', state: 'MATCHED' },
+    { source: 'REFUND', state: 'PENDING', aged: true },
+    { source: 'REFUND', state: 'FAILED' },
+    { source: 'REFUND', state: 'PENDING', aged: false },
+  ];
+  assert.deepEqual(selectOperationView(rows, 'attention'), [rows[1], rows[3], rows[4]]);
+  assert.deepEqual(selectOperationView(rows, 'refunds'), rows.slice(2));
+  assert.deepEqual(selectOperationView(rows, 'all'), rows);
+});

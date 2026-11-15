@@ -2,6 +2,7 @@
 import { guardLinkNavigation, requestNavigation } from "./components/unsaved-changes";
 import { PanelLoadingContext } from "./components/panel-loading";
 import { PaymentTransactions } from "./components/payment-transactions";
+import { SettlementWorkspace } from "./components/settlement-workspace";
 import { AutoPayWorkspace } from "./components/autopay-workspace";
 import { PaymentOperations } from "./components/payment-operations";
 import { SparesCatalogue } from "./components/spares-catalogue";
@@ -2458,7 +2459,8 @@ export default function Home() {
         {tab === "rider-reference-review" && <RiderReferenceReview refreshKey={panelRefreshKey} />}
         {tab === "autopay-settings" && userRoles.includes("CLIENT_ADMIN") && <AutoPayWorkspace key={identityKey} identityKey={identityKey} refreshKey={panelRefreshKey} />}
         {tab === "payment-transactions" && userRoles.includes("CLIENT_ADMIN") && <PaymentTransactions key={identityKey} refreshKey={panelRefreshKey} />}
-        {(tab === "payment-reconciliation" || tab === "payment-settlements") && userRoles.includes("CLIENT_ADMIN") && <PaymentOperations key={`${identityKey}:${tab}`} identityKey={identityKey} refreshKey={panelRefreshKey} standalone initialView={tab === "payment-settlements" ? "settlements" : "payments"} />}
+        {tab === "payment-settlements" && userRoles.includes("CLIENT_ADMIN") && <SettlementWorkspace key={identityKey} refreshKey={panelRefreshKey} />}
+        {tab === "payment-reconciliation" && userRoles.includes("CLIENT_ADMIN") && <PaymentOperations key={`${identityKey}:${tab}`} identityKey={identityKey} refreshKey={panelRefreshKey} standalone initialView="payments" />}
 
         {tab === "spares-penalties" && <SparesCatalogue refreshKey={panelRefreshKey} />}
         {tab === "installation-board" && <InstallationBoard refreshKey={panelRefreshKey} />}

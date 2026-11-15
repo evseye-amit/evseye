@@ -5335,3 +5335,54 @@ body:has(.sa-dialog[open]) {
   .rate-card-detail .autopay-tabs { gap: 12px; }
   .rate-card-badges { gap: 8px; }
 }
+
+.settlement-workspace { display: grid; gap: 24px; }
+.settlement-card { padding: 24px; gap: 20px; min-width: 0; }
+.settlement-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; flex-wrap: wrap; }
+.settlement-card h2 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+.settlement-workspace button, .settlement-dialog button { font-size: 14px; padding: 9px 14px; }
+.settlement-filters { display: grid; grid-template-columns: minmax(180px, 2fr) repeat(4, minmax(130px, 1fr)); gap: 16px; align-items: end; }
+.settlement-filters .form-actions { grid-column: 1 / -1; }
+.settlement-help { font-size: 13px; }
+.settlement-pagination { display: flex; justify-content: flex-end; gap: 16px; align-items: center; }
+.settlement-money { display: block; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.settlement-badge { display: inline-block; border-radius: 20px; padding: 4px 10px; background: #f0f2ef; color: #59635c; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.settlement-badge.is-confirmed { background: #eaf6ef; color: #205b43; }
+.settlement-badge.is-review { background: #fff5df; color: #805c16; }
+.settlement-form, .settlement-form fieldset { display: grid; gap: 16px; min-width: 0; }
+.settlement-form fieldset { border: 0; padding: 0; }
+.settlement-form legend { margin-bottom: 12px; font-weight: 700; }
+.settlement-form button { justify-self: start; }
+.settlement-form label:has(input[type="checkbox"]) { display: flex; gap: 10px; align-items: flex-start; }
+.settlement-form input[type="checkbox"] { width: 18px; height: 18px; flex-shrink: 0; margin-top: 2px; }
+.settlement-options { display: grid; gap: 16px; }
+.settlement-options button { text-align: left; padding: 18px; }
+.settlement-options strong, .settlement-options span { display: block; }
+.settlement-options span { font-weight: 400; margin-top: 6px; line-height: 1.5; }
+.settlement-alerts { gap: 16px; }
+.settlement-alerts summary { cursor: pointer; font-weight: 700; }
+.settlement-alerts > * { margin-top: 12px; }
+.settlement-workspace .form-actions { flex-wrap: wrap; }
+.settlement-card > * { min-width: 0; }
+@media (max-width: 1000px) { .settlement-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) { .settlement-filters { grid-template-columns: 1fr; } .settlement-card { padding: 16px; } .settlement-heading .form-actions { width: 100%; } }
+
+/* Payment review uses the shared form controls with compact section actions. */
+.reconciliation-workspace { display: grid; gap: 24px; }
+.reconciliation-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.reconciliation-heading h2 { margin: 0; font-size: 20px; }
+.reconciliation-heading p { margin: 6px 0 0; }
+.reconciliation-workspace button { width: auto; font-size: 14px; padding: 9px 14px; }
+.reconciliation-tabs { display: flex; gap: 24px; border-bottom: 1px solid var(--border, #dce4df); }
+.reconciliation-workspace .reconciliation-tabs button { background: transparent; color: var(--muted, #64716a); border-radius: 0; border-bottom: 3px solid transparent; padding: 12px 4px; }
+.reconciliation-workspace .reconciliation-tabs button[aria-pressed="true"] { color: #197354; border-bottom-color: #197354; }
+.reconciliation-card { background: white; border: 1px solid var(--border, #dce4df); border-radius: 12px; padding: 24px; min-width: 0; }
+.reconciliation-filters { display: grid; grid-template-columns: minmax(220px, 2fr) repeat(2, minmax(160px, 1fr)) auto; gap: 16px; align-items: end; }
+.reconciliation-filters label { display: grid; gap: 8px; font-size: 14px; }
+.reconciliation-filters input, .reconciliation-filters select { width: 100%; min-width: 0; }
+.reconciliation-hint { font-size: 13px; margin: 16px 0; }
+.reconciliation-status { display: inline-block; background: #f0f4f2; padding: 4px 8px; border-radius: 6px; font-size: 12px; }
+.reconciliation-pagination { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-top: 16px; }
+.reconciliation-workspace .row-actions { gap: 8px; flex-wrap: wrap; }
+@media (max-width: 900px) { .reconciliation-filters { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 600px) { .reconciliation-heading { align-items: flex-start; flex-direction: column; } .reconciliation-filters { grid-template-columns: 1fr; } .reconciliation-card { padding: 16px; } .reconciliation-tabs { gap: 12px; flex-wrap: wrap; } }

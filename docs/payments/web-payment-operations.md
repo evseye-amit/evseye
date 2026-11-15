@@ -88,3 +88,19 @@ These are live operational lists, not transactionally frozen audit snapshots: co
 Validation: PostgreSQL tests cover crossing the 200-record boundary, rider labels, tenant isolation and settlement import/accounting; unit tests cover lookahead boundaries, invalid pages, legacy list compatibility and CSV escaping/formula neutralization. Flutter source is unchanged; final mobile acceptance remains owned by its team.
 
 Follow-up results: 17 targeted backend unit tests, 2 PostgreSQL integration tests and all 24 web tests passed. API/web TypeScript and targeted lint passed; diff checks passed. The first integration attempt used the wrong local PostgreSQL port; restarting the disposable cluster on its intended port resolved the environment failure. The cluster was stopped afterward. Staging admin/browser acceptance is still required after deployment; no new live staging mutations were performed.
+
+## Settlement workspace
+
+Client Operations → Payments → Settlements opens the settlement table. Refresh, Export and Add settlement sit in the header. Search by settlement reference, gateway, matching status and UTC date range is applied on the server before pagination. Apply commits filter edits; Export downloads all matching records using the applied filters, not only the displayed page. Pagination and exports are live reads, not a point-in-time accounting snapshot.
+
+Add settlement opens Fetch from gateway or Import report dialogs. Gateway fetch requires a configured merchant; normalized JSON import remains separately available. Confirm bank receipt is a row action with a fixed settlement, expected amount, editable credited amount, evidence fields and an initially unchecked bank-statement confirmation. Gateway matching and bank receipt are displayed independently. Recheck matching remains in the matching details dialog.
+
+Settlement alerts are collapsed by default and scoped server-side to SETTLEMENT_REVIEW. The count is unacknowledged alerts across all pages, not unresolved financial exceptions; acknowledgement does not resolve matching issues. Refund adoption remains on Refunds & Reconciliation.
+
+Authenticated visual verification requires local browser access.
+
+### Refunds and reconciliation workspace
+
+Payment review defaults to Needs attention (reconciliation exceptions, unknown outcomes, aged pending refunds and failed refunds). Refund history contains refund records; All records retains access to successful payments for refund requests. Search, gateway and status apply to the loaded batch; Export applies the same view and filters across all batches. Date filtering is not exposed because the mixed-source report does not currently provide a consistent date field. Batch navigation remains available even when filters produce no matches.
+
+Eligible payment rows offer Request refund and, for Razorpay, Record existing refund. The latter opens a dialog fixed to that payment and verifies an already-issued gateway refund; it does not issue a new refund. Existing request idempotency and saved-request recovery remain unchanged. Payment alerts are collapsed below the table.
