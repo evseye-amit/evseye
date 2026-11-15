@@ -17,6 +17,7 @@ export function WalletAutoPayHistory() {
   const [page, setPage] = useState(1),
     [hasMore, setHasMore] = useState(false),
     [reload, setReload] = useState(0);
+  const [loading, setLoading] = useState(true);
   const [historyError, setHistoryError] = useState("");
   const [checking, setChecking] = useState<string | null>(null);
   useEffect(() => {
@@ -42,7 +43,7 @@ export function WalletAutoPayHistory() {
           setHistoryError(
             cause instanceof Error ? cause.message : "Unable to load history.",
           );
-      });
+      }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [page, reload]);
   async function verify(id: string) {
@@ -57,7 +58,7 @@ export function WalletAutoPayHistory() {
       const body = await response.json();
       if (!response.ok)
         throw new Error(body.error?.message ?? "Verification unavailable.");
-      setReload((value) => value + 1);
+      setLoading(true); setReload((value) => value + 1);
     } catch (cause) {
       setHistoryError(
         cause instanceof Error ? cause.message : "Unable to verify.",
@@ -68,22 +69,25 @@ export function WalletAutoPayHistory() {
   }
 
   return (
-    <section aria-label="Automatic recharge requests">
-      <h4>Automatic recharge requests</h4>
+    <section className="sa-form autopay-card" aria-label="Automatic recharge requests">
+      <div className="autopay-heading">
+        <h2>Recharge history</h2>
+        <button
+          type="button" className="secondary"
+          aria-label="Refresh recharge history"
+          disabled={checking !== null || loading}
+          onClick={() => { setLoading(true); setReload((value) => value + 1); }}
+        >
+          Refresh
+        </button>
+      </div>
       <p>
         Verification checks the existing payment. It does not submit another
         debit.
       </p>
       {historyError && <p role="alert">{historyError}</p>}
-      <button
-        type="button"
-        disabled={checking !== null}
-        onClick={() => setReload((value) => value + 1)}
-      >
-        Refresh recharge history
-      </button>
-      {requests.length ? (
-        <ul>
+      {loading ? <p role="status">Loading recharge history…</p> : historyError ? null : requests.length ? (
+        <ul className="autopay-recharge-list">
           {requests.map((request) => (
             <li key={request.id}>
               Rider {request.riderId} · ₹{request.amount} · {request.status} ·
@@ -91,8 +95,8 @@ export function WalletAutoPayHistory() {
               {request.failureCode && ` · ${request.failureCode}`}
               {request.completedAt && " · Wallet credit recorded"}{" "}
               <button
-                type="button"
-                disabled={checking !== null}
+                type="button" className="secondary"
+                disabled={checking !== null || loading}
                 onClick={() => void verify(request.id)}
               >
                 {checking === request.id ? "Checking…" : "Verify payment"}
@@ -101,23 +105,25 @@ export function WalletAutoPayHistory() {
           ))}
         </ul>
       ) : (
-        <p>No requests in this batch.</p>
+        <div className="autopay-empty"><h3>No recharge requests</h3><p>Automatic wallet recharges will appear here when initiated.</p></div>
       )}
+      {(page > 1 || hasMore) && <div className="form-actions">
       <button
-        type="button"
-        disabled={page === 1 || checking !== null}
-        onClick={() => setPage((value) => value - 1)}
+        type="button" className="secondary"
+        disabled={page === 1 || checking !== null || loading}
+        onClick={() => { setLoading(true); setPage((value) => value - 1); }}
       >
         Previous
       </button>
       <span> Batch {page} </span>
       <button
-        type="button"
-        disabled={!hasMore || checking !== null}
-        onClick={() => setPage((value) => value + 1)}
+        type="button" className="secondary"
+        disabled={!hasMore || checking !== null || loading}
+        onClick={() => { setLoading(true); setPage((value) => value + 1); }}
       >
         Next
       </button>
+      </div>}
     </section>
   );
 }

@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { describe, expect, it } from 'vitest';
 import { operationsPage, pageResult } from '../../src/payments/operations-pagination.js';
 describe('operations pagination', () => {
@@ -17,10 +18,10 @@ import { AutoPayOperationsController } from '../../src/payments/autopay-operatio
 import { ProviderSettlementService } from '../../src/payments/provider-settlement.service.js';
 describe('list API backward compatibility', () => {
   it('keeps legacy mandate arrays and pages only the authenticated client', async () => {
-    const findMany = vi.fn().mockResolvedValue(Array.from({ length: 101 }, (_, i) => ({ id: String(i) })));
+    const findMany = vi.fn().mockResolvedValue(Array.from({ length: 101 }, (_, i) => ({ id: String(i), maxAmount: new Prisma.Decimal(750) })));
     const controller = new AutoPayOperationsController({ paymentMandate: { findMany } } as never, { requireClientId: () => 'client-a' } as never);
     const paged = await controller.mandates({} as never, '2');
-    expect(paged.data).toMatchObject({ page: 2, hasMore: true });
+    expect(paged.data).toMatchObject({ page: 2, hasMore: true, items: expect.arrayContaining([expect.objectContaining({ maxAmount: "750.00" })]) });
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { clientId: 'client-a' }, skip: 100, take: 101 }));
     findMany.mockResolvedValue([]);
     expect((await controller.mandates({} as never)).data).toEqual([]);

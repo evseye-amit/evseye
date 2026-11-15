@@ -5262,3 +5262,46 @@ body:has(.sa-dialog[open]) {
 .rider-wallet-totals dd { margin: 6px 0 0; font-size: 20px; font-weight: 700; overflow-wrap: anywhere; }
 .rider-wallet-reference { display: block; overflow-wrap: anywhere; }
 @media (max-width: 600px) { .rider-wallet-totals { grid-template-columns: minmax(0, 1fr); } }
+
+/* Wallet AutoPay uses the shared workspace form surface and controls. */
+.autopay-settings { display: grid; gap: 24px; max-width: 1120px; }
+.autopay-card { padding: 24px; gap: 20px; }
+.autopay-card h2 { margin: 0 0 6px; font-size: 20px; font-weight: 700; }
+.autopay-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.autopay-heading p { max-width: 680px; }
+.autopay-status { padding: 5px 12px; border-radius: 20px; background: #f0f2ef; color: #59635c; font-size: 13px; font-weight: 700; }
+.autopay-status.is-enabled, .autopay-message { background: #eaf6ef; color: #205b43; }
+.autopay-fields { display: grid; gap: 22px; border: 0; padding: 0; min-width: 0; }
+.sa-form .autopay-enable { display: flex; align-items: flex-start; gap: 12px; color: #202421; font-size: 15px; }
+.sa-form .autopay-enable input { width: 20px; height: 20px; margin-top: 2px; accent-color: #187451; flex-shrink: 0; }
+.autopay-card small { display: block; font-size: 13px; font-weight: 400; color: #69726a; line-height: 1.5; margin-top: 4px; }
+.autopay-amounts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.autopay-message { padding: 14px 16px; border-radius: 8px; line-height: 1.5; }
+.autopay-message.is-error { background: #fff0ed; color: #9b3024; }
+.autopay-card details { font-size: 14px; color: #69726a; line-height: 1.6; }
+.autopay-card summary { cursor: pointer; font-weight: 600; }
+.autopay-history-table { overflow-x: auto; }
+.autopay-history-table table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
+.autopay-history-table th { background: #f6f8f5; color: #69726a; font-weight: 600; }
+.autopay-history-table th, .autopay-history-table td { padding: 14px; border-bottom: 1px solid #e8eae6; vertical-align: top; }
+.autopay-card .form-actions { align-items: center; flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .autopay-card { padding: 18px; }
+  .autopay-amounts { grid-template-columns: 1fr; gap: 16px; }
+  .autopay-heading { flex-wrap: wrap; }
+}
+
+.autopay-legend { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+.autopay-workspace { display: grid; gap: 24px; }
+.autopay-workspace > .autopay-heading h2 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+.autopay-tabs { display: flex; gap: 24px; border-bottom: 1px solid #dce3dd; margin-bottom: 24px; }
+.autopay-tabs button { background: transparent; color: #69726a; padding: 12px 4px; border-radius: 0; border: 0; border-bottom: 3px solid transparent; font-size: 14px; }
+.autopay-tabs button[aria-selected="true"] { color: #176d4d; border-bottom-color: #176d4d; font-weight: 700; }
+.autopay-tabs button:focus-visible { outline: 2px solid #176d4d; outline-offset: 3px; }
+.autopay-workspace button.secondary { padding: 9px 14px; font-size: 14px; }
+.autopay-back { justify-self: start; }
+.autopay-empty { padding: 40px 20px; text-align: center; background: #f8faf8; border: 1px dashed #dce3dd; border-radius: 8px; color: #69726a; }
+.autopay-empty h3 { color: #202421; }
+.autopay-recharge-list { list-style: none; padding: 0; display: grid; gap: 12px; }
+.autopay-recharge-list li { padding: 16px; border: 1px solid #e8eae6; border-radius: 8px; line-height: 1.8; overflow-wrap: anywhere; }

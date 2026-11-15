@@ -36,7 +36,7 @@ export class AutoPayOperationsController {
     const number = operationsPage(page);
     const items = await this.prisma.paymentMandate.findMany({ where: { clientId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: (number - 1) * 100, take: page === undefined ? 100 : 101 });
     const mapped = items.map(item => ({ id: item.id, mandateNumber: item.mandateNumber, riderId: item.riderId,
-      provider: item.provider, method: item.method, status: item.status, autoDebitEnabled: item.autoDebitEnabled, expiresAt: item.expiresAt }));
+      provider: item.provider, method: item.method, maxAmount: item.maxAmount.toFixed(2), status: item.status, autoDebitEnabled: item.autoDebitEnabled, expiresAt: item.expiresAt }));
     return { data: page === undefined ? mapped : pageResult(mapped, number, 100) };
   }
 

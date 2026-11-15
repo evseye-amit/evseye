@@ -51,6 +51,13 @@ export class WalletAutoRechargePolicyController {
       data: await this.service.policy(this.clients.requireClientId(user)),
     };
   }
+  @Get('history') async history(
+    @CurrentUser() user: AuthUser,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+  ) {
+    if (page < 1 || page > 100000) throw new BadRequestException('Invalid page.');
+    return { data: await this.service.policyHistory(this.clients.requireClientId(user), page) };
+  }
   @Get('requests') async list(
     @CurrentUser() user: AuthUser,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
