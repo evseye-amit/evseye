@@ -4,7 +4,9 @@ Implementation defaults: available cash threshold ₹550, fixed recharge ₹750,
 
 ## Client configuration
 
-Client Admin → Online payment operations → AutoPay → Wallet AutoPay.
+Client Admin → Payment Settings → Auto Pay Settings.
+
+Automatic recharge history and payment verification remain under Online payment operations → AutoPay, alongside mandate operations. That view includes a shortcut to Auto Pay Settings.
 
 API: `GET /api/v1/client/wallet-autopay-policy`, then `PUT` with:
 
