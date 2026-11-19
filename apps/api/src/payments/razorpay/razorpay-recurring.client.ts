@@ -51,6 +51,12 @@ export class RazorpayRecurringClient extends RazorpayClient {
   constructor(config: ConfigService, @Optional() configuration?: RazorpayConfigurationService) {
     super(config, configuration);
   }
+  async createCustomer(body: { name: string; email: string; contact: string }, clientId: string, version: string | null) {
+    return parse(z.object({ id: remoteId('cust') }), await this.request('customers', 'POST', { ...body, fail_existing: '0' }, clientId, version));
+  }
+  async createAuthorizationOrder(body: Record<string, unknown>, clientId: string, version: string | null) {
+    return parse(orderSchema, await this.request('orders', 'POST', body, clientId, version));
+  }
   async createRegistration(body: Record<string, unknown>, clientId?: string, configurationVersionId?: string | null) {
     return parse(
       registration,

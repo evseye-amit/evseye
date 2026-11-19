@@ -46,11 +46,16 @@ export function PaymentOperationsTools({
   settlements,
   payments,
   onChanged,
+  mode = "refunds",
+  onBusyChange,
 }: {
+  mode?: "refunds" | "fetch" | "bank" | "alerts" | "adoption" | "payment-alerts";
+  onBusyChange?: (busy: boolean) => void;
   settlements: Settlement[];
   payments: Operation[];
   onChanged: () => void;
 }) {
+  const [alertCount, setAlertCount] = useState(0), [alertMore, setAlertMore] = useState(false), [loaded, setLoaded] = useState(false);
   const [versions, setVersions] = useState<Version[]>([]),
     [alerts, setAlerts] = useState<Alert[]>([]),
     [page, setPage] = useState(1);
@@ -68,17 +73,26 @@ export function PaymentOperationsTools({
       active.current = false;
     };
   }, []);
+  async function loadAlerts() {
+    if (mode === "fetch" || mode === "bank" || mode === "adoption") return { rows: [] as Alert[], count: 0, more: false };
+    if (mode === "alerts") {
+      const result = await api<{ items: Alert[]; unacknowledgedCount: number; hasMore: boolean }>(`payment-alerts/settlements?page=${page}`);
+      return { rows: result.items, count: result.unacknowledgedCount, more: result.hasMore };
+    }
+    const rows = await api<Alert[]>(`payment-alerts?page=${page}`);
+    return { rows, count: 0, more: rows.length === 100 };
+  }
   useEffect(() => {
     let cancelled = false;
     Promise.all([
-      api<Version[]>("provider-settlements/merchant-versions"),
-      api<Alert[]>(`payment-alerts?page=${page}`),
-      api<{ id: string; name: string }[]>("payment-alerts/assignees"),
+      mode === "fetch" ? api<Version[]>("provider-settlements/merchant-versions") : Promise.resolve([] as Version[]),
+      loadAlerts(),
+      mode === "alerts" || mode === "refunds" || mode === "payment-alerts" ? api<{ id: string; name: string }[]>("payment-alerts/assignees") : Promise.resolve([]),
     ])
       .then(([v, a, staff]) => {
         if (!cancelled) {
           setVersions(v);
-          setAlerts(a);
+          setAlerts(a.rows); setAlertCount(a.count); setAlertMore(a.more); setLoaded(true);
           setAssignees(staff);
         }
       })
@@ -88,11 +102,13 @@ export function PaymentOperationsTools({
     return () => {
       cancelled = true;
     };
-  }, [page]);
+  // loadAlerts uses only the current page and tool mode.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, mode]);
   async function run(work: () => Promise<unknown>, message: string) {
     if (submitting.current) return;
     submitting.current = true;
-    setBusy(true);
+    setBusy(true); onBusyChange?.(true);
     setError("");
     setNotice("");
     try {
@@ -100,14 +116,15 @@ export function PaymentOperationsTools({
       if (active.current) {
         setNotice(message);
         onChanged();
-        setAlerts(await api<Alert[]>(`payment-alerts?page=${page}`));
+        const result = await loadAlerts();
+        if (active.current) { setAlerts(result.rows); setAlertCount(result.count); setAlertMore(result.more); }
       }
     } catch (e) {
       if (active.current)
         setError(e instanceof Error ? e.message : "Operation failed.");
     } finally {
       submitting.current = false;
-      if (active.current) setBusy(false);
+      if (active.current) { setBusy(false); onBusyChange?.(false); }
     }
   }
   const eligible = payments.filter(
@@ -118,14 +135,13 @@ export function PaymentOperationsTools({
       p.refundSupported === true,
   );
   return (
-    <details>
-      <summary>
-        Settlement ingestion, bank evidence and operational alerts
-      </summary>
-      {error && <p role="alert">{error}</p>}
-      {notice && <p role="status">{notice}</p>}
+    <div className="settlement-tools">
+      {error && <p role="alert" className="error">{error}</p>}
+      {!loaded && !error && <p role="status">Loading…</p>}
+      {notice && <p role="status" className="autopay-message">{notice}</p>}
+      {mode === "fetch" && <>
       <form
-        className="form-stack"
+        className="settlement-form"
         onSubmit={(e) => {
           e.preventDefault();
           const data = new FormData(e.currentTarget),
@@ -143,7 +159,7 @@ export function PaymentOperationsTools({
             );
         }}
       >
-        <fieldset disabled={busy || !versions.length}>
+        <fieldset disabled={busy || !loaded || !versions.length}>
           <legend>Fetch gateway settlement</legend>
           <label>
             Merchant
@@ -166,20 +182,21 @@ export function PaymentOperationsTools({
           </label>
           <button>Fetch and match</button>
         </fieldset>
-        {!versions.length && (
+        {loaded && !versions.length && (
           <p>
-            No merchant configured for direct ingestion. Existing payment
-            operations remain available.
+            No merchant is configured for gateway fetching. You can still import a settlement report.
           </p>
         )}
-      </form>
+      </form></>}
+      {mode === "bank" && <>
+
       <form
-        className="form-stack"
+        className="settlement-form"
         onSubmit={(e) => {
           e.preventDefault();
           const data = new FormData(e.currentTarget),
             settlement = settlements.find(
-              (s) => s.id === data.get("settlement"),
+              (s) => settlements.length === 1 || s.id === data.get("settlement"),
             );
           if (settlement)
             void run(
@@ -203,7 +220,7 @@ export function PaymentOperationsTools({
           <legend>Confirm bank receipt</legend>
           <label>
             Settlement
-            <select name="settlement" required>
+            <select name="settlement" required disabled={settlements.length === 1}>
               {settlements.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.providerSettlementId} · {s.currency} {s.netAmount} ·{" "}
@@ -219,6 +236,7 @@ export function PaymentOperationsTools({
               required
               inputMode="decimal"
               pattern="[0-9]+(\.[0-9]{1,2})?"
+              defaultValue={settlements.length === 1 ? settlements[0].netAmount : undefined}
             />
           </label>
           <label>
@@ -243,13 +261,15 @@ export function PaymentOperationsTools({
           </label>
           <button>Confirm receipt</button>
         </fieldset>
-      </form>
+      </form></>}
+      {(mode === "refunds" || mode === "adoption") && <>
+
       <form
-        className="form-stack"
+        className="settlement-form"
         onSubmit={(e) => {
           e.preventDefault();
           const data = new FormData(e.currentTarget),
-            payment = eligible.find((p) => p.id === data.get("payment"));
+            payment = mode === "adoption" ? eligible[0] : eligible.find((p) => p.id === data.get("payment"));
           if (payment)
             void run(async () => {
               const response = await sessionFetch(
@@ -275,10 +295,10 @@ export function PaymentOperationsTools({
         }}
       >
         <fieldset disabled={busy || !eligible.length}>
-          <legend>Adopt an existing Razorpay refund</legend>
+          <legend>Existing Razorpay refund</legend>
           <label>
             Original payment
-            <select name="payment" required>
+            <select name="payment" required disabled={mode === "adoption"}>
               {eligible.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.riderName ?? p.riderId} · {p.paymentId}
@@ -306,11 +326,11 @@ export function PaymentOperationsTools({
               <option value="PAYMENT_REVERSAL">Reverse full payment</option>
             </select>
           </label>
-          <button>Verify and adopt existing refund</button>
+          <button>Verify and record refund</button>
         </fieldset>
-      </form>
-      <h3>Payment alerts</h3>
-      <button
+      </form></>}
+      {(mode === "alerts" || mode === "refunds" || mode === "payment-alerts") && <details className="sa-form settlement-alerts"><summary>{mode === "alerts" ? loaded ? `Settlement alerts · ${alertCount} unacknowledged` : "Settlement alerts" : "Payment alerts"}</summary>
+      <button type="button" className="secondary"
         disabled={busy}
         onClick={() => void run(async () => undefined, "Alerts refreshed.")}
       >
@@ -320,22 +340,24 @@ export function PaymentOperationsTools({
         Alerts are routed to workspace admins. Acknowledgement records
         ownership; it does not resolve the financial issue.
       </p>
-      <button
-        disabled={busy || page === 1}
-        onClick={() => setPage((p) => p - 1)}
+      {(page > 1 || alertMore) && <div className="form-actions"><button type="button" className="secondary"
+        disabled={busy || !loaded || page === 1}
+        onClick={() => { setLoaded(false); setPage((p) => p - 1); }}
       >
-        Previous alerts
+        Previous
       </button>
-      <span>Batch {page}</span>
-      <button
-        disabled={busy || alerts.length < 100}
-        onClick={() => setPage((p) => p + 1)}
+      <span>Page {page}</span>
+      <button type="button" className="secondary"
+        disabled={busy || !loaded || !alertMore}
+        onClick={() => { setLoaded(false); setPage((p) => p + 1); }}
       >
-        Next alerts
+        Next
       </button>
-      {alerts.map((alert) => (
+      </div>}
+      {loaded && alerts.length === 0 && <p className="muted">No alerts in this page.</p>}
+      {loaded && alerts.map((alert) => (
         <form
-          className="form-stack"
+          className="settlement-form"
           key={alert.id}
           onSubmit={(e) => {
             e.preventDefault();
@@ -373,6 +395,7 @@ export function PaymentOperationsTools({
           <button disabled={busy}>Save routing</button>
         </form>
       ))}
-    </details>
+      </details>}
+    </div>
   );
 }

@@ -130,7 +130,7 @@ resource "aws_ecs_task_definition" "api" {
       for name in [
         "RAZORPAY_ENABLED", "RAZORPAY_CLIENT_IDS", "RAZORPAY_KEY_ID",
         "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET",
-        "AUTOPAY_PROVIDER", "RAZORPAY_AUTOPAY_ENABLED"
+        "AUTOPAY_PROVIDER", "RAZORPAY_AUTOPAY_ENABLED", "RAZORPAY_DEPLOYMENT_AUTOPAY_ENABLED"
         ] : {
         name      = name
         valueFrom = "${data.aws_secretsmanager_secret.staging_razorpay[0].arn}:${name}::"

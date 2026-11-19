@@ -349,9 +349,30 @@ export class ProviderSettlementService {
       return updated;
     });
   }
-  async list(clientId: string, page?: number) {
+  async list(clientId: string, page?: number, filters: { search?: string; provider?: string; status?: string; from?: string; to?: string } = {}) {
+    const where: Prisma.ProviderSettlementWhereInput = { clientId };
+    if (filters.search?.trim()) where.providerSettlementId = { contains: filters.search.trim().slice(0, 120), mode: 'insensitive' };
+    if (filters.provider) {
+      if (!['RAZORPAY', 'CASHFREE'].includes(filters.provider)) throw new BadRequestException('Invalid gateway.');
+      where.provider = filters.provider as Prisma.ProviderSettlementWhereInput['provider'];
+    }
+    if (filters.status) {
+      if (!['REPORT_MATCHED', 'REQUIRES_REVIEW'].includes(filters.status)) throw new BadRequestException('Invalid matching status.');
+      where.status = filters.status as Prisma.ProviderSettlementWhereInput['status'];
+    }
+    const date = (value: string) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new BadRequestException('Invalid settlement date.');
+      const result = new Date(value + 'T00:00:00.000Z');
+      if (!Number.isFinite(result.getTime()) || result.toISOString().slice(0, 10) !== value) throw new BadRequestException('Invalid settlement date.');
+      return result;
+    };
+    const from = filters.from ? date(filters.from) : undefined;
+    const to = filters.to ? date(filters.to) : undefined;
+    if (from && to && from > to) throw new BadRequestException('Start date must precede end date.');
+    if (from || to) where.settledAt = { ...(from ? { gte: from } : {}), ...(to ? { lt: new Date(to.getTime() + 86400000) } : {}) };
+
     const rows = await this.db.providerSettlement.findMany({
-      where: { clientId },
+      where,
       select: {
         id: true,
         provider: true,

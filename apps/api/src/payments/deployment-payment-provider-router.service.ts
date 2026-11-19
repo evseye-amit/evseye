@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { PaymentGatewayPolicyService } from './payment-gateway-policy.service.js';
 import type {
   DeploymentPaymentOrder,
+  DeploymentCheckoutOptions,
   DeploymentPaymentProvider,
 } from './deployment-payment-provider.interface.js';
 
@@ -25,6 +26,7 @@ export class DeploymentPaymentProviderRouter {
     clientId: string,
     userId: string,
     allocationId: string,
+    options?: DeploymentCheckoutOptions,
   ): Promise<DeploymentPaymentOrder> {
     const environment = this.config.getOrThrow('RAZORPAY_ENVIRONMENT');
     const configured = await this.db.clientPaymentProvider.findFirst({
@@ -50,7 +52,7 @@ export class DeploymentPaymentProviderRouter {
         code: 'PAYMENT_PROVIDER_UNSUPPORTED',
         message: `The configured deployment payment provider ${providerName} is not supported.`,
       });
-    return provider.createOrder(clientId, userId, allocationId);
+    return options ? provider.createOrder(clientId, userId, allocationId, options) : provider.createOrder(clientId, userId, allocationId);
   }
 
   async verify(clientId: string, userId: string, allocationId: string, body: unknown) {

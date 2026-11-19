@@ -1,3 +1,4 @@
+import { DeploymentAutoPayService } from './deployment-autopay.service.js';
 import { WalletAutoRechargeService } from './wallet-auto-recharge.service.js';
 import { WalletAutoRechargePolicyController, RiderWalletAutoRechargeController } from './wallet-auto-recharge.controller.js';
 import { NotificationModule } from '../notifications/notification.module.js';
@@ -86,7 +87,7 @@ import {
     CashfreeRefundWebhookController,
     ProviderSettlementController,
   ],
-  providers: [WalletAutoRechargeService, PaymentAlertService,
+  providers: [DeploymentAutoPayService, WalletAutoRechargeService, PaymentAlertService,
     RazorpayRecurringClient, RazorpayAutoPayProvider, RazorpayAutoPayWorker, AutoPayProviderRouter, RazorpayConfigurationService,
     CommonPaymentService,
     CashfreeHttpClient,

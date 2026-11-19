@@ -19,6 +19,14 @@ describe('Client gateway policy', () => {
     expect(result.purposes.TOP_UP).toMatchObject({ enabled: true, provider: 'RAZORPAY', platforms: ['ANDROID', 'IOS'] });
     expect(JSON.stringify(result)).not.toMatch(/secret|keyId|configurationVersionId/);
   });
+  it('advertises combined checkout only with both providers and all rollout flags', async () => {
+    const f = fixture();
+    expect((await f.policy.capabilities('client')).purposes.DEPLOYMENT.autoPaySetup).toBe(false);
+    Object.assign(f.settings, { RAZORPAY_ENABLED: 'true', RAZORPAY_AUTOPAY_ENABLED: 'true', RAZORPAY_DEPLOYMENT_AUTOPAY_ENABLED: 'true' });
+    expect((await f.policy.capabilities('client')).purposes.DEPLOYMENT.autoPaySetup).toBe(true);
+    f.settings.RAZORPAY_DEPLOYMENT_AUTOPAY_ENABLED = 'false';
+    expect((await f.policy.capabilities('client')).purposes.DEPLOYMENT.autoPaySetup).toBe(false);
+  });
   it('disables every purpose for an unsupported client merchant', async () => {
     const result = await fixture([{ ...merchant, provider: 'UNSUPPORTED' }]).policy.capabilities('client-a');
     expect(Object.values(result.purposes).every(purpose => !purpose.enabled)).toBe(true);

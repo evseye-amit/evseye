@@ -27,6 +27,9 @@ export class PaymentAlertController {
   @Get('assignees') assignees(@CurrentUser() user: AuthUser) {
     return this.alerts.assignees(this.clients.requireClientId(user));
   }
+  @Get('settlements') settlementAlerts(@CurrentUser() user: AuthUser, @Query('page') page?: string) {
+    return this.alerts.settlementAlerts(this.clients.requireClientId(user), operationsPage(page));
+  }
   @Get() list(@CurrentUser() user: AuthUser, @Query('page') page?: string) {
     return this.alerts.list(
       this.clients.requireClientId(user),

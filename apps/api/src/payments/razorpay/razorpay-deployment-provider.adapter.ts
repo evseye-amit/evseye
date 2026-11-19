@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type {
   DeploymentPaymentOrder,
+  DeploymentCheckoutOptions,
   DeploymentPaymentProvider,
 } from '../deployment-payment-provider.interface.js';
 import { RazorpayDeploymentService } from './razorpay-deployment.service.js';
@@ -21,8 +22,9 @@ export class RazorpayDeploymentProviderAdapter
     clientId: string,
     userId: string,
     allocationId: string,
+    options?: DeploymentCheckoutOptions,
   ): Promise<DeploymentPaymentOrder> {
-    const order = await this.deployment.createOrder(clientId, userId, allocationId);
+    const order = await this.deployment.createOrder(clientId, userId, allocationId, options);
     return { provider: this.name, orderId: order.orderId };
   }
 

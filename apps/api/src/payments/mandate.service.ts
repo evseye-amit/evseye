@@ -157,6 +157,21 @@ export class MandateService {
     };
   }
 
+  /** Shared eligibility for checkout setup; no provider side effects. */
+  async deploymentContext(clientId: string, userId: string) {
+    try { return await this.context(clientId, userId, 'UPI_AUTOPAY'); }
+    catch (error) {
+      if (error instanceof BadRequestException) throw new BadRequestException({ code: 'AUTOPAY_NOT_IN_PACKAGE', message: error.message });
+      throw error;
+    }
+  }
+
+  async assertNoOpenMandate(tx: Prisma.TransactionClient, clientId: string, riderId: string) {
+    await tx.$queryRaw`SELECT id FROM "Rider" WHERE id = ${riderId} AND "clientId" = ${clientId} FOR UPDATE`;
+    const competing = await tx.paymentMandate.findFirst({ where: { clientId, riderId, status: { in: openStatuses }, expiresAt: { gt: new Date() } } });
+    if (competing) throw new ConflictException({ code: 'AUTOPAY_MANDATE_EXISTS', message: 'An AutoPay mandate already exists for this rider.' });
+  }
+
   private view(mandate: {
     id: string;
     mandateNumber?: string | null;
@@ -309,9 +324,7 @@ export class MandateService {
     let mandate;
     try {
       mandate = await this.prisma.$transaction(async tx => {
-        await tx.$queryRaw`SELECT id FROM "Rider" WHERE id = ${rider.id} AND "clientId" = ${clientId} FOR UPDATE`;
-        const competing = await tx.paymentMandate.findFirst({ where: { clientId, riderId: rider.id, status: { in: openStatuses }, expiresAt: { gt: new Date() } } });
-        if (competing) throw new ConflictException('An AutoPay mandate already exists for this rider.');
+        await this.assertNoOpenMandate(tx, clientId, rider.id);
         return tx.paymentMandate.create({
         data: {
           mandateNumber: `EVM-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}-${randomUUID().slice(0, 12).toUpperCase()}`,

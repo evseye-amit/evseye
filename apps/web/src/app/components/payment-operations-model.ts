@@ -43,3 +43,11 @@ export function readRefundDraft(raw: string | null, paymentId: string, riderId: 
   }
   return value;
 }
+
+export type OperationView = 'attention' | 'refunds' | 'all';
+export function selectOperationView(items: Operation[], view: OperationView) {
+  if (view === 'refunds') return items.filter(item => item.source === 'REFUND');
+  if (view === 'all') return items;
+  return items.filter(item => ['MANUAL_REVIEW_REQUIRED', 'PROVIDER_SUCCESS_LOCAL_PENDING', 'AMOUNT_MISMATCH', 'UNALLOCATED_PAYMENT', 'UNKNOWN'].includes(item.state) ||
+    (item.source === 'REFUND' && (item.aged || item.state === 'FAILED')));
+}

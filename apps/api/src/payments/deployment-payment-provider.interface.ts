@@ -1,3 +1,9 @@
+export type DeploymentCheckoutOptions = {
+  setupAutoPay?: boolean;
+  email?: string;
+  autoPayConsent?: { accepted: true; version: 'deployment-autopay-v1'; maxAmount: string; validityDays: number };
+  requestKey?: string;
+};
 export interface DeploymentPaymentOrder {
   provider: string;
   orderId: string;
@@ -9,6 +15,7 @@ export interface DeploymentPaymentProvider {
     clientId: string,
     userId: string,
     allocationId: string,
+    options?: DeploymentCheckoutOptions,
   ): Promise<DeploymentPaymentOrder>;
   verify(
     clientId: string,

@@ -31,6 +31,10 @@ export class CommonPaymentController {
   async capabilities(@CurrentUser() user: AuthUser) {
     return { data: await this.payments.capabilities(this.clients.requireClientId(user), user.id) };
   }
+  @Get('pending')
+  async pending(@CurrentUser() user: AuthUser) {
+    return { data: await this.payments.pending(this.clients.requireClientId(user), user.id) };
+  }
   @Post()
   @HttpCode(200)
   @ApiOperation({
@@ -40,7 +44,7 @@ export class CommonPaymentController {
     name: 'Idempotency-Key',
     required: false,
     description:
-      'Required for INVOICE payments (including Razorpay), configured-provider checkout and Cashfree penalties; reuse for retries.',
+      'Required for combined DEPLOYMENT AutoPay and INVOICE payments (including Razorpay), configured-provider checkout and Cashfree penalties; reuse for retries.',
   })
   @ApiBody({
     schema: {
@@ -52,6 +56,9 @@ export class CommonPaymentController {
           properties: {
             purpose: { type: 'string', enum: ['DEPLOYMENT'] },
             allocationId: { type: 'string', format: 'uuid' },
+            setupAutoPay: { type: 'boolean' },
+            email: { type: 'string', format: 'email', maxLength: 254 },
+            autoPayConsent: { type: 'object', required: ['accepted', 'version', 'maxAmount', 'validityDays'], properties: { accepted: { type: 'boolean', enum: [true] }, version: { type: 'string', enum: ['deployment-autopay-v1'] }, maxAmount: { type: 'string', example: '15000.00' }, validityDays: { type: 'integer', minimum: 1 } } },
           },
         },
         {
@@ -127,10 +134,6 @@ export class CommonPaymentController {
         key,
       ),
     };
-  }
-  @Get('pending')
-  async pending(@CurrentUser() user: AuthUser) {
-    return { data: await this.payments.pending(this.clients.requireClientId(user), user.id) };
   }
   @Post(':paymentRequestId/abandon')
   @HttpCode(200)

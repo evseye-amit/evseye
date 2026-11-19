@@ -160,6 +160,7 @@ const environmentSchema = z.object({
   KYC_ANALYTICS_MIN_SAMPLE_SIZE: z.coerce.number().int().min(1).max(100000).default(30),
   KYC_ROUTING_DEADLINE_MS: z.coerce.number().int().min(1000).max(120000).default(30000),
   AUTOPAY_PROVIDER: z.enum(['configured', 'cashfree', 'razorpay', 'mock', 'disabled']).default('configured'),
+  RAZORPAY_DEPLOYMENT_AUTOPAY_ENABLED: z.enum(['true', 'false']).default('false'),
   RAZORPAY_AUTOPAY_ENABLED: z.enum(['true', 'false']).default('false'),
   RAZORPAY_ENABLED: z.enum(['true', 'false']).default('false'),
   RAZORPAY_ENVIRONMENT: z.enum(['TEST', 'PRODUCTION']).default('TEST'),
