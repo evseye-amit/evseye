@@ -16,7 +16,7 @@ export class PaymentGatewayPolicyService {
   constructor(private readonly db: PrismaService, private readonly config: ConfigService) {}
 
   async capabilities(clientId: string) {
-    const purposes: Record<string, { enabled: boolean; provider: string | null; platforms: string[]; reason?: string }> = {};
+    const purposes: Record<string, { enabled: boolean; provider: string | null; platforms: string[]; autoPaySetup?: boolean; reason?: string }> = {};
     for (const purpose of ['DEPLOYMENT', 'SUBMISSION_PENALTY', 'INVOICE', 'OUTSTANDING', 'SECURITY_DEPOSIT', 'TOP_UP', 'UPI_AUTOPAY', 'ENACH'] as const) {
       try {
         const provider = await this.resolve(clientId, purpose);
@@ -29,6 +29,8 @@ export class PaymentGatewayPolicyService {
         purposes[purpose] = { enabled: false, provider: null, platforms: [], reason };
       }
     }
+    if (purposes.DEPLOYMENT) purposes.DEPLOYMENT.autoPaySetup = purposes.DEPLOYMENT.enabled && purposes.DEPLOYMENT.provider === 'RAZORPAY' && purposes.UPI_AUTOPAY?.provider === 'RAZORPAY' && purposes.UPI_AUTOPAY.enabled &&
+      this.config.get('RAZORPAY_ENABLED') === 'true' && this.config.get('RAZORPAY_AUTOPAY_ENABLED') === 'true' && this.config.get('RAZORPAY_DEPLOYMENT_AUTOPAY_ENABLED') === 'true';
     return { contractVersion: 1, availabilityBasis: 'POLICY', connectivityVerified: false, purposes };
   }
 

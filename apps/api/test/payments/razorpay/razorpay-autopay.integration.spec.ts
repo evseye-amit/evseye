@@ -235,6 +235,23 @@ describe.skipIf(!url)(
         settings,
       };
     }
+    it('charges a later invoice through a checkout-created mandate without a registration link', async () => {
+      const f = await fixture();
+      f.authorization.amount = 50000;
+      await db.paymentMandate.update({ where: { id: f.mandate.id }, data: {
+        status: 'ACTIVE', authorizedAt: new Date(), providerTermsSnapshot: { flow: 'DEPLOYMENT_CHECKOUT' },
+        providerCustomerId: f.authorization.customer_id, providerCustomerEmail: 'rider@example.com',
+        providerAuthorizationOrderId: f.authorization.order_id, providerAuthorizationPaymentId: f.authorization.id,
+        providerTokenId: f.token.id, authorizationAmount: '500', providerKeyId: 'rzp_test_example',
+      } });
+      const invoice = await f.invoice();
+      const debit = await f.orchestrator.collect(f.client.id, f.rider.id, invoice.id, 'checkout-mandate-debit', f.schedule());
+      expect(debit.status).toBe('PENDING');
+      expect(f.gateway.createDebitOrder).toHaveBeenCalledTimes(1);
+      expect(f.gateway.createRecurringPayment).toHaveBeenCalledTimes(1);
+      expect(f.gateway.fetchRegistration).not.toHaveBeenCalled();
+      expect(await db.riderPayment.count({ where: { clientId: f.client.id } })).toBe(0);
+    });
     it('keeps nominal registration separate from business payments and requires authoritative token confirmation', async () => {
       const f = await fixture();
       expect((await f.adapter.createMandate(f.input)).status).toBe(

@@ -221,7 +221,8 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
       where: { id: m.id },
       data: { providerCheckedAt: new Date() },
     });
-    if (!m.providerRegistrationId) {
+    const direct = (m.providerTermsSnapshot as { flow?: string } | null)?.flow === 'DEPLOYMENT_CHECKOUT';
+    if (!m.providerRegistrationId && !direct) {
       if (
         !m.providerCreateClaimedAt ||
         Date.now() - m.providerCreateClaimedAt.getTime() < 30000
@@ -236,10 +237,10 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
         return this.result(m, 'UNKNOWN', 'REGISTRATION_CREATE_REQUIRES_REVIEW');
       m = await this.bindRegistration(m, matches[0]);
     }
-    const registration = await this.gateway.fetchRegistration(
-      m.providerRegistrationId!, m.clientId, m.configurationVersionId,
-    );
-    m = await this.bindRegistration(m, registration);
+    const registration = direct
+      ? { payment_id: m.providerAuthorizationPaymentId, order_id: m.providerAuthorizationOrderId, customer_id: m.providerCustomerId!, status: 'issued' }
+      : await this.gateway.fetchRegistration(m.providerRegistrationId!, m.clientId, m.configurationVersionId);
+    if (!direct) m = await this.bindRegistration(m, registration as RazorpayRegistration);
     if (registration.status === 'cancelled')
       return this.result(m, 'CANCELLED', 'REGISTRATION_CANCELLED');
     if (registration.status === 'expired')
@@ -278,6 +279,7 @@ export class RazorpayAutoPayProvider implements AutoPayProvider {
     if (
       token.id !== payment.token_id ||
       token.method !== 'upi' ||
+      (direct && !['cancelled', 'rejected', 'expired'].includes(token.recurring_details.status) && token.max_amount !== paise(m.maxAmount)) ||
       (!token.recurring &&
         !['cancelled', 'rejected', 'expired'].includes(
           token.recurring_details.status,

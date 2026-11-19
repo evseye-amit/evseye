@@ -2204,6 +2204,7 @@ model Rider {
 }
 
 model PaymentMandate {
+  deploymentAttempts DeploymentPaymentAttempt[]
   walletAutoRechargePreferences WalletAutoRechargePreference[]
   walletAutoRecharges WalletAutoRecharge[]
 
@@ -3223,6 +3224,24 @@ model DeploymentPayment {
 /// Provider-specific payloads belong in metadata; business payment state remains
 /// on DeploymentPayment.
 model DeploymentPaymentAttempt {
+  autoPayRequested Boolean @default(false)
+  autoPayRequestKey String? @db.VarChar(120)
+  autoPayRequestHash String? @db.VarChar(64)
+  autoPayEmail String? @db.VarChar(254)
+  autoPayCustomerId String? @db.VarChar(100)
+  autoPayMaxAmount Decimal? @db.Decimal(14, 2)
+  autoPayExpiresAt DateTime?
+  autoPayConsent Json?
+  autoPayOrderClaimedAt DateTime?
+  autoPayTokenId String? @db.VarChar(100)
+  autoPayAuthorizationPaymentId String? @db.VarChar(100)
+  autoPayStatus String? @db.VarChar(32)
+  autoPayFailureCode String? @db.VarChar(80)
+  autoPayMandateId String?
+  autoPayMandate PaymentMandate? @relation(fields: [clientId, autoPayMandateId], references: [clientId, id], onDelete: Restrict, map: "DeploymentPaymentAttempt_autoPayMandate_fkey")
+  @@unique([clientId, autoPayRequestKey])
+  @@index([autoPayRequested, autoPayStatus, checkedAt], map: "DeploymentPaymentAttempt_autoPay_recovery_idx")
+
   configurationVersionId String?
   configurationVersion PaymentProviderConfigurationVersion? @relation(fields: [clientId, configurationVersionId], references: [clientId, id], onDelete: Restrict, map: "DeploymentPaymentAttempt_configurationVersion_fkey")
   id                   String          @id @default(uuid())
@@ -3248,6 +3267,10 @@ model DeploymentPaymentAttempt {
 }
 
 model DeploymentPaymentCapture {
+  autoPayTokenId String? @db.VarChar(100)
+  autoPayCleanupReason String? @db.VarChar(80)
+  autoPayCleanupStatus String? @db.VarChar(32)
+
   id                String                    @id @default(uuid())
   attemptId         String
   attempt           DeploymentPaymentAttempt  @relation(fields: [attemptId], references: [id], onDelete: Restrict)

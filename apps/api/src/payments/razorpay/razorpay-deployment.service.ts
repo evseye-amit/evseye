@@ -1,3 +1,6 @@
+import { DeploymentAutoPayBridge } from './deployment-autopay-bridge.js';
+import type { DeploymentCheckoutOptions } from '../deployment-payment-provider.interface.js';
+import { deploymentRequestHash } from '../deployment-autopay.input.js';
 import { PaymentAutomationService } from '../payment-automation.service.js';
 import { resolveWebhookMerchant } from './razorpay-webhook-merchant.js';
 import { Optional } from '@nestjs/common';
@@ -78,6 +81,7 @@ export class RazorpayDeploymentService {
     private readonly eventRouter?: RazorpayEventRouter,
     @Optional() private readonly policy?: PaymentGatewayPolicyService,
     @Optional() private readonly automation?: PaymentAutomationService,
+    @Optional() private readonly autoPay?: DeploymentAutoPayBridge,
   ) {}
 
   private async allocation(
@@ -104,7 +108,8 @@ export class RazorpayDeploymentService {
   private async lock(tx: Tx, clientId: string, allocationId: string) {
     await tx.$queryRaw`SELECT id FROM "Allocation" WHERE id = ${allocationId} AND "clientId" = ${clientId} FOR UPDATE`;
   }
-  async createOrder(clientId: string, userId: string, allocationId: string) {
+  async createOrder(clientId: string, userId: string, allocationId: string, options: DeploymentCheckoutOptions = {}) {
+    const fingerprint = deploymentRequestHash(allocationId, options);
     await this.policy?.resolve(clientId, 'DEPLOYMENT', 'RAZORPAY');
     await this.gateway.assertConfigured(clientId);
     const merchant = await this.gateway.configurationFor(clientId);
@@ -137,9 +142,7 @@ export class RazorpayDeploymentService {
         });
       await this.commercial.assertPaymentQuote(tx, clientId, a);
       if (p.currency !== 'INR')
-        throw new BadRequestException(
-          'Razorpay handover payments currently support INR only.',
-        );
+        throw new BadRequestException(options.setupAutoPay ? { code: 'AUTOPAY_LIMIT_EXCEEDED', message: 'Combined AutoPay checkout supports INR only.' } : 'Razorpay handover payments currently support INR only.');
       const amount = toPaise(p.amount);
       const unresolved = await tx.deploymentPaymentAttempt.findFirst({
         where: {
@@ -149,17 +152,30 @@ export class RazorpayDeploymentService {
         },
         orderBy: { createdAt: 'desc' },
       });
-      if (unresolved) return { attempt: unresolved, fresh: false };
+      if (unresolved) {
+        if (Boolean(unresolved.autoPayRequested) !== Boolean(options.setupAutoPay) || (options.requestKey && (unresolved.autoPayRequestKey !== options.requestKey || unresolved.autoPayRequestHash !== fingerprint)))
+          throw new ConflictException({ code: 'RAZORPAY_ORDER_UNKNOWN', message: 'An earlier checkout is still being recovered. Do not start another payment.' });
+        return { attempt: unresolved, fresh: false };
+      }
       const existing = await tx.deploymentPaymentAttempt.findFirst({
         where: {
           deploymentPaymentId: p.id,
           amountPaise: BigInt(amount),
           currency: p.currency,
           status: 'OPEN',
+          autoPayRequested: options.setupAutoPay ?? false,
+          ...(options.requestKey ? { autoPayRequestKey: options.requestKey, autoPayRequestHash: fingerprint } : {}),
         },
         orderBy: { createdAt: 'desc' },
       });
       if (existing) return { attempt: existing, fresh: false };
+      const terms = options.setupAutoPay
+        ? await this.autoPay!.service.prepare(clientId, userId, merchant, p.amount, p.currency, options, tx)
+        : null;
+      await tx.deploymentPaymentAttempt.updateMany({
+        where: { deploymentPaymentId: p.id, status: 'OPEN', autoPayRequested: true },
+        data: { autoPayFailureCode: 'AUTOPAY_SUPERSEDED' },
+      });
       await tx.deploymentPaymentAttempt.updateMany({
         where: { deploymentPaymentId: p.id, status: 'OPEN' },
         data: { status: 'SUPERSEDED' },
@@ -175,6 +191,10 @@ export class RazorpayDeploymentService {
             providerEnvironment: environment,
             amountPaise: BigInt(amount),
             currency: p.currency,
+            autoPayRequested: options.setupAutoPay ?? false,
+            autoPayRequestKey: options.requestKey,
+            autoPayRequestHash: options.requestKey ? fingerprint : null,
+            ...(terms ? { autoPayEmail: options.email, autoPayMaxAmount: terms.maxAmount, autoPayExpiresAt: terms.expiresAt, autoPayConsent: terms.consent, autoPayStatus: 'NOT_STARTED' } : {}),
           },
         }),
         fresh: true,
@@ -190,7 +210,7 @@ export class RazorpayDeploymentService {
         });
       let remote;
       try {
-        remote = fresh
+        remote = order.autoPayRequested ? await this.autoPay!.service.createOrder(order) : fresh
           ? await this.gateway.createOrder(
               Number(order.amountPaise),
               order.currency,
@@ -208,7 +228,7 @@ export class RazorpayDeploymentService {
         if (fresh && error instanceof RazorpayProviderError && error.definitive)
           await this.db.deploymentPaymentAttempt.update({
             where: { id: order.id },
-            data: { status: 'FAILED' },
+            data: { status: 'FAILED', ...(order.autoPayRequested ? { autoPayStatus: 'FAILED', autoPayFailureCode: 'AUTOPAY_ORDER_REJECTED' } : {}) },
           });
         throw error;
       }
@@ -373,7 +393,14 @@ export class RazorpayDeploymentService {
         'Razorpay payment capture is not confirmed.',
       );
   }
-  private async settle(
+  private async settle(order: DeploymentPaymentAttempt, remote: RazorpayPayment) {
+    await this.settlePayment(order, remote);
+    if (order.autoPayRequested) {
+      try { await this.autoPay!.service.recover(order.id, remote.id); }
+      catch { this.logger.warn(`AutoPay recovery deferred for deployment ${order.id}`); }
+    }
+  }
+  private async settlePayment(
     order: DeploymentPaymentAttempt,
     remote: RazorpayPayment,
   ) {

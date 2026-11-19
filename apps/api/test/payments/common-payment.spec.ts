@@ -1,3 +1,4 @@
+import { deploymentRequestHash } from '../../src/payments/deployment-autopay.input.js';
 import 'reflect-metadata';
 import { describe, expect, it, vi } from 'vitest';
 import { Prisma } from '@prisma/client';
@@ -287,6 +288,22 @@ describe('common payment purpose contract', () => {
       id,
     );
     expect(f.checkout.payOutstanding).not.toHaveBeenCalled();
+  });
+  it('replays combined checkout by request key and rejects changed consent without another order', async () => {
+    const f = fixture();
+    const options = { setupAutoPay: true, email: 'rider@example.com', autoPayConsent: { accepted: true as const, version: 'deployment-autopay-v1' as const, maxAmount: '15000.00', validityDays: 365 } };
+    Object.assign(f.order, { autoPayRequested: true, autoPayRequestKey: 'request-key', autoPayRequestHash: deploymentRequestHash(id, { ...options, requestKey: 'request-key' }), autoPayCustomerId: 'cust_test', autoPayMaxAmount: new Prisma.Decimal(15000), autoPayStatus: 'NOT_STARTED' });
+    const result = await f.service.create('client', 'user', { purpose: 'DEPLOYMENT', allocationId: id, ...options }, 'request-key');
+    expect(result).toMatchObject({ autoPay: { requested: true, status: 'NOT_STARTED', maxAmount: '15000.00' }, checkout: { customerId: 'cust_test', recurring: true } });
+    await expect(f.service.create('client', 'user', { purpose: 'DEPLOYMENT', allocationId: id, ...options, email: 'other@example.com' }, 'request-key')).rejects.toMatchObject({ response: { code: 'IDEMPOTENCY_CONFLICT' } });
+    expect(f.deployments.createOrder).not.toHaveBeenCalled();
+  });
+  it('returns the live linked mandate state independently from successful onboarding', async () => {
+    const f = fixture();
+    Object.assign(f.order, { autoPayRequested: true, autoPayMandateId: 'mandate', autoPayStatus: 'AUTHORIZATION_PENDING' });
+    f.order.payment.status = 'PAID';
+    Object.assign(f.db, { paymentMandate: { findFirst: vi.fn().mockResolvedValue({ id: 'mandate', status: 'PAUSED', maxAmount: new Prisma.Decimal(15000) }) } });
+    expect(await f.service.detail('client', 'user', `deployment:${id}`)).toMatchObject({ status: 'SUCCEEDED', checkout: null, autoPay: { status: 'PAUSED', mandateId: 'mandate' } });
   });
   it('defaults penalties to Razorpay while retaining explicit Cashfree partial penalty checkout', async () => {
     const f = fixture();
