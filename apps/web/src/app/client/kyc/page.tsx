@@ -1,6 +1,7 @@
 "use client";
 
-import Link from "next/link";
+import { ClientNavigation } from "../../components/client-navigation";
+import RiderKycPanel from "./rider-kyc-panel";
 import { ClientDataTable } from "../../components/client-data-table";
 import { ClientFormDialog } from "../../components/client-form-dialog";
 import { guardLinkNavigation, requestNavigation } from "../../components/unsaved-changes";
@@ -11,7 +12,23 @@ import RoutingPanel from "./routing-panel";
 import CommercialPanel from "./commercial-panel";
 import { ClientBrand } from "../../components/client-brand";
 import { LanguageSwitcher } from "../../components/locale-provider";
-import { UiIcon } from "../../components/ui-icon";
+
+
+const sections = {
+  overview: ["Overview", "A snapshot of rider onboarding and verification activity."],
+  riders: ["Rider KYC", "Track rider onboarding and document approval."],
+  reviews: ["Manual Review", "Review workflow exceptions that need a decision."],
+  verifications: ["Verification Requests", "Track individual checks sent to verification providers."],
+  workflows: ["Workflows", "Monitor onboarding progress and workflow decisions."],
+  definitions: ["Configuration", "Manage verification definitions, providers and routing."],
+  providers: ["Configuration", "Manage verification definitions, providers and routing."],
+  routing: ["Configuration", "Manage verification definitions, providers and routing."],
+  health: ["Health & Usage", "Monitor provider performance and verification usage."],
+  commercial: ["Health & Usage", "Monitor provider performance and verification usage."],
+} as const;
+type Section = keyof typeof sections;
+const configuration: Section[] = ["definitions", "providers", "routing"];
+const monitoring: Section[] = ["health", "commercial"];
 
 type Status = "CREATED" | "PROCESSING" | "OTP_REQUIRED" | "VERIFIED" | "FAILED" | "MANUAL_REVIEW";
 type Verification = { id: string; riderId: string; verificationType: string; status: Status;
@@ -45,7 +62,10 @@ async function api<T>(path: string): Promise<T> {
 export default function KycAdministration() {
   const [authorized, setAuthorized] = useState(false);
   const [canManagePolicy, setCanManagePolicy] = useState(false);
-  const [tab, setTab] = useState<"overview" | "providers" | "verifications" | "health" | "workflows" | "reviews" | "definitions" | "routing" | "commercial">("overview");
+  const [tab, setTab] = useState<Section>("overview");
+  const [userRoles, setUserRoles] = useState<string[]>([]);
+  const [expandedClientNavGroups, setExpandedClientNavGroups] = useState<Record<string, boolean>>({ "KYC & Verification": true });
+  const [refreshKey, setRefreshKey] = useState(0);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [rows, setRows] = useState<Verification[]>([]);
@@ -68,6 +88,7 @@ export default function KycAdministration() {
       if (!roles.some((role) => role === "CLIENT_ADMIN" || role === "KYC_OPERATOR"))
         throw new Error("You are not authorized to view KYC administration.");
       setAuthorized(true);
+      setUserRoles(roles);
       setCanManagePolicy(roles.includes("CLIENT_ADMIN"));
       if (tab === "overview") setOverview(await api<Overview>("admin/overview"));
       if (tab === "providers" || tab === "health") {
@@ -95,7 +116,25 @@ export default function KycAdministration() {
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
-  }, [load]);
+  }, [load, refreshKey]);
+
+  useEffect(() => {
+    const restore = () => {
+      const value = new URLSearchParams(window.location.search).get("section");
+      setTab(value && value in sections ? value as Section : "overview");
+      setSelected(null); setPage(0); setStatus(""); setType("");
+    };
+    restore();
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, []);
+
+  function navigate(next: Section, filter = "") {
+    requestNavigation(() => {
+      setTab(next); setSelected(null); setPage(0); setStatus(filter); setType("");
+      window.history.pushState(null, "", `/client/kyc?section=${next}`);
+    });
+  }
 
   async function openDetail(id: string) {
     setError("");
@@ -103,45 +142,35 @@ export default function KycAdministration() {
     catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load verification."); }
   }
 
-  return <main className="sa-shell client-operations-shell" onClickCapture={guardLinkNavigation}>
+  return <main className="sa-shell client-operations-shell kyc-console" onClickCapture={guardLinkNavigation}>
     <aside className="sa-sidebar">
       <ClientBrand />
-      <nav className="client-navigation" aria-label="Client operations">
-        <Link className="client-nav-utility sa-nav-child" href="/?tab=dashboard"><UiIcon name="dashboard" /> Dashboard</Link>
-        <p className="sa-nav-label">OPERATIONS</p>
-        <Link className="client-nav-utility sa-nav-child active" aria-current="page" href="/client/kyc"><UiIcon name="shield" /> KYC &amp; Verification</Link>
-        <Link className="client-nav-utility sa-nav-child" href="/client/kyc/operations"><UiIcon name="usage" /> Command Center</Link>
-        <p className="sa-nav-label">WORKSPACE</p>
-        <Link className="client-nav-utility sa-nav-child" href="/?tab=dashboard">Dashboard workspace</Link>
-      </nav>
+      <ClientNavigation kycSection={tab} userRoles={userRoles} expandedClientNavGroups={expandedClientNavGroups} setExpandedClientNavGroups={setExpandedClientNavGroups} onNavigateKyc={navigate} />
       <div className="sa-user client-sidebar-footer"><span aria-hidden="true">C</span><div><strong>Client Operations</strong><small>EVs Eye workspace</small></div></div>
     </aside>
     <section className="sa-main workspace client-operations-main kyc-workspace">
-      <header className="sa-topbar"><div><h1>KYC &amp; Verification</h1><p>Client operations workspace</p></div><div className="header-actions"><LanguageSwitcher /><button className="secondary" type="button" onClick={() => window.location.reload()}>↻ Refresh</button><Link className="button" href="/">Sign out</Link></div></header>
-      <Link className="button secondary kyc-back-link" href="/?tab=dashboard">← Back to dashboard</Link>
-      <div className="kyc-subpage-heading"><p className="eyebrow">CLIENT OPERATIONS · KYC</p><h2>Verification administration</h2><p>Client scoped verification operations</p></div>
-    {authorized && <nav className="kyc-section-nav" aria-label="KYC sections">
-      {(["overview", "workflows", "verifications", "reviews", "definitions", "providers", "routing", "health", "commercial"] as const).map((item) =>
-        <button key={item} type="button" aria-current={tab === item ? "page" : undefined}
-          onClick={() => requestNavigation(() => { setTab(item); setSelected(null); })}>{item === "reviews" ? "Manual Review" : item === "routing" ? "Routing Policies" : item === "definitions" ? "Definitions" : item === "commercial" ? "Policy & Usage" : item[0].toUpperCase() + item.slice(1)}</button>)}
-    </nav>}
+      <header className="sa-topbar"><div><p className="kyc-breadcrumb">KYC &amp; Verification / {sections[tab][0]}</p><h1>{sections[tab][0]}</h1><p>{sections[tab][1]}</p></div><div className="header-actions"><LanguageSwitcher /><button className="secondary" type="button" disabled={loading} onClick={() => requestNavigation(() => setRefreshKey(key => key + 1))}>↻ Refresh</button></div></header>
+      {authorized && (configuration.includes(tab) || monitoring.includes(tab)) && <div className="reconciliation-tabs" aria-label="Section views">
+        {(configuration.includes(tab) ? configuration : monitoring).map(item => <button key={item} type="button" aria-pressed={tab === item} onClick={() => navigate(item)}>{({ definitions: "Definitions", providers: "Providers", routing: "Routing Policies", health: "Provider Health", commercial: "Policy & Usage" } as Partial<Record<Section, string>>)[item]}</button>)}
+      </div>}
+      {authorized && tab === "riders" && <RiderKycPanel key={refreshKey} />}
     {loading && <p role="status">Loading KYC data…</p>}
     {error && <p className="error" role="alert">{error}</p>}
-    {authorized && (tab === "workflows" || tab === "reviews" || tab === "definitions") && <WorkflowPanel view={tab} />}
-    {authorized && tab === "routing" && <RoutingPanel />}
-    {authorized && tab === "commercial" && <CommercialPanel canManage={canManagePolicy} />}
+    {authorized && (tab === "workflows" || tab === "reviews" || tab === "definitions") && <WorkflowPanel key={`${tab}-${refreshKey}`} view={tab} />}
+    {authorized && tab === "routing" && <RoutingPanel key={refreshKey} />}
+    {authorized && tab === "commercial" && <CommercialPanel key={refreshKey} canManage={canManagePolicy} />}
     {authorized && tab === "overview" && overview && <>
-    <h2>Rider KYC</h2><p>Each rider is counted once. Verification requires approval of all submitted onboarding documents and all required uploads.</p>
+    <div className="kyc-section-heading"><div><h2>Rider onboarding</h2><p>Each rider is counted once, based on their required documents.</p></div><button className="secondary" onClick={() => navigate("riders")}>View riders →</button></div>
     <section className="client-metrics" aria-label="Rider KYC metrics">
       {(["Total", "VERIFIED", "PENDING", "FAILED", "NOT_STARTED"] as const).map(label =>
         <article className="client-metric-card" key={label}><span>{label.replaceAll("_", " ")}</span>
           <strong>{label === "Total" ? overview.riderKyc.total : overview.riderKyc.byStatus[label] ?? 0}</strong></article>)}
     </section>
-    <h2>Provider verification requests</h2>
+    <div className="kyc-section-heading"><div><h2>Provider verification requests</h2><p>Individual checks; a rider may have multiple requests.</p></div><button className="secondary" onClick={() => navigate("verifications")}>View requests →</button></div>
     <section className="client-metrics" aria-label="Provider verification metrics">
       {(["Total", "VERIFIED", "FAILED", "PROCESSING", "OTP_REQUIRED", "MANUAL_REVIEW"] as const).map((label) =>
-        <article className="client-metric-card" key={label}><span>{label.replaceAll("_", " ")}</span>
-          <strong>{label === "Total" ? overview.total : overview.byStatus[label] ?? 0}</strong></article>)}
+        <button type="button" className="client-metric-card kyc-metric-link" key={label} onClick={() => navigate("verifications", label === "Total" ? "" : label)}><span>{label.replaceAll("_", " ")}</span>
+          <strong>{label === "Total" ? overview.total : overview.byStatus[label] ?? 0}</strong></button>)}
     </section></>}
     {authorized && tab === "providers" && <section><h2>Providers</h2>
       {providers.length === 0 ? <p>No providers configured.</p> : providers.map((provider) =>
@@ -172,7 +201,7 @@ export default function KycAdministration() {
             {" · "}Last failure: {health[provider.id]?.lastFailureAt ? new Date(health[provider.id]?.lastFailureAt ?? "").toLocaleString() : "—"}</p>}
         </article>)}
     </section>}
-    {authorized && tab === "verifications" && <section><h2>Verifications</h2>
+    {authorized && tab === "verifications" && <section><div className="reconciliation-tabs" aria-label="Request status">{[["", "All requests"], ["MANUAL_REVIEW", "Needs review"], ["PROCESSING", "Processing"], ["VERIFIED", "Verified"], ["FAILED", "Failed"]].map(([value, label]) => <button key={value} aria-pressed={status === value} onClick={() => { setStatus(value); setPage(0); }}>{label}</button>)}</div>
       <ClientDataTable rows={rows} loading={loading} pagination={false} searchable={false} sortable={false} resultCountSuffix="on this page" server={{page:page+1,limit:50,total:rows.length,search:"",onSearch:()=>{},onPage:()=>{},filterCount:[status,type].filter(Boolean).length,onReset:()=>{setStatus("");setType("");setPage(0);}}} getRowId={(row) => row.id} emptyMessage="No verifications match these filters." columns={[
         { key: "id", label: "Verification", value: (row) => row.id, render: (row) => <details><summary>{row.id.slice(0, 8)}</summary>{row.id}</details> },
         { key: "rider", label: "Rider", value: (row) => row.riderId },

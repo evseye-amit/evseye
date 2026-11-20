@@ -1,9 +1,11 @@
 "use client";
+import { CLIENT_NAVIGATION, canAccessTab, type Tab } from "./components/client-navigation-model";
+import { ClientNavigation } from "./components/client-navigation";
 import { guardLinkNavigation, requestNavigation } from "./components/unsaved-changes";
 import { PanelLoadingContext } from "./components/panel-loading";
 import { PaymentTransactions } from "./components/payment-transactions";
-import { SettlementWorkspace } from "./components/settlement-workspace";
 import { AutoPayWorkspace } from "./components/autopay-workspace";
+import { SettlementWorkspace } from "./components/settlement-workspace";
 import { PaymentOperations } from "./components/payment-operations";
 import { SparesCatalogue } from "./components/spares-catalogue";
 import { sessionFetch as fetch } from "../lib/session-fetch";
@@ -15,9 +17,9 @@ import {
   vehicleSpeedTypes,
 } from "../lib/domain-enums";
 
-import { Dispatch, Fragment, FormEvent, MouseEvent, SetStateAction, useEffect, useRef, useState } from "react";
+import { Dispatch, FormEvent, MouseEvent, SetStateAction, useEffect, useRef, useState } from "react";
 import { OtpCodeInput } from "./components/otp-code-input";
-import { UiIcon, type IconName } from "./components/ui-icon";
+import { UiIcon } from "./components/ui-icon";
 import { ClientNotifications } from "./components/client-notifications";
 import {InstallationBoard} from "./components/installation-board";
 import { FleetMoreMenu, FleetReadiness, FleetReadinessStatus } from "./components/fleet-readiness";
@@ -40,12 +42,12 @@ import { ClientDeleteDialog, type ClientDeleteConfirmation } from "./components/
 import { ClientFormDialog } from "./components/client-form-dialog";
 import { useClientAppearance } from "./components/client-provider";
 import { LanguageSwitcher, useLocale } from "./components/locale-provider";
-import { ClientBrandingSettings } from "./components/client-branding-settings";
+
 import { ClientLegalDocuments } from "./components/client-legal-documents";
 import { ClientReferAndEarn } from "./components/client-refer-and-earn";
 import { WorkPartnerManager } from "./components/work-partner-manager";
 import { ClientBrand } from "./components/client-brand";
-import Link from "next/link";
+
 
 const API_URL =
   "/api/v1";
@@ -56,43 +58,6 @@ const indianMobileInput = (value: string) =>
   value.replace(/\D/g, "").slice(-10);
 type LoginFlow = { appCode: string; version: string; methods: string[]; steps: Array<{ code: string; fields: Array<{ featureCode: string; label: string; placeholder: string }> }> };
 const loginField = (flow: LoginFlow | null, featureCode: string) => flow?.steps.flatMap((step) => step.fields).find((field) => field.featureCode === featureCode);
-type Tab =
-  | "autopay-settings"
-  | "payment-transactions"
-  | "payment-reconciliation"
-  | "payment-settlements"
-  | "spares-penalties"
-  | "installation-board" | "vehicle-preparation" | "quality-check" | "readiness-settings" | "advisors" | "qc-managers"
-  | "dashboard"
-  | "legal-documents"
-  | "refer-and-earn"
-  | "work-partners"
-  | "fleets"
-  | "riders"
-  | "allocations"
-  | "audit"
-  | "locations"
-  | "evidence"
-  | "fleet-evidence"
-  | "allocation-evidence"
-  | "deallocation-evidence"
-  | "rider-evidence"
-  | "fleet-managers"
-  | "team-leads"
-  | "cluster-managers"
-  | "iot-devices"
-  | "batteries"
-  | "controllers"
-  | "fleet-component-mapping"
-  | "deallocations"
-  | "rider-document-review"
-  | "rider-reference-review"
-  | "support-tickets"
-  | "rider-rate-cards"
-  | "notifications"
-  | "zones"
-  | "reports"
-  | "feature-usage";
 type RecordItem = Record<string, unknown>;
 type RiderOnboardingField = { featureId: string; featureCode: string; fieldCode?: string; name: string; description?: string | null; billingUnit: string; sequence: number; configuration: { label: string; storageKey?: string; placeholder?: string; fieldType: string; required: boolean; readOnly: boolean; disabled: boolean; editable: boolean; importable: boolean; maxFiles?: number; allowedFileTypes?: string[]; allowedMimeTypes?: string[]; validation?: Record<string, unknown> } };
 type RiderOnboardingConfiguration = { package: { code: string; name: string }; onboarding: { steps: Array<{ stepId: string; stepCode: string; stepName: string; description?: string; sequence: number; fields: RiderOnboardingField[] }> } };
@@ -146,84 +111,6 @@ const CLIENT_BULK_CONFIG: Record<ClientBulkTab, { title: string; requiredColumns
   riders: { title: "Riders", requiredColumns: "Package-configured rider fields", template: "", resource: "/riders", entityType: "RIDER" },
 };
 
-const CLIENT_NAVIGATION: Array<{
-  label: string;
-  kyc?: boolean;
-  branding?: boolean;
-  items: Array<{ id: Tab; label: string; group?: string }>;
-}> = [
-  { label: "", items: [{ id: "dashboard", label: "Dashboard" }] },
-  {
-    label: "Team Management",
-    items: [
-      { id: "fleet-managers", label: "Fleet Manager" },
-      { id: "team-leads", label: "Team Lead" },
-      { id: "cluster-managers", label: "Cluster Manager" },
-      { id: "advisors", label: "Advisors" },
-      { id: "qc-managers", label: "QC Manager" },
-    ],
-  },
-  {
-    label: "Vehicle Management",
-    items: [
-      { id: "fleets", label: "Fleet", group: "Fleet & Components" },
-      { id: "batteries", label: "Battery", group: "Fleet & Components" },
-      { id: "controllers", label: "Controller", group: "Fleet & Components" },
-      { id: "iot-devices", label: "IoT", group: "Fleet & Components" },
-      { id: "fleet-component-mapping", label: "Fleet Component Mapping", group: "Fleet & Components" },
-      { id: "installation-board", label: "Installation Board", group: "Preparation & Quality" },
-      { id: "vehicle-preparation", label: "Vehicle Preparation", group: "Preparation & Quality" },
-      { id: "quality-check", label: "Quality Check", group: "Preparation & Quality" },
-      { id: "spares-penalties", label: "Spares & Penalties", group: "Spares & Penalties" },
-      { id: "readiness-settings", label: "Fleet Readiness Settings", group: "Settings" },
-    ],
-  },
-  {
-    label: "Rider Management",
-    items: [
-      { id: "riders", label: "Riders" },
-      { id: "work-partners", label: "Work Partners" },
-      { id: "rider-document-review", label: "Document Verification" },
-      { id: "rider-reference-review", label: "Reference Verification" },
-    ],
-  },
-  {
-    label: "Payments",
-    items: [
-      { id: "payment-transactions", label: "Transactions" },
-      { id: "payment-reconciliation", label: "Refunds & Reconciliation" },
-      { id: "payment-settlements", label: "Settlements" },
-      { id: "autopay-settings", label: "AutoPay" },
-      { id: "rider-rate-cards", label: "Rider Rate Cards" },
-    ],
-  },
-  {
-    label: "Location",
-    items: [
-      { id: "locations", label: "Hub" },
-      { id: "zones", label: "Zone" },
-    ],
-  },
-  {
-    label: "Engagement & Support",
-    items: [{ id: "refer-and-earn", label: "Refer & Earn" }, { id: "support-tickets", label: "Support Tickets" }, { id: "notifications", label: "Notification" }],
-  },
-  {
-    label: "Monitoring & Compliance",
-    kyc: true,
-    items: [
-      { id: "reports", label: "Reports" },
-      { id: "audit", label: "Audit Log" },
-      { id: "feature-usage", label: "Feature Usage" },
-    ],
-  },
-  {
-    label: "Workspace Settings",
-    branding: true,
-    items: [{ id: "legal-documents", label: "Legal Documents" }],
-  },
-];
-
 const CLIENT_TAB_TITLES: Record<Tab, string> = {
   "autopay-settings": "AutoPay",
   "payment-reconciliation": "Refunds & Reconciliation",
@@ -262,46 +149,6 @@ const CLIENT_TAB_TITLES: Record<Tab, string> = {
   zones: "Zone",
   reports: "Reports",
   "feature-usage": "Feature Usage",
-};
-
-const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
-  "autopay-settings": "pricing",
-  "payment-transactions": "pricing",
-  "payment-reconciliation": "pricing",
-  "payment-settlements": "pricing",
-  "spares-penalties": "factory",
-  "installation-board": "vehicle",
-  "vehicle-preparation": "vehicle", "quality-check": "shield", "readiness-settings": "factory", "advisors": "user", "qc-managers": "shield",
-  dashboard: "dashboard",
-  "legal-documents": "audit",
-  "refer-and-earn": "earnings",
-  "work-partners": "link",
-  fleets: "vehicle",
-  riders: "user",
-  allocations: "allocation",
-  audit: "audit",
-  locations: "location",
-  evidence: "camera",
-  "fleet-evidence": "camera",
-  "allocation-evidence": "camera",
-  "deallocation-evidence": "camera",
-  "rider-evidence": "camera",
-  "fleet-managers": "users",
-  "team-leads": "teamLead",
-  "cluster-managers": "clusterManager",
-  "iot-devices": "iot",
-  batteries: "battery",
-  controllers: "factory",
-  "fleet-component-mapping": "link",
-  deallocations: "allocation",
-  "rider-document-review": "shield",
-  "rider-reference-review": "shield",
-  "support-tickets": "support",
-  "rider-rate-cards": "pricing",
-  notifications: "notification",
-  zones: "zone",
-  reports: "reports",
-  "feature-usage": "usage",
 };
 
 const ACTIVE_CLIENT_TABS = new Set<Tab>([
@@ -802,14 +649,6 @@ function clientColumns(tab: Tab): ClientColumn<RecordItem>[] {
   }
 }
 
-function canAccessTab(id: Tab, userRoles: string[]) {
-    if (userRoles.some(role => ["ADVISOR","QC_MANAGER"].includes(role))) return ["installation-board","vehicle-preparation","quality-check"].includes(id);
-    if (["audit","autopay-settings","payment-transactions","payment-reconciliation","payment-settlements","spares-penalties","legal-documents","refer-and-earn","readiness-settings","work-partners"].includes(id)) return userRoles.includes("CLIENT_ADMIN");
-    if (["notifications","advisors","qc-managers"].includes(id)) return userRoles.some(role => ["CLIENT_ADMIN","FLEET_MANAGER"].includes(role));
-    return true;
-}
-
-
 export default function Home() {
   const viewGeneration = useRef(0);
   const historyIndex = useRef(0);
@@ -920,7 +759,6 @@ export default function Home() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [userRoles, setUserRoles] = useState<string[]>([]);
-  const canSeeKyc = userRoles.some(role => role === "CLIENT_ADMIN" || role === "KYC_OPERATOR");
 
   async function loadView(nextTab: Tab) {
     const generation = ++viewGeneration.current;
@@ -2371,60 +2209,7 @@ export default function Home() {
     <main className="sa-shell client-operations-shell" onClickCapture={guardLinkNavigation}>
       <aside className="sa-sidebar">
         <ClientBrand token={token} />
-        <nav className="client-navigation" aria-label="Client operations">
-          {CLIENT_NAVIGATION.filter(section => section.items.some(item => canSeeTab(item.id)) || (section.kyc && canSeeKyc) || (section.branding && userRoles.includes("CLIENT_ADMIN"))).map((section, index) => (
-            <div
-              className="sa-nav-group client-nav-section"
-              key={`${section.label}-${index}`}
-            >
-              {section.label && (
-                <button
-                  type="button"
-                  className="sa-nav-group-toggle"
-                  data-active={section.items.some((item) => item.id === tab)}
-                  aria-expanded={expandedClientNavGroups[section.label] ?? false}
-                  aria-controls={`client-nav-group-${index}`}
-                  onClick={() => setExpandedClientNavGroups((current) => ({
-                    ...current,
-                    [section.label]: !(current[section.label] ?? false),
-                  }))}
-                >
-                  <span>{t(section.label)}</span>
-                  <UiIcon
-                    name="chevron"
-                    className={(expandedClientNavGroups[section.label] ?? false) ? "" : "is-collapsed"}
-                  />
-                </button>
-              )}
-              <div
-                id={`client-nav-group-${index}`}
-                className="client-nav-items"
-                hidden={Boolean(section.label) && !(expandedClientNavGroups[section.label] ?? false)}
-              >
-                {section.items.filter((item) => canSeeTab(item.id)).map((item, itemIndex, visibleItems) => (
-                  <Fragment key={item.id}>
-                    {item.group && item.group !== visibleItems[itemIndex - 1]?.group && (
-                      <p className="client-nav-subheading">{t(item.group)}</p>
-                    )}
-                    <button
-                      type="button"
-                      className={`${tab === item.id ? "active" : ""} ${section.label ? "sa-nav-child" : ""}`}
-                      aria-current={tab === item.id ? "page" : undefined}
-                      onClick={() => navigateTo(item.id)}
-                    >
-                      {item.id === "cluster-managers" || item.id === "team-leads" || item.id === "fleet-managers"
-                        ? <span aria-hidden="true" className={`client-role-art client-role-art-${item.id}`} />
-                        : <UiIcon name={CLIENT_TAB_ICONS[item.id]} />}
-                      {t(item.label)}
-                    </button>
-                  </Fragment>
-                ))}
-                {section.kyc && canSeeKyc && <Link className="client-nav-utility sa-nav-child" href="/client/kyc"><UiIcon name="shield" /> {t("KYC & Verification")}</Link>}
-                {section.branding && <ClientBrandingSettings token={token} triggerClassName="sa-nav-child" />}
-              </div>
-            </div>
-          ))}
-        </nav>
+        <ClientNavigation tab={tab} userRoles={userRoles} token={token} expandedClientNavGroups={expandedClientNavGroups} setExpandedClientNavGroups={setExpandedClientNavGroups} onNavigate={navigateTo} />
         <div className="sa-user client-sidebar-footer">
           <span aria-hidden="true">C</span>
           <div><strong>{t("Client Operations")}</strong><small>{t("EVs Eye workspace")}</small></div>
