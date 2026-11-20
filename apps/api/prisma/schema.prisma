@@ -861,6 +861,7 @@ enum FleetOperatingMode {
 }
 
 model Client {
+  deploymentAutoPayPolicy ClientDeploymentAutoPayPolicy?
   walletAutoRechargePolicy WalletAutoRechargePolicy?
   walletAutoRechargePreferences WalletAutoRechargePreference[]
   walletAutoRecharges WalletAutoRecharge[]
@@ -998,6 +999,15 @@ model PaymentProviderConfigurationVersion {
   @@unique([providerConfigurationId, version], map: "PaymentProviderConfigurationVersion_parent_version_key")
   @@unique([clientId, id])
   @@index([clientId, provider, environment, keyId], map: "PaymentProviderConfigurationVersion_merchant_idx")
+}
+
+model ClientDeploymentAutoPayPolicy {
+  clientId  String   @id
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  enabled   Boolean  @default(false)
+  revision  Int      @default(1)
+  updatedAt DateTime @updatedAt
+  updatedBy String?
 }
 
 model ClientPaymentProvider {

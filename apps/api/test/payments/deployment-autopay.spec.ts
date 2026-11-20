@@ -149,7 +149,7 @@ function fixture() {
     reconcileStored: vi.fn(),
   };
   const config: any = { get: vi.fn(() => 'true') },
-    policy: any = { resolve: vi.fn(async () => 'RAZORPAY') };
+    policy: any = { resolve: vi.fn(async () => 'RAZORPAY'), deploymentAutoPay: vi.fn(async () => ({ effectiveEnabled: true })) };
   const bridge = new DeploymentAutoPayBridge();
   const service = new DeploymentAutoPayService(
     db,
@@ -169,6 +169,7 @@ function fixture() {
     gateway,
     mandates,
     config,
+    policy,
     bridge,
   };
 }
@@ -272,6 +273,13 @@ describe('combined deployment AutoPay', () => {
       ),
     ).rejects.toThrow('terms changed');
     expect(f.gateway.createAuthorizationOrder).not.toHaveBeenCalled();
+  });
+  it('rejects new combined checkout when the client policy is disabled', async () => {
+    const f = fixture();
+    f.policy.deploymentAutoPay.mockResolvedValue({ effectiveEnabled: false, reasonMessage: null });
+    await expect(f.service.prepare('client', 'user', await f.gateway.configurationFor(), new Prisma.Decimal(500), 'INR', options)).rejects.toThrow('disabled for this client');
+    expect(f.gateway.createAuthorizationOrder).not.toHaveBeenCalled();
+    expect(f.mandates.deploymentContext).not.toHaveBeenCalled();
   });
   it('creates one recurring order and recovers a timeout without a second POST', async () => {
     const f = fixture();

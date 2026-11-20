@@ -1,11 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PaymentGatewayPolicyService } from '../../src/payments/payment-gateway-policy.service.js';
+import { DeploymentAutoPayPolicyService } from '../../src/payments/deployment-autopay-policy.service.js';
 
 const merchant = { provider: 'RAZORPAY', status: 'ACTIVE', validFrom: new Date(0), validUntil: null };
 function fixture(rows: unknown[] = [merchant]) {
-  const db = { clientPaymentProvider: { findMany: vi.fn().mockResolvedValue(rows) } };
+  const db = { clientPaymentProvider: { findMany: vi.fn().mockResolvedValue(rows.map((row: any) => ({
+    ...row, currentVersion: 1, keyId: 'key', secretReference: 'env:MERCHANT', versions: [{ clientId: 'client', version: 1, provider: 'RAZORPAY', environment: 'TEST', keyId: 'key', secretReference: 'env:MERCHANT', credentialFingerprint: 'fingerprint' }],
+  }))) },
+    clientDeploymentAutoPayPolicy: { findUnique: vi.fn().mockResolvedValue({ enabled: true, revision: 1 }) },
+    clientSubscription: { findFirst: vi.fn().mockResolvedValue({ package: { isActive: true, features: [{ feature: { configuration: { mandateMaxAmount: '750', validityDays: 365, paymentMethods: ['UPI_AUTOPAY'] } } }] } }) },
+  };
   const settings: Record<string, string> = { PAYMENT_PROVIDER: 'cashfree', AUTOPAY_PROVIDER: 'cashfree', RAZORPAY_ENVIRONMENT: 'TEST' };
-  return { db, settings, policy: new PaymentGatewayPolicyService(db as never, { get: (key: string) => settings[key] } as never) };
+  const config = { get: (key: string) => settings[key] } as never;
+  return { db, settings, policy: new PaymentGatewayPolicyService(db as never, config, new DeploymentAutoPayPolicyService(db as never, config)) };
 }
 describe('Client gateway policy', () => {
   it('disables unconfigured shared Cashfree without blocking configured Razorpay merchants', async () => {

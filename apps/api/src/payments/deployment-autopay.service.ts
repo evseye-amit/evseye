@@ -54,6 +54,12 @@ export class DeploymentAutoPayService
         code: 'AUTOPAY_UNAVAILABLE',
         message: 'Combined AutoPay checkout is disabled.',
       });
+    if (tx) await tx.$queryRaw`SELECT id FROM "Client" WHERE id=${clientId} FOR UPDATE`;
+    const availability = await this.policy.deploymentAutoPay(clientId, tx);
+    if (!availability.effectiveEnabled) throw new ServiceUnavailableException({
+      code: 'AUTOPAY_UNAVAILABLE',
+      message: availability.reasonMessage ?? 'Onboarding AutoPay is disabled for this client.',
+    });
     if (
       !options.email ||
       options.autoPayConsent?.accepted !== true ||
