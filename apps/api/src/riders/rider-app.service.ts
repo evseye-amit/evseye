@@ -2,7 +2,7 @@ import { profileBirthDate, profileAddressFields, recoverableProfileKeys } from '
 import { normalizeRiderBankValues, riderBankFields } from './rider-bank-fields.js';
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { PhotoStatus, PhotoSubjectType, PhotoType, Prisma, ReferralAttributionSource, RiderDocumentReviewStatus, UserRole } from '@prisma/client';
-import { normalizeIndianMobile } from '../common/phone.js';
+import { indianMobileVariants, normalizeIndianMobile } from '../common/phone.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RiderOnboardingConfigurationService } from './rider-onboarding-configuration.service.js';
 import { MediaService } from '../media/media.service.js';
@@ -29,13 +29,32 @@ export class RiderAppService {
     const configuration = await this.configuration.getEffectiveConfiguration(client.id);
     if (!configuration.onboarding.steps.length) throw new BadRequestException('Rider onboarding is not configured for this workspace.');
     const mobile = normalizeIndianMobile(phone);
-    const user = await this.prisma.$transaction(async (tx) => {
-      const existing = await tx.user.findFirst({ where: { clientId: client.id, mobile, isActive: true, deletedAt: null } });
+    const enroll = () => this.prisma.$transaction(async (tx) => {
+      // Disabled/deleted accounts still reserve their mobile number. Never
+      // recreate or reactivate them through this public endpoint.
+      const existing = await tx.user.findFirst({ where: { clientId: client.id, mobile: { in: [...indianMobileVariants(phone), mobile.replace(/^\+/, '')] } } });
+      if (existing && (!existing.isActive || existing.deletedAt)) throw new ConflictException('This account is unavailable. Please contact your fleet administrator.');
       if (existing && existing.role !== UserRole.RIDER) throw new ConflictException('This mobile number is already assigned to another role.');
       const enrolled = existing ?? await tx.user.create({ data: { clientId: client.id, mobile, name: 'Pending Rider', role: UserRole.RIDER } });
       await tx.riderOnboardingProgress.upsert({ where: { userId: enrolled.id }, create: { clientId: client.id, userId: enrolled.id, packageId: configuration.package.id, currentStepId: configuration.onboarding.steps[0]?.stepId }, update: {} });
       return enrolled;
     });
+    // A competing request may create the user after our lookup. Retry outside
+    // the rolled-back transaction so we can reuse the committed account.
+    let user;
+    try {
+      user = await enroll();
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
+      try {
+        user = await enroll();
+      } catch (retryError) {
+        if (retryError instanceof Prisma.PrismaClientKnownRequestError && retryError.code === 'P2002') {
+          throw new ConflictException('This mobile number is already registered. Please contact your fleet administrator.');
+        }
+        throw retryError;
+      }
+    }
     return { clientId: client.id, userId: user.id, phone: mobile };
   }
 
