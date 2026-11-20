@@ -101,7 +101,7 @@ export class KycCommercialAdminController {
     const subscription = await this.prisma.clientSubscription.findFirst({ where: { clientId, status: 'ACTIVE' },
       orderBy: { startDate: 'desc' }, select: { id: true, packageId: true } });
     if (!subscription) return { data: { available: [], purchased: [] } };
-    const codes = ['PAN_VERIFICATION', 'AADHAAR_VERIFICATION', 'BANK_VERIFICATION', 'IFSC_VERIFICATION'];
+    const codes = ['VERIFY_PAN', 'AADHAAR_VERIFICATION', 'BANK_VERIFICATION', 'IFSC_VERIFICATION'];
     const [available, purchased] = await Promise.all([
       this.prisma.featureAddOn.findMany({ where: { isActive: true, effectiveFrom: { lte: new Date() },
         OR: [{ effectiveTo: null }, { effectiveTo: { gt: new Date() } }],

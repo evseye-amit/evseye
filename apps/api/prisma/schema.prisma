@@ -861,6 +861,12 @@ enum FleetOperatingMode {
 }
 
 model Client {
+  deploymentAutoPayPolicy ClientDeploymentAutoPayPolicy?
+  walletAutoRechargePolicy WalletAutoRechargePolicy?
+  walletAutoRechargePreferences WalletAutoRechargePreference[]
+  walletAutoRecharges WalletAutoRecharge[]
+
+ paymentOperationalAlerts PaymentOperationalAlert[]
   readinessPolicies FleetReadinessPolicy[]
   fleetOperatingMode FleetOperatingMode @default(SIMPLE)
   penaltyHandoverExceptions PenaltyHandoverException[]
@@ -970,7 +976,43 @@ model Client {
   updatedAt                   DateTime                           @updatedAt
 }
 
+model PaymentProviderConfigurationVersion {
+  collections PaymentCollectionRequest[]
+  settlements ProviderSettlement[]
+  id String @id @default(uuid())
+  clientId String
+  providerConfigurationId String
+  configuration ClientPaymentProvider @relation(fields: [providerConfigurationId, clientId], references: [id, clientId], onDelete: Restrict, map: "PaymentProviderConfigurationVersion_parent_fkey")
+  version Int
+  provider String @db.VarChar(32)
+  environment String @db.VarChar(16)
+  merchantAccountId String? @db.VarChar(128)
+  keyId String @db.VarChar(128)
+  secretReference String @db.VarChar(512)
+  credentialFingerprint String? @db.VarChar(64)
+  createdAt DateTime @default(now())
+  mandates PaymentMandate[]
+  transactions PaymentTransaction[]
+  deploymentAttempts DeploymentPaymentAttempt[]
+  collectionOrders RazorpayPenaltyOrder[]
+  webhookEvents PaymentProviderEvent[]
+  @@unique([providerConfigurationId, version], map: "PaymentProviderConfigurationVersion_parent_version_key")
+  @@unique([clientId, id])
+  @@index([clientId, provider, environment, keyId], map: "PaymentProviderConfigurationVersion_merchant_idx")
+}
+
+model ClientDeploymentAutoPayPolicy {
+  clientId  String   @id
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  enabled   Boolean  @default(false)
+  revision  Int      @default(1)
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+}
+
 model ClientPaymentProvider {
+  currentVersion Int @default(1)
+  versions PaymentProviderConfigurationVersion[]
   id                String   @id @default(uuid())
   clientId          String
   client            Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -985,6 +1027,7 @@ model ClientPaymentProvider {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
+  @@unique([id, clientId])
   @@unique([clientId, provider, environment])
   @@index([clientId, provider, status])
 }
@@ -2171,6 +2214,13 @@ model Rider {
 }
 
 model PaymentMandate {
+  deploymentAttempts DeploymentPaymentAttempt[]
+  walletAutoRechargePreferences WalletAutoRechargePreference[]
+  walletAutoRecharges WalletAutoRecharge[]
+
+  providerEnvironment String? @db.VarChar(16)
+  configurationVersionId String?
+  configurationVersion PaymentProviderConfigurationVersion? @relation(fields: [clientId, configurationVersionId], references: [clientId, id], onDelete: Restrict, map: "PaymentMandate_configurationVersion_fkey")
   id                     String                 @id @default(uuid())
   mandateNumber          String?                @unique @db.VarChar(50)
   autoDebitEnabled       Boolean                @default(true)
@@ -2232,6 +2282,8 @@ model PaymentMandateEvent {
 }
 
 model PaymentProviderEvent {
+  configurationVersionId String?
+  configurationVersion PaymentProviderConfigurationVersion? @relation(fields: [clientId, configurationVersionId], references: [clientId, id], onDelete: Restrict, map: "PaymentProviderEvent_configurationVersion_fkey")
   deploymentAttemptId String?
   deploymentAttempt DeploymentPaymentAttempt? @relation(fields: [deploymentAttemptId], references: [id], onDelete: Restrict)
   deploymentPayload Json?
@@ -2261,6 +2313,8 @@ model PaymentProviderEvent {
 }
 
 model PaymentTransaction {
+  configurationVersionId String?
+  configurationVersion PaymentProviderConfigurationVersion? @relation(fields: [clientId, configurationVersionId], references: [clientId, id], onDelete: Restrict, map: "PaymentTransaction_configurationVersion_fkey")
   razorpayCaptures RazorpayAutoPayCapture[]
   id                 String                   @id @default(uuid())
   debitNumber        String?                  @unique @db.VarChar(50)
@@ -2289,6 +2343,7 @@ model PaymentTransaction {
   currency           String                   @default("INR") @db.Char(3)
   scheduledAt        DateTime
   preDebitNotifiedAt DateTime?
+  failedAt           DateTime?
   completedAt        DateTime?
   lastVerifiedAt     DateTime?
   riderPaymentId     String?                  @unique
@@ -2369,6 +2424,8 @@ model AutoPayDunningCase {
 }
 
 model PaymentCollectionRequest {
+  configurationVersionId String?
+  configurationVersion PaymentProviderConfigurationVersion? @relation(fields: [configurationVersionId, clientId], references: [id, clientId], onDelete: Restrict)
   id                   String                       @id @default(uuid())
   paymentNumber        String?                      @unique @db.VarChar(50)
   clientId             String
@@ -2839,6 +2896,9 @@ model RiderPaymentAllocation {
 }
 
 model PaymentRefund {
+  origin String @default("INTERNAL") @db.VarChar(16)
+  externalReference String? @db.VarChar(120)
+  @@unique([clientId, provider, externalReference])
   id                String       @id @default(uuid())
   refundNumber      String?      @unique @db.VarChar(50)
   clientId          String
@@ -2864,8 +2924,31 @@ model PaymentRefund {
   @@index([clientId, riderId, status])
 }
 
+/// Database leases coordinate at-least-once recovery across API replicas.
+model PaymentAutomationJob {
+  key String @id
+  leaseToken String?
+  leaseUntil DateTime?
+  nextAttemptAt DateTime @default(now())
+  attempts Int @default(0)
+  lastError String?
+  lastSucceededAt DateTime?
+  updatedAt DateTime @default(now())
+  @@index([nextAttemptAt])
+}
+
 /// Provider statement import. No rider balance is inferred from an unmatched row.
 model ProviderSettlement {
+  source String @default("MANUAL") @db.VarChar(20)
+  configurationVersion PaymentProviderConfigurationVersion? @relation(fields: [configurationVersionId, clientId], references: [id, clientId], onDelete: Restrict, map: "ProviderSettlement_merchant_fkey")
+  configurationVersionId String?
+  bankConfirmedAt DateTime?
+  bankConfirmedById String?
+  bankCreditedAt DateTime?
+  bankUtr String? @db.VarChar(160)
+  bankAccountLast4 String? @db.VarChar(4)
+  bankEvidenceReference String? @db.VarChar(300)
+  @@unique([clientId, bankUtr])
   id                   String                   @id @default(uuid())
   clientId             String
   provider             String                   @db.VarChar(30)
@@ -3152,6 +3235,26 @@ model DeploymentPayment {
 /// Provider-specific payloads belong in metadata; business payment state remains
 /// on DeploymentPayment.
 model DeploymentPaymentAttempt {
+  autoPayRequested Boolean @default(false)
+  autoPayRequestKey String? @db.VarChar(120)
+  autoPayRequestHash String? @db.VarChar(64)
+  autoPayEmail String? @db.VarChar(254)
+  autoPayCustomerId String? @db.VarChar(100)
+  autoPayMaxAmount Decimal? @db.Decimal(14, 2)
+  autoPayExpiresAt DateTime?
+  autoPayConsent Json?
+  autoPayOrderClaimedAt DateTime?
+  autoPayTokenId String? @db.VarChar(100)
+  autoPayAuthorizationPaymentId String? @db.VarChar(100)
+  autoPayStatus String? @db.VarChar(32)
+  autoPayFailureCode String? @db.VarChar(80)
+  autoPayMandateId String?
+  autoPayMandate PaymentMandate? @relation(fields: [clientId, autoPayMandateId], references: [clientId, id], onDelete: Restrict, map: "DeploymentPaymentAttempt_autoPayMandate_fkey")
+  @@unique([clientId, autoPayRequestKey])
+  @@index([autoPayRequested, autoPayStatus, checkedAt], map: "DeploymentPaymentAttempt_autoPay_recovery_idx")
+
+  configurationVersionId String?
+  configurationVersion PaymentProviderConfigurationVersion? @relation(fields: [clientId, configurationVersionId], references: [clientId, id], onDelete: Restrict, map: "DeploymentPaymentAttempt_configurationVersion_fkey")
   id                   String          @id @default(uuid())
   clientId             String
   deploymentPaymentId  String
@@ -3175,11 +3278,16 @@ model DeploymentPaymentAttempt {
 }
 
 model DeploymentPaymentCapture {
+  autoPayTokenId String? @db.VarChar(100)
+  autoPayCleanupReason String? @db.VarChar(80)
+  autoPayCleanupStatus String? @db.VarChar(32)
+
   id                String                    @id @default(uuid())
   attemptId         String
   attempt           DeploymentPaymentAttempt  @relation(fields: [attemptId], references: [id], onDelete: Restrict)
   providerPaymentId String                    @unique @db.VarChar(160)
   amountPaise       BigInt
+  paymentMethod String? @db.VarChar(30)
   currency          String                    @db.Char(3)
   status            String                    @db.VarChar(32)
   reason            String?                   @db.VarChar(150)
@@ -3353,6 +3461,7 @@ model KycConsent {
 }
 
 model KycVerification {
+  outbox                         KycVerificationOutbox?
   featureConsumption             FeatureUsageConsumption?
   routingDecision                KycRoutingDecision?
   providerConflicts              KycProviderConflict[]
@@ -3393,6 +3502,25 @@ model KycVerification {
   @@index([verificationType, status, createdAt])
   @@index([createdAt])
   @@index([clientId, requestedAt, verificationType])
+}
+
+model KycVerificationOutbox {
+  id             String          @id @default(uuid())
+  verificationId String          @unique
+  verification  KycVerification  @relation(fields: [verificationId], references: [id], onDelete: Cascade)
+  clientId       String
+  status         String          @default("PENDING")
+  payload        Json
+  attempts       Int             @default(0)
+  availableAt    DateTime        @default(now())
+  lockedAt       DateTime?
+  completedAt    DateTime?
+  lastError      String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([status, availableAt])
+  @@index([clientId, status, createdAt])
 }
 
 model KycRecoveryRequest {
@@ -5722,6 +5850,9 @@ enum WalletHoldStatus {
 }
 
 model RiderWallet {
+  autoRechargePreference WalletAutoRechargePreference?
+  autoRecharges WalletAutoRecharge[]
+
   securityDeposits WalletSecurityDeposit[]
   id               String                  @id @default(uuid())
   clientId         String
@@ -6531,6 +6662,8 @@ model RazorpayDeploymentCapture {
 }
 
 model RazorpayPenaltyOrder {
+  configurationVersionId String?
+  configurationVersion PaymentProviderConfigurationVersion? @relation(fields: [configurationVersionId], references: [id], onDelete: Restrict, map: "RazorpayPenaltyOrder_configurationVersion_fkey")
   id String @id @default(uuid())
   collectionId String @unique
   collection PaymentCollectionRequest @relation(fields: [collectionId], references: [id], onDelete: Restrict)
@@ -6552,6 +6685,7 @@ model RazorpayPenaltyCapture {
   order RazorpayPenaltyOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
   providerPaymentId String @unique @db.VarChar(120)
   amountPaise BigInt
+  paymentMethod String? @db.VarChar(30)
   currency String @db.Char(3)
   status String @db.VarChar(30)
   reason String? @db.VarChar(100)
@@ -6573,4 +6707,85 @@ model RazorpayAutoPayCapture {
   updatedAt DateTime @updatedAt
   @@index([transactionId, createdAt])
   @@index([status, createdAt])
+}
+
+model PaymentOperationalAlert {
+ client Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+ id String @id @default(uuid())
+ clientId String
+ kind String @db.VarChar(40)
+ referenceId String
+ routedRole String @default("CLIENT_ADMIN") @db.VarChar(30)
+ assigneeId String?
+ acknowledgedAt DateTime?
+ acknowledgedById String?
+ createdAt DateTime @default(now())
+ @@unique([clientId, kind, referenceId])
+ @@index([clientId, createdAt])
+}
+
+// Wallet funding is independent of invoice collection. Existing riders are never opted in by migration.
+model WalletAutoRechargePolicy {
+  clientId String @id
+  client Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  enabled Boolean @default(false)
+  threshold Decimal @default(550) @db.Decimal(14, 2)
+  rechargeAmount Decimal @default(750) @db.Decimal(14, 2)
+  revision Int @default(1)
+  updatedAt DateTime @updatedAt
+}
+
+model WalletAutoRechargePreference {
+  id String @id @default(uuid())
+  clientId String
+  client Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId String
+  walletId String @unique
+  wallet RiderWallet @relation(fields: [clientId, riderId, walletId], references: [clientId, riderId, id], onDelete: Restrict)
+  mandateId String
+  mandate PaymentMandate @relation(fields: [clientId, mandateId], references: [clientId, id], onDelete: Restrict)
+  enabled Boolean @default(false)
+  consentRevision Int
+  consentedAt DateTime @default(now())
+  actionRequired Boolean @default(false)
+  nextEligibleAt DateTime @default(now())
+  checkedAt DateTime @default(now())
+  evaluationRequestedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([clientId, riderId])
+  @@index([checkedAt])
+  @@unique([clientId, riderId, walletId])
+}
+
+model WalletAutoRecharge {
+  id String @id @default(uuid())
+  clientId String
+  client Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  riderId String
+  walletId String
+  wallet RiderWallet @relation(fields: [clientId, riderId, walletId], references: [clientId, riderId, id], onDelete: Restrict)
+  mandateId String
+  mandate PaymentMandate @relation(fields: [clientId, mandateId], references: [clientId, id], onDelete: Restrict)
+  allocationId String
+  policyRevision Int
+  threshold Decimal @db.Decimal(14, 2)
+  balanceAtTrigger Decimal @db.Decimal(14, 2)
+  amount Decimal @db.Decimal(14, 2)
+  currency String @default("INR") @db.Char(3)
+  status String @default("CREATING") @db.VarChar(32)
+  failureCode String? @db.VarChar(80)
+  configurationVersionId String?
+  providerKeyId String?
+  providerOrderId String? @unique
+  providerPaymentId String? @unique
+  orderClaimedAt DateTime?
+  debitClaimedAt DateTime?
+  scheduledAt DateTime
+  checkedAt DateTime @default(now())
+  completedAt DateTime?
+  notifiedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([status, checkedAt])
+  @@index([clientId, riderId, createdAt])
 }

@@ -19,9 +19,10 @@ import { ReferralModule } from '../referrals/referral.module.js';
 import { WorkflowModule } from '../workflow/workflow.module.js';
 import { RiderKycStatusModule } from './rider-kyc-status.module.js';
 import { BanksModule } from '../banks/banks.module.js';
+import { KycModule } from '../kyc/kyc.module.js';
 
 @Module({
-  imports: [WalletModule, AuthModule, AuditModule, MediaModule, ReferralModule, WorkflowModule, RiderKycStatusModule, BanksModule],
+  imports: [WalletModule, AuthModule, AuditModule, MediaModule, ReferralModule, WorkflowModule, RiderKycStatusModule, BanksModule, KycModule],
   controllers: [RiderWalletOperationsController, RiderEarningsController, RiderReferenceReviewController, RidersController, RiderAppController, RiderDocumentReviewController],
   providers: [RiderWalletOperationsService, RiderEarningsService, RiderReferenceReviewService, RidersService, RiderAppService, RiderDocumentReviewService],
   exports: [RiderDocumentReviewService],

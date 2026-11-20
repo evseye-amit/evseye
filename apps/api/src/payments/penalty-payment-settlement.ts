@@ -3,6 +3,7 @@ import { Prisma, type PaymentCollectionRequest } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RiderPaymentsService } from '../rider-billing/rider-payments.service.js';
 import { WalletService } from '../wallet/wallet.service.js';
+import { retryablePaymentTransaction } from './transaction-retry.js';
 import { PENALTY_PAYMENT, readPenaltySnapshot } from './outstanding-payment.js';
 
 /** Both gateways use the same immutable invoice plan and accounting transaction. */
@@ -12,6 +13,7 @@ export async function settlePenaltyPayment(
   walletService: WalletService,
   request: PaymentCollectionRequest,
   paymentId: string,
+  verifiedMethod?: string,
 ) {
   if (request.collectionType !== PENALTY_PAYMENT)
     throw new ConflictException('NOT_A_PENALTY_COLLECTION');
@@ -39,7 +41,7 @@ export async function settlePenaltyPayment(
               riderId,
               amount: current.amount,
               currency: current.currency,
-              method: current.method,
+              method: verifiedMethod ?? current.method,
               provider: current.provider,
               providerPaymentId: paymentId,
               sourceId: current.id,
@@ -81,6 +83,7 @@ export async function settlePenaltyPayment(
             where: { id: current.id },
             data: {
               status: 'SUCCESS',
+              method: verifiedMethod ?? current.method,
               providerPaymentId: paymentId,
               riderPaymentId: payment.id,
               completedAt: new Date(),
@@ -118,9 +121,12 @@ export async function settlePenaltyPayment(
         },
       );
     } catch (error) {
+      // A concurrent callback can commit after this serializable snapshot.
+      // Retry the whole transaction so SUCCESS and payment identity are reread.
       if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2034' &&
+        (retryablePaymentTransaction(error) ||
+          (error instanceof Prisma.PrismaClientKnownRequestError &&
+            error.code === 'P2002')) &&
         attempt < 3
       )
         continue;

@@ -76,12 +76,19 @@ export class PlatformAdminController {
   @Get('clients/:clientId/payment-providers') paymentProviders(@Param('clientId') clientId: string) {
     return this.platform.listClientPaymentProviders(clientId).then((data) => ({ data }));
   }
+  @Put('clients/:clientId/payment-providers/cashfree') upsertCashfreeProvider(
+    @Param('clientId') clientId: string,
+    @Body() dto: UpsertClientPaymentProviderDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.platform.upsertClientPaymentProvider(clientId, { ...dto, provider: 'CASHFREE' }, user.id).then((data) => ({ data }));
+  }
   @Put('clients/:clientId/payment-providers/razorpay') upsertRazorpayProvider(
     @Param('clientId') clientId: string,
     @Body() dto: UpsertClientPaymentProviderDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.platform.upsertClientPaymentProvider(clientId, dto, user.id).then((data) => ({ data }));
+    return this.platform.upsertClientPaymentProvider(clientId, { ...dto, provider: 'RAZORPAY' }, user.id).then((data) => ({ data }));
   }
   @Post('clients/:clientId/feature-revisions/draft') createClientFeatureDraft(
     @Param('clientId') clientId: string,

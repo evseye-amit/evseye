@@ -1,3 +1,4 @@
+import { PaymentGatewayPolicyService } from './payment-gateway-policy.service.js';
 import {
   Controller,
   Get,
@@ -25,6 +26,7 @@ export class RiderPaymentHomeController {
     private readonly clients: ClientContextService,
     private readonly billing: RiderBillingService,
     private readonly receipts: RiderPaymentsService,
+    private readonly policy: PaymentGatewayPolicyService,
   ) {}
   private async context(user: AuthUser) {
     const clientId = this.clients.requireClientId(user);
@@ -36,7 +38,7 @@ export class RiderPaymentHomeController {
   @Get('home')
   async home(@CurrentUser() user: AuthUser) {
     const { clientId, riderId } = await this.context(user);
-    const [invoices, profile, mandate, nextAutoPay, recentPayments] =
+    const [invoices, profile, mandate, nextAutoPay, recentPayments, capabilities, pendingCheckout] =
       await Promise.all([
         this.prisma.riderInvoice.findMany({
           where: {
@@ -49,6 +51,8 @@ export class RiderPaymentHomeController {
           select: {
             id: true,
             outstandingAmount: true,
+            currency: true,
+            invoiceType: true,
             dueDate: true,
             status: true,
           },
@@ -68,7 +72,7 @@ export class RiderPaymentHomeController {
           },
         }),
         this.prisma.paymentTransaction.findFirst({
-          where: { clientId, riderId, status: { in: ['CREATING', 'PENDING'] } },
+          where: { clientId, riderId, status: { in: ['CREATING', 'PENDING', 'UNKNOWN'] } },
           orderBy: { scheduledAt: 'asc' },
           select: { scheduledAt: true },
         }),
@@ -78,6 +82,8 @@ export class RiderPaymentHomeController {
           take: 5,
           select: { id: true, amount: true, method: true, receivedAt: true },
         }),
+        this.policy.capabilities(clientId),
+        this.prisma.paymentCollectionRequest.findFirst({ where: { clientId, riderId, status: { in: ['CREATING', 'PENDING', 'UNKNOWN'] } }, select: { id: true } }),
       ]);
     const now = new Date();
     const amountDue = invoices.reduce(
@@ -90,9 +96,9 @@ export class RiderPaymentHomeController {
         (sum, invoice) => sum.plus(invoice.outstandingAmount),
         new Prisma.Decimal(0),
       );
-    const autoPayStatus = !mandate
+    const autoPayStatus = !mandate || !profile?.autoPayEnabled
       ? 'NOT_ENABLED'
-      : ((
+      : mandate.expiresAt && mandate.expiresAt <= now ? 'EXPIRED' : ((
           {
             CREATED: 'SETUP_REQUIRED',
             AUTHORIZATION_PENDING: 'AUTHENTICATION_PENDING',
@@ -104,13 +110,30 @@ export class RiderPaymentHomeController {
             UNKNOWN: 'SETUP_REQUIRED',
           } as Record<string, string>
         )[mandate.status] ?? 'SETUP_REQUIRED');
+    const currencies = [...new Set(invoices.map(i => i.currency ?? 'INR'))];
+    const unsupportedCurrency = currencies.some(currency => currency !== 'INR');
+    const capability = capabilities.purposes.OUTSTANDING;
+    const payNowUnavailableReason = amountDue.lte(0) ? 'NO_AMOUNT_DUE'
+      : unsupportedCurrency ? 'UNSUPPORTED_INVOICE_CURRENCY'
+      : !capability?.enabled ? capability?.reason ?? 'PAYMENT_UNAVAILABLE'
+      : pendingCheckout || nextAutoPay ? 'PAYMENT_ALREADY_IN_PROGRESS'
+      : invoices.some(i => i.invoiceType === 'SECURITY_DEPOSIT') ? 'PAY_SECURITY_DEPOSIT_INVOICE_SEPARATELY'
+      : amountDue.lt(1) ? 'PAYMENT_BELOW_GATEWAY_MINIMUM' : null;
     return {
       data: {
-        amountDue: amountDue.toFixed(2),
-        overdueAmount: overdueAmount.toFixed(2),
+        balancesByCurrency: currencies.map(currency => {
+          const matching = invoices.filter(invoice => (invoice.currency ?? 'INR') === currency);
+          return { currency,
+            amountDue: matching.reduce((sum, invoice) => sum.plus(invoice.outstandingAmount), new Prisma.Decimal(0)).toFixed(2),
+            overdueAmount: matching.filter(invoice => invoice.dueDate < now).reduce((sum, invoice) => sum.plus(invoice.outstandingAmount), new Prisma.Decimal(0)).toFixed(2),
+          };
+        }),
+        amountDue: currencies.length > 1 ? null : amountDue.toFixed(2),
+        overdueAmount: currencies.length > 1 ? null : overdueAmount.toFixed(2),
         dueDate: invoices[0]?.dueDate ?? null,
-        currency: profile?.currency ?? 'INR',
+        currency: currencies.length > 1 ? null : currencies[0] ?? profile?.currency ?? 'INR',
         autoPayStatus,
+        autoPayEnabled: profile?.autoPayEnabled ?? false,
         paymentMethod: mandate?.method ?? null,
         mandateStatus: mandate?.status ?? null,
         mandateMaxAmount: mandate?.maxAmount.toFixed(2) ?? null,
@@ -122,7 +145,8 @@ export class RiderPaymentHomeController {
           method: payment.method,
           receivedAt: payment.receivedAt,
         })),
-        payNowAvailable: amountDue.gt(0),
+        payNowAvailable: payNowUnavailableReason === null,
+        payNowUnavailableReason,
       },
     };
   }

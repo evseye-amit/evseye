@@ -72,6 +72,7 @@ describe.skipIf(!url)('Razorpay rental invoices through the common API', () => {
         currency: string;
         status: string;
         captured: boolean;
+        method?: string;
         amount_refunded: number;
       }
     >();
@@ -79,6 +80,8 @@ describe.skipIf(!url)('Razorpay rental invoices through the common API', () => {
     const gateway = {
       enabled: true,
       keyId: 'rzp_test_rental',
+        keyIdFor: vi.fn().mockResolvedValue('rzp_test_rental'),
+        configurationFor: vi.fn().mockResolvedValue({ keyId: 'rzp_test_rental', environment: 'TEST' }),
       assertConfigured: vi.fn(),
       verifyCheckout: vi.fn(
         (order: string, payment: string, signature: string) =>
@@ -201,6 +204,7 @@ describe.skipIf(!url)('Razorpay rental invoices through the common API', () => {
         currency: string;
         status: string;
         captured: boolean;
+        method?: string;
       }> = {},
     ) {
       const order = orders.get(orderId)!;
@@ -275,6 +279,30 @@ describe.skipIf(!url)('Razorpay rental invoices through the common API', () => {
       fund,
     };
   }
+
+  it.each([['upi', 'UPI'], ['card', 'CARD'], [undefined, 'UNKNOWN']])(
+    'settles %s with verified method and no duplicate accounting on replay', async (method, expected) => {
+      const f = await fixture();
+      const invoice = await f.invoice();
+      const created = await f.create(invoice.id);
+      expect(created).toMatchObject({ paymentMethod: null });
+      const callback = f.capture(created.providerOrderId!, { method });
+      const verified = await f.common.verify(f.client.id, f.user.id, created.paymentRequestId!, callback);
+      expect(verified).toMatchObject({ status: 'SUCCEEDED', paymentMethod: expected });
+      await f.penalties.reconcileCollection(f.client.id, f.rider.id, created.paymentRequestId!.slice(11));
+      const collection = await db.paymentCollectionRequest.findFirstOrThrow({ where: { providerPaymentId: callback.razorpayPaymentId } });
+      expect(collection.method).toBe(expected);
+      const receipt = await db.riderPayment.findUniqueOrThrow({ where: { id: collection.riderPaymentId! } });
+      expect(receipt.method).toBe(expected);
+      expect(await db.riderPayment.count({ where: { clientId: f.client.id } })).toBe(1);
+      expect(await db.razorpayPenaltyCapture.count({ where: { providerPaymentId: callback.razorpayPaymentId } })).toBe(1);
+      // A later sparse provider response must not erase previously verified evidence.
+      delete f.captures.get(callback.razorpayPaymentId)!.method;
+      await f.penalties.reconcileCollection(f.client.id, f.rider.id, collection.id);
+      expect(await f.common.detail(f.client.id, f.user.id, created.paymentRequestId!)).toMatchObject({ paymentMethod: expected });
+    },
+  );
+
   it('collects frozen rent and settles once across concurrent callbacks, preserving other obligations', async () => {
     const f = await fixture();
     const invoice = await f.invoice();
@@ -392,14 +420,11 @@ describe.skipIf(!url)('Razorpay rental invoices through the common API', () => {
       }),
     ).toBe(1);
   });
-  it('rejects paid, draft, non-rental, foreign and non-INR invoices', async () => {
+  it('rejects paid, draft, foreign and non-INR rental invoices while routing other types to shared checkout', async () => {
     const f = await fixture();
     const other = await fixture();
     const foreign = await other.invoice();
     await expect(f.create(foreign.id)).rejects.toThrow('INVOICE_NOT_FOUND');
-    await expect(
-      f.create((await f.invoice('50', 'SUBMISSION_PENALTY')).id),
-    ).rejects.toThrow('rental invoices only');
     await expect(
       f.create((await f.invoice('50', 'RENTAL', 'DRAFT')).id),
     ).rejects.toThrow('INVOICE_ALREADY_PAID');

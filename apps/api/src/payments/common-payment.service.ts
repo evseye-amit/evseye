@@ -1,10 +1,13 @@
+import { deploymentRequestHash } from './deployment-autopay.input.js';
 import {
   BadRequestException,
   ConflictException,
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
+import { PaymentGatewayPolicyService } from './payment-gateway-policy.service.js';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RiderBillingService } from '../rider-billing/rider-billing.service.js';
@@ -24,6 +27,7 @@ const purposes: Record<string, string> = {
   OUTSTANDING_PAYMENT: 'OUTSTANDING',
   SECURITY_DEPOSIT: 'SECURITY_DEPOSIT',
   [PENALTY_PAYMENT]: 'SUBMISSION_PENALTY',
+  TOP_UP: 'TOP_UP',
 };
 export function commonPaymentStatus(
   status: string,
@@ -60,7 +64,44 @@ export class CommonPaymentService {
     private readonly deployments: DeploymentPaymentOperations,
     private readonly penalties: RazorpayPenaltyService,
     private readonly invoices?: RazorpayInvoiceService,
+    @Optional() private readonly policy?: PaymentGatewayPolicyService,
   ) {}
+
+  async capabilities(clientId: string, userId: string) {
+    await this.billing.riderForUser(clientId, userId);
+    return this.policy ? this.policy.capabilities(clientId) : { contractVersion: 1, purposes: {} };
+  }
+
+  async reconcile(clientId: string, userId: string, requestId: string) {
+    const owned = await this.owned(clientId, userId, requestId);
+    if (owned.kind === 'deployment') {
+      await this.deployments.reconcile(clientId, userId, owned.order.payment.workflow.allocationId, owned.order.id);
+    } else {
+      await this.checkout.verify(clientId, owned.riderId, owned.collection.id);
+    }
+    return this.detail(clientId, userId, requestId);
+  }
+
+  async pending(clientId: string, userId: string) {
+    const riderId = await this.billing.riderForUser(clientId, userId);
+    const [collections, deployments] = await Promise.all([
+      this.db.paymentCollectionRequest.findMany({ where: { clientId, riderId, status: { in: ['CREATING', 'PENDING', 'UNKNOWN'] } }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 50 }),
+      this.db.deploymentPaymentAttempt.findMany({ where: { clientId, payment: { workflow: { allocation: { clientId, riderId } } }, OR: [
+        { status: { in: ['CREATING', 'OPEN'] } },
+        { autoPayRequested: true, status: 'PAID', autoPayStatus: { in: ['NOT_STARTED', 'UNKNOWN', 'AUTHORIZATION_PENDING'] }, autoPayMandateId: null },
+        { autoPayMandate: { status: { in: ['CREATING', 'AUTHORIZATION_PENDING', 'UNKNOWN'] } } },
+      ] }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 50 }),
+    ]);
+    return Promise.all([...collections.map(r => `collection:${r.id}`), ...deployments.map(r => `deployment:${r.id}`)].map(id => this.detail(clientId, userId, id)));
+  }
+
+  async abandon(clientId: string, userId: string, requestId: string) {
+    const owned = await this.owned(clientId, userId, requestId);
+    if (owned.kind !== 'collection' || owned.collection.provider !== 'RAZORPAY')
+      throw new BadRequestException('Only Razorpay collection checkout can be abandoned through this endpoint.');
+    await this.penalties.abandon(clientId, owned.riderId, owned.collection.id);
+    return this.detail(clientId, userId, requestId);
+  }
 
   private deploymentAttemptStore() {
     // The fallback keeps older test fixtures and already-running migrations
@@ -72,12 +113,20 @@ export class CommonPaymentService {
   async create(clientId: string, userId: string, body: unknown, key?: string) {
     const input = parseOrderInput(body);
     const riderId = await this.billing.riderForUser(clientId, userId);
+    if (input.purpose === 'DEPLOYMENT' && key) {
+      const fingerprint = deploymentRequestHash(input.allocationId, { ...input, requestKey: key });
+      const saved = await this.deploymentAttemptStore().findFirst({ where: { clientId, autoPayRequestKey: key } });
+      if (saved) {
+        if (saved.autoPayRequestHash !== fingerprint) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: 'This Idempotency-Key belongs to different checkout terms.' });
+        // Ownership is checked by detail even when reusing a settled request.
+        if (saved.providerOrderId || saved.status === 'FAILED') return this.detail(clientId, userId, `deployment:${saved.id}`);
+      }
+    }
+    const selectedProvider = this.policy ? await this.policy.resolve(clientId, input.purpose, 'provider' in input ? input.provider : undefined) : ('provider' in input ? input.provider : undefined);
     if (input.purpose === 'DEPLOYMENT') {
-      const remote = await this.deployments.createOrder(
-        clientId,
-        userId,
-        input.allocationId,
-      );
+      const remote = input.setupAutoPay || key
+        ? await this.deployments.createOrder(clientId, userId, input.allocationId, { setupAutoPay: input.setupAutoPay, email: input.email, autoPayConsent: input.autoPayConsent, requestKey: key })
+        : await this.deployments.createOrder(clientId, userId, input.allocationId);
       const order = await this.deploymentAttemptStore().findFirst({
         where: {
           clientId,
@@ -95,7 +144,7 @@ export class CommonPaymentService {
     }
     if (
       input.purpose === 'SUBMISSION_PENALTY' &&
-      input.provider !== 'CASHFREE'
+      selectedProvider !== 'CASHFREE' && selectedProvider !== 'MOCK'
     ) {
       const remote = await this.penalties.createOrder(
         clientId,
@@ -115,9 +164,18 @@ export class CommonPaymentService {
         throw new NotFoundException('Payment request not found.');
       return this.detail(clientId, userId, `collection:${collection.id}`);
     }
-    // Existing Cashfree checkout owns idempotency, wallet use and settlement.
+    if (input.purpose === 'TOP_UP') {
+      const result = await this.checkout.payTopUp(clientId, riderId, key ?? '', input.amount);
+      return this.detail(clientId, userId, `collection:${result.collectionId}`);
+    }
+    // Existing rental orders retain their saved settlement contract; other invoice types use shared checkout.
+    const rentalInvoice = input.purpose === 'INVOICE' && selectedProvider === 'RAZORPAY'
+      ? await this.db.riderInvoice.findFirst({ where: { id: input.invoiceId, clientId, riderId }, select: { invoiceType: true } })
+      : null;
+    if (input.purpose === 'INVOICE' && selectedProvider === 'RAZORPAY' && !rentalInvoice)
+      throw new NotFoundException('INVOICE_NOT_FOUND');
     const result =
-      input.purpose === 'INVOICE' && input.provider === 'RAZORPAY'
+      input.purpose === 'INVOICE' && selectedProvider === 'RAZORPAY' && rentalInvoice?.invoiceType === 'RENTAL'
         ? await this.invoices!.payInvoice(
             clientId,
             riderId,
@@ -163,6 +221,7 @@ export class CommonPaymentService {
         paymentRequestId: null,
         purpose: input.purpose,
         provider: 'WALLET',
+        autoPay: null,
         providerOrderId: null,
         providerPaymentId: null,
         failureCode: null,
@@ -209,6 +268,7 @@ export class CommonPaymentService {
     const collection = await this.db.paymentCollectionRequest.findFirst({
       where: { id: recordId, clientId, riderId },
       include: {
+        riderPayment: { select: { refundedAmount: true, refunds: { where: { status: { in: ['CREATING', 'UNKNOWN', 'PENDING', 'PROCESSING'] } }, select: { id: true } } } },
         razorpayPenaltyOrder: {
           include: { captures: { orderBy: { createdAt: 'desc' } } },
         },
@@ -223,6 +283,11 @@ export class CommonPaymentService {
     const owned = await this.owned(clientId, userId, requestId);
     if (owned.kind === 'deployment') {
       const { order } = owned;
+      const mandate = order.autoPayMandateId ? await this.db.paymentMandate.findFirst({ where: { id: order.autoPayMandateId, clientId, riderId: owned.riderId } }) : null;
+      const autoPay = order.autoPayRequested ? { requested: true, status: mandate?.status ?? order.autoPayStatus ?? 'NOT_STARTED',
+        mandateId: mandate?.id ?? null, mandateNumber: mandate?.mandateNumber ?? null,
+        maxAmount: (mandate?.maxAmount ?? order.autoPayMaxAmount)?.toFixed(2) ?? null,
+        expiresAt: mandate?.expiresAt ?? order.autoPayExpiresAt, failureCode: order.autoPayFailureCode ?? null } : null;
       // Review/refund captures take precedence over the paid business payment.
       const capture =
         order.captures.find(
@@ -246,6 +311,7 @@ export class CommonPaymentService {
       return {
         paymentRequestId: requestId,
         purpose: 'DEPLOYMENT',
+        autoPay,
         provider: order.provider ?? 'RAZORPAY',
         status,
         amount: new Prisma.Decimal(order.amountPaise.toString())
@@ -255,6 +321,7 @@ export class CommonPaymentService {
         allocationId: order.payment.workflow.allocationId,
         providerOrderId: order.providerOrderId,
         providerPaymentId: capture?.providerPaymentId ?? null,
+        paymentMethod: capture?.paymentMethod ?? null,
         failureCode: capture?.reason ?? null,
         checkout:
           status === 'PENDING' &&
@@ -263,9 +330,11 @@ export class CommonPaymentService {
           order.payment.workflow.status === 'PAYMENT_PENDING' &&
           !cancelled
             ? {
+                type: 'RAZORPAY',
                 orderId: order.providerOrderId,
                 keyId: (order as any).providerKeyReference ?? (order as any).keyId,
                 amountPaise: Number(order.amountPaise),
+                ...(order.autoPayRequested ? { customerId: order.autoPayCustomerId, recurring: true } : {}),
               }
             : null,
         ...(action ? { nextAction: action } : {}),
@@ -276,28 +345,37 @@ export class CommonPaymentService {
     const review = order?.captures.find(
       (capture) => capture.status !== 'SETTLED',
     );
+    const refundedAmount = c.riderPayment?.refundedAmount ?? new Prisma.Decimal(0);
+    const refundState = refundedAmount.gte(c.amount) && refundedAmount.gt(0) ? 'REFUNDED'
+      : c.riderPayment?.refunds.length ? 'REFUND_PENDING' : null;
     const status = commonPaymentStatus(
-      review?.status ?? c.status,
+      review?.status ?? refundState ?? c.status,
       review?.reason ?? c.failureCode,
     );
     const action = nextAction(status);
     return {
       paymentRequestId: requestId,
       purpose: purposes[c.collectionType],
+      autoPay: null,
       provider: c.provider,
       status,
       amount: c.amount.toFixed(2),
+      refundedAmount: refundedAmount.toFixed(2),
       currency: c.currency,
       invoiceId: c.invoiceId,
       depositId: c.depositId,
       providerOrderId: c.providerOrderId,
       providerPaymentId: c.providerPaymentId,
+      paymentMethod: c.provider === 'RAZORPAY'
+        ? order?.captures.find(capture => capture.providerPaymentId === c.providerPaymentId)?.paymentMethod ?? null
+        : null,
       failureCode: review?.reason ?? c.failureCode,
       checkout:
         status === 'PENDING'
           ? c.provider === 'RAZORPAY'
             ? order?.providerOrderId
               ? {
+                  type: 'RAZORPAY',
                   orderId: order.providerOrderId,
                   keyId: order.keyId,
                   amountPaise: Number(order.amountPaise),
@@ -305,8 +383,10 @@ export class CommonPaymentService {
               : null
             : c.providerOrderId && c.paymentSessionId
               ? {
+                  type: c.provider,
                   orderId: c.providerOrderId,
                   paymentSessionId: c.paymentSessionId,
+                  environment: (c.paymentSnapshot as Record<string, unknown> | null)?.paymentEnvironment ?? null,
                 }
               : null
           : null,

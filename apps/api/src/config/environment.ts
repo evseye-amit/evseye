@@ -143,9 +143,10 @@ const environmentSchema = z.object({
   TELIPIA_HANDOVER_OPERATOR_TEMPLATE_ID: z.string().optional(),
   KYC_PROVIDER: z.string().default('sandbox'),
   KYC_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  KYC_ENVIRONMENT: z.enum(['TEST', 'PRODUCTION']).optional(),
   KYC_SANDBOX_ENVIRONMENT: z.enum(['TEST', 'PRODUCTION']).default('TEST'),
   KYC_SANDBOX_API_URL: z.string().url().default('https://test-api.sandbox.co.in'),
-  KYC_SANDBOX_SECRET_REFERENCE: z.literal('env:KYC_SANDBOX_TEST').default('env:KYC_SANDBOX_TEST'),
+  KYC_SANDBOX_SECRET_REFERENCE: z.enum(['env:KYC_SANDBOX_TEST', 'env:KYC_SANDBOX_PRODUCTION']).optional(),
   KYC_SANDBOX_API_KEY: z.string().optional(),
   KYC_SANDBOX_API_SECRET: z.string().optional(),
   KYC_FINGERPRINT_SECRET: z.string().min(32).optional(),
@@ -159,6 +160,7 @@ const environmentSchema = z.object({
   KYC_ANALYTICS_MIN_SAMPLE_SIZE: z.coerce.number().int().min(1).max(100000).default(30),
   KYC_ROUTING_DEADLINE_MS: z.coerce.number().int().min(1000).max(120000).default(30000),
   AUTOPAY_PROVIDER: z.enum(['configured', 'cashfree', 'razorpay', 'mock', 'disabled']).default('configured'),
+  RAZORPAY_DEPLOYMENT_AUTOPAY_ENABLED: z.enum(['true', 'false']).default('false'),
   RAZORPAY_AUTOPAY_ENABLED: z.enum(['true', 'false']).default('false'),
   RAZORPAY_ENABLED: z.enum(['true', 'false']).default('false'),
   RAZORPAY_ENVIRONMENT: z.enum(['TEST', 'PRODUCTION']).default('TEST'),
@@ -177,9 +179,9 @@ const environmentSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .default('2025-01-01'),
-  CASHFREE_SUBSCRIPTION_RETURN_URL: z.string().url().optional(),
-  CASHFREE_WEBHOOK_URL: z.string().url().optional(),
-  CASHFREE_PG_WEBHOOK_URL: z.string().url().optional(),
+  CASHFREE_SUBSCRIPTION_RETURN_URL: z.preprocess(value => value === '' ? undefined : value, z.string().url().optional()),
+  CASHFREE_WEBHOOK_URL: z.preprocess(value => value === '' ? undefined : value, z.string().url().optional()),
+  CASHFREE_PG_WEBHOOK_URL: z.preprocess(value => value === '' ? undefined : value, z.string().url().optional()),
   CASHFREE_PG_WEBHOOK_SECRET: z.string().optional(),
 });
 
@@ -255,11 +257,20 @@ export function validateEnvironment(
       'MEDIA_PUBLIC_BASE_URL must be configured in production for public media delivery.',
     );
   }
-  if (result.data.KYC_ENABLED && (!result.data.KYC_SANDBOX_API_KEY || !result.data.KYC_SANDBOX_API_SECRET || !result.data.KYC_FINGERPRINT_SECRET)) {
-    throw new Error('Enabled KYC requires Sandbox credentials and a fingerprint secret.');
+  if (result.data.KYC_ENABLED && !result.data.KYC_FINGERPRINT_SECRET) {
+    throw new Error('Enabled KYC requires a fingerprint secret.');
   }
-  if (result.data.NODE_ENV === 'production' && result.data.KYC_ENABLED && result.data.KYC_SANDBOX_ENVIRONMENT !== 'PRODUCTION') {
-    throw new Error('Production KYC requires Sandbox PRODUCTION credentials.');
+  if (result.data.KYC_ENABLED && result.data.KYC_SANDBOX_SECRET_REFERENCE &&
+      result.data.KYC_SANDBOX_SECRET_REFERENCE !== `env:KYC_SANDBOX_${result.data.KYC_SANDBOX_ENVIRONMENT}`) {
+    throw new Error('Sandbox credential reference must match its configured environment.');
+  }
+  if (result.data.KYC_ENABLED && result.data.KYC_SANDBOX_ENVIRONMENT === 'PRODUCTION') {
+    const url = new URL(result.data.KYC_SANDBOX_API_URL);
+    if (url.protocol !== 'https:' || url.hostname === 'test-api.sandbox.co.in')
+      throw new Error('Sandbox PRODUCTION requires an explicit HTTPS production API URL.');
+  }
+  if (result.data.NODE_ENV === 'production' && result.data.KYC_ENABLED && (result.data.KYC_ENVIRONMENT ?? result.data.KYC_SANDBOX_ENVIRONMENT) !== 'PRODUCTION') {
+    throw new Error('Production KYC requires PRODUCTION provider routing.');
   }
   if (
     result.data.NODE_ENV === 'production' &&
@@ -323,33 +334,13 @@ export function validateEnvironment(
       throw new Error('CLIENT_LOGIN_URL must use HTTPS in production.');
     }
   }
-  if (result.data.PAYMENT_PROVIDER === 'cashfree' || result.data.AUTOPAY_PROVIDER === 'cashfree') {
-    const required = [
-      'CASHFREE_CLIENT_ID',
-      'CASHFREE_CLIENT_SECRET',
-      'CASHFREE_WEBHOOK_SECRET',
-      'CASHFREE_SUBSCRIPTION_RETURN_URL',
-      'CASHFREE_WEBHOOK_URL',
-      'CASHFREE_PG_WEBHOOK_URL',
-    ] as const;
-    const missing = required.filter((key) => !result.data[key]?.trim());
-    if (missing.length)
-      throw new Error(
-        `Cashfree configuration is missing: ${missing.join(', ')}.`,
-      );
-    if (result.data.NODE_ENV === 'production') {
-      if (result.data.CASHFREE_ENVIRONMENT !== 'PRODUCTION')
-        throw new Error(
-          'Cashfree production deployment requires CASHFREE_ENVIRONMENT=PRODUCTION.',
-        );
-      for (const key of [
-        'CASHFREE_SUBSCRIPTION_RETURN_URL',
-        'CASHFREE_WEBHOOK_URL',
-        'CASHFREE_PG_WEBHOOK_URL',
-      ] as const) {
-        if (new URL(result.data[key]!).protocol !== 'https:')
-          throw new Error(`${key} must use HTTPS in production.`);
-      }
+  // Cashfree merchants are optional and may be configured per client after deployment.
+  // Missing shared credentials must not stop unrelated gateways from starting.
+  if (result.data.NODE_ENV === 'production' && result.data.CASHFREE_CLIENT_ID && result.data.CASHFREE_CLIENT_SECRET &&
+      (result.data.PAYMENT_PROVIDER === 'cashfree' || result.data.AUTOPAY_PROVIDER === 'cashfree')) {
+    for (const key of ['CASHFREE_SUBSCRIPTION_RETURN_URL', 'CASHFREE_WEBHOOK_URL', 'CASHFREE_PG_WEBHOOK_URL'] as const) {
+      const value = result.data[key];
+      if (value && new URL(value).protocol !== 'https:') throw new Error(`${key} must use HTTPS in production.`);
     }
   }
   if (

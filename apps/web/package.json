@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "node --test test/app/components/fleet-readiness-ui.test.mjs test/app/platform/dashboard/data-table-filter.test.mjs"
+    "test": "node --test test/app/components/fleet-readiness-ui.test.mjs test/app/components/payment-operations.test.mjs test/app/platform/dashboard/data-table-filter.test.mjs"
   },
   "dependencies": {
     "next": "16.4.3",

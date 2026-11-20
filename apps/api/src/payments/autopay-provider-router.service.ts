@@ -2,7 +2,9 @@ import {
   Inject,
   Injectable,
   ServiceUnavailableException,
+  Optional,
 } from '@nestjs/common';
+import { PaymentGatewayPolicyService } from './payment-gateway-policy.service.js';
 import { ConfigService } from '@nestjs/config';
 import {
   PAYMENT_PROVIDER,
@@ -20,9 +22,19 @@ export class AutoPayProviderRouter {
     private readonly cashfree: CashfreePaymentProvider,
     private readonly razorpay: RazorpayAutoPayProvider,
     private readonly mock?: MockPaymentProvider,
+    @Optional() private readonly policy?: PaymentGatewayPolicyService,
   ) {}
+  async selectedFor(clientId: string, method = 'UPI_AUTOPAY') {
+    return this.policy ? this.policy.resolve(clientId, method === 'ENACH' ? 'ENACH' : 'UPI_AUTOPAY') : this.selected(method);
+  }
   verifyCashfreeWebhook(raw: Buffer, timestamp: string, signature: string) {
     return this.cashfree.verifyWebhook(raw, timestamp, signature);
+  }
+  async forClient(name: string, clientId: string, versionId?: string | null): Promise<AutoPayProvider> {
+    return name === 'CASHFREE' ? this.cashfree.forClient(clientId, versionId) : this.forProvider(name);
+  }
+  async verifyCashfreeForClient(clientId: string, versionId: string | null, raw: Buffer, timestamp: string, signature: string) {
+    return (await this.cashfree.forClient(clientId, versionId)).verifyWebhook(raw, timestamp, signature);
   }
   selected(method = 'UPI_AUTOPAY') {
     const requested =

@@ -100,9 +100,14 @@ export class WalletBillingService {
   }
   /** Caller must hold this wallet's row lock for the entire transaction. */
   async settleInTransaction(tx: Tx, clientId: string, invoiceId: string, actorId: string, key: string, wallet: { id: string; currency: string }) {
-      // Serialize wallet use against the new external rental checkout reservation.
-      const pendingRazorpay = await tx.paymentCollectionRequest.findFirst({ where: { clientId, invoiceId, provider: 'RAZORPAY', collectionType: 'INVOICE_PAYMENT', status: { in: ['CREATING', 'PENDING', 'UNKNOWN'] } } });
-      if (pendingRazorpay) throw new ConflictException('PAYMENT_ALREADY_IN_PROGRESS');
+      const owner = await tx.riderWallet.findUniqueOrThrow({ where: { id: wallet.id }, select: { riderId: true } });
+      await tx.$queryRaw`SELECT id FROM "Rider" WHERE id = ${owner.riderId} AND "clientId" = ${clientId} FOR UPDATE`;
+      const pending = await tx.paymentCollectionRequest.findFirst({ where: { clientId, riderId: owner.riderId,
+        OR: [{ invoiceId }, { collectionType: { in: ['OUTSTANDING_PAYMENT', 'SUBMISSION_PENALTY_PAYMENT'] } }],
+        status: { in: ['CREATING', 'PENDING', 'UNKNOWN'] } } });
+      if (pending) throw new ConflictException('PAYMENT_ALREADY_IN_PROGRESS');
+      const debit = await tx.paymentTransaction.findFirst({ where: { clientId, invoiceId, status: { in: ['CREATING', 'PENDING', 'UNKNOWN'] } } });
+      if (debit) throw new ConflictException('AUTOPAY_ALREADY_IN_PROGRESS');
       await tx.$queryRaw`SELECT id FROM "RiderInvoice" WHERE id = ${invoiceId} AND "clientId" = ${clientId} FOR UPDATE`;
       const invoice = await tx.riderInvoice.findFirst({ where: { clientId, id: invoiceId }, include: { lines: true } });
       if (!invoice) throw new NotFoundException('INVOICE_NOT_FOUND');

@@ -16,11 +16,12 @@ import { RiderKycStatusService } from './rider-kyc-status.service.js';
 import { IfscBankService } from '../banks/banks.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { displayRiderName, normalizeRiderName } from './name.util.js';
+import { PanVerificationCoordinator } from '../kyc/verification/pan-verification-coordinator.service.js';
 
 @Injectable()
 export class RiderAppService {
   private readonly logger = new Logger(RiderAppService.name);
-  constructor(private readonly prisma: PrismaService, private readonly configuration: RiderOnboardingConfigurationService, private readonly media: MediaService, private readonly kyc: RiderKycStatusService, @Optional() private readonly referrals?: ReferralService, @Optional() private readonly referralQualification?: ReferralQualificationService, @Optional() private readonly banks?: IfscBankService, @Optional() private readonly audit?: AuditService) {}
+  constructor(private readonly prisma: PrismaService, private readonly configuration: RiderOnboardingConfigurationService, private readonly media: MediaService, private readonly kyc: RiderKycStatusService, @Optional() private readonly referrals?: ReferralService, @Optional() private readonly referralQualification?: ReferralQualificationService, @Optional() private readonly banks?: IfscBankService, @Optional() private readonly audit?: AuditService, @Optional() private readonly panVerification?: PanVerificationCoordinator) {}
 
   async enroll(companyCode: string, phone: string) {
     const client = await this.prisma.client.findFirst({ where: { OR: [{ companyCode }, { slug: companyCode }], isActive: true, status: 'ACTIVE' }, select: { id: true } });
@@ -149,6 +150,7 @@ export class RiderAppService {
       ...publicConfiguration,
       ...await this.kyc.forUser(clientId, userId, configuration.onboarding.steps.flatMap(step => step.fields)),
       screen,
+      panVerification: this.panVerification ? await this.panVerification.readiness(clientId, userId) : null,
       documentReview: {
         documents,
         rejected,
@@ -429,6 +431,13 @@ export class RiderAppService {
         newData: { packageId: effective.package.id, packageCode: effective.package.code, submittedAt: new Date().toISOString(), values: storedValues, completedStepIds: [...completed], skippedStepIds: [...skipped] },
       });
     }
+    // Re-evaluate after every committed onboarding save. Before the Rider exists this
+    // returns WAITING_FOR_RIDER; after completion it can create the idempotent request.
+    try {
+      await this.panVerification?.startIfReady(clientId, userId);
+    } catch (error) {
+      this.logger.warn(`Automatic PAN verification could not start for user ${userId}: ${error instanceof Error ? error.message : 'provider unavailable'}`);
+    }
     if (allFinished && this.referrals && this.referralQualification) {
       const rider = await this.prisma.rider.findUnique({ where: { userId }, select: { id: true } });
       if (rider) {
@@ -537,6 +546,11 @@ export class RiderAppService {
       await this.kyc.sync(tx, clientId, userId, fields);
       return document;
     });
+    try {
+      await this.panVerification?.startIfReady(clientId, userId);
+    } catch (error) {
+      this.logger.warn(`Automatic PAN verification could not start for user ${userId}: ${error instanceof Error ? error.message : 'provider unavailable'}`);
+    }
     return { photo: completed, document };
   }
 }

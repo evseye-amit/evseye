@@ -39,6 +39,8 @@ import { KycIntelligentRoutingController } from './routing/kyc-intelligent-routi
 import { KycIntelligentGuardrailService } from './routing/kyc-intelligent-guardrail.service.js';
 import { KycDistributedCircuitService } from './routing/kyc-distributed-circuit.service.js';
 import { RiderKycStatusModule } from '../riders/rider-kyc-status.module.js';
+import { PanVerificationCoordinator } from './verification/pan-verification-coordinator.service.js';
+import { KycVerificationOutboxWorker } from './verification/kyc-verification-outbox.worker.js';
 
 @Module({
   imports: [AuthModule, AuditModule, ReferralModule, RiderKycStatusModule],
@@ -69,11 +71,14 @@ import { RiderKycStatusModule } from '../riders/rider-kyc-status.module.js';
     ProviderRegistryService,
     SandboxHttpService,
     SandboxVerificationProvider,
+    PanVerificationCoordinator,
+    KycVerificationOutboxWorker,
     ManualKycProvider,
     {
       provide: KYC_PROVIDER,
       useExisting: ManualKycProvider,
     },
   ],
+  exports: [PanVerificationCoordinator],
 })
 export class KycModule {}

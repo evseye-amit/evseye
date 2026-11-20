@@ -16,7 +16,7 @@ describe('verification service isolation and idempotency', () => {
       auditLog: { findMany: vi.fn().mockResolvedValue([]) } };
     const registry = { resolve: vi.fn() };
     const config = { get: vi.fn((key: string) => key === 'KYC_ENABLED' ? true : secret) };
-    const service = new VerificationService(prisma as never, registry as never, config as never, {} as never, {} as never);
+    const service = new VerificationService(prisma as never, registry as never, config as never, {} as never, {} as never, { lockUser: async () => {}, fields: async () => [], sync: async () => ({ kycStatus: 'VERIFIED' }) } as never);
     const result = await service.start('client-1', 'same-request-key', dto);
     expect(result).toEqual({ id: existing.id, status: 'VERIFIED', auditTimeline: [], routingTimeline: [] });
     expect(prisma.kycVerification.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: existing.id, clientId: 'client-1' } }));
@@ -28,13 +28,13 @@ describe('verification service isolation and idempotency', () => {
       kycVerification: { findUnique: vi.fn().mockResolvedValue({ id: 'verification-1',
         riderId: 'rider-1', verificationType: dto.type, inputFingerprint: 'different' }) } };
     const service = new VerificationService(prisma as never, { resolve: vi.fn() } as never,
-      { get: vi.fn((key: string) => key === 'KYC_ENABLED' ? true : secret) } as never, {} as never, {} as never);
+      { get: vi.fn((key: string) => key === 'KYC_ENABLED' ? true : secret) } as never, {} as never, {} as never, { lockUser: async () => {}, fields: async () => [], sync: async () => ({ kycStatus: 'VERIFIED' }) } as never);
     await expect(service.start('client-1', 'same-request-key', dto)).rejects.toThrow('different verification');
   });
 
   it('does not retrieve another client verification', async () => {
     const findFirst = vi.fn().mockResolvedValue(null);
-    const service = new VerificationService({ kycVerification: { findFirst } } as never, {} as never, {} as never, {} as never, {} as never);
+    const service = new VerificationService({ kycVerification: { findFirst } } as never, {} as never, {} as never, {} as never, {} as never, { lockUser: async () => {}, fields: async () => [], sync: async () => ({ kycStatus: 'VERIFIED' }) } as never);
     await expect(service.get('client-a', 'verification-b')).rejects.toThrow('KYC_VERIFICATION_NOT_FOUND');
     expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'verification-b', clientId: 'client-a' } }));
   });
@@ -49,7 +49,7 @@ describe('verification service isolation and idempotency', () => {
     })) };
     const registry = { pinned: vi.fn().mockResolvedValue({ config: { id: 'provider-1' },
       capability: { timeoutMs: 10000 }, provider: { completeAadhaarOtp } }) };
-    const service = new VerificationService(prisma as never, registry as never, {} as never, {} as never, {} as never);
+    const service = new VerificationService(prisma as never, registry as never, {} as never, {} as never, {} as never, { lockUser: async () => {}, fields: async () => [], sync: async () => ({ kycStatus: 'VERIFIED' }) } as never);
     await expect(service.completeOtp('client-a', 'verification-1', '123456')).rejects.toThrow('KYC_INVALID_STATE');
     expect(completeAadhaarOtp).not.toHaveBeenCalled();
   });
@@ -58,11 +58,33 @@ describe('verification service isolation and idempotency', () => {
     const create = vi.fn();
     const prisma = { rider: { findFirst: vi.fn().mockResolvedValue({ id: 'rider-1' }) },
       kycConsent: { create } };
-    const service = new VerificationService(prisma as never, {} as never, {} as never, {} as never, {} as never);
+    const service = new VerificationService(prisma as never, {} as never, {} as never, {} as never, {} as never, { lockUser: async () => {}, fields: async () => [], sync: async () => ({ kycStatus: 'VERIFIED' }) } as never);
     await expect(service.consent('client-a', { riderId: 'rider-1', verificationType: 'AADHAAR_OTP',
       consentVersion: 'v1', consentTextHash: 'a'.repeat(64), purpose: 'Verify identity for rider onboarding',
       reason: 'Rider identity verification for onboarding', accepted: false, channel: 'OPERATIONS_PANEL' }))
       .rejects.toThrow('KYC_CONSENT_REQUIRED');
     expect(create).not.toHaveBeenCalled();
+  });
+});
+
+describe('PAN completion refreshes rider eligibility', () => {
+  it.each(['VERIFIED', 'FAILED'])('refreshes KYC and onboarding after %s without reactivating suspended riders', async (status) => {
+    const current = { id: 'verification', status: 'PROCESSING', clientId: 'client', riderId: 'rider', verificationType: 'PAN_VERIFICATION' };
+    const tx = {
+      kycVerification: { findUniqueOrThrow: async () => current, updateMany: async () => ({ count: 1 }), findFirst: async () => ({ id: current.id }) },
+      kycProviderConfig: { findUniqueOrThrow: async () => ({ code: 'SANDBOX' }) },
+      riderKyc: { upsert: vi.fn() },
+      rider: { findFirst: async () => ({ userId: 'user' }), updateMany: vi.fn() },
+    };
+    const kyc = { lockUser: vi.fn(), fields: async () => [], sync: vi.fn().mockResolvedValue({ kycStatus: status }) };
+    const service = new VerificationService({ $transaction: (fn: any) => fn(tx) } as never,
+      {} as never, {} as never, {} as never, {} as never, kyc as never);
+    await (service as any).finish('verification', { status, data: {} }, 'attempt', 'provider', true);
+    expect(kyc.lockUser).toHaveBeenCalledWith(tx, 'client', 'user');
+    expect(kyc.sync).toHaveBeenCalledWith(tx, 'client', 'user', []);
+    expect(tx.rider.updateMany).toHaveBeenCalledWith({
+      where: { id: 'rider', clientId: 'client', status: { in: ['ACTIVE', 'ONBOARDING'] }, deletedAt: null },
+      data: { status: status === 'VERIFIED' ? 'ACTIVE' : 'ONBOARDING' },
+    });
   });
 });

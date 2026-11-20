@@ -27,6 +27,14 @@ export class CommonPaymentController {
     private readonly payments: CommonPaymentService,
     private readonly clients: ClientContextService,
   ) {}
+  @Get('capabilities')
+  async capabilities(@CurrentUser() user: AuthUser) {
+    return { data: await this.payments.capabilities(this.clients.requireClientId(user), user.id) };
+  }
+  @Get('pending')
+  async pending(@CurrentUser() user: AuthUser) {
+    return { data: await this.payments.pending(this.clients.requireClientId(user), user.id) };
+  }
   @Post()
   @HttpCode(200)
   @ApiOperation({
@@ -36,7 +44,7 @@ export class CommonPaymentController {
     name: 'Idempotency-Key',
     required: false,
     description:
-      'Required for INVOICE payments (including Razorpay), configured-provider checkout and Cashfree penalties; reuse for retries.',
+      'Required for combined DEPLOYMENT AutoPay and INVOICE payments (including Razorpay), configured-provider checkout and Cashfree penalties; reuse for retries.',
   })
   @ApiBody({
     schema: {
@@ -48,6 +56,9 @@ export class CommonPaymentController {
           properties: {
             purpose: { type: 'string', enum: ['DEPLOYMENT'] },
             allocationId: { type: 'string', format: 'uuid' },
+            setupAutoPay: { type: 'boolean' },
+            email: { type: 'string', format: 'email', maxLength: 254 },
+            autoPayConsent: { type: 'object', required: ['accepted', 'version', 'maxAmount', 'validityDays'], properties: { accepted: { type: 'boolean', enum: [true] }, version: { type: 'string', enum: ['deployment-autopay-v1'] }, maxAmount: { type: 'string', example: '15000.00' }, validityDays: { type: 'integer', minimum: 1 } } },
           },
         },
         {
@@ -59,7 +70,7 @@ export class CommonPaymentController {
             provider: {
               type: 'string',
               enum: ['RAZORPAY', 'CASHFREE'],
-              default: 'RAZORPAY',
+              description: 'Optional assertion of the server-selected client policy; cannot override it.',
             },
             amount: { type: 'string', example: '500.00' },
           },
@@ -83,7 +94,7 @@ export class CommonPaymentController {
               type: 'string',
               enum: ['RAZORPAY', 'CASHFREE'],
               description:
-                'RAZORPAY supports rental invoices. Omit to retain the configured checkout provider.',
+                'Omit to use the client policy; a different provider is rejected.',
             },
             invoiceId: { type: 'string', format: 'uuid' },
             useWallet: { type: 'boolean' },
@@ -96,6 +107,15 @@ export class CommonPaymentController {
           properties: {
             purpose: { type: 'string', enum: ['SECURITY_DEPOSIT'] },
             depositId: { type: 'string', format: 'uuid' },
+          },
+        },
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['purpose', 'amount'],
+          properties: {
+            purpose: { type: 'string', enum: ['TOP_UP'] },
+            amount: { type: 'string', example: '500.00', description: 'INR 500.00 to INR 5000.00' },
           },
         },
       ],
@@ -114,6 +134,12 @@ export class CommonPaymentController {
         key,
       ),
     };
+  }
+  @Post(':paymentRequestId/abandon')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Release an unpaid Razorpay collection checkout locally; late captures remain reconciled' })
+  async abandon(@CurrentUser() user: AuthUser, @Param('paymentRequestId') id: string) {
+    return { data: await this.payments.abandon(this.clients.requireClientId(user), user.id, id) };
   }
   @Get(':paymentRequestId')
   async detail(
@@ -159,5 +185,12 @@ export class CommonPaymentController {
         body,
       ),
     };
+  }
+
+  @Post(':paymentRequestId/reconcile')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Recover an owned payment using server-side gateway evidence without an SDK callback' })
+  async reconcile(@CurrentUser() user: AuthUser, @Param('paymentRequestId') id: string) {
+    return { data: await this.payments.reconcile(this.clients.requireClientId(user), user.id, id) };
   }
 }

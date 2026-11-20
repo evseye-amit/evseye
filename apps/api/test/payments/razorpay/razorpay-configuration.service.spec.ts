@@ -1,9 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { RazorpayConfigurationService } from '../../../src/payments/razorpay/razorpay-configuration.service.js';
 
 function service(rows: unknown[], settings: Record<string, string> = {}) {
+  const row = rows[0] as Record<string, unknown> | undefined;
+  const secret = JSON.parse(settings[String(row?.secretReference).replace('env:', '')] ?? '{}');
+  const version = row ? {
+    ...row, id: 'version-1', clientId: 'client-1', provider: 'RAZORPAY',
+    credentialFingerprint: createHash('sha256').update(JSON.stringify([row.keyId, secret.keySecret, secret.webhookSecret])).digest('hex'),
+  } : null;
   const db = {
     clientPaymentProvider: { findFirst: vi.fn().mockResolvedValue(rows[0] ?? null) },
+    paymentProviderConfigurationVersion: {
+      findUnique: vi.fn().mockResolvedValue(version),
+      findFirst: vi.fn().mockResolvedValue(version),
+    },
   };
   const config = {
     get: (key: string) => settings[key],
@@ -22,6 +33,7 @@ describe('RazorpayConfigurationService', () => {
       CLIENT_RAZORPAY: JSON.stringify({ keySecret: 'client-secret', webhookSecret: 'client-hook' }),
     });
     await expect(subject.resolve('client-1')).resolves.toEqual({
+      configurationVersionId: 'version-1',
       keyId: 'rzp_client',
       keySecret: 'client-secret',
       webhookSecret: 'client-hook',
@@ -60,5 +72,43 @@ describe('RazorpayConfigurationService', () => {
     expect(db.clientPaymentProvider.findFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ environment: 'PRODUCTION' }),
     }));
+  });
+});
+
+describe('Explicit merchant configuration fails closed', () => {
+  it('rejects a missing configuration snapshot', async () => {
+    const { subject, db } = service([{ keyId: 'client-key', environment: 'TEST' }]);
+    db.paymentProviderConfigurationVersion.findUnique.mockResolvedValue(null);
+    await expect(subject.resolve('client-1')).rejects.toMatchObject({ response: { code: 'RAZORPAY_UNAVAILABLE' } });
+  });
+
+  it('rejects a snapshot belonging to another merchant account', async () => {
+    const { subject, db } = service([{ keyId: 'client-key', environment: 'TEST', merchantAccountId: 'merchant-a' }]);
+    const snapshot = await db.paymentProviderConfigurationVersion.findUnique();
+    db.paymentProviderConfigurationVersion.findUnique.mockResolvedValue({ ...snapshot!, merchantAccountId: 'merchant-b' });
+    await expect(subject.resolve('client-1')).rejects.toMatchObject({ response: { code: 'RAZORPAY_UNAVAILABLE' } });
+  });
+
+  it.each([
+    { status: 'ACTIVE', secretReference: 'env:MISSING' },
+    { status: 'DISABLED', secretReference: 'env:VALID' },
+    { status: 'ACTIVE', secretReference: 'env:VALID', validUntil: new Date(0) },
+  ])('does not fall back to a global account for %j', async (row) => {
+    const { subject } = service([{ keyId: 'client-key', environment: 'TEST', ...row }], {
+      RAZORPAY_CLIENT_IDS: 'client', RAZORPAY_KEY_ID: 'global-key',
+      RAZORPAY_KEY_SECRET: 'global-secret', RAZORPAY_WEBHOOK_SECRET: 'global-hook',
+      VALID: JSON.stringify({ keySecret: 'secret', webhookSecret: 'hook' }),
+    });
+    await expect(subject.resolve('client')).rejects.toMatchObject({ response: { code: 'RAZORPAY_UNAVAILABLE' } });
+  });
+});
+
+describe('configuration edit concurrency', () => {
+  it.each(['NEW', '2026-11-13T00:00:00.000Z'])('rejects stale revision %s before any mutation', async expectedRevision => {
+    const tx = { $queryRaw: vi.fn().mockResolvedValue([{ id: 'client' }]), clientPaymentProvider: { findUnique: vi.fn().mockResolvedValue({ updatedAt: new Date('2026-11-14T00:00:00.000Z') }), upsert: vi.fn() } };
+    const db = { $transaction: (fn: (value: unknown) => unknown) => fn(tx) };
+    const subject = new RazorpayConfigurationService(db as never, { get: () => JSON.stringify({ keySecret: 'secret', webhookSecret: 'hook' }) } as never);
+    await expect(subject.save('client', { provider: 'RAZORPAY', environment: 'TEST', keyId: 'rzp_test_example', secretReference: 'env:CLIENT_V2', expectedRevision }, 'admin')).rejects.toMatchObject({ response: { code: 'PAYMENT_CONFIGURATION_CHANGED' } });
+    expect(tx.clientPaymentProvider.upsert).not.toHaveBeenCalled();
   });
 });

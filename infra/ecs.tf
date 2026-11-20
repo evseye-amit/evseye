@@ -77,6 +77,7 @@ resource "aws_ecs_task_definition" "api" {
     # Non-secret environment variables
     environment = [
       { name = "NODE_ENV", value = var.environment == "staging" ? "development" : "production" },
+      { name = "RAZORPAY_DEPLOYMENT_AUTOPAY_ENABLED", value = var.environment == "staging" ? "true" : "false" },
       { name = "API_PORT", value = tostring(var.api_port) },
       { name = "AWS_REGION", value = var.aws_region },
       { name = "APP_BASE_DOMAINS", value = local.client_base_domain },

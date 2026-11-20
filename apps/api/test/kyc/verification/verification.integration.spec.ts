@@ -64,9 +64,9 @@ describe.skipIf(!databaseUrl)('KYC PostgreSQL integration', () => {
       update: { isSupported: true, isEnabled: true } });
     const pkg = await prisma.package.create({ data: { code: `KYC_TEST_${marker}`, name: 'KYC test package' } });
     packageId = pkg.id;
-    const existingFeature = await prisma.feature.findUnique({ where: { code: 'PAN_VERIFICATION' } });
+    const existingFeature = await prisma.feature.findUnique({ where: { code: 'VERIFY_PAN' } });
     const feature = existingFeature
-      ?? await prisma.feature.create({ data: { code: 'PAN_VERIFICATION', name: 'PAN Verification',
+      ?? await prisma.feature.create({ data: { code: 'VERIFY_PAN', name: 'PAN Verification',
         featureType: 'USAGE_BASED', billingUnit: 'VERIFICATION' } });
     createdFeature = !existingFeature;
     featureId = feature.id;
@@ -78,7 +78,7 @@ describe.skipIf(!databaseUrl)('KYC PostgreSQL integration', () => {
     const credential = await prisma.kycProviderCredential.create({ data: { providerId: provider.id,
       environment: 'TEST', secretReference: 'env:KYC_SANDBOX_TEST' } });
     credentialId = credential.id;
-    const sandbox = new SandboxVerificationProvider({ circuitOpen: () => false, request: async (path: string, _method: string, body?: { pan?: string }) => {
+    const sandbox = new SandboxVerificationProvider({ acceptsCredential: () => true, circuitOpen: () => false, request: async (path: string, _method: string, body?: { pan?: string }) => {
       providerCalls += 1;
       if (path === '/kyc/pan/verify' && body?.pan === 'ABCDE9999F' && retryPanFailure) {
         retryPanFailure = false;
@@ -97,7 +97,7 @@ describe.skipIf(!databaseUrl)('KYC PostgreSQL integration', () => {
       new KycProviderHealthService(prisma, registry, { isOpen: async () => false } as never));
     service = new VerificationService(prisma, registry,
       { get: (key: string) => key === 'KYC_ENABLED' ? true : 'a'.repeat(40) } as never, routing,
-      new KycCommercialService(prisma));
+      new KycCommercialService(prisma), { lockUser: async () => {}, fields: async () => [], sync: async () => ({ kycStatus: 'VERIFIED' }) } as never);
   });
 
   afterAll(async () => {
@@ -167,6 +167,7 @@ describe.skipIf(!databaseUrl)('KYC PostgreSQL integration', () => {
   it('persists fallback attempts under one verification using a test-only second provider', async () => {
     const mockProvider: VerificationProvider = {
       code: KycProviderCode.CASHFREE,
+      acceptsCredential: () => true,
       supports: (type) => type === 'IFSC_VERIFICATION',
       verify: async (input) => input.ifsc === 'HDFC0008888'
         ? { status: 'FAILED', data: { ifsc: null }, failureType: 'BUSINESS_FAILURE', failureCategory: 'IDENTITY_MISMATCH' }
@@ -204,7 +205,7 @@ describe.skipIf(!databaseUrl)('KYC PostgreSQL integration', () => {
   it('retries only a technical failure with matching resubmitted input and one usage entry', async () => {
     const retryService = new VerificationService(prisma, registry, { get: (key: string) =>
       key === 'KYC_ENABLED' ? true : key === 'KYC_OPS_MAX_TECHNICAL_RETRIES' ? 1 : 'a'.repeat(40) } as never,
-    routing, new KycCommercialService(prisma));
+    routing, new KycCommercialService(prisma), { lockUser: async () => {}, fields: async () => [], sync: async () => ({ kycStatus: 'VERIFIED' }) } as never);
     const input = { riderId: riderA, type: 'IFSC_VERIFICATION' as const, ifsc: 'HDFC0007777' };
     const record = await retryService.start(clientA, `technical-${marker}`, input);
     expect(record.status).toBe('FAILED');
@@ -234,7 +235,7 @@ describe.skipIf(!databaseUrl)('KYC PostgreSQL integration', () => {
   it('retains the original PAN consumption when a technical retry succeeds', async () => {
     const retryService = new VerificationService(prisma, registry, { get: (key: string) =>
       key === 'KYC_ENABLED' ? true : key === 'KYC_OPS_MAX_TECHNICAL_RETRIES' ? 1 : 'a'.repeat(40) } as never,
-    routing, new KycCommercialService(prisma));
+    routing, new KycCommercialService(prisma), { lockUser: async () => {}, fields: async () => [], sync: async () => ({ kycStatus: 'VERIFIED' }) } as never);
     const consent = await retryService.consent(clientA, { riderId: riderA,
       verificationType: 'PAN_VERIFICATION', consentVersion: 'v1', consentTextHash: 'e'.repeat(64),
       purpose: 'Rider identity verification for onboarding', reason: 'Verify PAN for rider eligibility',

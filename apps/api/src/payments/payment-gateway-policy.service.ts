@@ -1,0 +1,67 @@
+import { ConflictException, HttpException, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../prisma/prisma.service.js';
+import { DeploymentAutoPayPolicyService } from './deployment-autopay-policy.service.js';
+import type { Prisma } from '@prisma/client';
+
+export type PaymentPurpose = 'DEPLOYMENT' | 'SUBMISSION_PENALTY' | 'INVOICE' | 'OUTSTANDING' | 'SECURITY_DEPOSIT' | 'TOP_UP' | 'UPI_AUTOPAY' | 'ENACH';
+
+// Advertise only capabilities implemented by the registered adapters.
+export const gatewayCapabilities: Readonly<Record<string, readonly PaymentPurpose[]>> = {
+  RAZORPAY: ['DEPLOYMENT', 'SUBMISSION_PENALTY', 'INVOICE', 'OUTSTANDING', 'SECURITY_DEPOSIT', 'TOP_UP', 'UPI_AUTOPAY'],
+  CASHFREE: ['SUBMISSION_PENALTY', 'INVOICE', 'OUTSTANDING', 'SECURITY_DEPOSIT', 'TOP_UP', 'UPI_AUTOPAY', 'ENACH'],
+  MOCK: ['SUBMISSION_PENALTY', 'INVOICE', 'OUTSTANDING', 'SECURITY_DEPOSIT', 'TOP_UP', 'UPI_AUTOPAY', 'ENACH'],
+};
+
+@Injectable()
+export class PaymentGatewayPolicyService {
+  constructor(private readonly db: PrismaService, private readonly config: ConfigService, private readonly deploymentPolicy: DeploymentAutoPayPolicyService) {}
+
+  deploymentAutoPay(clientId: string, db?: Prisma.TransactionClient) {
+    return this.deploymentPolicy.availability(clientId, db);
+  }
+
+  async capabilities(clientId: string) {
+    const purposes: Record<string, { enabled: boolean; provider: string | null; platforms: string[]; autoPaySetup?: boolean; reason?: string }> = {};
+    for (const purpose of ['DEPLOYMENT', 'SUBMISSION_PENALTY', 'INVOICE', 'OUTSTANDING', 'SECURITY_DEPOSIT', 'TOP_UP', 'UPI_AUTOPAY', 'ENACH'] as const) {
+      try {
+        const provider = await this.resolve(clientId, purpose);
+        const enabled = ['RAZORPAY', 'CASHFREE'].includes(provider);
+        purposes[purpose] = { enabled, provider, platforms: enabled ? ['ANDROID', 'IOS'] : [] };
+      } catch (error) {
+        if (!(error instanceof HttpException)) throw error;
+        const response = error.getResponse();
+        const reason = typeof response === 'object' && 'code' in response ? String(response.code) : 'PAYMENT_UNAVAILABLE';
+        purposes[purpose] = { enabled: false, provider: null, platforms: [], reason };
+      }
+    }
+    if (purposes.DEPLOYMENT) purposes.DEPLOYMENT.autoPaySetup = (await this.deploymentAutoPay(clientId)).effectiveEnabled;
+    return { contractVersion: 1, availabilityBasis: 'POLICY', connectivityVerified: false, purposes };
+  }
+
+  async resolve(clientId: string, purpose: PaymentPurpose, requested?: string) {
+    const environment = (this.config.get<string>('RAZORPAY_ENVIRONMENT') ?? 'TEST').toUpperCase();
+    const rows = await this.db.clientPaymentProvider.findMany({ where: { clientId, environment } });
+    const now = new Date();
+    const active = rows.filter(row => row.status === 'ACTIVE' && row.validFrom <= now && (!row.validUntil || row.validUntil >= now));
+    let provider: string;
+    if (rows.length) {
+      if (active.length !== 1) throw new ServiceUnavailableException({ code: 'PAYMENT_POLICY_UNAVAILABLE', message: 'Exactly one active merchant must be configured for this workspace and environment.' });
+      provider = active[0].provider.toUpperCase();
+      if (!['RAZORPAY', 'CASHFREE'].includes(provider)) throw new ServiceUnavailableException({ code: 'PAYMENT_MERCHANT_UNSUPPORTED', message: 'This provider does not support client-specific merchant credentials.' });
+    } else {
+      const recurring = purpose === 'UPI_AUTOPAY' ? this.config.get<string>('AUTOPAY_PROVIDER') : undefined;
+      provider = (recurring && recurring !== 'configured' ? recurring : this.config.get<string>('PAYMENT_PROVIDER') ?? 'disabled').toUpperCase();
+      if (purpose === 'DEPLOYMENT') provider = 'DISABLED';
+      if (provider === 'CASHFREE' && this.config.get<string>('NODE_ENV') === 'production' && this.config.get<string>('CASHFREE_ENVIRONMENT') !== 'PRODUCTION')
+        throw new ServiceUnavailableException({ code: 'PAYMENT_MERCHANT_UNAVAILABLE', message: 'Legacy Cashfree processing requires production credentials in this environment.' });
+      if (provider === 'CASHFREE' && (!this.config.get<string>('CASHFREE_CLIENT_ID')?.trim() || !this.config.get<string>('CASHFREE_CLIENT_SECRET')?.trim()))
+        throw new ServiceUnavailableException({ code: 'PAYMENT_MERCHANT_UNAVAILABLE', message: 'Cashfree is not configured for this workspace.' });
+    }
+    if (requested && requested.toUpperCase() !== provider)
+      throw new ConflictException({ code: 'PAYMENT_PROVIDER_POLICY_MISMATCH', message: 'The requested gateway differs from the workspace payment policy.' });
+    if (!gatewayCapabilities[provider]?.includes(purpose))
+      throw new ServiceUnavailableException({ code: 'PAYMENT_CAPABILITY_UNAVAILABLE', message: 'The configured gateway does not support this payment purpose.' });
+    return provider;
+  }
+}

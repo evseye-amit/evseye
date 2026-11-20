@@ -7,4 +7,6 @@ export class UpsertClientPaymentProviderDto {
   @IsString() @MaxLength(512) secretReference!: string;
   @IsOptional() @IsString() @MaxLength(128) merchantAccountId?: string;
   @IsOptional() @IsIn(['ACTIVE', 'DISABLED']) status?: 'ACTIVE' | 'DISABLED';
+  /** Omit only for legacy callers; NEW asserts that no configuration exists. */
+  @IsOptional() @IsString() @MaxLength(40) expectedRevision?: string;
 }

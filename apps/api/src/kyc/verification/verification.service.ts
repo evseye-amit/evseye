@@ -1,3 +1,4 @@
+import { RiderKycStatusService } from '../../riders/rider-kyc-status.service.js';
 import { BadRequestException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { KycType, KycVerificationStatus, KycVerificationType, Prisma } from '@prisma/client';
@@ -15,7 +16,7 @@ import { KycCommercialService } from '../commercial/kyc-commercial.service.js';
 export class VerificationService {
   constructor(private readonly prisma: PrismaService, private readonly registry: ProviderRegistryService,
     private readonly config: ConfigService<Environment, true>, private readonly routing: KycRoutingEngine,
-    private readonly commercial: KycCommercialService) {}
+    private readonly commercial: KycCommercialService, private readonly riderKyc: RiderKycStatusService) {}
 
   async consent(clientId: string, dto: CreateConsentDto) {
     await this.assertRider(clientId, dto.riderId);
@@ -57,6 +58,12 @@ export class VerificationService {
           validityDaysSnapshot: entitlement.policy?.validityDays,
           reverificationRequiredSnapshot: entitlement.policy?.reverificationRequired ?? false } });
         await this.commercial.consume(tx, clientId, dto.type, created.id, entitlement);
+        const outbox = (tx as unknown as { kycVerificationOutbox?: { create: (input: unknown) => Promise<unknown> } }).kycVerificationOutbox;
+        if (outbox) await outbox.create({ data: {
+          verificationId: created.id, clientId,
+          payload: { riderId: dto.riderId, type: dto.type, pan: dto.pan, name: dto.name, dateOfBirth: dto.dateOfBirth,
+            aadhaar: dto.aadhaar, accountNumber: dto.accountNumber, ifsc: dto.ifsc, reason: consent?.reason } as Prisma.InputJsonValue,
+        } });
         return created;
       });
     } catch (error) {
@@ -71,10 +78,43 @@ export class VerificationService {
         { type: dto.type, pan: dto.pan, name: dto.name, dateOfBirth: dto.dateOfBirth, aadhaar: dto.aadhaar,
           accountNumber: dto.accountNumber, ifsc: dto.ifsc, reason: consent?.reason }, plan);
       await this.finish(verification.id, outcome.result, outcome.attemptId, outcome.providerId, true);
+      const outbox = (this.prisma as unknown as { kycVerificationOutbox?: { updateMany: (input: unknown) => Promise<unknown> } }).kycVerificationOutbox;
+      if (outbox) await outbox.updateMany({ where: { verificationId: verification.id, status: { in: ['PENDING', 'PROCESSING'] } }, data: { status: 'COMPLETED', completedAt: new Date() } });
     } catch (error) {
       await this.failRouting(verification.id, error);
+      const outbox = (this.prisma as unknown as { kycVerificationOutbox?: { updateMany: (input: unknown) => Promise<unknown> } }).kycVerificationOutbox;
+      if (outbox) await outbox.updateMany({ where: { verificationId: verification.id, status: { in: ['PENDING', 'PROCESSING'] } }, data: { status: 'FAILED', lastError: error instanceof Error ? error.message : 'provider failure', availableAt: new Date(Date.now() + 60_000) } });
     }
     return this.get(clientId, verification.id);
+  }
+
+  async processOutbox(id: string) {
+    const outbox = (this.prisma as unknown as { kycVerificationOutbox: any }).kycVerificationOutbox;
+    const claimed = await this.prisma.$transaction(async (tx) => {
+      const txOutbox = (tx as unknown as { kycVerificationOutbox: any }).kycVerificationOutbox;
+      const row = await txOutbox.findFirst({ where: { id, status: { in: ['PENDING', 'FAILED'] }, availableAt: { lte: new Date() } } });
+      if (!row) return null;
+      const changed = await txOutbox.updateMany({ where: { id, status: { in: ['PENDING', 'FAILED'] } }, data: { status: 'PROCESSING', attempts: { increment: 1 }, lockedAt: new Date() } });
+      return changed.count ? row : null;
+    });
+    if (!claimed) return false;
+    const verification = await this.prisma.kycVerification.findUniqueOrThrow({ where: { id: claimed.verificationId }, include: { consent: true } });
+    if (verification.status !== 'PROCESSING') {
+      await outbox.update({ where: { id }, data: { status: 'COMPLETED', completedAt: new Date() } });
+      return true;
+    }
+    const input = claimed.payload as StartVerificationDto;
+    try {
+      const entitlement = await this.commercial.entitlement(verification.clientId, verification.verificationType);
+      const plan = await this.routing.plan(verification.clientId, verification.verificationType, entitlement.policy?.routingPolicyId, verification.idempotencyKey);
+      const outcome = await this.routing.execute({ clientId: verification.clientId, verificationId: verification.id, type: verification.verificationType }, { ...input, reason: verification.consent?.reason }, plan);
+      await this.finish(verification.id, outcome.result, outcome.attemptId, outcome.providerId, true);
+      await outbox.update({ where: { id }, data: { status: 'COMPLETED', completedAt: new Date(), lockedAt: null } });
+    } catch (error) {
+      await this.failRouting(verification.id, error);
+      await outbox.update({ where: { id }, data: { status: 'FAILED', lastError: error instanceof Error ? error.message : 'provider failure', availableAt: new Date(Date.now() + 60_000), lockedAt: null } });
+    }
+    return true;
   }
 
   async completeOtp(clientId: string, id: string, otp: string) {
@@ -238,16 +278,39 @@ export class VerificationService {
         validUntil: result.status === 'VERIFIED' && current.validityDaysSnapshot
           ? new Date(now.getTime() + current.validityDaysSnapshot * 86_400_000) : null,
         completedAt: result.status === 'OTP_REQUIRED' ? null : now } });
-      if (changed.count && result.status === 'VERIFIED') {
+      if (changed.count && ['VERIFIED', 'FAILED'].includes(result.status)) {
         const legacyType = current.verificationType === 'PAN_VERIFICATION' ? KycType.PAN
           : current.verificationType === 'AADHAAR_OTP' ? KycType.AADHAAR
           : current.verificationType === 'BANK_ACCOUNT_VERIFICATION' ? KycType.BANK_ACCOUNT : null;
         if (legacyType) {
+          const newest = await tx.kycVerification.findFirst({
+            where: { clientId: current.clientId, riderId: current.riderId, verificationType: current.verificationType },
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { id: true },
+          });
+          // A late provider response must never overwrite a newer PAN submission.
+          if (newest?.id !== current.id) return;
+          const rider = legacyType === KycType.PAN ? await tx.rider.findFirst({
+            where: { id: current.riderId, clientId: current.clientId, deletedAt: null },
+            select: { userId: true },
+          }) : null;
+          if (rider?.userId) await this.riderKyc.lockUser(tx, current.clientId, rider.userId);
           const provider = await tx.kycProviderConfig.findUniqueOrThrow({ where: { id: providerId }, select: { code: true } });
           await tx.riderKyc.upsert({ where: { riderId_type: { riderId: current.riderId, type: legacyType } },
             create: { clientId: current.clientId, riderId: current.riderId, type: legacyType,
-              status: 'VERIFIED', provider: provider.code, verifiedAt: now },
-            update: { status: 'VERIFIED', provider: provider.code, verifiedAt: now, safeFailureCode: null } });
+              status: result.status === 'VERIFIED' ? 'VERIFIED' : 'FAILED', provider: provider.code,
+              verifiedAt: result.status === 'VERIFIED' ? now : null,
+              safeFailureCode: result.status === 'FAILED' ? (result.failureCode ?? result.failureCategory ?? 'PAN_NOT_VERIFIED') : null },
+            update: { status: result.status === 'VERIFIED' ? 'VERIFIED' : 'FAILED', provider: provider.code,
+              verifiedAt: result.status === 'VERIFIED' ? now : null,
+              safeFailureCode: result.status === 'FAILED' ? (result.failureCode ?? result.failureCategory ?? 'PAN_NOT_VERIFIED') : null } });
+          if (rider?.userId) {
+            const fields = await this.riderKyc.fields(current.clientId);
+            const kyc = await this.riderKyc.sync(tx, current.clientId, rider.userId, fields);
+            await tx.rider.updateMany({
+              where: { id: current.riderId, clientId: current.clientId, status: { in: ['ACTIVE', 'ONBOARDING'] }, deletedAt: null },
+              data: { status: kyc.kycStatus === 'VERIFIED' ? 'ACTIVE' : 'ONBOARDING' },
+            });
+          }
         }
       }
     });

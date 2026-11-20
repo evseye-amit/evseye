@@ -133,7 +133,7 @@ export class AllocationsService {
       }
       const documentBlockers = this.riderDocuments ? await this.riderDocuments.allocationBlockers(clientId, riderId) : [];
       if (documentBlockers.length) {
-        throw new ConflictException({ message: 'Rider documents must be approved before Fleet allocation.', documents: documentBlockers });
+        throw new ConflictException({ code: 'RIDER_VERIFICATION_PENDING', message: 'Rider verification must be completed before Fleet allocation.', issues: documentBlockers });
       }
       const reserved = await tx.fleet.updateMany({
         where: {

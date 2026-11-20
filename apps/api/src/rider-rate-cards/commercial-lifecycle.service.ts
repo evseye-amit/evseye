@@ -1,3 +1,4 @@
+import { retryablePaymentTransaction } from '../payments/transaction-retry.js';
 import {
   BadRequestException,
   ConflictException,
@@ -130,10 +131,8 @@ export class CommercialLifecycleService {
         });
       } catch (error) {
         if (
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          (['P2034', 'P2002'].includes(error.code) ||
-            (error.code === 'P2010' &&
-              ['40001', '40P01'].includes(String(error.meta?.code)))) &&
+          (retryablePaymentTransaction(error) ||
+            (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) &&
           attempt < 3
         )
           continue;

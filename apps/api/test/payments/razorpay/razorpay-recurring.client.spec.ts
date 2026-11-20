@@ -168,6 +168,7 @@ describe('Razorpay recurring HTTP contract and routing', () => {
     worker.onModuleInit();
     const event = {
       id: 'event-1',
+      clientId: 'c-1',
       eventType: 'payment.captured',
       deploymentPayload: { orderId: 'order_test', paymentId: 'pay_test' },
     };
@@ -187,6 +188,7 @@ describe('Razorpay recurring HTTP contract and routing', () => {
     expect(
       await router.process({
         id: 'event-2',
+        clientId: 'c-1',
         eventType: 'token.cancelled',
         recurringPayload: { tokenId: 'token_test' },
         deploymentPayload: null,

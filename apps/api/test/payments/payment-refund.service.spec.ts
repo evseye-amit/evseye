@@ -6,6 +6,7 @@ import {
 } from '../../src/payments/payment-refund.service.js';
 
 const refund = {
+  provider: 'CASHFREE',
   id: 'refund-1',
   clientId: 'client-1',
   riderId: 'rider-1',
@@ -42,7 +43,7 @@ function fixture(providerResult: {
       update: vi.fn(),
     },
     paymentCollectionRequest: {
-      findFirst: vi.fn().mockResolvedValue({ providerOrderId: 'ORDER-1' }),
+      findFirst: vi.fn().mockResolvedValue({ provider: 'CASHFREE', providerOrderId: 'ORDER-1' }),
     },
     paymentTransaction: { findFirst: vi.fn().mockResolvedValue(null) },
     $transaction: vi.fn(async (fn: (value: typeof tx) => Promise<unknown>) =>
@@ -50,6 +51,7 @@ function fixture(providerResult: {
     ),
   };
   const provider = {
+    async forClient() { return this; },
     fetchCheckoutRefund: vi.fn().mockResolvedValue(providerResult),
   };
   const payments = {
@@ -63,6 +65,19 @@ function fixture(providerResult: {
   return { service, prisma, provider, payments };
 }
 describe('verified provider refunds', () => {
+  it('rejects a refund whose saved provider differs from its payment source', async () => {
+    const f = fixture({ providerRefundId: refund.providerRefundId, status: 'SUCCESS', rawStatus: 'SUCCESS', amount: '1200.00', currency: 'INR' });
+    f.prisma.paymentRefund.findFirst.mockResolvedValue({ ...refund, provider: 'MOCK' });
+    await expect(f.service.verify('client-1', 'rider-1', 'refund-1')).rejects.toThrow('REFUND_PROVIDER_MISMATCH');
+    expect(f.provider.fetchCheckoutRefund).not.toHaveBeenCalled();
+    expect(f.payments.confirmProviderRefundInTransaction).not.toHaveBeenCalled();
+  });
+  it('keeps unsupported Razorpay refunds out of the Cashfree adapter', async () => {
+    const f = fixture({ providerRefundId: refund.providerRefundId, status: 'SUCCESS', rawStatus: 'SUCCESS', amount: '1200.00', currency: 'INR' });
+    f.prisma.paymentCollectionRequest.findFirst.mockResolvedValue({ provider: 'RAZORPAY', providerOrderId: 'order_rzp' });
+    await expect(f.service.verify('client-1', 'rider-1', 'refund-1')).rejects.toThrow('support review');
+    expect(f.provider.fetchCheckoutRefund).not.toHaveBeenCalled();
+  });
   it('reserves concurrent partial refunds and permits only the remaining payment value', () => {
     const d = (value: string) => new Prisma.Decimal(value);
     expect(
@@ -115,9 +130,10 @@ describe('refund webhook dispatch', () => {
       data: { refund: { refund_id: refund.providerRefundId } },
     }),
   );
-  it('rejects an unsigned callback before querying any refund', async () => {
+  it('rejects an unsigned callback after a read-only routing lookup', async () => {
     const prisma = { paymentRefund: { findUnique: vi.fn() } };
     const provider = {
+    async forClient() { return this; },
       verifyCheckoutWebhook: vi.fn().mockImplementation(() => {
         throw new Error('Invalid signature');
       }),
@@ -130,13 +146,13 @@ describe('refund webhook dispatch', () => {
     await expect(service.webhook(body, 'timestamp', 'bad')).rejects.toThrow(
       'Invalid signature',
     );
-    expect(prisma.paymentRefund.findUnique).not.toHaveBeenCalled();
+    expect(prisma.paymentRefund.findUnique).toHaveBeenCalledOnce();
   });
   it('does not finalize a duplicate processed callback', async () => {
     const prisma = {
       paymentRefund: { findUnique: vi.fn().mockResolvedValue(refund) },
       paymentCollectionRequest: {
-        findFirst: vi.fn().mockResolvedValue({ providerOrderId: 'ORDER-1' }),
+        findFirst: vi.fn().mockResolvedValue({ provider: 'CASHFREE', providerOrderId: 'ORDER-1' }),
       },
       paymentTransaction: { findFirst: vi.fn().mockResolvedValue(null) },
       paymentProviderEvent: {
@@ -146,6 +162,7 @@ describe('refund webhook dispatch', () => {
       },
     };
     const provider = {
+    async forClient() { return this; },
       verifyCheckoutWebhook: vi
         .fn()
         .mockReturnValue({ payload: JSON.parse(body.toString()) }),

@@ -1,4 +1,6 @@
-import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { Optional } from '@nestjs/common';
+import { PaymentAutomationService } from '../payment-automation.service.js';
+import { ConflictException, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { z } from 'zod';
 import { PrismaService } from '../../prisma/prisma.service.js';
@@ -20,22 +22,25 @@ export class RazorpayAutoPayWorker implements OnModuleInit {
     private readonly payments: PaymentOrchestratorService,
     private readonly gateway: RazorpayRecurringClient,
     private readonly events: RazorpayEventRouter,
+    @Optional() private readonly automation?: PaymentAutomationService,
   ) {}
   onModuleInit() {
     this.events.register((event) => this.processEvent(event));
   }
   async processEvent(event: RazorpayInboxEvent) {
+    if (!event.clientId) throw new ConflictException('Webhook requires merchant-verified redelivery.');
     if (event.eventType.startsWith('token.')) {
       const parsed = z
         .object({ tokenId: z.string().regex(/^token_[A-Za-z0-9]+$/) })
         .safeParse(event.recurringPayload);
       if (!parsed.success) return false;
       const mandate = await this.db.paymentMandate.findFirst({
-        where: { provider: 'RAZORPAY', providerTokenId: parsed.data.tokenId },
+        where: { clientId: event.clientId, provider: 'RAZORPAY', providerTokenId: parsed.data.tokenId },
       });
       // First token confirmation may arrive before registration recovery binds it.
       // The independent mandate poll below recovers that case without trusting webhook identity.
       if (!mandate) return false;
+      if (mandate.clientId !== event.clientId) throw new ConflictException('Razorpay webhook merchant mismatch.');
       await this.mandates.reconcileStored(mandate.id);
       await this.db.paymentProviderEvent.update({
         where: { id: event.id },
@@ -60,28 +65,30 @@ export class RazorpayAutoPayWorker implements OnModuleInit {
       .parse(event.deploymentPayload);
     if (!entity.orderId) return false;
     let transaction = await this.db.paymentTransaction.findFirst({
-      where: { provider: 'RAZORPAY', providerOrderId: entity.orderId },
+      where: { clientId: event.clientId, provider: 'RAZORPAY', providerOrderId: entity.orderId },
     });
     let mandate = await this.db.paymentMandate.findFirst({
       where: {
         provider: 'RAZORPAY',
+        clientId: event.clientId,
         providerAuthorizationOrderId: entity.orderId,
       },
     });
     if (!transaction && !mandate) {
       // Bind only through an existing local attempt's receipt, never caller-supplied client IDs.
-      const order = await this.gateway.fetchOrder(entity.orderId);
+      const order = await this.gateway.fetchOrder(entity.orderId, event.clientId, event.configurationVersionId);
       if (order.receipt) {
         transaction = await this.db.paymentTransaction.findFirst({
-          where: { provider: 'RAZORPAY', id: order.receipt },
+          where: { clientId: event.clientId, provider: 'RAZORPAY', id: order.receipt },
         });
         if (!transaction)
           mandate = await this.db.paymentMandate.findFirst({
-            where: { provider: 'RAZORPAY', id: order.receipt },
+            where: { clientId: event.clientId, provider: 'RAZORPAY', id: order.receipt },
           });
       }
     }
     if (transaction) {
+      if (transaction.clientId !== event.clientId) throw new ConflictException('Razorpay webhook merchant mismatch.');
       await this.payments.verify(
         transaction.clientId,
         transaction.riderId,
@@ -98,6 +105,7 @@ export class RazorpayAutoPayWorker implements OnModuleInit {
       return true;
     }
     if (mandate) {
+      if (mandate.clientId !== event.clientId) throw new ConflictException('Razorpay webhook merchant mismatch.');
       await this.mandates.reconcileStored(mandate.id);
       await this.db.paymentProviderEvent.update({
         where: { id: event.id },
@@ -109,6 +117,14 @@ export class RazorpayAutoPayWorker implements OnModuleInit {
   }
   @Cron(CronExpression.EVERY_MINUTE)
   async reconcile() {
+    // Missing lease infrastructure must fail closed for scheduled money work.
+    if (!this.automation) return;
+    await this.automation.run('worker:razorpay-autopay', async () => {
+      await this.runScheduledBatch();
+      return true;
+    }, 30);
+  }
+  private async runScheduledBatch() {
     if (this.running || !this.gateway.enabled) return;
     this.running = true;
     try {

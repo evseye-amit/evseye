@@ -90,6 +90,8 @@ describe.skipIf(!url)(
       };
       const gateway = {
         keyId: 'rzp_test_example',
+        keyIdFor: vi.fn().mockResolvedValue('rzp_test_example'),
+        configurationFor: vi.fn().mockResolvedValue({ keyId: 'rzp_test_example', environment: 'TEST' }),
         assertConfigured: vi.fn(),
         createRegistration: vi.fn(async () => registration),
         fetchRegistration: vi.fn(async () => registration),
@@ -141,6 +143,7 @@ describe.skipIf(!url)(
       );
       const wallet = new WalletService(db as never);
       const router = {
+        async forClient(provider: string) { return this.forProvider(provider); },
         forProvider: vi.fn((provider: string) => {
           expect(provider).toBe('RAZORPAY');
           return adapter;
@@ -232,6 +235,23 @@ describe.skipIf(!url)(
         settings,
       };
     }
+    it('charges a later invoice through a checkout-created mandate without a registration link', async () => {
+      const f = await fixture();
+      f.authorization.amount = 50000;
+      await db.paymentMandate.update({ where: { id: f.mandate.id }, data: {
+        status: 'ACTIVE', authorizedAt: new Date(), providerTermsSnapshot: { flow: 'DEPLOYMENT_CHECKOUT' },
+        providerCustomerId: f.authorization.customer_id, providerCustomerEmail: 'rider@example.com',
+        providerAuthorizationOrderId: f.authorization.order_id, providerAuthorizationPaymentId: f.authorization.id,
+        providerTokenId: f.token.id, authorizationAmount: '500', providerKeyId: 'rzp_test_example',
+      } });
+      const invoice = await f.invoice();
+      const debit = await f.orchestrator.collect(f.client.id, f.rider.id, invoice.id, 'checkout-mandate-debit', f.schedule());
+      expect(debit.status).toBe('PENDING');
+      expect(f.gateway.createDebitOrder).toHaveBeenCalledTimes(1);
+      expect(f.gateway.createRecurringPayment).toHaveBeenCalledTimes(1);
+      expect(f.gateway.fetchRegistration).not.toHaveBeenCalled();
+      expect(await db.riderPayment.count({ where: { clientId: f.client.id } })).toBe(0);
+    });
     it('keeps nominal registration separate from business payments and requires authoritative token confirmation', async () => {
       const f = await fixture();
       expect((await f.adapter.createMandate(f.input)).status).toBe(
@@ -289,6 +309,20 @@ describe.skipIf(!url)(
         (await f.adapter.fetchMandate(f.mandate.providerMandateId)).status,
       ).toBe('AUTHORIZATION_PENDING');
       expect(f.gateway.createRegistration).toHaveBeenCalledTimes(1);
+    });
+    it('classifies a failed debit and keeps its failure/retry clock stable through polling', async () => {
+      const f = await fixture(); await f.active(); const invoice = await f.invoice();
+      await db.paymentCollectionPolicy.create({ data: { clientId: f.client.id, retryEnabled: true, retryIntervalsDays: [1, 2], maximumAttempts: 3 } });
+      const debit = await f.orchestrator.collect(f.client.id, f.rider.id, invoice.id, 'stable-failure-key', f.schedule());
+      Object.assign(f.payments[0], { status: 'failed', captured: false, error_reason: 'bank_not_available', error_code: 'BAD_REQUEST_ERROR' });
+      await f.orchestrator.verify(f.client.id, f.rider.id, debit.paymentId);
+      const failed = await db.paymentTransaction.findUniqueOrThrow({ where: { id: debit.paymentId } });
+      expect(failed).toMatchObject({ status: 'FAILED', retryability: 'RETRYABLE', failureCode: 'BANK_NOT_AVAILABLE', failedAt: expect.any(Date) });
+      const due = await db.autoPayDunningCase.findUniqueOrThrow({ where: { clientId_invoiceId: { clientId: f.client.id, invoiceId: invoice.id } } });
+      await f.orchestrator.verify(f.client.id, f.rider.id, debit.paymentId);
+      expect((await db.paymentTransaction.findUniqueOrThrow({ where: { id: debit.paymentId } })).failedAt).toEqual(failed.failedAt);
+      expect((await db.autoPayDunningCase.findUniqueOrThrow({ where: { id: due.id } })).nextRetryAt).toEqual(due.nextRetryAt);
+      expect(await db.auditLog.count({ where: { entityId: debit.paymentId, action: 'AUTODEBIT_FAILED' } })).toBe(1);
     });
     it('settles a captured debit exactly once, using the saved provider despite a different checkout default', async () => {
       const f = await fixture();

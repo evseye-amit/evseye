@@ -39,7 +39,7 @@ describe('validateEnvironment', () => {
       JWT_ACCESS_SECRET: 'a'.repeat(40),
       JWT_REFRESH_SECRET: 'b'.repeat(40),
       OTP_HASH_SECRET: 'c'.repeat(40),
-    })).toThrow('Production KYC requires Sandbox PRODUCTION credentials.');
+    })).toThrow('Production KYC requires PRODUCTION provider routing.');
   });
 
   it('rejects the console SMS provider in production', () => {
@@ -173,7 +173,22 @@ describe('independent AutoPay provider configuration', () => {
     expect(settings.RAZORPAY_AUTOPAY_ENABLED).toBe('false');
     expect(() => validateEnvironment({ AUTOPAY_PROVIDER: 'razorpay' })).toThrow('AutoPay requires');
   });
-  it('requires Cashfree credentials when it is selected only for AutoPay', () => {
-    expect(() => validateEnvironment({ PAYMENT_PROVIDER: 'disabled', AUTOPAY_PROVIDER: 'cashfree' })).toThrow('Cashfree configuration is missing');
+  it('defers missing Cashfree credentials to payment request time', () => {
+    expect(validateEnvironment({ PAYMENT_PROVIDER: 'disabled', AUTOPAY_PROVIDER: 'cashfree' }).CASHFREE_CLIENT_ID).toBeUndefined();
+  });
+});
+
+describe('vendor-independent KYC configuration', () => {
+  const enabled = { KYC_ENABLED: 'true', KYC_FINGERPRINT_SECRET: 'f'.repeat(32) };
+  it('allows other adapters without requiring Sandbox credentials', () => {
+    expect(validateEnvironment(enabled).KYC_ENABLED).toBe(true);
+  });
+  it('rejects a Sandbox production account pointed at the default test endpoint', () => {
+    expect(() => validateEnvironment({ ...enabled, KYC_SANDBOX_ENVIRONMENT: 'PRODUCTION' }))
+      .toThrow('Sandbox PRODUCTION requires an explicit HTTPS production API URL.');
+  });
+  it('rejects a Sandbox reference for the wrong environment', () => {
+    expect(() => validateEnvironment({ ...enabled, KYC_SANDBOX_SECRET_REFERENCE: 'env:KYC_SANDBOX_PRODUCTION' }))
+      .toThrow('Sandbox credential reference must match its configured environment.');
   });
 });

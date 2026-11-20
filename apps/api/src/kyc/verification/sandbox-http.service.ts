@@ -1,4 +1,5 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import type { KycProviderEnvironment } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import type { Environment } from '../../config/environment.js';
 
@@ -16,6 +17,14 @@ export class SandboxHttpService {
   private openUntil = 0;
 
   constructor(private readonly config: ConfigService<Environment, true>) {}
+
+  acceptsCredential(environment: KycProviderEnvironment, secretReference: string) {
+    const configuredEnvironment = this.config.get('KYC_SANDBOX_ENVIRONMENT');
+    const configuredReference = this.config.get('KYC_SANDBOX_SECRET_REFERENCE')
+      ?? `env:KYC_SANDBOX_${configuredEnvironment}`;
+    return environment === configuredEnvironment && secretReference === configuredReference
+      && Boolean(this.config.get('KYC_SANDBOX_API_KEY') && this.config.get('KYC_SANDBOX_API_SECRET'));
+  }
 
   circuitOpen() { return this.openUntil > Date.now(); }
 

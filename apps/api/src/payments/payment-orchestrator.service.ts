@@ -1,4 +1,5 @@
 import { AutoPayProviderRouter } from './autopay-provider-router.service.js';
+import { retryablePaymentTransaction } from './transaction-retry.js';
 import { PENALTY_PAYMENT } from './outstanding-payment.js';
 import { randomUUID } from 'node:crypto';
 import {
@@ -9,7 +10,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { PaymentTransactionStatus, Prisma } from '@prisma/client';
+import { PaymentTransactionStatus, Prisma, type PaymentTransaction } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import type { Environment } from '../config/environment.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -45,8 +46,7 @@ export class PaymentOrchestratorService {
         });
       } catch (error) {
         if (
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          error.code === 'P2034' &&
+          retryablePaymentTransaction(error) &&
           attempt < 3
         )
           continue;
@@ -113,6 +113,13 @@ export class PaymentOrchestratorService {
           where: { id: invoiceId, clientId, riderId },
         });
         if (!invoice) throw new NotFoundException('Rider invoice not found.');
+        if (invoice.invoiceType === 'RENTAL') {
+          // Same lock used by wallet opt-in and recharge reservation prevents two collection modes racing.
+          await tx.$queryRaw`SELECT id FROM "RiderWallet" WHERE "clientId"=${clientId} AND "riderId"=${riderId} AND currency=${invoice.currency} FOR UPDATE`;
+          const funding = await tx.walletAutoRechargePreference.findUnique({ where: { clientId_riderId: { clientId, riderId } } });
+          const pending = await tx.walletAutoRecharge.findFirst({ where: { clientId, riderId, status: { in: ['CREATING', 'PENDING', 'UNKNOWN', 'REVIEW_REQUIRED'] } } });
+          if (funding?.enabled || pending) throw new ConflictException('Rental is funded through wallet AutoPay. Resolve or disable wallet AutoPay before direct collection.');
+        }
         const retry = await tx.paymentTransaction.findUnique({
           where: { clientId_requestKey: { clientId, requestKey } },
         });
@@ -127,7 +134,10 @@ export class PaymentOrchestratorService {
           where: {
             clientId,
             invoiceId,
-            status: { in: ['CREATING', 'PENDING', 'UNKNOWN', 'SUCCESS'] },
+            OR: [
+              { status: { in: ['CREATING', 'PENDING', 'UNKNOWN'] } },
+              { status: 'SUCCESS', OR: [{ riderPaymentId: null }, { riderPayment: { status: { not: 'REFUNDED' } } }] },
+            ],
           },
           orderBy: { createdAt: 'desc' },
         });
@@ -176,7 +186,7 @@ export class PaymentOrchestratorService {
           throw new ConflictException(
             'An active AutoPay mandate valid on the scheduled date is required.',
           );
-        (this.providers?.forProvider(mandate.provider) ?? this.provider).assertChargeEligible({ amount: invoice.outstandingAmount.toFixed(2), currency: invoice.currency, scheduledAt });
+        ((await this.providers?.forClient(mandate.provider, mandate.clientId, mandate.configurationVersionId ?? null)) ?? this.provider).assertChargeEligible({ amount: invoice.outstandingAmount.toFixed(2), currency: invoice.currency, scheduledAt });
         if (invoice.outstandingAmount.gt(mandate.maxAmount))
           throw new ConflictException(
             'Invoice outstanding amount exceeds the AutoPay mandate limit.',
@@ -188,6 +198,8 @@ export class PaymentOrchestratorService {
             riderId,
             invoiceId,
             mandateId: mandate.id,
+            configurationVersionId: mandate.configurationVersionId,
+            providerKeyId: mandate.providerKeyId,
             requestKey,
             provider: mandate.provider ?? this.config.getOrThrow('PAYMENT_PROVIDER').toUpperCase(),
             providerPaymentId,
@@ -231,9 +243,25 @@ export class PaymentOrchestratorService {
       }
       return this.view(reserved);
     }
+    return this.submitReserved(reserved);
+  }
+
+  private async failUnsent(reserved: PaymentTransaction, failureCode: string) {
+    return this.view(await this.prisma.paymentTransaction.update({ where: { id: reserved.id, status: 'CREATING' }, data: {
+      status: 'FAILED', failedAt: new Date(), failureCode, retryability: 'RETRYABLE',
+      attempts: { updateMany: { where: { status: 'CREATING' }, data: { status: 'FAILED', providerStatus: 'NOT_DISPATCHED' } } },
+    } }));
+  }
+
+  private async submitReserved(reserved: PaymentTransaction) {
+    const { clientId, riderId, invoiceId, scheduledAt } = reserved;
     const mandate = await this.prisma.paymentMandate.findFirstOrThrow({
       where: { id: reserved.mandateId, clientId },
     });
+    if (reserved.provider === 'CASHFREE') {
+      const claimed = await this.prisma.paymentTransaction.updateMany({ where: { id: reserved.id, status: 'CREATING', providerDebitClaimedAt: null }, data: { providerDebitClaimedAt: new Date() } });
+      if (!claimed.count) return this.view(await this.prisma.paymentTransaction.findFirstOrThrow({ where: { id: reserved.id } }));
+    }
     const latestInvoice = await this.prisma.riderInvoice.findFirst({
       where: { id: invoiceId, clientId, riderId },
     });
@@ -244,6 +272,7 @@ export class PaymentOrchestratorService {
       ) ||
       !latestInvoice.outstandingAmount.eq(reserved.amount)
     ) {
+      if (reserved.provider === 'CASHFREE') return this.failUnsent(reserved, 'UNSENT_INVOICE_CHANGED');
       await this.prisma.paymentTransaction.update({
         where: { id: reserved.id },
         data: {
@@ -265,7 +294,21 @@ export class PaymentOrchestratorService {
         'Invoice outstanding changed before the provider debit request.',
       );
     }
-    const provider = this.providers?.forProvider(reserved.provider ?? mandate.provider) ?? this.provider;
+    const provider = (await this.providers?.forClient(reserved.provider ?? mandate.provider, mandate.clientId, reserved.configurationVersionId ?? null)) ?? this.provider;
+    if (reserved.provider === 'CASHFREE') {
+      // Claim before dispatch. A worker can resume a proven-unsent reservation;
+      // once claimed, uncertainty must be resolved by provider lookup, never a new debit.
+      const profile = await this.prisma.riderPaymentProfile.findUnique({ where: { clientId_riderId: { clientId, riderId } } });
+      const eligible = mandate.status === 'ACTIVE' && mandate.autoDebitEnabled && profile?.autoPayEnabled &&
+        mandate.expiresAt && mandate.expiresAt > scheduledAt && scheduledAt > new Date() && reserved.amount.lte(mandate.maxAmount);
+      if (!eligible) return this.failUnsent(reserved, 'UNSENT_COLLECTION_NO_LONGER_ELIGIBLE');
+      try {
+        provider.assertChargeEligible({ amount: reserved.amount.toFixed(2), currency: reserved.currency, scheduledAt });
+      } catch (error) {
+        if (error instanceof BadRequestException) return this.failUnsent(reserved, 'UNSENT_SCHEDULE_REJECTED');
+        throw error;
+      }
+    }
     let result: PaymentResult;
     try {
       result = await provider.createPayment({
@@ -284,6 +327,7 @@ export class PaymentOrchestratorService {
         where: { id: reserved.id },
         data: {
           status: knownRejection ? 'FAILED' : 'UNKNOWN',
+          failedAt: knownRejection ? new Date() : undefined,
           failureCode: knownRejection
             ? 'PROVIDER_REJECTED'
             : 'PROVIDER_UNAVAILABLE',
@@ -354,6 +398,9 @@ export class PaymentOrchestratorService {
         );
       if (item.status === 'SUCCESS') return item;
       const next = result.status as PaymentTransactionStatus;
+      const failedAt = item.failedAt ?? new Date();
+      const failureCode = result.failureCode ?? item.failureCode ?? 'UNKNOWN';
+      const retryability = result.retryability ?? item.retryability ?? 'UNKNOWN';
       let riderPaymentId: string | undefined;
       if (next === 'SUCCESS') {
         if (
@@ -438,8 +485,9 @@ export class PaymentOrchestratorService {
           ...(reviewCode ? { failureCode: reviewCode, retryability: 'NON_RETRYABLE' } : {}),
           ...(next === 'FAILED'
             ? {
-                failureCode: result.failureCode ?? 'UNKNOWN',
-                retryability: result.retryability ?? 'UNKNOWN',
+                failedAt,
+                failureCode,
+                retryability,
               }
             : {}),
           providerReference: result.providerReference ?? item.providerReference,
@@ -459,24 +507,27 @@ export class PaymentOrchestratorService {
         },
       });
       if (next === 'FAILED') {
-        await tx.auditLog.create({ data: { clientId: item.clientId, actorId: null, action: 'AUTODEBIT_FAILED', entityType: 'PaymentTransaction', entityId: item.id,
-          newData: { failureCode: result.failureCode ?? 'UNKNOWN', retryability: result.retryability ?? 'UNKNOWN' } } });
+        if (item.status !== 'FAILED') await tx.auditLog.create({ data: { clientId: item.clientId, actorId: null, action: 'AUTODEBIT_FAILED', entityType: 'PaymentTransaction', entityId: item.id,
+          newData: { failureCode, retryability } } });
+        // Polling historical failures must not overwrite a newer attempt's dunning state.
+        const latest = await tx.paymentTransaction.findFirst({ where: { clientId: item.clientId, invoiceId: item.invoiceId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
+        if (latest && latest.id !== item.id) return updated;
         const policy = await tx.paymentCollectionPolicy.findUnique({ where: { clientId: item.clientId } });
         const failedAttempts = await tx.paymentTransaction.count({ where: { clientId: item.clientId, invoiceId: item.invoiceId, status: 'FAILED' } });
-        const retryable = policy?.retryEnabled && result.retryability === 'RETRYABLE' && failedAttempts < policy.maximumAttempts;
+        const retryable = policy?.retryEnabled && retryability === 'RETRYABLE' && failedAttempts < policy.maximumAttempts;
         const intervals = Array.isArray(policy?.retryIntervalsDays) ? policy.retryIntervalsDays as number[] : [];
         const retryDays = intervals[failedAttempts - 1] ?? 1;
         const profile = await tx.riderPaymentProfile.findUnique({ where: { clientId_riderId: { clientId: item.clientId, riderId: item.riderId } } });
         await tx.autoPayDunningCase.upsert({ where: { clientId_invoiceId: { clientId: item.clientId, invoiceId: item.invoiceId } }, create: {
           clientId: item.clientId, riderId: item.riderId, invoiceId: item.invoiceId,
           status: retryable ? 'RETRY_SCHEDULED' : 'RIDER_ACTION_REQUIRED', failedAttempts,
-          nextRetryAt: retryable ? new Date(Date.now() + retryDays * 86400000) : null,
+          nextRetryAt: retryable ? new Date(failedAt.getTime() + retryDays * 86400000) : null,
           graceUntil: profile ? new Date(item.scheduledAt.getTime() + profile.gracePeriodDays * 86400000) : null,
-          failureCode: result.failureCode ?? 'UNKNOWN',
+          failureCode,
         }, update: {
           status: retryable ? 'RETRY_SCHEDULED' : 'RIDER_ACTION_REQUIRED', failedAttempts,
-          nextRetryAt: retryable ? new Date(Date.now() + retryDays * 86400000) : null,
-          failureCode: result.failureCode ?? 'UNKNOWN',
+          nextRetryAt: retryable ? new Date(failedAt.getTime() + retryDays * 86400000) : null,
+          failureCode,
         } });
       } else if (next === 'SUCCESS') {
         await tx.autoPayDunningCase.updateMany({ where: { clientId: item.clientId, invoiceId: item.invoiceId, status: { not: 'RESOLVED' } }, data: { status: 'RESOLVED', resolvedAt: new Date(), nextRetryAt: null } });
@@ -490,10 +541,12 @@ export class PaymentOrchestratorService {
       where: { id: transactionId, clientId, riderId },
     });
     if (!item) throw new NotFoundException('Invoice collection not found.');
+    if (item.provider === 'CASHFREE' && item.status === 'CREATING' && !item.providerDebitClaimedAt)
+      return this.submitReserved(item);
     if (item.status === 'SUCCESS') {
       if (item.provider === 'RAZORPAY' && this.providers) {
         const mandate = await this.prisma.paymentMandate.findFirstOrThrow({ where: { id: item.mandateId, clientId } });
-        await this.providers.forProvider(item.provider).fetchPayment(mandate.providerMandateId, item.providerPaymentId);
+        await (await this.providers.forClient(item.provider, item.clientId, item.configurationVersionId ?? null)).fetchPayment(mandate.providerMandateId, item.providerPaymentId);
         return this.view(await this.prisma.paymentTransaction.findUniqueOrThrow({ where: { id: item.id } }));
       }
       return this.view(item);
@@ -501,10 +554,19 @@ export class PaymentOrchestratorService {
     const mandate = await this.prisma.paymentMandate.findFirstOrThrow({
       where: { id: item.mandateId, clientId },
     });
-    const result = await (this.providers?.forProvider(item.provider ?? mandate.provider) ?? this.provider).fetchPayment(
+    let result: PaymentResult;
+    try { result = await ((await this.providers?.forClient(item.provider ?? mandate.provider, item.clientId, item.configurationVersionId ?? null)) ?? this.provider).fetchPayment(
       mandate.providerMandateId,
       item.providerPaymentId,
     );
+    } catch (error) {
+      if (item.provider === 'CASHFREE' && item.status === 'CREATING' && error instanceof ProviderRequestError && error.httpStatus === 404) {
+        await this.prisma.paymentTransaction.updateMany({ where: { id: item.id, status: 'CREATING' },
+          data: { status: 'UNKNOWN', failureCode: 'CREATE_UNCERTAIN_REQUIRES_REVIEW', retryability: 'UNKNOWN' } });
+        return this.view(await this.prisma.paymentTransaction.findFirstOrThrow({ where: { id: item.id } }));
+      }
+      throw error;
+    }
     return this.view(await this.applyResult(item.id, result, true));
   }
 

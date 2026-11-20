@@ -106,10 +106,14 @@ export interface CheckoutOrderResult {
 }
 export interface CheckoutOrderStatus {
   orderId: string;
+  paymentSessionId?: string;
+  amount?: string;
+  currency?: string;
   status: 'ACTIVE' | 'PAID' | 'EXPIRED' | 'UNKNOWN';
   expiresAt?: string;
 }
 export interface CheckoutPaymentResult {
+  paymentMethod?: string;
   orderId: string;
   providerPaymentId: string;
   status: PaymentStatus;
@@ -180,3 +184,7 @@ export interface PaymentProvider {
   ): VerifiedWebhook;
 }
 export const PAYMENT_PROVIDER = Symbol('PAYMENT_PROVIDER');
+
+export type CheckoutProvider = Pick<PaymentProvider,
+  'createCheckoutOrder' | 'fetchCheckoutOrder' | 'fetchCheckoutPayments' | 'verifyCheckoutWebhook'>;
+export type CheckoutRefundProvider = Pick<PaymentProvider, 'createCheckoutRefund' | 'fetchCheckoutRefund'>;

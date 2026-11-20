@@ -1,0 +1,100 @@
+{
+  "note": "Illustrative v1.3 envelopes, not live IDs, credentials or proof of staging acceptance.",
+  "pendingTopUp": {
+    "data": {
+      "paymentRequestId": "collection:00000000-0000-4000-a000-000000000001",
+      "purpose": "TOP_UP",
+      "provider": "RAZORPAY",
+      "status": "PENDING",
+      "amount": "500.00",
+      "refundedAmount": "0.00",
+      "currency": "INR",
+      "invoiceId": null,
+      "depositId": null,
+      "providerOrderId": "order_example",
+      "providerPaymentId": null,
+      "paymentMethod": null,
+      "failureCode": null,
+      "checkout": {
+        "type": "RAZORPAY",
+        "orderId": "order_example",
+        "keyId": "rzp_test_example",
+        "amountPaise": 50000
+      },
+      "nextAction": "AWAITING_GATEWAY_CONFIRMATION"
+    }
+  },
+  "successfulUpiTopUp": {
+    "data": {
+      "paymentRequestId": "collection:00000000-0000-4000-a000-000000000001",
+      "purpose": "TOP_UP",
+      "provider": "RAZORPAY",
+      "status": "SUCCEEDED",
+      "amount": "500.00",
+      "refundedAmount": "0.00",
+      "currency": "INR",
+      "invoiceId": null,
+      "depositId": null,
+      "providerOrderId": "order_example",
+      "providerPaymentId": "pay_example",
+      "paymentMethod": "UPI",
+      "failureCode": null,
+      "checkout": null
+    }
+  },
+  "successfulUnknownMethod": {
+    "data": {
+      "paymentRequestId": "collection:00000000-0000-4000-a000-000000000001",
+      "purpose": "TOP_UP",
+      "provider": "RAZORPAY",
+      "status": "SUCCEEDED",
+      "amount": "500.00",
+      "refundedAmount": "0.00",
+      "currency": "INR",
+      "invoiceId": null,
+      "depositId": null,
+      "providerOrderId": "order_example",
+      "providerPaymentId": "pay_example",
+      "paymentMethod": "UNKNOWN",
+      "failureCode": null,
+      "checkout": null
+    }
+  },
+  "duplicateCaptureReview": {
+    "data": {
+      "paymentRequestId": "collection:00000000-0000-4000-a000-000000000001",
+      "purpose": "TOP_UP",
+      "provider": "RAZORPAY",
+      "status": "REVIEW_REQUIRED",
+      "amount": "500.00",
+      "refundedAmount": "0.00",
+      "currency": "INR",
+      "invoiceId": null,
+      "depositId": null,
+      "providerOrderId": "order_example",
+      "providerPaymentId": "pay_example",
+      "paymentMethod": "UPI",
+      "failureCode": "DUPLICATE_CAPTURE_REQUIRES_REVIEW",
+      "checkout": null,
+      "nextAction": "CONTACT_SUPPORT"
+    }
+  },
+  "fullyRefundedInvoice": {
+    "data": {
+      "paymentRequestId": "collection:00000000-0000-4000-a000-000000000001",
+      "purpose": "INVOICE",
+      "provider": "RAZORPAY",
+      "status": "REFUNDED",
+      "amount": "500.00",
+      "refundedAmount": "500.00",
+      "currency": "INR",
+      "invoiceId": "00000000-0000-4000-a000-000000000002",
+      "depositId": null,
+      "providerOrderId": "order_example",
+      "providerPaymentId": "pay_example",
+      "paymentMethod": "UPI",
+      "failureCode": null,
+      "checkout": null
+    }
+  }
+}

@@ -1,11 +1,17 @@
+import { RiderDepositService } from '../../rider-deposits/deposit.service.js';
+import { SecurityDepositService } from '../../wallet/security-deposit.service.js';
+import { settleCheckoutPayment } from '../checkout-payment-settlement.js';
+import { unaccountedRefund } from './razorpay-refund-evidence.js';
 import {
   BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
+import { PaymentGatewayPolicyService } from '../payment-gateway-policy.service.js';
 import { randomUUID } from 'node:crypto';
-import { Prisma, type RazorpayPenaltyOrder } from '@prisma/client';
+import { Prisma, type PaymentCollectionRequest, type RazorpayPenaltyOrder } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { RiderPaymentsService } from '../../rider-billing/rider-payments.service.js';
 import { WalletService } from '../../wallet/wallet.service.js';
@@ -19,6 +25,7 @@ import { settleRazorpayRentalInvoice } from '../rental-invoice-payment-settlemen
 import { settlePenaltyPayment } from '../penalty-payment-settlement.js';
 import {
   RazorpayClient,
+  razorpayPaymentMethod,
   RazorpayProviderError,
   type RazorpayPayment,
   type orderSchema,
@@ -33,11 +40,57 @@ export class RazorpayPenaltyService {
     private readonly payments: RiderPaymentsService,
     private readonly wallet: WalletService,
     private readonly penalties: SubmissionPenaltyService,
+    @Optional() private readonly policy?: PaymentGatewayPolicyService,
+    @Optional() private readonly deposits?: RiderDepositService,
+    @Optional() private readonly walletDeposits?: SecurityDepositService,
   ) {}
 
+  async startCollection(request: PaymentCollectionRequest) {
+    let order = await this.db.razorpayPenaltyOrder.findUnique({ where: { collectionId: request.id } });
+    if (!order) {
+      const merchant = await this.gateway.configurationFor(request.clientId);
+      await this.gateway.assertConfigured(request.clientId, merchant.keyId, merchant.configurationVersionId);
+      const paise = request.amount.mul(100);
+      if (!paise.isInteger() || paise.lt(100) || paise.gt(Number.MAX_SAFE_INTEGER))
+        throw new BadRequestException('Online payments require at least INR 1.00 and a supported amount.');
+      order = await this.db.razorpayPenaltyOrder.upsert({
+        where: { collectionId: request.id },
+        create: { collectionId: request.id, keyId: merchant.keyId, configurationVersionId: merchant.configurationVersionId,
+          amountPaise: BigInt(paise.toString()), currency: request.currency },
+        update: {},
+      });
+    }
+    await this.startOrder(request.clientId, order, request.collectionType);
+  }
+
+  /** Local release only: Razorpay orders may still capture late and remain reconciled. */
+  async abandon(clientId: string, riderId: string, collectionId: string) {
+    await this.reconcileCollection(clientId, riderId, collectionId);
+    const order = await this.db.razorpayPenaltyOrder.findFirstOrThrow({ where: { collectionId, collection: { clientId, riderId } } });
+    if (!order.providerOrderId) throw new ConflictException('Confirm order creation before abandoning checkout.');
+    const remotes = await this.gateway.orderPayments(order.providerOrderId, clientId, order.configurationVersionId);
+    if (remotes.some(p => p.captured || p.status !== 'failed'))
+      throw new ConflictException('A gateway payment is captured or still in progress. Reconcile it before starting another.');
+    return this.db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM "Rider" WHERE id=${riderId} AND "clientId"=${clientId} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "PaymentCollectionRequest" WHERE id=${collectionId} FOR UPDATE`;
+      const current = await tx.paymentCollectionRequest.findFirstOrThrow({ where: { id: collectionId, clientId, riderId } });
+      if (current.status === 'SUCCESS' || current.failureCode?.includes('REVIEW'))
+        throw new ConflictException('The payment succeeded or requires review.');
+      if (current.status === 'CANCELLED') return current;
+      await tx.razorpayPenaltyOrder.update({ where: { id: order.id }, data: { status: 'ABANDONED' } });
+      const result = await tx.paymentCollectionRequest.update({ where: { id: collectionId }, data: { status: 'CANCELLED', failureCode: 'CHECKOUT_ABANDONED' } });
+      await tx.auditLog.create({ data: { clientId, actorId: null, action: 'CHECKOUT_ABANDONED', entityType: 'PaymentCollectionRequest', entityId: collectionId,
+        newData: { provider: 'RAZORPAY', lateCapturePossible: true } } });
+      return result;
+    });
+  }
+
   async createOrder(clientId: string, userId: string, body: unknown) {
-    this.gateway.assertConfigured(clientId);
-    const keyId = await this.gateway.keyIdFor(clientId);
+    await this.policy?.resolve(clientId, 'SUBMISSION_PENALTY', 'RAZORPAY');
+    await this.gateway.assertConfigured(clientId);
+    const merchant = await this.gateway.configurationFor(clientId);
+    const { keyId, configurationVersionId } = merchant;
     // Only amount is accepted; the purpose and invoice scope are server-owned.
     if (
       body &&
@@ -84,31 +137,8 @@ export class RazorpayPenaltyService {
               !active.amount.eq(selection.requestedAmount))
           )
             throw new ConflictException('PAYMENT_ALREADY_IN_PROGRESS');
-          if (existing.keyId === keyId) return existing;
-          if (!existing.providerOrderId)
-            throw new ConflictException(
-              'PAYMENT_CONFIGURATION_PENDING: retry shortly while the previous payment order is being created.',
-            );
-          if (
-            active.providerPaymentId ||
-            existing.captures.some((capture) =>
-              ['AUTHORIZED', 'CAPTURED', 'SETTLED'].includes(capture.status),
-            )
-          )
-            throw new ConflictException(
-              'PAYMENT_CONFIGURATION_REVIEW: the previous payment order has gateway activity. Please contact support before retrying.',
-            );
-          await tx.razorpayPenaltyOrder.update({
-            where: { id: existing.id },
-            data: { status: 'FAILED' },
-          });
-          await tx.paymentCollectionRequest.update({
-            where: { id: active.id },
-            data: {
-              status: 'FAILED',
-              failureCode: 'PROVIDER_CONFIGURATION_MISMATCH',
-            },
-          });
+          // Resume the originating merchant after rotation.
+          return existing;
         }
         if (
           await tx.paymentTransaction.findFirst({
@@ -199,6 +229,7 @@ export class RazorpayPenaltyService {
             id,
             collectionId: collection.id,
             keyId,
+            configurationVersionId,
             amountPaise: BigInt(paise.toString()),
             currency: 'INR',
           },
@@ -215,7 +246,7 @@ export class RazorpayPenaltyService {
     order: RazorpayPenaltyOrder,
     purpose: string,
   ) {
-    this.gateway.assertConfigured(clientId, order.keyId);
+    await this.gateway.assertConfigured(clientId, order.keyId, order.configurationVersionId);
     let bound = order;
     if (!bound.providerOrderId) {
       // Only the creator claims the outbound POST. Repeated taps recover by receipt.
@@ -232,7 +263,7 @@ export class RazorpayPenaltyService {
               order.currency,
               order.id,
               { purpose },
-              clientId,
+              clientId, order.configurationVersionId,
             ),
           );
         } catch (error) {
@@ -254,7 +285,7 @@ export class RazorpayPenaltyService {
           throw new ConflictException(
             'A payment order is being created. Please retry shortly.',
           );
-        const matches = await this.gateway.findOrders(order.id, clientId);
+        const matches = await this.gateway.findOrders(order.id, clientId, order.configurationVersionId);
         if (matches.length !== 1)
           throw new ConflictException(
             'Payment order needs confirmation. Do not pay again; contact support if this persists.',
@@ -319,20 +350,20 @@ export class RazorpayPenaltyService {
       },
     });
     if (!order) throw new NotFoundException('Payment order not found.');
-    this.gateway.assertConfigured(clientId, order.keyId);
+    await this.gateway.assertConfigured(clientId, order.keyId, order.configurationVersionId);
     await this.gateway.verifyCheckout(
       body.razorpayOrderId,
       body.razorpayPaymentId,
       body.razorpaySignature,
-      clientId,
+      clientId, order.configurationVersionId,
     );
-    const payment = await this.gateway.fetchPayment(body.razorpayPaymentId, clientId);
+    const payment = await this.gateway.fetchPayment(body.razorpayPaymentId, clientId, order.configurationVersionId);
     if (payment.id !== body.razorpayPaymentId)
       throw new ConflictException('PROVIDER_PAYMENT_IDENTITY_CONFLICT');
     await this.observe(order, payment);
     const retryAvailable =
       payment.status === 'failed' &&
-      (await this.gateway.orderPayments(order.providerOrderId!, clientId)).every(
+      (await this.gateway.orderPayments(order.providerOrderId!, clientId, order.configurationVersionId)).every(
         (p) => p.status === 'failed',
       );
     const current = await this.db.paymentCollectionRequest.findUniqueOrThrow({
@@ -369,16 +400,24 @@ export class RazorpayPenaltyService {
       (!payment.captured && payment.status !== 'refunded')
     )
       return;
+    const paymentMethod = razorpayPaymentMethod(payment);
     const request = await this.db.paymentCollectionRequest.findUniqueOrThrow({
       where: { id: order.collectionId },
     });
-    const previous = await this.db.razorpayPenaltyCapture.findUnique({
+    let previous = await this.db.razorpayPenaltyCapture.findUnique({
       where: { providerPaymentId: payment.id },
     });
     if (previous && previous.orderId !== order.id)
       throw new ConflictException('PROVIDER_PAYMENT_IDENTITY_CONFLICT');
+    // PostgreSQL ON CONFLICT keeps concurrent callback/poll observations idempotent.
+    await this.db.razorpayPenaltyCapture.createMany({ data: [{ orderId: order.id, providerPaymentId: payment.id,
+      paymentMethod, amountPaise: BigInt(payment.amount), currency: payment.currency,
+      status: 'REVIEW_REQUIRED', reason: 'CAPTURE_SETTLEMENT_PENDING_REVIEW' }], skipDuplicates: true });
+    previous = await this.db.razorpayPenaltyCapture.findUniqueOrThrow({ where: { providerPaymentId: payment.id } });
+    if (previous.orderId !== order.id) throw new ConflictException('PROVIDER_PAYMENT_IDENTITY_CONFLICT');
+    const externalRefund = await unaccountedRefund(this.db, request.clientId, request.providerPaymentId === payment.id ? request.riderPaymentId : null, payment);
     let reason =
-      payment.amount_refunded > 0 || payment.status === 'refunded'
+      externalRefund
         ? 'EXTERNAL_REFUND_REQUIRES_REVIEW'
         : request.status === 'SUCCESS' &&
             request.providerPaymentId !== payment.id
@@ -386,25 +425,24 @@ export class RazorpayPenaltyService {
           : null;
     if (!reason) {
       try {
-        const settle =
-          request.collectionType === 'INVOICE_PAYMENT'
-            ? settleRazorpayRentalInvoice
-            : settlePenaltyPayment;
-        const settled = await settle(
-          this.db,
-          this.payments,
-          this.wallet,
-          request,
-          payment.id,
-        );
-        reason = settled.failureCode;
+        const legacyRental = request.collectionType === 'INVOICE_PAYMENT' &&
+          (request.paymentSnapshot as Record<string, unknown> | null)?.scope === 'RENTAL_INVOICE';
+        if (!legacyRental && request.collectionType !== PENALTY_PAYMENT && (!this.deposits || !this.walletDeposits))
+          throw new ConflictException('Checkout settlement is unavailable.');
+        const settled = legacyRental
+          ? await settleRazorpayRentalInvoice(this.db, this.payments, this.wallet, request, payment.id, paymentMethod)
+          : request.collectionType === PENALTY_PAYMENT
+            ? await settlePenaltyPayment(this.db, this.payments, this.wallet, request, payment.id, paymentMethod)
+            : await settleCheckoutPayment(this.db, this.payments, this.deposits!, this.wallet, this.walletDeposits!, request,
+                { providerPaymentId: payment.id, providerReference: payment.id, paymentMethod });
+        reason = !externalRefund && settled.failureCode === 'EXTERNAL_REFUND_REQUIRES_REVIEW' ? null : settled.failureCode;
       } catch (error) {
         if (
-          !(error instanceof ConflictException) ||
-          error.message !== 'DUPLICATE_CAPTURE_REQUIRES_REVIEW'
+          !(error instanceof ConflictException || error instanceof BadRequestException) ||
+          !['DUPLICATE_CAPTURE_REQUIRES_REVIEW', 'WALLET_INACTIVE', 'ACCOUNT_NOT_FOUND', 'WALLET_ACCOUNT_NOT_FOUND'].includes(error.message)
         )
           throw error;
-        reason = 'DUPLICATE_CAPTURE_REQUIRES_REVIEW';
+        reason = error.message === 'DUPLICATE_CAPTURE_REQUIRES_REVIEW' ? error.message : 'WALLET_SETTLEMENT_REQUIRES_REVIEW';
       }
     }
     await this.db.$transaction(async (tx) => {
@@ -413,17 +451,22 @@ export class RazorpayPenaltyService {
         create: {
           orderId: order.id,
           providerPaymentId: payment.id,
+          paymentMethod,
           amountPaise: BigInt(payment.amount),
           currency: payment.currency,
           status: reason ? 'REVIEW_REQUIRED' : 'SETTLED',
           reason,
         },
-        update: { status: reason ? 'REVIEW_REQUIRED' : 'SETTLED', reason },
+        update: { status: reason ? 'REVIEW_REQUIRED' : 'SETTLED', reason,
+          ...(paymentMethod !== 'UNKNOWN' && (!previous?.paymentMethod || previous.paymentMethod === 'UNKNOWN')
+            ? { paymentMethod } : {}),
+        },
       });
       await tx.razorpayPenaltyOrder.update({
         where: { id: order.id },
         data: { status: reason ? 'REVIEW_REQUIRED' : 'PAID' },
       });
+      if (!reason && !externalRefund) await tx.paymentCollectionRequest.updateMany({ where: { id: request.id, failureCode: 'EXTERNAL_REFUND_REQUIRES_REVIEW' }, data: { failureCode: null } });
       if (reason) {
         await tx.paymentCollectionRequest.updateMany({
           where: { id: request.id, status: { not: 'SUCCESS' } },
@@ -438,13 +481,13 @@ export class RazorpayPenaltyService {
   }
 
   /** Called by the existing durable webhook dispatcher, including ambiguous creates. */
-  async processEvent(eventId: string, orderId: string, paymentId: string) {
+  async processEvent(eventId: string, orderId: string, paymentId: string, clientId: string, configurationVersionId?: string | null) {
     let order = await this.db.razorpayPenaltyOrder.findUnique({
       where: { providerOrderId: orderId },
       include: { collection: true },
     });
     if (!order) {
-      const remote = await this.gateway.fetchOrder(orderId);
+      const remote = await this.gateway.fetchOrder(orderId, clientId, configurationVersionId);
       const pending = remote.receipt
         ? await this.db.razorpayPenaltyOrder.findUnique({
             where: { id: remote.receipt },
@@ -452,11 +495,13 @@ export class RazorpayPenaltyService {
           })
         : null;
       if (!pending) return false;
-      this.gateway.assertConfigured(pending.collection.clientId, pending.keyId);
+      if (pending.collection.clientId !== clientId) throw new ConflictException('Razorpay webhook merchant mismatch.');
+      await this.gateway.assertConfigured(pending.collection.clientId, pending.keyId, pending.configurationVersionId);
       await this.bind(pending, remote);
       order = { ...pending, providerOrderId: remote.id };
     }
-    this.gateway.assertConfigured(order.collection.clientId, order.keyId);
+    if (order.collection.clientId !== clientId) throw new ConflictException('Razorpay webhook merchant mismatch.');
+    await this.gateway.assertConfigured(order.collection.clientId, order.keyId, order.configurationVersionId);
     await this.db.paymentProviderEvent.update({
       where: { id: eventId },
       data: {
@@ -464,7 +509,7 @@ export class RazorpayPenaltyService {
         clientId: order.collection.clientId,
       },
     });
-    const payment = await this.gateway.fetchPayment(paymentId, order.collection.clientId);
+    const payment = await this.gateway.fetchPayment(paymentId, order.collection.clientId, order.configurationVersionId);
     if (payment.id !== paymentId)
       throw new ConflictException('PROVIDER_PAYMENT_IDENTITY_CONFLICT');
     await this.observe(order, payment);
@@ -479,17 +524,25 @@ export class RazorpayPenaltyService {
     let order = await this.db.razorpayPenaltyOrder.findFirst({
       where: { collectionId, collection: { clientId, riderId } },
     });
-    if (!order) throw new NotFoundException('Payment order not found.');
-    this.gateway.assertConfigured(clientId, order.keyId);
+    if (!order) {
+      const request = await this.db.paymentCollectionRequest.findFirst({ where: {
+        id: collectionId, clientId, riderId, provider: 'RAZORPAY', status: 'CREATING',
+      } });
+      if (!request) throw new NotFoundException('Payment order not found.');
+      // No order record means no gateway POST could have been claimed yet.
+      await this.startCollection(request);
+      order = await this.db.razorpayPenaltyOrder.findUniqueOrThrow({ where: { collectionId } });
+    }
+    await this.gateway.assertConfigured(clientId, order.keyId, order.configurationVersionId);
     if (!order.providerOrderId) {
       if (Date.now() - order.createdAt.getTime() < 30000) return;
-      const matches = await this.gateway.findOrders(order.id, clientId);
+      const matches = await this.gateway.findOrders(order.id, clientId, order.configurationVersionId);
       if (matches.length !== 1)
         throw new ConflictException('Payment order requires support review.');
       order = await this.bind(order, matches[0]);
     }
     for (const payment of await this.gateway.orderPayments(
-      order.providerOrderId!, clientId,
+      order.providerOrderId!, clientId, order.configurationVersionId,
     ))
       await this.observe(order, payment);
   }
@@ -507,15 +560,15 @@ export class RazorpayPenaltyService {
         data: { checkedAt: new Date() },
       });
       try {
-        this.gateway.assertConfigured(order.collection.clientId, order.keyId);
+        await this.gateway.assertConfigured(order.collection.clientId, order.keyId, order.configurationVersionId);
         if (!order.providerOrderId) {
           if (Date.now() - order.createdAt.getTime() < 30000) continue;
-          const matches = await this.gateway.findOrders(order.id, order.collection.clientId);
+          const matches = await this.gateway.findOrders(order.id, order.collection.clientId, order.configurationVersionId);
           if (matches.length !== 1) continue;
           order = { ...order, ...(await this.bind(order, matches[0])) };
         }
         for (const payment of await this.gateway.orderPayments(
-          order.providerOrderId!, order.collection.clientId,
+          order.providerOrderId!, order.collection.clientId, order.configurationVersionId,
         ))
           await this.observe(order, payment);
       } catch {

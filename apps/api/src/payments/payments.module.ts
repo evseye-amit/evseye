@@ -1,4 +1,16 @@
+import { DeploymentAutoPayService } from './deployment-autopay.service.js';
+import { DeploymentAutoPayPolicyController } from './deployment-autopay-policy.controller.js';
+import { WalletAutoRechargeService } from './wallet-auto-recharge.service.js';
+import { WalletAutoRechargePolicyController, RiderWalletAutoRechargeController } from './wallet-auto-recharge.controller.js';
+import { NotificationModule } from '../notifications/notification.module.js';
+import { PaymentAlertService } from './payment-alert.service.js';
+import { PaymentAlertController } from './payment-alert.controller.js';
+import { SettlementIngestionService } from './settlement-ingestion.service.js';
+import { PaymentAutomationModule } from './payment-automation.module.js';
+import { RazorpayRefundService } from './razorpay/razorpay-refund.service.js';
 import { RazorpayRecurringClient } from './razorpay/razorpay-recurring.client.js';
+import { PaymentGatewayPolicyModule } from './payment-gateway-policy.module.js';
+import { PaymentGatewayPolicyService } from './payment-gateway-policy.service.js';
 import { RazorpayAutoPayProvider } from './razorpay/razorpay-autopay.provider.js';
 import { RazorpayAutoPayWorker } from './razorpay/razorpay-autopay.worker.js';
 import { AutoPayProviderRouter } from './autopay-provider-router.service.js';
@@ -57,8 +69,8 @@ import {
 } from './mandate.controller.js';
 
 @Module({
-  imports: [AllocationsModule, RazorpayPenaltyModule, AuthModule, RiderBillingModule, RiderRateCardsModule, WalletModule],
-  controllers: [
+  imports: [NotificationModule, PaymentAutomationModule, PaymentGatewayPolicyModule, AllocationsModule, RazorpayPenaltyModule, AuthModule, RiderBillingModule, RiderRateCardsModule, WalletModule],
+  controllers: [DeploymentAutoPayPolicyController, WalletAutoRechargePolicyController, RiderWalletAutoRechargeController, PaymentAlertController,
     CommonPaymentController,
     RiderMandateController,
     AutoPayOperationsController,
@@ -76,7 +88,7 @@ import {
     CashfreeRefundWebhookController,
     ProviderSettlementController,
   ],
-  providers: [
+  providers: [DeploymentAutoPayService, WalletAutoRechargeService, PaymentAlertService,
     RazorpayRecurringClient, RazorpayAutoPayProvider, RazorpayAutoPayWorker, AutoPayProviderRouter, RazorpayConfigurationService,
     CommonPaymentService,
     CashfreeHttpClient,
@@ -89,13 +101,15 @@ import {
     AutoCollectionService,
     PaymentReconciliationService,
     PaymentRefundService,
+    RazorpayRefundService,
     ProviderSettlementService,
+    SettlementIngestionService,
     RazorpayDeploymentProviderAdapter,
     {
       provide: DEPLOYMENT_PAYMENT_PROVIDER,
-      inject: [PrismaService, ConfigService, RazorpayDeploymentProviderAdapter],
-      useFactory: (db: PrismaService, config: ConfigService<Environment, true>, razorpay: RazorpayDeploymentProviderAdapter) =>
-        new DeploymentPaymentProviderRouter(db, config, razorpay),
+      inject: [PrismaService, ConfigService, RazorpayDeploymentProviderAdapter, PaymentGatewayPolicyService],
+      useFactory: (db: PrismaService, config: ConfigService<Environment, true>, razorpay: RazorpayDeploymentProviderAdapter, policy: PaymentGatewayPolicyService) =>
+        new DeploymentPaymentProviderRouter(db, config, razorpay, policy),
     },
     {
       provide: PAYMENT_PROVIDER,

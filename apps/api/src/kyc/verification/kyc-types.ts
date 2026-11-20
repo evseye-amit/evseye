@@ -1,4 +1,4 @@
-import type { KycVerificationStatus, KycVerificationType, KycProviderCode } from '@prisma/client';
+import type { KycVerificationStatus, KycVerificationType, KycProviderCode, KycProviderEnvironment } from '@prisma/client';
 
 export interface VerificationInput {
   type: KycVerificationType;
@@ -24,6 +24,8 @@ export interface ProviderResult {
 
 export interface VerificationProvider {
   readonly code: KycProviderCode;
+  /** Fail closed when a configured credential cannot be resolved by this adapter. */
+  acceptsCredential(environment: KycProviderEnvironment, secretReference: string): boolean;
   supports(type: KycVerificationType): boolean;
   verify(input: VerificationInput): Promise<ProviderResult>;
   completeAadhaarOtp(reference: string, otp: string, timeoutMs?: number): Promise<ProviderResult>;

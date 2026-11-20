@@ -1,3 +1,4 @@
+import { deploymentRequestHash } from '../../src/payments/deployment-autopay.input.js';
 import 'reflect-metadata';
 import { describe, expect, it, vi } from 'vitest';
 import { Prisma } from '@prisma/client';
@@ -37,6 +38,7 @@ function fixture() {
     providerPaymentId: null,
     paymentSessionId: 'cashfree_session',
     failureCode: null,
+    paymentSnapshot: { paymentEnvironment: 'SANDBOX' } as Record<string, unknown>,
     razorpayPenaltyOrder: {
       keyId: 'rzp_test',
       providerOrderId: 'order_test',
@@ -45,6 +47,7 @@ function fixture() {
         status: string;
         reason: string | null;
         providerPaymentId: string;
+        paymentMethod?: string | null;
       }[],
     },
   };
@@ -68,20 +71,24 @@ function fixture() {
       status: string;
       reason: string | null;
       providerPaymentId: string;
+      paymentMethod?: string | null;
     }[],
   };
   const db = {
+    riderInvoice: { findFirst: vi.fn().mockResolvedValue({ invoiceType: 'RENTAL' }) },
     paymentCollectionRequest: { findFirst: vi.fn().mockResolvedValue(c) },
     razorpayDeploymentOrder: { findFirst: vi.fn().mockResolvedValue(order) },
   };
   const billing = { riderForUser: vi.fn().mockResolvedValue('rider') };
   const checkout = {
+    payTopUp: vi.fn().mockResolvedValue({ collectionId: id }),
     payInvoice: vi.fn().mockResolvedValue({ collectionId: id }),
     payDeposit: vi.fn().mockResolvedValue({ collectionId: id }),
     payOutstanding: vi.fn().mockResolvedValue({ collectionId: id }),
     verify: vi.fn(),
   };
   const deployments = {
+    reconcile: vi.fn().mockResolvedValue({}),
     createOrder: vi.fn().mockResolvedValue({ orderId: 'order_test' }),
     verify: vi.fn().mockResolvedValue({}),
   };
@@ -101,6 +108,60 @@ function fixture() {
   return { c, order, db, billing, checkout, deployments, penalties, invoices, service };
 }
 describe('common payment purpose contract', () => {
+  it('returns typed checkout payloads without inventing a legacy Cashfree environment', async () => {
+    const f = fixture();
+    expect((await f.service.detail('client', 'user', `collection:${id}`)).checkout).toEqual({
+      type: 'CASHFREE', orderId: 'order_test', paymentSessionId: 'cashfree_session', environment: 'SANDBOX',
+    });
+    f.c.paymentSnapshot = {};
+    expect((await f.service.detail('client', 'user', `collection:${id}`)).checkout).toMatchObject({ environment: null });
+    f.c.provider = 'RAZORPAY';
+    expect((await f.service.detail('client', 'user', `collection:${id}`)).checkout).toEqual({
+      type: 'RAZORPAY', orderId: 'order_test', keyId: 'rzp_test', amountPaise: 50000,
+    });
+  });
+  it.each(['CASHFREE', 'RAZORPAY'])('recovers %s without caller callback or current policy and returns refreshed state', async provider => {
+    const f = fixture(); f.c.provider = provider;
+    f.checkout.verify.mockImplementation(async () => { f.c.status = 'SUCCESS'; });
+    expect(await f.service.reconcile('client', 'user', `collection:${id}`)).toMatchObject({ status: 'SUCCEEDED', checkout: null });
+    expect(f.checkout.verify).toHaveBeenCalledWith('client', 'rider', id);
+    expect(f.penalties.verify).not.toHaveBeenCalled();
+  });
+  it('checks ownership before recovery and routes deployment by the saved attempt', async () => {
+    const f = fixture();
+    await f.service.reconcile('client', 'user', `deployment:${id}`);
+    expect(f.deployments.reconcile).toHaveBeenCalledWith('client', 'user', id, id);
+    f.db.paymentCollectionRequest.findFirst.mockResolvedValue(null);
+    await expect(f.service.reconcile('other-client', 'user', `collection:${id}`)).rejects.toThrow('not found');
+    expect(f.checkout.verify).not.toHaveBeenCalled();
+    f.db.razorpayDeploymentOrder.findFirst.mockResolvedValue(null);
+    f.deployments.reconcile.mockClear();
+    await expect(f.service.reconcile('other-client', 'user', `deployment:${id}`)).rejects.toThrow('not found');
+    expect(f.deployments.reconcile).not.toHaveBeenCalled();
+  });
+  it('requires a rider before returning client capabilities', async () => {
+    const f = fixture();
+    f.billing.riderForUser.mockRejectedValue(new Error('Rider not found'));
+    await expect(f.service.capabilities('client', 'stranger')).rejects.toThrow('Rider not found');
+  });
+  it.each([
+    ['CREATING', 'CREATING', 'AWAITING_GATEWAY_CONFIRMATION'],
+    ['UNKNOWN', 'UNKNOWN', 'AWAITING_GATEWAY_CONFIRMATION'],
+    ['FAILED', 'FAILED', 'RETRY_ONLINE_PAYMENT'],
+    ['CANCELLED', 'CANCELLED', 'RETRY_ONLINE_PAYMENT'],
+    ['EXPIRED', 'EXPIRED', 'RETRY_ONLINE_PAYMENT'],
+    ['REFUND_PROCESSING', 'REFUND_PENDING', 'CONTACT_SUPPORT'],
+    ['REVIEW_REQUIRED', 'REVIEW_REQUIRED', 'CONTACT_SUPPORT'],
+  ])('does not offer checkout for %s', async (stored, status, nextAction) => {
+    const f = fixture(); f.c.status = stored;
+    expect(await f.service.detail('client', 'user', `collection:${id}`)).toMatchObject({ status, nextAction, checkout: null });
+  });
+  it('accepts and routes top-up orders', async () => {
+    const f = fixture();
+    expect(parseOrderInput({ purpose: 'TOP_UP', amount: '500.00' })).toEqual({ purpose: 'TOP_UP', amount: '500.00' });
+    await f.service.create('client', 'user', { purpose: 'TOP_UP', amount: '500.00' }, 'topup-key-1');
+    expect(f.checkout.payTopUp).toHaveBeenCalledWith('client', 'rider', 'topup-key-1', '500.00');
+  });
   it.each([
     { purpose: 'DEPLOYMENT', allocationId: id, amount: '1' },
     { purpose: 'DEPLOYMENT' },
@@ -125,6 +186,13 @@ describe('common payment purpose contract', () => {
     expect(f.checkout.payInvoice).not.toHaveBeenCalled();
     await f.service.create('client', 'user', { purpose: 'INVOICE', invoiceId: id }, 'cashfree-key-1');
     expect(f.checkout.payInvoice).toHaveBeenCalledWith('client', 'rider', id, 'cashfree-key-1', true, 'user');
+  });
+  it('routes an owned non-rental Razorpay invoice through shared checkout', async () => {
+    const f = fixture();
+    f.db.riderInvoice.findFirst.mockResolvedValue({ invoiceType: 'SECURITY_DEPOSIT' });
+    await f.service.create('client', 'user', { purpose: 'INVOICE', provider: 'RAZORPAY', invoiceId: id, useWallet: false }, 'deposit-invoice-key');
+    expect(f.checkout.payInvoice).toHaveBeenCalledWith('client', 'rider', id, 'deposit-invoice-key', false, 'user');
+    expect(f.invoices.payInvoice).not.toHaveBeenCalled();
   });
   it('rejects invalid IDs and caller-supplied verification purpose, amount and status', () => {
     expect(() => parsePaymentRequestId(id)).toThrow();
@@ -230,6 +298,22 @@ describe('common payment purpose contract', () => {
       id,
     );
     expect(f.checkout.payOutstanding).not.toHaveBeenCalled();
+  });
+  it('replays combined checkout by request key and rejects changed consent without another order', async () => {
+    const f = fixture();
+    const options = { setupAutoPay: true, email: 'rider@example.com', autoPayConsent: { accepted: true as const, version: 'deployment-autopay-v1' as const, maxAmount: '15000.00', validityDays: 365 } };
+    Object.assign(f.order, { autoPayRequested: true, autoPayRequestKey: 'request-key', autoPayRequestHash: deploymentRequestHash(id, { ...options, requestKey: 'request-key' }), autoPayCustomerId: 'cust_test', autoPayMaxAmount: new Prisma.Decimal(15000), autoPayStatus: 'NOT_STARTED' });
+    const result = await f.service.create('client', 'user', { purpose: 'DEPLOYMENT', allocationId: id, ...options }, 'request-key');
+    expect(result).toMatchObject({ autoPay: { requested: true, status: 'NOT_STARTED', maxAmount: '15000.00' }, checkout: { customerId: 'cust_test', recurring: true } });
+    await expect(f.service.create('client', 'user', { purpose: 'DEPLOYMENT', allocationId: id, ...options, email: 'other@example.com' }, 'request-key')).rejects.toMatchObject({ response: { code: 'IDEMPOTENCY_CONFLICT' } });
+    expect(f.deployments.createOrder).not.toHaveBeenCalled();
+  });
+  it('returns the live linked mandate state independently from successful onboarding', async () => {
+    const f = fixture();
+    Object.assign(f.order, { autoPayRequested: true, autoPayMandateId: 'mandate', autoPayStatus: 'AUTHORIZATION_PENDING' });
+    f.order.payment.status = 'PAID';
+    Object.assign(f.db, { paymentMandate: { findFirst: vi.fn().mockResolvedValue({ id: 'mandate', status: 'PAUSED', maxAmount: new Prisma.Decimal(15000) }) } });
+    expect(await f.service.detail('client', 'user', `deployment:${id}`)).toMatchObject({ status: 'SUCCEEDED', checkout: null, autoPay: { status: 'PAUSED', mandateId: 'mandate' } });
   });
   it('defaults penalties to Razorpay while retaining explicit Cashfree partial penalty checkout', async () => {
     const f = fixture();
@@ -443,5 +527,43 @@ describe('deposit duplicate collection guard', () => {
     });
     expect(provider.createCheckoutOrder).not.toHaveBeenCalled();
     expect(tx.paymentCollectionRequest.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('collection refund status', () => {
+  it.each([{ refunded: '500', pending: false, expected: 'REFUNDED' }, { refunded: '25', pending: true, expected: 'REFUND_PENDING' }, { refunded: '25', pending: false, expected: 'SUCCEEDED' }])('shows verified refund evidence: $expected', async ({ refunded, pending, expected }) => {
+    const f = fixture(); f.c.status = 'SUCCESS';
+    Object.assign(f.c, { riderPayment: { refundedAmount: new Prisma.Decimal(refunded), refunds: pending ? [{ id: 'refund' }] : [] } });
+    expect(await f.service.detail('client', 'user', `collection:${id}`)).toMatchObject({ status: expected, refundedAmount: new Prisma.Decimal(refunded).toFixed(2), checkout: null });
+  });
+});
+
+
+describe('common API verified payment method', () => {
+  it('does not infer a method from a pending checkout or legacy collection label', async () => {
+    const f = fixture();
+    f.c.provider = 'RAZORPAY';
+    expect(await f.service.detail('client', 'user', `collection:${id}`)).toMatchObject({ paymentMethod: null });
+    expect(await f.service.detail('client', 'user', `deployment:${id}`)).toMatchObject({ paymentMethod: null });
+  });
+  it('keeps collection evidence attached to the credited payment, not a surplus capture', async () => {
+    const f = fixture();
+    f.c.provider = 'RAZORPAY';
+    f.c.status = 'SUCCESS';
+    Object.assign(f.c, { providerPaymentId: 'pay_original' });
+    f.c.razorpayPenaltyOrder.captures.push(
+      { status: 'REVIEW_REQUIRED', reason: 'DUPLICATE_CAPTURE_REQUIRES_REVIEW', providerPaymentId: 'pay_surplus', paymentMethod: 'CARD' },
+      { status: 'SETTLED', reason: null, providerPaymentId: 'pay_original', paymentMethod: 'UPI' },
+    );
+    expect(await f.service.detail('client', 'user', `collection:${id}`)).toMatchObject({
+      status: 'REVIEW_REQUIRED', providerPaymentId: 'pay_original', paymentMethod: 'UPI', checkout: null,
+    });
+  });
+  it('returns the selected deployment capture method without overriding refund state', async () => {
+    const f = fixture();
+    f.order.captures.push({ status: 'REFUND_PENDING', reason: 'DUPLICATE_PAYMENT', providerPaymentId: 'pay_duplicate', paymentMethod: 'CARD' });
+    expect(await f.service.detail('client', 'user', `deployment:${id}`)).toMatchObject({
+      status: 'REFUND_PENDING', providerPaymentId: 'pay_duplicate', paymentMethod: 'CARD', checkout: null,
+    });
   });
 });

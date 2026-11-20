@@ -8,8 +8,10 @@ RUN --mount=type=cache,id=evseye-api-pnpm,target=/pnpm/store \
     pnpm --filter @evs-eye/api install --frozen-lockfile --ignore-scripts --store-dir /pnpm/store
 # Package dependencies before copying source, so code/seed edits reuse this layer.
 # Keep the Prisma CLI available for the compose migration and seed jobs.
+# Cache mounts may be incomplete even when the install layer is cached.
+# Allow deploy to download missing artifacts instead of requiring an offline store.
 RUN --mount=type=cache,id=evseye-api-pnpm,target=/pnpm/store \
-    pnpm --filter @evs-eye/api deploy --legacy --offline --ignore-scripts --store-dir /pnpm/store /app/api-deploy
+    pnpm --filter @evs-eye/api deploy --legacy --ignore-scripts --store-dir /pnpm/store /app/api-deploy
 
 FROM dependencies AS build
 COPY apps/api/prisma/schema.prisma apps/api/prisma/schema.prisma
