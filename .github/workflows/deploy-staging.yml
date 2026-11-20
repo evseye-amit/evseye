@@ -257,6 +257,8 @@ jobs:
           task-definition: api-task-def.json
           container-name: api
           image: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_API_REPO }}:${{ needs.build.outputs.image_tag }}
+          environment-variables: |
+            RAZORPAY_DEPLOYMENT_AUTOPAY_ENABLED=true
 
       - name: Verify payment readiness with candidate API credentials
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
