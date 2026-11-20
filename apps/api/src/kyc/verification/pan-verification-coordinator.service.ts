@@ -1,3 +1,4 @@
+import { PanVerificationPolicyService } from '../../riders/pan-verification-policy.service.js';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { VerificationService } from './verification.service.js';
@@ -13,15 +14,15 @@ export type PanVerificationReadiness = {
 /** Backend trigger boundary; it never calls a vendor or consumes credits. */
 @Injectable()
 export class PanVerificationCoordinator {
-  constructor(private readonly prisma: PrismaService, private readonly verification: VerificationService) {}
+  constructor(private readonly prisma: PrismaService, private readonly verification: VerificationService, private readonly panPolicy: PanVerificationPolicyService) {}
 
   async readiness(clientId: string, userId: string): Promise<PanVerificationReadiness> {
-    const [feature, progress, rider] = await Promise.all([
-      this.prisma.clientFeature.findFirst({ where: { clientId, enabled: true, feature: { code: 'VERIFY_PAN', isActive: true } }, select: { id: true } }),
+    const [automated, progress, rider] = await Promise.all([
+      this.panPolicy.automated(clientId),
       this.prisma.riderOnboardingProgress.findFirst({ where: { clientId, userId }, select: { values: true } }),
       this.prisma.rider.findFirst({ where: { clientId, userId, deletedAt: null }, select: { id: true } }),
     ]);
-    if (!feature) return { status: 'DISABLED', reason: 'VERIFY_PAN is not enabled for this client.' };
+    if (!automated) return { status: 'DISABLED', reason: 'Automated PAN verification is disabled; manual document review applies.' };
     if (!rider) return { status: 'WAITING_FOR_RIDER', reason: 'The rider record is created after onboarding is complete.' };
     const values = progress?.values && typeof progress.values === 'object' && !Array.isArray(progress.values) ? progress.values as Record<string, unknown> : {};
     const pan = typeof values.PAN_NUMBER === 'string' ? values.PAN_NUMBER.trim().toUpperCase() : '';

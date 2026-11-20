@@ -16,13 +16,13 @@ describe('overall rider KYC from current onboarding documents', () => {
   it('supports legacy workspaces without a published onboarding workflow', async () => {
     const service = new RiderKycStatusService({} as never, {
       getEffectiveConfiguration: vi.fn().mockRejectedValue(new NotFoundException('Published workflow is unavailable for this workspace.')),
-    } as never);
+    } as never, { automated: async () => false } as never);
     expect(await service.fields('client-1')).toEqual([]);
   });
   it('does not hide configuration or database failures as a legacy workspace', async () => {
     const service = new RiderKycStatusService({} as never, {
       getEffectiveConfiguration: vi.fn().mockRejectedValue(new Error('Database unavailable')),
-    } as never);
+    } as never, { automated: async () => false } as never);
     await expect(service.fields('client-1')).rejects.toThrow('Database unavailable');
   });
   it('verifies when required documents are approved without requiring unsubmitted optional documents', () => {
@@ -133,6 +133,7 @@ describe('overall rider KYC from current onboarding documents', () => {
     const service = new RiderKycStatusService(
       prisma as never,
       configuration as never,
+      { automated: async () => false } as never,
     );
     expect(await service.summary('client-1')).toEqual({
       VERIFIED: 1,

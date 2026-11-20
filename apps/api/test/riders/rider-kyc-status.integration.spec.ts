@@ -76,7 +76,8 @@ describe.skipIf(!url)(
       const kyc = new RiderKycStatusService(
         db as never,
         configuration as never,
-      );
+      { automated: async () => false } as never,
+    );
       const review = new RiderDocumentReviewService(
         db as never,
         configuration as never,

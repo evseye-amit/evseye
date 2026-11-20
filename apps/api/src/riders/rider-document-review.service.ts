@@ -168,15 +168,12 @@ export class RiderDocumentReviewService {
       ];
     const effective =
       await this.configuration.getEffectiveConfiguration(clientId);
-    const panFeature = await this.prisma.clientFeature.findFirst({
-      where: { clientId, enabled: true, feature: { code: 'VERIFY_PAN', isActive: true } },
-      select: { id: true },
-    });
+    const panFeature = await this.kyc.automatedPan(clientId);
     const panKyc = panFeature
       ? await this.prisma.riderKyc.findUnique({ where: { riderId_type: { riderId, type: 'PAN' } }, select: { status: true, safeFailureCode: true } })
       : null;
     const uploadFields = effective.onboarding.steps.flatMap((step) =>
-      step.fields.filter((field) => field.isUpload && field.fieldCode),
+      step.fields.filter((field) => field.isUpload && field.fieldCode && !field.disabled),
     );
     if (!uploadFields.length) {
       return panFeature && panKyc?.status !== 'VERIFIED'

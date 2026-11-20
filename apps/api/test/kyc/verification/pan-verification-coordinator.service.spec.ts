@@ -9,7 +9,7 @@ function service(overrides: { feature?: unknown; progress?: unknown; rider?: unk
     kycConsent: { findFirst: vi.fn().mockResolvedValue('consent' in overrides ? overrides.consent : { id: 'consent' }) },
     appLegalAcceptance: { findFirst: vi.fn().mockResolvedValue(null) },
   };
-  return new PanVerificationCoordinator(prisma as never, { start: vi.fn().mockResolvedValue({ status: 'PROCESSING' }) } as never);
+  return new PanVerificationCoordinator(prisma as never, { start: vi.fn().mockResolvedValue({ status: 'PROCESSING' }) } as never, { automated: async () => !('feature' in overrides) || !!overrides.feature } as never);
 }
 
 describe('PanVerificationCoordinator', () => {

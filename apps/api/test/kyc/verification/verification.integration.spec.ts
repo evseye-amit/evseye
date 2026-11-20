@@ -97,7 +97,7 @@ describe.skipIf(!databaseUrl)('KYC PostgreSQL integration', () => {
       new KycProviderHealthService(prisma, registry, { isOpen: async () => false } as never));
     service = new VerificationService(prisma, registry,
       { get: (key: string) => key === 'KYC_ENABLED' ? true : 'a'.repeat(40) } as never, routing,
-      new KycCommercialService(prisma));
+      new KycCommercialService(prisma), { lockUser: async () => {}, fields: async () => [], sync: async () => ({ kycStatus: 'VERIFIED' }) } as never);
   });
 
   afterAll(async () => {
@@ -205,7 +205,7 @@ describe.skipIf(!databaseUrl)('KYC PostgreSQL integration', () => {
   it('retries only a technical failure with matching resubmitted input and one usage entry', async () => {
     const retryService = new VerificationService(prisma, registry, { get: (key: string) =>
       key === 'KYC_ENABLED' ? true : key === 'KYC_OPS_MAX_TECHNICAL_RETRIES' ? 1 : 'a'.repeat(40) } as never,
-    routing, new KycCommercialService(prisma));
+    routing, new KycCommercialService(prisma), { lockUser: async () => {}, fields: async () => [], sync: async () => ({ kycStatus: 'VERIFIED' }) } as never);
     const input = { riderId: riderA, type: 'IFSC_VERIFICATION' as const, ifsc: 'HDFC0007777' };
     const record = await retryService.start(clientA, `technical-${marker}`, input);
     expect(record.status).toBe('FAILED');
@@ -235,7 +235,7 @@ describe.skipIf(!databaseUrl)('KYC PostgreSQL integration', () => {
   it('retains the original PAN consumption when a technical retry succeeds', async () => {
     const retryService = new VerificationService(prisma, registry, { get: (key: string) =>
       key === 'KYC_ENABLED' ? true : key === 'KYC_OPS_MAX_TECHNICAL_RETRIES' ? 1 : 'a'.repeat(40) } as never,
-    routing, new KycCommercialService(prisma));
+    routing, new KycCommercialService(prisma), { lockUser: async () => {}, fields: async () => [], sync: async () => ({ kycStatus: 'VERIFIED' }) } as never);
     const consent = await retryService.consent(clientA, { riderId: riderA,
       verificationType: 'PAN_VERIFICATION', consentVersion: 'v1', consentTextHash: 'e'.repeat(64),
       purpose: 'Rider identity verification for onboarding', reason: 'Verify PAN for rider eligibility',
