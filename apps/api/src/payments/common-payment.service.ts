@@ -67,9 +67,9 @@ export class CommonPaymentService {
     @Optional() private readonly policy?: PaymentGatewayPolicyService,
   ) {}
 
-  async capabilities(clientId: string, userId: string, version = 1) {
+  async capabilities(clientId: string, userId: string, version = 2) {
     await this.billing.riderForUser(clientId, userId);
-    return this.policy ? this.policy.capabilities(clientId, version) : { contractVersion: 1, purposes: {} };
+    return this.policy ? this.policy.capabilities(clientId, version) : { contractVersion: 2, availabilityBasis: 'POLICY', purposes: {}, autoPay: { supported: false, enrollmentEntryPoints: [], reasonCode: 'AUTOPAY_UNAVAILABLE' } };
   }
 
   async reconcile(clientId: string, userId: string, requestId: string) {

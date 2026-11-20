@@ -1,6 +1,6 @@
 # Unified AutoPay — Flutter team handoff
 
-Prepared 21 November 2026. Backend contract implemented on `codex/unified-autopay`; rollout disabled by default. Flutter implementation remains with the Flutter team. Read alongside `unified-autopay-implementation-plan.md`. Existing `wallet-autopay-flutter-handoff.md` documents current wallet APIs, not the future unified contract. No message has been sent to the team.
+Prepared 21 November 2026. Backend contract implemented on `codex/unified-autopay`; rollout disabled by default. The user confirmed Flutter is updated and authorized removal of legacy routes. This does not replace staging device acceptance. Read alongside `unified-autopay-implementation-plan.md`. This is the authoritative AutoPay contract; the old wallet handoff is superseded. No message has been sent to the team.
 
 ## Product behavior
 
@@ -34,7 +34,7 @@ Prefix `/api/v1`, existing bearer/client context, `{ "data": ... }` envelope, de
 
 Main resource contains: saved enabled preference; effective status; collection mode; policy threshold/rechargeAmount/consentRevision and timing terms; accepted consent revision; mandate summary including status/maximum/expiry; permitted actions; stable blocking reason; pending recharge summary; preference revision. Backend owns effective status; Flutter must not recompute it by combining independent booleans from three endpoints. The effective status names below are implemented wire values.
 
-Capabilities v2 should contain only AutoPay support, supported enrollment entry points and a stable unavailable reason alongside existing necessary checkout capabilities. Terms, mandate details and rider state come from GET AutoPay. Do not render a settings panel from raw feature flags. Preserve v1 parsing until backend/app rollout is complete; use explicit contract negotiation and do not treat a malformed/network-error response as disabled.
+Capabilities v2 should contain only AutoPay support, supported enrollment entry points and a stable unavailable reason alongside existing necessary checkout capabilities. Terms, mandate details and rider state come from GET AutoPay. Do not render a settings panel from raw feature flags. Only capabilities v2 is supported; do not treat malformed/network-error responses as disabled.
 
 ## UI states and actions
 
@@ -65,17 +65,17 @@ Keep one idempotency key per setup/cancel attempt across retries; create a new k
 
 On conflict, refresh policy/status and show the backend reason; do not auto-accept revised terms. Preserve manual checkout and its API contracts. Pending automatic debit must be disclosed before manual top-up. Reuse one shared AutoPay provider across Wallet, Payments, Rentals and onboarding to avoid stale conflicting displays.
 
-Backend compatibility adapters support old apps during rollout. New apps should stop calling separate mandate enable/disable and wallet preference APIs once the unified contract is available. Never fall back to old enable endpoints after a unified consent error. Endpoint removal follows supported-version adoption and telemetry; it is not simultaneous with the first new app release.
+Legacy mandate and wallet preference routes have been removed. Only the unified APIs are supported. Do not retry retired endpoints after errors. Old application builds must be upgraded before this backend cleanup is deployed.
 
 ## QA and release checklist
 
-Test both enrollment paths; adequate existing mandate; wrong/expired/revoked mandate; app killed during authorization; changed consent terms; stale preference write; client-disabled policy; inactive allocation/return; low cash with high rewards/deposit; ₹550 boundary; recharge success/failure/unknown/review; late capture; manual top-up during pending; disable during pending; refund/reversal; pagination; all localizations and accessibility labels. Include old-app/new-backend and new-app/compatibility-backend cases.
+Test both enrollment paths; adequate existing mandate; wrong/expired/revoked mandate; app killed during authorization; changed consent terms; stale preference write; client-disabled policy; inactive allocation/return; low cash with high rewards/deposit; ₹550 boundary; recharge success/failure/unknown/review; late capture; manual top-up during pending; disable during pending; refund/reversal; pagination; all localizations and accessibility labels. Assert retired routes return 404 and that the supported Flutter build never calls them.
 
-Staging QA build comes before production rollout. Capture app build, backend SHA, sanitized request/response fixtures and reconciliation evidence. Use the implemented payloads below and the updated OpenAPI operation inventory for integration; capture end-to-end fixtures during staging signoff. Production readiness requires full-cycle staging acceptance and a supported-app rollout plan; no endpoint retirement until legacy consumers are accounted for.
+Staging QA build comes before production rollout. Capture app build, backend SHA, sanitized request/response fixtures and reconciliation evidence. Use the implemented payloads below and the updated OpenAPI operation inventory for integration; capture end-to-end fixtures during staging signoff. Production readiness requires full-cycle staging acceptance and a supported-app rollout plan; this backend release requires the updated Flutter app.
 
 ## Integration payloads and rollout
 
-Negotiate the compact capability contract with `GET /api/v1/rider-app/payments/orders/capabilities?version=2`. No version means the existing v1 contract. Unsupported versions return 400. V2 removes mandate methods from checkout purposes and exposes `autoPay.supported`, `enrollmentEntryPoints` and `reasonCode`. It is policy-based availability, not a live bank health check.
+Negotiate the compact capability contract with `GET /api/v1/rider-app/payments/orders/capabilities?version=2`. No version also returns v2. Version 1 and unsupported versions return 400. V2 removes mandate methods from checkout purposes and exposes `autoPay.supported`, `enrollmentEntryPoints` and `reasonCode`. It is policy-based availability, not a live bank health check.
 
 Enable payload:
 
@@ -89,10 +89,10 @@ Enable payload:
 }
 ```
 
-Disable payload is `{ "enabled": false, "expectedRevision": 1 }`. Both revisions are examples: always use GET values. GET returns `revision`, `effectiveStatus`, `reasonCode`, `actions`, `setupTerms`, `policy`, `mandate`, and the existing funding timing/balance fields. Policy revision is `policy.revision`. Authorization links are exposed as `mandate.authorization.url` while pending; setup and verify responses retain the existing mandate response shape. `setupTerms` contains package maximum and validity when available. Recharge history uses `{ items, page, hasMore }`, 30 per page; GET also includes the latest 30 attempts as `requests` for compatibility.
+Disable payload is `{ "enabled": false, "expectedRevision": 1 }`. Both revisions are examples: always use GET values. GET returns `revision`, `effectiveStatus`, `reasonCode`, `actions`, `setupTerms`, `policy`, `mandate`, and the existing funding timing/balance fields. Policy revision is `policy.revision`. Authorization links are exposed as `mandate.authorization.url` while pending; setup and verify responses retain the existing mandate response shape. `setupTerms` contains package maximum and validity when available. Recharge history uses `{ items, page, hasMore }`, 30 per page; GET also includes the latest 30 attempts as `requests` for the current status screen.
 
-Onboarding keeps the generic DEPLOYMENT checkout API. For an allowlisted unified client, send `autoPayConsent.version: "unified-autopay-v1"`, `accepted: true`, the reviewed `consentRevision`, `maxAmount` and `validityDays`. The backend saves the financial terms with checkout and recovers funding activation after verified mandate approval. If the rider disables after that consent, delayed recovery cannot re-enable funding. Do not reuse `deployment-autopay-v1` consent for wallet funding. Outside the rollout allowlist, the legacy onboarding contract remains unchanged.
+Onboarding keeps the generic DEPLOYMENT checkout API. For an allowlisted unified client, send `autoPayConsent.version: "unified-autopay-v1"`, `accepted: true`, the reviewed `consentRevision`, `maxAmount` and `validityDays`. The backend saves the financial terms with checkout and recovers funding activation after verified mandate approval. If the rider disables after that consent, delayed recovery cannot re-enable funding. Do not reuse `deployment-autopay-v1` consent for wallet funding. Outside the rollout allowlist, new AutoPay enrollment is unavailable; ordinary deployment payment and recovery of existing attempts remain available.
 
 Operations must set both `UNIFIED_AUTOPAY_ENABLED=true` and the exact client UUID in `UNIFIED_AUTOPAY_CLIENT_IDS`, with the existing Razorpay/payment readiness prerequisites satisfied. Removing the client or switching the flag off blocks new unified funding; reconciliation and ledger settlement continue. Do not use the environment flag as an app-side feature decision.
 
-The old wallet preference endpoints and mandate enable/disable endpoints remain compatibility APIs and are marked deprecated where applicable. Migrated riders cannot re-enable through old enable APIs; they must review the unified terms. Historical invoice debit APIs remain historical invoice data, not recharge history.
+Removed route families: `/rider-app/payments/autopay`, `/rider-app/wallet/autopay`, `/client/wallet-autopay-policy`, and `/client/deployment-autopay-policy`, including their child routes. There are no compatibility aliases. Admin recharge history/verification now uses `GET /client/autopay/recharges` and `POST /client/autopay/recharges/:id/verify`. Existing client operations history, payment webhooks and submitted-payment reconciliation remain available.

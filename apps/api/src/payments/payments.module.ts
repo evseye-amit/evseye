@@ -1,9 +1,7 @@
-import { UnifiedAutoPayController, UnifiedAutoPayPolicyController } from './unified-autopay.controller.js';
+import { UnifiedAutoPayController, UnifiedAutoPayPolicyController, UnifiedAutoPayOperationsController } from './unified-autopay.controller.js';
 import { UnifiedAutoPayService } from './unified-autopay.service.js';
 import { DeploymentAutoPayService } from './deployment-autopay.service.js';
-import { DeploymentAutoPayPolicyController } from './deployment-autopay-policy.controller.js';
 import { WalletAutoRechargeService } from './wallet-auto-recharge.service.js';
-import { WalletAutoRechargePolicyController, RiderWalletAutoRechargeController } from './wallet-auto-recharge.controller.js';
 import { NotificationModule } from '../notifications/notification.module.js';
 import { PaymentAlertService } from './payment-alert.service.js';
 import { PaymentAlertController } from './payment-alert.controller.js';
@@ -67,14 +65,12 @@ import {
 } from './payment-refund.controller.js';
 import {
   PaymentWebhookController,
-  RiderMandateController,
 } from './mandate.controller.js';
 
 @Module({
   imports: [NotificationModule, PaymentAutomationModule, PaymentGatewayPolicyModule, AllocationsModule, RazorpayPenaltyModule, AuthModule, RiderBillingModule, RiderRateCardsModule, WalletModule],
-  controllers: [UnifiedAutoPayPolicyController, UnifiedAutoPayController, DeploymentAutoPayPolicyController, WalletAutoRechargePolicyController, RiderWalletAutoRechargeController, PaymentAlertController,
+  controllers: [UnifiedAutoPayOperationsController, UnifiedAutoPayPolicyController, UnifiedAutoPayController, PaymentAlertController,
     CommonPaymentController,
-    RiderMandateController,
     AutoPayOperationsController,
     PaymentWebhookController,
     InvoiceCollectionController,

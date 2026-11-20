@@ -1,6 +1,14 @@
 # Unified AutoPay: implementation, migration and rollout plan
 
-Prepared 21 November 2026. Status: backend implementation completed locally on `codex/unified-autopay`; staging and production rollout pending. No live migration or deployment performed.
+Prepared 21 November 2026. Status: backend implementation and authorized API cleanup completed locally on `codex/unified-autopay`; staging and production rollout pending. No live migration or deployment performed.
+
+## Cleanup override — 21 November 2026
+
+The user confirmed the Flutter implementation is updated and explicitly authorized removing legacy routes. This supersedes the compatibility/deprecation stages in the original plan below. Legacy rider mandate/wallet-preference routes, legacy client policy/recharge routes, capabilities v1 and the separate onboarding settings component are removed. The unified policy is the only availability preference. Webhooks, submitted-payment reconciliation, legacy financial records and migration tooling remain. No destructive database cleanup or production migration is part of this change.
+
+Cleanup validation: 528 payment tests across 54 files passed, including explicit 404 coverage for all 20 retired route/method combinations. API/web TypeScript checks and 5 web payment tests passed. The actual application OpenAPI export confirms the retired controllers are unmounted.
+
+Current contracts are documented in [the Flutter handoff](unified-autopay-flutter-handoff.md). New admin operations use `/client/autopay/recharges`; capabilities defaults to v2. Retired routes return 404 and explicit capability version 1 returns 400. This cleanup requires the updated app; no compatibility aliases are retained.
 
 ## Evidence and scope
 
@@ -123,9 +131,9 @@ No production enablement is implied by this planning document. Outstanding prefl
 
 ## Implementation delivery notes
 
-Implemented additive collection-mode and preference-revision schema; unified rider and client-policy APIs; version-negotiated capabilities v2; deprecated legacy adapters; explicit consent and stale-write checks; onboarding consent snapshot/recovery; permanent prevention of direct invoice bank collections for migrated riders; deterministic partial-invoice settlement recovery; billing-ledger settlement/reversal links; client-allowlisted rollout; migration dry-run/apply tooling; unified admin settings for pilot clients; and the production candidate payment-readiness gate.
+Implemented additive collection-mode and preference-revision schema; unified rider and client-policy APIs; version-negotiated capabilities v2; retired legacy routes; explicit consent and stale-write checks; onboarding consent snapshot/recovery; permanent prevention of direct invoice bank collections for migrated riders; deterministic partial-invoice settlement recovery; billing-ledger settlement/reversal links; client-allowlisted rollout; migration dry-run/apply tooling; unified admin settings for pilot clients; and the production candidate payment-readiness gate.
 
-Flutter source is not changed: this repository delivers the backend and the implementation handoff for the Flutter team. Physical removal of old APIs/columns remains intentionally gated on supported-app adoption. Provider webhooks, historical records and reconciliation are retained.
+Flutter source is not changed: this repository delivers the backend and the implementation handoff for the Flutter team. Legacy AutoPay API removal is now authorized after the user confirmed Flutter was updated. Historical database records and financial columns are retained. Provider webhooks, historical records and reconciliation are retained.
 
 Migration command from `apps/api`, with DATABASE_URL supplied securely for the selected environment:
 

@@ -4,18 +4,15 @@ import { useState } from "react";
 import { PaymentOperations } from "./payment-operations";
 import { WalletAutoPayHistory } from "./wallet-autopay-history";
 import { WalletAutoPaySettings } from "./wallet-autopay-settings";
-import { DeploymentAutoPaySettings } from "./deployment-autopay-settings";
 import { requestNavigation } from "./unsaved-changes";
 
 export function AutoPayWorkspace({ identityKey, refreshKey }: { identityKey: string; refreshKey: number }) {
   const [tab, setTab] = useState<"mandates" | "history">("mandates");
-  const [unified, setUnified] = useState<boolean | null>(null);
   const [settings, setSettings] = useState(false);
   return <div className="autopay-workspace">
     {settings ? <>
       <button type="button" className="secondary autopay-back" onClick={() => requestNavigation(() => { setSettings(false); setTab("mandates"); })}>← Back to mandates</button>
-      {unified === false && <DeploymentAutoPaySettings key={`onboarding-${identityKey}-${refreshKey}`} />}
-      <WalletAutoPaySettings key={refreshKey} onRollout={setUnified} />
+      <WalletAutoPaySettings key={refreshKey} />
     </> : <div className="autopay-heading">
       <div><h2>AutoPay overview</h2><p className="muted">Manage rider mandates and automatic wallet recharges.</p></div>
       <button type="button" className="secondary" aria-label="AutoPay settings" onClick={() => setSettings(true)}>⚙ Settings</button>

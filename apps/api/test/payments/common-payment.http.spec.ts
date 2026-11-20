@@ -15,7 +15,7 @@ describe('mobile payment HTTP contract', () => {
   const service = {
     pending: vi.fn().mockResolvedValue([payment]),
     abandon: vi.fn().mockResolvedValue({ ...payment, status: 'CANCELLED', checkout: null }),
-    capabilities: vi.fn().mockResolvedValue({ contractVersion: 1, availabilityBasis: 'POLICY', connectivityVerified: false, purposes: {} }),
+    capabilities: vi.fn().mockResolvedValue({ contractVersion: 2, availabilityBasis: 'POLICY', purposes: {} }),
     create: vi.fn().mockResolvedValue(payment), detail: vi.fn().mockResolvedValue(payment),
     verify: vi.fn().mockResolvedValue({ ...payment, status: 'SUCCEEDED', checkout: null }),
     reconcile: vi.fn().mockResolvedValue({ ...payment, status: 'SUCCEEDED', checkout: null }),
@@ -49,15 +49,15 @@ describe('mobile payment HTTP contract', () => {
   it('keeps capabilities distinct from opaque payment IDs and returns a data envelope', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/v1/rider-app/payments/orders/capabilities', headers: auth });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ data: { contractVersion: 1, availabilityBasis: 'POLICY', connectivityVerified: false } });
-    expect(service.capabilities).toHaveBeenCalledWith('client-a', 'user-a', 1);
+    expect(response.json()).toMatchObject({ data: { contractVersion: 2, availabilityBasis: 'POLICY' } });
+    expect(service.capabilities).toHaveBeenCalledWith('client-a', 'user-a', 2);
     expect(service.detail).not.toHaveBeenCalled();
   });
   it('negotiates v2 explicitly and rejects unknown capabilities versions', async () => {
     const base = '/api/v1/rider-app/payments/orders/capabilities';
     expect((await app.inject({ method: 'GET', url: `${base}?version=2`, headers: auth })).statusCode).toBe(200);
     expect(service.capabilities).toHaveBeenCalledWith('client-a', 'user-a', 2);
-    expect((await app.inject({ method: 'GET', url: `${base}?version=99`, headers: auth })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'GET', url: `${base}?version=1`, headers: auth })).statusCode).toBe(400);
   });
   it('exposes authenticated pending lookup and explicit local abandonment', async () => {
     const base = '/api/v1/rider-app/payments/orders';

@@ -31,8 +31,8 @@ export class CommonPaymentController {
   ) {}
   @Get('capabilities')
   async capabilities(@CurrentUser() user: AuthUser, @Query("version") version?: string) {
-    if (version && !["1", "2"].includes(version)) throw new BadRequestException("UNSUPPORTED_CONTRACT_VERSION");
-    return { data: await this.payments.capabilities(this.clients.requireClientId(user), user.id, version === "2" ? 2 : 1) };
+    if (version && version !== "2") throw new BadRequestException("UNSUPPORTED_CONTRACT_VERSION");
+    return { data: await this.payments.capabilities(this.clients.requireClientId(user), user.id, 2) };
   }
   @Get('pending')
   async pending(@CurrentUser() user: AuthUser) {

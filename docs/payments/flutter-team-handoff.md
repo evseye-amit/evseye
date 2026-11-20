@@ -24,19 +24,18 @@ Backend contract: [mobile-payment-api-contract-v1.md](mobile-payment-api-contrac
 4. MOB-05: persist exact create body plus one idempotency key before sending. Reuse on uncertain transport response; never silently create a new logical request.
 5. MOB-06: persist request ID before SDK launch, scope it to user/client/API environment, and resume via reconcile after restart. Serialize duplicate taps. Stop old-session callbacks after logout/client switch.
 6. MOB-09: SDK cancel/error/timeout is not financial failure. Restore UI and recover from backend evidence. Bound polling and provide manual Check status.
-7. MOB-07: support Razorpay hosted and Cashfree subscription authorization. Reuse mandate creation keys and verify server mandate status after return.
+7. MOB-07: use the unified Razorpay AutoPay setup contract. Reuse mandate creation keys and verify server mandate status after return.
 
 ## AutoPay route reference
 
-All paths use the existing API base and RIDER Bearer authentication:
+Use the [unified AutoPay contract](unified-autopay-flutter-handoff.md). Legacy mandate and wallet preference URLs have been removed; do not fall back to them.
 
-- GET /rider-app/payments/autopay — current setup and mandate.
-- POST /rider-app/payments/autopay — {method:"UPI_AUTOPAY",email:"..."}; stable Idempotency-Key required.
-- POST /rider-app/payments/autopay/:mandateId/verify — server provider fetch after authorization.
-- POST /rider-app/payments/autopay/:mandateId/cancel, /pause, /resume — stable Idempotency-Key required per management action.
-- GET /rider-app/payments/autopay/upcoming and /debits — authoritative scheduled payments/history.
+- GET/PUT `/rider-app/autopay`: state and explicit consent/preference updates.
+- POST `/rider-app/autopay/mandates`: setup with email and stable Idempotency-Key.
+- POST `/rider-app/autopay/mandates/:mandateId/verify` or `/cancel`: verification and cancellation.
+- GET `/rider-app/autopay/recharges`: paginated request history.
 
-Only verified ACTIVE establishes authorized AutoPay. Pause/cancel must be confirmed from returned server state. Shared Cashfree environment must not be switched with unresolved mandates; versioned client Cashfree remains a later phase.
+An active bank mandate alone is not enabled wallet funding. Display effective status from the unified resource. Bank pause/resume remains managed through the UPI app. Existing payment and webhook recovery remains supported.
 
 ## Acceptance checklist (Flutter team)
 
@@ -69,7 +68,7 @@ Run separately for Pinkrides and Yogmaya using their distinct Razorpay TEST merc
 - [ ] Legacy Cashfree environment:null cannot launch checkout.
 - [ ] REVIEW_REQUIRED, REFUND_PENDING and REFUNDED render distinct guidance.
 - [ ] Logout/client switch cannot verify another account's pending request.
-- [ ] Razorpay/Cashfree mandate return is followed by server verification.
+- [ ] Unified Razorpay mandate return is followed by server verification.
 - [ ] Android and iOS device scenarios recorded against the deployed backend revision.
 
 ## Backend release checklist
@@ -97,6 +96,6 @@ After deploying the Phase 6 backend, collection detail includes `refundedAmount`
 
 No Flutter source was changed. Cashfree is optional and is not a release blocker while no client uses it. For the current staging release, verify existing Razorpay checkout/AutoPay/capabilities work with zero Cashfree client configuration. Do not offer Cashfree based solely on SDK availability; honor server capabilities and the checkout provider/environment.
 
-When Cashfree sandbox configuration is available, the Flutter team owns Android/iOS acceptance for two distinct client merchants: checkout and subscription authorization; provider callback plus authoritative backend reconciliation; cancelled/failed/unknown outcomes; duplicate and delayed webhook recovery; isolation across tenants; and refund status display. Rotate credentials after starting a payment/mandate, then confirm reconciliation and refunds still use the original merchant and launch environment. A disabled/newly unavailable merchant must prevent new work without switching an existing payment to another gateway. Retain the existing Phase 4 two-merchant tests.
+When Cashfree sandbox configuration is available, the Flutter team owns Android/iOS acceptance for two distinct client merchants: checkout; provider callback plus authoritative backend reconciliation; cancelled/failed/unknown outcomes; duplicate and delayed webhook recovery; isolation across tenants; and refund status display. Rotate credentials after starting a payment/mandate, then confirm reconciliation and refunds still use the original merchant and launch environment. A disabled/newly unavailable merchant must prevent new work without switching an existing payment to another gateway. Retain the existing Phase 4 two-merchant tests.
 
 Settlement ingestion, bank evidence, external-refund adoption and alert assignment are web/admin workflows. Their implementation details and current supported sources are documented in [Phase 7 operations](phase-7-cashfree-and-operations.md).

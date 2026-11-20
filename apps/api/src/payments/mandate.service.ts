@@ -193,7 +193,6 @@ export class MandateService {
   }) {
     return {
       provider: mandate.provider ?? this.config.getOrThrow('PAYMENT_PROVIDER').toUpperCase(),
-      capabilities: { pause: mandate.provider !== 'RAZORPAY', resume: mandate.provider !== 'RAZORPAY', cancel: true, localDisable: true },
       ...(mandate.provider === 'RAZORPAY' ? { authorization: mandate.authorizationUrl && ['CREATED', 'AUTHORIZATION_PENDING'].includes(mandate.status) ? { type: 'HOSTED', url: mandate.authorizationUrl, keyId: mandate.providerKeyId } : null, cancellationPending: Boolean(mandate.providerCancelRequestedAt) && mandate.status !== 'CANCELLED' } : {}),
       mandateId: mandate.id,
       mandateNumber: mandate.mandateNumber ?? null,
@@ -209,49 +208,6 @@ export class MandateService {
       authorizedAt: mandate.authorizedAt?.toISOString() ?? null,
       environment: mandate.provider === 'RAZORPAY' ? (mandate.providerKeyId?.startsWith('rzp_live_') ? 'PRODUCTION' : 'SANDBOX') : mandate.providerEnvironment ?? this.config.getOrThrow('CASHFREE_ENVIRONMENT'),
     };
-  }
-
-  async current(clientId: string, userId: string) {
-    const { rider, subscription, maxAmount, validityDays, paymentMethods } =
-      await this.context(clientId, userId);
-    const mandate = await this.prisma.paymentMandate.findFirst({
-      where: { clientId, riderId: rider.id, status: { in: openStatuses } },
-      orderBy: { createdAt: 'desc' },
-    });
-    return {
-      packageCode: subscription.package.code,
-      eligible: true,
-      configuration: {
-        maxAmount: maxAmount.toFixed(2),
-        currency: 'INR',
-        validityDays,
-        methods: paymentMethods,
-        provider: mandate?.provider ?? (this.providers ? await this.providers.selectedFor(clientId) : this.config.getOrThrow('PAYMENT_PROVIDER').toUpperCase()),
-      },
-      mandate: mandate ? this.view(mandate) : null,
-    };
-  }
-
-  async upcoming(clientId: string, userId: string) {
-    const rider = await this.prisma.rider.findFirst({ where: { clientId, userId, deletedAt: null }, select: { id: true } });
-    if (!rider) throw new NotFoundException('Rider profile not found.');
-    const items = await this.prisma.paymentTransaction.findMany({
-      where: { clientId, riderId: rider.id, status: { in: ['CREATING', 'PENDING', 'UNKNOWN'] } },
-      include: { invoice: { select: { invoiceNumber: true, outstandingAmount: true } }, mandate: { select: { method: true } } },
-      orderBy: { scheduledAt: 'asc' }, take: 20,
-    });
-    return items.map(item => ({ debitId: item.id, debitNumber: item.debitNumber, invoiceNumber: item.invoice.invoiceNumber,
-      scheduledAmount: item.amount.toFixed(2), currentOutstanding: item.invoice.outstandingAmount.toFixed(2),
-      amountMayChange: !item.amount.eq(item.invoice.outstandingAmount), scheduledFor: item.scheduledAt,
-      provider: item.provider, mandateType: item.mandate.method, status: item.status,
-      preDebitNotifiedAt: item.preDebitNotifiedAt }));
-  }
-
-  async debits(clientId: string, userId: string) {
-    const rider = await this.prisma.rider.findFirst({ where: { clientId, userId, deletedAt: null }, select: { id: true } });
-    if (!rider) throw new NotFoundException('Rider profile not found.');
-    const items = await this.prisma.paymentTransaction.findMany({ where: { clientId, riderId: rider.id }, orderBy: { createdAt: 'desc' }, take: 100 });
-    return items.map(item => ({ debitId: item.id, debitNumber: item.debitNumber, invoiceId: item.invoiceId, provider: item.provider, amount: item.amount.toFixed(2), currency: item.currency, status: item.status, scheduledFor: item.scheduledAt, failureCode: item.failureCode }));
   }
 
   async create(
@@ -538,44 +494,6 @@ export class MandateService {
     return this.view(
       await this.applyProviderResult(mandate.id, result, 'RIDER_CANCEL'),
     );
-  }
-
-  async manage(clientId: string, userId: string, mandateId: string, requestKey: string, action: 'PAUSE' | 'RESUME') {
-    if (!/^[A-Za-z0-9:_-]{8,120}$/.test(requestKey)) throw new BadRequestException('Idempotency-Key is required.');
-    const rider = await this.prisma.rider.findFirst({ where: { clientId, userId, deletedAt: null }, select: { id: true } });
-    if (!rider) throw new NotFoundException('Rider profile not found.');
-    const mandate = await this.prisma.paymentMandate.findFirst({ where: { id: mandateId, clientId, riderId: rider.id } });
-    if (!mandate) throw new NotFoundException('AutoPay mandate not found.');
-    if (action === 'PAUSE' && mandate.status === 'PAUSED') return this.view(mandate);
-    if (action === 'RESUME' && mandate.status === 'ACTIVE') return this.view(mandate);
-    if (action === 'PAUSE' && mandate.status !== 'ACTIVE') throw new ConflictException('Only an active mandate can be paused.');
-    if (action === 'RESUME' && mandate.status !== 'PAUSED') throw new ConflictException('Only a paused mandate can be resumed.');
-    const provider = (await this.providers?.forClient(mandate.provider, mandate.clientId, mandate.configurationVersionId ?? null)) ?? this.provider;
-    const result = action === 'PAUSE'
-      ? await provider.pauseMandate(mandate.providerMandateId, requestKey)
-      : await provider.resumeMandate(mandate.providerMandateId, requestKey);
-    return this.view(await this.applyProviderResult(mandate.id, result, `RIDER_${action}`));
-  }
-
-  async setLocalEnabled(clientId: string, userId: string, enabled: boolean) {
-    const rider = await this.prisma.rider.findFirst({ where: { clientId, userId, deletedAt: null }, select: { id: true } });
-    if (!rider) throw new NotFoundException('Rider profile not found.');
-    return this.prisma.$transaction(async tx => {
-      await tx.$queryRaw`SELECT id FROM "Rider" WHERE id=${rider.id} AND "clientId"=${clientId} FOR UPDATE`;
-      await tx.$queryRaw`SELECT id FROM "RiderWallet" WHERE "riderId"=${rider.id} AND "clientId"=${clientId} FOR UPDATE`;
-      const profile = await tx.riderPaymentProfile.findUnique({ where: { clientId_riderId: { clientId, riderId: rider.id } } });
-      if (profile?.collectionMode === 'LEDGER_WALLET') {
-        if (enabled) throw new ConflictException('UNIFIED_AUTOPAY_CONSENT_REQUIRED');
-        await tx.walletAutoRechargePreference.updateMany({ where: { clientId, riderId: rider.id }, data: { enabled: false, revision: { increment: 1 } } });
-      }
-      const mandate = await tx.paymentMandate.findFirst({ where: { clientId, riderId: rider.id, status: 'ACTIVE' }, orderBy: { authorizedAt: 'desc' } });
-      if (!mandate) throw new ConflictException('An active mandate is required.');
-      if (enabled && mandate.provider === 'RAZORPAY' && mandate.providerCancelRequestedAt) throw new ConflictException('A mandate awaiting bank cancellation cannot be enabled.');
-      const updated = await tx.paymentMandate.update({ where: { id: mandate.id }, data: { autoDebitEnabled: enabled } });
-      await tx.riderPaymentProfile.upsert({ where: { clientId_riderId: { clientId, riderId: rider.id } }, create: { clientId, riderId: rider.id, autoPayEnabled: enabled }, update: { autoPayEnabled: enabled } });
-      await tx.auditLog.create({ data: { clientId, actorId: userId, action: enabled ? 'AUTOPAY_LOCAL_ENABLED' : 'AUTOPAY_LOCAL_DISABLED', entityType: 'PaymentMandate', entityId: mandate.id } });
-      return this.view(updated);
-    });
   }
 
   async webhook(rawBody: Buffer, timestamp: string, signature: string) {
