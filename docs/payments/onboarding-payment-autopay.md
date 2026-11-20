@@ -15,75 +15,62 @@ The backend defaults `RAZORPAY_DEPLOYMENT_AUTOPAY_ENABLED=false`. Staging explic
 
 Razorpay reference: https://razorpay.com/docs/api/payments/recurring-payments/upi/create-authorization-transaction/
 
-## Planned Client Admin control (not implemented)
+## Client Admin control
 
-### Location and wording
+Open **Client Admin → Payments → AutoPay → Settings**. The **Onboarding AutoPay**
+card sits above the independent wallet recharge settings.
 
-Use the existing **Client Admin → Payments → AutoPay → Settings** screen
-(`AutoPayWorkspace`). Add an **Onboarding AutoPay** card above the existing
-wallet recharge settings. Keep wallet recharge independently configurable.
+- **Offer AutoPay during onboarding payment** saves this client's preference.
+- **Available**, **Off**, or **Unavailable** shows effective availability. A saved
+  On preference is retained when platform rollout, gateway, merchant or package
+  prerequisites become unavailable; the reason is displayed. Administrators can
+  still turn it off.
+- Gateway, environment, mandate limit and validity are read-only. The limit is
+  capped at INR 15,000. Package and merchant changes remain platform-admin tasks.
+- Save/discard, unsaved-navigation protection, revision-conflict reload and
+  paginated change history are included. No environment variables or credentials
+  are exposed by the client-facing settings API.
 
-The card contains:
+Disabling affects **new combined checkout requests only**. Existing attempts,
+mandates, verification, reconciliation and agreed invoice debits continue. The
+separate UPI mandate flow and wallet recharge policy are unaffected. Rider consent
+is still mandatory; the administrator switch never supplies it.
 
-- Switch: **Offer AutoPay during onboarding payment**.
-- Help: “Let riders pay their onboarding amount and authorize future invoice
-  auto-debits in the same checkout. Riders must explicitly agree.”
-- Effective status: **Available**, **Off**, or **Unavailable**, with the specific
-  reason when unavailable: platform rollout disabled, Razorpay unavailable,
-  merchant configuration missing, or AutoPay absent from the client package.
-- Read-only terms: mandate limit, validity, gateway and environment, derived from
-  the active package and merchant configuration. Do not expose environment
-  variable names or credentials in the client-facing UI.
-- **Save changes** and **Discard** actions, existing unsaved-change navigation
-  protection, and last-updated actor/time with paginated change history.
+### Policy API and enforcement
 
-Show the saved preference separately from effective availability. If the platform
-disables rollout, retain an enabled preference but label it unavailable. Allow
-turning it off; prevent enabling while prerequisites fail and explain why.
-Disabling applies only to new combined checkout requests: existing attempts,
-mandates, verification, reconciliation and agreed invoice debits continue.
-This switch never supplies rider consent or changes the existing mandate limit.
+`GET` / `PUT /api/v1/client/deployment-autopay-policy` and
+`GET /api/v1/client/deployment-autopay-policy/history?page=1` require `CLIENT_ADMIN`.
+The client comes from the authenticated session, never a request-body client ID.
 
-### Backend implementation
+GET returns `enabled`, `revision`, `effectiveEnabled`, `canEnable`, `reason`,
+`reasonMessage`, read-only `terms`, `provider`, `environment` and last-updated
+metadata. PUT accepts `{ "enabled": true, "revision": 0 }`; enabling requires all
+prerequisites. A stale revision returns HTTP 409. Policy and audit history are
+written atomically, and each actual toggle increments the revision.
 
-1. Add a tenant-owned `ClientDeploymentAutoPayPolicy` with unique `clientId`,
-   `enabled`, integer `revision`, `updatedAt` and `updatedBy`. New clients default
-   to disabled. At migration, explicitly backfill eligible existing clients that
-   already have effective combined checkout enabled, preserving current behavior.
-   Do not make all clients enabled by default.
-2. Add authenticated `GET` / `PUT /api/v1/client/deployment-autopay-policy` and
-   `GET /api/v1/client/deployment-autopay-policy/history`. Require `CLIENT_ADMIN`
-   and derive the client from the authenticated session. Never accept arbitrary
-   client IDs from the request body.
-3. GET returns the saved preference and revision, effective availability, reason
-   codes, read-only terms, and last-updated metadata. PUT accepts `{ enabled,
-   revision }`, validates prerequisites when enabling, uses optimistic concurrency
-   (409 on stale revision), and writes policy plus audit history atomically.
-4. Keep `RAZORPAY_DEPLOYMENT_AUTOPAY_ENABLED` as the platform-wide deployment
-   control. Client Admin must not modify ECS configuration or Secrets Manager.
-   The effective setting requires the global flags, client preference, matching
-   Razorpay payment/AutoPay merchant, and package eligibility.
-5. Centralize this availability calculation and use it in both
-   `PaymentGatewayPolicyService.capabilities()` and
-   `DeploymentAutoPayService.prepare()`. Enforce it server-side for new requests,
-   including callers that submit `setupAutoPay: true` directly. Preserve retries
-   and recovery of attempts already accepted under their saved terms.
-6. Keep `UPI_AUTOPAY.enabled` independent: disabling combined checkout must not
-   disable the separate mandate setup flow. The existing `DEPLOYMENT.autoPaySetup`
-   boolean remains compatible with Flutter; additional reason fields are additive.
-   Rider-specific checks, such as an existing open mandate, still run at creation.
+`DeploymentAutoPayPolicyService.availability()` is shared by capabilities and new
+checkout creation. It requires the global Razorpay flags, client preference, one
+active Razorpay merchant with a matching sealed current configuration version,
+and an active package with valid UPI AutoPay terms. Availability is policy-based,
+not proof of gateway connectivity or rider eligibility. Creation still validates
+merchant credentials, rider terms and existing mandates. New checkout creation
+and preference saves serialize on the client row; existing-attempt retries bypass
+the new-request policy check.
 
-### Acceptance and rollout
+### Migration and validation
 
-- Test two clients with different preferences; neither can view or modify the
-  other's policy or history. Non-admin roles cannot update either.
-- Test saved-on/global-off, missing merchant, ineligible package, enabled and
-  disabled states, concurrent saves, audit history and accessible keyboard use.
-- Verify capabilities agree with creation enforcement and disabling preserves
-  ordinary payment, separate AutoPay, existing attempt verification and recovery.
-- Implement schema/API and regression tests first, then the settings card and UI
-  tests. Verify Android/iOS consent and combined checkout on staging before any
-  production rollout. The current staging flag enablement does not ship this UI.
+Apply `20261121000000_client_deployment_autopay_policy` before deploying this API.
+Missing policies default Off. The migration preserves the already-enabled TEST
+rollout for existing clients with eligible active packages and merchant snapshots,
+and records that preservation in audit history. Production-only merchants and
+new clients remain opt-in. The platform deployment flag remains the global control;
+Client Admin never changes ECS configuration or Secrets Manager.
+
+Regression coverage includes HTTP authorization and input validation, separate
+client preferences/history, concurrent saves, rollback when audit creation fails,
+backfill eligibility, capability agreement, and reuse of accepted checkout attempts
+after disabling. Database suites require a disposable `AUTOPAY_TEST_DATABASE_URL`
+whose database name contains `_test_`.
 
 ## Flutter integration contract
 

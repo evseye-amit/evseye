@@ -114,6 +114,15 @@ function fixture() {
   return { db, service, gateway, attempts, handler };
 }
 describe('deployment order mode safety', () => {
+  it('reuses an accepted attempt after new AutoPay checkouts are disabled', async () => {
+    const f = fixture();
+    await f.service.createOrder('client', 'user', 'allocation', options);
+    f.handler.prepare.mockRejectedValue(new Error('Client AutoPay disabled'));
+    await f.service.createOrder('client', 'user', 'allocation', options);
+    expect(f.handler.prepare).toHaveBeenCalledTimes(1);
+    expect(f.handler.createOrder).toHaveBeenCalledTimes(1);
+    expect(f.attempts).toHaveLength(1);
+  });
   it('uses the ordinary gateway for normal checkout and reuses its open attempt', async () => {
     const f = fixture();
     await f.service.createOrder('client', 'user', 'allocation');

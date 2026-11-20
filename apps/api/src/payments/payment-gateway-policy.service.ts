@@ -1,6 +1,8 @@
 import { ConflictException, HttpException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { DeploymentAutoPayPolicyService } from './deployment-autopay-policy.service.js';
+import type { Prisma } from '@prisma/client';
 
 export type PaymentPurpose = 'DEPLOYMENT' | 'SUBMISSION_PENALTY' | 'INVOICE' | 'OUTSTANDING' | 'SECURITY_DEPOSIT' | 'TOP_UP' | 'UPI_AUTOPAY' | 'ENACH';
 
@@ -13,7 +15,11 @@ export const gatewayCapabilities: Readonly<Record<string, readonly PaymentPurpos
 
 @Injectable()
 export class PaymentGatewayPolicyService {
-  constructor(private readonly db: PrismaService, private readonly config: ConfigService) {}
+  constructor(private readonly db: PrismaService, private readonly config: ConfigService, private readonly deploymentPolicy: DeploymentAutoPayPolicyService) {}
+
+  deploymentAutoPay(clientId: string, db?: Prisma.TransactionClient) {
+    return this.deploymentPolicy.availability(clientId, db);
+  }
 
   async capabilities(clientId: string) {
     const purposes: Record<string, { enabled: boolean; provider: string | null; platforms: string[]; autoPaySetup?: boolean; reason?: string }> = {};
@@ -29,8 +35,7 @@ export class PaymentGatewayPolicyService {
         purposes[purpose] = { enabled: false, provider: null, platforms: [], reason };
       }
     }
-    if (purposes.DEPLOYMENT) purposes.DEPLOYMENT.autoPaySetup = purposes.DEPLOYMENT.enabled && purposes.DEPLOYMENT.provider === 'RAZORPAY' && purposes.UPI_AUTOPAY?.provider === 'RAZORPAY' && purposes.UPI_AUTOPAY.enabled &&
-      this.config.get('RAZORPAY_ENABLED') === 'true' && this.config.get('RAZORPAY_AUTOPAY_ENABLED') === 'true' && this.config.get('RAZORPAY_DEPLOYMENT_AUTOPAY_ENABLED') === 'true';
+    if (purposes.DEPLOYMENT) purposes.DEPLOYMENT.autoPaySetup = (await this.deploymentAutoPay(clientId)).effectiveEnabled;
     return { contractVersion: 1, availabilityBasis: 'POLICY', connectivityVerified: false, purposes };
   }
 

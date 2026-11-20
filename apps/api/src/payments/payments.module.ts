@@ -1,4 +1,5 @@
 import { DeploymentAutoPayService } from './deployment-autopay.service.js';
+import { DeploymentAutoPayPolicyController } from './deployment-autopay-policy.controller.js';
 import { WalletAutoRechargeService } from './wallet-auto-recharge.service.js';
 import { WalletAutoRechargePolicyController, RiderWalletAutoRechargeController } from './wallet-auto-recharge.controller.js';
 import { NotificationModule } from '../notifications/notification.module.js';
@@ -69,7 +70,7 @@ import {
 
 @Module({
   imports: [NotificationModule, PaymentAutomationModule, PaymentGatewayPolicyModule, AllocationsModule, RazorpayPenaltyModule, AuthModule, RiderBillingModule, RiderRateCardsModule, WalletModule],
-  controllers: [WalletAutoRechargePolicyController, RiderWalletAutoRechargeController, PaymentAlertController,
+  controllers: [DeploymentAutoPayPolicyController, WalletAutoRechargePolicyController, RiderWalletAutoRechargeController, PaymentAlertController,
     CommonPaymentController,
     RiderMandateController,
     AutoPayOperationsController,
