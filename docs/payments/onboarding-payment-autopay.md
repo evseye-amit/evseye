@@ -1,39 +1,25 @@
-# Onboarding payment with unified AutoPay
+# Onboarding payment and AutoPay — provider authorization
 
-Onboarding and existing-rider enrollment use the same AutoPay policy and wallet-funding consent. There is no separate onboarding enable switch. Client Admin → Payments → AutoPay → Settings uses `GET/PUT /api/v1/client/autopay/policy`; audit history is `/history` beneath that path.
+Updated 21 November 2026. See [Flutter handoff](unified-autopay-flutter-handoff.md) for the current contract.
 
-## Capability and consent
+Onboarding has one combined payment-and-mandate authorization experience. There is no separate in-app consent checkbox and no onboarding call to `PUT /rider-app/autopay`. Ordinary one-time payments do not enroll AutoPay.
 
-Read `GET /api/v1/rider-app/payments/orders/capabilities` (contract v2, also accepts `?version=2`). `data.autoPay.supported` and `enrollmentEntryPoints` describe policy availability, not live gateway connectivity. The old `DEPLOYMENT.autoPaySetup`, UPI_AUTOPAY/ENACH checkout purposes and capabilities v1 have been retired. Explicit `?version=1` returns 400.
+Create `POST /api/v1/rider-app/payments/orders` with `purpose: DEPLOYMENT`, `allocationId`, `setupAutoPay: true`, `email`, and a stable `Idempotency-Key`. The backend snapshots configured mandate maximum/expiry and wallet threshold/recharge/policy revision. New clients omit `autoPayConsent`; the optional legacy field remains validated for compatibility with in-flight app rollout.
 
-Read `GET /api/v1/rider-app/autopay` for financial terms, consent revision, package setup terms, current mandate, actions and effective status. Creating a mandate is not sufficient to enable wallet funding.
+The response exposes saved wallet terms in `data.autoPay.terms`, mandate maximum/expiry in `data.autoPay`, and recurring checkout parameters in `data.checkout`. Display the actual returned terms before launching checkout. Do not send `accepted: true` automatically or manufacture evidence of approval.
 
-Use the common DEPLOYMENT order API and stable Idempotency-Key. When requesting combined setup, include:
+Payment capture and confirmed provider mandate authorization are separate outcomes. After a verified ACTIVE mandate, backend reconciliation attempts wallet activation immediately. A one-minute recovery job retries missed activation. Activation requires a paid combined checkout, matching rider, provider authorization payment/token, an active uncancelled mandate and unchanged funding terms. Existing preferences and disable actions since checkout creation prevent silent re-enabling. Funding activation failure never changes a successful payment into a failed one.
 
-```json
-{
-  "purpose": "DEPLOYMENT",
-  "allocationId": "allocation-uuid",
-  "setupAutoPay": true,
-  "email": "rider@example.com",
-  "autoPayConsent": {
-    "accepted": true,
-    "version": "unified-autopay-v1",
-    "consentRevision": 1,
-    "maxAmount": "15000.00",
-    "validityDays": 365
-  }
-}
-```
+The internal historical `autoPayConsent` JSON column now also stores server checkout terms with `authorizationSource: PROVIDER_CHECKOUT` and `termsCreatedAt`; new snapshots do not claim `accepted` or `acceptedAt`. Provider mandate `authorizedAt`, token/payment/order references and status-transition audit records are the authorization evidence. Historical snapshots remain recoverable. No schema migration is required.
 
-The numeric values above are examples: use current server terms. Never pre-check consent or accept changed terms in the background. The actual onboarding payment remains server-priced. Approval may use the onboarding amount; do not promise a nominal ₹1 charge or a refund.
+Standalone enrollment and later preference changes retain the unified mandate and PUT endpoints. Changing funding terms after checkout does not automatically extend the rider's authorization. Client rollout/merchant readiness gates, pre-debit notices and ledger accounting remain in force.
 
-Backend recovery binds the verified mandate and applies the saved wallet consent after authorization. An active allocation is still required before funding. Changed terms, pending legacy collection or a later rider disable prevent automatic activation. Resume the same payment request after app restart; never start a replacement charge because an SDK callback was lost.
+Stage first: verify SDK recurring support on real test devices, signed callbacks, server reconciliation after app termination, pending/rejected token states, policy changes, duplicate delivery, cancellation and later disable. Production promotion follows successful staging acceptance; do not seed demo data or change database schema for this update.
 
-## Rollout and recovery
+## Backend validation
 
-New setup requires the unified platform flag, explicit client allowlist, all Razorpay rollout prerequisites, a valid package and one active saved merchant configuration. The mandate must cover the configured recharge and notice period. Both onboarding and standalone paths use the wallet policy master switch.
-
-Keep signed webhooks, saved merchant versions, pending-payment reconciliation and historical audit records. Removing the old onboarding API does not cancel bank mandates or erase earlier attempts. Already-submitted legacy consent snapshots remain available for recovery, but new clients must use unified consent.
-
-See [Flutter contract](unified-autopay-flutter-handoff.md), [operations](wallet-autopay-operations.md) and [migration/runbook](unified-autopay-implementation-plan.md). Staging device and bank-flow acceptance is required before production enablement.
+- Payment release suite: 542 tests across 55 files passed against disposable local PostgreSQL with simulated provider responses.
+- Seven additional database activation scenarios passed in the wallet suite (32 tests total), including concurrent activation, pending/failed authorization, unpaid checkout, changed policy, later disable and an existing disabled preference.
+- Common payment contract suite: 49 tests passed, including the additional no-consent request and safe snapshot-response case.
+- API typecheck, build, changed-file oxlint and whitespace checks passed. Full application initialization/OpenAPI export succeeded with 868 operations.
+- No real bank/provider charge, staging deployment or production deployment was performed. Flutter checkout was not edited.

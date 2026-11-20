@@ -63,15 +63,15 @@ export class DeploymentAutoPayService
     });
     const unified = unifiedAutoPayEnabled(this.config, clientId);
     const funding = unified ? await (tx ?? this.db).walletAutoRechargePolicy.findUnique({ where: { clientId } }) : null;
-    if (unified && (!funding?.enabled || funding.revision !== options.autoPayConsent?.consentRevision)) throw new ConflictException('AUTOPAY_CONSENT_CHANGED');
+    if (unified && (!funding?.enabled || (options.autoPayConsent && funding.revision !== options.autoPayConsent.consentRevision))) throw new ConflictException('AUTOPAY_CONSENT_CHANGED');
     if (
       !options.email ||
-      options.autoPayConsent?.accepted !== true ||
-      options.autoPayConsent.version !== (unified ? 'unified-autopay-v1' : 'deployment-autopay-v1')
+      (options.autoPayConsent && (options.autoPayConsent.accepted !== true ||
+      options.autoPayConsent.version !== (unified ? 'unified-autopay-v1' : 'deployment-autopay-v1')))
     )
       throw new BadRequestException({
         code: 'VALIDATION_FAILED',
-        message: 'Explicit AutoPay consent and email are required.',
+        message: 'Email and valid checkout terms are required.',
       });
     const context = await this.mandates.deploymentContext(clientId, userId);
     await this.policy.resolve(clientId, 'UPI_AUTOPAY', 'RAZORPAY');
@@ -91,8 +91,8 @@ export class DeploymentAutoPayService
       new Prisma.Decimal(15000),
     );
     if (
-      !maxAmount.eq(options.autoPayConsent.maxAmount) ||
-      options.autoPayConsent.validityDays !== context.validityDays
+      options.autoPayConsent && (!maxAmount.eq(options.autoPayConsent.maxAmount) ||
+      options.autoPayConsent.validityDays !== context.validityDays)
     )
       throw new ConflictException({
         code: 'AUTOPAY_TERMS_CHANGED',
@@ -117,9 +117,10 @@ export class DeploymentAutoPayService
       maxAmount,
       expiresAt,
       consent: {
-        version: options.autoPayConsent.version,
-        accepted: true,
-        acceptedAt: new Date().toISOString(),
+        version: unified ? 'unified-autopay-v1' : 'deployment-autopay-v1',
+        // Checkout creation is not authorization. Provider confirmation is recorded later.
+        authorizationSource: 'PROVIDER_CHECKOUT',
+        termsCreatedAt: new Date().toISOString(),
         actorId: userId,
         riderId: context.rider.id,
         riderName: context.rider.name,
@@ -127,6 +128,7 @@ export class DeploymentAutoPayService
         email: options.email,
         maxAmount: maxAmount.toFixed(2),
         currency: 'INR',
+        validityDays: context.validityDays,
         frequency: 'as_presented',
         expiresAt: expiresAt.toISOString(),
         scope: unified ? 'WALLET_FUNDING' : 'INVOICE_AUTO_DEBIT',

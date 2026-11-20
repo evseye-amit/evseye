@@ -50,8 +50,8 @@ export function parseOrderInput(body: unknown) {
   const result = paymentOrderInput.safeParse(body);
   if (!result.success)
     throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'Provide a supported payment purpose and only its allowed fields.' });
-  if (result.data.purpose === 'DEPLOYMENT' && result.data.setupAutoPay && (!result.data.email || !result.data.autoPayConsent))
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'Email and explicit AutoPay consent are required.' });
+  if (result.data.purpose === 'DEPLOYMENT' && result.data.setupAutoPay && !result.data.email)
+    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'Email is required for combined AutoPay checkout.' });
   return result.data;
 }
 export function parseRazorpayCallback(body: unknown) {
