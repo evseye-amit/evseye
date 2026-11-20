@@ -67,9 +67,9 @@ export class CommonPaymentService {
     @Optional() private readonly policy?: PaymentGatewayPolicyService,
   ) {}
 
-  async capabilities(clientId: string, userId: string) {
+  async capabilities(clientId: string, userId: string, version = 2) {
     await this.billing.riderForUser(clientId, userId);
-    return this.policy ? this.policy.capabilities(clientId) : { contractVersion: 1, purposes: {} };
+    return this.policy ? this.policy.capabilities(clientId, version) : { contractVersion: 2, availabilityBasis: 'POLICY', purposes: {}, autoPay: { supported: false, enrollmentEntryPoints: [], reasonCode: 'AUTOPAY_UNAVAILABLE' } };
   }
 
   async reconcile(clientId: string, userId: string, requestId: string) {
@@ -284,10 +284,13 @@ export class CommonPaymentService {
     if (owned.kind === 'deployment') {
       const { order } = owned;
       const mandate = order.autoPayMandateId ? await this.db.paymentMandate.findFirst({ where: { id: order.autoPayMandateId, clientId, riderId: owned.riderId } }) : null;
+      const savedTerms = order.autoPayConsent as { threshold?: string; rechargeAmount?: string; consentRevision?: number; validityDays?: number } | null;
       const autoPay = order.autoPayRequested ? { requested: true, status: mandate?.status ?? order.autoPayStatus ?? 'NOT_STARTED',
         mandateId: mandate?.id ?? null, mandateNumber: mandate?.mandateNumber ?? null,
         maxAmount: (mandate?.maxAmount ?? order.autoPayMaxAmount)?.toFixed(2) ?? null,
-        expiresAt: mandate?.expiresAt ?? order.autoPayExpiresAt, failureCode: order.autoPayFailureCode ?? null } : null;
+        expiresAt: mandate?.expiresAt ?? order.autoPayExpiresAt,
+        terms: savedTerms ? { threshold: savedTerms.threshold ?? null, rechargeAmount: savedTerms.rechargeAmount ?? null, revision: savedTerms.consentRevision ?? null, validityDays: savedTerms.validityDays ?? null } : null,
+        failureCode: order.autoPayFailureCode ?? null } : null;
       // Review/refund captures take precedence over the paid business payment.
       const capture =
         order.captures.find(

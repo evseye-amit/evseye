@@ -12,7 +12,7 @@ export const paymentOrderInput = z.discriminatedUnion('purpose', [
       allocationId: z.string().uuid(),
       setupAutoPay: z.boolean().optional(),
       email: z.string().trim().email().max(254).optional(),
-      autoPayConsent: z.object({ accepted: z.literal(true), version: z.literal('deployment-autopay-v1'), maxAmount: z.string().regex(/^[1-9]\d*(\.\d{1,2})?$/), validityDays: z.number().int().positive() }).strict().optional(),
+      autoPayConsent: z.object({ accepted: z.literal(true), version: z.enum(['deployment-autopay-v1', 'unified-autopay-v1']), consentRevision: z.number().int().positive().optional(), maxAmount: z.string().regex(/^[1-9]\d*(\.\d{1,2})?$/), validityDays: z.number().int().positive() }).strict().optional(),
     })
     .strict(),
   z
@@ -50,8 +50,8 @@ export function parseOrderInput(body: unknown) {
   const result = paymentOrderInput.safeParse(body);
   if (!result.success)
     throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'Provide a supported payment purpose and only its allowed fields.' });
-  if (result.data.purpose === 'DEPLOYMENT' && result.data.setupAutoPay && (!result.data.email || !result.data.autoPayConsent))
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'Email and explicit AutoPay consent are required.' });
+  if (result.data.purpose === 'DEPLOYMENT' && result.data.setupAutoPay && !result.data.email)
+    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'Email is required for combined AutoPay checkout.' });
   return result.data;
 }
 export function parseRazorpayCallback(body: unknown) {

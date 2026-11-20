@@ -1,18 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PaymentGatewayPolicyService } from '../../src/payments/payment-gateway-policy.service.js';
-import { DeploymentAutoPayPolicyService } from '../../src/payments/deployment-autopay-policy.service.js';
+import { AutoPayAvailabilityService } from '../../src/payments/autopay-availability.service.js';
 
 const merchant = { provider: 'RAZORPAY', status: 'ACTIVE', validFrom: new Date(0), validUntil: null };
 function fixture(rows: unknown[] = [merchant]) {
   const db = { clientPaymentProvider: { findMany: vi.fn().mockResolvedValue(rows.map((row: any) => ({
     ...row, currentVersion: 1, keyId: 'key', secretReference: 'env:MERCHANT', versions: [{ clientId: 'client', version: 1, provider: 'RAZORPAY', environment: 'TEST', keyId: 'key', secretReference: 'env:MERCHANT', credentialFingerprint: 'fingerprint' }],
   }))) },
+    walletAutoRechargePolicy: { findUnique: vi.fn().mockResolvedValue({ enabled: true, revision: 1, rechargeAmount: '750.00' }) },
     clientDeploymentAutoPayPolicy: { findUnique: vi.fn().mockResolvedValue({ enabled: true, revision: 1 }) },
     clientSubscription: { findFirst: vi.fn().mockResolvedValue({ package: { isActive: true, features: [{ feature: { configuration: { mandateMaxAmount: '750', validityDays: 365, paymentMethods: ['UPI_AUTOPAY'] } } }] } }) },
   };
   const settings: Record<string, string> = { PAYMENT_PROVIDER: 'cashfree', AUTOPAY_PROVIDER: 'cashfree', RAZORPAY_ENVIRONMENT: 'TEST' };
   const config = { get: (key: string) => settings[key] } as never;
-  return { db, settings, policy: new PaymentGatewayPolicyService(db as never, config, new DeploymentAutoPayPolicyService(db as never, config)) };
+  return { db, settings, policy: new PaymentGatewayPolicyService(db as never, config, new AutoPayAvailabilityService(db as never, config)) };
 }
 describe('Client gateway policy', () => {
   it('disables unconfigured shared Cashfree without blocking configured Razorpay merchants', async () => {
@@ -21,18 +22,31 @@ describe('Client gateway policy', () => {
   });
   it('advertises only supported policy capabilities, not connectivity', async () => {
     const result = await fixture().policy.capabilities('client-a');
-    expect(result).toMatchObject({ contractVersion: 1, availabilityBasis: 'POLICY', connectivityVerified: false });
+    expect(result).toMatchObject({ contractVersion: 2, availabilityBasis: 'POLICY' });
     expect(result.purposes.INVOICE).toEqual({ enabled: true, provider: 'RAZORPAY', platforms: ['ANDROID', 'IOS'] });
     expect(result.purposes.TOP_UP).toMatchObject({ enabled: true, provider: 'RAZORPAY', platforms: ['ANDROID', 'IOS'] });
     expect(JSON.stringify(result)).not.toMatch(/secret|keyId|configurationVersionId/);
   });
   it('advertises combined checkout only with both providers and all rollout flags', async () => {
     const f = fixture();
-    expect((await f.policy.capabilities('client')).purposes.DEPLOYMENT.autoPaySetup).toBe(false);
-    Object.assign(f.settings, { RAZORPAY_ENABLED: 'true', RAZORPAY_AUTOPAY_ENABLED: 'true', RAZORPAY_DEPLOYMENT_AUTOPAY_ENABLED: 'true' });
-    expect((await f.policy.capabilities('client')).purposes.DEPLOYMENT.autoPaySetup).toBe(true);
+    expect((await f.policy.capabilities('client')).autoPay.supported).toBe(false);
+    Object.assign(f.settings, { UNIFIED_AUTOPAY_ENABLED: 'true', UNIFIED_AUTOPAY_CLIENT_IDS: 'client', RAZORPAY_ENABLED: 'true', RAZORPAY_AUTOPAY_ENABLED: 'true', RAZORPAY_DEPLOYMENT_AUTOPAY_ENABLED: 'true' });
+    expect((await f.policy.capabilities('client')).autoPay.supported).toBe(true);
     f.settings.RAZORPAY_DEPLOYMENT_AUTOPAY_ENABLED = 'false';
-    expect((await f.policy.capabilities('client')).purposes.DEPLOYMENT.autoPaySetup).toBe(false);
+    expect((await f.policy.capabilities('client')).autoPay.supported).toBe(false);
+  });
+  it('v2 separates funding capabilities from checkout purposes without financial or mandate details', async () => {
+    const f = fixture();
+    Object.assign(f.settings, { UNIFIED_AUTOPAY_ENABLED: 'true', UNIFIED_AUTOPAY_CLIENT_IDS: 'client', RAZORPAY_ENABLED: 'true', RAZORPAY_AUTOPAY_ENABLED: 'true', RAZORPAY_DEPLOYMENT_AUTOPAY_ENABLED: 'true' });
+    const result = await f.policy.capabilities('client', 2);
+    expect(result).toMatchObject({ contractVersion: 2, autoPay: { supported: true, enrollmentEntryPoints: ['STANDALONE', 'ONBOARDING'] } });
+    expect(result.purposes).not.toHaveProperty('UPI_AUTOPAY');
+    expect(result.purposes).not.toHaveProperty('ENACH');
+    expect(result.purposes.DEPLOYMENT).not.toHaveProperty('autoPaySetup');
+    expect(JSON.stringify(result)).not.toMatch(/mandateId|threshold|rechargeAmount|consentRevision/);
+    f.settings.UNIFIED_AUTOPAY_CLIENT_IDS = 'other-client';
+    expect(await f.policy.capabilities('client', 2)).toMatchObject({ autoPay: { supported: false } });
+    await expect(f.policy.capabilities('client', 1)).rejects.toThrow('UNSUPPORTED_CONTRACT_VERSION');
   });
   it('disables every purpose for an unsupported client merchant', async () => {
     const result = await fixture([{ ...merchant, provider: 'UNSUPPORTED' }]).policy.capabilities('client-a');

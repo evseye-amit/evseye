@@ -1,5 +1,7 @@
 import {
   Body,
+  Query,
+  BadRequestException,
   Controller,
   Get,
   Headers,
@@ -28,8 +30,9 @@ export class CommonPaymentController {
     private readonly clients: ClientContextService,
   ) {}
   @Get('capabilities')
-  async capabilities(@CurrentUser() user: AuthUser) {
-    return { data: await this.payments.capabilities(this.clients.requireClientId(user), user.id) };
+  async capabilities(@CurrentUser() user: AuthUser, @Query("version") version?: string) {
+    if (version && version !== "2") throw new BadRequestException("UNSUPPORTED_CONTRACT_VERSION");
+    return { data: await this.payments.capabilities(this.clients.requireClientId(user), user.id, 2) };
   }
   @Get('pending')
   async pending(@CurrentUser() user: AuthUser) {
@@ -58,7 +61,7 @@ export class CommonPaymentController {
             allocationId: { type: 'string', format: 'uuid' },
             setupAutoPay: { type: 'boolean' },
             email: { type: 'string', format: 'email', maxLength: 254 },
-            autoPayConsent: { type: 'object', required: ['accepted', 'version', 'maxAmount', 'validityDays'], properties: { accepted: { type: 'boolean', enum: [true] }, version: { type: 'string', enum: ['deployment-autopay-v1'] }, maxAmount: { type: 'string', example: '15000.00' }, validityDays: { type: 'integer', minimum: 1 } } },
+            autoPayConsent: { type: 'object', deprecated: true, description: 'Optional compatibility field. New onboarding clients omit this; the provider checkout collects authorization.', required: ['accepted', 'version', 'maxAmount', 'validityDays'], properties: { accepted: { type: 'boolean', enum: [true] }, version: { type: 'string', enum: ['deployment-autopay-v1', 'unified-autopay-v1'] }, consentRevision: { type: 'integer', minimum: 1, description: 'Required for unified wallet-funding consent' }, maxAmount: { type: 'string', example: '15000.00' }, validityDays: { type: 'integer', minimum: 1 } } },
           },
         },
         {

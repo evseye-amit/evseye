@@ -23,7 +23,7 @@ export function WalletAutoPayHistory() {
   useEffect(() => {
     const controller = new AbortController();
     void sessionFetch(
-      `/api/v1/client/wallet-autopay-policy/requests?page=${page}`,
+      `/api/v1/client/autopay/recharges?page=${page}`,
       { signal: controller.signal },
     )
       .then(async (response) => {
@@ -52,7 +52,7 @@ export function WalletAutoPayHistory() {
     setHistoryError("");
     try {
       const response = await sessionFetch(
-        `/api/v1/client/wallet-autopay-policy/requests/${encodeURIComponent(id)}/verify`,
+        `/api/v1/client/autopay/recharges/${encodeURIComponent(id)}/verify`,
         { method: "POST" },
       );
       const body = await response.json();

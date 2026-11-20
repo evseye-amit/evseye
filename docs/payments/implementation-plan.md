@@ -1,5 +1,7 @@
 # Payment integration implementation tracker
 
+Historical implementation and verification notes. For the current AutoPay API, use [the unified handoff](unified-autopay-flutter-handoff.md); legacy AutoPay routes and capabilities v1 have since been removed.
+
 ## Phase 7 and operations follow-up — 2026-11-14
 
 Implemented locally: optional client-specific Cashfree configuration and saved credential binding across checkout, mandates, debits, refunds and webhooks; direct Razorpay/Cashfree settlement ingestion for balanced supported reports; audited bank-evidence confirmation; verified Razorpay external-refund adoption; durable in-app client-admin alerts with assignment and acknowledgement. Existing Razorpay deployments do not require any Cashfree configuration. See [scope, API contracts and acceptance](phase-7-cashfree-and-operations.md).
