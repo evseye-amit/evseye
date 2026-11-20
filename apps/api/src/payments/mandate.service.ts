@@ -341,7 +341,8 @@ export class MandateService {
           authorizationAmount,
           expiresAt,
           events: {
-            create: { clientId, toStatus: 'CREATING', source: 'RIDER_REQUEST' },
+            // The composite mandate relation supplies the event's clientId.
+            create: { toStatus: 'CREATING', source: 'RIDER_REQUEST' },
           },
         },
       });
@@ -379,7 +380,6 @@ export class MandateService {
             : 'CREATE_UNCERTAIN',
           events: {
             create: {
-              clientId,
               fromStatus: 'CREATING',
               toStatus: knownRejection ? 'FAILED' : 'UNKNOWN',
               source: 'CREATE_ERROR',
@@ -444,7 +444,6 @@ export class MandateService {
             ? {
                 events: {
                   create: {
-                    clientId: current.clientId,
                     fromStatus: current.status,
                     toStatus: status,
                     source,
