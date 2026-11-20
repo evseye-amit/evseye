@@ -273,6 +273,38 @@ describe.skipIf(!url)('Wallet AutoPay PostgreSQL', () => {
       balance,
     };
   }
+  it.each(['active', 'pending', 'failed', 'unpaid', 'disabled', 'policy-changed', 'existing-off'])(
+    'provider-authorized onboarding activates safely: %s', async (state) => {
+      const f = await fixture();
+      f.config.set('UNIFIED_AUTOPAY_ENABLED', 'true');
+      f.config.set('UNIFIED_AUTOPAY_CLIENT_IDS', f.client.id);
+      await db.walletAutoRechargePreference.deleteMany({ where: { walletId: f.wallet.id } });
+      const startedAt = new Date(Date.now() - 1000).toISOString();
+      await db.paymentMandate.update({ where: { id: f.mandate.id }, data: {
+        status: state === 'pending' ? 'AUTHORIZATION_PENDING' : state === 'failed' ? 'FAILED' : 'ACTIVE',
+        authorizedAt: state === 'pending' || state === 'failed' ? null : new Date(),
+        providerAuthorizationPaymentId: `pay_${randomUUID()}`,
+      } });
+      const workflow = await db.mobileDeploymentWorkflow.create({ data: { clientId: f.client.id, allocationId: f.allocation.id } });
+      const payment = await db.deploymentPayment.create({ data: { clientId: f.client.id, workflowId: workflow.id, amount: '500', breakdown: {}, status: state === 'unpaid' ? 'PENDING' : 'PAID' } });
+      await db.deploymentPaymentAttempt.create({ data: { clientId: f.client.id, deploymentPaymentId: payment.id, provider: 'RAZORPAY', amountPaise: 50000n, currency: 'INR', status: state === 'unpaid' ? 'OPEN' : 'PAID', autoPayRequested: true, autoPayMandateId: f.mandate.id,
+        autoPayConsent: { authorizationSource: 'PROVIDER_CHECKOUT', scope: 'WALLET_FUNDING', actorId: f.user.id, riderId: f.rider.id, consentRevision: 1, termsCreatedAt: startedAt } } });
+      if (state === 'disabled') await f.service.setEnabled(f.client.id, f.user.id, { enabled: false, unified: true, expectedRevision: 0 });
+      if (state === 'policy-changed') await db.walletAutoRechargePolicy.update({ where: { clientId: f.client.id }, data: { revision: 2 } });
+      if (state === 'existing-off') await db.walletAutoRechargePreference.create({ data: { clientId: f.client.id, riderId: f.rider.id, walletId: f.wallet.id, mandateId: f.mandate.id, enabled: false, consentRevision: 1 } });
+      const unified = new UnifiedAutoPayService(db as unknown as PrismaService, f.service, f.config);
+      await Promise.all([unified.activateOnboarding(f.mandate.id), unified.activateOnboarding(f.mandate.id)]);
+      const preference = await db.walletAutoRechargePreference.findUnique({ where: { walletId: f.wallet.id } });
+      expect(preference?.enabled ?? false).toBe(state === 'active');
+      if (state === 'active') {
+        expect(preference?.revision).toBe(1);
+        expect((await db.riderPaymentProfile.findUniqueOrThrow({ where: { clientId_riderId: { clientId: f.client.id, riderId: f.rider.id } } })).collectionMode).toBe('LEDGER_WALLET');
+        await f.service.setEnabled(f.client.id, f.user.id, { enabled: false, unified: true, expectedRevision: 1 });
+        await unified.activateOnboarding(f.mandate.id);
+        expect(await db.walletAutoRechargePreference.findUnique({ where: { walletId: f.wallet.id } })).toMatchObject({ enabled: false, revision: 2 });
+      }
+    },
+  );
   it('migration dry-run is inert, apply preserves consent/money, and repeat apply is a no-op', async () => {
     const f = await fixture('1000.00');
     const client = new Client({ connectionString: url });

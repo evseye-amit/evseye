@@ -23,16 +23,39 @@ export class UnifiedAutoPayService {
       await tx.auditLog.create({ data: { clientId, actorId: userId, action: 'UNIFIED_AUTOPAY_SETUP_STARTED', entityType: 'Rider', entityId: rider.id } });
     });
   }
+  /** Runs after verified provider activation; retries never override a rider preference. */
+  async activateOnboarding(mandateId: string) {
+    const attempt = await this.db.deploymentPaymentAttempt.findFirst({
+      where: { autoPayMandateId: mandateId, status: 'PAID', autoPayRequested: true,
+        autoPayConsent: { path: ['scope'], equals: 'WALLET_FUNDING' },
+        autoPayMandate: { status: 'ACTIVE', providerCancelRequestedAt: null, walletAutoRechargePreferences: { none: {} } } },
+      include: { autoPayMandate: true },
+    });
+    if (!attempt || !unifiedAutoPayEnabled(this.config, attempt.clientId)) return;
+    const terms = attempt.autoPayConsent as { actorId?: string; riderId?: string; consentRevision?: number; acceptedAt?: string; termsCreatedAt?: string; authorizationSource?: string } | null;
+    const mandate = attempt.autoPayMandate;
+    const startedAt = terms?.termsCreatedAt ?? terms?.acceptedAt;
+    if (!terms?.actorId || !terms.consentRevision || !startedAt || !Number.isFinite(Date.parse(startedAt)) ||
+      !mandate?.authorizedAt || mandate.riderId !== terms.riderId ||
+      !mandate.providerAuthorizationPaymentId || !mandate.providerTokenId) return;
+    try {
+      await this.funding.setEnabled(attempt.clientId, terms.actorId, {
+        enabled: true, unified: true, mandateId, consentRevision: terms.consentRevision,
+        expectedRevision: 0, recoveryConsentAt: new Date(startedAt),
+      });
+    } catch {
+      // Payment/mandate authorization stays successful even if funding needs recovery.
+      this.logger.warn(`Onboarding wallet activation requires review: ${attempt.id}`);
+    }
+  }
+
   @Cron(CronExpression.EVERY_MINUTE)
   async recoverOnboarding() {
     if (this.config.get("UNIFIED_AUTOPAY_ENABLED") !== "true") return;
-    const attempts = await this.db.deploymentPaymentAttempt.findMany({ where: { autoPayMandateId: { not: null }, autoPayConsent: { path: ['scope'], equals: 'WALLET_FUNDING' }, autoPayMandate: { status: 'ACTIVE', walletAutoRechargePreferences: { none: {} } } }, take: 100, orderBy: { checkedAt: 'asc' } });
+    const attempts = await this.db.deploymentPaymentAttempt.findMany({ where: { status: 'PAID', autoPayRequested: true, autoPayMandateId: { not: null }, autoPayConsent: { path: ['scope'], equals: 'WALLET_FUNDING' }, autoPayMandate: { status: 'ACTIVE', walletAutoRechargePreferences: { none: {} } } }, take: 100, orderBy: { checkedAt: 'asc' } });
     for (const attempt of attempts) {
-      const consent = attempt.autoPayConsent as { actorId?: string; consentRevision?: number; acceptedAt?: string } | null;
       await this.db.deploymentPaymentAttempt.update({ where: { id: attempt.id }, data: { checkedAt: new Date() } });
-      if (!consent?.acceptedAt || !Number.isFinite(Date.parse(consent.acceptedAt)) || !consent?.actorId || !consent.consentRevision || !attempt.autoPayMandateId || !unifiedAutoPayEnabled(this.config, attempt.clientId)) continue;
-      try { await this.funding.setEnabled(attempt.clientId, consent.actorId, { enabled: true, unified: true, mandateId: attempt.autoPayMandateId, consentRevision: consent.consentRevision, expectedRevision: 0, recoveryConsentAt: new Date(consent.acceptedAt) }); }
-      catch { this.logger.warn(`Onboarding funding consent requires review: ${attempt.id}`); }
+      if (attempt.autoPayMandateId) await this.activateOnboarding(attempt.autoPayMandateId);
     }
   }
   async current(clientId: string, userId: string) {

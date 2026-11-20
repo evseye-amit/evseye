@@ -1,3 +1,4 @@
+import { UnifiedAutoPayService } from './unified-autopay.service.js';
 import { AutoPayProviderRouter } from './autopay-provider-router.service.js';
 import { randomUUID, createHash } from 'node:crypto';
 import {
@@ -5,6 +6,8 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  Optional,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -49,12 +52,14 @@ const money = (value: unknown, label: string) => {
 
 @Injectable()
 export class MandateService {
+  private readonly logger = new Logger(MandateService.name);
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<Environment, true>,
     @Inject(PAYMENT_PROVIDER) private readonly provider: PaymentProvider,
     private readonly collections: PaymentOrchestratorService,
     private readonly providers?: AutoPayProviderRouter,
+    @Optional() private readonly unified?: UnifiedAutoPayService,
   ) {}
 
   private async context(
@@ -359,7 +364,7 @@ export class MandateService {
     source: string,
     referenceId?: string,
   ) {
-    return this.prisma.$transaction(async (tx) => {
+    const applied = await this.prisma.$transaction(async (tx) => {
       const current = await tx.paymentMandate.findUniqueOrThrow({
         where: { id: mandateId },
       });
@@ -424,6 +429,8 @@ export class MandateService {
             select: { id: true },
           }),
         );
+      const terms = current.providerTermsSnapshot as { consent?: { scope?: string } } | null;
+      const walletFunding = terms?.consent?.scope === 'WALLET_FUNDING';
       await tx.riderPaymentProfile.upsert({
         where: {
           clientId_riderId: {
@@ -435,8 +442,9 @@ export class MandateService {
           clientId: current.clientId,
           riderId: current.riderId,
           autoPayEnabled: active,
+          ...(walletFunding ? { collectionMode: 'LEDGER_WALLET', autoSettleInvoiceFromWallet: true } : {}),
         },
-        update: { autoPayEnabled: active },
+        update: { autoPayEnabled: active, ...(walletFunding ? { collectionMode: 'LEDGER_WALLET', autoSettleInvoiceFromWallet: true } : {}) },
       });
       if (changed) await tx.auditLog.create({ data: {
         clientId: current.clientId, actorId: null, action: `AUTOPAY_MANDATE_${status}`,
@@ -445,6 +453,11 @@ export class MandateService {
       } });
       return updated;
     });
+    if (applied.status === 'ACTIVE' && this.unified) {
+      try { await this.unified.activateOnboarding(applied.id); }
+      catch { this.logger.warn(`Onboarding wallet activation deferred: ${applied.id}`); }
+    }
+    return applied;
   }
 
   async verify(clientId: string, userId: string, mandateId: string) {
