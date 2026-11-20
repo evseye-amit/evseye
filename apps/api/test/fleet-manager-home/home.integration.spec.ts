@@ -462,7 +462,7 @@ describe.skipIf(!url)('Fleet Manager home in PostgreSQL', () => {
     {
       getEffectiveConfiguration: async () => ({ onboarding: { steps: [] } }),
     } as never,
-    new RiderKycStatusService(db as never, { getEffectiveConfiguration: async () => ({ onboarding: { steps: [] } }) } as never),
+    new RiderKycStatusService(db as never, { getEffectiveConfiguration: async () => ({ onboarding: { steps: [] } }) } as never, { automated: async () => false } as never),
   );
   const media = new MediaService(
     db as never,

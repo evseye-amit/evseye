@@ -1,3 +1,4 @@
+import { PanVerificationPolicyService } from './pan-verification-policy.service.js';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { KycStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -10,14 +11,22 @@ type Field = {
   disabled: boolean;
 };
 type Document = { fieldCode: string; status: string; reviewedAt: Date | null };
-type ProviderKyc = { status: string; verifiedAt: Date | null };
+type ProviderKyc = { type?: string; status: string; verifiedAt: Date | null };
 
 /** Current document versions are the authority whenever document review is configured. */
 export function documentKycStatus(
   fields: Field[],
   documents: Document[],
   providerKycs: ProviderKyc[] = [],
+  automatedPan = false,
 ) {
+  if (automatedPan) {
+    const pan = providerKycs.find((kyc) => kyc.type === 'PAN');
+    if (pan?.status !== 'VERIFIED') return {
+      kycStatus: pan?.status === 'FAILED' ? KycStatus.FAILED : KycStatus.PENDING,
+      kycVerifiedAt: null,
+    };
+  }
   const uploads = fields.filter(
     (field) => field.isUpload && field.fieldCode && !field.disabled,
   );
@@ -68,7 +77,10 @@ export class RiderKycStatusService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configuration: RiderOnboardingConfigurationService,
+    private readonly panPolicy: PanVerificationPolicyService,
   ) {}
+
+  automatedPan(clientId: string) { return this.panPolicy.automated(clientId); }
 
   async fields(clientId: string) {
     try {
@@ -110,10 +122,10 @@ export class RiderKycStatusService {
       }),
       db.riderKyc.findMany({
         where: { clientId, rider: { clientId, userId, deletedAt: null } },
-        select: { status: true, verifiedAt: true },
+        select: { type: true, status: true, verifiedAt: true },
       }),
     ]);
-    return documentKycStatus(configured, documents, providerKycs);
+    return documentKycStatus(configured, documents, providerKycs, await this.automatedPan(clientId));
   }
 
   async sync(
@@ -154,28 +166,31 @@ export class RiderKycStatusService {
       }),
       this.prisma.riderKyc.findMany({
         where: { clientId, riderId: { in: riders.map((rider) => rider.id) } },
-        select: { riderId: true, status: true, verifiedAt: true },
+        select: { riderId: true, type: true, status: true, verifiedAt: true },
       }),
     ]);
+    const automatedPan = await this.automatedPan(clientId);
     return riders.map((rider) => ({
       ...rider,
       ...documentKycStatus(
         fields,
         documents.filter((document) => document.userId === rider.userId),
         kycs.filter((kyc) => kyc.riderId === rider.id),
+        automatedPan,
       ),
     }));
   }
 
   async summary(clientId: string) {
     const fields = await this.fields(clientId);
+    const automatedPan = await this.automatedPan(clientId);
     // One query for all riders; multiple provider checks never multiply the rider count.
     const riders = await this.prisma.rider.findMany({
       where: { clientId, deletedAt: null },
       select: {
         kycs: {
           where: { clientId },
-          select: { status: true, verifiedAt: true },
+          select: { type: true, status: true, verifiedAt: true },
         },
         user: {
           select: {
@@ -198,6 +213,7 @@ export class RiderKycStatusService {
         fields,
         rider.user?.riderOnboardingDocuments ?? [],
         rider.kycs,
+        automatedPan,
       );
       counts[kycStatus] = (counts[kycStatus] ?? 0) + 1;
     }

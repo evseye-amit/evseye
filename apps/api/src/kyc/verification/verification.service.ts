@@ -1,3 +1,4 @@
+import { RiderKycStatusService } from '../../riders/rider-kyc-status.service.js';
 import { BadRequestException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { KycType, KycVerificationStatus, KycVerificationType, Prisma } from '@prisma/client';
@@ -15,7 +16,7 @@ import { KycCommercialService } from '../commercial/kyc-commercial.service.js';
 export class VerificationService {
   constructor(private readonly prisma: PrismaService, private readonly registry: ProviderRegistryService,
     private readonly config: ConfigService<Environment, true>, private readonly routing: KycRoutingEngine,
-    private readonly commercial: KycCommercialService) {}
+    private readonly commercial: KycCommercialService, private readonly riderKyc: RiderKycStatusService) {}
 
   async consent(clientId: string, dto: CreateConsentDto) {
     await this.assertRider(clientId, dto.riderId);
@@ -288,6 +289,11 @@ export class VerificationService {
           });
           // A late provider response must never overwrite a newer PAN submission.
           if (newest?.id !== current.id) return;
+          const rider = legacyType === KycType.PAN ? await tx.rider.findFirst({
+            where: { id: current.riderId, clientId: current.clientId, deletedAt: null },
+            select: { userId: true },
+          }) : null;
+          if (rider?.userId) await this.riderKyc.lockUser(tx, current.clientId, rider.userId);
           const provider = await tx.kycProviderConfig.findUniqueOrThrow({ where: { id: providerId }, select: { code: true } });
           await tx.riderKyc.upsert({ where: { riderId_type: { riderId: current.riderId, type: legacyType } },
             create: { clientId: current.clientId, riderId: current.riderId, type: legacyType,
@@ -297,6 +303,14 @@ export class VerificationService {
             update: { status: result.status === 'VERIFIED' ? 'VERIFIED' : 'FAILED', provider: provider.code,
               verifiedAt: result.status === 'VERIFIED' ? now : null,
               safeFailureCode: result.status === 'FAILED' ? (result.failureCode ?? result.failureCategory ?? 'PAN_NOT_VERIFIED') : null } });
+          if (rider?.userId) {
+            const fields = await this.riderKyc.fields(current.clientId);
+            const kyc = await this.riderKyc.sync(tx, current.clientId, rider.userId, fields);
+            await tx.rider.updateMany({
+              where: { id: current.riderId, clientId: current.clientId, status: { in: ['ACTIVE', 'ONBOARDING'] }, deletedAt: null },
+              data: { status: kyc.kycStatus === 'VERIFIED' ? 'ACTIVE' : 'ONBOARDING' },
+            });
+          }
         }
       }
     });

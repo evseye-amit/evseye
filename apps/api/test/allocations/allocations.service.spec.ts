@@ -328,3 +328,22 @@ describe('deallocation completion safety gate', () => {
     expect(tx.inspection.upsert).toHaveBeenCalledOnce();
   });
 });
+
+describe('allocation verification error details', () => {
+  it('preserves actionable blockers in the API issues envelope before reserving a fleet', async () => {
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([]),
+      vehicleExchangeRequest: { findFirst: vi.fn().mockResolvedValue(null) },
+      rider: { findFirst: vi.fn().mockResolvedValue({ id: 'rider', status: RiderStatus.ACTIVE }) },
+      commercialRestriction: { findFirst: vi.fn().mockResolvedValue(null) },
+      fleet: { updateMany: vi.fn() },
+    };
+    const issues = [{ fieldCode: 'PAN_VERIFICATION', reason: 'PAN verification is pending.' }];
+    const service = new AllocationsService({ $transaction: (fn: any) => fn(tx) } as never, {} as never,
+      { allocationBlockers: async () => issues } as never);
+    await expect(service.initiate('client', 'fleet', 'rider', 'actor')).rejects.toMatchObject({
+      response: { code: 'RIDER_VERIFICATION_PENDING', issues }, status: 409,
+    });
+    expect(tx.fleet.updateMany).not.toHaveBeenCalled();
+  });
+});
