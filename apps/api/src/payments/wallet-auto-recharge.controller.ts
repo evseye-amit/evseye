@@ -1,3 +1,4 @@
+import { ApiOperation } from '@nestjs/swagger';
 import {
   Body,
   Controller,
@@ -100,6 +101,7 @@ export class RiderWalletAutoRechargeController {
     private readonly service: WalletAutoRechargeService,
     private readonly clients: ClientContextService,
   ) {}
+  @ApiOperation({ deprecated: true, summary: 'Compatibility wallet preference; use GET rider-app/autopay' })
   @Get() async get(@CurrentUser() user: AuthUser) {
     return {
       data: await this.service.current(
@@ -108,6 +110,7 @@ export class RiderWalletAutoRechargeController {
       ),
     };
   }
+  @ApiOperation({ deprecated: true, summary: 'Compatibility wallet consent; use PUT rider-app/autopay' })
   @Put() async put(
     @CurrentUser() user: AuthUser,
     @Body() dto: RechargeConsentDto,

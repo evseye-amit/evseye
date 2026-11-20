@@ -1,7 +1,7 @@
 export type DeploymentCheckoutOptions = {
   setupAutoPay?: boolean;
   email?: string;
-  autoPayConsent?: { accepted: true; version: 'deployment-autopay-v1'; maxAmount: string; validityDays: number };
+  autoPayConsent?: { accepted: true; version: 'deployment-autopay-v1' | 'unified-autopay-v1'; consentRevision?: number; maxAmount: string; validityDays: number };
   requestKey?: string;
 };
 export interface DeploymentPaymentOrder {

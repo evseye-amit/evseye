@@ -108,11 +108,13 @@ export class RiderMandateController {
     return { data: await this.mandates.manage(this.clients.requireClientId(user), user.id, mandateId, key ?? '', 'RESUME') };
   }
 
+  @ApiOperation({ deprecated: true, summary: 'Compatibility disable; use PUT rider-app/autopay' })
   @Post('disable')
   async disable(@CurrentUser() user: AuthUser) {
     return { data: await this.mandates.setLocalEnabled(this.clients.requireClientId(user), user.id, false) };
   }
 
+  @ApiOperation({ deprecated: true, summary: 'Legacy enable; migrated riders require unified consent' })
   @Post('enable')
   async enable(@CurrentUser() user: AuthUser) {
     return { data: await this.mandates.setLocalEnabled(this.clients.requireClientId(user), user.id, true) };

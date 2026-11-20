@@ -1,3 +1,5 @@
+import { Optional } from '@nestjs/common';
+import { UnifiedAutoPayService } from './unified-autopay.service.js';
 import { PaymentGatewayPolicyService } from './payment-gateway-policy.service.js';
 import {
   Controller,
@@ -27,6 +29,7 @@ export class RiderPaymentHomeController {
     private readonly billing: RiderBillingService,
     private readonly receipts: RiderPaymentsService,
     private readonly policy: PaymentGatewayPolicyService,
+    @Optional() private readonly unified?: UnifiedAutoPayService,
   ) {}
   private async context(user: AuthUser) {
     const clientId = this.clients.requireClientId(user);
@@ -96,7 +99,8 @@ export class RiderPaymentHomeController {
         (sum, invoice) => sum.plus(invoice.outstandingAmount),
         new Prisma.Decimal(0),
       );
-    const autoPayStatus = !mandate || !profile?.autoPayEnabled
+    const unified = profile?.collectionMode === 'LEDGER_WALLET' && this.unified ? await this.unified.current(clientId, user.id) : null;
+    const autoPayStatus = unified ? ({ ACTIVE: 'ACTIVE', OFF: 'NOT_ENABLED', AUTHORIZATION_PENDING: 'AUTHENTICATION_PENDING', MANDATE_ACTION_REQUIRED: 'SETUP_REQUIRED', CONSENT_REQUIRED: 'SETUP_REQUIRED', ACTION_REQUIRED: 'FAILED' } as Record<string, string>)[unified.effectiveStatus] ?? 'PAUSED' : !mandate || !profile?.autoPayEnabled
       ? 'NOT_ENABLED'
       : mandate.expiresAt && mandate.expiresAt <= now ? 'EXPIRED' : ((
           {
@@ -133,7 +137,7 @@ export class RiderPaymentHomeController {
         dueDate: invoices[0]?.dueDate ?? null,
         currency: currencies.length > 1 ? null : currencies[0] ?? profile?.currency ?? 'INR',
         autoPayStatus,
-        autoPayEnabled: profile?.autoPayEnabled ?? false,
+        autoPayEnabled: unified?.enabled ?? profile?.autoPayEnabled ?? false,
         paymentMethod: mandate?.method ?? null,
         mandateStatus: mandate?.status ?? null,
         mandateMaxAmount: mandate?.maxAmount.toFixed(2) ?? null,

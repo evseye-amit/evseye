@@ -7,6 +7,7 @@ function fixture(rows: unknown[] = [merchant]) {
   const db = { clientPaymentProvider: { findMany: vi.fn().mockResolvedValue(rows.map((row: any) => ({
     ...row, currentVersion: 1, keyId: 'key', secretReference: 'env:MERCHANT', versions: [{ clientId: 'client', version: 1, provider: 'RAZORPAY', environment: 'TEST', keyId: 'key', secretReference: 'env:MERCHANT', credentialFingerprint: 'fingerprint' }],
   }))) },
+    walletAutoRechargePolicy: { findUnique: vi.fn().mockResolvedValue({ enabled: true, revision: 1, rechargeAmount: '750.00' }) },
     clientDeploymentAutoPayPolicy: { findUnique: vi.fn().mockResolvedValue({ enabled: true, revision: 1 }) },
     clientSubscription: { findFirst: vi.fn().mockResolvedValue({ package: { isActive: true, features: [{ feature: { configuration: { mandateMaxAmount: '750', validityDays: 365, paymentMethods: ['UPI_AUTOPAY'] } } }] } }) },
   };
@@ -33,6 +34,19 @@ describe('Client gateway policy', () => {
     expect((await f.policy.capabilities('client')).purposes.DEPLOYMENT.autoPaySetup).toBe(true);
     f.settings.RAZORPAY_DEPLOYMENT_AUTOPAY_ENABLED = 'false';
     expect((await f.policy.capabilities('client')).purposes.DEPLOYMENT.autoPaySetup).toBe(false);
+  });
+  it('v2 separates funding capabilities from checkout purposes without financial or mandate details', async () => {
+    const f = fixture();
+    Object.assign(f.settings, { UNIFIED_AUTOPAY_ENABLED: 'true', UNIFIED_AUTOPAY_CLIENT_IDS: 'client', RAZORPAY_ENABLED: 'true', RAZORPAY_AUTOPAY_ENABLED: 'true', RAZORPAY_DEPLOYMENT_AUTOPAY_ENABLED: 'true' });
+    const result = await f.policy.capabilities('client', 2);
+    expect(result).toMatchObject({ contractVersion: 2, autoPay: { supported: true, enrollmentEntryPoints: ['STANDALONE', 'ONBOARDING'] } });
+    expect(result.purposes).not.toHaveProperty('UPI_AUTOPAY');
+    expect(result.purposes).not.toHaveProperty('ENACH');
+    expect(result.purposes.DEPLOYMENT).not.toHaveProperty('autoPaySetup');
+    expect(JSON.stringify(result)).not.toMatch(/mandateId|threshold|rechargeAmount|consentRevision/);
+    f.settings.UNIFIED_AUTOPAY_CLIENT_IDS = 'other-client';
+    expect(await f.policy.capabilities('client', 2)).toMatchObject({ autoPay: { supported: false } });
+    expect((await f.policy.capabilities('client')).purposes).toHaveProperty('UPI_AUTOPAY');
   });
   it('disables every purpose for an unsupported client merchant', async () => {
     const result = await fixture([{ ...merchant, provider: 'UNSUPPORTED' }]).policy.capabilities('client-a');

@@ -50,8 +50,14 @@ describe('mobile payment HTTP contract', () => {
     const response = await app.inject({ method: 'GET', url: '/api/v1/rider-app/payments/orders/capabilities', headers: auth });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ data: { contractVersion: 1, availabilityBasis: 'POLICY', connectivityVerified: false } });
-    expect(service.capabilities).toHaveBeenCalledWith('client-a', 'user-a');
+    expect(service.capabilities).toHaveBeenCalledWith('client-a', 'user-a', 1);
     expect(service.detail).not.toHaveBeenCalled();
+  });
+  it('negotiates v2 explicitly and rejects unknown capabilities versions', async () => {
+    const base = '/api/v1/rider-app/payments/orders/capabilities';
+    expect((await app.inject({ method: 'GET', url: `${base}?version=2`, headers: auth })).statusCode).toBe(200);
+    expect(service.capabilities).toHaveBeenCalledWith('client-a', 'user-a', 2);
+    expect((await app.inject({ method: 'GET', url: `${base}?version=99`, headers: auth })).statusCode).toBe(400);
   });
   it('exposes authenticated pending lookup and explicit local abandonment', async () => {
     const base = '/api/v1/rider-app/payments/orders';

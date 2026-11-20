@@ -1,3 +1,4 @@
+import { unifiedAutoPayEnabled } from './unified-autopay-rollout.js';
 import {
   BadRequestException,
   ConflictException,
@@ -60,10 +61,13 @@ export class DeploymentAutoPayService
       code: 'AUTOPAY_UNAVAILABLE',
       message: availability.reasonMessage ?? 'Onboarding AutoPay is disabled for this client.',
     });
+    const unified = unifiedAutoPayEnabled(this.config, clientId);
+    const funding = unified ? await (tx ?? this.db).walletAutoRechargePolicy.findUnique({ where: { clientId } }) : null;
+    if (unified && (!funding?.enabled || funding.revision !== options.autoPayConsent?.consentRevision)) throw new ConflictException('AUTOPAY_CONSENT_CHANGED');
     if (
       !options.email ||
       options.autoPayConsent?.accepted !== true ||
-      options.autoPayConsent.version !== 'deployment-autopay-v1'
+      options.autoPayConsent.version !== (unified ? 'unified-autopay-v1' : 'deployment-autopay-v1')
     )
       throw new BadRequestException({
         code: 'VALIDATION_FAILED',
@@ -125,7 +129,8 @@ export class DeploymentAutoPayService
         currency: 'INR',
         frequency: 'as_presented',
         expiresAt: expiresAt.toISOString(),
-        scope: 'INVOICE_AUTO_DEBIT',
+        scope: unified ? 'WALLET_FUNDING' : 'INVOICE_AUTO_DEBIT',
+        ...(funding ? { consentRevision: funding.revision, threshold: funding.threshold.toFixed(2), rechargeAmount: funding.rechargeAmount.toFixed(2) } : {}),
       } satisfies Prisma.InputJsonObject,
     };
   }
@@ -410,6 +415,13 @@ export class DeploymentAutoPayService
           a.clientId,
           allocation.riderId,
         );
+        if ((a.autoPayConsent as { scope?: string } | null)?.scope === 'WALLET_FUNDING') {
+          await tx.$queryRaw`SELECT id FROM "RiderWallet" WHERE "clientId"=${a.clientId} AND "riderId"=${allocation.riderId} FOR UPDATE`;
+          if (await tx.paymentTransaction.findFirst({ where: { clientId: a.clientId, riderId: allocation.riderId, status: { in: ['CREATING', 'PENDING', 'UNKNOWN'] } } })) throw new ConflictException('AUTOPAY_MIGRATION_BLOCKED');
+          await tx.riderPaymentProfile.upsert({ where: { clientId_riderId: { clientId: a.clientId, riderId: allocation.riderId } },
+            create: { clientId: a.clientId, riderId: allocation.riderId, collectionMode: 'LEDGER_WALLET', autoSettleInvoiceFromWallet: true },
+            update: { collectionMode: 'LEDGER_WALLET', autoSettleInvoiceFromWallet: true } });
+        }
         const mandate = await tx.paymentMandate.create({
           data: {
             clientId: a.clientId,

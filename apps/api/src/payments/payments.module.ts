@@ -1,3 +1,5 @@
+import { UnifiedAutoPayController, UnifiedAutoPayPolicyController } from './unified-autopay.controller.js';
+import { UnifiedAutoPayService } from './unified-autopay.service.js';
 import { DeploymentAutoPayService } from './deployment-autopay.service.js';
 import { DeploymentAutoPayPolicyController } from './deployment-autopay-policy.controller.js';
 import { WalletAutoRechargeService } from './wallet-auto-recharge.service.js';
@@ -70,7 +72,7 @@ import {
 
 @Module({
   imports: [NotificationModule, PaymentAutomationModule, PaymentGatewayPolicyModule, AllocationsModule, RazorpayPenaltyModule, AuthModule, RiderBillingModule, RiderRateCardsModule, WalletModule],
-  controllers: [DeploymentAutoPayPolicyController, WalletAutoRechargePolicyController, RiderWalletAutoRechargeController, PaymentAlertController,
+  controllers: [UnifiedAutoPayPolicyController, UnifiedAutoPayController, DeploymentAutoPayPolicyController, WalletAutoRechargePolicyController, RiderWalletAutoRechargeController, PaymentAlertController,
     CommonPaymentController,
     RiderMandateController,
     AutoPayOperationsController,
@@ -88,7 +90,7 @@ import {
     CashfreeRefundWebhookController,
     ProviderSettlementController,
   ],
-  providers: [DeploymentAutoPayService, WalletAutoRechargeService, PaymentAlertService,
+  providers: [UnifiedAutoPayService, DeploymentAutoPayService, WalletAutoRechargeService, PaymentAlertService,
     RazorpayRecurringClient, RazorpayAutoPayProvider, RazorpayAutoPayWorker, AutoPayProviderRouter, RazorpayConfigurationService,
     CommonPaymentService,
     CashfreeHttpClient,

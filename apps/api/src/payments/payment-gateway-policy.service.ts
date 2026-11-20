@@ -1,8 +1,9 @@
+import { unifiedAutoPayEnabled } from './unified-autopay-rollout.js';
 import { ConflictException, HttpException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { DeploymentAutoPayPolicyService } from './deployment-autopay-policy.service.js';
-import type { Prisma } from '@prisma/client';
+import type { Prisma, ClientPaymentProvider } from '@prisma/client';
 
 export type PaymentPurpose = 'DEPLOYMENT' | 'SUBMISSION_PENALTY' | 'INVOICE' | 'OUTSTANDING' | 'SECURITY_DEPOSIT' | 'TOP_UP' | 'UPI_AUTOPAY' | 'ENACH';
 
@@ -21,11 +22,13 @@ export class PaymentGatewayPolicyService {
     return this.deploymentPolicy.availability(clientId, db);
   }
 
-  async capabilities(clientId: string) {
+  async capabilities(clientId: string, version = 1) {
     const purposes: Record<string, { enabled: boolean; provider: string | null; platforms: string[]; autoPaySetup?: boolean; reason?: string }> = {};
+    const environment = (this.config.get<string>('RAZORPAY_ENVIRONMENT') ?? 'TEST').toUpperCase();
+    const merchants = await this.db.clientPaymentProvider.findMany({ where: { clientId, environment } });
     for (const purpose of ['DEPLOYMENT', 'SUBMISSION_PENALTY', 'INVOICE', 'OUTSTANDING', 'SECURITY_DEPOSIT', 'TOP_UP', 'UPI_AUTOPAY', 'ENACH'] as const) {
       try {
-        const provider = await this.resolve(clientId, purpose);
+        const provider = await this.resolve(clientId, purpose, undefined, merchants);
         const enabled = ['RAZORPAY', 'CASHFREE'].includes(provider);
         purposes[purpose] = { enabled, provider, platforms: enabled ? ['ANDROID', 'IOS'] : [] };
       } catch (error) {
@@ -35,13 +38,23 @@ export class PaymentGatewayPolicyService {
         purposes[purpose] = { enabled: false, provider: null, platforms: [], reason };
       }
     }
-    if (purposes.DEPLOYMENT) purposes.DEPLOYMENT.autoPaySetup = (await this.deploymentAutoPay(clientId)).effectiveEnabled;
+    const setup = await this.deploymentAutoPay(clientId);
+    if (purposes.DEPLOYMENT) purposes.DEPLOYMENT.autoPaySetup = setup.effectiveEnabled;
+    if (version === 2) {
+      const funding = await this.db.walletAutoRechargePolicy.findUnique({ where: { clientId } });
+      const supported = unifiedAutoPayEnabled(this.config, clientId) && setup.canEnable && !!funding?.enabled;
+      delete purposes.UPI_AUTOPAY;
+      delete purposes.ENACH;
+      if (purposes.DEPLOYMENT) delete purposes.DEPLOYMENT.autoPaySetup;
+      return { contractVersion: 2, availabilityBasis: 'POLICY', purposes,
+        autoPay: { supported, enrollmentEntryPoints: supported ? ['STANDALONE', 'ONBOARDING'] : [], reasonCode: supported ? null : setup.reason ?? 'AUTOPAY_UNAVAILABLE' } };
+    }
     return { contractVersion: 1, availabilityBasis: 'POLICY', connectivityVerified: false, purposes };
   }
 
-  async resolve(clientId: string, purpose: PaymentPurpose, requested?: string) {
+  async resolve(clientId: string, purpose: PaymentPurpose, requested?: string, merchants?: ClientPaymentProvider[]) {
     const environment = (this.config.get<string>('RAZORPAY_ENVIRONMENT') ?? 'TEST').toUpperCase();
-    const rows = await this.db.clientPaymentProvider.findMany({ where: { clientId, environment } });
+    const rows = merchants ?? await this.db.clientPaymentProvider.findMany({ where: { clientId, environment } });
     const now = new Date();
     const active = rows.filter(row => row.status === 'ACTIVE' && row.validFrom <= now && (!row.validUntil || row.validUntil >= now));
     let provider: string;
