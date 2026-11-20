@@ -1,4 +1,4 @@
-import { DeploymentAutoPayPolicyService } from './deployment-autopay-policy.service.js';
+import { AutoPayAvailabilityService } from './autopay-availability.service.js';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { unifiedAutoPayEnabled } from './unified-autopay-rollout.js';
 import { ConflictException, Injectable, NotFoundException, Logger, Optional } from '@nestjs/common';
@@ -9,7 +9,7 @@ import { WalletAutoRechargeService } from './wallet-auto-recharge.service.js';
 @Injectable()
 export class UnifiedAutoPayService {
   private readonly logger = new Logger(UnifiedAutoPayService.name);
-  constructor(private readonly db: PrismaService, private readonly funding: WalletAutoRechargeService, private readonly config: ConfigService, @Optional() private readonly availability?: DeploymentAutoPayPolicyService) {}
+  constructor(private readonly db: PrismaService, private readonly funding: WalletAutoRechargeService, private readonly config: ConfigService, @Optional() private readonly availability?: AutoPayAvailabilityService) {}
 
   async prepareSetup(clientId: string, userId: string) {
     const state = await this.current(clientId, userId);

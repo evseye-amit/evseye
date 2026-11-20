@@ -1,5 +1,8 @@
+import { ConfigService } from '@nestjs/config';
+import { WalletAutoRechargeService } from './wallet-auto-recharge.service.js';
+import { unifiedAutoPayEnabled } from './unified-autopay-rollout.js';
 import { BadRequestException, Body, Controller, DefaultValuePipe, Get, Headers, Param, ParseIntPipe, Post, Put, Query, UseGuards } from '@nestjs/common';
-import { IsBoolean, IsEmail, IsIn, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsInt, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator';
 import { UserRole } from '@prisma/client';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
@@ -38,10 +41,6 @@ export class UnifiedAutoPayController {
   @Post('mandates/:mandateId/cancel') async cancel(@CurrentUser() user: AuthUser, @Param('mandateId') id: string, @Headers('Idempotency-Key') key?: string) { return { data: await this.mandates.cancel(this.clients.requireClientId(user), user.id, id, key ?? '') }; }
 }
 
-import { Matches } from 'class-validator';
-import { ConfigService } from '@nestjs/config';
-import { WalletAutoRechargeService } from './wallet-auto-recharge.service.js';
-import { unifiedAutoPayEnabled } from './unified-autopay-rollout.js';
 class PolicyDto {
   @IsBoolean() enabled!: boolean;
   @IsString() @Matches(/^(?:0|[1-9]\d{0,4})\.\d{2}$/) threshold!: string;
@@ -64,5 +63,19 @@ export class UnifiedAutoPayPolicyController {
   @Get('history') async history(@CurrentUser() user: AuthUser, @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number) {
     if (page < 1 || page > 100000) throw new BadRequestException('INVALID_PAGE');
     return { data: await this.funding.policyHistory(this.clients.requireClientId(user), page) };
+  }
+}
+
+@Controller('client/autopay/recharges')
+@UseGuards(AccessTokenGuard, RolesGuard)
+@Roles(UserRole.CLIENT_ADMIN)
+export class UnifiedAutoPayOperationsController {
+  constructor(private readonly funding: WalletAutoRechargeService, private readonly clients: ClientContextService) {}
+  @Get() async list(@CurrentUser() user: AuthUser, @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number) {
+    if (page < 1 || page > 100000) throw new BadRequestException('INVALID_PAGE');
+    return { data: await this.funding.list(this.clients.requireClientId(user), page) };
+  }
+  @Post(':id/verify') async verify(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return { data: await this.funding.verifyForClient(this.clients.requireClientId(user), id) };
   }
 }

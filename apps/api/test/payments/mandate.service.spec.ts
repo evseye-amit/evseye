@@ -127,13 +127,13 @@ describe('UPI AutoPay mandate service', () => {
   it('requires an active package with configured entitlement', async () => {
     const { service, prisma } = fixture();
     prisma.clientSubscription.findFirst.mockResolvedValue(null);
-    await expect(service.current(clientId, userId)).rejects.toThrow(
+    await expect(service.deploymentContext(clientId, userId)).rejects.toThrow(
       'active client package',
     );
     prisma.clientSubscription.findFirst.mockResolvedValue({
       package: { ...subscription.package, features: [] },
     });
-    await expect(service.current(clientId, userId)).rejects.toThrow(
+    await expect(service.deploymentContext(clientId, userId)).rejects.toThrow(
       'not included',
     );
     expect(prisma.clientSubscription.findFirst).toHaveBeenCalledWith(

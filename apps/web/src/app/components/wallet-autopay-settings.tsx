@@ -24,7 +24,7 @@ async function read<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) throw new Error(body.error?.message ?? "Unable to load AutoPay settings.");
   return body.data;
 }
-export function WalletAutoPaySettings({ onRollout }: { onRollout?: (enabled: boolean) => void }) {
+export function WalletAutoPaySettings() {
   const [policy, setPolicy] = useState<Policy | null>(null), [saved, setSaved] = useState<Policy | null>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
   const [history, setHistory] = useState<History[]>([]), [latest, setLatest] = useState<History | null>(null);
@@ -36,10 +36,10 @@ export function WalletAutoPaySettings({ onRollout }: { onRollout?: (enabled: boo
     active.current = true;
     const controller = new AbortController();
     void read<Policy>("", { signal: controller.signal }).then(data => {
-      if (!controller.signal.aborted) { setPolicy(data); setSaved(data); onRollout?.(!!data.unifiedRollout); }
+      if (!controller.signal.aborted) { setPolicy(data); setSaved(data); }
     }).catch(cause => { if (!controller.signal.aborted) setError(cause.message); });
     return () => { active.current = false; controller.abort(); };
-  }, [onRollout]);
+  }, []);
   useEffect(() => {
     const controller = new AbortController();
     void read<{ items: History[]; hasMore: boolean }>(`/history?page=${page}`, { signal: controller.signal }).then(data => {
@@ -61,7 +61,7 @@ export function WalletAutoPaySettings({ onRollout }: { onRollout?: (enabled: boo
     try {
       const data = await read<Policy>("", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...policy, threshold: Number(policy.threshold).toFixed(2), rechargeAmount: Number(policy.rechargeAmount).toFixed(2) }) });
       if (!active.current) return;
-      setPolicy(data); setSaved(data); onRollout?.(!!data.unifiedRollout); setReset(value => value + 1);
+      setPolicy(data); setSaved(data); setReset(value => value + 1);
       setNotice("AutoPay settings saved."); refreshHistory(1);
     } catch (cause) { if (active.current) setError(cause instanceof Error ? cause.message : "Unable to save settings."); }
     finally { saving.current = false; if (active.current) setBusy(false); }
@@ -74,6 +74,7 @@ export function WalletAutoPaySettings({ onRollout }: { onRollout?: (enabled: boo
         {error && <p role="alert" className="autopay-message is-error">{error}</p>}
         {notice && <p role="status" className="autopay-message">{notice}</p>}
         {!policy && !error && <p role="status">Loading settings…</p>}
+        {policy && !policy.unifiedRollout && <p role="status" className="autopay-message">AutoPay is not available for this client yet. Saved settings will apply when it becomes available.</p>}
         {policy && <fieldset disabled={busy} className="autopay-fields">
           <legend className="autopay-legend">AutoPay configuration</legend>
           <label className="autopay-enable"><input type="checkbox" role="switch" checked={policy.enabled} onChange={event => { setPolicy({ ...policy, enabled: event.target.checked }); setNotice(""); }} />

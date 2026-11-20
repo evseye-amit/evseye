@@ -1,4 +1,4 @@
-import { DeploymentAutoPayPolicyService } from './deployment-autopay-policy.service.js';
+import { AutoPayAvailabilityService } from './autopay-availability.service.js';
 import { unifiedAutoPayEnabled } from './unified-autopay-rollout.js';
 import { Optional } from '@nestjs/common';
 import { WalletSettlementCoordinator } from '../wallet/wallet-settlement-coordinator.service.js';
@@ -53,7 +53,7 @@ export class WalletAutoRechargeService implements OnModuleInit {
     private readonly notifications: NotificationService,
     private readonly events: RazorpayEventRouter,
     @Optional() private readonly settlement?: WalletSettlementCoordinator,
-    @Optional() private readonly availability?: DeploymentAutoPayPolicyService,
+    @Optional() private readonly availability?: AutoPayAvailabilityService,
   ) {}
 
   onModuleInit() {

@@ -555,6 +555,36 @@
   },
   {
     "method": "GET",
+    "path": "/api/v1/client/autopay/recharges",
+    "operationId": "UnifiedAutoPayOperationsController_list",
+    "controllerClass": "UnifiedAutoPayOperationsController",
+    "controllerFile": "apps/api/src/payments/unified-autopay.controller.ts",
+    "tags": [
+      "Client Management · Onboarding"
+    ],
+    "security": [
+      {
+        "bearer": []
+      }
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/client/autopay/recharges/{id}/verify",
+    "operationId": "UnifiedAutoPayOperationsController_verify",
+    "controllerClass": "UnifiedAutoPayOperationsController",
+    "controllerFile": "apps/api/src/payments/unified-autopay.controller.ts",
+    "tags": [
+      "Client Management · Onboarding"
+    ],
+    "security": [
+      {
+        "bearer": []
+      }
+    ]
+  },
+  {
+    "method": "GET",
     "path": "/api/v1/client/autopay/riders/{riderId}",
     "operationId": "AutoPayOperationsController_rider",
     "controllerClass": "AutoPayOperationsController",
@@ -9277,156 +9307,6 @@
     "operationId": "RiderPaymentHomeController_attempt",
     "controllerClass": "RiderPaymentHomeController",
     "controllerFile": "apps/api/src/payments/payment-home.controller.ts",
-    "tags": [
-      "Rider App"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
-    "method": "GET",
-    "path": "/api/v1/rider-app/payments/autopay",
-    "operationId": "RiderMandateController_current",
-    "controllerClass": "RiderMandateController",
-    "controllerFile": "apps/api/src/payments/mandate.controller.ts",
-    "tags": [
-      "Rider App"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
-    "method": "POST",
-    "path": "/api/v1/rider-app/payments/autopay",
-    "operationId": "RiderMandateController_create",
-    "controllerClass": "RiderMandateController",
-    "controllerFile": "apps/api/src/payments/mandate.controller.ts",
-    "tags": [
-      "Rider App"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
-    "method": "POST",
-    "path": "/api/v1/rider-app/payments/autopay/{mandateId}/cancel",
-    "operationId": "RiderMandateController_cancel",
-    "controllerClass": "RiderMandateController",
-    "controllerFile": "apps/api/src/payments/mandate.controller.ts",
-    "tags": [
-      "Rider App"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
-    "method": "POST",
-    "path": "/api/v1/rider-app/payments/autopay/{mandateId}/pause",
-    "operationId": "RiderMandateController_pause",
-    "controllerClass": "RiderMandateController",
-    "controllerFile": "apps/api/src/payments/mandate.controller.ts",
-    "tags": [
-      "Rider App"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
-    "method": "POST",
-    "path": "/api/v1/rider-app/payments/autopay/{mandateId}/resume",
-    "operationId": "RiderMandateController_resume",
-    "controllerClass": "RiderMandateController",
-    "controllerFile": "apps/api/src/payments/mandate.controller.ts",
-    "tags": [
-      "Rider App"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
-    "method": "POST",
-    "path": "/api/v1/rider-app/payments/autopay/{mandateId}/verify",
-    "operationId": "RiderMandateController_verify",
-    "controllerClass": "RiderMandateController",
-    "controllerFile": "apps/api/src/payments/mandate.controller.ts",
-    "tags": [
-      "Rider App"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
-    "method": "GET",
-    "path": "/api/v1/rider-app/payments/autopay/debits",
-    "operationId": "RiderMandateController_debits",
-    "controllerClass": "RiderMandateController",
-    "controllerFile": "apps/api/src/payments/mandate.controller.ts",
-    "tags": [
-      "Rider App"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
-    "method": "POST",
-    "path": "/api/v1/rider-app/payments/autopay/disable",
-    "operationId": "RiderMandateController_disable",
-    "controllerClass": "RiderMandateController",
-    "controllerFile": "apps/api/src/payments/mandate.controller.ts",
-    "tags": [
-      "Rider App"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
-    "method": "POST",
-    "path": "/api/v1/rider-app/payments/autopay/enable",
-    "operationId": "RiderMandateController_enable",
-    "controllerClass": "RiderMandateController",
-    "controllerFile": "apps/api/src/payments/mandate.controller.ts",
-    "tags": [
-      "Rider App"
-    ],
-    "security": [
-      {
-        "bearer": []
-      }
-    ]
-  },
-  {
-    "method": "GET",
-    "path": "/api/v1/rider-app/payments/autopay/upcoming",
-    "operationId": "RiderMandateController_upcoming",
-    "controllerClass": "RiderMandateController",
-    "controllerFile": "apps/api/src/payments/mandate.controller.ts",
     "tags": [
       "Rider App"
     ],

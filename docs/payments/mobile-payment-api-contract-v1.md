@@ -1,5 +1,7 @@
 # Mobile payment API contract v1
 
+Payment capabilities now default to v2; explicit `?version=1` is retired (400). The `/api/v1` URL prefix remains unchanged. See [unified AutoPay](unified-autopay-flutter-handoff.md).
+
 Contract revision: payment-contract-v1.3, 2026-11-14. Implemented in the local backend; deployment identifier and staging URL must be supplied by backend release operations before mobile enables these additions. This is not a claim of production or device certification.
 
 Ownership: backend maintains this contract and its executable tests. The Flutter team implements all mobile changes. No Flutter source changes are included.
@@ -31,7 +33,7 @@ Reconcile verifies ownership before contacting the saved provider. It does not c
 Example:
 
 ```json
-{"data":{"contractVersion":1,"availabilityBasis":"POLICY","connectivityVerified":false,"purposes":{"INVOICE":{"enabled":true,"provider":"RAZORPAY","platforms":["ANDROID","IOS"]},"TOP_UP":{"enabled":true,"provider":"RAZORPAY","platforms":["ANDROID","IOS"]}}}}
+{"data":{"contractVersion":2,"availabilityBasis":"POLICY","autoPay":{"supported":false,"enrollmentEntryPoints":[],"reasonCode":"AUTOPAY_UNAVAILABLE"},"purposes":{"INVOICE":{"enabled":true,"provider":"RAZORPAY","platforms":["ANDROID","IOS"]},"TOP_UP":{"enabled":true,"provider":"RAZORPAY","platforms":["ANDROID","IOS"]}}}}
 ```
 
 The response includes DEPLOYMENT, SUBMISSION_PENALTY, INVOICE, OUTSTANDING, SECURITY_DEPOSIT, TOP_UP, UPI_AUTOPAY and ENACH. enabled means the selected policy has a registered capability; it does not certify secrets, gateway connectivity, merchant activation, rider eligibility or installed SDK availability. platforms lists supported native integration targets, not a certification of the current app build. Order creation performs authoritative validation and may still return 503.

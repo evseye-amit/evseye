@@ -1,15 +1,9 @@
 import { unifiedAutoPayEnabled } from './unified-autopay-rollout.js';
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 
-const action = 'DEPLOYMENT_AUTOPAY_POLICY_UPDATED';
-const entityType = 'ClientDeploymentAutoPayPolicy';
 const reasons = {
   PLATFORM_DISABLED:
     'Onboarding AutoPay is not available on this platform yet.',
@@ -24,7 +18,7 @@ const reasons = {
 type Reason = keyof typeof reasons;
 
 @Injectable()
-export class DeploymentAutoPayPolicyService {
+export class AutoPayAvailabilityService {
   constructor(
     private readonly db: PrismaService,
     private readonly config: ConfigService,
@@ -36,8 +30,8 @@ export class DeploymentAutoPayPolicyService {
     ).toUpperCase();
     const now = new Date();
     const today = new Date(`${now.toISOString().slice(0, 10)}T00:00:00.000Z`);
-    const [policy, merchants, subscription] = await Promise.all([
-      db.clientDeploymentAutoPayPolicy.findUnique({ where: { clientId } }),
+    const [funding, merchants, subscription] = await Promise.all([
+      db.walletAutoRechargePolicy.findUnique({ where: { clientId } }),
       db.clientPaymentProvider.findMany({
         where: { clientId, environment },
         include: { versions: true },
@@ -132,110 +126,21 @@ export class DeploymentAutoPayPolicyService {
     else if (!included) reason = 'PACKAGE_UNAVAILABLE';
     else if (!terms) reason = 'PACKAGE_TERMS_INVALID';
     const unified = unifiedAutoPayEnabled(this.config, clientId);
-    const funding = unified ? await db.walletAutoRechargePolicy.findUnique({ where: { clientId } }) : null;
-    if (unified && funding && terms && (new Prisma.Decimal(terms.maxAmount).lt(funding.rechargeAmount) || terms.validityDays < 2)) reason = 'PACKAGE_TERMS_INVALID';
-    const enabled = unified ? funding?.enabled ?? false : policy?.enabled ?? false;
+    if (!reason && unified && funding && terms && (new Prisma.Decimal(terms.maxAmount).lt(funding.rechargeAmount) || terms.validityDays < 2)) reason = 'PACKAGE_TERMS_INVALID';
+    const enabled = funding?.enabled ?? false;
     return {
       enabled,
-      revision: policy?.revision ?? 0,
-      effectiveEnabled: enabled && !reason,
+      revision: funding?.revision ?? 0,
+      effectiveEnabled: unified && enabled && !reason,
       canEnable: !reason,
       reason,
       reasonMessage: reason ? reasons[reason] : null,
       provider: merchant ? 'RAZORPAY' : null,
       environment,
       terms,
-      updatedAt: policy?.updatedAt ?? null,
-      updatedBy: policy?.updatedBy ?? null,
+      updatedAt: funding?.updatedAt ?? null,
+      updatedBy: null,
     };
   }
 
-  async get(clientId: string) {
-    const policy = await this.availability(clientId);
-    const actor = policy.updatedBy
-      ? await this.db.user.findFirst({
-          where: { id: policy.updatedBy, clientId },
-          select: { name: true },
-        })
-      : null;
-    return { ...policy, updatedByName: actor?.name ?? null };
-  }
-
-  async set(
-    clientId: string,
-    actorId: string,
-    input: { enabled: boolean; revision: number },
-  ) {
-    if (unifiedAutoPayEnabled(this.config, clientId)) throw new ConflictException("Use the unified AutoPay policy settings.");
-    await this.db.$transaction(async (tx) => {
-      // Serialize policy saves with new combined checkout creation.
-      await tx.$queryRaw`SELECT id FROM "Client" WHERE id=${clientId} FOR UPDATE`;
-      const previous = await this.availability(clientId, tx);
-      if (previous.revision !== input.revision)
-        throw new ConflictException({
-          code: 'POLICY_REVISION_CONFLICT',
-          message:
-            'Settings changed. Reload the latest settings before saving.',
-        });
-      if (input.enabled && !previous.canEnable)
-        throw new BadRequestException({
-          code: previous.reason,
-          message: previous.reasonMessage,
-        });
-      if (previous.enabled === input.enabled) return;
-      const revision = previous.revision + 1;
-      await tx.clientDeploymentAutoPayPolicy.upsert({
-        where: { clientId },
-        create: {
-          clientId,
-          enabled: input.enabled,
-          revision,
-          updatedBy: actorId,
-        },
-        update: { enabled: input.enabled, revision, updatedBy: actorId },
-      });
-      await tx.auditLog.create({
-        data: {
-          clientId,
-          actorId,
-          action,
-          entityType,
-          entityId: clientId,
-          previousData: {
-            enabled: previous.enabled,
-            revision: previous.revision,
-          },
-          newData: { enabled: input.enabled, revision },
-        },
-      });
-    });
-    return this.get(clientId);
-  }
-
-  async history(clientId: string, page: number) {
-    const rows = await this.db.auditLog.findMany({
-      where: { clientId, action, entityType, entityId: clientId },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      skip: (page - 1) * 20,
-      take: 21,
-      select: {
-        id: true,
-        createdAt: true,
-        actor: { select: { name: true } },
-        previousData: true,
-        newData: true,
-      },
-    });
-    return {
-      items: rows
-        .slice(0, 20)
-        .map(({ id, actor, ...row }) => ({
-          ...row,
-          id: id.toString(),
-          actorName: actor?.name ?? null,
-        })),
-      page,
-      hasMore: rows.length > 20,
-    };
-  }
 }
