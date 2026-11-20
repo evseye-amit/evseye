@@ -510,6 +510,51 @@
   },
   {
     "method": "GET",
+    "path": "/api/v1/client/autopay/policy",
+    "operationId": "UnifiedAutoPayPolicyController_current",
+    "controllerClass": "UnifiedAutoPayPolicyController",
+    "controllerFile": "apps/api/src/payments/unified-autopay.controller.ts",
+    "tags": [
+      "Client Management · Onboarding"
+    ],
+    "security": [
+      {
+        "bearer": []
+      }
+    ]
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/client/autopay/policy",
+    "operationId": "UnifiedAutoPayPolicyController_set",
+    "controllerClass": "UnifiedAutoPayPolicyController",
+    "controllerFile": "apps/api/src/payments/unified-autopay.controller.ts",
+    "tags": [
+      "Client Management · Onboarding"
+    ],
+    "security": [
+      {
+        "bearer": []
+      }
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/client/autopay/policy/history",
+    "operationId": "UnifiedAutoPayPolicyController_history",
+    "controllerClass": "UnifiedAutoPayPolicyController",
+    "controllerFile": "apps/api/src/payments/unified-autopay.controller.ts",
+    "tags": [
+      "Client Management · Onboarding"
+    ],
+    "security": [
+      {
+        "bearer": []
+      }
+    ]
+  },
+  {
+    "method": "GET",
     "path": "/api/v1/client/autopay/riders/{riderId}",
     "operationId": "AutoPayOperationsController_rider",
     "controllerClass": "AutoPayOperationsController",
@@ -8629,6 +8674,96 @@
       "Client Management · Domains & Branding"
     ],
     "security": []
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/rider-app/autopay",
+    "operationId": "UnifiedAutoPayController_current",
+    "controllerClass": "UnifiedAutoPayController",
+    "controllerFile": "apps/api/src/payments/unified-autopay.controller.ts",
+    "tags": [
+      "Rider App"
+    ],
+    "security": [
+      {
+        "bearer": []
+      }
+    ]
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/rider-app/autopay",
+    "operationId": "UnifiedAutoPayController_set",
+    "controllerClass": "UnifiedAutoPayController",
+    "controllerFile": "apps/api/src/payments/unified-autopay.controller.ts",
+    "tags": [
+      "Rider App"
+    ],
+    "security": [
+      {
+        "bearer": []
+      }
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/rider-app/autopay/mandates",
+    "operationId": "UnifiedAutoPayController_setup",
+    "controllerClass": "UnifiedAutoPayController",
+    "controllerFile": "apps/api/src/payments/unified-autopay.controller.ts",
+    "tags": [
+      "Rider App"
+    ],
+    "security": [
+      {
+        "bearer": []
+      }
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/rider-app/autopay/mandates/{mandateId}/cancel",
+    "operationId": "UnifiedAutoPayController_cancel",
+    "controllerClass": "UnifiedAutoPayController",
+    "controllerFile": "apps/api/src/payments/unified-autopay.controller.ts",
+    "tags": [
+      "Rider App"
+    ],
+    "security": [
+      {
+        "bearer": []
+      }
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/rider-app/autopay/mandates/{mandateId}/verify",
+    "operationId": "UnifiedAutoPayController_verify",
+    "controllerClass": "UnifiedAutoPayController",
+    "controllerFile": "apps/api/src/payments/unified-autopay.controller.ts",
+    "tags": [
+      "Rider App"
+    ],
+    "security": [
+      {
+        "bearer": []
+      }
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/rider-app/autopay/recharges",
+    "operationId": "UnifiedAutoPayController_history",
+    "controllerClass": "UnifiedAutoPayController",
+    "controllerFile": "apps/api/src/payments/unified-autopay.controller.ts",
+    "tags": [
+      "Rider App"
+    ],
+    "security": [
+      {
+        "bearer": []
+      }
+    ]
   },
   {
     "method": "GET",

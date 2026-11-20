@@ -1,3 +1,9 @@
+import { Client } from 'pg';
+// @ts-expect-error Standalone migration script has no declarations.
+import { migrateUnifiedAutoPay } from '../../scripts/migrate-unified-autopay.mjs';
+import { UnifiedAutoPayService } from '../../src/payments/unified-autopay.service.js';
+import { WalletSettlementCoordinator } from '../../src/wallet/wallet-settlement-coordinator.service.js';
+import { WalletBillingService } from '../../src/wallet/wallet-billing.service.js';
 import { ProviderSettlementService } from '../../src/payments/provider-settlement.service.js';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
@@ -267,6 +273,66 @@ describe.skipIf(!url)('Wallet AutoPay PostgreSQL', () => {
       balance,
     };
   }
+  it('migration dry-run is inert, apply preserves consent/money, and repeat apply is a no-op', async () => {
+    const f = await fixture('1000.00');
+    const client = new Client({ connectionString: url });
+    await client.connect();
+    try {
+      const options = { clientId: f.client.id, runId: randomUUID() };
+      expect(await migrateUnifiedAutoPay(client, options)).toMatchObject({ apply: false, counts: { ELIGIBLE: 1 } });
+      expect((await db.riderPaymentProfile.findUniqueOrThrow({ where: { clientId_riderId: { clientId: f.client.id, riderId: f.rider.id } } })).collectionMode).toBe('LEGACY_INVOICE');
+      expect(await migrateUnifiedAutoPay(client, { ...options, apply: true })).toMatchObject({ counts: { ELIGIBLE: 1 } });
+      expect(await migrateUnifiedAutoPay(client, { ...options, apply: true })).toMatchObject({ counts: { ALREADY_MIGRATED: 1 } });
+      expect(await f.balance()).toBe('1000.00');
+      expect(await db.walletAutoRecharge.count({ where: { walletId: f.wallet.id } })).toBe(0);
+      expect(await db.auditLog.count({ where: { clientId: f.client.id, action: 'UNIFIED_AUTOPAY_MIGRATED' } })).toBe(1);
+    } finally { await client.end(); }
+  });
+  it('onboarding recovery cannot undo a later explicit disable', async () => {
+    const f = await fixture('1000.00');
+    f.config.set('UNIFIED_AUTOPAY_ENABLED', 'true');
+    f.config.set('UNIFIED_AUTOPAY_CLIENT_IDS', f.client.id);
+    const consentAt = new Date(Date.now() - 1000);
+    await f.service.setEnabled(f.client.id, f.user.id, { enabled: false });
+    const revision = (await f.service.current(f.client.id, f.user.id)).revision;
+    await expect(f.service.setEnabled(f.client.id, f.user.id, { enabled: true, unified: true, mandateId: f.mandate.id, consentRevision: 1, expectedRevision: revision, recoveryConsentAt: consentAt })).rejects.toThrow('AUTOPAY_DISABLED_AFTER_CONSENT');
+  });
+  it('unified consent atomically selects wallet collection and rejects stale devices', async () => {
+    const f = await fixture('1000.00');
+    f.config.set('UNIFIED_AUTOPAY_ENABLED', 'true');
+    f.config.set('UNIFIED_AUTOPAY_CLIENT_IDS', f.client.id);
+    const unified = new UnifiedAutoPayService(db as unknown as PrismaService, f.service, f.config);
+    const results = await Promise.allSettled([1, 2].map(() => unified.set(f.client.id, f.user.id, { enabled: true, expectedRevision: 0, mandateId: f.mandate.id, consentRevision: 1, consentVersion: 'unified-autopay-v1' })));
+    expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1);
+    const profile = await db.riderPaymentProfile.findUniqueOrThrow({ where: { clientId_riderId: { clientId: f.client.id, riderId: f.rider.id } } });
+    expect(profile).toMatchObject({ collectionMode: 'LEDGER_WALLET', autoSettleInvoiceFromWallet: true });
+    await unified.set(f.client.id, f.user.id, { enabled: false, expectedRevision: 1 });
+    expect((await unified.current(f.client.id, f.user.id)).effectiveStatus).toBe('OFF');
+    expect((await db.riderPaymentProfile.findUniqueOrThrow({ where: { id: profile.id } })).collectionMode).toBe('LEDGER_WALLET');
+    await expect(f.service.setEnabled(f.client.id, f.user.id, { enabled: true, mandateId: f.mandate.id, consentRevision: 1 })).rejects.toThrow('UNIFIED_AUTOPAY_CONSENT_REQUIRED');
+  });
+  it('unified activation is unavailable outside the client allowlist', async () => {
+    const f = await fixture('1000.00');
+    f.config.set('UNIFIED_AUTOPAY_ENABLED', 'true');
+    const unified = new UnifiedAutoPayService(db as unknown as PrismaService, f.service, f.config);
+    await expect(unified.set(f.client.id, f.user.id, { enabled: true, expectedRevision: 0, mandateId: f.mandate.id, consentRevision: 1, consentVersion: 'unified-autopay-v1' })).rejects.toThrow('UNIFIED_AUTOPAY_UNAVAILABLE');
+  });
+  it('settles remaining rent after a later top-up without duplicating deductions, even with funding off', async () => {
+    const f = await fixture('100.00');
+    await db.riderPaymentProfile.update({ where: { clientId_riderId: { clientId: f.client.id, riderId: f.rider.id } }, data: { collectionMode: 'LEDGER_WALLET' } });
+    await db.walletAutoRechargePreference.update({ where: { walletId: f.wallet.id }, data: { enabled: false } });
+    const invoice = await db.riderInvoice.create({ data: { clientId: f.client.id, riderId: f.rider.id, invoiceNumber: randomUUID(), invoiceType: 'RENTAL', billingPeriodStart: new Date(), billingPeriodEnd: new Date(), subtotal: '200.00', creditAmount: '0.00', totalAmount: '200.00', outstandingAmount: '200.00', currency: 'INR', dueDate: new Date(), issuedAt: new Date(), status: 'FINALIZED' } });
+    const billing = new WalletBillingService(db as unknown as PrismaService, f.walletService, {} as never);
+    const coordinator = new WalletSettlementCoordinator(db as unknown as PrismaService, f.walletService, billing);
+    await Promise.all([coordinator.settle(f.wallet.id), coordinator.settle(f.wallet.id)]);
+    expect((await db.riderInvoice.findUniqueOrThrow({ where: { id: invoice.id } })).outstandingAmount.toFixed(2)).toBe('100.00');
+    await f.post('150.00');
+    await Promise.all([coordinator.settle(f.wallet.id), coordinator.settle(f.wallet.id)]);
+    expect((await db.riderInvoice.findUniqueOrThrow({ where: { id: invoice.id } })).status).toBe('PAID');
+    expect(await f.balance()).toBe('50.00');
+    expect(await db.walletTransaction.count({ where: { walletId: f.wallet.id, referenceType: 'RIDER_INVOICE', referenceId: invoice.id } })).toBe(2);
+    expect(await db.riderLedgerEntry.count({ where: { clientId: f.client.id, riderId: f.rider.id, sourceType: 'WALLET_INVOICE_PAYMENT' } })).toBe(2);
+  });
   it('concurrent workers submit once and captured payment credits once', async () => {
     const f = await fixture();
     await Promise.all(

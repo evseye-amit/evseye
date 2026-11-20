@@ -12,7 +12,7 @@ export const paymentOrderInput = z.discriminatedUnion('purpose', [
       allocationId: z.string().uuid(),
       setupAutoPay: z.boolean().optional(),
       email: z.string().trim().email().max(254).optional(),
-      autoPayConsent: z.object({ accepted: z.literal(true), version: z.literal('deployment-autopay-v1'), maxAmount: z.string().regex(/^[1-9]\d*(\.\d{1,2})?$/), validityDays: z.number().int().positive() }).strict().optional(),
+      autoPayConsent: z.object({ accepted: z.literal(true), version: z.enum(['deployment-autopay-v1', 'unified-autopay-v1']), consentRevision: z.number().int().positive().optional(), maxAmount: z.string().regex(/^[1-9]\d*(\.\d{1,2})?$/), validityDays: z.number().int().positive() }).strict().optional(),
     })
     .strict(),
   z

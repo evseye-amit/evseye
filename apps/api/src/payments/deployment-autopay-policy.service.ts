@@ -1,3 +1,4 @@
+import { unifiedAutoPayEnabled } from './unified-autopay-rollout.js';
 import {
   BadRequestException,
   ConflictException,
@@ -130,10 +131,14 @@ export class DeploymentAutoPayPolicyService {
     else if (!snapshot) reason = 'MERCHANT_UNAVAILABLE';
     else if (!included) reason = 'PACKAGE_UNAVAILABLE';
     else if (!terms) reason = 'PACKAGE_TERMS_INVALID';
+    const unified = unifiedAutoPayEnabled(this.config, clientId);
+    const funding = unified ? await db.walletAutoRechargePolicy.findUnique({ where: { clientId } }) : null;
+    if (unified && funding && terms && (new Prisma.Decimal(terms.maxAmount).lt(funding.rechargeAmount) || terms.validityDays < 2)) reason = 'PACKAGE_TERMS_INVALID';
+    const enabled = unified ? funding?.enabled ?? false : policy?.enabled ?? false;
     return {
-      enabled: policy?.enabled ?? false,
+      enabled,
       revision: policy?.revision ?? 0,
-      effectiveEnabled: !!policy?.enabled && !reason,
+      effectiveEnabled: enabled && !reason,
       canEnable: !reason,
       reason,
       reasonMessage: reason ? reasons[reason] : null,
@@ -161,6 +166,7 @@ export class DeploymentAutoPayPolicyService {
     actorId: string,
     input: { enabled: boolean; revision: number },
   ) {
+    if (unifiedAutoPayEnabled(this.config, clientId)) throw new ConflictException("Use the unified AutoPay policy settings.");
     await this.db.$transaction(async (tx) => {
       // Serialize policy saves with new combined checkout creation.
       await tx.$queryRaw`SELECT id FROM "Client" WHERE id=${clientId} FOR UPDATE`;

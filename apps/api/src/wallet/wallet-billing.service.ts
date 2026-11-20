@@ -148,9 +148,9 @@ export class WalletBillingService {
         entries.push({ accountId: account('CLEARING').id, entryType: 'CREDIT', amount });
         const transaction = await this.wallet.postInTransaction(tx, { clientId, walletId: wallet.id, actorId, type: invoice.invoiceType === 'RENTAL' ? 'RENTAL' : invoice.invoiceType === 'ONBOARDING' ? 'ONBOARDING_FEE' : invoice.invoiceType === 'SUBMISSION_PENALTY' ? 'PENALTY' : 'PAYMENT', amount, currency: wallet.currency, description: `Wallet settlement for invoice ${invoice.invoiceNumber}`, idempotencyKey: key, referenceType: 'RIDER_INVOICE', referenceId: invoice.id, entries });
         for (const source of chosen) await tx.walletInvoiceAllocation.create({ data: { clientId, invoiceId, transactionId: transaction.id, sourceType: source.source as WalletAccountType, amount: new D(source.amount), currency: wallet.currency, createdById: actorId } });
-        if (invoice.invoiceType === 'SUBMISSION_PENALTY') await tx.riderLedgerEntry.create({ data: {
+        await tx.riderLedgerEntry.create({ data: {
           clientId, riderId: invoice.riderId, agreementId: invoice.agreementId, entryType: 'PAYMENT',
-          sourceType: 'WALLET_PENALTY_PAYMENT', sourceId: transaction.id, description: `Wallet payment for ${invoice.invoiceNumber}`,
+          sourceType: invoice.invoiceType === 'SUBMISSION_PENALTY' ? 'WALLET_PENALTY_PAYMENT' : 'WALLET_INVOICE_PAYMENT', sourceId: transaction.id, description: `Wallet payment for ${invoice.invoiceNumber}`,
           creditAmount: new D(amount), currency: invoice.currency,
         } });
         used = new D(amount);
@@ -214,9 +214,9 @@ export class WalletBillingService {
         const funded = new D(summary.fundedAmount);
         await tx.walletSecurityDeposit.update({ where: { id: deposit.id }, data: { status: funded.eq(0) ? 'PENDING' : funded.gte(deposit.requiredAmount) ? 'PAID' : 'PARTIALLY_PAID', updatedById: actorId } });
       }
-      if (invoice.invoiceType === 'SUBMISSION_PENALTY') await tx.riderLedgerEntry.create({ data: {
+      if (await tx.riderLedgerEntry.findFirst({ where: { clientId, sourceId: original.id, sourceType: { in: ['WALLET_PENALTY_PAYMENT', 'WALLET_INVOICE_PAYMENT'] } } })) await tx.riderLedgerEntry.create({ data: {
         clientId, riderId: invoice.riderId, agreementId: invoice.agreementId, entryType: 'REVERSAL',
-        sourceType: 'WALLET_PENALTY_REVERSAL', sourceId: transaction.id, description: `Reverse wallet payment for ${invoice.invoiceNumber}`,
+        sourceType: invoice.invoiceType === 'SUBMISSION_PENALTY' ? 'WALLET_PENALTY_REVERSAL' : 'WALLET_INVOICE_REVERSAL', sourceId: transaction.id, description: `Reverse wallet payment for ${invoice.invoiceNumber}`,
         debitAmount: amount, currency: invoice.currency,
       } });
       const outstanding = invoice.outstandingAmount.plus(amount);

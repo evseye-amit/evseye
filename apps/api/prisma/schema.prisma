@@ -2494,6 +2494,8 @@ model RiderPaymentProfile {
   client                      Client   @relation(fields: [clientId], references: [id], onDelete: Restrict)
   riderId                     String   @unique
   rider                       Rider    @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  walletSettlementCheckedAt   DateTime @default(now())
+  collectionMode              String   @default("LEGACY_INVOICE") @db.VarChar(30)
   autoPayEnabled              Boolean  @default(false)
   autoSettleInvoiceFromWallet Boolean  @default(false)
   billingStatus               String   @default("CURRENT") @db.VarChar(30)
@@ -2506,6 +2508,7 @@ model RiderPaymentProfile {
 
   @@unique([clientId, riderId])
   @@index([clientId, billingStatus])
+  @@index([collectionMode, id])
 }
 
 model RiderCharge {
@@ -6736,6 +6739,7 @@ model WalletAutoRechargePolicy {
 }
 
 model WalletAutoRechargePreference {
+  revision Int @default(0)
   id String @id @default(uuid())
   clientId String
   client Client @relation(fields: [clientId], references: [id], onDelete: Restrict)

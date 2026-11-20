@@ -113,6 +113,9 @@ export class PaymentOrchestratorService {
           where: { id: invoiceId, clientId, riderId },
         });
         if (!invoice) throw new NotFoundException('Rider invoice not found.');
+        await tx.$queryRaw`SELECT id FROM "RiderWallet" WHERE "clientId"=${clientId} AND "riderId"=${riderId} AND currency=${invoice.currency} FOR UPDATE`;
+        const collectionProfile = await tx.riderPaymentProfile.findUnique({ where: { clientId_riderId: { clientId, riderId } } });
+        if (collectionProfile?.collectionMode === 'LEDGER_WALLET') throw new ConflictException('LEDGER_WALLET_COLLECTION_ONLY');
         if (invoice.invoiceType === 'RENTAL') {
           // Same lock used by wallet opt-in and recharge reservation prevents two collection modes racing.
           await tx.$queryRaw`SELECT id FROM "RiderWallet" WHERE "clientId"=${clientId} AND "riderId"=${riderId} AND currency=${invoice.currency} FOR UPDATE`;

@@ -561,6 +561,13 @@ export class MandateService {
     const rider = await this.prisma.rider.findFirst({ where: { clientId, userId, deletedAt: null }, select: { id: true } });
     if (!rider) throw new NotFoundException('Rider profile not found.');
     return this.prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM "Rider" WHERE id=${rider.id} AND "clientId"=${clientId} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "RiderWallet" WHERE "riderId"=${rider.id} AND "clientId"=${clientId} FOR UPDATE`;
+      const profile = await tx.riderPaymentProfile.findUnique({ where: { clientId_riderId: { clientId, riderId: rider.id } } });
+      if (profile?.collectionMode === 'LEDGER_WALLET') {
+        if (enabled) throw new ConflictException('UNIFIED_AUTOPAY_CONSENT_REQUIRED');
+        await tx.walletAutoRechargePreference.updateMany({ where: { clientId, riderId: rider.id }, data: { enabled: false, revision: { increment: 1 } } });
+      }
       const mandate = await tx.paymentMandate.findFirst({ where: { clientId, riderId: rider.id, status: 'ACTIVE' }, orderBy: { authorizedAt: 'desc' } });
       if (!mandate) throw new ConflictException('An active mandate is required.');
       if (enabled && mandate.provider === 'RAZORPAY' && mandate.providerCancelRequestedAt) throw new ConflictException('A mandate awaiting bank cancellation cannot be enabled.');

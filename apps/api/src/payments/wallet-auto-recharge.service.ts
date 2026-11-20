@@ -1,3 +1,7 @@
+import { DeploymentAutoPayPolicyService } from './deployment-autopay-policy.service.js';
+import { unifiedAutoPayEnabled } from './unified-autopay-rollout.js';
+import { Optional } from '@nestjs/common';
+import { WalletSettlementCoordinator } from '../wallet/wallet-settlement-coordinator.service.js';
 import {
   BadRequestException,
   ConflictException,
@@ -48,6 +52,8 @@ export class WalletAutoRechargeService implements OnModuleInit {
     private readonly automation: PaymentAutomationService,
     private readonly notifications: NotificationService,
     private readonly events: RazorpayEventRouter,
+    @Optional() private readonly settlement?: WalletSettlementCoordinator,
+    @Optional() private readonly availability?: DeploymentAutoPayPolicyService,
   ) {}
 
   onModuleInit() {
@@ -228,6 +234,8 @@ export class WalletAutoRechargeService implements OnModuleInit {
       balanceBasis: 'AVAILABLE_CASH',
       minimumLeadHours: 25,
       cooldownHours: 24,
+      revision: preference?.revision ?? 0,
+      acceptedConsentRevision: preference?.consentRevision ?? null,
       enabled: preference?.enabled ?? false,
       actionRequired: preference?.actionRequired ?? false,
       consentRequired:
@@ -252,8 +260,10 @@ export class WalletAutoRechargeService implements OnModuleInit {
   async setEnabled(
     clientId: string,
     userId: string,
-    input: { enabled: boolean; mandateId?: string; consentRevision?: number },
+    input: { enabled: boolean; mandateId?: string; consentRevision?: number; expectedRevision?: number; unified?: boolean; recoveryConsentAt?: Date },
   ) {
+    if (input.unified && input.enabled && this.availability && !(await this.availability.availability(clientId)).canEnable) throw new ConflictException('AUTOPAY_UNAVAILABLE');
+    if (input.unified && !unifiedAutoPayEnabled(this.config, clientId) && input.enabled) throw new ConflictException('UNIFIED_AUTOPAY_UNAVAILABLE');
     const rider = await this.rider(clientId, userId);
     const wallet = await this.wallet.ensure(clientId, rider.id, userId);
     if (input.enabled) {
@@ -277,6 +287,11 @@ export class WalletAutoRechargeService implements OnModuleInit {
         );
     }
     await this.wallet.locked(wallet.id, async (tx) => {
+      const preference = await tx.walletAutoRechargePreference.findUnique({ where: { walletId: wallet.id } });
+      const profile = await tx.riderPaymentProfile.findUnique({ where: { clientId_riderId: { clientId, riderId: rider.id } } });
+      if (input.recoveryConsentAt && await tx.auditLog.findFirst({ where: { clientId, entityType: 'RiderWallet', entityId: wallet.id, action: 'WALLET_AUTOPAY_DISABLED', createdAt: { gte: input.recoveryConsentAt } } })) throw new ConflictException('AUTOPAY_DISABLED_AFTER_CONSENT');
+      if (input.expectedRevision !== undefined && input.expectedRevision !== (preference?.revision ?? 0)) throw new ConflictException('AUTOPAY_PREFERENCE_CHANGED');
+      if (!input.unified && input.enabled && profile?.collectionMode === 'LEDGER_WALLET') throw new ConflictException('UNIFIED_AUTOPAY_CONSENT_REQUIRED');
       if (input.enabled) {
         const policy = await tx.walletAutoRechargePolicy.findUnique({
           where: { clientId },
@@ -292,7 +307,7 @@ export class WalletAutoRechargeService implements OnModuleInit {
             riderId: rider.id,
             provider: 'RAZORPAY',
             status: 'ACTIVE',
-            autoDebitEnabled: true,
+            ...(input.unified ? {} : { autoDebitEnabled: true }),
             providerCancelRequestedAt: null,
             currency: 'INR',
             maxAmount: { gte: policy.rechargeAmount },
@@ -315,6 +330,7 @@ export class WalletAutoRechargeService implements OnModuleInit {
           throw new ConflictException(
             'Resolve the pending invoice AutoPay debit before enabling wallet AutoPay.',
           );
+        if (input.unified) await tx.paymentMandate.update({ where: { id: mandate.id }, data: { autoDebitEnabled: true } });
         await tx.walletAutoRechargePreference.upsert({
           where: { walletId: wallet.id },
           create: {
@@ -324,20 +340,31 @@ export class WalletAutoRechargeService implements OnModuleInit {
             mandateId: mandate.id,
             enabled: true,
             consentRevision: policy.revision,
+            revision: 1,
           },
           update: {
             enabled: true,
             mandateId: mandate.id,
             consentRevision: policy.revision,
             consentedAt: new Date(),
+            revision: { increment: 1 },
             actionRequired: false,
           },
         });
       } else {
         await tx.walletAutoRechargePreference.updateMany({
           where: { walletId: wallet.id, clientId },
-          data: { enabled: false },
+          data: { enabled: false, revision: { increment: 1 } },
         });
+      }
+      if (!input.enabled && (input.unified || profile?.collectionMode === 'LEDGER_WALLET')) {
+        await tx.paymentMandate.updateMany({ where: { clientId, riderId: rider.id, ...(preference ? { id: preference.mandateId } : {}) }, data: { autoDebitEnabled: false } });
+        await tx.riderPaymentProfile.updateMany({ where: { clientId, riderId: rider.id }, data: { autoPayEnabled: false } });
+      }
+      if (input.unified && input.enabled) {
+        await tx.riderPaymentProfile.upsert({ where: { clientId_riderId: { clientId, riderId: rider.id } },
+          create: { clientId, riderId: rider.id, collectionMode: 'LEDGER_WALLET', autoPayEnabled: true, autoSettleInvoiceFromWallet: true },
+          update: { collectionMode: 'LEDGER_WALLET', autoPayEnabled: true, autoSettleInvoiceFromWallet: true } });
       }
       await tx.auditLog.create({
         data: {
@@ -350,6 +377,8 @@ export class WalletAutoRechargeService implements OnModuleInit {
           entityId: wallet.id,
           newData: {
             enabled: input.enabled,
+            scope: input.unified ? 'WALLET_FUNDING' : 'LEGACY_WALLET_FUNDING',
+            consentVersion: input.unified ? 'unified-autopay-v1' : null,
             consentRevision: input.consentRevision ?? null,
           },
         },
@@ -417,7 +446,10 @@ export class WalletAutoRechargeService implements OnModuleInit {
     const profile = await tx.riderPaymentProfile.findUnique({
       where: { clientId_riderId: { clientId, riderId } },
     });
-    if (!profile?.autoPayEnabled) return null;
+    if (profile?.collectionMode === 'LEDGER_WALLET') {
+      if (!unifiedAutoPayEnabled(this.config, clientId)) return null;
+      if (this.availability && !(await this.availability.availability(clientId, tx)).canEnable) return null;
+    } else if (!profile?.autoPayEnabled) return null;
     const balance = await this.wallet.balanceTx(tx, clientId, walletId);
     if (
       !rechargeNeeded(
@@ -435,6 +467,7 @@ export class WalletAutoRechargeService implements OnModuleInit {
     };
   }
   async evaluate(walletId: string) {
+    await this.settlement?.settle(walletId);
     if (!this.enabled()) return;
     // Use the DB directly to avoid invoking the wallet's post-commit callback recursively.
     const reserved = await this.db.$transaction(
