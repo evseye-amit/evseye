@@ -284,12 +284,12 @@ export class CommonPaymentService {
     if (owned.kind === 'deployment') {
       const { order } = owned;
       const mandate = order.autoPayMandateId ? await this.db.paymentMandate.findFirst({ where: { id: order.autoPayMandateId, clientId, riderId: owned.riderId } }) : null;
-      const savedTerms = order.autoPayConsent as { threshold?: string; rechargeAmount?: string; consentRevision?: number; validityDays?: number } | null;
+      const savedTerms = order.autoPayConsent as { threshold?: string; rechargeAmount?: string; consentRevision?: number; validityDays?: number; policyTerms?: string; termsDescription?: string } | null;
       const autoPay = order.autoPayRequested ? { requested: true, status: mandate?.status ?? order.autoPayStatus ?? 'NOT_STARTED',
         mandateId: mandate?.id ?? null, mandateNumber: mandate?.mandateNumber ?? null,
         maxAmount: (mandate?.maxAmount ?? order.autoPayMaxAmount)?.toFixed(2) ?? null,
         expiresAt: mandate?.expiresAt ?? order.autoPayExpiresAt,
-        terms: savedTerms ? { threshold: savedTerms.threshold ?? null, rechargeAmount: savedTerms.rechargeAmount ?? null, revision: savedTerms.consentRevision ?? null, validityDays: savedTerms.validityDays ?? null } : null,
+        terms: savedTerms ? { threshold: savedTerms.threshold ?? null, rechargeAmount: savedTerms.rechargeAmount ?? null, revision: savedTerms.consentRevision ?? null, validityDays: savedTerms.validityDays ?? null, policyTerms: savedTerms.policyTerms ?? null, description: savedTerms.termsDescription ?? null } : null,
         failureCode: order.autoPayFailureCode ?? null } : null;
       // Review/refund captures take precedence over the paid business payment.
       const capture =

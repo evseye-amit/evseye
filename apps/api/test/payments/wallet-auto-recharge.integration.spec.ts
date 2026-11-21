@@ -273,6 +273,108 @@ describe.skipIf(!url)('Wallet AutoPay PostgreSQL', () => {
       balance,
     };
   }
+  async function standalone(replace = false) {
+    const f = await fixture();
+    f.config.set('UNIFIED_AUTOPAY_ENABLED', 'true');
+    f.config.set('UNIFIED_AUTOPAY_CLIENT_IDS', f.client.id);
+    const unified = new UnifiedAutoPayService(db as unknown as PrismaService, f.service, f.config);
+    let id = f.mandate.id;
+    if (replace) {
+      await db.paymentMandate.update({ where: { id }, data: { status: 'CANCELLED' } });
+      const replacement = await db.paymentMandate.create({ data: {
+        clientId: f.client.id, riderId: f.rider.id, requestKey: randomUUID(), providerMandateId: randomUUID(),
+        provider: 'RAZORPAY', providerTokenId: randomUUID(), maxAmount: '750', expiresAt: new Date(Date.now() + 365 * 86400000), status: 'ACTIVE', authorizedAt: new Date(),
+      } });
+      id = replacement.id;
+      await db.walletAutoRechargePreference.update({ where: { walletId: f.wallet.id }, data: { enabled: false, revision: 7 } });
+    } else {
+      await db.walletAutoRechargePreference.delete({ where: { walletId: f.wallet.id } });
+    }
+    const intent = await db.$transaction(tx => unified.captureSetup(tx, f.client.id, f.user.id, f.rider.id, 'standalone-test-key'));
+    await db.paymentMandate.update({ where: { id }, data: { walletSetupIntent: intent, authorizedAt: new Date(), autoDebitEnabled: false } });
+    return { ...f, unified, id, intent };
+  }
+  it('activates standalone setup exactly once under concurrent verify/recovery, then preserves disable', async () => {
+    const f = await standalone();
+    expect((await f.unified.current(f.client.id, f.user.id)).effectiveStatus).toBe('ACTIVATION_PENDING');
+    await Promise.all([1, 2, 3].map(() => f.unified.activateOnboarding(f.id)));
+    expect(await db.walletAutoRechargePreference.findUnique({ where: { walletId: f.wallet.id } })).toMatchObject({ enabled: true, revision: 1, mandateId: f.id });
+    expect(await db.auditLog.count({ where: { clientId: f.client.id, action: 'WALLET_AUTOPAY_ENABLED' } })).toBe(1);
+    expect((await f.unified.current(f.client.id, f.user.id)).effectiveStatus).toBe('ACTIVE');
+    await f.unified.set(f.client.id, f.user.id, { enabled: false, expectedRevision: 1 });
+    await f.unified.activateOnboarding(f.id);
+    expect(await db.walletAutoRechargePreference.findUnique({ where: { walletId: f.wallet.id } })).toMatchObject({ enabled: false, revision: 2 });
+    await f.unified.set(f.client.id, f.user.id, { enabled: true, expectedRevision: 2 });
+    expect((await f.unified.current(f.client.id, f.user.id)).effectiveStatus).toBe('ACTIVE');
+  });
+  it('recovery replaces an older cancelled mandate using the original preference revision', async () => {
+    const f = await standalone(true);
+    await f.unified.recoverOnboarding();
+    expect(await db.walletAutoRechargePreference.findUnique({ where: { walletId: f.wallet.id } })).toMatchObject({ enabled: true, revision: 8, mandateId: f.id });
+    expect((await db.paymentMandate.findUniqueOrThrow({ where: { id: f.id } })).walletSetupIntent).toEqual(f.intent);
+  });
+  it.each([false, true])('never overrides disable after setup, including an old preference: %s', async replace => {
+    const f = await standalone(replace);
+    await f.unified.set(f.client.id, f.user.id, { enabled: false, expectedRevision: replace ? 7 : 0 });
+    await f.unified.activateOnboarding(f.id);
+    await f.unified.activateOnboarding(f.id);
+    expect((await f.service.current(f.client.id, f.user.id)).enabled).toBe(false);
+    expect((await db.paymentMandate.findUniqueOrThrow({ where: { id: f.id } })).walletActivationFailure).toBe('AUTOPAY_DISABLED_AFTER_CONSENT');
+    expect((await f.unified.current(f.client.id, f.user.id)).effectiveStatus).toBe('OFF');
+  });
+  it('does not overwrite an intervening preference revision even without a disable audit', async () => {
+    const f = await standalone(true);
+    await db.walletAutoRechargePreference.update({ where: { walletId: f.wallet.id }, data: { revision: 8 } });
+    await f.unified.activateOnboarding(f.id);
+    expect((await db.paymentMandate.findUniqueOrThrow({ where: { id: f.id } })).walletActivationFailure).toBe('AUTOPAY_PREFERENCE_CHANGED');
+    expect((await f.service.current(f.client.id, f.user.id)).enabled).toBe(false);
+  });
+  it('continues under a changed variable policy, but cannot exceed the bank maximum', async () => {
+    const f = await standalone();
+    await f.service.setPolicy(f.client.id, f.user.id, { enabled: true, threshold: '600.00', rechargeAmount: '700.00', revision: 1 });
+    await f.unified.activateOnboarding(f.id);
+    expect((await f.unified.current(f.client.id, f.user.id)).effectiveStatus).toBe('ACTIVE');
+    await f.service.setPolicy(f.client.id, f.user.id, { enabled: true, threshold: '650.00', rechargeAmount: '750.00', revision: 2 });
+    expect((await f.service.current(f.client.id, f.user.id)).consentRequired).toBe(false);
+    await f.service.evaluate(f.wallet.id);
+    expect(f.orders[0]?.amount).toBe(75000);
+    await f.service.setPolicy(f.client.id, f.user.id, { enabled: true, threshold: '650.00', rechargeAmount: '1000.00', revision: 3 });
+    expect((await f.unified.current(f.client.id, f.user.id)).effectiveStatus).toBe('MANDATE_ACTION_REQUIRED');
+  });
+  it('keeps the in-flight policy revision guard for variable-policy mandates', async () => {
+    const f = await standalone();
+    await f.unified.activateOnboarding(f.id);
+    const create = f.gateway.createDebitOrder.getMockImplementation()!;
+    f.gateway.createDebitOrder.mockImplementationOnce(async (amount, receipt) => {
+      const order = await create(amount, receipt);
+      await f.service.setPolicy(f.client.id, f.user.id, { enabled: true, threshold: '600.00', rechargeAmount: '700.00', revision: 1 });
+      return order;
+    });
+    await f.service.evaluate(f.wallet.id);
+    expect(f.gateway.createRecurringPayment).not.toHaveBeenCalled();
+    expect((await f.request()).status).toBe('CANCELLED');
+  });
+  it('retries activation after a pending legacy debit resolves without a new setup', async () => {
+    const f = await standalone();
+    const invoice = await db.riderInvoice.create({ data: { clientId: f.client.id, riderId: f.rider.id, invoiceNumber: randomUUID(), invoiceType: 'RENTAL', billingPeriodStart: new Date(), billingPeriodEnd: new Date(), subtotal: '200.00', creditAmount: '0.00', totalAmount: '200.00', outstandingAmount: '200.00', currency: 'INR', dueDate: new Date(), issuedAt: new Date(), status: 'FINALIZED' } });
+    const debit = await db.paymentTransaction.create({ data: { clientId: f.client.id, riderId: f.rider.id, invoiceId: invoice.id, mandateId: f.id, requestKey: randomUUID(), providerPaymentId: randomUUID(), amount: '200', scheduledAt: new Date(), status: 'PENDING' } });
+    await f.unified.activateOnboarding(f.id);
+    expect((await f.unified.current(f.client.id, f.user.id)).effectiveStatus).toBe('MIGRATION_BLOCKED');
+    expect((await f.service.current(f.client.id, f.user.id)).enabled).toBe(false);
+    await db.paymentTransaction.update({ where: { id: debit.id }, data: { status: 'FAILED' } });
+    await f.unified.recoverOnboarding();
+    expect((await f.unified.current(f.client.id, f.user.id)).effectiveStatus).toBe('ACTIVE');
+  });
+  it.each(['rollout', 'policy', 'pending', 'cancelled', 'limit'])('keeps funding off when blocked: %s', async state => {
+    const f = await standalone();
+    if (state === 'rollout') f.config.set('UNIFIED_AUTOPAY_CLIENT_IDS', 'other');
+    if (state === 'policy') await db.walletAutoRechargePolicy.update({ where: { clientId: f.client.id }, data: { enabled: false } });
+    if (state === 'pending') await db.paymentMandate.update({ where: { id: f.id }, data: { status: 'AUTHORIZATION_PENDING' } });
+    if (state === 'cancelled') await db.paymentMandate.update({ where: { id: f.id }, data: { providerCancelRequestedAt: new Date() } });
+    if (state === 'limit') await db.paymentMandate.update({ where: { id: f.id }, data: { maxAmount: '500' } });
+    await f.unified.activateOnboarding(f.id);
+    expect((await f.service.current(f.client.id, f.user.id)).enabled).toBe(false);
+  });
   it.each(['active', 'pending', 'failed', 'unpaid', 'disabled', 'policy-changed', 'existing-off'])(
     'provider-authorized onboarding activates safely: %s', async (state) => {
       const f = await fixture();
@@ -329,12 +431,12 @@ describe.skipIf(!url)('Wallet AutoPay PostgreSQL', () => {
     const revision = (await f.service.current(f.client.id, f.user.id)).revision;
     await expect(f.service.setEnabled(f.client.id, f.user.id, { enabled: true, unified: true, mandateId: f.mandate.id, consentRevision: 1, expectedRevision: revision, recoveryConsentAt: consentAt })).rejects.toThrow('AUTOPAY_DISABLED_AFTER_CONSENT');
   });
-  it('unified consent atomically selects wallet collection and rejects stale devices', async () => {
+  it('explicit preference action selects wallet collection and rejects stale devices', async () => {
     const f = await fixture('1000.00');
     f.config.set('UNIFIED_AUTOPAY_ENABLED', 'true');
     f.config.set('UNIFIED_AUTOPAY_CLIENT_IDS', f.client.id);
     const unified = new UnifiedAutoPayService(db as unknown as PrismaService, f.service, f.config);
-    const results = await Promise.allSettled([1, 2].map(() => unified.set(f.client.id, f.user.id, { enabled: true, expectedRevision: 0, mandateId: f.mandate.id, consentRevision: 1, consentVersion: 'unified-autopay-v1' })));
+    const results = await Promise.allSettled([1, 2].map(() => unified.set(f.client.id, f.user.id, { enabled: true, expectedRevision: 0 })));
     expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1);
     const profile = await db.riderPaymentProfile.findUniqueOrThrow({ where: { clientId_riderId: { clientId: f.client.id, riderId: f.rider.id } } });
     expect(profile).toMatchObject({ collectionMode: 'LEDGER_WALLET', autoSettleInvoiceFromWallet: true });
@@ -347,7 +449,7 @@ describe.skipIf(!url)('Wallet AutoPay PostgreSQL', () => {
     const f = await fixture('1000.00');
     f.config.set('UNIFIED_AUTOPAY_ENABLED', 'true');
     const unified = new UnifiedAutoPayService(db as unknown as PrismaService, f.service, f.config);
-    await expect(unified.set(f.client.id, f.user.id, { enabled: true, expectedRevision: 0, mandateId: f.mandate.id, consentRevision: 1, consentVersion: 'unified-autopay-v1' })).rejects.toThrow('UNIFIED_AUTOPAY_UNAVAILABLE');
+    await expect(unified.set(f.client.id, f.user.id, { enabled: true, expectedRevision: 0 })).rejects.toThrow('UNIFIED_AUTOPAY_UNAVAILABLE');
   });
   it('settles remaining rent after a later top-up without duplicating deductions, even with funding off', async () => {
     const f = await fixture('100.00');

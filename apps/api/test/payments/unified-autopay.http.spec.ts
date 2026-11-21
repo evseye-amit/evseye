@@ -44,6 +44,13 @@ describe('unified AutoPay HTTP contract', () => {
     expect((await app.inject({ method: 'PUT', url: base, headers, payload: { enabled: false, expectedRevision: 0 } })).statusCode).toBe(200);
     expect(service.set).toHaveBeenCalledWith('client', 'user', expect.objectContaining({ enabled: false, expectedRevision: 0 }));
   });
+  it('accepts a simple enable action and email-only setup, rejecting removed consent fields', async () => {
+    expect((await app.inject({ method: 'PUT', url: base, headers, payload: { enabled: true, expectedRevision: 0 } })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'PUT', url: base, headers, payload: { enabled: true, expectedRevision: 0, consentVersion: 'unified-autopay-v1' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: `${base}/mandates`, headers: { ...headers, 'idempotency-key': 'setup-key-123' }, payload: { email: 'rider@example.com' } })).statusCode).toBe(201);
+    expect(mandates.create).toHaveBeenCalledWith('client', 'user', 'setup-key-123', 'UPI_AUTOPAY', 'rider@example.com', true);
+    service.prepareSetup.mockClear();
+  });
   it('validates setup before changing collection mode and bounds recharge history', async () => {
     expect((await app.inject({ method: 'POST', url: `${base}/mandates`, headers, payload: { email: 'test@example.com' } })).statusCode).toBe(400);
     expect(service.prepareSetup).not.toHaveBeenCalled();

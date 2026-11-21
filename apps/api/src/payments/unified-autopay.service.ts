@@ -1,3 +1,5 @@
+import { Prisma } from '@prisma/client';
+import { VARIABLE_POLICY_TERMS, VARIABLE_POLICY_DESCRIPTION } from './wallet-autopay-terms.js';
 import { AutoPayAvailabilityService } from './autopay-availability.service.js';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { unifiedAutoPayEnabled } from './unified-autopay-rollout.js';
@@ -13,18 +15,43 @@ export class UnifiedAutoPayService {
 
   async prepareSetup(clientId: string, userId: string) {
     const state = await this.current(clientId, userId);
-    if (!state.actions.canSetup && !['AUTHORIZATION_PENDING', 'ACTIVE', 'WAITING_FOR_ALLOCATION', 'OFF'].includes(state.effectiveStatus)) throw new ConflictException('AUTOPAY_SETUP_UNAVAILABLE');
-    const rider = await this.db.rider.findFirstOrThrow({ where: { clientId, userId, deletedAt: null } });
-    await this.db.$transaction(async tx => {
-      await tx.$queryRaw`SELECT id FROM "Rider" WHERE id=${rider.id} AND "clientId"=${clientId} FOR UPDATE`;
-      await tx.$queryRaw`SELECT id FROM "RiderWallet" WHERE "riderId"=${rider.id} AND "clientId"=${clientId} FOR UPDATE`;
-      if (await tx.paymentTransaction.findFirst({ where: { clientId, riderId: rider.id, status: { in: ['CREATING', 'PENDING', 'UNKNOWN'] } } })) throw new ConflictException('AUTOPAY_MIGRATION_BLOCKED');
-      await tx.riderPaymentProfile.upsert({ where: { clientId_riderId: { clientId, riderId: rider.id } }, create: { clientId, riderId: rider.id, collectionMode: 'LEDGER_WALLET', autoSettleInvoiceFromWallet: true }, update: { collectionMode: 'LEDGER_WALLET', autoSettleInvoiceFromWallet: true } });
-      await tx.auditLog.create({ data: { clientId, actorId: userId, action: 'UNIFIED_AUTOPAY_SETUP_STARTED', entityType: 'Rider', entityId: rider.id } });
-    });
+    if (!state.actions.canSetup && !['AUTHORIZATION_PENDING', 'ACTIVATION_PENDING', 'ACTIVE', 'WAITING_FOR_ALLOCATION', 'OFF'].includes(state.effectiveStatus)) throw new ConflictException('AUTOPAY_SETUP_UNAVAILABLE');
+  }
+
+  /** Persisted in the mandate creation transaction, never rebuilt on an idempotent retry. */
+  async captureSetup(tx: Prisma.TransactionClient, clientId: string, userId: string, riderId: string, requestKey: string) {
+    const startedAt = new Date().toISOString();
+    await tx.$queryRaw`SELECT id FROM "RiderWallet" WHERE "riderId"=${riderId} AND "clientId"=${clientId} FOR UPDATE`;
+    if (await tx.paymentTransaction.findFirst({ where: { clientId, riderId, status: { in: ['CREATING', 'PENDING', 'UNKNOWN'] } } })) throw new ConflictException('AUTOPAY_MIGRATION_BLOCKED');
+    const policy = await tx.walletAutoRechargePolicy.findUnique({ where: { clientId } });
+    if (!unifiedAutoPayEnabled(this.config, clientId) || !policy?.enabled) throw new ConflictException('AUTOPAY_UNAVAILABLE');
+    const preference = await tx.walletAutoRechargePreference.findUnique({ where: { clientId_riderId: { clientId, riderId } } });
+    await tx.riderPaymentProfile.upsert({ where: { clientId_riderId: { clientId, riderId } }, create: { clientId, riderId, collectionMode: 'LEDGER_WALLET', autoSettleInvoiceFromWallet: true }, update: { collectionMode: 'LEDGER_WALLET', autoSettleInvoiceFromWallet: true } });
+    return { actorId: userId, riderId, requestKey, scope: 'WALLET_FUNDING', policyTerms: VARIABLE_POLICY_TERMS,
+      termsDescription: VARIABLE_POLICY_DESCRIPTION, termsCreatedAt: startedAt, expectedRevision: preference?.revision ?? 0,
+      consentRevision: policy.revision, threshold: policy.threshold.toFixed(2), rechargeAmount: policy.rechargeAmount.toFixed(2) };
+  }
+
+  private async activateSetup(mandateId: string) {
+    const mandate = await this.db.paymentMandate.findUnique({ where: { id: mandateId } });
+    if (!mandate?.walletSetupIntent) return false;
+    if (mandate.walletActivationCompletedAt || mandate.status !== 'ACTIVE' || !mandate.authorizedAt || !mandate.providerTokenId || mandate.providerCancelRequestedAt || !unifiedAutoPayEnabled(this.config, mandate.clientId)) return true;
+    const intent = mandate.walletSetupIntent as { scope?: string; actorId?: string; riderId?: string; termsCreatedAt?: string; expectedRevision?: number; consentRevision?: number };
+    if (intent.scope !== 'WALLET_FUNDING' || !intent.actorId || intent.riderId !== mandate.riderId || !intent.termsCreatedAt || !Number.isFinite(Date.parse(intent.termsCreatedAt)) || !Number.isInteger(intent.expectedRevision)) return true;
+    try {
+      await this.funding.setEnabled(mandate.clientId, intent.actorId, { enabled: true, unified: true, mandateId,
+        consentRevision: intent.consentRevision, expectedRevision: intent.expectedRevision,
+        recoveryConsentAt: new Date(intent.termsCreatedAt), activationMandateId: mandateId });
+    } catch (error) {
+      const reason = error instanceof ConflictException && ['AUTOPAY_PREFERENCE_CHANGED', 'AUTOPAY_DISABLED_AFTER_CONSENT'].includes(error.message) ? error.message : 'AUTOPAY_ACTIVATION_RETRY';
+      await this.db.paymentMandate.updateMany({ where: { id: mandateId, walletActivationCompletedAt: null }, data: { walletActivationFailure: reason, walletActivationCheckedAt: new Date() } });
+      this.logger.warn(`Wallet activation pending: ${mandateId} (${reason})`);
+    }
+    return true;
   }
   /** Runs after verified provider activation; retries never override a rider preference. */
   async activateOnboarding(mandateId: string) {
+    if (await this.activateSetup(mandateId)) return;
     const attempt = await this.db.deploymentPaymentAttempt.findFirst({
       where: { autoPayMandateId: mandateId, status: 'PAID', autoPayRequested: true,
         autoPayConsent: { path: ['scope'], equals: 'WALLET_FUNDING' },
@@ -52,7 +79,13 @@ export class UnifiedAutoPayService {
   @Cron(CronExpression.EVERY_MINUTE)
   async recoverOnboarding() {
     if (this.config.get("UNIFIED_AUTOPAY_ENABLED") !== "true") return;
-    const attempts = await this.db.deploymentPaymentAttempt.findMany({ where: { status: 'PAID', autoPayRequested: true, autoPayMandateId: { not: null }, autoPayConsent: { path: ['scope'], equals: 'WALLET_FUNDING' }, autoPayMandate: { status: 'ACTIVE', walletAutoRechargePreferences: { none: {} } } }, take: 100, orderBy: { checkedAt: 'asc' } });
+    const pending = await this.db.paymentMandate.findMany({ where: { status: 'ACTIVE', walletSetupIntent: { not: Prisma.DbNull }, walletActivationCompletedAt: null,
+      OR: [{ walletActivationFailure: null }, { walletActivationFailure: 'AUTOPAY_ACTIVATION_RETRY' }] }, take: 100, orderBy: { walletActivationCheckedAt: 'asc' } });
+    for (const mandate of pending) {
+      await this.db.paymentMandate.update({ where: { id: mandate.id }, data: { walletActivationCheckedAt: new Date() } });
+      await this.activateSetup(mandate.id);
+    }
+    const attempts = await this.db.deploymentPaymentAttempt.findMany({ where: { status: 'PAID', autoPayRequested: true, autoPayMandateId: { not: null }, autoPayConsent: { path: ['scope'], equals: 'WALLET_FUNDING' }, autoPayMandate: { status: 'ACTIVE', walletSetupIntent: { equals: Prisma.DbNull }, walletAutoRechargePreferences: { none: {} } } }, take: 100, orderBy: { checkedAt: 'asc' } });
     for (const attempt of attempts) {
       await this.db.deploymentPaymentAttempt.update({ where: { id: attempt.id }, data: { checkedAt: new Date() } });
       if (attempt.autoPayMandateId) await this.activateOnboarding(attempt.autoPayMandateId);
@@ -70,28 +103,42 @@ export class UnifiedAutoPayService {
     ]);
     const availability = await this.availability?.availability(clientId);
     const rollout = unifiedAutoPayEnabled(this.config, clientId) && (availability?.canEnable ?? true);
-    const usable = mandate?.status === 'ACTIVE' && !mandate.providerCancelRequestedAt && mandate.provider === 'RAZORPAY' && mandate.maxAmount.gte(funding.policy.rechargeAmount) && mandate.expiresAt.getTime() > Date.now() + 25 * 3600000 + 300000;
+    const usable = mandate?.status === 'ACTIVE' && !mandate.providerCancelRequestedAt && mandate.provider === 'RAZORPAY' && mandate.currency === 'INR' && mandate.maxAmount.gte(funding.policy.rechargeAmount) && mandate.expiresAt.getTime() > Date.now() + 25 * 3600000 + 300000;
+    const walletScoped = (!!mandate && funding.mandateId === mandate.id) || !!mandate?.walletSetupIntent || (mandate?.providerTermsSnapshot as { consent?: { scope?: string } } | null)?.consent?.scope === 'WALLET_FUNDING';
     const status = !rollout || !funding.policy.enabled ? 'PAUSED_BY_CLIENT'
       : pendingLegacy ? 'MIGRATION_BLOCKED'
       : !mandate ? 'SETUP_REQUIRED'
       : ['CREATING', 'CREATED', 'AUTHORIZATION_PENDING', 'UNKNOWN'].includes(mandate.status) ? 'AUTHORIZATION_PENDING'
       : !usable ? 'MANDATE_ACTION_REQUIRED'
-      : funding.consentRequired || (funding.enabled && funding.mandateId !== mandate.id) ? 'CONSENT_REQUIRED'
+      : mandate.walletSetupIntent && !mandate.walletActivationCompletedAt && !['AUTOPAY_PREFERENCE_CHANGED', 'AUTOPAY_DISABLED_AFTER_CONSENT'].includes(mandate.walletActivationFailure ?? '') ? 'ACTIVATION_PENDING'
+      : !walletScoped && !funding.enabled ? 'MANDATE_ACTION_REQUIRED'
+      : funding.enabled && (funding.consentRequired || funding.mandateId !== mandate.id) ? 'ACTION_REQUIRED'
       : funding.actionRequired ? 'ACTION_REQUIRED'
       : !funding.enabled ? 'OFF'
       : !allocation ? 'WAITING_FOR_ALLOCATION' : 'ACTIVE';
     return { contractVersion: 2, ...funding, effectiveStatus: status, collectionMode: profile?.collectionMode ?? 'LEGACY_INVOICE',
       consentVersion: 'unified-autopay-v1',
-      setupTerms: availability?.terms ?? null,
-      reasonCode: ['ACTIVE', 'OFF'].includes(status) ? null : availability?.reason ?? status,
+      setupTerms: { ...availability?.terms, policyTerms: VARIABLE_POLICY_TERMS, description: VARIABLE_POLICY_DESCRIPTION },
+      reasonCode: ['ACTIVE', 'OFF'].includes(status) ? null : availability?.reason ?? (status === 'ACTIVATION_PENDING' ? mandate?.walletActivationFailure ?? status : status),
       mandate: mandate ? { id: mandate.id, status: mandate.status, maxAmount: mandate.maxAmount.toFixed(2), expiresAt: mandate.expiresAt, cancellationPending: !!mandate.providerCancelRequestedAt, authorization: mandate.authorizationUrl && ['CREATED', 'AUTHORIZATION_PENDING'].includes(mandate.status) ? { type: 'HOSTED', url: mandate.authorizationUrl } : null } : null,
-      actions: { canEnable: rollout && funding.policy.enabled && !!usable && !pendingLegacy, canDisable: funding.enabled, canSetup: rollout && funding.policy.enabled && (!mandate || ['CANCELLED', 'EXPIRED', 'FAILED'].includes(mandate.status)) },
+      actions: { canEnable: rollout && funding.policy.enabled && !!usable && walletScoped && !pendingLegacy, canDisable: funding.enabled || status === 'ACTIVATION_PENDING' || status === 'AUTHORIZATION_PENDING', canSetup: rollout && funding.policy.enabled && (!mandate || ['CANCELLED', 'EXPIRED', 'FAILED'].includes(mandate.status)) },
     };
   }
-  async set(clientId: string, userId: string, input: { enabled: boolean; expectedRevision: number; mandateId?: string; consentRevision?: number; consentVersion?: string }) {
-    if (input.enabled && input.consentVersion !== 'unified-autopay-v1') throw new ConflictException('AUTOPAY_CONSENT_REQUIRED');
+  async set(clientId: string, userId: string, input: { enabled: boolean; expectedRevision: number }) {
+    if (input.enabled && !unifiedAutoPayEnabled(this.config, clientId)) throw new ConflictException('UNIFIED_AUTOPAY_UNAVAILABLE');
     if (input.enabled && this.availability && !(await this.availability.availability(clientId)).canEnable) throw new ConflictException('AUTOPAY_UNAVAILABLE');
-    await this.funding.setEnabled(clientId, userId, { ...input, unified: true });
+    let mandateId: string | undefined;
+    let consentRevision: number | undefined;
+    if (input.enabled) {
+      const rider = await this.db.rider.findFirstOrThrow({ where: { clientId, userId, deletedAt: null } });
+      const policy = await this.funding.policy(clientId);
+      const mandate = await this.db.paymentMandate.findFirst({ where: { clientId, riderId: rider.id, status: 'ACTIVE', provider: 'RAZORPAY', currency: 'INR', providerCancelRequestedAt: null,
+        OR: [{ walletSetupIntent: { path: ['scope'], equals: 'WALLET_FUNDING' } }, { providerTermsSnapshot: { path: ['consent', 'scope'], equals: 'WALLET_FUNDING' } }, { walletAutoRechargePreferences: { some: { clientId, riderId: rider.id } } }], maxAmount: { gte: policy.rechargeAmount }, expiresAt: { gt: new Date(Date.now() + 25 * 3600000 + 300000) } }, orderBy: { createdAt: 'desc' } });
+      if (!mandate) throw new ConflictException('AUTOPAY_WALLET_SETUP_REQUIRED');
+      mandateId = mandate.id;
+      consentRevision = policy.revision;
+    }
+    await this.funding.setEnabled(clientId, userId, { ...input, mandateId, consentRevision, unified: true });
     return this.current(clientId, userId);
   }
   async recharges(clientId: string, userId: string, page: number) {

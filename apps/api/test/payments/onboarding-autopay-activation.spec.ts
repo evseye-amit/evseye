@@ -4,7 +4,7 @@ function fixture() {
   const attempt = { id: 'attempt', clientId: 'client', autoPayMandateId: 'mandate',
     autoPayConsent: { scope: 'WALLET_FUNDING', authorizationSource: 'PROVIDER_CHECKOUT', actorId: 'user', riderId: 'rider', consentRevision: 3, termsCreatedAt: '2026-11-21T10:00:00Z' },
     autoPayMandate: { riderId: 'rider', authorizedAt: new Date(), providerAuthorizationPaymentId: 'pay_auth', providerTokenId: 'token_auth' } };
-  const db = { deploymentPaymentAttempt: { findFirst: vi.fn().mockResolvedValue(attempt), findMany: vi.fn().mockResolvedValue([attempt]), update: vi.fn() } };
+  const db = { paymentMandate: { findUnique: vi.fn().mockResolvedValue(null), findMany: vi.fn().mockResolvedValue([]) }, deploymentPaymentAttempt: { findFirst: vi.fn().mockResolvedValue(attempt), findMany: vi.fn().mockResolvedValue([attempt]), update: vi.fn() } };
   const funding = { setEnabled: vi.fn().mockResolvedValue({ enabled: true }) };
   const config = { get: (key: string) => key === 'UNIFIED_AUTOPAY_CLIENT_IDS' ? 'client' : 'true' };
   const service = new UnifiedAutoPayService(db as never, funding as never, config as never);

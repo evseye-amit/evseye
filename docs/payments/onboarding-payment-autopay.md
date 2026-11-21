@@ -23,3 +23,9 @@ Stage first: verify SDK recurring support on real test devices, signed callbacks
 - Common payment contract suite: 49 tests passed, including the additional no-consent request and safe snapshot-response case.
 - API typecheck, build, changed-file oxlint and whitespace checks passed. Full application initialization/OpenAPI export succeeded with 868 operations.
 - No real bank/provider charge, staging deployment or production deployment was performed. Flutter checkout was not edited.
+
+## 22 November 2026: durable wallet activation
+
+New unified onboarding attempts snapshot `wallet-variable-policy-v1`, the displayed variable-policy description, original setup timestamp and expected preference revision. After the paid checkout creates its mandate, these terms become the immutable `PaymentMandate.walletSetupIntent`. The same activation path handles standalone mandates. Funding preference and activation completion are committed together under the wallet lock. Retries cannot override a later disable or preference revision. Historic onboarding attempts retain the original fixed-policy recovery rules.
+
+Apply migration `20261122090000_autopay_setup_activation` before deploying this version. See the updated Flutter handoff for ACTIVATION_PENDING, optional two-field PUT and variable-policy display requirements. Historical bank mandates are not bulk-enabled or upgraded to variable policy.

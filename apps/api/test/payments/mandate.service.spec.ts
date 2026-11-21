@@ -39,7 +39,7 @@ const mandate = {
   authorizedAt: null,
 };
 
-function fixture(providerType = 'mock', unified?: { activateOnboarding: ReturnType<typeof vi.fn> }) {
+function fixture(providerType = 'mock', unified?: { activateOnboarding: ReturnType<typeof vi.fn>; captureSetup?: ReturnType<typeof vi.fn> }) {
   const storedMandate = { ...mandate };
   const prisma = {
     rider: { findFirst: vi.fn().mockResolvedValue(rider) },
@@ -126,6 +126,17 @@ function fixture(providerType = 'mock', unified?: { activateOnboarding: ReturnTy
 }
 
 describe('UPI AutoPay mandate service', () => {
+  it('persists wallet setup intent before provider creation and never recaptures it on retry', async () => {
+    const intent = { actorId: userId, riderId: rider.id, scope: 'WALLET_FUNDING', expectedRevision: 4, termsCreatedAt: new Date().toISOString() };
+    const unified = { activateOnboarding: vi.fn(), captureSetup: vi.fn().mockResolvedValue(intent) };
+    const f = fixture('mock', unified);
+    await f.service.create(clientId, userId, 'create-key-1', 'UPI_AUTOPAY', 'rider@example.com', true);
+    expect(f.prisma.paymentMandate.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ walletSetupIntent: intent, autoDebitEnabled: false }) }));
+    f.prisma.paymentMandate.findUnique.mockResolvedValue({ ...mandate, walletSetupIntent: intent } as never);
+    await f.service.create(clientId, userId, 'create-key-1', 'UPI_AUTOPAY', 'rider@example.com', true);
+    expect(unified.captureSetup).toHaveBeenCalledTimes(1);
+    expect(f.provider.createMandate).toHaveBeenCalledTimes(1);
+  });
   it.each(['ACTIVE', 'AUTHORIZATION_PENDING', 'FAILED', 'CANCELLED'])('only attempts onboarding activation after verified %s status', async (status) => {
     const unified = { activateOnboarding: vi.fn().mockResolvedValue(undefined) };
     const f = fixture('mock', unified);

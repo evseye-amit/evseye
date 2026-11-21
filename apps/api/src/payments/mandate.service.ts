@@ -1,3 +1,4 @@
+import { walletFundingTerms } from './wallet-autopay-terms.js';
 import { UnifiedAutoPayService } from './unified-autopay.service.js';
 import { AutoPayProviderRouter } from './autopay-provider-router.service.js';
 import { randomUUID, createHash } from 'node:crypto';
@@ -195,12 +196,14 @@ export class MandateService {
     providerEnvironment?: string | null;
     authorizationUrl?: string | null;
     providerCancelRequestedAt?: Date | null;
+    walletSetupIntent?: Prisma.JsonValue | null;
   }) {
     return {
       provider: mandate.provider ?? this.config.getOrThrow('PAYMENT_PROVIDER').toUpperCase(),
       ...(mandate.provider === 'RAZORPAY' ? { authorization: mandate.authorizationUrl && ['CREATED', 'AUTHORIZATION_PENDING'].includes(mandate.status) ? { type: 'HOSTED', url: mandate.authorizationUrl, keyId: mandate.providerKeyId } : null, cancellationPending: Boolean(mandate.providerCancelRequestedAt) && mandate.status !== 'CANCELLED' } : {}),
       mandateId: mandate.id,
       mandateNumber: mandate.mandateNumber ?? null,
+      walletFundingTerms: walletFundingTerms(mandate.walletSetupIntent),
       autoDebitEnabled: mandate.autoDebitEnabled ?? true,
       providerMandateId: mandate.providerMandateId,
       status: mandate.status,
@@ -221,6 +224,7 @@ export class MandateService {
     requestKey: string,
     method: 'UPI_AUTOPAY' | 'ENACH' = 'UPI_AUTOPAY',
     email?: string,
+    unifiedSetup = false,
   ) {
     if (!this.providers && this.config.getOrThrow('PAYMENT_PROVIDER') === 'disabled')
       throw new ServiceUnavailableException('Payment provider is disabled.');
@@ -286,12 +290,16 @@ export class MandateService {
     try {
       mandate = await this.prisma.$transaction(async tx => {
         await this.assertNoOpenMandate(tx, clientId, rider.id);
+        if (unifiedSetup && !this.unified) throw new ServiceUnavailableException('UNIFIED_AUTOPAY_UNAVAILABLE');
+        const walletSetupIntent = unifiedSetup ? await this.unified!.captureSetup(tx, clientId, userId, rider.id, requestKey) : undefined;
         return tx.paymentMandate.create({
         data: {
           mandateNumber: `EVM-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}-${randomUUID().slice(0, 12).toUpperCase()}`,
           clientId,
           riderId: rider.id,
           requestKey,
+          walletSetupIntent,
+          ...(walletSetupIntent ? { providerTermsSnapshot: { flow: 'STANDALONE_WALLET', consent: walletSetupIntent }, autoDebitEnabled: false } : {}),
           provider: providerName,
           configurationVersionId: provider.configurationVersionId,
           providerEnvironment: provider.environment,
@@ -430,7 +438,7 @@ export class MandateService {
           }),
         );
       const terms = current.providerTermsSnapshot as { consent?: { scope?: string } } | null;
-      const walletFunding = terms?.consent?.scope === 'WALLET_FUNDING';
+      const walletFunding = !!current.walletSetupIntent || terms?.consent?.scope === 'WALLET_FUNDING';
       await tx.riderPaymentProfile.upsert({
         where: {
           clientId_riderId: {

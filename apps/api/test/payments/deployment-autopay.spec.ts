@@ -94,6 +94,8 @@ function fixture() {
       })),
       findFirst: vi.fn(async () => ({ id: 'allocation' })),
     },
+    paymentTransaction: { findFirst: vi.fn().mockResolvedValue(null) },
+    riderPaymentProfile: { upsert: vi.fn() },
     paymentMandate: {
       findFirst: vi.fn(async () => null),
       create: vi.fn(async ({ data }) => {
@@ -199,9 +201,10 @@ describe('combined deployment AutoPay', () => {
   it('snapshots server terms without claiming authorization at order creation', async () => {
     const f = fixture();
     f.config.get.mockImplementation((key: string) => key === 'UNIFIED_AUTOPAY_CLIENT_IDS' ? 'client' : 'true');
+    f.db.walletAutoRechargePreference = { findUnique: vi.fn().mockResolvedValue({ revision: 7 }) };
     f.db.walletAutoRechargePolicy = { findUnique: vi.fn().mockResolvedValue({ enabled: true, revision: 4, threshold: new Prisma.Decimal(550), rechargeAmount: new Prisma.Decimal(750) }) };
     const prepared = await f.service.prepare('client', 'user', await f.gateway.configurationFor(), new Prisma.Decimal(500), 'INR', { setupAutoPay: true, email: options.email, requestKey: options.requestKey });
-    expect(prepared.consent).toMatchObject({ authorizationSource: 'PROVIDER_CHECKOUT', scope: 'WALLET_FUNDING', consentRevision: 4, threshold: '550.00', rechargeAmount: '750.00', validityDays: 365 });
+    expect(prepared.consent).toMatchObject({ authorizationSource: 'PROVIDER_CHECKOUT', scope: 'WALLET_FUNDING', policyTerms: 'wallet-variable-policy-v1', expectedRevision: 7, requestKey: options.requestKey, consentRevision: 4, threshold: '550.00', rechargeAmount: '750.00', validityDays: 365 });
     expect(prepared.consent).not.toHaveProperty('accepted');
     expect(prepared.consent).not.toHaveProperty('acceptedAt');
     expect(prepared.consent.termsCreatedAt).toEqual(expect.any(String));
@@ -313,6 +316,7 @@ describe('combined deployment AutoPay', () => {
   });
   it('binds only the accepted capture and reuses the mandate on callback replay', async () => {
     const f = fixture();
+    f.attempt.autoPayConsent = { ...f.attempt.autoPayConsent, scope: 'WALLET_FUNDING', policyTerms: 'wallet-variable-policy-v1', expectedRevision: 7, termsCreatedAt: new Date().toISOString() };
     await f.service.recover('attempt', 'pay_first');
     await f.service.recover('attempt', 'pay_first');
     expect(f.db.paymentMandate.create).toHaveBeenCalledTimes(1);
@@ -320,6 +324,7 @@ describe('combined deployment AutoPay', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           providerAuthorizationPaymentId: 'pay_first',
+          walletSetupIntent: f.attempt.autoPayConsent,
         }),
       }),
     );

@@ -2,7 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { WalletAutoRechargeService } from './wallet-auto-recharge.service.js';
 import { unifiedAutoPayEnabled } from './unified-autopay-rollout.js';
 import { BadRequestException, Body, Controller, DefaultValuePipe, Get, Headers, Param, ParseIntPipe, Post, Put, Query, UseGuards } from '@nestjs/common';
-import { IsBoolean, IsEmail, IsIn, IsInt, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsEmail, IsInt, IsString, Matches, MaxLength, Min } from 'class-validator';
 import { UserRole } from '@prisma/client';
 import { AccessTokenGuard } from '../auth/guards/access-token.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
@@ -15,9 +15,6 @@ import { MandateService } from './mandate.service.js';
 class PreferenceDto {
   @IsBoolean() enabled!: boolean;
   @IsInt() @Min(0) expectedRevision!: number;
-  @IsOptional() @IsString() mandateId?: string;
-  @IsOptional() @IsInt() @Min(1) consentRevision?: number;
-  @IsOptional() @IsIn(['unified-autopay-v1']) consentVersion?: string;
 }
 class SetupDto { @IsEmail() @MaxLength(254) email!: string; }
 @Controller('rider-app/autopay')
@@ -35,7 +32,7 @@ export class UnifiedAutoPayController {
     const clientId = this.clients.requireClientId(user);
     if (!/^[A-Za-z0-9:_-]{8,120}$/.test(key ?? '')) throw new BadRequestException('INVALID_IDEMPOTENCY_KEY');
     await this.service.prepareSetup(clientId, user.id);
-    return { data: await this.mandates.create(clientId, user.id, key ?? '', 'UPI_AUTOPAY', body.email) };
+    return { data: await this.mandates.create(clientId, user.id, key ?? '', 'UPI_AUTOPAY', body.email, true) };
   }
   @Post('mandates/:mandateId/verify') async verify(@CurrentUser() user: AuthUser, @Param('mandateId') id: string) { return { data: await this.mandates.verify(this.clients.requireClientId(user), user.id, id) }; }
   @Post('mandates/:mandateId/cancel') async cancel(@CurrentUser() user: AuthUser, @Param('mandateId') id: string, @Headers('Idempotency-Key') key?: string) { return { data: await this.mandates.cancel(this.clients.requireClientId(user), user.id, id, key ?? '') }; }

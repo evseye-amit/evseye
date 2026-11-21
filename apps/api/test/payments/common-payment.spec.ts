@@ -302,9 +302,9 @@ describe('common payment purpose contract', () => {
   it('returns immutable funding terms and recurring checkout for onboarding without consent fields', async () => {
     const f = fixture();
     const options = { setupAutoPay: true, email: 'rider@example.com' };
-    Object.assign(f.order, { autoPayRequested: true, autoPayRequestKey: 'request-key', autoPayRequestHash: deploymentRequestHash(id, { ...options, requestKey: 'request-key' }), autoPayCustomerId: 'cust_test', autoPayMaxAmount: new Prisma.Decimal(15000), autoPayStatus: 'NOT_STARTED', autoPayConsent: { actorId: 'private-actor', threshold: '550.00', rechargeAmount: '750.00', consentRevision: 4, validityDays: 365 } });
+    Object.assign(f.order, { autoPayRequested: true, autoPayRequestKey: 'request-key', autoPayRequestHash: deploymentRequestHash(id, { ...options, requestKey: 'request-key' }), autoPayCustomerId: 'cust_test', autoPayMaxAmount: new Prisma.Decimal(15000), autoPayStatus: 'NOT_STARTED', autoPayConsent: { actorId: 'private-actor', policyTerms: 'wallet-variable-policy-v1', termsDescription: 'Variable policy terms', threshold: '550.00', rechargeAmount: '750.00', consentRevision: 4, validityDays: 365 } });
     const result = await f.service.create('client', 'user', { purpose: 'DEPLOYMENT', allocationId: id, ...options }, 'request-key');
-    expect(result).toMatchObject({ autoPay: { terms: { threshold: '550.00', rechargeAmount: '750.00', revision: 4, validityDays: 365 } }, checkout: { recurring: true, customerId: 'cust_test' } });
+    expect(result).toMatchObject({ autoPay: { terms: { threshold: '550.00', rechargeAmount: '750.00', revision: 4, validityDays: 365, policyTerms: 'wallet-variable-policy-v1', description: 'Variable policy terms' } }, checkout: { recurring: true, customerId: 'cust_test' } });
     expect(JSON.stringify(result)).not.toContain('private-actor');
     expect(f.deployments.createOrder).not.toHaveBeenCalled();
   });

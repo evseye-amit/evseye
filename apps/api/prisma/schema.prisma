@@ -2240,6 +2240,10 @@ model PaymentMandate {
   providerAuthorizationPaymentId String? @unique @db.VarChar(100)
   authorizationUrl String? @db.VarChar(1000)
   providerFrequency String? @db.VarChar(30)
+  walletSetupIntent Json?
+  walletActivationCompletedAt DateTime?
+  walletActivationCheckedAt DateTime @default(now())
+  walletActivationFailure String? @db.VarChar(80)
   providerTermsSnapshot Json?
   providerCreateClaimedAt DateTime?
   providerCancelRequestedAt DateTime?
@@ -2260,6 +2264,7 @@ model PaymentMandate {
   providerEvents         PaymentProviderEvent[]
   transactions           PaymentTransaction[]
 
+  @@index([status, walletActivationCompletedAt, walletActivationCheckedAt], map: "PaymentMandate_wallet_activation_idx")
   @@index([provider, providerCheckedAt])
   @@unique([clientId, riderId, requestKey])
   @@unique([clientId, id])

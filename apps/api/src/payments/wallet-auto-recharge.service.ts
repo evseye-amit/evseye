@@ -1,3 +1,4 @@
+import { variableWalletPolicy } from './wallet-autopay-terms.js';
 import { AutoPayAvailabilityService } from './autopay-availability.service.js';
 import { unifiedAutoPayEnabled } from './unified-autopay-rollout.js';
 import { Optional } from '@nestjs/common';
@@ -222,6 +223,7 @@ export class WalletAutoRechargeService implements OnModuleInit {
       this.policy(clientId),
       this.db.walletAutoRechargePreference.findUnique({
         where: { clientId_riderId: { clientId, riderId: rider.id } },
+        include: { mandate: true },
       }),
       this.db.walletAutoRecharge.findMany({
         where: { clientId, riderId: rider.id },
@@ -239,7 +241,7 @@ export class WalletAutoRechargeService implements OnModuleInit {
       enabled: preference?.enabled ?? false,
       actionRequired: preference?.actionRequired ?? false,
       consentRequired:
-        !!preference && preference.consentRevision !== policy.revision,
+        !!preference && !variableWalletPolicy(preference.mandate.walletSetupIntent) && preference.consentRevision !== policy.revision,
       mandateId: preference?.mandateId ?? null,
       requests: requests.map((item) => this.view(item)),
     };
@@ -260,7 +262,7 @@ export class WalletAutoRechargeService implements OnModuleInit {
   async setEnabled(
     clientId: string,
     userId: string,
-    input: { enabled: boolean; mandateId?: string; consentRevision?: number; expectedRevision?: number; unified?: boolean; recoveryConsentAt?: Date },
+    input: { enabled: boolean; mandateId?: string; consentRevision?: number; expectedRevision?: number; unified?: boolean; recoveryConsentAt?: Date; activationMandateId?: string },
   ) {
     if (input.unified && input.enabled && this.availability && !(await this.availability.availability(clientId)).canEnable) throw new ConflictException('AUTOPAY_UNAVAILABLE');
     if (input.unified && !unifiedAutoPayEnabled(this.config, clientId) && input.enabled) throw new ConflictException('UNIFIED_AUTOPAY_UNAVAILABLE');
@@ -287,6 +289,11 @@ export class WalletAutoRechargeService implements OnModuleInit {
         );
     }
     await this.wallet.locked(wallet.id, async (tx) => {
+      if (input.activationMandateId) {
+        const activation = await tx.paymentMandate.findUnique({ where: { id: input.activationMandateId } });
+        if (activation?.walletActivationCompletedAt) return;
+        if (!activation?.walletSetupIntent || activation.id !== input.mandateId || activation.clientId !== clientId || activation.riderId !== rider.id) throw new ConflictException('AUTOPAY_INVALID_SETUP');
+      }
       const preference = await tx.walletAutoRechargePreference.findUnique({ where: { walletId: wallet.id } });
       const profile = await tx.riderPaymentProfile.findUnique({ where: { clientId_riderId: { clientId, riderId: rider.id } } });
       if (input.recoveryConsentAt && await tx.auditLog.findFirst({ where: { clientId, entityType: 'RiderWallet', entityId: wallet.id, action: 'WALLET_AUTOPAY_DISABLED', createdAt: { gte: input.recoveryConsentAt } } })) throw new ConflictException('AUTOPAY_DISABLED_AFTER_CONSENT');
@@ -296,9 +303,9 @@ export class WalletAutoRechargeService implements OnModuleInit {
         const policy = await tx.walletAutoRechargePolicy.findUnique({
           where: { clientId },
         });
-        if (!policy?.enabled || policy.revision !== input.consentRevision)
+        if (!policy?.enabled)
           throw new ConflictException(
-            'Review and accept the current wallet AutoPay terms.',
+            'AUTOPAY_POLICY_DISABLED',
           );
         const mandate = await tx.paymentMandate.findFirst({
           where: {
@@ -318,6 +325,7 @@ export class WalletAutoRechargeService implements OnModuleInit {
           throw new ConflictException(
             'The mandate cannot cover this wallet recharge.',
           );
+        if (!variableWalletPolicy(mandate.walletSetupIntent) && policy.revision !== input.consentRevision) throw new ConflictException('AUTOPAY_TERMS_CHANGED');
         if (
           await tx.paymentTransaction.findFirst({
             where: {
@@ -330,7 +338,7 @@ export class WalletAutoRechargeService implements OnModuleInit {
           throw new ConflictException(
             'Resolve the pending invoice AutoPay debit before enabling wallet AutoPay.',
           );
-        if (input.unified) await tx.paymentMandate.update({ where: { id: mandate.id }, data: { autoDebitEnabled: true } });
+        if (input.unified) await tx.paymentMandate.update({ where: { id: mandate.id }, data: { autoDebitEnabled: true, ...(mandate.walletSetupIntent ? { walletActivationCompletedAt: new Date(), walletActivationFailure: null, walletActivationCheckedAt: new Date() } : {}) } });
         await tx.walletAutoRechargePreference.upsert({
           where: { walletId: wallet.id },
           create: {
@@ -402,7 +410,6 @@ export class WalletAutoRechargeService implements OnModuleInit {
     });
     if (
       !policy?.enabled ||
-      preference.consentRevision !== policy.revision ||
       (revision !== undefined && revision !== policy.revision)
     )
       return null;
@@ -442,7 +449,7 @@ export class WalletAutoRechargeService implements OnModuleInit {
         maxAmount: { gte: amount ?? policy.rechargeAmount },
       },
     });
-    if (!mandate) return null;
+    if (!mandate || (!variableWalletPolicy(mandate.walletSetupIntent) && preference.consentRevision !== policy.revision)) return null;
     const profile = await tx.riderPaymentProfile.findUnique({
       where: { clientId_riderId: { clientId, riderId } },
     });

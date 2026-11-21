@@ -1,3 +1,4 @@
+import { VARIABLE_POLICY_TERMS, VARIABLE_POLICY_DESCRIPTION } from './wallet-autopay-terms.js';
 import { unifiedAutoPayEnabled } from './unified-autopay-rollout.js';
 import {
   BadRequestException,
@@ -47,6 +48,7 @@ export class DeploymentAutoPayService
     options: DeploymentCheckoutOptions,
     tx?: Prisma.TransactionClient,
   ) {
+    const setupStartedAt = new Date().toISOString();
     if (
       this.config.get('RAZORPAY_DEPLOYMENT_AUTOPAY_ENABLED') !== 'true' ||
       this.config.get('RAZORPAY_AUTOPAY_ENABLED') !== 'true'
@@ -110,6 +112,8 @@ export class DeploymentAutoPayService
       await this.db.$transaction((tx) =>
         this.mandates.assertNoOpenMandate(tx, clientId, context.rider.id),
       );
+    if (unified) await (tx ?? this.db).$queryRaw`SELECT id FROM "RiderWallet" WHERE "clientId"=${clientId} AND "riderId"=${context.rider.id} FOR UPDATE`;
+    const preference = unified ? await (tx ?? this.db).walletAutoRechargePreference.findUnique({ where: { clientId_riderId: { clientId, riderId: context.rider.id } } }) : null;
     const expiresAt = new Date(
       Math.floor((Date.now() + context.validityDays * 86400000) / 1000) * 1000,
     );
@@ -120,7 +124,7 @@ export class DeploymentAutoPayService
         version: unified ? 'unified-autopay-v1' : 'deployment-autopay-v1',
         // Checkout creation is not authorization. Provider confirmation is recorded later.
         authorizationSource: 'PROVIDER_CHECKOUT',
-        termsCreatedAt: new Date().toISOString(),
+        termsCreatedAt: setupStartedAt,
         actorId: userId,
         riderId: context.rider.id,
         riderName: context.rider.name,
@@ -132,6 +136,7 @@ export class DeploymentAutoPayService
         frequency: 'as_presented',
         expiresAt: expiresAt.toISOString(),
         scope: unified ? 'WALLET_FUNDING' : 'INVOICE_AUTO_DEBIT',
+        ...(unified ? { requestKey: options.requestKey, policyTerms: VARIABLE_POLICY_TERMS, termsDescription: VARIABLE_POLICY_DESCRIPTION, expectedRevision: preference?.revision ?? 0 } : {}),
         ...(funding ? { consentRevision: funding.revision, threshold: funding.threshold.toFixed(2), rechargeAmount: funding.rechargeAmount.toFixed(2) } : {}),
       } satisfies Prisma.InputJsonObject,
     };
@@ -444,6 +449,7 @@ export class DeploymentAutoPayService
             providerAuthorizationOrderId: a.providerOrderId,
             providerAuthorizationPaymentId: payment.id,
             providerFrequency: 'as_presented',
+            ...((a.autoPayConsent as Prisma.JsonObject | null)?.policyTerms === VARIABLE_POLICY_TERMS ? { walletSetupIntent: a.autoPayConsent as Prisma.InputJsonObject } : {}),
             providerTermsSnapshot: {
               flow: 'DEPLOYMENT_CHECKOUT',
               deploymentAttemptId: a.id,
