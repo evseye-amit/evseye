@@ -222,7 +222,7 @@ export class AutoCollectionService {
             include: { riderPayment: { select: { status: true } } },
           }),
         ]);
-        if (!policy?.enabled || !profile?.autoPayEnabled) continue;
+        if (profile?.collectionMode === 'LEDGER_WALLET' || !policy?.enabled || !profile?.autoPayEnabled) continue;
         const reversedIndex = [...history].map((t, i) => ({ t, i })).reverse().find(({ t }) => t.status === 'SUCCESS' && t.riderPayment?.status === 'REFUNDED')?.i ?? -1;
         const transactions = history.slice(reversedIndex + 1);
         if (reversedIndex >= 0 && !transactions.length) {

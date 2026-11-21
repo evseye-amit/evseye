@@ -18,6 +18,8 @@ export class WalletService {
   constructor(private readonly prisma: PrismaService) {}
   async locked<T>(walletId: string, action: (tx: Prisma.TransactionClient) => Promise<T>) {
     const result = await this.prisma.$transaction(async tx => {
+      const owner = await tx.riderWallet.findUniqueOrThrow({ where: { id: walletId }, select: { riderId: true, clientId: true } });
+      await tx.$queryRaw`SELECT id FROM "Rider" WHERE id = ${owner.riderId} AND "clientId" = ${owner.clientId} FOR UPDATE`;
       await tx.$queryRaw`SELECT id FROM "RiderWallet" WHERE id = ${walletId} FOR UPDATE`;
       return action(tx);
     }, { timeout: 15000 });
@@ -146,7 +148,7 @@ export class WalletService {
         if (original.referenceType === 'WALLET_SECURITY_DEPOSIT' && original.referenceId) await this.reconcileDepositStateTx(tx, input.clientId, original.referenceId);
       }
       await tx.auditLog.create({ data: { clientId: input.clientId, actorId: input.actorId === 'SYSTEM' ? null : input.actorId, action: 'wallet.transaction.posted', entityType: 'WalletTransaction', entityId: id, newData: { transactionNumber: transaction.transactionNumber, type: input.type } } });
-      if (input.type === 'RENTAL') await tx.walletAutoRechargePreference.updateMany({ where: { walletId: input.walletId, clientId: input.clientId, enabled: true }, data: { evaluationRequestedAt: new Date() } });
+      await tx.walletAutoRechargePreference.updateMany({ where: { walletId: input.walletId, clientId: input.clientId, enabled: true }, data: { evaluationRequestedAt: new Date() } });
       return posted;
     }
   }

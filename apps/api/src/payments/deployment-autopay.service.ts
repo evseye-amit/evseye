@@ -1,3 +1,5 @@
+import { VARIABLE_POLICY_TERMS, VARIABLE_POLICY_DESCRIPTION } from './wallet-autopay-terms.js';
+import { unifiedAutoPayEnabled } from './unified-autopay-rollout.js';
 import {
   BadRequestException,
   ConflictException,
@@ -46,6 +48,7 @@ export class DeploymentAutoPayService
     options: DeploymentCheckoutOptions,
     tx?: Prisma.TransactionClient,
   ) {
+    const setupStartedAt = new Date().toISOString();
     if (
       this.config.get('RAZORPAY_DEPLOYMENT_AUTOPAY_ENABLED') !== 'true' ||
       this.config.get('RAZORPAY_AUTOPAY_ENABLED') !== 'true'
@@ -60,14 +63,17 @@ export class DeploymentAutoPayService
       code: 'AUTOPAY_UNAVAILABLE',
       message: availability.reasonMessage ?? 'Onboarding AutoPay is disabled for this client.',
     });
+    const unified = unifiedAutoPayEnabled(this.config, clientId);
+    const funding = unified ? await (tx ?? this.db).walletAutoRechargePolicy.findUnique({ where: { clientId } }) : null;
+    if (unified && (!funding?.enabled || (options.autoPayConsent && funding.revision !== options.autoPayConsent.consentRevision))) throw new ConflictException('AUTOPAY_CONSENT_CHANGED');
     if (
       !options.email ||
-      options.autoPayConsent?.accepted !== true ||
-      options.autoPayConsent.version !== 'deployment-autopay-v1'
+      (options.autoPayConsent && (options.autoPayConsent.accepted !== true ||
+      options.autoPayConsent.version !== (unified ? 'unified-autopay-v1' : 'deployment-autopay-v1')))
     )
       throw new BadRequestException({
         code: 'VALIDATION_FAILED',
-        message: 'Explicit AutoPay consent and email are required.',
+        message: 'Email and valid checkout terms are required.',
       });
     const context = await this.mandates.deploymentContext(clientId, userId);
     await this.policy.resolve(clientId, 'UPI_AUTOPAY', 'RAZORPAY');
@@ -87,8 +93,8 @@ export class DeploymentAutoPayService
       new Prisma.Decimal(15000),
     );
     if (
-      !maxAmount.eq(options.autoPayConsent.maxAmount) ||
-      options.autoPayConsent.validityDays !== context.validityDays
+      options.autoPayConsent && (!maxAmount.eq(options.autoPayConsent.maxAmount) ||
+      options.autoPayConsent.validityDays !== context.validityDays)
     )
       throw new ConflictException({
         code: 'AUTOPAY_TERMS_CHANGED',
@@ -106,6 +112,8 @@ export class DeploymentAutoPayService
       await this.db.$transaction((tx) =>
         this.mandates.assertNoOpenMandate(tx, clientId, context.rider.id),
       );
+    if (unified) await (tx ?? this.db).$queryRaw`SELECT id FROM "RiderWallet" WHERE "clientId"=${clientId} AND "riderId"=${context.rider.id} FOR UPDATE`;
+    const preference = unified ? await (tx ?? this.db).walletAutoRechargePreference.findUnique({ where: { clientId_riderId: { clientId, riderId: context.rider.id } } }) : null;
     const expiresAt = new Date(
       Math.floor((Date.now() + context.validityDays * 86400000) / 1000) * 1000,
     );
@@ -113,9 +121,10 @@ export class DeploymentAutoPayService
       maxAmount,
       expiresAt,
       consent: {
-        version: options.autoPayConsent.version,
-        accepted: true,
-        acceptedAt: new Date().toISOString(),
+        version: unified ? 'unified-autopay-v1' : 'deployment-autopay-v1',
+        // Checkout creation is not authorization. Provider confirmation is recorded later.
+        authorizationSource: 'PROVIDER_CHECKOUT',
+        termsCreatedAt: setupStartedAt,
         actorId: userId,
         riderId: context.rider.id,
         riderName: context.rider.name,
@@ -123,9 +132,12 @@ export class DeploymentAutoPayService
         email: options.email,
         maxAmount: maxAmount.toFixed(2),
         currency: 'INR',
+        validityDays: context.validityDays,
         frequency: 'as_presented',
         expiresAt: expiresAt.toISOString(),
-        scope: 'INVOICE_AUTO_DEBIT',
+        scope: unified ? 'WALLET_FUNDING' : 'INVOICE_AUTO_DEBIT',
+        ...(unified ? { requestKey: options.requestKey, policyTerms: VARIABLE_POLICY_TERMS, termsDescription: VARIABLE_POLICY_DESCRIPTION, expectedRevision: preference?.revision ?? 0 } : {}),
+        ...(funding ? { consentRevision: funding.revision, threshold: funding.threshold.toFixed(2), rechargeAmount: funding.rechargeAmount.toFixed(2) } : {}),
       } satisfies Prisma.InputJsonObject,
     };
   }
@@ -410,6 +422,13 @@ export class DeploymentAutoPayService
           a.clientId,
           allocation.riderId,
         );
+        if ((a.autoPayConsent as { scope?: string } | null)?.scope === 'WALLET_FUNDING') {
+          await tx.$queryRaw`SELECT id FROM "RiderWallet" WHERE "clientId"=${a.clientId} AND "riderId"=${allocation.riderId} FOR UPDATE`;
+          if (await tx.paymentTransaction.findFirst({ where: { clientId: a.clientId, riderId: allocation.riderId, status: { in: ['CREATING', 'PENDING', 'UNKNOWN'] } } })) throw new ConflictException('AUTOPAY_MIGRATION_BLOCKED');
+          await tx.riderPaymentProfile.upsert({ where: { clientId_riderId: { clientId: a.clientId, riderId: allocation.riderId } },
+            create: { clientId: a.clientId, riderId: allocation.riderId, collectionMode: 'LEDGER_WALLET', autoSettleInvoiceFromWallet: true },
+            update: { collectionMode: 'LEDGER_WALLET', autoSettleInvoiceFromWallet: true } });
+        }
         const mandate = await tx.paymentMandate.create({
           data: {
             clientId: a.clientId,
@@ -430,6 +449,7 @@ export class DeploymentAutoPayService
             providerAuthorizationOrderId: a.providerOrderId,
             providerAuthorizationPaymentId: payment.id,
             providerFrequency: 'as_presented',
+            ...((a.autoPayConsent as Prisma.JsonObject | null)?.policyTerms === VARIABLE_POLICY_TERMS ? { walletSetupIntent: a.autoPayConsent as Prisma.InputJsonObject } : {}),
             providerTermsSnapshot: {
               flow: 'DEPLOYMENT_CHECKOUT',
               deploymentAttemptId: a.id,

@@ -17,6 +17,7 @@ function setup() {
     walletInvoiceAllocation: { findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({}) },
     walletAccount: { findMany: vi.fn().mockResolvedValue(accounts) },
     walletPolicy: { findFirst: vi.fn().mockResolvedValue({ ...defaultPolicy, allowRewardUsage: true, maxRewardUsagePercent: d('20.00'), rewardCategories: ['RENTAL'] }) },
+    riderLedgerEntry: { create: vi.fn().mockResolvedValue({}) },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
   };
   const wallet = { ensure: vi.fn().mockResolvedValue({ id: 'wallet-a', currency: 'INR' }), locked: vi.fn((_: string, fn: (tx: never) => Promise<unknown>) => fn(tx as never)), balanceTx: vi.fn().mockResolvedValue({ cash: { availableBalance: '800.00' }, rewards: { availableBalance: '500.00' } }), postInTransaction: vi.fn().mockResolvedValue({ id: 'wallet-tx-a' }) };
@@ -33,6 +34,7 @@ describe('wallet invoice settlement', () => {
       { accountId: 'clearing', entryType: 'CREDIT', amount: '1100.00' },
     ] }));
     expect(tx.walletInvoiceAllocation.create).toHaveBeenCalledTimes(2);
+    expect(tx.riderLedgerEntry.create).toHaveBeenCalledWith({ data: expect.objectContaining({ sourceType: 'WALLET_INVOICE_PAYMENT', sourceId: 'wallet-tx-a', creditAmount: d('1100.00') }) });
     expect(result.outstandingAmount.toFixed(2)).toBe('400.00');
     expect(result.status).toBe('PARTIALLY_PAID');
   });

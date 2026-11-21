@@ -160,6 +160,12 @@ function fixture() {
 }
 
 describe('invoice AutoPay collection', () => {
+  it('never starts direct invoice collection for a migrated rider, even when wallet funding is off', async () => {
+    const f = fixture();
+    f.tx.riderPaymentProfile.findUnique.mockResolvedValue({ collectionMode: 'LEDGER_WALLET', autoPayEnabled: false } as never);
+    await expect(f.service.collect(clientId, riderId, invoiceId, 'unified-test', scheduledAt)).rejects.toThrow('LEDGER_WALLET_COLLECTION_ONLY');
+    expect(f.tx.paymentTransaction.create).not.toHaveBeenCalled();
+  });
   it('charges only the server-side finalized invoice balance and creates one attempt', async () => {
     const f = fixture();
     const response = await f.service.collect(

@@ -39,7 +39,7 @@ const mandate = {
   authorizedAt: null,
 };
 
-function fixture(providerType = 'mock') {
+function fixture(providerType = 'mock', unified?: { activateOnboarding: ReturnType<typeof vi.fn>; captureSetup?: ReturnType<typeof vi.fn> }) {
   const storedMandate = { ...mandate };
   const prisma = {
     rider: { findFirst: vi.fn().mockResolvedValue(rider) },
@@ -119,21 +119,49 @@ function fixture(providerType = 'mock') {
       config as never,
       provider as never,
       collections as never,
+      undefined,
+      unified as never,
     ),
   };
 }
 
 describe('UPI AutoPay mandate service', () => {
+  it('persists wallet setup intent before provider creation and never recaptures it on retry', async () => {
+    const intent = { actorId: userId, riderId: rider.id, scope: 'WALLET_FUNDING', expectedRevision: 4, termsCreatedAt: new Date().toISOString() };
+    const unified = { activateOnboarding: vi.fn(), captureSetup: vi.fn().mockResolvedValue(intent) };
+    const f = fixture('mock', unified);
+    await f.service.create(clientId, userId, 'create-key-1', 'UPI_AUTOPAY', 'rider@example.com', true);
+    expect(f.prisma.paymentMandate.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ walletSetupIntent: intent, autoDebitEnabled: false }) }));
+    f.prisma.paymentMandate.findUnique.mockResolvedValue({ ...mandate, walletSetupIntent: intent } as never);
+    await f.service.create(clientId, userId, 'create-key-1', 'UPI_AUTOPAY', 'rider@example.com', true);
+    expect(unified.captureSetup).toHaveBeenCalledTimes(1);
+    expect(f.provider.createMandate).toHaveBeenCalledTimes(1);
+  });
+  it.each(['ACTIVE', 'AUTHORIZATION_PENDING', 'FAILED', 'CANCELLED'])('only attempts onboarding activation after verified %s status', async (status) => {
+    const unified = { activateOnboarding: vi.fn().mockResolvedValue(undefined) };
+    const f = fixture('mock', unified);
+    f.prisma.paymentMandate.findFirst.mockResolvedValue(mandate);
+    f.provider.fetchMandate.mockResolvedValue({ providerMandateId: mandate.providerMandateId, status, rawStatus: status });
+    await f.service.verify(clientId, userId, mandate.id);
+    if (status === 'ACTIVE') expect(unified.activateOnboarding).toHaveBeenCalledWith(mandate.id);
+    else expect(unified.activateOnboarding).not.toHaveBeenCalled();
+  });
+  it('preserves successful authorization when wallet activation needs recovery', async () => {
+    const unified = { activateOnboarding: vi.fn().mockRejectedValue(new Error('temporary database failure')) };
+    const f = fixture('mock', unified);
+    f.prisma.paymentMandate.findFirst.mockResolvedValue(mandate);
+    expect(await f.service.verify(clientId, userId, mandate.id)).toMatchObject({ status: 'ACTIVE' });
+  });
   it('requires an active package with configured entitlement', async () => {
     const { service, prisma } = fixture();
     prisma.clientSubscription.findFirst.mockResolvedValue(null);
-    await expect(service.current(clientId, userId)).rejects.toThrow(
+    await expect(service.deploymentContext(clientId, userId)).rejects.toThrow(
       'active client package',
     );
     prisma.clientSubscription.findFirst.mockResolvedValue({
       package: { ...subscription.package, features: [] },
     });
-    await expect(service.current(clientId, userId)).rejects.toThrow(
+    await expect(service.deploymentContext(clientId, userId)).rejects.toThrow(
       'not included',
     );
     expect(prisma.clientSubscription.findFirst).toHaveBeenCalledWith(

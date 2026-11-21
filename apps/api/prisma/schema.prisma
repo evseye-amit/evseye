@@ -2240,6 +2240,10 @@ model PaymentMandate {
   providerAuthorizationPaymentId String? @unique @db.VarChar(100)
   authorizationUrl String? @db.VarChar(1000)
   providerFrequency String? @db.VarChar(30)
+  walletSetupIntent Json?
+  walletActivationCompletedAt DateTime?
+  walletActivationCheckedAt DateTime @default(now())
+  walletActivationFailure String? @db.VarChar(80)
   providerTermsSnapshot Json?
   providerCreateClaimedAt DateTime?
   providerCancelRequestedAt DateTime?
@@ -2260,6 +2264,7 @@ model PaymentMandate {
   providerEvents         PaymentProviderEvent[]
   transactions           PaymentTransaction[]
 
+  @@index([status, walletActivationCompletedAt, walletActivationCheckedAt], map: "PaymentMandate_wallet_activation_idx")
   @@index([provider, providerCheckedAt])
   @@unique([clientId, riderId, requestKey])
   @@unique([clientId, id])
@@ -2494,6 +2499,8 @@ model RiderPaymentProfile {
   client                      Client   @relation(fields: [clientId], references: [id], onDelete: Restrict)
   riderId                     String   @unique
   rider                       Rider    @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
+  walletSettlementCheckedAt   DateTime @default(now())
+  collectionMode              String   @default("LEGACY_INVOICE") @db.VarChar(30)
   autoPayEnabled              Boolean  @default(false)
   autoSettleInvoiceFromWallet Boolean  @default(false)
   billingStatus               String   @default("CURRENT") @db.VarChar(30)
@@ -2506,6 +2513,7 @@ model RiderPaymentProfile {
 
   @@unique([clientId, riderId])
   @@index([clientId, billingStatus])
+  @@index([collectionMode, id])
 }
 
 model RiderCharge {
@@ -6736,6 +6744,7 @@ model WalletAutoRechargePolicy {
 }
 
 model WalletAutoRechargePreference {
+  revision Int @default(0)
   id String @id @default(uuid())
   clientId String
   client Client @relation(fields: [clientId], references: [id], onDelete: Restrict)

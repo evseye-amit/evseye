@@ -1,6 +1,6 @@
 # Wallet AutoPay — operations and release
 
-Implementation defaults: available cash threshold ₹550, fixed recharge ₹750, one unresolved request per wallet, 25-hour notice plus five-minute submission buffer, 24-hour cooldown after success. Client policy and rider consent are separate and default off. This change does not enable any rider/client or deploy infrastructure.
+Implementation defaults: available cash threshold ₹550, fixed recharge ₹750, one unresolved request per wallet, 25-hour notice plus five-minute submission buffer, 24-hour cooldown after success. One client AutoPay policy controls both enrollment paths; rider consent remains separate and defaults off. This change does not enable any rider/client or deploy infrastructure.
 
 ## Client configuration
 
@@ -8,7 +8,7 @@ Client Admin → Payments → AutoPay → Settings.
 
 Mandates open by default. Recharge history and payment verification are available on the Recharge history tab. Settings opens wallet policy and its audit history.
 
-API: `GET /api/v1/client/wallet-autopay-policy`, then `PUT` with:
+API: `GET /api/v1/client/autopay/policy`, then `PUT` with:
 
 ```json
 { "enabled": true, "threshold": "550.00", "rechargeAmount": "750.00", "revision": 0 }
@@ -18,14 +18,14 @@ Use the revision returned by GET, never hardcode it. A missing policy returns re
 
 Operations APIs (CLIENT_ADMIN, tenant-scoped):
 
-- `GET /api/v1/client/wallet-autopay-policy/requests?page=1`: 50 requests/page plus `hasMore`.
-- `POST /api/v1/client/wallet-autopay-policy/requests/:id/verify`: reconcile existing provider evidence. Does not bypass the worker lease or create another request for an uncertain debit.
+- `GET /api/v1/client/autopay/recharges?page=1`: 50 requests/page plus `hasMore`.
+- `POST /api/v1/client/autopay/recharges/:id/verify`: reconcile existing provider evidence. Does not bypass the worker lease or create another request for an uncertain debit.
 
 `UNKNOWN`/`REVIEW_REQUIRED` block another automatic recharge. Investigate provider order/payment references using the saved merchant credentials. Never delete claims or force a success status to unblock payment. External refunds and multiple captures require review; the system does not silently remove previously credited funds.
 
 ## Collection modes
 
-A rider who opts into wallet funding cannot also schedule a new direct rental-invoice AutoPay debit. Wallet-first invoice settlement remains available. Existing submitted invoice collections must resolve before wallet opt-in. Turning off a client wallet policy does not silently switch opted-in riders into direct invoice collection.
+A rider migrated to LEDGER_WALLET cannot schedule any new direct invoice AutoPay debit, even after disabling automatic funding. Wallet-first invoice settlement remains available. Existing submitted invoice collections must resolve before wallet opt-in. Turning off a client wallet policy does not silently switch opted-in riders into direct invoice collection.
 
 Manual Add Money remains available. Scooter return initiation stops new recharge creation. A previously submitted payment is still reconciled and credited on verified capture even if the rider disables wallet funding, returns the scooter, or the rollout flag is disabled.
 
@@ -59,6 +59,6 @@ Ensure the client's existing rental billing setup actually deducts rent from the
 
 Validation on 2026-11-14: API and web TypeScript checks passed; full `test-payment-release.mjs` passed 357 tests across 42 files with no skips, including 19 wallet AutoPay tests; existing payment-operations web tests passed (4/4); new API files passed oxlint and the new admin component passed ESLint. These results use the local environment described above, not a live Razorpay bank debit.
 
-Settings history is available at GET /client/wallet-autopay-policy/history?page=1 (Client Admin only). Successful changes record before/after values and the authenticated actor in the same transaction. Unchanged saves add no entry. Older audit entries may lack previous values; these are displayed as unavailable.
+Settings history is available at GET /client/autopay/policy/history?page=1 (Client Admin only). Successful changes record before/after values and the authenticated actor in the same transaction. Unchanged saves add no entry. Older audit entries may lack previous values; these are displayed as unavailable.
 
 AutoPay workspace: Payments → AutoPay opens Mandates by default. Recharge history is a separate, visibly selected tab. The top-right Settings action opens wallet policy and audit history; Back to mandates preserves mandate filters and pagination. Settlement and refund tools are excluded from the mandate view. Mandate search/status filters apply to the loaded batch; Export mandates exports the full mandate history.
