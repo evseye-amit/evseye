@@ -1,3 +1,4 @@
+import { transactionHistory } from './transaction-history.js';
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma, WalletAccountType, WalletEntryType, WalletHoldStatus, WalletTransactionStatus, WalletTransactionType } from '@prisma/client';
 import { createHash, randomUUID } from 'node:crypto';
@@ -234,7 +235,20 @@ export class WalletService {
     const reversal = await this.post({ clientId, walletId: original.walletId, actorId, type: WalletTransactionType.REVERSAL, amount: original.amount.toFixed(2), currency: original.currency, description: `Reversal of ${original.transactionNumber}`, idempotencyKey: key, parentTransactionId: original.id, entries: original.entries.map(e => ({ accountId: e.accountId, entryType: e.entryType === 'CREDIT' ? 'DEBIT' : 'CREDIT', amount: e.amount.toFixed(2) })) });
     return reversal;
   }
-  transactions(clientId: string, walletId: string, page: number, pageSize: number) { return this.prisma.walletTransaction.findMany({ where: { clientId, walletId, NOT: { transactionType: 'TOP_UP', status: 'POSTED', referenceType: 'PAYMENT_COLLECTION', entries: { none: {} } } }, select: { id: true, transactionNumber: true, transactionType: true, status: true, amount: true, currency: true, description: true, referenceType: true, referenceId: true, createdAt: true, postedAt: true }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }); }
-  transaction(clientId: string, walletId: string, id: string) { return this.prisma.walletTransaction.findFirst({ where: { clientId, walletId, id }, select: { id: true, transactionNumber: true, transactionType: true, status: true, amount: true, currency: true, description: true, referenceType: true, referenceId: true, createdAt: true, postedAt: true } }); }
+  async transactions(clientId: string, walletId: string, page: number, pageSize: number) {
+    return this.prisma.$transaction(async tx => {
+      const wallet = await tx.riderWallet.findFirst({ where: { clientId, id: walletId } });
+      if (!wallet) return [];
+      return (await transactionHistory(tx, { clientId, riderId: wallet.riderId, walletId, currency: wallet.currency, page, pageSize, hideLegacyTopUps: true })).items;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  }
+  async transaction(clientId: string, walletId: string, id: string) {
+    if (!id.startsWith('deployment:')) return this.prisma.walletTransaction.findFirst({ where: { clientId, walletId, id }, select: { id: true, transactionNumber: true, transactionType: true, status: true, amount: true, currency: true, description: true, referenceType: true, referenceId: true, createdAt: true, postedAt: true } });
+    return this.prisma.$transaction(async tx => {
+      const wallet = await tx.riderWallet.findFirst({ where: { clientId, id: walletId } });
+      if (!wallet) return null;
+      return (await transactionHistory(tx, { clientId, riderId: wallet.riderId, walletId, currency: wallet.currency, page: 1, pageSize: 1, id })).items[0] ?? null;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  }
   async ledger(clientId: string, walletId: string, id: string) { const transaction = await this.prisma.walletTransaction.findFirst({ where: { clientId, walletId, id }, include: { entries: { orderBy: { sequence: 'asc' } } } }); if (!transaction) throw new NotFoundException('TRANSACTION_NOT_FOUND'); return transaction; }
 }

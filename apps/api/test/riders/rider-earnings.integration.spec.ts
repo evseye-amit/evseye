@@ -129,4 +129,49 @@ describe.skipIf(!url)('rider earnings in PostgreSQL', () => {
     await expect(wallets.transactions(f.client.id, noWallet.id, new RiderWalletTransactionsQueryDto())).rejects.toThrow('Rider not found');
   });
 
+  it('merges historical deployment receipts with ledger activity, without changing balances', async () => {
+    const f = await fixture(), other = await fixture();
+    const suffix = randomUUID();
+    const oem = await db.oem.create({ data: { code: suffix, name: suffix, displayName: suffix } });
+    const category = await db.vehicleCategory.create({ data: { code: suffix, name: suffix } });
+    const type = await db.vehicleType.create({ data: { code: suffix, name: suffix, categoryId: category.id, energyType: 'ELECTRIC' } });
+    const fleet = await db.fleet.create({ data: { clientId: f.client.id, fleetCode: suffix, chassisNumber: suffix,
+      oemId: oem.id, vehicleCategoryId: category.id, vehicleTypeId: type.id, speedType: 'SLOW_SPEED' } });
+    async function deployment(status: 'PAID' | 'PENDING', amount: string, riderId = f.rider.id, clientId = f.client.id, currency = 'INR') {
+      const allocation = await db.allocation.create({ data: { clientId, riderId, fleetId: fleet.id, initiatedById: 'SYSTEM' } });
+      const workflow = await db.mobileDeploymentWorkflow.create({ data: { clientId, allocationId: allocation.id } });
+      return db.deploymentPayment.create({ data: { clientId, workflowId: workflow.id, status, amount, currency, breakdown: {},
+        createdAt: new Date('2026-10-01T00:00:00Z'), paidAt: status === 'PAID' ? new Date('2026-10-02T00:00:00Z') : null } });
+    }
+    const paid = await deployment('PAID', '1200.10');
+    await deployment('PENDING', '777.00');
+    await deployment('PAID', '0.00');
+    await deployment('PAID', '888.00', other.rider.id, other.client.id);
+    const sibling = await db.rider.create({ data: { clientId: f.client.id, name: 'Sibling', mobile: suffix } });
+    await deployment('PAID', '999.00', sibling.id);
+    const reward = await f.earning('REWARD', '10.10', '2026-10-03T00:00:00Z');
+    const ledger = new WalletService(db as never);
+    const before = await ledger.balance(f.client.id, f.wallet.id);
+    const count = await db.walletTransaction.count({ where: { clientId: f.client.id } });
+    const page = (values = {}) => wallets.transactions(f.client.id, f.rider.id, Object.assign(new RiderWalletTransactionsQueryDto(), values));
+    const first = await page({ pageSize: 1 });
+    const second = await page({ pageSize: 1, page: 2 });
+    expect(first.meta.total).toBe(2);
+    expect(first.items[0].id).toBe(reward.id);
+    expect(second.items[0]).toMatchObject({ id: `deployment:${paid.id}`, amount: '1200.10', transactionType: 'PAYMENT', status: 'POSTED',
+      referenceType: 'DEPLOYMENT_PAYMENT', referenceId: paid.id, affectsBalance: false, movements: [] });
+    expect((await page({ page: 3, pageSize: 1 })).items).toEqual([]);
+    expect((await page({ type: 'PAYMENT', status: 'POSTED', from: '2026-10-01', to: '2026-10-01' })).items).toHaveLength(1);
+    expect((await page({ from: '2026-10-02', to: '2026-10-02' })).items).toEqual([]);
+    expect((await page({ status: 'PENDING' })).items).toEqual([]);
+    expect(await ledger.transactions(f.client.id, f.wallet.id, 2, 1)).toEqual(second.items);
+    expect(await ledger.transaction(f.client.id, f.wallet.id, `deployment:${paid.id}`)).toEqual(second.items[0]);
+    expect(await ledger.transaction(other.client.id, other.wallet.id, `deployment:${paid.id}`)).toBeNull();
+    expect(await ledger.balance(f.client.id, f.wallet.id)).toEqual(before);
+    expect(await db.walletTransaction.count({ where: { clientId: f.client.id } })).toBe(count);
+    await deployment('PAID', '5.00', f.rider.id, f.client.id, 'USD');
+    expect(await ledger.transactions(f.client.id, f.wallet.id, 1, 20)).toHaveLength(2);
+    expect((await page()).meta.total).toBe(3);
+  });
+
 });

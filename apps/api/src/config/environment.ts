@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseFirebaseServiceAccount } from './firebase-credentials.js';
 import { normalizeHostname } from '../client-identity/hostname.js';
 const hostList = z.string().refine((value) => {
   try {
@@ -28,6 +29,7 @@ const environmentSchema = z.object({
   PUSH_ENABLED: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
   FIREBASE_PROJECT_ID: z.preprocess((value) => value === '' ? undefined : value, z.string().min(1).optional()),
   GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),
+  FIREBASE_SERVICE_ACCOUNT_JSON: z.preprocess((value) => value === '' ? undefined : value, z.string().optional()),
   PUSH_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(100),
   PUSH_TOKENS_PER_SECOND: z.coerce.number().int().min(1).max(500).default(100),
   PUSH_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(6),
@@ -398,5 +400,8 @@ export function validateEnvironment(
     if (result.data.RAZORPAY_KEY_SECRET === result.data.RAZORPAY_WEBHOOK_SECRET) throw new Error('Use distinct Razorpay API and webhook secrets.');
   }
   if (result.data.PUSH_ENABLED && !result.data.FIREBASE_PROJECT_ID) throw new Error('FIREBASE_PROJECT_ID is required when PUSH_ENABLED=true.');
+  if (result.data.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    parseFirebaseServiceAccount(result.data.FIREBASE_SERVICE_ACCOUNT_JSON, result.data.FIREBASE_PROJECT_ID);
+  }
   return result.data;
 }

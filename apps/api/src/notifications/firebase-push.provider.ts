@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { applicationDefault, getApp, initializeApp } from 'firebase-admin/app';
+import {
+  applicationDefault,
+  cert,
+  getApp,
+  initializeApp,
+} from 'firebase-admin/app';
+import { parseFirebaseServiceAccount } from '../config/firebase-credentials.js';
 import { getMessaging, type Message } from 'firebase-admin/messaging';
 
 export type PushTarget = {
@@ -84,8 +90,16 @@ export class FirebasePushProvider implements PushProvider {
       try {
         app = getApp(name);
       } catch {
+        const serviceAccountJson = this.config.get<string>(
+          'FIREBASE_SERVICE_ACCOUNT_JSON',
+        );
         app = initializeApp(
-          { projectId, credential: applicationDefault() },
+          {
+            projectId,
+            credential: serviceAccountJson
+              ? cert(parseFirebaseServiceAccount(serviceAccountJson, projectId))
+              : applicationDefault(),
+          },
           name,
         );
       }
