@@ -6,6 +6,7 @@ import {
 import {
   BodyLimitError,
   boundedBody,
+  forwardApplicationHeaders,
   sameOriginRequest,
   sessionCookieNames,
 } from "../../../../lib/gateway-security";
@@ -51,10 +52,7 @@ async function proxy(
     const headers = new Headers(
       clientGatewayHeaders(request.headers.get("host") ?? ""),
     );
-    for (const name of ["content-type", "accept"]) {
-      const value = request.headers.get(name);
-      if (value) headers.set(name, value);
-    }
+    forwardApplicationHeaders(request.headers, headers);
     // Never trust a browser-supplied Authorization header or forward arbitrary cookies.
     const accessToken = jar.get(names.access)?.value;
     if (accessToken) headers.set("authorization", `Bearer ${accessToken}`);

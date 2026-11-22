@@ -1,6 +1,13 @@
 /** The API uses Fastify's 1 MiB body limit. Upload binary assets directly to storage. */
 export const MAX_API_BODY_BYTES = 1024 * 1024;
 export class BodyLimitError extends Error {}
+/** Forward only application headers; credentials and tenant context are server-owned. */
+export function forwardApplicationHeaders(source: Headers, target: Headers): void {
+  for (const name of ["content-type", "accept", "idempotency-key"]) {
+    const value = source.get(name);
+    if (value) target.set(name, value);
+  }
+}
 export async function boundedBody(
   request: Request,
 ): Promise<ArrayBuffer | undefined> {
