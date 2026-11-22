@@ -9,6 +9,7 @@ const METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const;
 export const SWAGGER_TAGS = [
   ['Health', 'Service liveness and readiness checks.'],
   ['Auth', 'OTP authentication, sessions, and the current user.'],
+  ['App updates', 'Client-specific mobile update checks and super admin release policies.'],
   ['Banks', 'Authenticated IFSC bank-detail lookups.'],
   ['Platform Catalog · Dashboard', 'Platform catalog overview metrics.'],
   ['Platform Catalog · OEM', 'OEM master data and OEM logo uploads.'],
@@ -46,6 +47,7 @@ export const SWAGGER_TAGS = [
 
 function tagForPath(path: string): string {
   if (path === '/health' || path === '/health/ready') return 'Health';
+  if (path.includes('/app-updates')) return 'App updates';
   if (path.startsWith('/api/v1/auth/')) return 'Auth';
   if (path.startsWith('/api/v1/banks')) return 'Banks';
   if (path === '/api/v1/platform/dashboard') return 'Platform Catalog · Dashboard';
@@ -91,6 +93,7 @@ const PUBLIC_PATHS = new Set([
   '/health',
   '/health/ready',
   '/api/v1/public/client-context',
+  '/api/v1/public/app-updates/check',
   '/api/v1/auth/otp/request',
   '/api/v1/auth/otp/verify',
   '/api/v1/auth/refresh',
