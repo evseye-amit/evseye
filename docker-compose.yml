@@ -10,7 +10,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U evseye -d evseye"]
+      test: [ "CMD-SHELL", "pg_isready -U evseye -d evseye" ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -20,7 +20,7 @@ services:
     ports:
       - "6380:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -37,7 +37,7 @@ services:
     volumes:
       - minio_data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -60,6 +60,8 @@ services:
         mc anonymous set download local/evs-eye-local/platform/oems
 
   api:
+    secrets:
+      - firebase-service-account.json
     image: evseye-api:local
     pull_policy: build
     build:
@@ -101,13 +103,7 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://evseye:evseye@postgres:5432/evseye?schema=public
-    command:
-      [
-        "./apps/api/node_modules/.bin/prisma",
-        "migrate",
-        "deploy",
-        "--config=apps/api/prisma.config.ts",
-      ]
+    command: [ "./apps/api/node_modules/.bin/prisma", "migrate", "deploy", "--config=apps/api/prisma.config.ts" ]
     depends_on:
       postgres:
         condition: service_healthy
@@ -126,7 +122,7 @@ services:
       AWS_REGION: ap-south-1
       AWS_ACCESS_KEY_ID: evseye-minio
       AWS_SECRET_ACCESS_KEY: evseye-minio-local-password
-    command: ["node", "apps/api/prisma/seed.mjs"]
+    command: [ "node", "apps/api/prisma/seed.mjs" ]
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -149,6 +145,10 @@ services:
       - "3001:3001"
     depends_on:
       - api
+
+secrets:
+  firebase-service-account.json:
+    file: /Users/amitgoyal/.config/evseye/secrets/firebase-service-account.json
 
 volumes:
   postgres_data:
