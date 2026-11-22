@@ -37,7 +37,7 @@ export const or: Record<string, string> = {
   "Allocation": "ଆବଣ୍ଟନ",
   "De-allocation": "ଆବଣ୍ଟନ ବାତିଲ୍",
   "Rider": "ରାଇଡର୍",
-  "Wallet": "ୱାଲେଟ୍",
+  "Transactions": "କାରବାର",
   "Rider Fleet Mapping": "ରାଇଡର୍-ଫ୍ଲିଟ୍ ମ୍ୟାପିଂ",
   "Rider Vendor Mapping": "ରାଇଡର୍-ଭେଣ୍ଡର୍ ମ୍ୟାପିଂ",
   "Rider Earnings": "ରାଇଡର୍ ଆୟ",

@@ -37,7 +37,7 @@ export const gu: Record<string, string> = {
   "Allocation": "ફાળવણી",
   "De-allocation": "ફાળવણી રદ કરો",
   "Rider": "રાઇડર",
-  "Wallet": "વૉલેટ",
+  "Transactions": "વ્યવહારો",
   "Rider Fleet Mapping": "રાઇડર-ફ્લીટ મેપિંગ",
   "Rider Vendor Mapping": "રાઇડર-વિક્રેતા મેપિંગ",
   "Rider Earnings": "રાઇડરની કમાણી",

@@ -37,7 +37,7 @@ export const ur: Record<string, string> = {
   "Allocation": "الاٹمنٹ",
   "De-allocation": "ڈی الاٹمنٹ",
   "Rider": "رائیڈر",
-  "Wallet": "والیٹ",
+  "Transactions": "لین دین",
   "Rider Fleet Mapping": "رائیڈر-فلیٹ میپنگ",
   "Rider Vendor Mapping": "رائیڈر-وینڈر میپنگ",
   "Rider Earnings": "رائیڈر کی آمدنی",

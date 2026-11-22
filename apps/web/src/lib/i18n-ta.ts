@@ -37,7 +37,7 @@ export const ta: Record<string, string> = {
   "Allocation": "ஒதுக்கீடு",
   "De-allocation": "ஒதுக்கீட்டை நீக்குதல்",
   "Rider": "ரைடர்",
-  "Wallet": "வாலெட்",
+  "Transactions": "பரிவர்த்தனைகள்",
   "Rider Fleet Mapping": "ரைடர்-ஃப்ளீட் இணைப்பு",
   "Rider Vendor Mapping": "ரைடர்-விற்பனையாளர் இணைப்பு",
   "Rider Earnings": "ரைடர் வருமானம்",

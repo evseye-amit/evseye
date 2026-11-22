@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { ClientFormDialog } from "./client-form-dialog";
 import { ClientDataTable } from "./client-data-table";
 import { RiderRewardEarnings } from "./rider-earnings";
+import { ledgerText } from "../../lib/ledger-presentation";
 import { formatDateTime, formatMoney } from "../../lib/presentation";
 
 type Request = (path: string) => Promise<unknown>;
@@ -13,7 +14,7 @@ type Wallet = Bucket & { id: string; currency: string; status: string; cash: Buc
 type Balance = { wallets: Wallet[] };
 type Transaction = { id: string; transactionNumber: string; transactionType: string; status: string; currency: string; amount: string; description: string; referenceId: string | null; referenceType: string | null; createdAt: string; postedAt: string | null; movements: { bucket: string; amount: string }[] };
 type Transactions = { items: Transaction[]; meta: { page: number; pageSize: number; total: number }; transactionTypes: string[]; transactionStatuses: string[] };
-const label = (value: string) => value.toLowerCase().replaceAll('_', ' ').replace(/(^|\s)\S/g, character => character.toUpperCase());
+const label = (value: string) => ledgerText(value).toLowerCase().replaceAll('_', ' ').replace(/(^|\s)\S/g, character => character.toUpperCase());
 
 function useWalletResource<T>(path: string | null, request: Request) {
   const ref = useRef(request);
@@ -28,7 +29,7 @@ function useWalletResource<T>(path: string | null, request: Request) {
         const data = await ref.current(path) as T;
         if (active) setState({ path, data });
       } catch (cause) {
-        if (active) setState({ path, error: cause instanceof Error ? cause.message : 'Unable to load wallet data.' });
+        if (active) setState({ path, error: cause instanceof Error ? ledgerText(cause.message) : 'Unable to load ledger data.' });
       }
     }, 100);
     return () => { active = false; window.clearTimeout(timer); };
@@ -45,16 +46,16 @@ function WalletBalance({ riderId, request }: { riderId: string; request: Request
   return <>
     <div className="form-actions"><button type="button" className="secondary" onClick={resource.reload} disabled={resource.loading}>Refresh balance</button></div>
     <WalletError error={resource.error} reload={resource.reload} />
-    {resource.loading && <p role="status">Loading wallet balance…</p>}
-    {resource.data?.wallets.length === 0 && <p className="muted">No wallet exists for this rider yet.</p>}
+    {resource.loading && <p role="status">Loading ledger balance…</p>}
+    {resource.data?.wallets.length === 0 && <p className="muted">No ledger exists for this rider yet.</p>}
     {resource.data?.wallets.map(wallet => <section className="action-card rider-wallet-balance" key={wallet.id}>
-      <h3>{wallet.currency} wallet <span className="status">{label(wallet.status)}</span></h3>
+      <h3>{wallet.currency} ledger <span className="status">{label(wallet.status)}</span></h3>
       <dl className="rider-wallet-totals">
         <div><dt>Total balance</dt><dd>{formatMoney(wallet.totalBalance, wallet.currency)}</dd></div>
         <div><dt>Held balance</dt><dd>{formatMoney(wallet.heldBalance, wallet.currency)}</dd></div>
         <div><dt>Available balance</dt><dd>{formatMoney(wallet.availableBalance, wallet.currency)}</dd></div>
       </dl>
-      <p className="muted">Total balance includes cash and rewards. Available balance reflects holds and wallet policy limits. The security deposit is shown separately.</p>
+      <p className="muted">Total balance includes cash and rewards. Available balance reflects holds and ledger policy limits. The security deposit is shown separately.</p>
       <ClientDataTable rows={[{ name: 'Cash', ...wallet.cash }, { name: 'Rewards', ...wallet.rewards }, { name: 'Security deposit', ...wallet.securityDepositBucket }]}
         getRowId={row => row.name} searchable={false} pagination={false} filterable={false} sortable={false}
         columns={[
@@ -76,7 +77,7 @@ function WalletTransactions({ riderId, request }: { riderId: string; request: Re
   const resource = useWalletResource<Transactions>(path, request);
   const options = resource.data ?? resource.lastData;
   return <>
-    <p className="muted">All wallet activity, including top-ups, payments, rewards, deductions and reversals. Date filters use the transaction creation date.</p>
+    <p className="muted">All transactions, including deployment payments, top-ups, rewards, deductions and reversals. Deployment payments were paid externally and do not change the ledger balance. Date filters use the transaction creation date.</p>
     <div className="client-filter-bar">
       <label>From (UTC)<input type="date" value={from} max={to || undefined} onChange={event => { setFrom(event.target.value); setPage(1); }} /></label>
       <label>To (UTC)<input type="date" value={to} min={from || undefined} onChange={event => { setTo(event.target.value); setPage(1); }} /></label>
@@ -92,13 +93,13 @@ function WalletTransactions({ riderId, request }: { riderId: string; request: Re
           { key: 'date', label: 'Created', value: row => row.createdAt, render: row => formatDateTime(row.createdAt) },
           { key: 'type', label: 'Type', value: row => label(row.transactionType) },
           { key: 'status', label: 'Status', value: row => label(row.status) },
-          { key: 'description', label: 'Description', value: row => row.description },
+          { key: 'description', label: 'Description', value: row => ledgerText(row.description) },
           { key: 'amount', label: 'Amount', value: row => row.amount, render: row => formatMoney(row.amount, row.currency) },
-          { key: 'movement', label: 'Wallet movement', value: row => row.movements.map(item => `${item.bucket} ${item.amount}`).join(' · '), render: row => <>{row.movements.length ? row.movements.map(item => <div key={item.bucket}>{label(item.bucket)}: {Number(item.amount) > 0 ? '+' : ''}{formatMoney(item.amount, row.currency)}</div>) : '—'}</> },
-          { key: 'reference', label: 'Reference', value: row => row.transactionNumber, render: row => <>{row.transactionNumber}{row.referenceId && <small className="muted rider-wallet-reference">{row.referenceType} · {row.referenceId}</small>}</> },
+          { key: 'movement', label: 'Balance movement', value: row => row.movements.map(item => `${item.bucket} ${item.amount}`).join(' · '), render: row => <>{row.movements.length ? row.movements.map(item => <div key={item.bucket}>{label(item.bucket)}: {Number(item.amount) > 0 ? '+' : ''}{formatMoney(item.amount, row.currency)}</div>) : row.referenceType === 'DEPLOYMENT_PAYMENT' ? 'No balance change' : '—'}</> },
+          { key: 'reference', label: 'Reference', value: row => row.transactionNumber, render: row => <>{row.transactionNumber}{row.referenceId && <small className="muted rider-wallet-reference">{row.referenceType ? label(row.referenceType) : null} · {row.referenceId}</small>}</> },
         ]}
         server={{ page, limit: pageSize, total: resource.data?.meta.total ?? 0, search: '', onSearch: () => {}, onPage: setPage, onLimit: value => { setPageSize(value); setPage(1); } }}
-        emptyMessage={resource.error ? 'Unable to load transactions. Retry to continue.' : 'No wallet transactions match this view.'} />
+        emptyMessage={resource.error ? 'Unable to load transactions. Retry to continue.' : 'No transactions match this view.'} />
     </>}
   </>;
 }
@@ -109,9 +110,9 @@ export function RiderWalletDialog({ rider, request, onClose }: { rider: Rider; r
   const [active, setActive] = useState<Tab>('balance');
   const [visited, setVisited] = useState<Tab[]>(['balance']);
   const select = (tab: Tab) => { setActive(tab); setVisited(current => current.includes(tab) ? current : [...current, tab]); };
-  return <ClientFormDialog title="Rider wallet" heading={<>Wallet · {rider.name}</>} wide formsOnly onClose={onClose}>
+  return <ClientFormDialog title="Rider ledger" heading={<>Ledger · {rider.name}</>} wide formsOnly onClose={onClose}>
     <p className="muted">{rider.mobile}</p>
-    <div className="rider-wallet-tabs" role="tablist" aria-label="Rider wallet">
+    <div className="rider-wallet-tabs" role="tablist" aria-label="Rider ledger">
       {tabs.map(([tab, title], index) => <button type="button" role="tab" key={tab} id={`${id}-${tab}-tab`} aria-selected={active === tab} aria-controls={`${id}-${tab}-panel`} tabIndex={active === tab ? 0 : -1} className={active === tab ? '' : 'secondary'} onClick={() => select(tab)} onKeyDown={event => {
         const next = event.key === 'ArrowRight' ? (index + 1) % tabs.length : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : null;
         if (next === null) return;

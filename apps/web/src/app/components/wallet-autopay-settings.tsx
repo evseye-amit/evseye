@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ledgerText } from "../../lib/ledger-presentation";
 import { sessionFetch } from "../../lib/session-fetch";
 import { UnsavedChangesScope } from "./unsaved-changes";
 
@@ -69,9 +70,9 @@ export function WalletAutoPaySettings() {
   return <div className="autopay-settings">
     <UnsavedChangesScope resetKey={reset}>
       <form className="sa-form autopay-card" onSubmit={event => { event.preventDefault(); void save(); }}>
-        <div className="autopay-heading"><div><h2>AutoPay</h2><p className="muted">Manage automatic wallet recharges for riders with an active scooter.</p></div>
+        <div className="autopay-heading"><div><h2>AutoPay</h2><p className="muted">Manage automatic ledger recharges for riders with an active scooter.</p></div>
           {saved && <span className={`autopay-status ${saved.enabled ? "is-enabled" : ""}`}>{saved.enabled ? "Enabled" : "Disabled"}</span>}</div>
-        {error && <p role="alert" className="autopay-message is-error">{error}</p>}
+        {error && <p role="alert" className="autopay-message is-error">{ledgerText(error)}</p>}
         {notice && <p role="status" className="autopay-message">{notice}</p>}
         {!policy && !error && <p role="status">Loading settings…</p>}
         {policy && !policy.unifiedRollout && <p role="status" className="autopay-message">AutoPay is not available for this client yet. Saved settings will apply when it becomes available.</p>}
@@ -85,15 +86,15 @@ export function WalletAutoPaySettings() {
           </div>
           {!valid && <p role="alert" className="error">Enter a threshold from ₹0.01–₹5,000 and a recharge amount from ₹500–₹5,000, with up to two decimal places.</p>}
           <div className="autopay-message"><strong>Rider consent</strong><p>Changing either amount requires riders to accept the updated terms before new recharges can start.</p></div>
-          <details><summary>How automatic recharges work</summary><p>Only one automatic recharge can be pending per wallet. Debits are scheduled at least 25 hours ahead; wallet credit appears after confirmed payment. A successful recharge is followed by a 24-hour cooldown. Disabling AutoPay stops new requests; submitted debits may still complete.</p></details>
+          <details><summary>How automatic recharges work</summary><p>Only one automatic recharge can be pending per rider ledger. Debits are scheduled at least 25 hours ahead; ledger credit appears after confirmed payment. A successful recharge is followed by a 24-hour cooldown. Disabling AutoPay stops new requests; submitted debits may still complete.</p></details>
           <div className="form-actions"><button type="submit" disabled={!dirty || !valid || busy}>{busy ? "Saving…" : "Save changes"}</button><button type="button" className="secondary" disabled={!dirty || busy} onClick={() => { setPolicy(saved); setError(""); setNotice(""); setReset(value => value + 1); }}>Discard changes</button></div>
         </fieldset>}
         {latest && <p className="muted">Last updated by {latest.actorName ?? "Unknown administrator"} · {timestamp(latest.createdAt)}</p>}
       </form>
     </UnsavedChangesScope>
     <section className="sa-form autopay-card" aria-label="Settings history">
-      <div className="autopay-heading"><div><h2>Settings history</h2><p className="muted">Changes to this client’s wallet AutoPay configuration. Times are shown in your local timezone.</p></div><button type="button" className="secondary" disabled={historyLoading || busy} onClick={() => refreshHistory(1)}>Refresh history</button></div>
-      {historyError && <p role="alert" className="autopay-message is-error">{historyError}</p>}
+      <div className="autopay-heading"><div><h2>Settings history</h2><p className="muted">Changes to this client’s ledger AutoPay configuration. Times are shown in your local timezone.</p></div><button type="button" className="secondary" disabled={historyLoading || busy} onClick={() => refreshHistory(1)}>Refresh history</button></div>
+      {historyError && <p role="alert" className="autopay-message is-error">{ledgerText(historyError)}</p>}
       {historyLoading ? <p role="status">Loading history…</p> : !historyError && <><div className="autopay-history-table"><table><thead><tr><th>Updated at</th><th>Updated by</th><th>Change</th></tr></thead><tbody>{history.map(row => <tr key={row.id}><td>{timestamp(row.createdAt)}</td><td>{row.actorName ?? "Unknown administrator"}</td><td>{changes(row)}</td></tr>)}</tbody></table></div>{history.length === 0 && <p className="muted">No recorded settings changes.</p>}</>}
       <div className="form-actions"><button type="button" className="secondary" disabled={page === 1 || historyLoading} onClick={() => refreshHistory(page - 1)}>Previous</button><span>Page {page}</span><button type="button" className="secondary" disabled={!hasMore || historyLoading || !!historyError} onClick={() => refreshHistory(page + 1)}>Next</button></div>
     </section>
