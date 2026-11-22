@@ -1,3 +1,4 @@
+import { rentalCollectionEnabled, rentalClientEnabled } from './rental-billing-policy.js';
 import { RiderPaymentsService } from './rider-payments.service.js';
 import { WalletBillingService } from '../wallet/wallet-billing.service.js';
 import {
@@ -163,37 +164,51 @@ export class RiderBillingEngineService {
   }
 
   async generate(clientId: string, scheduleId: string, actorId: string | null) {
+    const expected = await this.prisma.riderBillingSchedule.findFirst({ where: { id: scheduleId, clientId }, select: { nextPeriodStart: true } });
+    if (!expected) throw new NotFoundException('BILLING_SCHEDULE_NOT_FOUND');
+    let invoice;
     for (let attempt = 0; ; attempt++) {
       try {
-        const invoice = await this.prisma.$transaction(
-          (tx) => this.generateInTransaction(tx, clientId, scheduleId, actorId),
-          {
-            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-            timeout: 20000,
-          },
+        invoice = await this.prisma.$transaction(
+          (tx) => this.generateInTransaction(tx, clientId, scheduleId, actorId, expected.nextPeriodStart),
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 20000 },
         );
-        const profile = await this.prisma.riderPaymentProfile.findFirst({ where: { clientId, riderId: invoice.riderId } });
-        if (profile?.autoSettleInvoiceFromWallet && this.walletBilling && invoice.outstandingAmount.gt(0))
-          return this.walletBilling.settle(clientId, invoice.id, actorId ?? 'SYSTEM', `auto:${invoice.id}`);
-        return invoice;
+        break;
       } catch (error) {
-        if (
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          error.code === 'P2034' &&
-          attempt < 3
-        )
-          continue;
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034' && attempt < 3) continue;
         throw error;
       }
     }
+    // Collection is outside the generation retry loop: a collection failure
+    // must never generate the next rental period.
+    if (rentalCollectionEnabled() && rentalClientEnabled(clientId) && this.walletBilling && invoice.outstandingAmount.gt(0)) {
+      try {
+        const profile = await this.prisma.riderPaymentProfile.findFirst({ where: { clientId, riderId: invoice.riderId } });
+        if (profile?.collectionMode === 'LEDGER_WALLET' || profile?.autoSettleInvoiceFromWallet) {
+          await this.walletBilling.settle(clientId, invoice.id, actorId ?? 'SYSTEM', `auto:${invoice.id}`);
+          return this.prisma.riderInvoice.findUniqueOrThrow({ where: { id: invoice.id }, include: { lines: true } });
+        }
+      } catch {
+        // The persistent collection recovery job retries this existing invoice.
+      }
+    }
+    return invoice;
   }
 
-  private async generateInTransaction(
+  async generateInTransaction(
     tx: Prisma.TransactionClient,
     clientId: string,
     scheduleId: string,
     actorId: string | null,
+    expectedStart?: Date,
   ) {
+    await tx.$queryRaw`SELECT id FROM "RiderBillingSchedule" WHERE id=${scheduleId} AND "clientId"=${clientId} FOR UPDATE`;
+    const current = await tx.riderBillingSchedule.findFirst({ where: { id: scheduleId, clientId } });
+    if (expectedStart && current && current.nextPeriodStart.getTime() !== expectedStart.getTime()) {
+      const existing = await tx.riderInvoice.findFirst({ where: { clientId, billingPeriod: { scheduleId, periodStart: expectedStart } }, include: { lines: true } });
+      if (existing) return existing;
+      throw new ConflictException('BILLING_CURSOR_CHANGED');
+    }
     const schedule = await tx.riderBillingSchedule.findFirst({
       where: { id: scheduleId, clientId, status: 'ACTIVE' },
     });
@@ -777,19 +792,4 @@ export class RiderBillingEngineService {
     });
   }
 
-  async generateDue(limit = 20) {
-    const due = await this.prisma.riderBillingSchedule.findMany({
-      where: { status: 'ACTIVE', nextPeriodStart: { lte: new Date() } },
-      orderBy: { nextPeriodStart: 'asc' },
-      take: limit,
-    });
-    for (const schedule of due) {
-      try {
-        await this.generate(schedule.clientId, schedule.id, null);
-      } catch (error) {
-        if (!(error instanceof ConflictException)) throw error;
-      }
-    }
-    return due.length;
-  }
 }

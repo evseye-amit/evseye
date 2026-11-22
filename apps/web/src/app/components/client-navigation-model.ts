@@ -1,6 +1,7 @@
 import type { IconName } from "./ui-icon";
 
 export type Tab =
+  | "rental-billing"
   | "autopay-settings"
   | "payment-transactions"
   | "payment-reconciliation"
@@ -86,6 +87,7 @@ export const CLIENT_NAVIGATION: Array<{
       { id: "payment-reconciliation", label: "Refunds & Reconciliation" },
       { id: "payment-settlements", label: "Settlements" },
       { id: "autopay-settings", label: "AutoPay" },
+      { id: "rental-billing", label: "Rent billing" },
       { id: "rider-rate-cards", label: "Rider Rate Cards" },
     ],
   },
@@ -118,6 +120,7 @@ export const CLIENT_NAVIGATION: Array<{
 
 export const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
   "autopay-settings": "pricing",
+  "rental-billing": "pricing",
   "payment-transactions": "pricing",
   "payment-reconciliation": "pricing",
   "payment-settlements": "pricing",
@@ -158,7 +161,7 @@ export const CLIENT_TAB_ICONS: Record<Tab, IconName> = {
 
 export function canAccessTab(id: Tab, userRoles: string[]) {
     if (userRoles.some(role => ["ADVISOR","QC_MANAGER"].includes(role))) return ["installation-board","vehicle-preparation","quality-check"].includes(id);
-    if (["audit","autopay-settings","payment-transactions","payment-reconciliation","payment-settlements","spares-penalties","legal-documents","refer-and-earn","readiness-settings","work-partners"].includes(id)) return userRoles.includes("CLIENT_ADMIN");
+    if (["audit","rental-billing","autopay-settings","payment-transactions","payment-reconciliation","payment-settlements","spares-penalties","legal-documents","refer-and-earn","readiness-settings","work-partners"].includes(id)) return userRoles.includes("CLIENT_ADMIN");
     if (["notifications","advisors","qc-managers"].includes(id)) return userRoles.some(role => ["CLIENT_ADMIN","FLEET_MANAGER"].includes(role));
     return true;
 }

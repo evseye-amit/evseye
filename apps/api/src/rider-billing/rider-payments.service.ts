@@ -520,7 +520,7 @@ export class RiderPaymentsService {
       await tx.auditLog.create({
         data: {
           clientId,
-          actorId,
+          actorId: actorId === 'SYSTEM' ? null : actorId,
           action: 'RIDER_PAYMENT_ALLOCATED',
           entityType: 'RiderPaymentAllocation',
           entityId: allocation.id,

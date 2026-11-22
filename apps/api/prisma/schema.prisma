@@ -2536,6 +2536,8 @@ model RiderPaymentProfile {
   riderId                     String   @unique
   rider                       Rider    @relation(fields: [clientId, riderId], references: [clientId, id], onDelete: Restrict)
   walletSettlementCheckedAt   DateTime @default(now())
+  walletSettlementLastError String? @db.VarChar(500)
+  walletSettlementSuccessAt DateTime?
   collectionMode              String   @default("LEGACY_INVOICE") @db.VarChar(30)
   autoPayEnabled              Boolean  @default(false)
   autoSettleInvoiceFromWallet Boolean  @default(false)
@@ -2832,11 +2834,21 @@ model RiderBillingSchedule {
   timezone        String               @db.VarChar(80)
   nextPeriodStart DateTime
   status          String               @default("ACTIVE") @db.VarChar(20)
+  nextAttemptAt   DateTime             @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"))
+  automaticFrom   DateTime             @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"))
+  recoveryApprovedThrough DateTime?
+  leaseToken      String?
+  leaseUntil      DateTime?
+  lastAttemptAt   DateTime?
+  lastSuccessAt   DateTime?
+  failureCount    Int                  @default(0)
+  lastError       String?              @db.VarChar(500)
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
   periods         RiderBillingPeriod[]
 
   @@index([clientId, status, nextPeriodStart])
+  @@index([status, nextAttemptAt, leaseUntil])
 }
 
 model RiderBillingPeriod {
@@ -6833,4 +6845,17 @@ model WalletAutoRecharge {
   updatedAt DateTime @updatedAt
   @@index([status, checkedAt])
   @@index([clientId, riderId, createdAt])
+}
+
+
+model RentalBillingWorkerRun {
+  id String @id @default(uuid())
+  startedAt DateTime @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"))
+  finishedAt DateTime?
+  status String @db.VarChar(20)
+  processed Int @default(0)
+  failed Int @default(0)
+  deferred Int @default(0)
+  error String? @db.VarChar(500)
+  @@index([startedAt])
 }
