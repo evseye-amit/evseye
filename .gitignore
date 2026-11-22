@@ -14,3 +14,7 @@ apps/api/prisma/migrations/*/migration_lock.toml
 
 # Local TLS keys and certificates (generated, never committed)
 deployment/client-access/local-tls/
+
+# Firebase Admin private credentials
+*-firebase-adminsdk-*.json
+firebase-service-account.json
