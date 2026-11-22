@@ -7,6 +7,8 @@ import { sessionFetch } from "../../lib/session-fetch";
 type Recharge = {
   id: string;
   riderId: string;
+  riderName?: string | null;
+  riderMobile?: string | null;
   amount: string;
   status: string;
   failureCode: string | null;
@@ -91,7 +93,7 @@ export function WalletAutoPayHistory() {
         <ul className="autopay-recharge-list">
           {requests.map((request) => (
             <li key={request.id}>
-              Rider {request.riderId} · ₹{request.amount} · {request.status} ·
+              {request.riderName ? `${request.riderName}${request.riderMobile ? ` (${request.riderMobile})` : ''}` : 'Rider unavailable'} · ₹{request.amount} · {request.status} ·
               Scheduled {new Date(request.scheduledAt).toLocaleString()}
               {request.failureCode && ` · ${ledgerText(request.failureCode)}`}
               {request.completedAt && " · Ledger credit recorded"}{" "}

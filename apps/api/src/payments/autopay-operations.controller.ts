@@ -34,8 +34,8 @@ export class AutoPayOperationsController {
   async mandates(@CurrentUser() user: AuthUser, @Query('page') page?: string) {
     const clientId = this.clients.requireClientId(user);
     const number = operationsPage(page);
-    const items = await this.prisma.paymentMandate.findMany({ where: { clientId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: (number - 1) * 100, take: page === undefined ? 100 : 101 });
-    const mapped = items.map(item => ({ id: item.id, mandateNumber: item.mandateNumber, riderId: item.riderId,
+    const items = await this.prisma.paymentMandate.findMany({ where: { clientId }, include: { rider: { select: { name: true, mobile: true } } }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: (number - 1) * 100, take: page === undefined ? 100 : 101 });
+    const mapped = items.map(item => ({ id: item.id, mandateNumber: item.mandateNumber, riderId: item.riderId, riderName: item.rider?.name ?? null, riderMobile: item.rider?.mobile ?? null,
       provider: item.provider, method: item.method, maxAmount: item.maxAmount.toFixed(2), status: item.status, autoDebitEnabled: item.autoDebitEnabled, expiresAt: item.expiresAt }));
     return { data: page === undefined ? mapped : pageResult(mapped, number, 100) };
   }
