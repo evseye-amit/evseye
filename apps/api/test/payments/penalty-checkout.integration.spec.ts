@@ -250,13 +250,28 @@ describe.skipIf(!url)(
       expect(await db.paymentCollectionRequest.findUniqueOrThrow({ where: { id: order.collectionId } })).toMatchObject({ method: 'UPI' });
       expect(await db.razorpayPenaltyCapture.findUniqueOrThrow({ where: { providerPaymentId: proof.razorpayPaymentId } })).toMatchObject({ paymentMethod: 'UPI' });
       expect(await db.walletTransaction.count({ where: { clientId: f.client.id, referenceId: order.collectionId } })).toBe(1);
-      expect(await f.wallet.transactions(f.client.id, wallet.id, 1, 25)).toHaveLength(1);
+      const history = await f.wallet.transactions(f.client.id, wallet.id, 1, 25);
+      // History includes the fixture's rental bill as well as the real top-up.
+      // A charge is not a second payment or a change to the cash balance.
+      expect(history).toHaveLength(2);
+      expect(history.filter(item => item.transactionType === 'TOP_UP')).toEqual([
+        expect.objectContaining({
+          referenceType: 'PAYMENT_COLLECTION', referenceId: order.collectionId,
+          amount: '500.00', affectsBalance: true,
+          movements: [{ bucket: 'CASH', amount: '500.00' }],
+        }),
+      ]);
+      expect(history.find(item => item.referenceType === 'RENTAL_INVOICE')).toMatchObject({
+        referenceId: f.rental.id, amount: '100.00', affectsBalance: false, movements: [],
+        rental: { paidAmount: '0.00', outstandingAmount: '100.00' },
+      });
       const reconciliation = new PaymentReconciliationService(db as never, {} as never, {} as never, {} as never);
       expect((await reconciliation.report(f.client.id)).items.find(i => i.id === order.collectionId)).toMatchObject({ state: 'MATCHED' });
       const missing = await db.paymentCollectionRequest.create({ data: { clientId: f.client.id, riderId: f.rider.id, collectionType: 'TOP_UP', provider: 'RAZORPAY', method: 'UPI', status: 'SUCCESS', amount: '500', currency: 'INR', idempotencyKey: randomUUID() } });
       expect((await reconciliation.report(f.client.id)).items.find(i => i.id === missing.id)).toMatchObject({ state: 'PROVIDER_SUCCESS_LOCAL_PENDING' });
       await db.walletTransaction.create({ data: { clientId: f.client.id, walletId: wallet.id, transactionNumber: randomUUID(), transactionType: 'TOP_UP', status: 'POSTED', amount: '500', currency: 'INR', description: 'Historical placeholder', idempotencyKey: randomUUID(), requestHash: 'legacy', referenceType: 'PAYMENT_COLLECTION', referenceId: order.collectionId } });
-      expect(await f.wallet.transactions(f.client.id, wallet.id, 1, 25)).toHaveLength(1);
+      const historyWithPlaceholder = await f.wallet.transactions(f.client.id, wallet.id, 1, 25);
+      expect(historyWithPlaceholder).toEqual(history);
       expect((await reconciliation.report(f.client.id)).items.find(i => i.id === order.collectionId)).toMatchObject({ state: 'MATCHED' });
 
       expect(await db.walletLedgerEntry.count({ where: { clientId: f.client.id, account: { accountType: 'CASH' }, entryType: 'CREDIT' } })).toBe(1);
