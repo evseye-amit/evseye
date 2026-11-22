@@ -36,7 +36,7 @@ const hi: Record<string, string> = {
   "Fleet Manager": "फ़्लीट प्रबंधक", "Team Lead": "टीम लीड", "Cluster Manager": "क्लस्टर प्रबंधक",
   "Fleet": "फ़्लीट", "Battery": "बैटरी", "Controller": "कंट्रोलर",
   "Fleet Component Mapping": "फ़्लीट घटक मैपिंग", "Allocation": "आवंटन",
-  "De-allocation": "आवंटन हटाना", "Rider": "राइडर", "Wallet": "वॉलेट",
+  "De-allocation": "आवंटन हटाना", "Rider": "राइडर", "Transactions": "लेनदेन",
   "Rider Fleet Mapping": "राइडर फ़्लीट मैपिंग", "Rider Vendor Mapping": "राइडर कार्य भागीदार मैपिंग",
   "Rider Earnings": "राइडर आय", "Document Verification": "दस्तावेज़ सत्यापन",
   "Rider Document Verification": "राइडर दस्तावेज़ सत्यापन", "Location": "स्थान",

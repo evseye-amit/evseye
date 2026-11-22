@@ -51,7 +51,7 @@ export function RiderRewardEarnings({ rider, request }: {
   const current = !invalidDates && result?.signature === signature ? result.data : null;
   const awaiting = !invalidDates && !error && (loading || !current);
   return <>
-    <p className="muted">Posted wallet rewards only. Reversed rewards are excluded.</p>
+    <p className="muted">Posted rewards only. Reversed rewards are excluded.</p>
     <div className="client-filter-bar">
       <label>From (UTC)<input type="date" value={from} max={to || undefined} onChange={event => { setFrom(event.target.value); setPage(1); setError(""); }} /></label>
       <label>To (UTC)<input type="date" value={to} min={from || undefined} onChange={event => { setTo(event.target.value); setPage(1); setError(""); }} /></label>
@@ -66,7 +66,7 @@ export function RiderRewardEarnings({ rider, request }: {
         <p className="eyebrow">{total.currency} rewards</p>
         <p>All-time earnings: <strong>{formatMoney(total.allTimeAmount, total.currency)}</strong></p>
         <p>Selected period / type: <strong>{formatMoney(total.periodAmount, total.currency)}</strong></p>
-      </section>)}</div> : <p className="muted">No wallet reward earnings recorded for this rider.</p>}
+      </section>)}</div> : <p className="muted">No reward earnings recorded for this rider.</p>}
     </>}
     {!invalidDates && <ClientDataTable rows={!error ? current?.items ?? [] : []} loading={awaiting} getRowId={row => row.id}
       searchable={false} filterable={false} sortable={false}

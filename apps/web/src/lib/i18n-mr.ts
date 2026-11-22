@@ -37,7 +37,7 @@ export const mr: Record<string, string> = {
   "Allocation": "वाटप",
   "De-allocation": "वाटप रद्द करणे",
   "Rider": "रायडर",
-  "Wallet": "वॉलेट",
+  "Transactions": "व्यवहार",
   "Rider Fleet Mapping": "रायडर-फ्लीट मॅपिंग",
   "Rider Vendor Mapping": "रायडर-विक्रेता मॅपिंग",
   "Rider Earnings": "रायडरचे उत्पन्न",

@@ -37,7 +37,7 @@ export const ml: Record<string, string> = {
   "Allocation": "അലോക്കേഷൻ",
   "De-allocation": "ഡി-അലോക്കേഷൻ",
   "Rider": "റൈഡർ",
-  "Wallet": "വാലറ്റ്",
+  "Transactions": "ഇടപാടുകൾ",
   "Rider Fleet Mapping": "റൈഡർ-ഫ്ലീറ്റ് മാപ്പിംഗ്",
   "Rider Vendor Mapping": "റൈഡർ-വെൻഡർ മാപ്പിംഗ്",
   "Rider Earnings": "റൈഡറുടെ വരുമാനം",

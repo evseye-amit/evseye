@@ -37,7 +37,7 @@ export const pa: Record<string, string> = {
   "Allocation": "ਅਲਾਟਮੈਂਟ",
   "De-allocation": "ਡੀ-ਅਲਾਟਮੈਂਟ",
   "Rider": "ਰਾਈਡਰ",
-  "Wallet": "ਵਾਲਿਟ",
+  "Transactions": "ਲੈਣ-ਦੇਣ",
   "Rider Fleet Mapping": "ਰਾਈਡਰ-ਫਲੀਟ ਮੈਪਿੰਗ",
   "Rider Vendor Mapping": "ਰਾਈਡਰ-ਵੈਂਡਰ ਮੈਪਿੰਗ",
   "Rider Earnings": "ਰਾਈਡਰ ਦੀ ਕਮਾਈ",

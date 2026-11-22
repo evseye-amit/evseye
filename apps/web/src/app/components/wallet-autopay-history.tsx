@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ledgerText } from "../../lib/ledger-presentation";
 import { sessionFetch } from "../../lib/session-fetch";
 
 type Recharge = {
@@ -85,15 +86,15 @@ export function WalletAutoPayHistory() {
         Verification checks the existing payment. It does not submit another
         debit.
       </p>
-      {historyError && <p role="alert">{historyError}</p>}
+      {historyError && <p role="alert">{ledgerText(historyError)}</p>}
       {loading ? <p role="status">Loading recharge history…</p> : historyError ? null : requests.length ? (
         <ul className="autopay-recharge-list">
           {requests.map((request) => (
             <li key={request.id}>
               Rider {request.riderId} · ₹{request.amount} · {request.status} ·
               Scheduled {new Date(request.scheduledAt).toLocaleString()}
-              {request.failureCode && ` · ${request.failureCode}`}
-              {request.completedAt && " · Wallet credit recorded"}{" "}
+              {request.failureCode && ` · ${ledgerText(request.failureCode)}`}
+              {request.completedAt && " · Ledger credit recorded"}{" "}
               <button
                 type="button" className="secondary"
                 disabled={checking !== null || loading}
@@ -105,7 +106,7 @@ export function WalletAutoPayHistory() {
           ))}
         </ul>
       ) : (
-        <div className="autopay-empty"><h3>No recharge requests</h3><p>Automatic wallet recharges will appear here when initiated.</p></div>
+        <div className="autopay-empty"><h3>No recharge requests</h3><p>Automatic ledger recharges will appear here when initiated.</p></div>
       )}
       {(page > 1 || hasMore) && <div className="form-actions">
       <button

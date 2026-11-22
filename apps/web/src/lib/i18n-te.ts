@@ -16,7 +16,7 @@ export const te: Record<string, string> = {
   "Fleet Manager": "ఫ్లీట్ మేనేజర్", "Team Lead": "టీమ్ లీడ్", "Cluster Manager": "క్లస్టర్ మేనేజర్",
   "Fleet": "ఫ్లీట్", "Battery": "బ్యాటరీ", "Controller": "కంట్రోలర్",
   "Fleet Component Mapping": "ఫ్లీట్ భాగాల మ్యాపింగ్", "Allocation": "కేటాయింపు",
-  "De-allocation": "కేటాయింపు తొలగింపు", "Rider": "రైడర్", "Wallet": "వాలెట్",
+  "De-allocation": "కేటాయింపు తొలగింపు", "Rider": "రైడర్", "Transactions": "లావాదేవీలు",
   "Rider Fleet Mapping": "రైడర్ ఫ్లీట్ మ్యాపింగ్", "Rider Vendor Mapping": "రైడర్ పని భాగస్వామి మ్యాపింగ్",
   "Rider Earnings": "రైడర్ ఆదాయం", "Document Verification": "పత్రాల ధృవీకరణ",
   "Rider Document Verification": "రైడర్ పత్రాల ధృవీకరణ", "Location": "ప్రాంతం",

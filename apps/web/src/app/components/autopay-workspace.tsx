@@ -14,7 +14,7 @@ export function AutoPayWorkspace({ identityKey, refreshKey }: { identityKey: str
       <button type="button" className="secondary autopay-back" onClick={() => requestNavigation(() => { setSettings(false); setTab("mandates"); })}>← Back to mandates</button>
       <WalletAutoPaySettings key={refreshKey} />
     </> : <div className="autopay-heading">
-      <div><h2>AutoPay overview</h2><p className="muted">Manage rider mandates and automatic wallet recharges.</p></div>
+      <div><h2>AutoPay overview</h2><p className="muted">Manage rider mandates and automatic ledger recharges.</p></div>
       <button type="button" className="secondary" aria-label="AutoPay settings" onClick={() => setSettings(true)}>⚙ Settings</button>
     </div>}
     <div hidden={settings}>

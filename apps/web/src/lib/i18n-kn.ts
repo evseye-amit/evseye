@@ -16,7 +16,7 @@ export const kn: Record<string, string> = {
   "Fleet Manager": "ಫ್ಲೀಟ್ ಮ್ಯಾನೇಜರ್", "Team Lead": "ಟೀಮ್ ಲೀಡ್", "Cluster Manager": "ಕ್ಲಸ್ಟರ್ ಮ್ಯಾನೇಜರ್",
   "Fleet": "ಫ್ಲೀಟ್", "Battery": "ಬ್ಯಾಟರಿ", "Controller": "ಕಂಟ್ರೋಲರ್",
   "Fleet Component Mapping": "ಫ್ಲೀಟ್ ಘಟಕ ಮ್ಯಾಪಿಂಗ್", "Allocation": "ಹಂಚಿಕೆ",
-  "De-allocation": "ಹಂಚಿಕೆ ರದ್ದು", "Rider": "ರೈಡರ್", "Wallet": "ವಾಲೆಟ್",
+  "De-allocation": "ಹಂಚಿಕೆ ರದ್ದು", "Rider": "ರೈಡರ್", "Transactions": "ವಹಿವಾಟುಗಳು",
   "Rider Fleet Mapping": "ರೈಡರ್ ಫ್ಲೀಟ್ ಮ್ಯಾಪಿಂಗ್", "Rider Vendor Mapping": "ರೈಡರ್ ಕೆಲಸದ ಪಾಲುದಾರರ ಮ್ಯಾಪಿಂಗ್",
   "Rider Earnings": "ರೈಡರ್ ಆದಾಯ", "Document Verification": "ದಾಖಲೆ ಪರಿಶೀಲನೆ",
   "Rider Document Verification": "ರೈಡರ್ ದಾಖಲೆ ಪರಿಶೀಲನೆ", "Location": "ಸ್ಥಳ",

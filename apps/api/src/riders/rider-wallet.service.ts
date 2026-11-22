@@ -1,3 +1,4 @@
+import { transactionHistory } from '../wallet/transaction-history.js';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, WalletTransactionStatus, WalletTransactionType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -25,21 +26,8 @@ export class RiderWalletOperationsService {
     const { from, end } = riderFinancialPeriod(query.from, query.to);
     return this.prisma.$transaction(async tx => {
       const rider = await this.rider(tx, clientId, riderId);
-      const where: Prisma.WalletTransactionWhereInput = { clientId, wallet: { clientId, riderId },
-        ...(query.type ? { transactionType: query.type } : {}), ...(query.status ? { status: query.status } : {}),
-        ...(from || end ? { createdAt: { ...(from ? { gte: from } : {}), ...(end ? { lt: end } : {}) } } : {}),
-      };
-      const [items, total] = await Promise.all([
-        tx.walletTransaction.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: (query.page - 1) * query.pageSize, take: query.pageSize,
-          select: { id: true, transactionNumber: true, transactionType: true, status: true, amount: true, currency: true, description: true, referenceType: true, referenceId: true, createdAt: true, postedAt: true,
-            entries: { where: { clientId, account: { clientId, accountType: { in: ['CASH', 'REWARD', 'SECURITY_DEPOSIT'] } } }, select: { amount: true, entryType: true, account: { select: { accountType: true } } } } },
-        }), tx.walletTransaction.count({ where }),
-      ]);
-      return { rider, transactionTypes: Object.values(WalletTransactionType), transactionStatuses: Object.values(WalletTransactionStatus), items: items.map(({ entries, ...row }) => ({ ...row, amount: row.amount.toFixed(2),
-        movements: (['POSTED', 'REVERSED'].includes(row.status) ? ['CASH', 'REWARD', 'SECURITY_DEPOSIT'] : []).map(bucket => ({ bucket,
-          amount: entries.filter(entry => entry.account.accountType === bucket).reduce((sum, entry) => sum.plus(entry.entryType === 'CREDIT' ? entry.amount : entry.amount.neg()), new Prisma.Decimal(0)).toFixed(2),
-        })).filter(entry => entry.amount !== '0.00'),
-      })), meta: { page: query.page, pageSize: query.pageSize, total } };
+      const history = await transactionHistory(tx, { clientId, riderId, ...query, from, end });
+      return { rider, transactionTypes: Object.values(WalletTransactionType), transactionStatuses: Object.values(WalletTransactionStatus), ...history };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
 }
