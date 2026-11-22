@@ -861,6 +861,7 @@ enum FleetOperatingMode {
 }
 
 model Client {
+  appUpdatePolicies AppUpdatePolicy[]
   deploymentAutoPayPolicy ClientDeploymentAutoPayPolicy?
   walletAutoRechargePolicy WalletAutoRechargePolicy?
   walletAutoRechargePreferences WalletAutoRechargePreference[]
@@ -974,6 +975,41 @@ model Client {
   paymentAttempts             PaymentAttempt[]
   createdAt                   DateTime                           @default(now())
   updatedAt                   DateTime                           @updatedAt
+}
+
+// Policy identities are immutable. Every edit uses revision-based optimistic locking.
+model AppUpdatePolicy {
+  id                String   @id @default(uuid())
+  clientId          String
+  client            Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  appCode           String   @db.VarChar(40)
+  platform          String   @db.VarChar(10)
+  applicationId     String   @db.VarChar(200)
+  channel           String   @db.VarChar(20)
+  revision          Int      @default(1)
+  draft             Json?
+  published         Json?
+  publishedRevision Int?
+  publishedAt       DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  history           AppUpdatePolicyRevision[]
+
+  @@unique([clientId, appCode, platform, applicationId, channel], map: "AppUpdatePolicy_scope_key")
+}
+
+model AppUpdatePolicyRevision {
+  id        String   @id @default(uuid())
+  policyId  String
+  policy    AppUpdatePolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  revision  Int
+  action    String   @db.VarChar(30)
+  snapshot  Json
+  actorId   String
+  actorName String
+  createdAt DateTime @default(now())
+
+  @@unique([policyId, revision])
 }
 
 model PaymentProviderConfigurationVersion {

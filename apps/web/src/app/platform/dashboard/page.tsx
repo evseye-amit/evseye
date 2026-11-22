@@ -30,6 +30,7 @@ import {
 import { CatalogTranslationFields, completeCatalogTranslations, type CatalogTranslations } from "./catalog-translation-fields";
 import { ClientCommercialSettings, type ClientCommercialSection } from "../../components/client-commercial-settings";
 import { ClientWorkflowSettings } from "../../components/client-workflow-settings";
+import { ClientAppUpdateSettings } from "../../components/client-app-update-settings";
 import { ClientPaymentSettings } from "../../components/client-payment-settings";
 import { ClientDomainSettings } from "../../components/client-domain-settings";
 import { ClientLogoUpload } from "../../components/client-logo-upload";
@@ -5438,6 +5439,7 @@ function ClientsView({
               <ClientDomainSettings clientId={item.id} clientName={item.name} />
               <ClientWorkflowSettings clientId={item.id} clientName={item.name} />
               <ClientPaymentSettings clientId={item.id} clientName={item.name} />
+              <ClientAppUpdateSettings clientId={item.id} clientName={item.name} />
             </span>
           ) : item.status === "SUSPENDED" ? (
             <span className="sa-client-actions" key={item.id}>

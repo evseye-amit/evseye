@@ -45,6 +45,7 @@ import { SupportModule } from './support/support.module.js';
 import { AttendanceModule } from './attendance/attendance.module.js';
 import { BanksModule } from './banks/banks.module.js';
 import { WorkPartnersModule } from './work-partners/work-partners.module.js';
+import { AppUpdateModule } from './app-updates/app-update.module.js';
 import { ImportsModule } from './imports/imports.module.js';
 
 @Module({
@@ -67,6 +68,7 @@ import { ImportsModule } from './imports/imports.module.js';
     }),
     PrismaModule,
     ImportsModule,
+    AppUpdateModule,
     ClientIdentityModule,
     AuthModule,
     RidersModule,

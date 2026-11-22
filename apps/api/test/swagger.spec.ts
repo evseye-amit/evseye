@@ -12,6 +12,8 @@ describe('completeSwaggerDocument', () => {
       components: {},
       paths: {
         '/api/v1/auth/otp/request': { post: { responses: { '202': { description: '' } } } },
+        '/api/v1/public/app-updates/check': { post: { responses: { '200': { description: '' } } } },
+        '/api/v1/platform/clients/{clientId}/app-updates': { get: { responses: { '200': { description: '' } } } },
         '/api/v1/riders': { get: { responses: { '200': { description: '' } } } },
         '/api/v1/banks/ifsc/HDFC0000001': { get: { responses: { '200': { description: '' } } } },
         '/api/v1/iot/ingest': { post: { responses: { '202': { description: '' } } } },
@@ -22,6 +24,9 @@ describe('completeSwaggerDocument', () => {
     const riders = document.paths['/api/v1/riders']?.get;
     const banks = document.paths['/api/v1/banks/ifsc/HDFC0000001']?.get;
     const ingest = document.paths['/api/v1/iot/ingest']?.post;
+    expect(document.paths['/api/v1/public/app-updates/check']?.post?.security).toBeUndefined();
+    expect(document.paths['/api/v1/public/app-updates/check']?.post?.tags).toEqual(['App updates']);
+    expect(document.paths['/api/v1/platform/clients/{clientId}/app-updates']?.get?.security).toEqual([{ bearer: [] }]);
     expect(login?.security).toBeUndefined();
     expect(riders?.security).toEqual([{ bearer: [] }]);
     expect(banks?.tags).toEqual(['Banks']);
