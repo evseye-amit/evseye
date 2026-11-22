@@ -11,8 +11,10 @@ type Request = (path: string) => Promise<unknown>;
 type Rider = { id: string; name: string; mobile: string };
 type Bucket = { totalBalance: string; heldBalance: string; availableBalance: string };
 type Wallet = Bucket & { id: string; currency: string; status: string; cash: Bucket; rewards: Bucket; securityDepositBucket: Bucket };
-type Balance = { wallets: Wallet[] };
-type Transaction = { id: string; transactionNumber: string; transactionType: string; status: string; currency: string; amount: string; description: string; referenceId: string | null; referenceType: string | null; createdAt: string; postedAt: string | null; movements: { bucket: string; amount: string }[] };
+type Deposit = { id: string; agreementId: string; depositType: string; code: string; currency: string; status: string; requiredAmount: string; paidAmount: string; refundedAmount: string; deductedAmount: string; forfeitedAmount: string; remainingAmount: string; pendingRefundAmount: string; transferredInAmount: string; transferredOutAmount: string };
+type Balance = { wallets: Wallet[]; deposits?: Deposit[] };
+type Breakdown = { status: 'AVAILABLE' | 'UNAVAILABLE'; items: { type: string; label: string; amount: string; period?: string }[] };
+type Transaction = { breakdown?: Breakdown; id: string; transactionNumber: string; transactionType: string; status: string; currency: string; amount: string; description: string; referenceId: string | null; referenceType: string | null; createdAt: string; postedAt: string | null; movements: { bucket: string; amount: string }[] };
 type Transactions = { items: Transaction[]; meta: { page: number; pageSize: number; total: number }; transactionTypes: string[]; transactionStatuses: string[] };
 const label = (value: string) => ledgerText(value).toLowerCase().replaceAll('_', ' ').replace(/(^|\s)\S/g, character => character.toUpperCase());
 
@@ -56,7 +58,7 @@ function WalletBalance({ riderId, request }: { riderId: string; request: Request
         <div><dt>Available balance</dt><dd>{formatMoney(wallet.availableBalance, wallet.currency)}</dd></div>
       </dl>
       <p className="muted">Total balance includes cash and rewards. Available balance reflects holds and ledger policy limits. The security deposit is shown separately.</p>
-      <ClientDataTable rows={[{ name: 'Cash', ...wallet.cash }, { name: 'Rewards', ...wallet.rewards }, { name: 'Security deposit', ...wallet.securityDepositBucket }]}
+      <ClientDataTable rows={[{ name: 'Cash', ...wallet.cash }, { name: 'Rewards', ...wallet.rewards }, ...(Number(wallet.securityDepositBucket.totalBalance) !== 0 ? [{ name: 'Ledger-held security deposit', ...wallet.securityDepositBucket }] : [])]}
         getRowId={row => row.name} searchable={false} pagination={false} filterable={false} sortable={false}
         columns={[
           { key: 'bucket', label: 'Bucket', value: row => row.name },
@@ -65,6 +67,26 @@ function WalletBalance({ riderId, request }: { riderId: string; request: Request
           { key: 'available', label: 'Available', value: row => row.availableBalance, render: row => formatMoney(row.availableBalance, wallet.currency) },
         ]} />
     </section>)}
+    {resource.data && <section className="action-card">
+      <h3>Security deposits</h3>
+      <p className="muted">Deposits paid for rental agreements are held separately from the available ledger balance. Refunds and deductions update the remaining deposit.</p>
+      <ClientDataTable rows={resource.data.deposits ?? []} getRowId={row => row.id} searchable={false} filterable={false} pagination={false} sortable={false}
+        emptyMessage="No agreement security deposits recorded for this rider."
+        columns={[
+          { key: 'deposit', label: 'Deposit', value: row => `${label(row.depositType)} · ${row.code}` },
+          { key: 'status', label: 'Status', value: row => row.status === 'HELD' ? 'Paid · Held' : row.status === 'PARTIALLY_COLLECTED' ? 'Partially paid' : label(row.status) },
+          { key: 'paid', label: 'Paid', value: row => row.paidAmount, render: row => formatMoney(row.paidAmount, row.currency) },
+          { key: 'deducted', label: 'Deducted', value: row => row.deductedAmount, render: row => formatMoney(row.deductedAmount, row.currency) },
+          { key: 'refunded', label: 'Refunded', value: row => row.refundedAmount, render: row => formatMoney(row.refundedAmount, row.currency) },
+          { key: 'remaining', label: 'Remaining held', value: row => row.remainingAmount, render: row => formatMoney(row.remainingAmount, row.currency) },
+          { key: 'details', label: 'Details', value: row => `${row.pendingRefundAmount} ${row.forfeitedAmount} ${row.transferredInAmount} ${row.transferredOutAmount}`, render: row => <>
+            {Number(row.pendingRefundAmount) > 0 && <div>Refund pending: {formatMoney(row.pendingRefundAmount, row.currency)}</div>}
+            {Number(row.forfeitedAmount) > 0 && <div>Forfeited: {formatMoney(row.forfeitedAmount, row.currency)}</div>}
+            {Number(row.transferredInAmount) > 0 && <div>Transferred in: {formatMoney(row.transferredInAmount, row.currency)}</div>}
+            {Number(row.transferredOutAmount) > 0 && <div>Transferred out: {formatMoney(row.transferredOutAmount, row.currency)}</div>}
+          </> },
+        ]} />
+    </section>}
   </>;
 }
 function WalletTransactions({ riderId, request }: { riderId: string; request: Request }) {
@@ -93,9 +115,16 @@ function WalletTransactions({ riderId, request }: { riderId: string; request: Re
           { key: 'date', label: 'Created', value: row => row.createdAt, render: row => formatDateTime(row.createdAt) },
           { key: 'type', label: 'Type', value: row => label(row.transactionType) },
           { key: 'status', label: 'Status', value: row => label(row.status) },
-          { key: 'description', label: 'Description', value: row => ledgerText(row.description) },
+          { key: 'description', label: 'Description', value: row => ledgerText(row.description), render: row => <>
+            <div>{ledgerText(row.description)}</div>
+            {row.referenceType === 'DEPLOYMENT_PAYMENT' && (row.breakdown?.status === 'AVAILABLE' ? <details>
+              <summary>Payment breakdown</summary>
+              <dl>{row.breakdown.items.map((item, index) => <div key={`${item.type}-${index}`}><dt>{item.label}{item.period ? ` · ${label(item.period)}` : ''}</dt><dd>{formatMoney(item.amount, row.currency)}</dd></div>)}</dl>
+              <small>Components of this payment; not additional charges.</small>
+            </details> : <small className="muted">Breakdown unavailable for this historical payment.</small>)}
+          </> },
           { key: 'amount', label: 'Amount', value: row => row.amount, render: row => formatMoney(row.amount, row.currency) },
-          { key: 'movement', label: 'Balance movement', value: row => row.movements.map(item => `${item.bucket} ${item.amount}`).join(' · '), render: row => <>{row.movements.length ? row.movements.map(item => <div key={item.bucket}>{label(item.bucket)}: {Number(item.amount) > 0 ? '+' : ''}{formatMoney(item.amount, row.currency)}</div>) : row.referenceType === 'DEPLOYMENT_PAYMENT' ? 'No balance change' : '—'}</> },
+          { key: 'movement', label: 'Balance movement', value: row => row.movements.map(item => `${item.bucket} ${item.amount}`).join(' · '), render: row => <>{row.movements.length ? row.movements.map(item => <div key={item.bucket}>{label(item.bucket)}: {Number(item.amount) > 0 ? '+' : ''}{formatMoney(item.amount, row.currency)}</div>) : ['DEPLOYMENT_PAYMENT', 'RIDER_DEPOSIT_REFUND'].includes(row.referenceType ?? '') ? 'No balance change' : '—'}</> },
           { key: 'reference', label: 'Reference', value: row => row.transactionNumber, render: row => <>{row.transactionNumber}{row.referenceId && <small className="muted rider-wallet-reference">{row.referenceType ? label(row.referenceType) : null} · {row.referenceId}</small>}</> },
         ]}
         server={{ page, limit: pageSize, total: resource.data?.meta.total ?? 0, search: '', onSearch: () => {}, onPage: setPage, onLimit: value => { setPageSize(value); setPage(1); } }}

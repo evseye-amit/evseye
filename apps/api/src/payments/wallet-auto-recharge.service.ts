@@ -89,6 +89,7 @@ export class WalletAutoRechargeService implements OnModuleInit {
   async list(clientId: string, page = 1) {
     const rows = await this.db.walletAutoRecharge.findMany({
       where: { clientId },
+      include: { wallet: { select: { rider: { select: { name: true, mobile: true } } } } },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       skip: (page - 1) * 50,
       take: 51,
@@ -96,7 +97,7 @@ export class WalletAutoRechargeService implements OnModuleInit {
     return {
       items: rows
         .slice(0, 50)
-        .map((item) => ({ ...this.view(item), riderId: item.riderId })),
+        .map((item) => ({ ...this.view(item), riderId: item.riderId, riderName: item.wallet?.rider?.name ?? null, riderMobile: item.wallet?.rider?.mobile ?? null })),
       page,
       hasMore: rows.length > 50,
     };

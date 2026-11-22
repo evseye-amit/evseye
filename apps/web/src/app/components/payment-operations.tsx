@@ -10,7 +10,7 @@ import { operationsCsv, selectOperationView, type OperationView, filterOperation
 
 type Settlement = { id: string; provider: string; providerSettlementId: string; currency: string; netAmount: string; status: string; settledAt: string;
   items?: { id: string; kind: string; providerReference: string; amount: string; status: string; reviewCode: string | null }[] };
-type Mandate = { id: string; riderId: string; provider: string; mandateNumber: string; status: string; autoDebitEnabled: boolean; maxAmount?: string; expiresAt?: string; method?: string };
+type Mandate = { riderName?: string | null; riderMobile?: string | null; id: string; riderId: string; provider: string; mandateNumber: string; status: string; autoDebitEnabled: boolean; maxAmount?: string; expiresAt?: string; method?: string };
 type Page<T> = { items: T[]; page: number; hasMore: boolean };
 type ImportReport = { provider?: string; providerSettlementId: string; currency: string; netAmount: string; items: unknown[] };
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -145,14 +145,14 @@ export function PaymentOperations({ identityKey, refreshKey = 0, onOpenAutoPaySe
       <button type="button" className="secondary" disabled={busy || exporting} onClick={() => void exportHistory()}>Export mandates</button>
       {onOpenAutoPaySettings && <button type="button" className="secondary" onClick={onOpenAutoPaySettings}>⚙ Settings</button>}
     </div></div>
-    <div className="autopay-amounts"><label>Search this batch<input value={query} placeholder="Rider or mandate reference" onChange={event => setQuery(event.target.value)} /></label>
+    <div className="autopay-amounts"><label>Search this batch<input value={query} placeholder="Rider name, mobile or mandate reference" onChange={event => setQuery(event.target.value)} /></label>
     <label>Status<select value={stateFilter} onChange={event => setStateFilter(event.target.value)}><option value="">All statuses</option>{Array.from(new Set([...mandates.map(item => item.status), ...(stateFilter ? [stateFilter] : [])])).sort().map(status => <option key={status}>{status}</option>)}</select></label></div>
     {error && <p className="error" role="alert">{error}</p>}
     {exporting && <div role="status">Preparing export: {exportProgress} records <button type="button" className="secondary" onClick={() => { exportCancelled.current = true; }}>Cancel export</button></div>}
     {!busy && !error && mandates.length === 0 && page === 1 ? <div className="autopay-empty"><h3>No AutoPay mandates yet</h3><p>Mandates will appear after riders complete authorization.</p></div> :
-      <ClientDataTable rows={mandates.filter(item => (!stateFilter || item.status === stateFilter) && [item.riderId, item.mandateNumber].some(value => value?.toLowerCase().includes(query.trim().toLowerCase())))} loading={busy} getRowId={item => item.id} columns={[
+      <ClientDataTable rows={mandates.filter(item => (!stateFilter || item.status === stateFilter) && [item.riderName, item.riderMobile, item.riderId, item.mandateNumber].some(value => value?.toLowerCase().includes(query.trim().toLowerCase())))} loading={busy} getRowId={item => item.id} columns={[
         { key: 'number', label: 'Mandate', value: item => item.mandateNumber },
-        { key: 'rider', label: 'Rider reference', value: item => item.riderId },
+        { key: 'rider', label: 'Rider', value: item => item.riderName ? `${item.riderName}${item.riderMobile ? ` (${item.riderMobile})` : ''}` : 'Rider unavailable' },
         { key: 'provider', label: 'Gateway', value: item => item.provider },
         { key: 'method', label: 'Method', value: item => item.method ?? '—' },
         { key: 'status', label: 'Status', value: item => item.status, render: item => <span className={`autopay-status ${item.status === 'ACTIVE' ? 'is-enabled' : ''}`}>{item.status.replaceAll('_', ' ')}</span> },
