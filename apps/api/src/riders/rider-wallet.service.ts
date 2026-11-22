@@ -1,3 +1,4 @@
+import { riderDepositSummary } from '../wallet/rider-deposit-summary.js';
 import { transactionHistory } from '../wallet/transaction-history.js';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, WalletTransactionStatus, WalletTransactionType } from '@prisma/client';
@@ -19,7 +20,7 @@ export class RiderWalletOperationsService {
       const rider = await this.rider(tx, clientId, riderId);
       const wallets = await tx.riderWallet.findMany({ where: { clientId, riderId }, orderBy: { currency: 'asc' }, select: { id: true, status: true } });
       const balances = await Promise.all(wallets.map(async row => ({ id: row.id, status: row.status, ...await this.wallet.balanceTx(tx, clientId, row.id) })));
-      return { rider, wallets: balances, transactionTypes: Object.values(WalletTransactionType), transactionStatuses: Object.values(WalletTransactionStatus) };
+      return { rider, deposits: await riderDepositSummary(tx, clientId, riderId), wallets: balances, transactionTypes: Object.values(WalletTransactionType), transactionStatuses: Object.values(WalletTransactionStatus) };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
   async transactions(clientId: string, riderId: string, query: RiderWalletTransactionsQueryDto) {

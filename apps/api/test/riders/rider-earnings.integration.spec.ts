@@ -172,6 +172,41 @@ describe.skipIf(!url)('rider earnings in PostgreSQL', () => {
     await deployment('PAID', '5.00', f.rider.id, f.client.id, 'USD');
     expect(await ledger.transactions(f.client.id, f.wallet.id, 1, 20)).toHaveLength(2);
     expect((await page()).meta.total).toBe(3);
+    const snapshot = { currency: 'INR', rental: { period: 'WEEKLY' }, totals: { firstRentalUpfront: '500.00', nonRefundableUpfrontAmount: '700.10' },
+      recurringCharges: [{ grossAmount: '500.00' }], oneTimeCharges: [{ type: 'ONBOARDING_FEE', grossAmount: '200.10' }] };
+    const common = { clientId: f.client.id, riderId: f.rider.id, vehicleId: fleet.id, rateCardId: 'historical', rateCardVersionId: 'historical',
+      rentalPeriodType: 'WEEKLY' as const, currency: 'INR', finalRecurringAmount: '500.00', upfrontAmount: '1200.10', refundableAmount: '500.00',
+      pricingSnapshot: snapshot, termsVersion: '1', termsTitle: 'Terms', termsSnapshot: 'Accepted', termsHash: 'a'.repeat(64), createdById: 'SYSTEM' };
+    const offer = await db.riderCommercialOffer.create({ data: { ...common, offerNumber: randomUUID(), effectiveDate: new Date(),
+      calculationHash: 'a'.repeat(64), selectionHash: 'a'.repeat(64), expiresAt: new Date('2030-01-01') } });
+    const agreement = await db.riderRentalAgreement.create({ data: { ...common, commercialOfferId: offer.id, agreementNumber: randomUUID(),
+      pricingHash: 'a'.repeat(64), pricingSnapshotSchemaVersion: 1, acceptedAt: new Date(), acceptedById: 'SYSTEM', acceptanceMethod: 'OPERATIONS_ASSISTED' } });
+    const deposit = await db.riderDeposit.create({ data: { clientId: f.client.id, riderId: f.rider.id, agreementId: agreement.id,
+      obligationKey: 'security', depositType: 'RIDER_SECURITY', code: 'SECURITY', currency: 'INR', originalRequiredAmount: '500', requiredAmount: '500',
+      fundedAmount: '300', availableAmount: '300', status: 'PARTIALLY_REFUNDED', sourceId: agreement.id, snapshotLine: {} } });
+    await db.deploymentPayment.update({ where: { id: paid.id }, data: { breakdown: { agreementId: agreement.id, pricingHash: 'a'.repeat(64), currency: 'INR',
+      total: '1200.10', nonRefundableAmount: '700.10', deposits: [{ id: deposit.id, amount: '500.00' }] } } });
+    const transaction = { clientId: f.client.id, riderId: f.rider.id, agreementId: agreement.id, depositId: deposit.id, currency: 'INR' };
+    await db.riderDepositTransaction.create({ data: { ...transaction, transactionType: 'COLLECTION', amount: '500', balanceDelta: '500', fundingDelta: '500',
+      balanceBefore: '0', balanceAfter: '500', referenceType: 'DEPLOYMENT_PAYMENT', referenceId: paid.id } });
+    const refund = await db.riderDepositTransaction.create({ data: { ...transaction, transactionType: 'REFUND', amount: '200', balanceDelta: '-200', fundingDelta: '-200', balanceBefore: '500', balanceAfter: '300' } });
+    const updatedBalance = await wallets.balance(f.client.id, f.rider.id);
+    expect(updatedBalance.deposits[0]).toMatchObject({ status: 'PARTIALLY_REFUNDED', paidAmount: '500.00', refundedAmount: '200.00', remainingAmount: '300.00' });
+    expect(updatedBalance.wallets[0].totalBalance).toBe(before.totalBalance);
+    const detailed = await ledger.transaction(f.client.id, f.wallet.id, `deployment:${paid.id}`);
+    expect(detailed).toMatchObject({ breakdown: { status: 'AVAILABLE', items: [
+      { type: 'SECURITY_DEPOSIT', amount: '500.00' }, { type: 'ONBOARDING_FEE', amount: '200.10' }, { type: 'RENTAL', amount: '500.00' },
+    ] } });
+    const refundEntry = await ledger.transaction(f.client.id, f.wallet.id, `deposit-refund:${refund.id}`);
+    expect(refundEntry).toMatchObject({ status: 'POSTED', transactionType: 'SECURITY_DEPOSIT_REFUND', amount: '200.00', affectsBalance: false, movements: [], depositId: deposit.id, deploymentPaymentIds: [paid.id] });
+    expect(await ledger.transaction(other.client.id, other.wallet.id, `deposit-refund:${refund.id}`)).toBeNull();
+    expect((await page({ type: 'SECURITY_DEPOSIT_REFUND' })).meta.total).toBe(1);
+    await db.riderDepositTransaction.create({ data: { ...transaction, transactionType: 'REVERSAL', amount: '200', balanceDelta: '200', fundingDelta: '200', balanceBefore: '300', balanceAfter: '500', reversalOfTransactionId: refund.id } });
+    await db.riderDeposit.update({ where: { id: deposit.id }, data: { status: 'HELD', fundedAmount: '500', availableAmount: '500' } });
+    expect((await wallets.balance(f.client.id, f.rider.id)).deposits[0]).toMatchObject({ status: 'HELD', paidAmount: '500.00', refundedAmount: '0.00', remainingAmount: '500.00' });
+    expect(await ledger.transaction(f.client.id, f.wallet.id, `deposit-refund:${refund.id}`)).toMatchObject({ status: 'REVERSED' });
+    expect(await db.walletTransaction.count({ where: { clientId: f.client.id } })).toBe(count);
+
   });
 
 });
