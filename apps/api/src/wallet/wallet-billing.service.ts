@@ -102,6 +102,8 @@ export class WalletBillingService {
   async settleInTransaction(tx: Tx, clientId: string, invoiceId: string, actorId: string, key: string, wallet: { id: string; currency: string }) {
       const owner = await tx.riderWallet.findUniqueOrThrow({ where: { id: wallet.id }, select: { riderId: true } });
       await tx.$queryRaw`SELECT id FROM "Rider" WHERE id = ${owner.riderId} AND "clientId" = ${clientId} FOR UPDATE`;
+      const unapplied = await tx.riderPayment.count({ where: { clientId, riderId: owner.riderId, currency: wallet.currency, status: 'CONFIRMED', method: { not: 'DEPLOYMENT' }, unallocatedAmount: { gt: 0 } } });
+      if (unapplied) throw new ConflictException('UNALLOCATED_PAYMENT_REVIEW_REQUIRED');
       const pending = await tx.paymentCollectionRequest.findFirst({ where: { clientId, riderId: owner.riderId,
         OR: [{ invoiceId }, { collectionType: { in: ['OUTSTANDING_PAYMENT', 'SUBMISSION_PENALTY_PAYMENT'] } }],
         status: { in: ['CREATING', 'PENDING', 'UNKNOWN'] } } });

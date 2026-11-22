@@ -37,7 +37,13 @@ export async function transactionHistory(tx: Prisma.TransactionClient, q: Histor
       r.amount::text, r.currency, 'Security deposit refund (paid externally)', 'RIDER_DEPOSIT_REFUND', r.id, r."createdAt", r."createdAt", FALSE
     FROM "RiderDepositTransaction" r JOIN "RiderDeposit" deposit ON deposit.id=r."depositId" AND deposit."clientId"=r."clientId"
     WHERE r."clientId"=${q.clientId} AND r."riderId"=${q.riderId} AND deposit."riderId"=${q.riderId} AND r."transactionType"='REFUND'
-      ${q.currency ? Prisma.sql`AND r.currency=${q.currency}` : Prisma.empty}`;
+      ${q.currency ? Prisma.sql`AND r.currency=${q.currency}` : Prisma.empty}
+    UNION ALL
+    SELECT 'rent-invoice:' || i.id, i."invoiceNumber", 'RENTAL',
+      CASE WHEN i.status='VOID' THEN 'CANCELLED' ELSE 'POSTED' END,
+      i."totalAmount"::text, i.currency, 'Rental bill (charge; see payment details)', 'RENTAL_INVOICE', i.id, i."createdAt", i."finalizedAt", FALSE
+    FROM "RiderInvoice" i WHERE i."clientId"=${q.clientId} AND i."riderId"=${q.riderId} AND i."invoiceType"='RENTAL' AND i.status<>'DRAFT'
+      ${q.currency ? Prisma.sql`AND i.currency=${q.currency}` : Prisma.empty}`;
   const base = Prisma.sql`FROM (${source}) h WHERE TRUE
     ${q.type ? Prisma.sql`AND h."transactionType"=${q.type}` : Prisma.empty}
     ${q.status ? Prisma.sql`AND h.status=${q.status}` : Prisma.empty}
@@ -55,6 +61,23 @@ export async function transactionHistory(tx: Prisma.TransactionClient, q: Histor
     select: { id: true, depositId: true, deposit: { select: { transactions: { where: { clientId: q.clientId, riderId: q.riderId, transactionType: 'COLLECTION', referenceType: 'DEPLOYMENT_PAYMENT' }, select: { referenceId: true } } } } } }) : [];
   const refundLinks = new Map(refunds.map(refund => [refund.id, { depositId: refund.depositId,
     deploymentPaymentIds: [...new Set(refund.deposit.transactions.flatMap(t => t.referenceId ? [t.referenceId] : []))] }]));
+  const invoiceIds = rows.filter(row => row.referenceType === 'RENTAL_INVOICE').map(row => row.referenceId!);
+  const invoices = invoiceIds.length ? await tx.riderInvoice.findMany({ where: { clientId: q.clientId, riderId: q.riderId, id: { in: invoiceIds } }, include: {
+    lines: { where: { clientId: q.clientId } }, billingPeriod: { include: { schedule: { select: { timezone: true, frequency: true } } } },
+    allocations: { where: { clientId: q.clientId, reversedAt: null }, select: { paymentId: true, amount: true, payment: { select: { method: true } } } },
+    walletAllocations: { where: { clientId: q.clientId }, select: { transactionId: true, kind: true, amount: true, sourceType: true } },
+  } }) : [];
+  const rentalDetails = new Map(invoices.map(invoice => [invoice.id, {
+    invoiceId: invoice.id, status: invoice.status, currency: invoice.currency,
+    periodStart: invoice.billingPeriod?.periodStart ?? invoice.billingPeriodStart,
+    periodEnd: invoice.billingPeriod?.periodEnd ?? invoice.billingPeriodEnd,
+    timezone: invoice.billingPeriod?.schedule.timezone ?? 'UTC', frequency: invoice.billingPeriod?.schedule.frequency ?? null,
+    chargedAmount: invoice.totalAmount.toFixed(2), paidAmount: invoice.paidAmount.toFixed(2), outstandingAmount: invoice.outstandingAmount.toFixed(2),
+    creditAmount: invoice.creditAmount.toFixed(2), settlementCreditAmount: invoice.appliedSettlementCreditAmount.toFixed(2),
+    lines: invoice.lines.map(line => ({ type: line.chargeType, kind: line.kind, description: line.description, amount: line.amount.toFixed(2) })),
+    payments: [...invoice.allocations.map(a => ({ id: a.paymentId, source: a.payment.method === 'DEPLOYMENT' ? 'DEPLOYMENT_PAYMENT' : 'EXTERNAL_PAYMENT', amount: a.amount.toFixed(2) })),
+      ...invoice.walletAllocations.map(a => ({ id: a.transactionId, source: a.sourceType, amount: (a.kind === 'APPLY' ? a.amount : a.amount.neg()).toFixed(2) }))],
+  }]));
   const ids = rows.filter(row => row.affectsBalance).map(row => row.id);
   const entries = ids.length ? await tx.walletLedgerEntry.findMany({
     where: { clientId: q.clientId, transactionId: { in: ids }, account: { clientId: q.clientId, accountType: { in: ['CASH', 'REWARD', 'SECURITY_DEPOSIT'] } } },
@@ -65,6 +88,6 @@ export async function transactionHistory(tx: Prisma.TransactionClient, q: Histor
       amount: entries.filter(entry => entry.transactionId === row.id && entry.account.accountType === bucket)
         .reduce((sum, entry) => sum.plus(entry.entryType === 'CREDIT' ? entry.amount : entry.amount.neg()), new Prisma.Decimal(0)).toFixed(2),
     })).filter(entry => entry.amount !== '0.00');
-    return { ...row, ...(row.referenceType === 'RIDER_DEPOSIT_REFUND' ? refundLinks.get(row.referenceId!) : {}), ...(row.referenceType === 'DEPLOYMENT_PAYMENT' ? { breakdown: breakdowns.get(row.referenceId!) ?? { status: 'UNAVAILABLE', items: [] } } : {}), amount: new Prisma.Decimal(row.amount).toFixed(2), affectsBalance: movements.length > 0, movements };
+    return { ...row, ...(row.referenceType === 'RENTAL_INVOICE' ? { activityType: 'CHARGE', rental: rentalDetails.get(row.referenceId!) } : { activityType: 'PAYMENT' }), ...(row.referenceType === 'RIDER_DEPOSIT_REFUND' ? refundLinks.get(row.referenceId!) : {}), ...(row.referenceType === 'DEPLOYMENT_PAYMENT' ? { breakdown: breakdowns.get(row.referenceId!) ?? { status: 'UNAVAILABLE', items: [] } } : {}), amount: new Prisma.Decimal(row.amount).toFixed(2), affectsBalance: movements.length > 0, movements };
   }), meta: { page: q.page, pageSize: q.pageSize, total: Number(counts[0].total) } };
 }

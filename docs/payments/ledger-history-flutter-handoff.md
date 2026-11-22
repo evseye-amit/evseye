@@ -174,3 +174,55 @@ Staff `GET /client/autopay/mandates` and `GET /client/autopay/recharges` add nul
 - Flutter code remains unchanged in this backend/web task; implement these additions in the Flutter delivery.
 
 Follow-up validation: API and web TypeScript checks passed; 45 focused API unit tests, 5 PostgreSQL integration tests, and 25 web regression tests passed. PostgreSQL used the disposable test database described above. Neither Flutter working tree was modified. No production data changes or schema migrations are required.
+
+## Rental billing follow-up (2026-11-23)
+
+Backend and web implementation is on `codex/reliable-rental-billing`; deployment requires the new database migration. Flutter source is unchanged.
+
+The existing history endpoints now include finalized rental invoices, including invoices with no collection yet. Identify these entries using `referenceType == 'RENTAL_INVOICE'` or `activityType == 'CHARGE'`. IDs have the opaque form `rent-invoice:<invoiceId>` and work with the existing transaction-detail endpoint when URL-encoded. The existing `RENTAL` type filter includes both rental charges and actual deductions.
+
+Additional fields for a rental charge:
+
+```json
+{
+  "id": "rent-invoice:<invoiceId>",
+  "transactionType": "RENTAL",
+  "referenceType": "RENTAL_INVOICE",
+  "referenceId": "<invoiceId>",
+  "activityType": "CHARGE",
+  "affectsBalance": false,
+  "movements": [],
+  "rental": {
+    "invoiceId": "<invoiceId>",
+    "status": "PARTIALLY_PAID",
+    "currency": "INR",
+    "periodStart": "2026-11-22T08:00:00.000Z",
+    "periodEnd": "2026-11-23T08:00:00.000Z",
+    "timezone": "Asia/Kolkata",
+    "frequency": "DAILY",
+    "chargedAmount": "100.00",
+    "paidAmount": "40.00",
+    "outstandingAmount": "60.00",
+    "creditAmount": "0.00",
+    "settlementCreditAmount": "0.00",
+    "lines": [{ "type": "RENTAL", "kind": "CHARGE", "description": "Vehicle rental", "amount": "100.00" }],
+    "payments": [{ "id": "<transactionId>", "source": "CASH", "amount": "40.00" }]
+  }
+}
+```
+
+Implementation requirements:
+
+- Show “Rental charge”, the service period, charged amount, paid amount, and remaining due. Use `rental.status`, not the generic history `status`, for payment status: PAID → Paid; PARTIALLY_PAID → Partially paid; FINALIZED → Due; OVERDUE → Overdue; VOID → Voided.
+- Keep the charge amount unsigned. Issuing an invoice does not change available funds. A linked actual deduction is a payment of that invoice, not another rental charge. Do not sum invoice rows and deduction rows as total spending.
+- Render all invoice line items. A rental invoice can also contain onboarding, penalties, or credits. `kind=CREDIT` reduces the bill; display that explicitly. `chargedAmount` is the net invoice total. Credits already applied must not be subtracted again.
+- Payments may include deployment receipts, other external payments, cash, and rewards. A deployment receipt was already shown when paid; its invoice allocation is informational, not a second balance credit. Reversal allocations have negative amounts. `settlementCreditAmount` is separate from money paid.
+- Actual ledger deductions retain their existing IDs and `referenceType=RIDER_INVOICE`, with `referenceId` pointing to the invoice. Their `movements` drive the signed balance change. Multiple allocations may share a transaction ID (e.g. cash and rewards); preserve the source as well as ID when rendering details.
+- Use the supplied period timestamps and timezone; do not assume midnight or invent daily charges for weekly/monthly plans. End is exclusive. Legacy invoices without a billing-period record use their existing date values with `timezone=UTC` and `frequency=null`.
+- Refresh history and balances after funding/repayment and on app resume. Generation and collection are asynchronous; a due invoice may become partially paid or paid shortly afterwards. Bank AutoPay is independent of using existing ledger funds.
+- Keep security deposits separate; they are never a source for ordinary rent collection. Preserve the previous deposit status and deployment breakdown UI requirements.
+- No new Flutter scheduler, locally calculated rental debit, or client-side financial posting is needed. All billing happens on the backend.
+
+Acceptance: unpaid invoice visible before any deduction; partial/full payment updates the same charge; linked deductions appear once; deployment-funded rent is not collected twice; security deposits remain unchanged; historical pagination and tenant/rider isolation continue working.
+
+Backend rollout and administrator recovery procedures: [rental-billing-runbook.md](rental-billing-runbook.md).

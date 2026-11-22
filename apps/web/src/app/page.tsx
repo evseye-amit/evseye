@@ -4,6 +4,7 @@ import { ClientNavigation } from "./components/client-navigation";
 import { guardLinkNavigation, requestNavigation } from "./components/unsaved-changes";
 import { PanelLoadingContext } from "./components/panel-loading";
 import { PaymentTransactions } from "./components/payment-transactions";
+import { RentalBilling } from "./components/rental-billing";
 import { AutoPayWorkspace } from "./components/autopay-workspace";
 import { SettlementWorkspace } from "./components/settlement-workspace";
 import { PaymentOperations } from "./components/payment-operations";
@@ -113,6 +114,7 @@ const CLIENT_BULK_CONFIG: Record<ClientBulkTab, { title: string; requiredColumns
 
 const CLIENT_TAB_TITLES: Record<Tab, string> = {
   "autopay-settings": "AutoPay",
+  "rental-billing": "Rent billing",
   "payment-reconciliation": "Refunds & Reconciliation",
   "payment-settlements": "Settlements",
   "payment-transactions": "Payment Transactions",
@@ -153,6 +155,7 @@ const CLIENT_TAB_TITLES: Record<Tab, string> = {
 
 const ACTIVE_CLIENT_TABS = new Set<Tab>([
   "autopay-settings",
+  "rental-billing",
   "payment-transactions",
   "payment-reconciliation",
   "payment-settlements",
@@ -772,7 +775,7 @@ export default function Home() {
       setRecordRefreshKey((key) => key + 1); setLoading(false); return;
     }
     if (["spares-penalties","installation-board","vehicle-preparation","quality-check","readiness-settings","advisors","qc-managers"].includes(nextTab)) { setItems([]); setLoading(false); return; }
-    if (nextTab === "autopay-settings" || nextTab === "payment-transactions" || nextTab === "payment-reconciliation" || nextTab === "payment-settlements" || nextTab === "legal-documents" || nextTab === "refer-and-earn" || nextTab === "work-partners" || nextTab === "rider-reference-review" || nextTab === "support-tickets" || nextTab === "notifications" || nextTab === "rider-rate-cards") {
+    if (nextTab === "rental-billing" || nextTab === "autopay-settings" || nextTab === "payment-transactions" || nextTab === "payment-reconciliation" || nextTab === "payment-settlements" || nextTab === "legal-documents" || nextTab === "refer-and-earn" || nextTab === "work-partners" || nextTab === "rider-reference-review" || nextTab === "support-tickets" || nextTab === "notifications" || nextTab === "rider-rate-cards") {
       setItems([]);
       setLoading(false);
       return;
@@ -2242,6 +2245,7 @@ export default function Home() {
         {tab === "refer-and-earn" && userRoles.includes("CLIENT_ADMIN") && <ClientReferAndEarn refreshKey={panelRefreshKey} />}
         {tab === "work-partners" && userRoles.includes("CLIENT_ADMIN") && <WorkPartnerManager refreshKey={panelRefreshKey} mode="client" request={request} token={token} />}
         {tab === "rider-reference-review" && <RiderReferenceReview refreshKey={panelRefreshKey} />}
+        {tab === "rental-billing" && userRoles.includes("CLIENT_ADMIN") && <RentalBilling key={identityKey} refreshKey={panelRefreshKey} />}
         {tab === "autopay-settings" && userRoles.includes("CLIENT_ADMIN") && <AutoPayWorkspace key={identityKey} identityKey={identityKey} refreshKey={panelRefreshKey} />}
         {tab === "payment-transactions" && userRoles.includes("CLIENT_ADMIN") && <PaymentTransactions key={identityKey} refreshKey={panelRefreshKey} />}
         {tab === "payment-settlements" && userRoles.includes("CLIENT_ADMIN") && <SettlementWorkspace key={identityKey} refreshKey={panelRefreshKey} />}
@@ -2610,6 +2614,7 @@ export default function Home() {
           tab !== "support-tickets" &&
           tab !== "notifications" &&
           tab !== "autopay-settings" &&
+          tab !== "rental-billing" &&
           tab !== "rider-rate-cards" &&
           tab !== "payment-transactions" &&
           tab !== "payment-reconciliation" &&

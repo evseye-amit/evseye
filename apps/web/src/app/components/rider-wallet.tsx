@@ -14,7 +14,9 @@ type Wallet = Bucket & { id: string; currency: string; status: string; cash: Buc
 type Deposit = { id: string; agreementId: string; depositType: string; code: string; currency: string; status: string; requiredAmount: string; paidAmount: string; refundedAmount: string; deductedAmount: string; forfeitedAmount: string; remainingAmount: string; pendingRefundAmount: string; transferredInAmount: string; transferredOutAmount: string };
 type Balance = { wallets: Wallet[]; deposits?: Deposit[] };
 type Breakdown = { status: 'AVAILABLE' | 'UNAVAILABLE'; items: { type: string; label: string; amount: string; period?: string }[] };
-type Transaction = { breakdown?: Breakdown; id: string; transactionNumber: string; transactionType: string; status: string; currency: string; amount: string; description: string; referenceId: string | null; referenceType: string | null; createdAt: string; postedAt: string | null; movements: { bucket: string; amount: string }[] };
+type Rental = { status: string; periodStart: string; periodEnd: string; timezone: string; chargedAmount: string; paidAmount: string; outstandingAmount: string; lines: { type: string; kind: string; description: string; amount: string }[]; payments: { id: string; source: string; amount: string }[] };
+const rentStatus = (status: string) => status === 'PAID' ? 'Paid' : status === 'PARTIALLY_PAID' ? 'Partially paid' : status === 'VOID' ? 'Voided' : status === 'OVERDUE' ? 'Overdue' : 'Due';
+type Transaction = { rental?: Rental; activityType?: string; breakdown?: Breakdown; id: string; transactionNumber: string; transactionType: string; status: string; currency: string; amount: string; description: string; referenceId: string | null; referenceType: string | null; createdAt: string; postedAt: string | null; movements: { bucket: string; amount: string }[] };
 type Transactions = { items: Transaction[]; meta: { page: number; pageSize: number; total: number }; transactionTypes: string[]; transactionStatuses: string[] };
 const label = (value: string) => ledgerText(value).toLowerCase().replaceAll('_', ' ').replace(/(^|\s)\S/g, character => character.toUpperCase());
 
@@ -99,7 +101,7 @@ function WalletTransactions({ riderId, request }: { riderId: string; request: Re
   const resource = useWalletResource<Transactions>(path, request);
   const options = resource.data ?? resource.lastData;
   return <>
-    <p className="muted">All transactions, including deployment payments, top-ups, rewards, deductions and reversals. Deployment payments were paid externally and do not change the ledger balance. Date filters use the transaction creation date.</p>
+    <p className="muted">Rental charges and payment activity. Rental charges show what is owed; only actual collections change the available balance. Includes deployment payments, top-ups, rewards, deductions and reversals. Deployment payments were paid externally and do not change the ledger balance. Date filters use the transaction creation date.</p>
     <div className="client-filter-bar">
       <label>From (UTC)<input type="date" value={from} max={to || undefined} onChange={event => { setFrom(event.target.value); setPage(1); }} /></label>
       <label>To (UTC)<input type="date" value={to} min={from || undefined} onChange={event => { setTo(event.target.value); setPage(1); }} /></label>
@@ -113,10 +115,19 @@ function WalletTransactions({ riderId, request }: { riderId: string; request: Re
       <ClientDataTable rows={resource.data?.items ?? []} getRowId={row => row.id} loading={resource.loading} searchable={false} filterable={false} sortable={false}
         columns={[
           { key: 'date', label: 'Created', value: row => row.createdAt, render: row => formatDateTime(row.createdAt) },
-          { key: 'type', label: 'Type', value: row => label(row.transactionType) },
-          { key: 'status', label: 'Status', value: row => label(row.status) },
+          { key: 'type', label: 'Type', value: row => row.rental ? 'Rental charge' : label(row.transactionType) },
+          { key: 'status', label: 'Status', value: row => row.rental ? rentStatus(row.rental.status) : label(row.status) },
           { key: 'description', label: 'Description', value: row => ledgerText(row.description), render: row => <>
             <div>{ledgerText(row.description)}</div>
+            {row.rental && <div>
+              <p>{formatDateTime(row.rental.periodStart)} – {formatDateTime(row.rental.periodEnd)}</p>
+              <p>Charged: {formatMoney(row.rental.chargedAmount, row.currency)} · Paid: {formatMoney(row.rental.paidAmount, row.currency)} · Due: {formatMoney(row.rental.outstandingAmount, row.currency)}</p>
+              <details><summary>Charges and payments</summary>
+                <ul>{row.rental.lines.map((line, i) => <li key={`line-${i}`}>{line.kind === 'CREDIT' ? 'Credit' : label(line.type ?? line.kind)}: {line.kind === 'CREDIT' ? '−' : ''}{formatMoney(line.amount, row.currency)}</li>)}</ul>
+                <ul>{row.rental.payments.map((payment, i) => <li key={`payment-${i}`}>{payment.source === 'DEPLOYMENT_PAYMENT' ? 'Paid from deployment payment' : label(payment.source)}: {formatMoney(payment.amount, row.currency)}</li>)}</ul>
+                <small>Payment details settle this bill. They are not additional rent charges.</small>
+              </details>
+            </div>}
             {row.referenceType === 'DEPLOYMENT_PAYMENT' && (row.breakdown?.status === 'AVAILABLE' ? <details>
               <summary>Payment breakdown</summary>
               <dl>{row.breakdown.items.map((item, index) => <div key={`${item.type}-${index}`}><dt>{item.label}{item.period ? ` · ${label(item.period)}` : ''}</dt><dd>{formatMoney(item.amount, row.currency)}</dd></div>)}</dl>
@@ -124,7 +135,7 @@ function WalletTransactions({ riderId, request }: { riderId: string; request: Re
             </details> : <small className="muted">Breakdown unavailable for this historical payment.</small>)}
           </> },
           { key: 'amount', label: 'Amount', value: row => row.amount, render: row => formatMoney(row.amount, row.currency) },
-          { key: 'movement', label: 'Balance movement', value: row => row.movements.map(item => `${item.bucket} ${item.amount}`).join(' · '), render: row => <>{row.movements.length ? row.movements.map(item => <div key={item.bucket}>{label(item.bucket)}: {Number(item.amount) > 0 ? '+' : ''}{formatMoney(item.amount, row.currency)}</div>) : ['DEPLOYMENT_PAYMENT', 'RIDER_DEPOSIT_REFUND'].includes(row.referenceType ?? '') ? 'No balance change' : '—'}</> },
+          { key: 'movement', label: 'Balance movement', value: row => row.movements.map(item => `${item.bucket} ${item.amount}`).join(' · '), render: row => <>{row.movements.length ? row.movements.map(item => <div key={item.bucket}>{label(item.bucket)}: {Number(item.amount) > 0 ? '+' : ''}{formatMoney(item.amount, row.currency)}</div>) : ['DEPLOYMENT_PAYMENT', 'RIDER_DEPOSIT_REFUND', 'RENTAL_INVOICE'].includes(row.referenceType ?? '') ? 'No balance change' : '—'}</> },
           { key: 'reference', label: 'Reference', value: row => row.transactionNumber, render: row => <>{row.transactionNumber}{row.referenceId && <small className="muted rider-wallet-reference">{row.referenceType ? label(row.referenceType) : null} · {row.referenceId}</small>}</> },
         ]}
         server={{ page, limit: pageSize, total: resource.data?.meta.total ?? 0, search: '', onSearch: () => {}, onPage: setPage, onLimit: value => { setPageSize(value); setPage(1); } }}

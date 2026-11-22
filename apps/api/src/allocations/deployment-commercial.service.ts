@@ -896,6 +896,8 @@ export class DeploymentCommercialService {
         riderId: a.riderId,
         currency: agreement.currency,
         billingMode,
+        collectionMode: 'LEDGER_WALLET',
+        autoSettleInvoiceFromWallet: true,
       },
       update: { billingMode },
     });
@@ -910,6 +912,7 @@ export class DeploymentCommercialService {
         anchorType: 'VEHICLE_HANDOVER',
         anchorAt: at,
         nextPeriodStart: at,
+        automaticFrom: at,
         timezone: 'Asia/Kolkata',
       },
     });
