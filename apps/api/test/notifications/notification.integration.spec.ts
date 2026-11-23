@@ -1,6 +1,14 @@
 import { createTestPrisma } from '../helpers/prisma-client.js';
 import type { PrismaClient } from '@prisma/client';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { NotificationService } from '../../src/notifications/notification.service.js';
 import { NotificationWorker } from '../../src/notifications/notification.worker.js';
@@ -35,8 +43,17 @@ describe.skipIf(!url)('notification service and worker in PostgreSQL', () => {
   let worker!: NotificationWorker;
   beforeAll(() => {
     db = createTestPrisma(url!);
-    service = new NotificationService(db as PrismaService, config as never, provider);
-    worker = new NotificationWorker(db as PrismaService, config as never, service, provider);
+    service = new NotificationService(
+      db as PrismaService,
+      config as never,
+      provider,
+    );
+    worker = new NotificationWorker(
+      db as PrismaService,
+      config as never,
+      service,
+      provider,
+    );
   });
   afterAll(async () => {
     if (db) await db.$disconnect();
@@ -569,14 +586,18 @@ describe.skipIf(!url)('notification service and worker in PostgreSQL', () => {
     await worker.expandRecipients();
     await worker.finishMessages();
     expect(
-      await db.pushDelivery.count({
-        where: {
-          messageId: expired.id,
-          status: 'SKIPPED',
-          errorCode: 'PUSH_EXPIRED',
-        },
+      await db.pushDelivery.count({ where: { messageId: expired.id } }),
+    ).toBe(0);
+    expect(
+      await db.notificationMessage.findUniqueOrThrow({
+        where: { id: expired.id },
       }),
-    ).toBe(1);
+    ).toMatchObject({ status: 'EXPIRED', completedAt: expect.any(Date) });
+    expect(
+      await db.userNotification.findFirstOrThrow({
+        where: { messageId: expired.id },
+      }),
+    ).toMatchObject({ expandedAt: expect.any(Date) });
     expect(
       (await service.inbox(f.client.id, f.rider.row.id, { limit: 20 })).items,
     ).toHaveLength(2);

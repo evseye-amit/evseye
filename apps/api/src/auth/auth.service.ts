@@ -671,7 +671,11 @@ export class AuthService {
       },
     });
 
-    if (previousSessionId)
+    if (previousSessionId) {
+      await this.prisma.notificationInstallation.updateMany({
+        where: { userId: user.id, sessionId: previousSessionId, revokedAt: null },
+        data: { sessionId },
+      });
       await this.prisma.pushDevice.updateMany({
         where: {
           userId: user.id,
@@ -680,7 +684,7 @@ export class AuthService {
         },
         data: { sessionId },
       });
-
+    }
     return { accessToken, refreshToken, tokenType: 'Bearer' as const };
   }
 

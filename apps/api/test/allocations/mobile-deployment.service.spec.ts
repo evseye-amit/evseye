@@ -32,7 +32,7 @@ describe('MobileDeploymentService.fleetRequests', () => {
       {} as never,
       {} as never,
       {} as never,
-      { activateInTransaction: vi.fn() } as never,
+      { activateInTransaction: vi.fn() } as never, { enqueue: vi.fn().mockResolvedValue(undefined) } as never,
     );
 
     const result = await service.fleetRequests('client-1', 'manager-1');
@@ -99,7 +99,7 @@ describe('MobileDeploymentService.requestFleet', () => {
         {} as never,
         {} as never,
         {} as never,
-        { activateInTransaction: vi.fn() } as never,
+        { activateInTransaction: vi.fn() } as never, { enqueue: vi.fn().mockResolvedValue(undefined) } as never,
       );
       await expect(
         service.requestFleet('client-1', 'manager-1', 'allocation-1'),
@@ -129,10 +129,11 @@ describe('mobile PDI submission', () => {
       photo: { findMany: vi.fn().mockResolvedValue([]) },
       $transaction: vi.fn().mockImplementation(fn => fn(tx)),
     };
-    const service = new MobileDeploymentService(prisma as never, {} as never, {} as never, {} as never, { activateInTransaction: vi.fn() } as never);
+    const service = new MobileDeploymentService(prisma as never, {} as never, {} as never, {} as never, { activateInTransaction: vi.fn() } as never, { enqueue: vi.fn().mockResolvedValue(undefined) } as never);
     await expect(service.submitPdi('client-1', 'manager-1', 'allocation-1', 'Partner', [{ code: 'FRONT', mandatory: true }]))
       .resolves.toMatchObject({ status: 'PDI_PENDING_RIDER' });
     expect(tx.inspection.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'COMPLETED' }) }));
+    expect((service as any).notifications.enqueue).not.toHaveBeenCalled();
     expect(tx.allocation.updateMany).toHaveBeenCalledWith({
       where: { id: 'allocation-1', clientId: 'client-1', status: 'INSPECTION_PENDING' },
       data: { status: 'OTP_PENDING' },
@@ -162,7 +163,7 @@ describe('mobile PDI submission', () => {
     return {
       prisma,
       tx,
-      service: new MobileDeploymentService(prisma as never, {} as never, {} as never, {} as never, { activateInTransaction: vi.fn() } as never),
+      service: new MobileDeploymentService(prisma as never, {} as never, {} as never, {} as never, { activateInTransaction: vi.fn() } as never, { enqueue: vi.fn().mockResolvedValue(undefined) } as never),
     };
   }
 
@@ -297,7 +298,7 @@ describe('deployment without IoT pairing', () => {
     };
     const service = new MobileDeploymentService(
       prisma as never, {} as never, {} as never, {} as never,
-      { activateInTransaction: vi.fn() } as never,
+      { activateInTransaction: vi.fn() } as never, { enqueue: vi.fn().mockResolvedValue(undefined) } as never,
     );
     Object.assign(service, { wallet: {
       riderWallet: vi.fn().mockResolvedValue({ id: 'wallet-1', status: 'ACTIVE' }),
@@ -313,6 +314,7 @@ describe('deployment without IoT pairing', () => {
       status: 'DEPLOYED',
       trainingCompletedAt: expect.any(Date),
     });
+    expect((service as any).notifications.enqueue).toHaveBeenCalledWith(tx, 'client-1', 'allocation-1', 'ACTIVATED');
     expect(tx.allocation.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: { status: 'ACTIVE', allocatedAt: expect.any(Date) },
@@ -430,7 +432,8 @@ describe('deployment without IoT pairing', () => {
     const result = service.acceptPdi('client-1', 'rider-user', 'allocation-1', [{ code: 'FRONT', accepted: true }]);
     if (completed) {
       await expect(result).resolves.toMatchObject({ status: 'DEPLOYED' });
-      expect(tx.allocation.updateMany).toHaveBeenCalledWith({
+      expect((service as any).notifications.enqueue).toHaveBeenCalledWith(tx, 'client-1', 'allocation-1', 'ACTIVATED');
+    expect(tx.allocation.updateMany).toHaveBeenCalledWith({
         where: { id: 'allocation-1', clientId: 'client-1', status: 'INSPECTION_PENDING' },
         data: { status: 'ACTIVE', allocatedAt: expect.any(Date) },
       });
@@ -522,7 +525,7 @@ describe('MobileDeploymentService available fleet safety', () => {
       fleet: { findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn().mockResolvedValue(null) },
     };
     const allocations = { initiate: vi.fn() };
-    const service = new MobileDeploymentService(prisma as never, allocations as never, {} as never, {} as never, {} as never);
+    const service = new MobileDeploymentService(prisma as never, allocations as never, {} as never, {} as never, {} as never, { enqueue: vi.fn().mockResolvedValue(undefined) } as never);
     return { prisma, allocations, service };
   }
   it('excludes unfinished allocations even when fleet status is AVAILABLE', async () => {

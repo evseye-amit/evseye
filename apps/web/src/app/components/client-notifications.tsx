@@ -10,11 +10,21 @@ import {
 } from "react";
 import { sessionFetch } from "../../lib/session-fetch";
 import { ClientDataTable } from "./client-data-table";
+import {
+  NotificationComposerFields,
+  emptyComposerFields,
+  type ComposerOptions,
+} from "./notification-composer-fields";
+import { NotificationTestSend } from "./notification-test-send";
+import { ClientNotificationTopics } from "./client-notification-topics";
 import { ClientFormDialog } from "./client-form-dialog";
 
 const audiences = {
   ALL_USERS: "All Users",
   ALL_RIDERS: "All Riders",
+  ALL_EMPLOYEES: "All Employees",
+  ALL_TEAM_LEADERS: "All Team Leaders",
+  FILTERED: "Filtered Users",
   ALL_FLEET_MANAGERS: "All Fleet Managers",
   PHONE_NUMBERS: "Phone Numbers",
   USER_IDS: "Selected Users",
@@ -39,6 +49,12 @@ type Broadcast = {
   status: string;
   createdAt: string;
   completedAt: string | null;
+  scheduledFor?: string | null;
+  withdrawnAt?: string | null;
+  application?: string | null;
+  categoryCode?: string | null;
+  category?: { name: string } | null;
+  visibilityExpiresAt?: string | null;
   totalUsers: number;
   sender?: { name: string } | null;
   deliveryCounts: Record<string, number>;
@@ -57,6 +73,9 @@ type Broadcast = {
 };
 const statusLabel = (status: string) =>
   ({
+    SCHEDULED: "Scheduled",
+    CANCELLED: "Cancelled",
+    EXPIRED: "Push expired",
     QUEUED: "Queued",
     PROCESSING: "Processing",
     WAITING_FOR_CONFIGURATION: "Awaiting Firebase setup",
@@ -79,7 +98,18 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     throw new Error(body.error?.message ?? "Unable to process notifications.");
   return body.data as T;
 }
-export function ClientNotifications({ refreshKey = 0 }: { refreshKey?: number }) {
+export function ClientNotifications({
+  refreshKey = 0,
+  canManageTopics = false,
+}: {
+  refreshKey?: number;
+  canManageTopics?: boolean;
+}) {
+  const [options, setOptions] = useState<ComposerOptions | null>(null);
+  const [fields, setFields] = useState(emptyComposerFields);
+  const [topicsOpen, setTopicsOpen] = useState(false);
+  const [withdrawConfirm, setWithdrawConfirm] = useState(false);
+  const reviewed = useRef<Record<string, unknown> | null>(null);
   const [rows, setRows] = useState<Broadcast[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [previous, setPrevious] = useState<Array<string | null>>([]);
@@ -152,28 +182,112 @@ export function ClientNotifications({ refreshKey = 0 }: { refreshKey?: number })
     setPreview(null);
     setDialogError("");
     key.current = null;
+    reviewed.current = null;
   }
-  function openCompose() {
-    setCompose(true);
-    setTitle("");
-    setBody("");
-    setPhones("");
-    setAudience("ALL_RIDERS");
-    resetPreview();
+  async function openCompose() {
+    setBusy(true);
+    setError("");
+    try {
+      setOptions(await request<ComposerOptions>("/options"));
+      setFields(emptyComposerFields());
+      setTitle("");
+      setBody("");
+      setPhones("");
+      setAudience("ALL_RIDERS");
+      resetPreview();
+      setCompose(true);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Unable to load notification options.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function openTopics() {
+    setBusy(true);
+    setError("");
+    try {
+      setOptions(await request<ComposerOptions>("/options"));
+      setTopicsOpen(true);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Unable to load notification groups.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  function audiencePayload() {
+    const cities = [
+      ...new Set(
+        fields.cities
+          .split(/[,\n]/)
+          .map((c) => c.trim())
+          .filter(Boolean),
+      ),
+    ];
+    return {
+      audience,
+      application: fields.application,
+      ...(audience === "PHONE_NUMBERS" ? { phoneNumbers: phones } : {}),
+      ...(fields.hubIds.length ? { hubIds: fields.hubIds } : {}),
+      ...(fields.vehicleTypeIds.length
+        ? { vehicleTypeIds: fields.vehicleTypeIds }
+        : {}),
+      ...(fields.oemIds.length ? { oemIds: fields.oemIds } : {}),
+      ...(cities.length ? { cities } : {}),
+    };
   }
   async function review(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
     setDialogError("");
     try {
+      if (!fields.categoryCode)
+        throw new Error("Choose a notification category.");
+      const scheduled = fields.scheduledFor
+        ? new Date(fields.scheduledFor)
+        : null;
+      if (
+        scheduled &&
+        (!Number.isFinite(scheduled.getTime()) ||
+          scheduled.getTime() < Date.now() + 60000 ||
+          scheduled.getTime() > Date.now() + 90 * 86400000)
+      )
+        throw new Error(
+          "Choose a send time between one minute and 90 days ahead.",
+        );
+      const expiry = fields.visibilityExpiresAt
+        ? new Date(fields.visibilityExpiresAt)
+        : null;
+      if (
+        expiry &&
+        (!Number.isFinite(expiry.getTime()) || expiry.getTime() <= Date.now())
+      )
+        throw new Error("Visible-until time must be in the future.");
+      if (scheduled && expiry && expiry <= scheduled)
+        throw new Error("Visible-until time must be after the scheduled time.");
+      const targeting = audiencePayload();
+      const payload = {
+        ...targeting,
+        title,
+        body,
+        categoryCode: fields.categoryCode,
+        visibilityPolicy: "OPERATIONAL",
+        ...(scheduled ? { scheduledFor: scheduled.toISOString() } : {}),
+        ...(expiry ? { visibilityExpiresAt: expiry.toISOString() } : {}),
+      };
       const result = await request<Preview>("/preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          audience,
-          ...(audience === "PHONE_NUMBERS" ? { phoneNumbers: phones } : {}),
-        }),
+        body: JSON.stringify(targeting),
       });
+      reviewed.current = payload;
       setPreview(result);
       key.current ??= crypto.randomUUID();
     } catch (cause) {
@@ -187,7 +301,7 @@ export function ClientNotifications({ refreshKey = 0 }: { refreshKey?: number })
     }
   }
   async function send() {
-    if (!preview || !key.current) return;
+    if (!preview || !key.current || !reviewed.current) return;
     setBusy(true);
     setDialogError("");
     try {
@@ -197,15 +311,12 @@ export function ClientNotifications({ refreshKey = 0 }: { refreshKey?: number })
           "Content-Type": "application/json",
           "Idempotency-Key": key.current,
         },
-        body: JSON.stringify({
-          audience,
-          title,
-          body,
-          ...(audience === "PHONE_NUMBERS" ? { phoneNumbers: phones } : {}),
-        }),
+        body: JSON.stringify(reviewed.current),
       });
       setNotice(
-        `Notification queued for ${result.totalUsers} users. Each user can find it in their app inbox.`,
+        result.scheduledFor
+          ? `Notification scheduled for ${new Date(result.scheduledFor).toLocaleString()} for ${result.totalUsers} users.`
+          : `Notification queued for ${result.totalUsers} users. Each user can find it in their app inbox.`,
       );
       setCompose(false);
       resetPreview();
@@ -225,6 +336,7 @@ export function ClientNotifications({ refreshKey = 0 }: { refreshKey?: number })
   async function openDetails(id: string) {
     setBusy(true);
     setError("");
+    setWithdrawConfirm(false);
     try {
       setDetails(await request<Broadcast>(`/${id}`));
     } catch (cause) {
@@ -237,12 +349,32 @@ export function ClientNotifications({ refreshKey = 0 }: { refreshKey?: number })
       setBusy(false);
     }
   }
+  async function withdraw() {
+    if (!details) return;
+    setBusy(true);
+    setError("");
+    try {
+      await request(`/${details.id}/withdraw`, { method: "POST" });
+      setDetails(await request<Broadcast>(`/${details.id}`));
+      setWithdrawConfirm(false);
+      setNotice(
+        "Notification withdrawn. It is hidden from inboxes; pushes already sent cannot be recalled.",
+      );
+      void load(true);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Unable to withdraw notification.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <>
       <section className="client-page-intro notification-header">
         <div>
-
-
           <p className="muted">
             Send a message to your users and track push acceptance and inbox
             reads.
@@ -256,7 +388,16 @@ export function ClientNotifications({ refreshKey = 0 }: { refreshKey?: number })
           >
             Refresh
           </button>
-          <button disabled={busy} onClick={openCompose}>
+          {canManageTopics && (
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={() => void openTopics()}
+            >
+              Notification groups
+            </button>
+          )}
+          <button disabled={busy} onClick={() => void openCompose()}>
             + Send notification
           </button>
         </div>
@@ -276,18 +417,75 @@ export function ClientNotifications({ refreshKey = 0 }: { refreshKey?: number })
           Firebase acceptance confirms submission to Firebase. App inbox reads
           are tracked separately.
         </p>
-        <ClientDataTable rows={rows} loading={loading} resultCountSuffix="on this page" pagination={false} searchable={false} sortable={false} filterable={false} getRowId={(row) => row.id} emptyMessage="No notifications have been sent yet." columns={[
-          { key: "created", label: "Created", value: (row) => row.createdAt, render: (row) => new Date(row.createdAt).toLocaleString() },
-          { key: "title", label: "Title", value: (row) => row.title },
-          { key: "audience", label: "Audience", value: (row) => audiences[row.audience] ?? row.source },
-          { key: "status", label: "Status", value: (row) => statusLabel(row.status), render: (row) => <span className={`status status-${row.status.toLowerCase()}`}>{statusLabel(row.status)}</span> },
-          { key: "users", label: "Users", value: (row) => row.totalUsers },
-          { key: "accepted", label: "Accepted devices", value: (row) => row.deliveryCounts.ACCEPTED ?? 0 },
-          { key: "pending", label: "Pending devices", value: pending },
-          { key: "failed", label: "Failed devices", value: (row) => row.deliveryCounts.FAILED ?? 0 },
-        ]} actions={(row) => <button type="button" className="secondary table-action" disabled={busy} onClick={() => void openDetails(row.id)}>View</button>} />
-        <p className="muted">Showing {rows.length} notifications on this page, newest first.</p>
-        <div className="sa-pagination" aria-label="Notification history pagination">
+        <ClientDataTable
+          rows={rows}
+          loading={loading}
+          resultCountSuffix="on this page"
+          pagination={false}
+          searchable={false}
+          sortable={false}
+          filterable={false}
+          getRowId={(row) => row.id}
+          emptyMessage="No notifications have been sent yet."
+          columns={[
+            {
+              key: "created",
+              label: "Created",
+              value: (row) => row.createdAt,
+              render: (row) => new Date(row.createdAt).toLocaleString(),
+            },
+            {
+              key: "title",
+              label: "Title",
+              value: (row) => row.title,
+            },
+            {
+              key: "audience",
+              label: "Audience",
+              value: (row) => audiences[row.audience] ?? row.source,
+            },
+            {
+              key: "status",
+              label: "Status",
+              value: (row) =>
+                row.withdrawnAt ? "Withdrawn" : statusLabel(row.status),
+              render: (row) => (
+                <span className={`status status-${row.status.toLowerCase()}`}>
+                  {row.withdrawnAt ? "Withdrawn" : statusLabel(row.status)}
+                </span>
+              ),
+            },
+            { key: "users", label: "Users", value: (row) => row.totalUsers },
+            {
+              key: "accepted",
+              label: "Accepted devices",
+              value: (row) => row.deliveryCounts.ACCEPTED ?? 0,
+            },
+            { key: "pending", label: "Pending devices", value: pending },
+            {
+              key: "failed",
+              label: "Failed devices",
+              value: (row) => row.deliveryCounts.FAILED ?? 0,
+            },
+          ]}
+          actions={(row) => (
+            <button
+              type="button"
+              className="secondary table-action"
+              disabled={busy}
+              onClick={() => void openDetails(row.id)}
+            >
+              View
+            </button>
+          )}
+        />
+        <p className="muted">
+          Showing {rows.length} notifications on this page, newest first.
+        </p>
+        <div
+          className="sa-pagination"
+          aria-label="Notification history pagination"
+        >
           <span>Page {previous.length + 1}</span>
           <div>
             <button
@@ -313,14 +511,21 @@ export function ClientNotifications({ refreshKey = 0 }: { refreshKey?: number })
           </div>
         </div>
       </section>
-      {compose && (
+      {topicsOpen && options && (
+        <ClientNotificationTopics
+          options={options}
+          onClose={() => setTopicsOpen(false)}
+        />
+      )}
+      {compose && options && (
         <ClientFormDialog
           title="Send notification"
           busy={busy}
           error={dialogError}
           onClose={() => setCompose(false)}
           wide
-          heading={<>Send notification</>}>
+          heading={<>Send notification</>}
+        >
           <form
             className="form-stack"
             onSubmit={(event) => {
@@ -330,7 +535,25 @@ export function ClientNotifications({ refreshKey = 0 }: { refreshKey?: number })
               } else void review(event);
             }}
           >
-
+            <NotificationComposerFields
+              options={options}
+              value={fields}
+              disabled={busy || Boolean(preview)}
+              onChange={(value) => {
+                if (value.application !== fields.application)
+                  setAudience(
+                    value.application === "RIDER"
+                      ? "ALL_RIDERS"
+                      : value.application === "FLEET_MANAGER"
+                        ? "ALL_FLEET_MANAGERS"
+                        : value.application === "TEAM_LEADER"
+                          ? "ALL_TEAM_LEADERS"
+                          : "ALL_EMPLOYEES",
+                  );
+                setFields(value);
+                resetPreview();
+              }}
+            />
             <label>
               Audience
               <select
@@ -406,6 +629,17 @@ export function ClientNotifications({ refreshKey = 0 }: { refreshKey?: number })
               {title.length}/150 title characters · {body.length}/2,000 body
               characters
             </p>
+            {canManageTopics && fields.application !== "ADMIN" && (
+              <NotificationTestSend
+                key={fields.application}
+                application={fields.application}
+                categoryCode={fields.categoryCode}
+                title={title}
+                body={body}
+                disabled={busy}
+                onBusy={setBusy}
+              />
+            )}
             {preview && (
               <section className="notification-preview">
                 <h3>Review recipients</h3>
@@ -422,9 +656,9 @@ export function ClientNotifications({ refreshKey = 0 }: { refreshKey?: number })
                 </div>
                 {!preview.pushConfigured && (
                   <p className="notice">
-                    Firebase is not enabled. Users will receive inbox entries;
-                    push delivery will wait for Firebase setup until the push
-                    expires.
+                    Firebase setup is incomplete for this client. Users will
+                    receive inbox entries; push delivery will wait for Firebase
+                    setup until the push expires.
                   </p>
                 )}
                 {preview.invalidPhoneNumbers.length > 0 && (
@@ -448,8 +682,10 @@ export function ClientNotifications({ refreshKey = 0 }: { refreshKey?: number })
                   <p className="error">No active users match this audience.</p>
                 )}
                 <p className="muted">
-                  Recipient counts are checked again when you send. The
-                  recipient list is then saved for this notification.
+                  These are audience counts, not guaranteed push deliveries.
+                  Consent, preferences and current access are checked before
+                  dispatch. Recipient counts are checked again when you send.
+                  The recipient list is then saved for this notification.
                 </p>
               </section>
             )}
@@ -466,7 +702,9 @@ export function ClientNotifications({ refreshKey = 0 }: { refreshKey?: number })
                       !!preview.unmatchedPhoneNumbers.length
                     }
                   >
-                    {busy ? "Queuing…" : `Send to ${preview.users} users`}
+                    {busy
+                      ? "Queuing…"
+                      : `${fields.scheduledFor ? "Schedule for" : "Send to"} ${preview.users} users`}
                   </button>
                   <button
                     className="secondary"
@@ -481,7 +719,11 @@ export function ClientNotifications({ refreshKey = 0 }: { refreshKey?: number })
                 <button
                   type="submit"
                   disabled={
-                    busy || contentBytes > 3500 || !title.trim() || !body.trim()
+                    busy ||
+                    contentBytes > 3500 ||
+                    !title.trim() ||
+                    !body.trim() ||
+                    !fields.categoryCode
                   }
                 >
                   {busy ? "Checking recipients…" : "Preview recipients"}
@@ -502,16 +744,68 @@ export function ClientNotifications({ refreshKey = 0 }: { refreshKey?: number })
       {details && (
         <ClientFormDialog
           title="Notification details"
+          error={error}
           busy={busy}
           onClose={() => setDetails(null)}
           wide
-          heading={<>{details.title}</>}>
+          heading={<>{details.title}</>}
+        >
           <div className="form-stack">
             <p className="eyebrow">
               {audiences[details.audience] ?? details.source}
             </p>
 
             <p className="notification-body">{details.body}</p>
+            {details.categoryCode && (
+              <p>
+                Category: {details.category?.name ?? "Uncategorized"} ·
+                Application:{" "}
+                {(
+                  {
+                    RIDER: "Rider App",
+                    FLEET_MANAGER: "Fleet Manager App",
+                    TEAM_LEADER: "Team Leader App",
+                    ADMIN: "Admin",
+                  } as Record<string, string>
+                )[details.application ?? ""] ?? "All applications"}
+              </p>
+            )}
+            {details.visibilityExpiresAt && (
+              <p>
+                Visible until:{" "}
+                {new Date(details.visibilityExpiresAt).toLocaleString()}
+              </p>
+            )}
+            {details.scheduledFor && (
+              <p>
+                Scheduled for {new Date(details.scheduledFor).toLocaleString()}.
+                Withdraw to cancel unsent delivery.
+              </p>
+            )}
+            {details.withdrawnAt && (
+              <p className="notice">
+                Withdrawn {new Date(details.withdrawnAt).toLocaleString()}
+              </p>
+            )}
+            {withdrawConfirm && (
+              <section className="notice">
+                <p>
+                  Withdraw this notification? It will be hidden from recipients.
+                  This cannot be undone; pushes already sent cannot be recalled.
+                </p>
+                <button disabled={busy} onClick={() => void withdraw()}>
+                  Confirm withdrawal
+                </button>
+                <button
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => setWithdrawConfirm(false)}
+                >
+                  Cancel
+                </button>
+              </section>
+            )}
+
             <p className="muted">
               {new Date(details.createdAt).toLocaleString()} ·{" "}
               {details.sender?.name ?? "System"} · {statusLabel(details.status)}
@@ -553,13 +847,45 @@ export function ClientNotifications({ refreshKey = 0 }: { refreshKey?: number })
             {!!details.failures?.length && (
               <>
                 <h3>Recent failed, retrying or skipped attempts</h3>
-                <ClientDataTable rows={details.failures} getRowId={(failure) => failure.id} emptyMessage="No unsuccessful attempts." columns={[
-                  { key: "user", label: "User", value: (failure) => failure.userNotification.user.name },
-                  { key: "mobile", label: "Mobile", value: (failure) => failure.userNotification.user.mobile },
-                  { key: "status", label: "Status", value: (failure) => failure.status.replaceAll("_", " "), render: (failure) => <span className={`status status-${failure.status.toLowerCase()}`}>{failure.status.replaceAll("_", " ")}</span> },
-                  { key: "attempts", label: "Attempts", value: (failure) => failure.attempts },
-                  { key: "reason", label: "Reason", value: (failure) => failure.errorCode },
-                ]} />
+                <ClientDataTable
+                  rows={details.failures}
+                  getRowId={(failure) => failure.id}
+                  emptyMessage="No unsuccessful attempts."
+                  columns={[
+                    {
+                      key: "user",
+                      label: "User",
+                      value: (failure) => failure.userNotification.user.name,
+                    },
+                    {
+                      key: "mobile",
+                      label: "Mobile",
+                      value: (failure) => failure.userNotification.user.mobile,
+                    },
+                    {
+                      key: "status",
+                      label: "Status",
+                      value: (failure) => failure.status.replaceAll("_", " "),
+                      render: (failure) => (
+                        <span
+                          className={`status status-${failure.status.toLowerCase()}`}
+                        >
+                          {failure.status.replaceAll("_", " ")}
+                        </span>
+                      ),
+                    },
+                    {
+                      key: "attempts",
+                      label: "Attempts",
+                      value: (failure) => failure.attempts,
+                    },
+                    {
+                      key: "reason",
+                      label: "Reason",
+                      value: (failure) => failure.errorCode,
+                    },
+                  ]}
+                />
                 <p className="muted">
                   Showing up to 100 recent unsuccessful attempts.
                 </p>
@@ -573,6 +899,16 @@ export function ClientNotifications({ refreshKey = 0 }: { refreshKey?: number })
               >
                 Refresh details
               </button>
+              {!details.withdrawnAt &&
+                (details.source === "MANUAL" || canManageTopics) && (
+                  <button
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() => setWithdrawConfirm(true)}
+                  >
+                    Withdraw notification
+                  </button>
+                )}
               <button onClick={() => setDetails(null)} disabled={busy}>
                 Close
               </button>

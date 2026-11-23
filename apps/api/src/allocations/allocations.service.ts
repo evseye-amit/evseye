@@ -1,3 +1,4 @@
+import { AllocationNotificationService } from './allocation-notification.service.js';
 import { DeploymentCommercialService } from './deployment-commercial.service.js';
 import {
   ConflictException,
@@ -18,7 +19,7 @@ import { RiderDocumentReviewService } from '../riders/rider-document-review.serv
 
 @Injectable()
 export class AllocationsService {
-  constructor(private readonly prisma: PrismaService, private readonly commercial: DeploymentCommercialService, private readonly riderDocuments?: RiderDocumentReviewService) {}
+  constructor(private readonly prisma: PrismaService, private readonly commercial: DeploymentCommercialService, private readonly notifications: AllocationNotificationService, private readonly riderDocuments?: RiderDocumentReviewService) {}
   async list(clientId: string, query: ListAllocationsDto, hubIds?: string[]) {
     const where = {
       clientId,
@@ -170,6 +171,7 @@ export class AllocationsService {
       await tx.mobileDeploymentWorkflow.create({
         data: { clientId, allocationId: allocation.id, status: 'RIDER_WAITING' },
       });
+      await this.notifications.enqueue(tx, clientId, allocation.id, 'REQUESTED');
       return allocation;
     });
   }
@@ -263,6 +265,7 @@ export class AllocationsService {
           'Fleet is not reserved for this allocation.',
         );
 
+      await this.notifications.enqueue(tx, clientId, allocationId, 'ACTIVATED');
       return { activated: true, allocationId };
     });
   }
@@ -318,6 +321,8 @@ export class AllocationsService {
       },
       update: {},
     });
+    if (allocation.status === AllocationStatus.ACTIVE)
+      await this.notifications.enqueue(tx, clientId, allocationId, 'RETURN_STARTED');
     return { allocationId: allocation.id, inspectionId: inspection.id };
   }
   async completeDeallocation(clientId: string, allocationId: string) {
@@ -407,6 +412,7 @@ export class AllocationsService {
         allocationEnabled: safeForReuse,
       },
     });
+    await this.notifications.enqueue(tx, clientId, allocationId, 'RETURN_COMPLETED');
     return { completed: true };
   }
 }

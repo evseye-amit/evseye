@@ -30,13 +30,13 @@ const installations = new FleetInstallationService(
   storage,
 );
 const fleets = new FleetsService(db as never, new FleetStatusPolicy());
-const allocations = new AllocationsService(db as never, {} as never);
+const allocations = new AllocationsService(db as never, {} as never, { enqueue: async () => undefined } as never);
 const mobile = new MobileDeploymentService(
   db as never,
   allocations,
   {} as never,
   {} as never,
-  {} as never,
+  {} as never, { enqueue: async () => undefined } as never,
 );
 afterAll(() => db.$disconnect());
 

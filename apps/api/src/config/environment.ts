@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { parseFirebaseServiceAccount } from './firebase-credentials.js';
 import { normalizeHostname } from '../client-identity/hostname.js';
 const hostList = z.string().refine((value) => {
   try {
@@ -26,7 +25,7 @@ const environmentSchema = z.object({
   CORS_ORIGINS: z.string().default('http://localhost:3001'),
   DATABASE_URL: z.string().url().optional(),
   REDIS_URL: z.string().url().optional(),
-  PUSH_ENABLED: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+  PUSH_ENVIRONMENT: z.string().regex(/^[a-z][a-z0-9_-]{0,39}$/).default('development'),
   FIREBASE_PROJECT_ID: z.preprocess((value) => value === '' ? undefined : value, z.string().min(1).optional()),
   GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),
   FIREBASE_SERVICE_ACCOUNT_JSON: z.preprocess((value) => value === '' ? undefined : value, z.string().optional()),
@@ -398,10 +397,6 @@ export function validateEnvironment(
       throw new Error('Razorpay requires API credentials, a webhook secret and an explicit client allowlist.');
     for (const id of result.data.RAZORPAY_CLIENT_IDS.split(',')) if (!z.string().uuid().safeParse(id.trim()).success) throw new Error('RAZORPAY_CLIENT_IDS must contain client UUIDs.');
     if (result.data.RAZORPAY_KEY_SECRET === result.data.RAZORPAY_WEBHOOK_SECRET) throw new Error('Use distinct Razorpay API and webhook secrets.');
-  }
-  if (result.data.PUSH_ENABLED && !result.data.FIREBASE_PROJECT_ID) throw new Error('FIREBASE_PROJECT_ID is required when PUSH_ENABLED=true.');
-  if (result.data.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    parseFirebaseServiceAccount(result.data.FIREBASE_SERVICE_ACCOUNT_JSON, result.data.FIREBASE_PROJECT_ID);
   }
   return result.data;
 }

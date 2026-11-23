@@ -60,7 +60,7 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
       {} as never,
       {} as never,
     );
-    allocations = new AllocationsService(prisma, {} as never);
+    allocations = new AllocationsService(prisma, {} as never, { enqueue: async () => undefined } as never);
     service = new VehicleSubmissionService(
       prisma,
       allocations,

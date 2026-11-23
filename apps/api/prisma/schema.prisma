@@ -861,6 +861,7 @@ enum FleetOperatingMode {
 }
 
 model Client {
+  notificationAppBindings NotificationAppBinding[]
   appUpdatePolicies AppUpdatePolicy[]
   deploymentAutoPayPolicy ClientDeploymentAutoPayPolicy?
   walletAutoRechargePolicy WalletAutoRechargePolicy?
@@ -2151,6 +2152,9 @@ model FleetTransfer {
 }
 
 model User {
+  notificationInstallations NotificationInstallation[]
+  notificationPreferences NotificationPreference[]
+  notificationConsents NotificationConsent[]
   readinessStaffAssignments FleetReadinessStaff[]
   approvedPenaltyHandoverExceptions PenaltyHandoverException[]
   pushDevices PushDevice[]
@@ -4184,6 +4188,7 @@ model PhotoRequirement {
 }
 
 model Session {
+  notificationInstallations NotificationInstallation[]
   pushDevices PushDevice[]
   id               String    @id @default(uuid())
   userId           String
@@ -6397,6 +6402,11 @@ model VehicleSubmissionReport {
 
 
 model PushDevice {
+  topicReconciledAt DateTime?
+  @@index([topicReconciledAt])
+  topicSubscriptions NotificationTopicSubscription[]
+  notificationAppBindingId String?
+  notificationAppBinding NotificationAppBinding? @relation(fields: [clientId, notificationAppBindingId], references: [clientId, id], onDelete: Restrict)
   id String @id @default(uuid())
   clientId String
   client Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
@@ -6420,9 +6430,24 @@ model PushDevice {
   @@index([clientId, userId, isActive])
   @@index([sessionId])
   @@index([tokenHash])
+  @@index([notificationAppBindingId])
 }
 
 model NotificationMessage {
+  scheduledFor DateTime?
+  @@index([status, scheduledFor])
+  application String? @db.VarChar(30)
+  visibilityPolicy String @default("PERSONAL") @db.VarChar(20)
+  visibilityExpiresAt DateTime?
+  withdrawnAt DateTime?
+  targetRoles String[] @default([])
+  targetHubIds String[] @default([])
+  targetCities String[] @default([])
+  targetFleetIds String[] @default([])
+  targetVehicleTypeIds String[] @default([])
+  targetOemIds String[] @default([])
+  categoryCode String?
+  category NotificationCategory? @relation(fields: [categoryCode], references: [code], onDelete: Restrict)
   id String @id @default(uuid())
   clientId String
   client Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
@@ -6858,4 +6883,165 @@ model RentalBillingWorkerRun {
   deferred Int @default(0)
   error String? @db.VarChar(500)
   @@index([startedAt])
+}
+
+// Platform catalog: application applicability never grants RBAC permissions.
+model NotificationParentGroup {
+  code String @id @db.VarChar(10)
+  name String @db.VarChar(150)
+  isActive Boolean @default(true)
+  sortOrder Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  categories NotificationCategory[]
+}
+model NotificationCategory {
+  code String @id @db.VarChar(100)
+  parentCode String @db.VarChar(10)
+  parent NotificationParentGroup @relation(fields: [parentCode], references: [code], onDelete: Restrict)
+  name String @db.VarChar(150)
+  description String @db.VarChar(1000)
+  defaultPriority String @default("NORMAL") @db.VarChar(20)
+  defaultDelivery String @default("TOKEN") @db.VarChar(30)
+  isActive Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  applications NotificationApplicationCategory[]
+  messages NotificationMessage[]
+  preferences NotificationPreference[]
+  @@index([parentCode, isActive])
+}
+model NotificationApplicationCategory {
+  categoryCode String @db.VarChar(100)
+  category NotificationCategory @relation(fields: [categoryCode], references: [code], onDelete: Restrict)
+  application String @db.VarChar(30)
+  allowed Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@id([categoryCode, application])
+  @@index([application, allowed])
+}
+// credentialReference names a server-injected secret, never the credential itself.
+model FirebaseProjectConfiguration {
+  id String @id @default(uuid())
+  projectId String @db.VarChar(150)
+  environment String @db.VarChar(40)
+  credentialReference String @db.VarChar(150)
+  credentialVersion Int @default(1)
+  isActive Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  bindings NotificationAppBinding[]
+  @@unique([environment, projectId])
+  @@unique([id, environment])
+}
+model NotificationAppBinding {
+  id String @id @default(uuid())
+  clientId String
+  client Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  appCode String @db.VarChar(40)
+  platform String @db.VarChar(10)
+  applicationId String @db.VarChar(255)
+  environment String @db.VarChar(40)
+  firebaseConfigurationId String
+  firebaseConfiguration FirebaseProjectConfiguration @relation(fields: [firebaseConfigurationId, environment], references: [id, environment], onDelete: Restrict)
+  isActive Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  devices PushDevice[]
+  installations NotificationInstallation[]
+  topics NotificationTopic[]
+  topicSubscriptions NotificationTopicSubscription[]
+  @@unique([clientId, id])
+  @@unique([clientId, appCode, platform, applicationId, environment])
+  @@index([firebaseConfigurationId])
+}
+
+
+model NotificationConsent {
+  clientId String
+  userId String
+  application String @db.VarChar(30)
+  marketingEnabled Boolean @default(false)
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [clientId, userId], references: [clientId, id], onDelete: Cascade)
+  @@id([clientId, userId, application])
+}
+model NotificationPreference {
+  clientId String
+  userId String
+  application String @db.VarChar(30)
+  categoryCode String @db.VarChar(100)
+  pushEnabled Boolean @default(true)
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [clientId, userId], references: [clientId, id], onDelete: Cascade)
+  category NotificationCategory @relation(fields: [categoryCode], references: [code], onDelete: Restrict)
+  @@id([clientId, userId, application, categoryCode])
+}
+
+
+// Enrolled before login; optional account/session claim is independent of token readiness.
+model NotificationInstallation {
+  id String @id @db.Uuid
+  clientId String
+  bindingId String
+  binding NotificationAppBinding @relation(fields: [clientId, bindingId], references: [clientId, id], onDelete: Restrict)
+  userId String?
+  user User? @relation(fields: [clientId, userId], references: [clientId, id], onDelete: Restrict)
+  sessionId String?
+  session Session? @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  credentialHash String @db.Char(64)
+  token String? @db.Text
+  tokenHash String? @db.Char(64)
+  firebaseInstallationId String? @db.VarChar(255)
+  permission String @default("NOT_DETERMINED") @db.VarChar(30)
+  onboardingState String @default("UNREGISTERED") @db.VarChar(30)
+  hasRegistered Boolean @default(false)
+  revokedAt DateTime?
+  lastActiveAt DateTime @default(now())
+  tokenUpdatedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([clientId, bindingId, hasRegistered])
+}
+
+
+model NotificationTopic {
+  id String @id @default(uuid())
+  clientId String
+  bindingId String
+  binding NotificationAppBinding @relation(fields: [clientId, bindingId], references: [clientId, id], onDelete: Restrict)
+  logicalKey String @db.VarChar(300)
+  name String @db.VarChar(150)
+  isActive Boolean @default(true)
+  createdAt DateTime @default(now())
+  subscriptions NotificationTopicSubscription[]
+  @@unique([bindingId, logicalKey])
+  @@unique([clientId, bindingId, id])
+  @@unique([name])
+}
+model NotificationTopicSubscription {
+  id String @id @default(uuid())
+  clientId String
+  bindingId String
+  binding NotificationAppBinding @relation(fields: [clientId, bindingId], references: [clientId, id], onDelete: Restrict)
+  topicId String
+  topic NotificationTopic @relation(fields: [clientId, bindingId, topicId], references: [clientId, bindingId, id], onDelete: Restrict)
+  deviceVersion Int
+  deviceId String?
+  device PushDevice? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  token String @db.Text
+  tokenHash String @db.Char(64)
+  desired Boolean
+  applied Boolean?
+  attempts Int @default(0)
+  nextAttemptAt DateTime? @default(now())
+  claimId String?
+  leaseUntil DateTime?
+  lastError String? @db.VarChar(150)
+  lastAppliedAt DateTime?
+  createdAt DateTime @default(now())
+  @@unique([bindingId, tokenHash, topicId])
+  @@index([nextAttemptAt, leaseUntil])
+  @@index([deviceId])
 }

@@ -34,6 +34,7 @@ import { ClientAppUpdateSettings } from "../../components/client-app-update-sett
 import { ClientPaymentSettings } from "../../components/client-payment-settings";
 import { ClientDomainSettings } from "../../components/client-domain-settings";
 import { ClientLogoUpload } from "../../components/client-logo-upload";
+import { PlatformNotificationCatalog } from "../../components/platform-notification-catalog";
 import { SmsDeliveryPanel } from "../../components/sms-delivery-panel";
 import { WorkPartnerManager } from "../../components/work-partner-manager";
 import { LanguageSwitcher, useLocale } from "../../components/locale-provider";
@@ -67,6 +68,7 @@ type Tab =
   | "clientQuotaPacks"
   | "clientCreditLots"
   | "clientUsageLedger"
+  | "notificationCatalog"
   | "smsDeliveries";
 type Item = Record<string, any>;
 
@@ -2160,7 +2162,7 @@ export default function SuperAdminDashboard() {
         ["clientUsageLedger", "Feature Usage Ledger", "dashboard"],
       ],
     },
-    { items: [["legalDocuments", "Legal Documents", "audit"], ["smsDeliveries", "SMS Delivery", "notification"]] },
+    { items: [["notificationCatalog", "Notification Catalog", "notification"], ["legalDocuments", "Legal Documents", "audit"], ["smsDeliveries", "SMS Delivery", "notification"]] },
   ];
   const pageSubtitles: Partial<Record<Tab, string>> = {
     spares: "Manage the spare catalogue copied to clients for their penalty configuration.",
@@ -2176,6 +2178,7 @@ export default function SuperAdminDashboard() {
     packages: "Create packages and define the commercial limits available to clients.",
     packageFeatures: "Choose the features included with each platform package.",
     packageTierPricing: "Set the per-vehicle recurring price for each fleet-size range.",
+    notificationCatalog: "Manage shared notification groups, categories and application mappings.",
     smsDeliveries: "Review OTP delivery outcomes, provider attempts, and failover errors.",
     clients: "Manage onboarding drafts, approvals, subscriptions, and documents.",
     workPartners: "Manage the shared work partner catalog.",
@@ -2513,6 +2516,7 @@ export default function SuperAdminDashboard() {
               />
             )}
             {tab === "workPartners" && <WorkPartnerManager refreshKey={refreshKey} mode="platform" request={request} token={token} />}
+            {tab === "notificationCatalog" && <PlatformNotificationCatalog refreshKey={refreshKey} />}
             {tab === "smsDeliveries" && <SmsDeliveryPanel token={token} />}
             {tab === "clientPricingAdjustments" && (
               <ClientCommercialDirectory clients={clients} section="pricing" />
