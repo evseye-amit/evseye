@@ -9,7 +9,9 @@ import {
   type PushProvider,
   type PushResult,
   type PushTarget,
+  type PushScope,
 } from './firebase-push.provider.js';
+import { applicationDeviceCodes } from './notification-targeting.js';
 import { NotificationService } from './notification.service.js';
 
 const LEASE_MS = 120000;
@@ -30,17 +32,24 @@ export class NotificationWorker {
     if (this.running) return;
     this.running = true;
     try {
-      await this.expandRecipients();
-      await this.dispatch();
-      await this.finishMessages();
-    } catch (cause) {
-      this.logger.error({
-        event: 'notification_worker_failed',
-        code:
-          cause instanceof Prisma.PrismaClientKnownRequestError
-            ? cause.code
-            : 'WORKER_ERROR',
-      });
+      for (const stage of [
+        'expandRecipients',
+        'dispatch',
+        'finishMessages',
+      ] as const) {
+        try {
+          await this[stage]();
+        } catch (cause) {
+          this.logger.error({
+            event: 'notification_worker_failed',
+            stage,
+            code:
+              cause instanceof Prisma.PrismaClientKnownRequestError
+                ? cause.code
+                : 'WORKER_ERROR',
+          });
+        }
+      }
     } finally {
       this.running = false;
     }
@@ -48,6 +57,17 @@ export class NotificationWorker {
   async expandRecipients() {
     return this.db.$transaction(
       async (tx) => {
+        // Finalize expired/withdrawn inbox-only work in bounded batches without creating deliveries.
+        await tx.$executeRaw(Prisma.sql`
+          WITH expired AS (
+            SELECT n.id FROM "UserNotification" n JOIN "NotificationMessage" m
+              ON m.id=n."messageId" AND m."clientId"=n."clientId"
+            WHERE n."expandedAt" IS NULL AND (m."withdrawnAt" IS NOT NULL OR m."pushExpiresAt"<=now())
+            ORDER BY n."createdAt",n.id FOR UPDATE OF n SKIP LOCKED LIMIT 200
+          )
+          UPDATE "UserNotification" n SET "expandedAt"=now()
+          FROM expired e WHERE n.id=e.id
+        `);
         const rows = await tx.$queryRaw<
           Array<{
             id: string;
@@ -56,8 +76,9 @@ export class NotificationWorker {
             messageId: string;
           }>
         >(Prisma.sql`
-        SELECT n.id, n."clientId", n."userId", n."messageId" FROM "UserNotification" n
-        WHERE n."expandedAt" IS NULL ORDER BY n."createdAt", n.id FOR UPDATE SKIP LOCKED LIMIT 200`);
+        SELECT n.id, n."clientId", n."userId", n."messageId" FROM "UserNotification" n JOIN "NotificationMessage" m ON m.id=n."messageId" AND m."clientId"=n."clientId"
+        WHERE n."expandedAt" IS NULL AND m."withdrawnAt" IS NULL AND m."pushExpiresAt">now() AND (m."scheduledFor" IS NULL OR m."scheduledFor"<=now())
+        ORDER BY n."createdAt", n.id FOR UPDATE OF n SKIP LOCKED LIMIT 200`);
         for (const row of rows) {
           const devices = await tx.pushDevice.findMany({
             where: {
@@ -101,7 +122,7 @@ export class NotificationWorker {
       { timeout: 30000 },
     );
   }
-  private async claim() {
+  private async claim(scope: PushScope) {
     const maxAttempts = this.config.getOrThrow<number>('PUSH_MAX_ATTEMPTS');
     const limit = this.config.getOrThrow<number>('PUSH_BATCH_SIZE');
     const rate = this.config.getOrThrow<number>('PUSH_TOKENS_PER_SECOND');
@@ -110,12 +131,12 @@ export class NotificationWorker {
     return this.db.$transaction(
       async (tx) => {
         await tx.$executeRaw(
-          Prisma.sql`INSERT INTO "PushDispatchState" (id, "nextAllowedAt") VALUES ('firebase', now()) ON CONFLICT DO NOTHING`,
+          Prisma.sql`INSERT INTO "PushDispatchState" (id, "nextAllowedAt") VALUES (${scope.id}, ${now}) ON CONFLICT DO NOTHING`,
         );
         const [gate] = await tx.$queryRaw<
           Array<{ nextAllowedAt: Date; leaseUntil: Date | null }>
         >(
-          Prisma.sql`SELECT "nextAllowedAt", "leaseUntil" FROM "PushDispatchState" WHERE id = 'firebase' FOR UPDATE`,
+          Prisma.sql`SELECT "nextAllowedAt", "leaseUntil" FROM "PushDispatchState" WHERE id = ${scope.id} FOR UPDATE`,
         );
         if (
           gate!.nextAllowedAt > now ||
@@ -164,7 +185,16 @@ export class NotificationWorker {
         });
         const ids = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
         SELECT d.id FROM "PushDelivery" d WHERE
+          ${
+            scope.configurationId
+              ? Prisma.sql`EXISTS (
+            SELECT 1 FROM "PushDevice" pd JOIN "NotificationAppBinding" b ON b.id = pd."notificationAppBindingId"
+            WHERE pd.id = d."deviceId" AND b."clientId" = pd."clientId" AND b."firebaseConfigurationId" = ${scope.configurationId}
+          )`
+              : Prisma.sql`true`
+          } AND
           ((d.status IN ('PENDING','RETRY') AND d."nextAttemptAt" <= ${now}) OR (d.status = 'PROCESSING' AND d."leaseUntil" <= ${now}))
+          AND EXISTS (SELECT 1 FROM "NotificationMessage" m WHERE m.id=d."messageId" AND m."withdrawnAt" IS NULL AND (m."scheduledFor" IS NULL OR m."scheduledFor"<=${now}))
           AND d.attempts < ${maxAttempts}
         ORDER BY d."nextAttemptAt", d.id FOR UPDATE SKIP LOCKED LIMIT ${limit}`);
         if (!ids.length) return null;
@@ -182,7 +212,7 @@ export class NotificationWorker {
           Prisma.sql`UPDATE "PushDelivery" SET "firstAttemptAt" = COALESCE("firstAttemptAt", ${now}) WHERE "claimId" = ${claimId}`,
         );
         await tx.pushDispatchState.update({
-          where: { id: 'firebase' },
+          where: { id: scope.id },
           data: {
             claimId,
             leaseUntil,
@@ -199,7 +229,27 @@ export class NotificationWorker {
   async dispatch() {
     // Expanding the inbox remains useful while Firebase credentials are configured later.
     if (!this.provider.configured) return;
-    const claimId = await this.claim();
+    const scopes = this.provider.scopes
+      ? await this.provider.scopes()
+      : [{ id: 'firebase' }];
+    // Independent leases/backoff; one project's outage must not stall the others.
+    for (let index = 0; index < scopes.length; index += 4) {
+      const results = await Promise.allSettled(
+        scopes
+          .slice(index, index + 4)
+          .map((scope) => this.dispatchScope(scope)),
+      );
+      for (const result of results) {
+        if (result.status === 'rejected')
+          this.logger.error({
+            event: 'notification_project_dispatch_failed',
+            code: 'DISPATCH_ERROR',
+          });
+      }
+    }
+  }
+  private async dispatchScope(scope: PushScope) {
+    const claimId = await this.claim(scope);
     if (!claimId) return;
     let globalBackoff = 0;
     try {
@@ -214,11 +264,35 @@ export class NotificationWorker {
         },
         orderBy: { id: 'asc' },
       });
+      const clients = [
+        ...new Set(deliveries.map((d) => d.userNotification.clientId)),
+      ];
+      const eligibility = new Map(
+        await Promise.all(
+          clients.map(
+            async (clientId) =>
+              [
+                clientId,
+                await this.service.eligibleForDeliveries(
+                  clientId,
+                  deliveries
+                    .filter((d) => d.userNotification.clientId === clientId)
+                    .map((d) => d.userNotificationId),
+                ),
+              ] as const,
+          ),
+        ),
+      );
       const sendable: typeof deliveries = [];
       const now = new Date();
       for (const delivery of deliveries) {
         const { device, message, userNotification } = delivery;
         if (
+          !eligibility
+            .get(userNotification.clientId)
+            ?.has(delivery.userNotificationId) ||
+          (message.application != null &&
+            applicationDeviceCodes[message.application] !== device.appCode) ||
           !device.isActive ||
           device.version !== delivery.deviceVersion ||
           device.userId !== userNotification.userId ||
@@ -248,6 +322,9 @@ export class NotificationWorker {
       }
       if (!sendable.length) return;
       const targets: PushTarget[] = sendable.map((row) => ({
+        bindingId: row.device.notificationAppBindingId,
+        appCode: row.device.appCode,
+        platform: row.device.platform,
         token: row.device.token,
         notificationId: row.userNotificationId,
         messageId: row.messageId,
@@ -255,7 +332,15 @@ export class NotificationWorker {
         clientId: row.userNotification.clientId,
         title: row.message.title,
         body: row.message.body,
-        data: row.message.data as Record<string, string>,
+        data: {
+          ...(row.message.data as Record<string, string>),
+          ...(row.message.categoryCode
+            ? { categoryCode: row.message.categoryCode }
+            : {}),
+          ...(row.message.application
+            ? { application: row.message.application }
+            : {}),
+        },
         expiresAt: row.message.pushExpiresAt,
       }));
       let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -293,6 +378,21 @@ export class NotificationWorker {
           code: 'PUSH_RESPONSE_MISSING',
           retryable: true,
         };
+        if (result.deferred) {
+          await this.db.pushDelivery.updateMany({
+            where: { id: row.id, claimId, status: 'PROCESSING' },
+            data: {
+              status: 'RETRY',
+              errorCode: 'PUSH_CONFIGURATION_UNAVAILABLE',
+              claimId: null,
+              leaseUntil: null,
+              attempts: { decrement: 1 },
+              firstAttemptAt: row.attempts === 1 ? null : row.firstAttemptAt,
+              nextAttemptAt: new Date(Date.now() + 60000),
+            },
+          });
+          continue;
+        }
         globalBackoff = Math.max(globalBackoff, result.retryAfterSeconds ?? 0);
         const canRetry =
           result.retryable &&
@@ -342,7 +442,7 @@ export class NotificationWorker {
       }
     } finally {
       await this.db.pushDispatchState.updateMany({
-        where: { id: 'firebase', claimId },
+        where: { id: scope.id, claimId },
         data: {
           leaseUntil: null,
           claimId: null,
@@ -355,6 +455,18 @@ export class NotificationWorker {
   }
   async finishMessages() {
     // One SQL snapshot prevents a broadcast appearing complete while another worker expands its recipients.
+    await this.db.pushDelivery.updateMany({
+      where: {
+        status: { in: activeStatuses },
+        message: { withdrawnAt: { not: null } },
+      },
+      data: {
+        status: 'SKIPPED',
+        errorCode: 'NOTIFICATION_WITHDRAWN',
+        leaseUntil: null,
+        claimId: null,
+      },
+    });
     await this.db.pushDelivery.updateMany({
       where: {
         status: { in: activeStatuses },
@@ -373,14 +485,25 @@ export class NotificationWorker {
     await this.db.$executeRaw(Prisma.sql`
       WITH progress AS (
         SELECT m.id,
-          CASE WHEN EXISTS (SELECT 1 FROM "UserNotification" n WHERE n."messageId" = m.id AND n."expandedAt" IS NULL) THEN 'PROCESSING'
-          WHEN EXISTS (SELECT 1 FROM "PushDelivery" d WHERE d."messageId" = m.id AND d.status IN ('PENDING','PROCESSING','RETRY')) THEN ${waiting}
+          CASE WHEN m."withdrawnAt" IS NOT NULL THEN 'CANCELLED'
+          WHEN m."scheduledFor">now() THEN 'SCHEDULED'
+          WHEN m."pushExpiresAt"<=now() AND NOT EXISTS (SELECT 1 FROM "PushDelivery" d WHERE d."messageId"=m.id AND d.status='ACCEPTED') THEN 'EXPIRED'
+          WHEN EXISTS (SELECT 1 FROM "UserNotification" n WHERE n."messageId" = m.id AND n."expandedAt" IS NULL) THEN 'PROCESSING'
+          WHEN EXISTS (SELECT 1 FROM "PushDelivery" d WHERE d."messageId" = m.id AND d.status IN ('PENDING','PROCESSING','RETRY')) THEN
+            CASE WHEN ${Boolean(this.provider.scopes)} AND NOT EXISTS (
+              SELECT 1 FROM "PushDelivery" d JOIN "PushDevice" pd ON pd.id = d."deviceId"
+              JOIN "NotificationAppBinding" b ON b.id = pd."notificationAppBindingId" AND b."clientId" = pd."clientId"
+              JOIN "FirebaseProjectConfiguration" c ON c.id = b."firebaseConfigurationId"
+              WHERE d."messageId" = m.id AND d.status IN ('PENDING','PROCESSING','RETRY')
+                AND b."isActive" AND c."isActive" AND b.environment = ${this.config.get?.('PUSH_ENVIRONMENT') ?? 'development'}
+                AND (d."errorCode" IS NULL OR d."errorCode" <> 'PUSH_CONFIGURATION_UNAVAILABLE')
+            ) THEN 'WAITING_FOR_CONFIGURATION' ELSE ${waiting} END
           WHEN EXISTS (SELECT 1 FROM "PushDelivery" d WHERE d."messageId" = m.id AND d.status IN ('FAILED','SKIPPED')) THEN
             CASE WHEN EXISTS (SELECT 1 FROM "PushDelivery" d WHERE d."messageId" = m.id AND d.status = 'ACCEPTED') THEN 'PARTIAL' ELSE 'FAILED' END
           ELSE 'COMPLETED' END AS status
-        FROM "NotificationMessage" m WHERE (m.status IN ('QUEUED','PROCESSING') OR (m.status = 'WAITING_FOR_CONFIGURATION' AND (${this.provider.configured} OR m."pushExpiresAt" <= now()))) ORDER BY m."createdAt" LIMIT 100
+        FROM "NotificationMessage" m WHERE (m.status IN ('SCHEDULED','QUEUED','PROCESSING') OR (m.status = 'WAITING_FOR_CONFIGURATION' AND (m."withdrawnAt" IS NOT NULL OR ${this.provider.configured} OR m."pushExpiresAt" <= now())))
       )
-      UPDATE "NotificationMessage" m SET status = p.status, "completedAt" = CASE WHEN p.status IN ('COMPLETED','PARTIAL','FAILED') THEN now() ELSE NULL END
-      FROM progress p WHERE m.id = p.id`);
+      UPDATE "NotificationMessage" m SET status = p.status, "completedAt" = CASE WHEN p.status IN ('COMPLETED','PARTIAL','FAILED','CANCELLED','EXPIRED') THEN now() ELSE NULL END
+      FROM progress p WHERE m.id = p.id AND m.status IS DISTINCT FROM p.status`);
   }
 }

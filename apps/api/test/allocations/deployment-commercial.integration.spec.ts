@@ -54,13 +54,13 @@ const commercial = new DeploymentCommercialService(
   lifecycle,
   deposits,
 );
-const allocations = new AllocationsService(db as never, commercial);
+const allocations = new AllocationsService(db as never, commercial, { enqueue: async () => undefined } as never);
 const mobile = new MobileDeploymentService(
   db as never,
   allocations,
   {} as never,
   {} as never,
-  commercial,
+  commercial, { enqueue: async () => undefined } as never,
 );
 const returns = new RideReturnsService(db as never);
 const billing = new RiderBillingEngineService(

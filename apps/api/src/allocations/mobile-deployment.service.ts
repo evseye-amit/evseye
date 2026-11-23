@@ -1,3 +1,4 @@
+import { AllocationNotificationService } from './allocation-notification.service.js';
 import { pdiItems, riderPdiItems, riderPdiWorkflow } from './rider-pdi.js';
 import { allocationPaymentView } from './allocation-payment-view.js';
 import { pendingPenaltySummary } from '../submission-penalties/submission-penalty.service.js';
@@ -58,6 +59,7 @@ export class MobileDeploymentService {
     private readonly media: MediaService,
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
     private readonly commercial: DeploymentCommercialService,
+    private readonly notifications: AllocationNotificationService,
     @Optional() private readonly referralQualification?: ReferralQualificationService,
   ) {}
 
@@ -569,6 +571,7 @@ export class MobileDeploymentService {
     });
     if (activated.count !== 1) throw new BadRequestException('The allocation status changed. Refresh and try again.');
 
+    await this.notifications.enqueue(tx, clientId, allocationId, 'ACTIVATED');
     return tx.mobileDeploymentWorkflow.update({
       where: { id: workflowId },
       data: { ...workflowData, status: MobileDeploymentStatus.DEPLOYED },

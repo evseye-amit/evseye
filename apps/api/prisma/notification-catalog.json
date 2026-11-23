@@ -1,0 +1,1800 @@
+{
+  "version": 1,
+  "groups": [
+    {
+      "code": "PG01",
+      "name": "General & Communication"
+    },
+    {
+      "code": "PG02",
+      "name": "User Account & Onboarding"
+    },
+    {
+      "code": "PG03",
+      "name": "Rental & Mobility"
+    },
+    {
+      "code": "PG04",
+      "name": "Vehicle & Fleet Operations"
+    },
+    {
+      "code": "PG05",
+      "name": "Maintenance & Battery"
+    },
+    {
+      "code": "PG06",
+      "name": "Payments & Finance"
+    },
+    {
+      "code": "PG07",
+      "name": "Inventory & Procurement"
+    },
+    {
+      "code": "PG08",
+      "name": "Team & Task Management"
+    },
+    {
+      "code": "PG09",
+      "name": "Safety & Compliance"
+    },
+    {
+      "code": "PG10",
+      "name": "Approvals & Escalations"
+    },
+    {
+      "code": "PG11",
+      "name": "Marketing & Engagement"
+    },
+    {
+      "code": "PG12",
+      "name": "Support & Performance"
+    }
+  ],
+  "categories": [
+    {
+      "code": "PG01_GENERAL_NOTIFICATIONS",
+      "name": "General Notifications",
+      "description": "Notifications about general notifications.",
+      "parentCode": "PG01",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOPIC_ELIGIBLE",
+      "isActive": true
+    },
+    {
+      "code": "PG01_ANNOUNCEMENTS",
+      "name": "Announcements",
+      "description": "Notifications about announcements.",
+      "parentCode": "PG01",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOPIC_ELIGIBLE",
+      "isActive": true
+    },
+    {
+      "code": "PG01_APP_UPDATES",
+      "name": "App Updates",
+      "description": "Notifications about app updates.",
+      "parentCode": "PG01",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOPIC_ELIGIBLE",
+      "isActive": true
+    },
+    {
+      "code": "PG01_SYSTEM_UPDATES",
+      "name": "System Updates",
+      "description": "Notifications about system updates.",
+      "parentCode": "PG01",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOPIC_ELIGIBLE",
+      "isActive": true
+    },
+    {
+      "code": "PG01_SCHEDULED_MAINTENANCE",
+      "name": "Scheduled Maintenance",
+      "description": "Notifications about scheduled maintenance.",
+      "parentCode": "PG01",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOPIC_ELIGIBLE",
+      "isActive": true
+    },
+    {
+      "code": "PG01_FEATURE_ANNOUNCEMENTS",
+      "name": "Feature Announcements",
+      "description": "Notifications about feature announcements.",
+      "parentCode": "PG01",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOPIC_ELIGIBLE",
+      "isActive": true
+    },
+    {
+      "code": "PG02_NEW_USER",
+      "name": "New User",
+      "description": "Notifications about new user.",
+      "parentCode": "PG02",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG02_UNREGISTERED_USER",
+      "name": "Unregistered User",
+      "description": "Notifications about unregistered user.",
+      "parentCode": "PG02",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG02_REGISTRATION_STARTED",
+      "name": "Registration Started",
+      "description": "Notifications about registration started.",
+      "parentCode": "PG02",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG02_REGISTRATION_INCOMPLETE",
+      "name": "Registration Incomplete",
+      "description": "Notifications about registration incomplete.",
+      "parentCode": "PG02",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG02_REGISTRATION_REMINDER",
+      "name": "Registration Reminder",
+      "description": "Notifications about registration reminder.",
+      "parentCode": "PG02",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG02_MOBILE_VERIFICATION",
+      "name": "Mobile Verification",
+      "description": "Notifications about mobile verification.",
+      "parentCode": "PG02",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG02_OTP_PENDING",
+      "name": "OTP Pending",
+      "description": "Notifications about otp pending.",
+      "parentCode": "PG02",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG02_PROFILE_COMPLETION",
+      "name": "Profile Completion",
+      "description": "Notifications about profile completion.",
+      "parentCode": "PG02",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG02_KYC_PENDING",
+      "name": "KYC Pending",
+      "description": "Notifications about kyc pending.",
+      "parentCode": "PG02",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG02_KYC_APPROVED",
+      "name": "KYC Approved",
+      "description": "Notifications about kyc approved.",
+      "parentCode": "PG02",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG02_KYC_REJECTED",
+      "name": "KYC Rejected",
+      "description": "Notifications about kyc rejected.",
+      "parentCode": "PG02",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG02_ACCOUNT_VERIFICATION",
+      "name": "Account Verification",
+      "description": "Notifications about account verification.",
+      "parentCode": "PG02",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG02_ACCOUNT_SECURITY",
+      "name": "Account Security",
+      "description": "Notifications about account security.",
+      "parentCode": "PG02",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "HIGH",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG02_LOGIN_ALERTS",
+      "name": "Login Alerts",
+      "description": "Notifications about login alerts.",
+      "parentCode": "PG02",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG03_RENTAL_BOOKING",
+      "name": "Rental Booking",
+      "description": "Notifications about rental booking.",
+      "parentCode": "PG03",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG03_RENTAL_CONFIRMATION",
+      "name": "Rental Confirmation",
+      "description": "Notifications about rental confirmation.",
+      "parentCode": "PG03",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG03_RENTAL_STARTED",
+      "name": "Rental Started",
+      "description": "Notifications about rental started.",
+      "parentCode": "PG03",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG03_RENTAL_EXTENSION",
+      "name": "Rental Extension",
+      "description": "Notifications about rental extension.",
+      "parentCode": "PG03",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG03_RENTAL_EXPIRY",
+      "name": "Rental Expiry",
+      "description": "Notifications about rental expiry.",
+      "parentCode": "PG03",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG03_RENTAL_OVERDUE",
+      "name": "Rental Overdue",
+      "description": "Notifications about rental overdue.",
+      "parentCode": "PG03",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG03_RENTAL_CANCELLATION",
+      "name": "Rental Cancellation",
+      "description": "Notifications about rental cancellation.",
+      "parentCode": "PG03",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG03_VEHICLE_HANDOVER",
+      "name": "Vehicle Handover",
+      "description": "Notifications about vehicle handover.",
+      "parentCode": "PG03",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG03_VEHICLE_RETURN",
+      "name": "Vehicle Return",
+      "description": "Notifications about vehicle return.",
+      "parentCode": "PG03",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG03_RIDE_STARTED",
+      "name": "Ride Started",
+      "description": "Notifications about ride started.",
+      "parentCode": "PG03",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG03_RIDE_COMPLETED",
+      "name": "Ride Completed",
+      "description": "Notifications about ride completed.",
+      "parentCode": "PG03",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG03_TRIP_UPDATES",
+      "name": "Trip Updates",
+      "description": "Notifications about trip updates.",
+      "parentCode": "PG03",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG04_VEHICLE_ALLOCATION",
+      "name": "Vehicle Allocation",
+      "description": "Notifications about vehicle allocation.",
+      "parentCode": "PG04",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG04_VEHICLE_AVAILABILITY",
+      "name": "Vehicle Availability",
+      "description": "Notifications about vehicle availability.",
+      "parentCode": "PG04",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG04_VEHICLE_STATUS",
+      "name": "Vehicle Status",
+      "description": "Notifications about vehicle status.",
+      "parentCode": "PG04",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG04_FLEET_DEPLOYMENT",
+      "name": "Fleet Deployment",
+      "description": "Notifications about fleet deployment.",
+      "parentCode": "PG04",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG04_FLEET_COLLECTION",
+      "name": "Fleet Collection",
+      "description": "Notifications about fleet collection.",
+      "parentCode": "PG04",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG04_FLEET_RELOCATION",
+      "name": "Fleet Relocation",
+      "description": "Notifications about fleet relocation.",
+      "parentCode": "PG04",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG04_FLEET_UTILIZATION",
+      "name": "Fleet Utilization",
+      "description": "Notifications about fleet utilization.",
+      "parentCode": "PG04",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG04_VEHICLE_INACTIVITY",
+      "name": "Vehicle Inactivity",
+      "description": "Notifications about vehicle inactivity.",
+      "parentCode": "PG04",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG04_VEHICLE_INSPECTION",
+      "name": "Vehicle Inspection",
+      "description": "Notifications about vehicle inspection.",
+      "parentCode": "PG04",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG04_VEHICLE_TRACKING",
+      "name": "Vehicle Tracking",
+      "description": "Notifications about vehicle tracking.",
+      "parentCode": "PG04",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG05_VEHICLE_BREAKDOWN",
+      "name": "Vehicle Breakdown",
+      "description": "Notifications about vehicle breakdown.",
+      "parentCode": "PG05",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG05_MAINTENANCE_REQUEST",
+      "name": "Maintenance Request",
+      "description": "Notifications about maintenance request.",
+      "parentCode": "PG05",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG05_SERVICE_DUE",
+      "name": "Service Due",
+      "description": "Notifications about service due.",
+      "parentCode": "PG05",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG05_REPAIR_ASSIGNMENT",
+      "name": "Repair Assignment",
+      "description": "Notifications about repair assignment.",
+      "parentCode": "PG05",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG05_REPAIR_STATUS",
+      "name": "Repair Status",
+      "description": "Notifications about repair status.",
+      "parentCode": "PG05",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG05_SERVICE_COMPLETION",
+      "name": "Service Completion",
+      "description": "Notifications about service completion.",
+      "parentCode": "PG05",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG05_BATTERY_LOW",
+      "name": "Battery Low",
+      "description": "Notifications about battery low.",
+      "parentCode": "PG05",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG05_BATTERY_HEALTH",
+      "name": "Battery Health",
+      "description": "Notifications about battery health.",
+      "parentCode": "PG05",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG05_BATTERY_CHARGING",
+      "name": "Battery Charging",
+      "description": "Notifications about battery charging.",
+      "parentCode": "PG05",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG05_CHARGING_FAILURE",
+      "name": "Charging Failure",
+      "description": "Notifications about charging failure.",
+      "parentCode": "PG05",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG05_BATTERY_SWAPPING",
+      "name": "Battery Swapping",
+      "description": "Notifications about battery swapping.",
+      "parentCode": "PG05",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG06_PAYMENT_SUCCESSFUL",
+      "name": "Payment Successful",
+      "description": "Notifications about payment successful.",
+      "parentCode": "PG06",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG06_PAYMENT_FAILED",
+      "name": "Payment Failed",
+      "description": "Notifications about payment failed.",
+      "parentCode": "PG06",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG06_PAYMENT_PENDING",
+      "name": "Payment Pending",
+      "description": "Notifications about payment pending.",
+      "parentCode": "PG06",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG06_PAYMENT_REMINDER",
+      "name": "Payment Reminder",
+      "description": "Notifications about payment reminder.",
+      "parentCode": "PG06",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG06_REFUND",
+      "name": "Refund",
+      "description": "Notifications about refund.",
+      "parentCode": "PG06",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG06_INVOICE",
+      "name": "Invoice",
+      "description": "Notifications about invoice.",
+      "parentCode": "PG06",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG06_OUTSTANDING_DUES",
+      "name": "Outstanding Dues",
+      "description": "Notifications about outstanding dues.",
+      "parentCode": "PG06",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG06_WALLET_RECHARGE",
+      "name": "Wallet Recharge",
+      "description": "Notifications about wallet recharge.",
+      "parentCode": "PG06",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG06_AUTOPAY",
+      "name": "AutoPay",
+      "description": "Notifications about autopay.",
+      "parentCode": "PG06",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG06_COLLECTION",
+      "name": "Collection",
+      "description": "Notifications about collection.",
+      "parentCode": "PG06",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG06_RECONCILIATION",
+      "name": "Reconciliation",
+      "description": "Notifications about reconciliation.",
+      "parentCode": "PG06",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG07_SPARE_PARTS",
+      "name": "Spare Parts",
+      "description": "Notifications about spare parts.",
+      "parentCode": "PG07",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG07_INVENTORY_SHORTAGE",
+      "name": "Inventory Shortage",
+      "description": "Notifications about inventory shortage.",
+      "parentCode": "PG07",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG07_STOCK_AVAILABILITY",
+      "name": "Stock Availability",
+      "description": "Notifications about stock availability.",
+      "parentCode": "PG07",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG07_PURCHASE_ORDERS",
+      "name": "Purchase Orders",
+      "description": "Notifications about purchase orders.",
+      "parentCode": "PG07",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG07_ORDER_CONFIRMATION",
+      "name": "Order Confirmation",
+      "description": "Notifications about order confirmation.",
+      "parentCode": "PG07",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG07_ORDER_DISPATCH",
+      "name": "Order Dispatch",
+      "description": "Notifications about order dispatch.",
+      "parentCode": "PG07",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG07_ORDER_DELIVERY",
+      "name": "Order Delivery",
+      "description": "Notifications about order delivery.",
+      "parentCode": "PG07",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG07_INVENTORY_REPLENISHMENT",
+      "name": "Inventory Replenishment",
+      "description": "Notifications about inventory replenishment.",
+      "parentCode": "PG07",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG08_TASK_ASSIGNMENT",
+      "name": "Task Assignment",
+      "description": "Notifications about task assignment.",
+      "parentCode": "PG08",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG08_TASK_REASSIGNMENT",
+      "name": "Task Reassignment",
+      "description": "Notifications about task reassignment.",
+      "parentCode": "PG08",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG08_TASK_STARTED",
+      "name": "Task Started",
+      "description": "Notifications about task started.",
+      "parentCode": "PG08",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG08_TASK_COMPLETED",
+      "name": "Task Completed",
+      "description": "Notifications about task completed.",
+      "parentCode": "PG08",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG08_TASK_OVERDUE",
+      "name": "Task Overdue",
+      "description": "Notifications about task overdue.",
+      "parentCode": "PG08",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG08_TASK_REMINDER",
+      "name": "Task Reminder",
+      "description": "Notifications about task reminder.",
+      "parentCode": "PG08",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG08_TEAM_ACTIVITIES",
+      "name": "Team Activities",
+      "description": "Notifications about team activities.",
+      "parentCode": "PG08",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG08_TEAM_PERFORMANCE",
+      "name": "Team Performance",
+      "description": "Notifications about team performance.",
+      "parentCode": "PG08",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG09_SOS",
+      "name": "SOS",
+      "description": "Notifications about sos.",
+      "parentCode": "PG09",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "HIGH",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG09_ACCIDENT",
+      "name": "Accident",
+      "description": "Notifications about accident.",
+      "parentCode": "PG09",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "HIGH",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG09_EMERGENCY",
+      "name": "Emergency",
+      "description": "Notifications about emergency.",
+      "parentCode": "PG09",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "HIGH",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG09_UNAUTHORIZED_VEHICLE_MOVEMENT",
+      "name": "Unauthorized Vehicle Movement",
+      "description": "Notifications about unauthorized vehicle movement.",
+      "parentCode": "PG09",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "HIGH",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG09_GEOFENCE_ENTRY",
+      "name": "Geofence Entry",
+      "description": "Notifications about geofence entry.",
+      "parentCode": "PG09",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG09_GEOFENCE_EXIT",
+      "name": "Geofence Exit",
+      "description": "Notifications about geofence exit.",
+      "parentCode": "PG09",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG09_GPS_DISCONNECTION",
+      "name": "GPS Disconnection",
+      "description": "Notifications about gps disconnection.",
+      "parentCode": "PG09",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG09_INSURANCE_EXPIRY",
+      "name": "Insurance Expiry",
+      "description": "Notifications about insurance expiry.",
+      "parentCode": "PG09",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG09_RC_EXPIRY",
+      "name": "RC Expiry",
+      "description": "Notifications about rc expiry.",
+      "parentCode": "PG09",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG09_PERMIT_EXPIRY",
+      "name": "Permit Expiry",
+      "description": "Notifications about permit expiry.",
+      "parentCode": "PG09",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG09_PUC_EXPIRY",
+      "name": "PUC Expiry",
+      "description": "Notifications about puc expiry.",
+      "parentCode": "PG09",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG09_DOCUMENT_VERIFICATION",
+      "name": "Document Verification",
+      "description": "Notifications about document verification.",
+      "parentCode": "PG09",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG10_APPROVAL_REQUESTED",
+      "name": "Approval Requested",
+      "description": "Notifications about approval requested.",
+      "parentCode": "PG10",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG10_APPROVAL_PENDING",
+      "name": "Approval Pending",
+      "description": "Notifications about approval pending.",
+      "parentCode": "PG10",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG10_APPROVAL_APPROVED",
+      "name": "Approval Approved",
+      "description": "Notifications about approval approved.",
+      "parentCode": "PG10",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG10_APPROVAL_REJECTED",
+      "name": "Approval Rejected",
+      "description": "Notifications about approval rejected.",
+      "parentCode": "PG10",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG10_EXPENSE_APPROVAL",
+      "name": "Expense Approval",
+      "description": "Notifications about expense approval.",
+      "parentCode": "PG10",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG10_REPAIR_APPROVAL",
+      "name": "Repair Approval",
+      "description": "Notifications about repair approval.",
+      "parentCode": "PG10",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG10_OPERATIONAL_ESCALATION",
+      "name": "Operational Escalation",
+      "description": "Notifications about operational escalation.",
+      "parentCode": "PG10",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG10_CRITICAL_ESCALATION",
+      "name": "Critical Escalation",
+      "description": "Notifications about critical escalation.",
+      "parentCode": "PG10",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER"
+      ],
+      "defaultPriority": "HIGH",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG11_OFFERS",
+      "name": "Offers",
+      "description": "Notifications about offers.",
+      "parentCode": "PG11",
+      "applications": [
+        "ADMIN",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOPIC_ELIGIBLE",
+      "isActive": true
+    },
+    {
+      "code": "PG11_PROMOTIONS",
+      "name": "Promotions",
+      "description": "Notifications about promotions.",
+      "parentCode": "PG11",
+      "applications": [
+        "ADMIN",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOPIC_ELIGIBLE",
+      "isActive": true
+    },
+    {
+      "code": "PG11_COUPONS",
+      "name": "Coupons",
+      "description": "Notifications about coupons.",
+      "parentCode": "PG11",
+      "applications": [
+        "ADMIN",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOPIC_ELIGIBLE",
+      "isActive": true
+    },
+    {
+      "code": "PG11_REFERRAL_INVITATIONS",
+      "name": "Referral Invitations",
+      "description": "Notifications about referral invitations.",
+      "parentCode": "PG11",
+      "applications": [
+        "ADMIN",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOPIC_ELIGIBLE",
+      "isActive": true
+    },
+    {
+      "code": "PG11_REFERRAL_SUCCESS",
+      "name": "Referral Success",
+      "description": "Notifications about referral success.",
+      "parentCode": "PG11",
+      "applications": [
+        "ADMIN",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOPIC_ELIGIBLE",
+      "isActive": true
+    },
+    {
+      "code": "PG11_REFERRAL_REWARDS",
+      "name": "Referral Rewards",
+      "description": "Notifications about referral rewards.",
+      "parentCode": "PG11",
+      "applications": [
+        "ADMIN",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG11_LOYALTY_REWARDS",
+      "name": "Loyalty Rewards",
+      "description": "Notifications about loyalty rewards.",
+      "parentCode": "PG11",
+      "applications": [
+        "ADMIN",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOPIC_ELIGIBLE",
+      "isActive": true
+    },
+    {
+      "code": "PG11_CAMPAIGN_ANNOUNCEMENTS",
+      "name": "Campaign Announcements",
+      "description": "Notifications about campaign announcements.",
+      "parentCode": "PG11",
+      "applications": [
+        "ADMIN",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOPIC_ELIGIBLE",
+      "isActive": true
+    },
+    {
+      "code": "PG11_FIRST_RENTAL_OFFERS",
+      "name": "First Rental Offers",
+      "description": "Notifications about first rental offers.",
+      "parentCode": "PG11",
+      "applications": [
+        "ADMIN",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOPIC_ELIGIBLE",
+      "isActive": true
+    },
+    {
+      "code": "PG12_SUPPORT_TICKET_CREATED",
+      "name": "Support Ticket Created",
+      "description": "Notifications about support ticket created.",
+      "parentCode": "PG12",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG12_SUPPORT_TICKET_UPDATED",
+      "name": "Support Ticket Updated",
+      "description": "Notifications about support ticket updated.",
+      "parentCode": "PG12",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG12_SUPPORT_TICKET_RESOLVED",
+      "name": "Support Ticket Resolved",
+      "description": "Notifications about support ticket resolved.",
+      "parentCode": "PG12",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG12_COMPLAINT_REGISTERED",
+      "name": "Complaint Registered",
+      "description": "Notifications about complaint registered.",
+      "parentCode": "PG12",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG12_COMPLAINT_ESCALATED",
+      "name": "Complaint Escalated",
+      "description": "Notifications about complaint escalated.",
+      "parentCode": "PG12",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG12_FEEDBACK_REQUEST",
+      "name": "Feedback Request",
+      "description": "Notifications about feedback request.",
+      "parentCode": "PG12",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG12_FLEET_PERFORMANCE",
+      "name": "Fleet Performance",
+      "description": "Notifications about fleet performance.",
+      "parentCode": "PG12",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG12_TEAM_PERFORMANCE_REPORTS",
+      "name": "Team Performance Reports",
+      "description": "Notifications about team performance reports.",
+      "parentCode": "PG12",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG12_REVENUE_REPORTS",
+      "name": "Revenue Reports",
+      "description": "Notifications about revenue reports.",
+      "parentCode": "PG12",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG12_DAILY_SUMMARY",
+      "name": "Daily Summary",
+      "description": "Notifications about daily summary.",
+      "parentCode": "PG12",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    },
+    {
+      "code": "PG12_SYSTEM_HEALTH",
+      "name": "System Health",
+      "description": "Notifications about system health.",
+      "parentCode": "PG12",
+      "applications": [
+        "ADMIN",
+        "FLEET_MANAGER",
+        "TEAM_LEADER",
+        "RIDER"
+      ],
+      "defaultPriority": "NORMAL",
+      "defaultDelivery": "TOKEN",
+      "isActive": true
+    }
+  ]
+}

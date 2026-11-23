@@ -24,7 +24,7 @@ function fixture(checklist: unknown = [mandatory, optional], training = true) {
     $transaction: vi.fn().mockImplementation(fn => fn(tx)),
   };
   const media = { createUploadIntent: vi.fn().mockResolvedValue({}), complete: vi.fn().mockResolvedValue({}) };
-  const service = new MobileDeploymentService(prisma as never, {} as never, media as never, {} as never, { activateInTransaction: vi.fn() } as never);
+  const service = new MobileDeploymentService(prisma as never, {} as never, media as never, {} as never, { activateInTransaction: vi.fn() } as never, { enqueue: async () => undefined } as never);
   // This test focuses on checklist handling; evidence and ownership have their own integration coverage.
   const evidence = vi.spyOn(service as unknown as { allocationEvidence: (...args: string[]) => Promise<unknown> }, 'allocationEvidence').mockResolvedValue({ inspection: { id: 'inspection' }, missingPhotoTypes: [] });
   return { service, prisma, workflow, tx, media, evidence };

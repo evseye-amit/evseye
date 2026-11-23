@@ -16,6 +16,7 @@ const configValues = {
 
 function createService() {
   const prisma = {
+    notificationInstallation: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     pushDevice: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     client: {
       findFirst: vi.fn().mockResolvedValue({ id: 'client-1', isActive: true, status: 'ACTIVE' }),
@@ -372,7 +373,7 @@ describe('AuthService', () => {
     });
   });
 
-  it('moves device registrations to the rotated login session', async () => {
+  it('moves device registrations and installations to the rotated login session', async () => {
     const { service, prisma, jwt } = createService();
     jwt.verifyAsync.mockResolvedValue({
       typ: 'refresh',
@@ -388,6 +389,10 @@ describe('AuthService', () => {
     });
     prisma.session.updateMany.mockResolvedValue({ count: 1 });
     await service.refresh('refresh-token', 'client-1');
+    expect(prisma.notificationInstallation.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1', sessionId: 'session-1', revokedAt: null },
+      data: { sessionId: expect.any(String) },
+    });
     expect(prisma.pushDevice.updateMany).toHaveBeenCalledWith({
       where: { userId: 'user-1', sessionId: 'session-1', isActive: true },
       data: { sessionId: expect.any(String) },

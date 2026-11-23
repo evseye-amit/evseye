@@ -1,0 +1,15 @@
+CREATE TABLE "NotificationInstallation" (
+ "id" UUID PRIMARY KEY, "clientId" TEXT NOT NULL, "bindingId" TEXT NOT NULL,
+ "userId" TEXT, "sessionId" TEXT,
+ "credentialHash" CHAR(64) NOT NULL, "token" TEXT, "tokenHash" CHAR(64),
+ "firebaseInstallationId" VARCHAR(255), "permission" VARCHAR(30) NOT NULL DEFAULT 'NOT_DETERMINED',
+ "onboardingState" VARCHAR(30) NOT NULL DEFAULT 'UNREGISTERED', "hasRegistered" BOOLEAN NOT NULL DEFAULT false,
+ "revokedAt" TIMESTAMP(3), "lastActiveAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ "tokenUpdatedAt" TIMESTAMP(3), "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL,
+ FOREIGN KEY ("clientId","bindingId") REFERENCES "NotificationAppBinding"("clientId",id) ON DELETE RESTRICT ON UPDATE CASCADE,
+ FOREIGN KEY ("clientId","userId") REFERENCES "User"("clientId",id) ON DELETE RESTRICT ON UPDATE CASCADE,
+ FOREIGN KEY ("sessionId") REFERENCES "Session"(id) ON DELETE RESTRICT ON UPDATE CASCADE,
+ CHECK (("userId" IS NULL) = ("sessionId" IS NULL)),
+ CHECK ("permission" IN ('NOT_DETERMINED','DENIED','AUTHORIZED','PROVISIONAL')),
+ CHECK ("onboardingState" IN ('UNREGISTERED','REGISTRATION_STARTED','REGISTRATION_INCOMPLETE'))
+);

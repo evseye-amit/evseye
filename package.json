@@ -15,6 +15,7 @@
     "db:generate": "pnpm --filter @evs-eye/api exec prisma generate",
     "db:migrate": "pnpm --filter @evs-eye/api exec prisma migrate dev",
     "db:seed": "node --env-file=.env apps/api/prisma/seed.mjs",
+    "db:seed:notifications": "node --env-file=.env apps/api/prisma/seed-notifications.mjs",
     "db:seed:super-admin": "node --env-file=.env apps/api/prisma/seed-super-admin.mjs",
     "db:seed:master-data": "node --env-file=.env apps/api/prisma/seed-master-data.mjs",
     "db:seed:yogmaya": "node --env-file=.env -e \"import { createPrismaClient } from './apps/api/prisma/prisma-client.mjs'; import { seedYogmaya } from './apps/api/prisma/seed-yogmaya.mjs'; const prisma = createPrismaClient(); seedYogmaya(prisma).finally(() => prisma.\\$disconnect());\"",
