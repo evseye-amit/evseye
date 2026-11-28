@@ -17,7 +17,7 @@ function setup(overrides: Record<string, unknown> = {}) {
     auditLog: { create: vi.fn() },
   };
   const prisma = { $transaction: vi.fn(async (fn: (client: typeof tx) => unknown) => fn(tx)) };
-  return { tx, service: new AllocationsService(prisma as never, {} as never) };
+  return { tx, service: new AllocationsService(prisma as never, {} as never, { enqueue: vi.fn().mockResolvedValue(undefined) } as never) };
 }
 describe('Allocation cancellation', () => {
   it.each(['INITIATED', 'INSPECTION_PENDING', 'OTP_PENDING'])('releases %s and records the reason without changing readiness approvals', async status => {
@@ -95,7 +95,7 @@ describe('Cancelled deployment continuation', () => {
       allocation: { findFirst: vi.fn().mockResolvedValue({ id: 'a' }) },
       $transaction: vi.fn(async (fn: (client: typeof tx) => unknown) => fn(tx)),
     };
-    const service = new MobileDeploymentService(db as never, {} as never, {} as never, {} as never, {} as never);
+    const service = new MobileDeploymentService(db as never, {} as never, {} as never, {} as never, {} as never, { enqueue: vi.fn().mockResolvedValue(undefined) } as never);
     const result = service.requestFleet('client', 'manager', 'a');
     if (status === 'CANCELLED') {
       await expect(result).rejects.toThrow('cancelled');
