@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { UnifiedAutoPayController, UnifiedAutoPayPolicyController, UnifiedAutoPayOperationsController } from '../../src/payments/unified-autopay.controller.js';
 import { UnifiedAutoPayService } from '../../src/payments/unified-autopay.service.js';
 import { MandateService } from '../../src/payments/mandate.service.js';
+import { AutoPayAvailabilityService } from '../../src/payments/autopay-availability.service.js';
 import { ClientContextService } from '../../src/auth/client-context.service.js';
 import { AccessTokenGuard } from '../../src/auth/guards/access-token.guard.js';
 import { RolesGuard } from '../../src/auth/guards/roles.guard.js';
@@ -16,10 +17,14 @@ describe('unified AutoPay HTTP contract', () => {
   const service = { current: vi.fn().mockResolvedValue({ enabled: false, revision: 0, effectiveStatus: 'OFF' }), set: vi.fn().mockResolvedValue({ enabled: true }), recharges: vi.fn().mockResolvedValue({ items: [], page: 1, hasMore: false }), prepareSetup: vi.fn() };
   const funding = { policy: vi.fn().mockResolvedValue({ enabled: false, revision: 0, threshold: '550.00', rechargeAmount: '750.00' }), setPolicy: vi.fn().mockResolvedValue({ enabled: true }), policyHistory: vi.fn().mockResolvedValue({ items: [], hasMore: false }), list: vi.fn().mockResolvedValue({ items: [], hasMore: false }), verifyForClient: vi.fn().mockResolvedValue({ status: 'PENDING' }) };
   const mandates = { create: vi.fn(), verify: vi.fn(), cancel: vi.fn() };
+  const availability = { availability: vi.fn().mockResolvedValue({
+    effectiveEnabled: true, canEnable: true, reason: null, reasonMessage: null,
+    provider: 'RAZORPAY', environment: 'TEST', terms: { maxAmount: '750.00', validityDays: 365 },
+  }) };
   const headers = { authorization: 'Bearer rider' };
   const base = '/api/v1/rider-app/autopay';
   beforeAll(async () => {
-    const module = await Test.createTestingModule({ controllers: [UnifiedAutoPayController, UnifiedAutoPayPolicyController, UnifiedAutoPayOperationsController], providers: [ClientContextService, RolesGuard, { provide: ConfigService, useValue: new ConfigService({}) }, { provide: WalletAutoRechargeService, useValue: funding }, { provide: UnifiedAutoPayService, useValue: service }, { provide: MandateService, useValue: mandates }] }).overrideGuard(AccessTokenGuard).useValue({ canActivate(context: ExecutionContext) {
+    const module = await Test.createTestingModule({ controllers: [UnifiedAutoPayController, UnifiedAutoPayPolicyController, UnifiedAutoPayOperationsController], providers: [ClientContextService, RolesGuard, { provide: ConfigService, useValue: new ConfigService({}) }, { provide: WalletAutoRechargeService, useValue: funding }, { provide: UnifiedAutoPayService, useValue: service }, { provide: MandateService, useValue: mandates }, { provide: AutoPayAvailabilityService, useValue: availability }] }).overrideGuard(AccessTokenGuard).useValue({ canActivate(context: ExecutionContext) {
       const request = context.switchToHttp().getRequest();
       if (!request.headers.authorization) throw new UnauthorizedException();
       request.user = { id: 'user', clientId: 'client', roles: [request.headers.authorization === 'Bearer admin' ? 'CLIENT_ADMIN' : 'RIDER'] };
@@ -87,8 +92,17 @@ describe('unified AutoPay HTTP contract', () => {
     expect((await app.inject({ method: 'GET', url: policy, headers })).statusCode).toBe(403);
     expect((await app.inject({ method: 'GET', url: recharges, headers })).statusCode).toBe(403);
     expect((await app.inject({ method: 'GET', url: policy, headers: admin })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: policy, headers: admin })).json()).toMatchObject({ data: {
+      effectiveEnabled: true, canEnable: true, provider: 'RAZORPAY',
+      setupTerms: { maxAmount: '750.00', validityDays: 365 },
+    } });
     expect((await app.inject({ method: 'PUT', url: policy, headers: admin, payload: { enabled: true, threshold: '550.00', rechargeAmount: '750.00', revision: 0 } })).statusCode).toBe(200);
     expect(funding.setPolicy).toHaveBeenCalledWith('client', 'user', expect.objectContaining({ enabled: true, revision: 0 }));
+    funding.setPolicy.mockClear();
+    const invalid = await app.inject({ method: 'PUT', url: policy, headers: admin, payload: { enabled: true, threshold: '550.00', rechargeAmount: '1827.00', revision: 0 } });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json()).toMatchObject({ message: expect.stringContaining('750.00') });
+    expect(funding.setPolicy).not.toHaveBeenCalled();
     expect((await app.inject({ method: 'GET', url: `${recharges}?page=0`, headers: admin })).statusCode).toBe(400);
     expect((await app.inject({ method: 'GET', url: `${recharges}?page=2`, headers: admin })).statusCode).toBe(200);
     expect(funding.list).toHaveBeenCalledWith('client', 2);

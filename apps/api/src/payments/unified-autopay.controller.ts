@@ -12,6 +12,8 @@ import { ClientContextService } from '../auth/client-context.service.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { UnifiedAutoPayService } from './unified-autopay.service.js';
 import { MandateService } from './mandate.service.js';
+import { AutoPayAvailabilityService } from './autopay-availability.service.js';
+import { Prisma } from '@prisma/client';
 class PreferenceDto {
   @IsBoolean() enabled!: boolean;
   @IsInt() @Min(0) expectedRevision!: number;
@@ -48,14 +50,45 @@ class PolicyDto {
 @UseGuards(AccessTokenGuard, RolesGuard)
 @Roles(UserRole.CLIENT_ADMIN)
 export class UnifiedAutoPayPolicyController {
-  constructor(private readonly funding: WalletAutoRechargeService, private readonly clients: ClientContextService, private readonly config: ConfigService) {}
+  constructor(
+    private readonly funding: WalletAutoRechargeService,
+    private readonly clients: ClientContextService,
+    private readonly config: ConfigService,
+    private readonly availability: AutoPayAvailabilityService,
+  ) {}
+  private async view(clientId: string) {
+    const [policy, availability] = await Promise.all([
+      this.funding.policy(clientId),
+      this.availability.availability(clientId),
+    ]);
+    return {
+      ...policy,
+      unifiedRollout: unifiedAutoPayEnabled(this.config, clientId),
+      effectiveEnabled: availability.effectiveEnabled,
+      canEnable: availability.canEnable,
+      reasonCode: availability.reason,
+      reasonMessage: availability.reasonMessage,
+      provider: availability.provider,
+      environment: availability.environment,
+      setupTerms: availability.terms,
+    };
+  }
   @Get() async current(@CurrentUser() user: AuthUser) {
     const clientId = this.clients.requireClientId(user);
-    return { data: { ...await this.funding.policy(clientId), unifiedRollout: unifiedAutoPayEnabled(this.config, clientId) } };
+    return { data: await this.view(clientId) };
   }
   @Put() async set(@CurrentUser() user: AuthUser, @Body() body: PolicyDto) {
     const clientId = this.clients.requireClientId(user);
-    return { data: { ...await this.funding.setPolicy(clientId, user.id, body), unifiedRollout: unifiedAutoPayEnabled(this.config, clientId) } };
+    const availability = await this.availability.availability(clientId);
+    if (
+      body.enabled && availability.terms &&
+      new Prisma.Decimal(body.rechargeAmount).gt(availability.terms.maxAmount)
+    )
+      throw new BadRequestException(
+        `Recharge amount cannot exceed the package AutoPay limit of INR ${availability.terms.maxAmount}.`,
+      );
+    await this.funding.setPolicy(clientId, user.id, body);
+    return { data: await this.view(clientId) };
   }
   @Get('history') async history(@CurrentUser() user: AuthUser, @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number) {
     if (page < 1 || page > 100000) throw new BadRequestException('INVALID_PAGE');

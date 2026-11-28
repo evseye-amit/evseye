@@ -54,8 +54,10 @@ export function WalletAutoPaySettings() {
     return () => controller.abort();
   }, [page, reload]);
   const dirty = !!policy && !!saved && (policy.enabled !== saved.enabled || Number(policy.threshold) !== Number(saved.threshold) || Number(policy.rechargeAmount) !== Number(saved.rechargeAmount));
+  const packageMaximum = policy?.setupTerms ? Number(policy.setupTerms.maxAmount) : null;
   const valid = !!policy && /^\d+(\.\d{1,2})?$/.test(policy.threshold) && /^\d+(\.\d{1,2})?$/.test(policy.rechargeAmount) &&
-    Number(policy.threshold) > 0 && Number(policy.threshold) <= 5000 && Number(policy.rechargeAmount) >= 500 && Number(policy.rechargeAmount) <= 5000;
+    Number(policy.threshold) > 0 && Number(policy.threshold) <= 5000 && Number(policy.rechargeAmount) >= 500 && Number(policy.rechargeAmount) <= 5000 &&
+    (packageMaximum === null || Number(policy.rechargeAmount) <= packageMaximum);
   function refreshHistory(nextPage = page) { setHistoryLoading(true); setPage(nextPage); setReload(value => value + 1); }
   async function save() {
     if (!policy || !dirty || !valid || saving.current) return;
@@ -72,20 +74,21 @@ export function WalletAutoPaySettings() {
     <UnsavedChangesScope resetKey={reset}>
       <form className="sa-form autopay-card" onSubmit={event => { event.preventDefault(); void save(); }}>
         <div className="autopay-heading"><div><h2>AutoPay</h2><p className="muted">Manage automatic ledger recharges for riders with an active scooter.</p></div>
-          {saved && <span className={`autopay-status ${saved.enabled ? "is-enabled" : ""}`}>{saved.enabled ? "Enabled" : "Disabled"}</span>}</div>
+          {saved && <span className={`autopay-status ${saved.effectiveEnabled ? "is-enabled" : ""}`}>{saved.effectiveEnabled ? "Active" : saved.enabled ? "Needs attention" : "Disabled"}</span>}</div>
         {error && <p role="alert" className="autopay-message is-error">{ledgerText(error)}</p>}
         {notice && <p role="status" className="autopay-message">{notice}</p>}
         {!policy && !error && <p role="status">Loading settings…</p>}
         {policy && !policy.unifiedRollout && <p role="status" className="autopay-message">AutoPay is not available for this client yet. Saved settings will apply when it becomes available.</p>}
+        {policy?.enabled && !policy.effectiveEnabled && policy.reasonMessage && <p role="alert" className="autopay-message is-error"><strong>AutoPay is not active.</strong> {policy.reasonMessage}{policy.reasonCode === "PACKAGE_TERMS_INVALID" && packageMaximum !== null ? ` Set the recharge amount to ${currency(policy.setupTerms!.maxAmount)} or less.` : ""}</p>}
         {policy && <fieldset disabled={busy} className="autopay-fields">
           <legend className="autopay-legend">AutoPay configuration</legend>
           <label className="autopay-enable"><input type="checkbox" role="switch" checked={policy.enabled} onChange={event => { setPolicy({ ...policy, enabled: event.target.checked }); setNotice(""); }} />
             <span>Enable AutoPay<small>Applies only to riders who have authorized a mandate and accepted the recharge terms.</small></span></label>
           <div className="autopay-amounts">
             <label>Low-balance threshold (₹)<input name="threshold" inputMode="decimal" value={policy.threshold} onChange={event => { setPolicy({ ...policy, threshold: event.target.value }); setNotice(""); }} aria-describedby="autopay-threshold-help" /><small id="autopay-threshold-help">Initiate a recharge below this available cash balance. Rewards and deposits are excluded.</small></label>
-            <label>Recharge amount (₹)<input name="rechargeAmount" inputMode="decimal" value={policy.rechargeAmount} onChange={event => { setPolicy({ ...policy, rechargeAmount: event.target.value }); setNotice(""); }} aria-describedby="autopay-amount-help" /><small id="autopay-amount-help">₹500–₹5,000 per recharge. Use up to two decimal places.</small></label>
+            <label>Recharge amount (₹)<input name="rechargeAmount" inputMode="decimal" value={policy.rechargeAmount} onChange={event => { setPolicy({ ...policy, rechargeAmount: event.target.value }); setNotice(""); }} aria-describedby="autopay-amount-help" /><small id="autopay-amount-help">₹500–{packageMaximum === null ? "₹5,000" : currency(policy.setupTerms!.maxAmount)} per recharge. Use up to two decimal places.</small></label>
           </div>
-          {!valid && <p role="alert" className="error">Enter a threshold from ₹0.01–₹5,000 and a recharge amount from ₹500–₹5,000, with up to two decimal places.</p>}
+          {!valid && <p role="alert" className="error">Enter a threshold from ₹0.01–₹5,000 and a recharge amount from ₹500–{packageMaximum === null ? "₹5,000" : currency(policy.setupTerms!.maxAmount)}, with up to two decimal places.</p>}
           <div className="autopay-message"><strong>Rider consent</strong><p>Changing either amount requires riders to accept the updated terms before new recharges can start.</p></div>
           <details><summary>How automatic recharges work</summary><p>Only one automatic recharge can be pending per rider ledger. Debits are scheduled at least 25 hours ahead; ledger credit appears after confirmed payment. A successful recharge is followed by a 24-hour cooldown. Disabling AutoPay stops new requests; submitted debits may still complete.</p></details>
           <div className="form-actions"><button type="submit" disabled={!dirty || !valid || busy}>{busy ? "Saving…" : "Save changes"}</button><button type="button" className="secondary" disabled={!dirty || busy} onClick={() => { setPolicy(saved); setError(""); setNotice(""); setReset(value => value + 1); }}>Discard changes</button></div>
