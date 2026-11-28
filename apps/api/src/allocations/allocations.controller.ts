@@ -18,6 +18,7 @@ import { ClientContextService } from '../auth/client-context.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { AllocationsService } from './allocations.service.js';
 import { CreateAllocationDto } from './dto/create-allocation.dto.js';
+import { CancelAllocationDto } from './dto/cancel-allocation.dto.js';
 import { ListAllocationsDto } from './dto/list-allocations.dto.js';
 @Controller('allocations')
 @UseGuards(AccessTokenGuard, RolesGuard)
@@ -86,6 +87,12 @@ export class AllocationsController {
       data: allocation,
     };
   }
+  @Post(':id/cancel')
+  @Roles(UserRole.CLIENT_ADMIN)
+  async cancel(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() dto: CancelAllocationDto) {
+    return { data: await this.allocations.cancel(this.clients.requireClientId(u), id, u.id, dto.reason) };
+  }
+
   @Post(':id/activate') async activate(
     @CurrentUser() u: AuthUser,
     @Param('id') id: string,
