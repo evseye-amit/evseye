@@ -49,7 +49,7 @@ Onboarding uses provider authorization in the combined checkout; see the detaile
 
 Suggested copy: “Automatically add ₹750 when my available cash is below ₹550. Bank confirmation is required. A submitted debit may still complete after I turn AutoPay off or add money manually.” Also display server notice/cooldown, mandate limit/expiry and applicable policy terms. Explain actual authorization charges from the setup response; do not call them wallet recharge or promise a refund.
 
-Off and Cancel bank mandate are different actions. Off stops new funding requests. Neither action promises cancellation of an already-submitted debit. Show outstanding requests after turning off or returning the vehicle.
+Off and Cancel bank mandate are different actions. Off stops new funding requests. A confirmed physical vehicle return turns AutoPay off when the rider has no other active allocation; requesting a return or exchanging a vehicle does not. The mandate remains stored. Neither action promises cancellation of an already-submitted or uncertain debit. Show outstanding requests after turning off or returning the vehicle.
 
 ## Reliability and compatibility
 

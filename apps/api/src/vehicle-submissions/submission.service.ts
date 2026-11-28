@@ -18,6 +18,7 @@ import { AllocationsService } from '../allocations/allocations.service.js';
 import { AuthService } from '../auth/auth.service.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { RiderBillingService } from '../rider-billing/rider-billing.service.js';
+import { disableAutoPayAfterVehicleReturn } from '../payments/vehicle-return-autopay.js';
 import type {
   ConfirmSubmissionReportDto,
   MechanicReportDto,
@@ -1623,6 +1624,14 @@ export class VehicleSubmissionService {
       clientId,
       submission.allocationId,
     );
+    if (submission.returnRequestId)
+      await disableAutoPayAfterVehicleReturn(
+        tx,
+        clientId,
+        submission.riderId,
+        actor.id,
+        submission.allocationId,
+      );
     await tx.fleet.update({
       where: { id: submission.fleetId },
       data: { currentHubId: submission.hubId },
