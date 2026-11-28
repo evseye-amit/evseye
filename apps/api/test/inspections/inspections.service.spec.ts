@@ -50,6 +50,25 @@ describe('InspectionsService', () => {
     });
   });
 
+  it('rejects a stale inspection request after cancellation without advancing the allocation', async () => {
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([]),
+      allocation: { findFirst: vi.fn().mockResolvedValue({ status: 'CANCELLED' }), update: vi.fn() },
+      inspection: { update: vi.fn() },
+    };
+    const prisma = {
+      inspection: { findFirst: vi.fn().mockResolvedValue({ id: 'inspection-1', allocationId: 'allocation-1', type: 'PRE_ALLOCATION', status: 'DRAFT', allocation: { status: 'INSPECTION_PENDING' } }) },
+      photoRequirement: { findMany: vi.fn().mockResolvedValue([]) },
+      photo: { findMany: vi.fn().mockResolvedValue([]) },
+      $transaction: vi.fn(async (fn: (client: typeof tx) => unknown) => fn(tx)),
+    };
+    await expect(new InspectionsService(prisma as never, {} as never).complete('client-a', 'inspection-1', {
+      id: 'admin', clientId: 'client-a', roles: [UserRole.CLIENT_ADMIN],
+    })).rejects.toThrow('cancelled');
+    expect(tx.inspection.update).not.toHaveBeenCalled();
+    expect(tx.allocation.update).not.toHaveBeenCalled();
+  });
+
   it('does not complete an inspection twice', async () => {
     const prisma = {
       inspection: {
@@ -107,6 +126,7 @@ describe('InspectionsService', () => {
   it('finalizes a physically received return from the safety inspection', async () => {
     const finalize = vi.fn().mockResolvedValue({ completed: true });
     const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([]),
       inspection: {
         update: vi.fn().mockResolvedValue({
           id: 'inspection-1',
@@ -159,9 +179,10 @@ describe('InspectionsService', () => {
 
   it('keeps fleet-manager inspection completion inside assigned Hub scope', async () => {
     const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([]),
       inspection: { update: vi.fn() },
       userHub: { findMany: vi.fn().mockResolvedValue([{ hubId: 'hub-a' }]) },
-      allocation: { findFirst: vi.fn().mockResolvedValue(null) },
+      allocation: { findFirst: vi.fn().mockResolvedValueOnce({ id: 'allocation-1', status: 'INSPECTION_PENDING' }).mockResolvedValue(null) },
     };
     const prisma = {
       inspection: {

@@ -80,6 +80,8 @@ describe('MobileDeploymentService.requestFleet', () => {
           findFirst: vi.fn().mockResolvedValue({
             id: 'allocation-1',
             fleetId: 'fleet-1',
+            status: 'INSPECTION_PENDING',
+            mobileDeployment: { id: 'workflow-1', status: 'RIDER_WAITING' },
             fleet: { iotDevice },
           }),
         },
@@ -94,8 +96,12 @@ describe('MobileDeploymentService.requestFleet', () => {
         photoRequirement: { findMany: vi.fn().mockResolvedValue([{ photoType: 'FRONT' }]) },
         photo: { findMany: vi.fn().mockResolvedValue([]) },
       };
+      const transactionalPrisma = {
+        ...prisma,
+        $transaction: vi.fn(async (fn: (client: unknown) => unknown) => fn({ ...prisma, $queryRaw: vi.fn().mockResolvedValue([]) })),
+      };
       const service = new MobileDeploymentService(
-        prisma as never,
+        transactionalPrisma as never,
         {} as never,
         {} as never,
         {} as never,

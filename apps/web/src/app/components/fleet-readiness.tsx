@@ -4,6 +4,7 @@ import { usePanelLoading } from "./panel-loading";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { sessionFetch } from "../../lib/session-fetch";
 import { ClientDataTable } from "./client-data-table";
+import { CancelAllocationDialog } from "./cancel-allocation-dialog";
 import { ClientFormDialog } from "./client-form-dialog";
 import { UiIcon } from "./ui-icon";
 import {
@@ -1703,6 +1704,8 @@ export function FleetReadinessStatus({ fleetId, vehicleLabel, readinessState }: 
 type ActiveTransfer = Record<string, unknown> | null | undefined;
 
 export function FleetMoreMenu({
+  canCancelAllocation = false,
+  onAllocationCancelled,
   fleetId,
   fleetName,
   status,
@@ -1714,6 +1717,8 @@ export function FleetMoreMenu({
   onTransferDone,
   canManageEvidence,
 }: Readonly<{
+  canCancelAllocation?: boolean;
+  onAllocationCancelled?: () => void;
   fleetId: string;
   fleetName: string;
   status: string;
@@ -1729,6 +1734,7 @@ export function FleetMoreMenu({
   const summaryRef = useRef<HTMLElement>(null);
   const [open, setOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
   const [hubs, setHubs] = useState<Hub[]>([]);
   const [hubsLoading, setHubsLoading] = useState(false);
   const [destinationHubId, setDestinationHubId] = useState("");
@@ -1820,11 +1826,15 @@ export function FleetMoreMenu({
           {canReceiveTransfer && <button type="button" role="menuitem" disabled={busy} onClick={() => void receiveTransfer()}>Mark received{destinationName ? ` · ${destinationName}` : ""}</button>}
           {canManageEvidence && onEvidence && <button type="button" role="menuitem" onClick={() => { closeMenu(); onEvidence(); }}>Photos &amp; evidence</button>}
           {status === "AVAILABLE" && <button type="button" role="menuitem" disabled title="Use the Fleet Manager app to complete allocation and its required checks.">Allocate</button>}
+          {canCancelAllocation && status === "RESERVED" && <button type="button" role="menuitem" className="danger" onClick={() => { closeMenu(); setCancelOpen(true); }}>Cancel allocation</button>}
           {status === "ALLOCATED" && <button type="button" role="menuitem" className="danger" disabled title="Use the submission workflow in the Fleet Manager app to return this vehicle.">De-allocate</button>}
           <button type="button" role="menuitem" onClick={() => { closeMenu(); onEdit(); }}>Edit fleet</button>
           <button type="button" role="menuitem" className="danger" onClick={() => { closeMenu(); onDelete(); }}>Delete fleet</button>
         </div>
       </details>
+      {cancelOpen && <CancelAllocationDialog key={fleetId} fleetId={fleetId} fleetName={fleetName} onClose={() => setCancelOpen(false)} onDone={() => {
+        setCancelOpen(false); onAllocationCancelled?.(); onTransferDone();
+      }} />}
       {transferOpen && <ClientFormDialog title={`Transfer ${fleetName}`} busy={busy} error={error} onClose={() => setTransferOpen(false)} heading={<>Transfer fleet</>}>
         <p className="muted">Choose the destination hub. The fleet remains unavailable until the destination records receipt.</p>
         {hubsLoading && <p className="muted" role="status">Loading destination hubs…</p>}
