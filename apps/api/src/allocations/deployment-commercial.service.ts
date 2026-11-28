@@ -630,6 +630,7 @@ export class DeploymentCommercialService {
         where: { id: allocationId, clientId },
         include: { mobileDeployment: { include: { payment: true } } },
       });
+      if (a.status === 'CANCELLED') fail('ALLOCATION_CANCELLED', 'This allocation has been cancelled.');
       const w = a.mobileDeployment,
         p = w?.payment;
       if (!w || !p)
@@ -659,6 +660,7 @@ export class DeploymentCommercialService {
 
   async settlePaymentInTransaction(tx: Tx, clientId: string, actorId: string,
     a: Allocation & { mobileDeployment: (Prisma.MobileDeploymentWorkflowGetPayload<{ include: { payment: true } }>) | null }, automatic: boolean) {
+    if (a.status === 'CANCELLED') fail('ALLOCATION_CANCELLED', 'This allocation has been cancelled.');
     const w = a.mobileDeployment;
     const p = w?.payment;
     if (!w || !p) throw new NotFoundException('Payment request not found.');
