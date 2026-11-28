@@ -341,6 +341,7 @@ export class MobileDeploymentService {
       return await this.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM "Allocation" WHERE id = ${allocationId} AND "clientId" = ${clientId} FOR UPDATE`;
         const allocation = await tx.allocation.findFirst({ where: { id: allocationId, clientId }, include: { mobileDeployment: { include: { payment: true } } } });
+        if (allocation?.status === AllocationStatus.CANCELLED) throw new ConflictException('This allocation has been cancelled.');
         const workflow = allocation?.mobileDeployment, payment = workflow?.payment;
         if (!workflow || !payment) throw new NotFoundException('Payment request not found.');
         provider = provider.trim(); providerReference = providerReference.trim();
