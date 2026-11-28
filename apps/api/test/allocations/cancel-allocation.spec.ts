@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { Prisma } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
@@ -64,6 +65,36 @@ describe('Allocation cancellation', () => {
     expect(tx.riderRentalAgreementStatusHistory.create).toHaveBeenCalledWith({ data: expect.objectContaining({ previousStatus: 'PENDING_ACTIVATION', newStatus: 'CANCELLED', reason: 'Rider does not want to pay' }) });
     expect(tx.riderDeposit.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'CLOSED', updatedById: 'admin' } }));
   });
+  it.each(['PAYMENT_PAID', 'PDI_PENDING_RIDER', 'TRAINING_PENDING', 'DEVICE_PAIRING_PENDING'])('allows a zero-charge reservation at %s before handover', async status => {
+    const { service, tx } = setup({ mobileDeployment: {
+      status, paymentPaidAt: new Date(), payment: { id: 'p', status: 'PAID', paidAt: new Date(), provider: 'NO_PAYMENT_REQUIRED', amount: new Prisma.Decimal(0), currency: 'INR' },
+    } });
+    await expect(service.cancel('client', 'a', 'admin', 'Plan changed')).resolves.toMatchObject({ status: 'CANCELLED' });
+    expect(tx.deploymentPayment.update).toHaveBeenCalledWith({ where: { id: 'p' }, data: { status: 'CANCELLED' } });
+  });
+  it('uses the unpaid payment record instead of a stale workflow stage or timestamp', async () => {
+    const { service } = setup({ mobileDeployment: {
+      status: 'PAYMENT_PAID', paymentPaidAt: new Date(), payment: { id: 'p', status: 'PENDING', paidAt: null, amount: new Prisma.Decimal(500), currency: 'INR' },
+    } });
+    await expect(service.cancel('client', 'a', 'admin', 'Rider declined payment')).resolves.toMatchObject({ status: 'CANCELLED' });
+  });
+  it.each([
+    { provider: 'NO_PAYMENT_REQUIRED', amount: new Prisma.Decimal(500) },
+    { provider: 'RAZORPAY', amount: new Prisma.Decimal(0) },
+  ])('does not exempt a real or inconsistent paid request: %j', async payment => {
+    const { service, tx } = setup({ mobileDeployment: { status: 'PAYMENT_PAID', payment: { id: 'p', status: 'PAID', ...payment } } });
+    await expect(service.cancel('client', 'a', 'admin', 'Reason')).rejects.toThrow('Payment status');
+    expect(tx.fleet.updateMany).not.toHaveBeenCalled();
+  });
+  it('does not release a zero-charge vehicle after recorded handover', async () => {
+    const { service, tx } = setup({ mobileDeployment: { status: 'DEVICE_PAIRING_PENDING', pairedAt: new Date(), payment: { status: 'PAID', provider: 'NO_PAYMENT_REQUIRED', amount: new Prisma.Decimal(0) } } });
+    await expect(service.cancel('client', 'a', 'admin', 'Reason')).rejects.toThrow('handover');
+    expect(tx.fleet.updateMany).not.toHaveBeenCalled();
+  });
+  it('reports missing payment evidence without claiming that payment was received', async () => {
+    const { service } = setup({ mobileDeployment: { status: 'PAYMENT_PAID', payment: null } });
+    await expect(service.cancel('client', 'a', 'admin', 'Reason')).rejects.toThrow('has no payment record');
+  });
   it('cancels an unaccepted offer along with the reservation', async () => {
     const { service, tx } = setup({ commercialOfferId: 'offer' });
     await service.cancel('client', 'a', 'admin', 'Rider declined');
@@ -71,7 +102,7 @@ describe('Allocation cancellation', () => {
   });
   it.each(['SUBMITTED', 'PAID'])('requires payment review for %s', async status => {
     const { service, tx } = setup({ mobileDeployment: { status: 'PAYMENT_PENDING', payment: { id: 'p', status } } });
-    await expect(service.cancel('client', 'a', 'admin', 'Reason')).rejects.toThrow('payment');
+    await expect(service.cancel('client', 'a', 'admin', 'Reason')).rejects.toThrow('Payment status');
     expect(tx.fleet.updateMany).not.toHaveBeenCalled();
   });
   it('blocks a recorded gateway capture even if the payment still appears pending', async () => {

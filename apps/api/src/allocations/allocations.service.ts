@@ -230,10 +230,17 @@ export class AllocationsService {
         throw new ConflictException('Only pending allocations before handover can be cancelled. Use deallocation for an active allocation.');
       const workflow = allocation.mobileDeployment;
       const payment = workflow?.payment;
-      if (workflow?.paymentPaidAt || (workflow && !['RIDER_WAITING', 'FLEET_REQUESTED', 'PAYMENT_PENDING'].includes(workflow.status)))
-        throw new ConflictException('Payment or handover has already progressed. Review the received payment before cancellation.');
-      if (payment && (payment.paidAt || !['PENDING', 'REJECTED', 'FAILED', 'CANCELLED'].includes(payment.status)))
-        throw new ConflictException('Payment has been received or a payment reference awaits review. Review it before cancellation.');
+      if (workflow?.status === 'DEPLOYED' || workflow?.pairedAt || workflow?.pairingBypassedAt)
+        throw new ConflictException('Vehicle handover has been recorded. Use the return/deallocation workflow.');
+      // Workflow stages are progress markers, not evidence of a money transfer.
+      // A zero quote is automatically PAID with NO_PAYMENT_REQUIRED and may
+      // advance through PDI/training without the rider paying anything.
+      const noPaymentRequired = payment?.status === 'PAID'
+        && payment.provider === 'NO_PAYMENT_REQUIRED' && payment.amount.eq(0);
+      if (!payment && workflow && (workflow.paymentPaidAt || ['PAYMENT_PAID', 'PDI_PENDING_RIDER', 'TRAINING_PENDING', 'DEVICE_PAIRING_PENDING'].includes(workflow.status)))
+        throw new ConflictException(`Deployment stage ${workflow.status} has no payment record. Reconcile the missing record before cancellation.`);
+      if (payment && !noPaymentRequired && (payment.paidAt || !['PENDING', 'REJECTED', 'FAILED', 'CANCELLED'].includes(payment.status)))
+        throw new ConflictException(`Payment status is ${payment.status}${payment.amount ? ` (${payment.currency} ${payment.amount.toString()})` : ''}. Review the received payment or submitted reference before cancellation.`);
       if (payment && await tx.deploymentPaymentCapture.count({ where: { attempt: { clientId, deploymentPaymentId: payment.id } } }))
         throw new ConflictException('A gateway payment has been received. Resolve its refund or reconciliation before cancellation.');
       await tx.$queryRaw`SELECT id FROM "Fleet" WHERE id = ${allocation.fleetId} AND "clientId" = ${clientId} FOR UPDATE`;
