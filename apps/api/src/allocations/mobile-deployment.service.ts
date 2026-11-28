@@ -112,6 +112,7 @@ export class MobileDeploymentService {
   private async workflow(clientId: string, allocationId: string) {
     const allocation = await this.prisma.allocation.findFirst({ where: { id: allocationId, clientId }, include: { rider: true, fleet: { include: { iotDevice: { include: { currentState: true } } } } } });
     if (!allocation) throw new NotFoundException('Allocation not found.');
+    if (allocation.status === AllocationStatus.CANCELLED) throw new ConflictException('This allocation has been cancelled. Refresh to continue.');
     return { allocation, workflow: await this.prisma.mobileDeploymentWorkflow.upsert({ where: { allocationId }, create: { clientId, allocationId }, update: {} }) };
   }
   private async assertRiderAllocation(clientId: string, userId: string, allocationId: string) {
@@ -185,7 +186,7 @@ export class MobileDeploymentService {
     const hubIds = (await this.prisma.userHub.findMany({ where: { clientId, userId }, select: { hubId: true } })).map((entry) => entry.hubId);
     if (!hubIds.length) return [];
     const requests = await this.prisma.allocation.findMany({
-      where: { clientId, fleet: { currentHubId: { in: hubIds } }, mobileDeployment: { is: { status: { in: ['RIDER_WAITING', 'FLEET_REQUESTED', 'PAYMENT_PENDING', 'PAYMENT_PAID', 'PDI_PENDING_RIDER', 'TRAINING_PENDING', 'DEVICE_PAIRING_PENDING'] } } } },
+      where: { clientId, status: { notIn: [AllocationStatus.CANCELLED, AllocationStatus.COMPLETED] }, fleet: { currentHubId: { in: hubIds } }, mobileDeployment: { is: { status: { in: ['RIDER_WAITING', 'FLEET_REQUESTED', 'PAYMENT_PENDING', 'PAYMENT_PAID', 'PDI_PENDING_RIDER', 'TRAINING_PENDING', 'DEVICE_PAIRING_PENDING'] } } } },
       include: { rider: true, fleet: { include: {
         iotDevice: true,
         batteryHistory: {
@@ -310,9 +311,16 @@ export class MobileDeploymentService {
   }
   async requestFleet(clientId: string, userId: string, allocationId: string) {
     await this.assertFleetManagerHub(clientId, userId, allocationId);
-    const { workflow } = await this.workflow(clientId, allocationId);
-    if (workflow.status !== MobileDeploymentStatus.RIDER_WAITING) throw new BadRequestException('Fleet request is not available in the current state.');
-    return this.prisma.mobileDeploymentWorkflow.update({ where: { id: workflow.id }, data: { status: MobileDeploymentStatus.FLEET_REQUESTED } });
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Allocation" WHERE id = ${allocationId} AND "clientId" = ${clientId} FOR UPDATE`;
+      const allocation = await tx.allocation.findFirst({ where: { id: allocationId, clientId }, include: { mobileDeployment: true } });
+      if (!allocation || allocation.status === AllocationStatus.CANCELLED)
+        throw new ConflictException('This allocation has been cancelled or is no longer available.');
+      const workflow = allocation.mobileDeployment;
+      if (!workflow || workflow.status !== MobileDeploymentStatus.RIDER_WAITING)
+        throw new BadRequestException('Fleet request is not available in the current state.');
+      return tx.mobileDeploymentWorkflow.update({ where: { id: workflow.id }, data: { status: MobileDeploymentStatus.FLEET_REQUESTED } });
+    });
   }
   async askPayment(clientId: string, userId: string, allocationId: string, _request?: unknown) {
     await this.assertFleetManagerHub(clientId, userId, allocationId);

@@ -314,6 +314,7 @@ export class DeploymentCommercialService {
         where: { id, clientId },
         include: { mobileDeployment: true },
       });
+      if (current.status === 'CANCELLED') fail('ALLOCATION_CANCELLED', 'This allocation has been cancelled.');
       if (current.commercialOfferId === offer.id) return;
       if (
         current.rentalAgreementId ||
@@ -580,6 +581,7 @@ export class DeploymentCommercialService {
         where: { id: allocationId, clientId },
         include: { mobileDeployment: { include: { payment: true } } },
       });
+      if (a.status === 'CANCELLED') fail('ALLOCATION_CANCELLED', 'This allocation has been cancelled.');
       const w = a.mobileDeployment;
       if (!w)
         fail('DEPLOYMENT_NOT_FOUND', 'Allocation workflow was not found.');

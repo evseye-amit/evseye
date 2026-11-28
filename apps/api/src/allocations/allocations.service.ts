@@ -1,6 +1,7 @@
 import { AllocationNotificationService } from './allocation-notification.service.js';
 import { DeploymentCommercialService } from './deployment-commercial.service.js';
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -210,6 +211,54 @@ export class AllocationsService {
     // Keep onboarding media readable as history, but never use it as an
     // allocation gate. Preparation media remains enforced by readiness.
   }
+  async cancel(clientId: string, allocationId: string, actorId: string, reason: string) {
+    const cancellationReason = reason.trim();
+    if (cancellationReason.length < 3 || cancellationReason.length > 1000)
+      throw new BadRequestException('Cancellation reason must contain 3–1000 characters.');
+    return this.prisma.$transaction(async (tx) => {
+      // Share the activation lock so handover and cancellation cannot both succeed.
+      await tx.$queryRaw`SELECT id FROM "Allocation" WHERE id = ${allocationId} AND "clientId" = ${clientId} FOR UPDATE`;
+      const allocation = await tx.allocation.findFirst({
+        where: { id: allocationId, clientId },
+        include: { mobileDeployment: { include: { payment: true } } },
+      });
+      if (!allocation) throw new NotFoundException('Allocation not found.');
+      // Never release the fleet again on a retry: it may already be reallocated.
+      if (allocation.status === AllocationStatus.CANCELLED)
+        return { allocationId, status: AllocationStatus.CANCELLED, alreadyCancelled: true };
+      if (allocation.allocatedAt || !(['INITIATED', 'INSPECTION_PENDING', 'OTP_PENDING'] as string[]).includes(allocation.status))
+        throw new ConflictException('Only pending allocations before handover can be cancelled. Use deallocation for an active allocation.');
+      if (allocation.mobileDeployment && !['RIDER_WAITING', 'FLEET_REQUESTED'].includes(allocation.mobileDeployment.status))
+        throw new ConflictException('This deployment has progressed beyond reservation. Resolve its payment or handover before cancellation.');
+      if (allocation.commercialOfferId || allocation.rentalAgreementId || allocation.mobileDeployment?.payment)
+        throw new ConflictException('This allocation has a rental offer, agreement or payment. Resolve its commercial obligations before cancellation.');
+      await tx.$queryRaw`SELECT id FROM "Fleet" WHERE id = ${allocation.fleetId} AND "clientId" = ${clientId} FOR UPDATE`;
+      const exchange = await tx.vehicleExchangeRequest.findFirst({
+        where: { clientId, OR: [
+          { newAllocationId: allocationId },
+          { replacementVehicleId: allocation.fleetId, status: { notIn: ['COMPLETED', 'CANCELLED', 'REJECTED', 'EXPIRED'] } },
+        ] },
+        select: { id: true },
+      });
+      if (exchange) throw new ConflictException('This reservation belongs to a vehicle exchange. Resolve the exchange before cancellation.');
+      const released = await tx.fleet.updateMany({
+        where: { id: allocation.fleetId, clientId, status: FleetStatus.RESERVED, deletedAt: null,
+          allocations: { none: { id: { not: allocationId }, status: { notIn: [AllocationStatus.COMPLETED, AllocationStatus.CANCELLED] } } } },
+        data: { status: FleetStatus.AVAILABLE },
+      });
+      if (released.count !== 1) throw new ConflictException('The fleet reservation changed. Refresh and try again.');
+      await tx.allocation.update({ where: { id: allocationId }, data: { status: AllocationStatus.CANCELLED } });
+      // Keep reason, actor and timestamp in the existing durable audit history.
+      await tx.auditLog.create({ data: {
+        clientId, actorId, action: 'ALLOCATION_CANCELLED', entityType: 'ALLOCATION', entityId: allocationId,
+        previousData: { status: allocation.status, fleetStatus: FleetStatus.RESERVED },
+        newData: { status: AllocationStatus.CANCELLED, fleetStatus: FleetStatus.AVAILABLE,
+          fleetId: allocation.fleetId, riderId: allocation.riderId, reason: cancellationReason },
+      } });
+      return { allocationId, status: AllocationStatus.CANCELLED, alreadyCancelled: false };
+    });
+  }
+
   async activate(clientId: string, allocationId: string) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Allocation" WHERE id = ${allocationId} AND "clientId" = ${clientId} FOR UPDATE`;

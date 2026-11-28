@@ -92,6 +92,10 @@ export class InspectionsService {
         });
     }
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Allocation" WHERE id = ${inspection.allocationId} AND "clientId" = ${clientId} FOR UPDATE`;
+      const currentAllocation = await tx.allocation.findFirst({ where: { id: inspection.allocationId, clientId } });
+      if (!currentAllocation || currentAllocation.status === AllocationStatus.CANCELLED)
+        throw new ConflictException('This allocation has been cancelled or is no longer available.');
       const updated = await tx.inspection.update({
         where: { id: inspectionId },
         data: {
@@ -150,7 +154,7 @@ export class InspectionsService {
           receivedReturnFinalized = true;
         }
       }
-      if (!receivedReturnFinalized && inspection.allocation.status === AllocationStatus.INSPECTION_PENDING)
+      if (!receivedReturnFinalized && currentAllocation.status === AllocationStatus.INSPECTION_PENDING)
         await tx.allocation.update({
           where: { id: inspection.allocationId },
           data: { status: AllocationStatus.OTP_PENDING },
