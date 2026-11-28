@@ -411,3 +411,16 @@ Worker stages and project failures are isolated; stale topic planning is retried
 The full-schema/PostGIS notification release gate now passes 201 tests with zero skips. All 35 repository migrations, the dedicated catalog seed and the web production build succeeded in a disposable local environment. This supersedes the Phase 12 local fixture/PostGIS blocker; no mobile contract changed.
 
 Flutter implementation and real Android/iOS acceptance are still required. Production-data migration rehearsal, real Firebase/APNs configuration, deployed API/browser validation and sustained load testing remain separate gates.
+# Verified Pink Rides staging bindings — 23 November 2026
+
+Firebase project: `pinkridesstage-dc79c`; backend notification environment: `staging`.
+App IDs below were verified against Firebase Management API, not inferred from local production flavor files.
+
+| App | Platform | Application ID | Binding ID |
+| --- | --- | --- | --- |
+| Rider | Android | com.evsi.evseye.pinkrides.rider.android.stg | f32c41a6-0e6a-41bd-bc5f-3a06085187db |
+| Fleet Manager | Android | com.evsi.evseye.pinkrides.fm.android.stg | 7e4e0b21-b079-435c-ba40-d72ed6878e31 |
+| Rider | iOS | com.evsi.evseye.pinkrides.rider.ios.stg | b944aa85-68d3-48cd-869c-6c1cdb41a0e0 |
+| Fleet Manager | iOS | com.evsi.evseye.pinkrides.fm.ios.stg | d71b2774-2338-4499-ae1c-796869833442 |
+
+These bindings do not retroactively bind old device registrations. Re-register through the authenticated device API using the matching app identity and current token/session. The database readiness check passes, but Android/iOS delivery, APNs, topic membership and lifecycle acceptance remain to be tested. No Flutter source was changed.
