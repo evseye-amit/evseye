@@ -347,6 +347,54 @@ describe.skipIf(!url)('vehicle submission in PostgreSQL', () => {
       report,
     };
   }
+  async function enableAutoPay(f: Awaited<ReturnType<typeof fixture>>) {
+    const wallet = await new WalletService(prisma).ensure(f.client.id, f.rider.id, f.riderUser.id);
+    const key = randomUUID();
+    const mandate = await db.paymentMandate.create({
+      data: {
+        clientId: f.client.id, riderId: f.rider.id, requestKey: key, provider: 'RAZORPAY',
+        providerMandateId: `mandate_${key}`, providerTokenId: `token_${key}`, status: 'ACTIVE',
+        autoDebitEnabled: true, maxAmount: '2000.00', expiresAt: new Date(Date.now() + 90 * 86400000),
+      },
+    });
+    await db.riderPaymentProfile.create({
+      data: { clientId: f.client.id, riderId: f.rider.id, collectionMode: 'LEDGER_WALLET', autoPayEnabled: true },
+    });
+    const preference = await db.walletAutoRechargePreference.create({
+      data: { clientId: f.client.id, riderId: f.rider.id, walletId: wallet.id, mandateId: mandate.id,
+        enabled: true, consentRevision: 1, revision: 4 },
+    });
+    const recharge = await db.walletAutoRecharge.create({
+      data: { clientId: f.client.id, riderId: f.rider.id, walletId: wallet.id, mandateId: mandate.id,
+        allocationId: f.allocation.id, policyRevision: 1, threshold: '550.00', balanceAtTrigger: '500.00',
+        amount: '750.00', scheduledAt: new Date(Date.now() + 26 * 3600000) },
+    });
+    return { wallet, mandate, preference, recharge };
+  }
+
+  it.each([['RETURN', false], ['EXCHANGE', true]] as const)(
+    'sets AutoPay after a confirmed %s submission to enabled=%s',
+    async (source, expectedEnabled) => {
+      const f = await fixture(source);
+      const autoPay = await enableAutoPay(f);
+      const photos = await f.capture();
+      const report = await service.recordReport(f.client.id, f.actor, f.submission.id,
+        f.report(photos[0]!.id, 'BASIC', true), `autopay-${source.toLowerCase()}-${randomUUID()}`);
+      await service.impose(f.client.id, f.actor, report.id);
+      await service.confirm(f.client.id, f.actor, report.id, {
+        riderBypassReason: 'Rider phone unavailable', teamLeadBypassReason: 'Team lead phone unavailable',
+      });
+
+      const preference = await db.walletAutoRechargePreference.findUniqueOrThrow({ where: { id: autoPay.preference.id } });
+      expect(preference.enabled).toBe(expectedEnabled);
+      expect(preference.revision).toBe(expectedEnabled ? 4 : 5);
+      expect((await db.paymentMandate.findUniqueOrThrow({ where: { id: autoPay.mandate.id } })).autoDebitEnabled).toBe(expectedEnabled);
+      expect((await db.riderPaymentProfile.findUniqueOrThrow({ where: { clientId_riderId: { clientId: f.client.id, riderId: f.rider.id } } })).autoPayEnabled).toBe(expectedEnabled);
+      expect((await db.walletAutoRecharge.findUniqueOrThrow({ where: { id: autoPay.recharge.id } })).status).toBe(expectedEnabled ? 'CREATING' : 'CANCELLED');
+      expect(await db.auditLog.count({ where: { clientId: f.client.id, action: 'WALLET_AUTOPAY_DISABLED', entityId: autoPay.wallet.id } })).toBe(expectedEnabled ? 0 : 1);
+    },
+  );
+
   it.each(['BROKEN', 'AWAITING_PARTS'] as const)('confirms %s without maintenance issues and completes the submission', async (fleetStatus) => {
     const f = await fixture();
     const photos = await f.capture();
