@@ -8,6 +8,7 @@ function setup() {
   const invoice = { id: 'invoice-a', clientId: 'client-a', riderId: 'rider-a', invoiceType: 'RENTAL', invoiceNumber: 'EVS/1', currency: 'INR', status: 'FINALIZED', totalAmount: d('1500.00'), paidAmount: d('0.00'), outstandingAmount: d('1500.00'), lines: [] };
   const accounts = ['CASH', 'REWARD', 'CLEARING'].map(accountType => ({ id: accountType.toLowerCase(), accountType, status: 'ACTIVE' }));
   const tx = {
+    riderPayment: { count: vi.fn().mockResolvedValue(0) },
     riderWallet: { findUniqueOrThrow: vi.fn().mockResolvedValue({ riderId: invoice.riderId }) },
     paymentTransaction: { findFirst: vi.fn().mockResolvedValue(null) },
     paymentCollectionRequest: { findFirst: vi.fn().mockResolvedValue(null) },
@@ -45,6 +46,12 @@ describe('wallet invoice settlement', () => {
     expect(wallet.postInTransaction).toHaveBeenCalledWith(tx, expect.objectContaining({ amount: '1000.00' }));
     expect(result.outstandingAmount.toFixed(2)).toBe('0.00');
     expect(result.status).toBe('PAID');
+  });
+  it('blocks a second collection while an existing payment awaits allocation', async () => {
+    const { tx, wallet, service } = setup();
+    tx.riderPayment.count.mockResolvedValue(1);
+    await expect(service.settle('client-a', 'invoice-a', 'admin-a', 'settle-unapplied')).rejects.toThrow('UNALLOCATED_PAYMENT_REVIEW_REQUIRED');
+    expect(wallet.postInTransaction).not.toHaveBeenCalled();
   });
   it('does not consume the security deposit bucket for rental', async () => {
     const { wallet, service } = setup();

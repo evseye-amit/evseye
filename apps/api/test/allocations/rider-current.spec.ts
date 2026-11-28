@@ -18,7 +18,7 @@ function setup() {
     balance: vi.fn().mockResolvedValue({ currency: 'INR', totalBalance: '150.00', availableBalance: '100.00', accounts: [{ accountId: 'internal' }] }),
   };
   const media = { downloadUrl: vi.fn().mockResolvedValue({ url: 'https://storage.test/front-signed' }) };
-  const service = new MobileDeploymentService(prisma as never, {} as never, media as never, {} as never, {} as never);
+  const service = new MobileDeploymentService(prisma as never, {} as never, media as never, {} as never, {} as never, { enqueue: async () => undefined } as never);
   Object.assign(service, { wallet, config: { get: vi.fn().mockReturnValue(300) } });
   return { service, prisma, allocation, wallet, media };
 }

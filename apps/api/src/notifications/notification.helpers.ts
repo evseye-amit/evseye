@@ -1,5 +1,5 @@
-import { BadRequestException } from '@nestjs/common';
-import { createHash } from 'node:crypto';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import {
   INDIAN_MOBILE_INPUT_PATTERN,
   normalizeIndianMobile,
@@ -33,6 +33,8 @@ export function notificationContent(
     'messageId',
     'userId',
     'clientId',
+    'categoryCode',
+    'application',
     'from',
     'message_type',
     'collapse_key',
@@ -120,4 +122,16 @@ export function afterCursor(cursor: PageCursor | null) {
         ],
       }
     : {};
+}
+
+export function verifyInstallationCredential(
+  expected: string,
+  supplied?: string,
+) {
+  if (
+    !supplied ||
+    !/^[A-Za-z0-9_-]{43}$/.test(supplied) ||
+    !timingSafeEqual(Buffer.from(expected), Buffer.from(hash(supplied)))
+  )
+    throw new UnauthorizedException('Invalid installation credential.');
 }

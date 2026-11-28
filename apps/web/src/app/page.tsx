@@ -4,6 +4,7 @@ import { ClientNavigation } from "./components/client-navigation";
 import { guardLinkNavigation, requestNavigation } from "./components/unsaved-changes";
 import { PanelLoadingContext } from "./components/panel-loading";
 import { PaymentTransactions } from "./components/payment-transactions";
+import { RentalBilling } from "./components/rental-billing";
 import { AutoPayWorkspace } from "./components/autopay-workspace";
 import { SettlementWorkspace } from "./components/settlement-workspace";
 import { PaymentOperations } from "./components/payment-operations";
@@ -113,6 +114,7 @@ const CLIENT_BULK_CONFIG: Record<ClientBulkTab, { title: string; requiredColumns
 
 const CLIENT_TAB_TITLES: Record<Tab, string> = {
   "autopay-settings": "AutoPay",
+  "rental-billing": "Rent billing",
   "payment-reconciliation": "Refunds & Reconciliation",
   "payment-settlements": "Settlements",
   "payment-transactions": "Payment Transactions",
@@ -153,6 +155,7 @@ const CLIENT_TAB_TITLES: Record<Tab, string> = {
 
 const ACTIVE_CLIENT_TABS = new Set<Tab>([
   "autopay-settings",
+  "rental-billing",
   "payment-transactions",
   "payment-reconciliation",
   "payment-settlements",
@@ -772,7 +775,7 @@ export default function Home() {
       setRecordRefreshKey((key) => key + 1); setLoading(false); return;
     }
     if (["spares-penalties","installation-board","vehicle-preparation","quality-check","readiness-settings","advisors","qc-managers"].includes(nextTab)) { setItems([]); setLoading(false); return; }
-    if (nextTab === "autopay-settings" || nextTab === "payment-transactions" || nextTab === "payment-reconciliation" || nextTab === "payment-settlements" || nextTab === "legal-documents" || nextTab === "refer-and-earn" || nextTab === "work-partners" || nextTab === "rider-reference-review" || nextTab === "support-tickets" || nextTab === "notifications" || nextTab === "rider-rate-cards") {
+    if (nextTab === "rental-billing" || nextTab === "autopay-settings" || nextTab === "payment-transactions" || nextTab === "payment-reconciliation" || nextTab === "payment-settlements" || nextTab === "legal-documents" || nextTab === "refer-and-earn" || nextTab === "work-partners" || nextTab === "rider-reference-review" || nextTab === "support-tickets" || nextTab === "notifications" || nextTab === "rider-rate-cards") {
       setItems([]);
       setLoading(false);
       return;
@@ -2242,6 +2245,7 @@ export default function Home() {
         {tab === "refer-and-earn" && userRoles.includes("CLIENT_ADMIN") && <ClientReferAndEarn refreshKey={panelRefreshKey} />}
         {tab === "work-partners" && userRoles.includes("CLIENT_ADMIN") && <WorkPartnerManager refreshKey={panelRefreshKey} mode="client" request={request} token={token} />}
         {tab === "rider-reference-review" && <RiderReferenceReview refreshKey={panelRefreshKey} />}
+        {tab === "rental-billing" && userRoles.includes("CLIENT_ADMIN") && <RentalBilling key={identityKey} refreshKey={panelRefreshKey} />}
         {tab === "autopay-settings" && userRoles.includes("CLIENT_ADMIN") && <AutoPayWorkspace key={identityKey} identityKey={identityKey} refreshKey={panelRefreshKey} />}
         {tab === "payment-transactions" && userRoles.includes("CLIENT_ADMIN") && <PaymentTransactions key={identityKey} refreshKey={panelRefreshKey} />}
         {tab === "payment-settlements" && userRoles.includes("CLIENT_ADMIN") && <SettlementWorkspace key={identityKey} refreshKey={panelRefreshKey} />}
@@ -2252,7 +2256,7 @@ export default function Home() {
         {["vehicle-preparation","quality-check","readiness-settings","advisors","qc-managers"].includes(tab) && <FleetReadiness refreshKey={panelRefreshKey} key={`${tab}:${readinessFleetId}`} fleetId={tab === "vehicle-preparation" ? readinessFleetId : undefined} onBack={() => navigateTo("fleets")} onOpenPreparation={() => navigateTo("vehicle-preparation")} view={tab === "quality-check" ? "qc" : tab === "readiness-settings" ? "settings" : tab === "advisors" ? "advisors" : tab === "qc-managers" ? "qc-managers" : "preparation"} />}
         {tab === "support-tickets" && <SupportTickets refreshKey={panelRefreshKey} />}
         {tab === "rider-rate-cards" && <RiderRateCardsPanel canManage={userRoles.includes("CLIENT_ADMIN")} />}
-        {tab === "notifications" && userRoles.some((role) => ["CLIENT_ADMIN", "FLEET_MANAGER"].includes(role)) && <ClientNotifications refreshKey={panelRefreshKey} />}
+        {tab === "notifications" && userRoles.some((role) => ["CLIENT_ADMIN", "FLEET_MANAGER"].includes(role)) && <ClientNotifications refreshKey={panelRefreshKey} canManageTopics={userRoles.includes("CLIENT_ADMIN")} />}
         {tab === "rider-document-review" && <section className="client-page-intro client-review-intro"><p className="muted">Open each uploaded document, then approve it or record a rejection reason.</p><div className="client-review-counts"><span><strong>{items.filter((item) => item.status === "PENDING").length}</strong> Pending</span><span><strong>{items.filter((item) => item.status === "APPROVED").length}</strong> Approved</span><span><strong>{items.filter((item) => item.status === "REJECTED").length}</strong> Rejected</span></div></section>}
         {(tab === "fleets" || tab === "riders" || tab === "batteries" || tab === "controllers" || tab === "iot-devices" || tab === "fleet-component-mapping") && <section className="sa-page-head client-page-head"><div className="sa-actions"><button className="secondary" onClick={() => openBulkImport(tab as ClientBulkTab)}>Bulk upload</button>{tab === "fleets" ? <button onClick={() => void openFleetForm()}>+ Add Fleet</button> : tab === "riders" ? <button onClick={() => void openRiderForm()}>+ Add Rider</button> : tab === "iot-devices" ? <button onClick={() => void openIotForm()}>+ Add IoT device</button> : tab === "fleet-component-mapping" ? <button onClick={() => void openMappingForm()}>+ Add mapping</button> : <button onClick={() => void openComponentForm(tab)}>+ Add {tab === "batteries" ? "Battery" : "Controller"}</button>}</div></section>}
         {tab === "iot-devices" && showIotForm && <ClientFormDialog title={editingIotDeviceId ? "Edit IoT device" : "Register IoT device"} busy={loading} error={error} onClose={() => setShowIotForm(false)} heading={<>{editingIotDeviceId ? "Edit IoT device" : "Register IoT device"}</>}><form className="form-stack" onSubmit={(event) => { event.preventDefault(); void registerIotDevice(iotFleetId); }}>
@@ -2610,6 +2614,7 @@ export default function Home() {
           tab !== "support-tickets" &&
           tab !== "notifications" &&
           tab !== "autopay-settings" &&
+          tab !== "rental-billing" &&
           tab !== "rider-rate-cards" &&
           tab !== "payment-transactions" &&
           tab !== "payment-reconciliation" &&

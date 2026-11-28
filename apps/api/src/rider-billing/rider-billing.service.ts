@@ -731,15 +731,15 @@ export class RiderBillingService {
   }
 
   async markOverdue(now = new Date()) {
-    const candidates = await this.prisma.riderInvoice.findMany({
-      where: {
-        status: { in: ['FINALIZED', 'PARTIALLY_PAID'] },
-        outstandingAmount: { gt: ZERO },
-        dueDate: { lt: now },
-      },
-      take: 100,
-      orderBy: { dueDate: 'asc' },
-    });
+    // Filter grace periods before limiting the batch, so long-grace invoices
+    // cannot permanently hide later invoices that are already overdue.
+    const eligible = await this.prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT i.id FROM "RiderInvoice" i
+      LEFT JOIN "RiderPaymentProfile" p ON p."clientId"=i."clientId" AND p."riderId"=i."riderId"
+      WHERE i.status IN ('FINALIZED', 'PARTIALLY_PAID') AND i."outstandingAmount">0
+        AND i."dueDate" + (COALESCE(p."gracePeriodDays",0)+1)*INTERVAL '1 day' <= ${now}
+      ORDER BY i."dueDate", i.id LIMIT 100`);
+    const candidates = await this.prisma.riderInvoice.findMany({ where: { id: { in: eligible.map(row => row.id) } } });
     let changed = 0;
     for (const invoice of candidates) {
       const profile = await this.prisma.riderPaymentProfile.findUnique({

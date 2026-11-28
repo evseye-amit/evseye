@@ -1,3 +1,5 @@
+import { NotificationModule } from '../notifications/notification.module.js';
+import { AllocationNotificationService } from './allocation-notification.service.js';
 import { PaymentAutomationModule } from '../payments/payment-automation.module.js';
 import { RazorpayPenaltyModule } from '../payments/razorpay/razorpay-penalty.module.js';
 import { RazorpayClient } from '../payments/razorpay/razorpay.client.js';
@@ -23,9 +25,9 @@ import { CommercialCoreModule } from '../rider-rate-cards/commercial-core.module
 import { DeploymentCommercialController } from './deployment-commercial.controller.js';
 
 @Module({
-  imports: [PaymentAutomationModule, RazorpayPenaltyModule, SubmissionPenaltyModule, WalletModule, AuthModule, AuditModule, MediaModule, RidersModule, ReferralModule, CommercialCoreModule],
+  imports: [NotificationModule, PaymentAutomationModule, RazorpayPenaltyModule, SubmissionPenaltyModule, WalletModule, AuthModule, AuditModule, MediaModule, RidersModule, ReferralModule, CommercialCoreModule],
   controllers: [RazorpayWebhookController, RazorpayDeploymentAdminController, FleetSearchController, AllocationTeamLeadController, AllocationsController, MobileDeploymentController, DeploymentCommercialController],
-  providers: [RazorpayClient, RazorpayDeploymentService, FleetSearchService, AllocationTeamLeadService, AllocationsService, MobileDeploymentService],
+  providers: [AllocationNotificationService, RazorpayClient, RazorpayDeploymentService, FleetSearchService, AllocationTeamLeadService, AllocationsService, MobileDeploymentService],
   exports: [AllocationsService, RazorpayDeploymentService],
 })
 export class AllocationsModule {}

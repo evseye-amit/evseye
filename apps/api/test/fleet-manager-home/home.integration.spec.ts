@@ -198,7 +198,7 @@ describe.skipIf(!url)('Fleet Manager home in PostgreSQL', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
+      {} as never, { enqueue: async () => undefined } as never,
     );
     expect(
       (await deployments.pendingRiders(f.clientId, f.manager.id, f.hub.id)).map(
@@ -224,7 +224,7 @@ describe.skipIf(!url)('Fleet Manager home in PostgreSQL', () => {
     await db.attendancePeriod.create({
       data: { clientId: f.clientId, userId: onboarding.user.id, checkInAt: new Date(Date.now() - 60_000) },
     });
-    const deployments = new MobileDeploymentService(db as never, {} as never, {} as never, {} as never, {} as never);
+    const deployments = new MobileDeploymentService(db as never, {} as never, {} as never, {} as never, {} as never, { enqueue: async () => undefined } as never);
     expect((await deployments.pendingRiders(f.clientId, f.manager.id, f.hub.id)).map((r) => r.id)).toContain(onboarding.id);
     expect((await service.get(f.clientId, f.manager.id)).summary).toMatchObject({
       pendingAllocation: 1, riders: { active: 0, present: 0 },
@@ -508,7 +508,7 @@ describe.skipIf(!url)('Fleet Manager home in PostgreSQL', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
+      {} as never, { enqueue: async () => undefined } as never,
     );
     for (const manager of [f.manager, secondManager]) {
       expect(
@@ -722,7 +722,7 @@ describe.skipIf(!url)('Fleet Manager home in PostgreSQL', () => {
       clientId: f.clientId, riderId: cancelled.id, fleetId: fleet.id,
       initiatedById: f.manager.id, status: 'CANCELLED', allocatedAt: null,
     } });
-    const deployments = new MobileDeploymentService(db as never, {} as never, {} as never, {} as never, {} as never);
+    const deployments = new MobileDeploymentService(db as never, {} as never, {} as never, {} as never, {} as never, { enqueue: async () => undefined } as never);
     const rows = await deployments.pendingRiders(f.clientId, f.manager.id, f.hub.id);
     expect(rows.map((r) => r.id).sort()).toEqual([fresh.id, cancelled.id].sort());
     expect(rows.some((r) => blocked.includes(r.id))).toBe(false);

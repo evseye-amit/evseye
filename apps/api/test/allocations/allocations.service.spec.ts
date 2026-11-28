@@ -29,7 +29,7 @@ describe('AllocationsService concurrency guard', () => {
         operation(tx),
       ),
     };
-    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never);
+    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never, { enqueue: vi.fn().mockResolvedValue(undefined) } as never);
 
     await expect(
       service.initiate('client-a', 'fleet-busy', 'rider-1', 'operator-1'),
@@ -76,11 +76,12 @@ describe('AllocationsService concurrency guard', () => {
         operation(tx),
       ),
     };
-    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never);
+    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never, { enqueue: vi.fn().mockResolvedValue(undefined) } as never);
 
     await expect(
       service.initiate('client-a', 'fleet-1', 'rider-1', 'operator-1'),
     ).resolves.toMatchObject({ id: 'allocation-1' });
+    expect((service as any).notifications.enqueue).toHaveBeenCalledWith(tx, 'client-a', 'allocation-1', 'REQUESTED');
     tx.client.findUniqueOrThrow.mockResolvedValue({ fleetOperatingMode: 'SIMPLE' });
     tx.allocation.create.mockResolvedValue({ id: 'allocation-1' });
     Object.assign(tx, { mobileDeploymentWorkflow: { create: vi.fn() } });
@@ -117,7 +118,7 @@ describe('AllocationsService concurrency guard', () => {
     const prisma = {
       $transaction: vi.fn(async (operation: (client: typeof tx) => unknown) => operation(tx)),
     };
-    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never);
+    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never, { enqueue: vi.fn().mockResolvedValue(undefined) } as never);
 
     await expect(
       service.initiate('client-a', 'fleet-1', 'rider-1', 'operator-1'),
@@ -143,7 +144,7 @@ describe('AllocationsService concurrency guard', () => {
         operation(tx),
       ),
     };
-    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never);
+    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never, { enqueue: vi.fn().mockResolvedValue(undefined) } as never);
 
     await expect(
       service.initiate('client-a', 'fleet-1', 'rider-1', 'operator-1'),
@@ -170,11 +171,12 @@ describe('AllocationsService concurrency guard', () => {
         operation(tx),
       ),
     };
-    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never);
+    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never, { enqueue: vi.fn().mockResolvedValue(undefined) } as never);
 
     await expect(service.activate('client-a', 'allocation-1')).resolves.toEqual(
       { activated: true, allocationId: 'allocation-1' },
     );
+    expect((service as any).notifications.enqueue).toHaveBeenCalledWith(tx, 'client-a', 'allocation-1', 'ACTIVATED');
     expect(tx.inspection.findFirst).toHaveBeenCalledWith({
       where: expect.objectContaining({
         clientId: 'client-a',
@@ -211,7 +213,7 @@ describe('collection allocation restriction', () => {
       fleet: { updateMany: vi.fn() },
     };
     const prisma = { $transaction: vi.fn(async (operation: (client: typeof tx) => unknown) => operation(tx)) };
-    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never);
+    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never, { enqueue: vi.fn().mockResolvedValue(undefined) } as never);
     await expect(service.initiate('client-a','fleet-1','rider-1','operator-1')).rejects.toMatchObject({ status: 409 });
     expect(tx.fleet.updateMany).not.toHaveBeenCalled();
   });
@@ -244,11 +246,12 @@ describe('deallocation completion safety gate', () => {
         operation(tx),
       ),
     };
-    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never);
+    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never, { enqueue: vi.fn().mockResolvedValue(undefined) } as never);
 
     await expect(
       service.completeDeallocation('client-a', 'allocation-1'),
     ).resolves.toEqual({ completed: true });
+    expect((service as any).notifications.enqueue).toHaveBeenCalledWith(tx, 'client-a', 'allocation-1', 'RETURN_COMPLETED');
     expect(tx.otpRequest.findMany).not.toHaveBeenCalled();
     expect(tx.fleet.update).toHaveBeenCalledWith({
       where: { id: 'fleet-1' },
@@ -287,11 +290,12 @@ describe('deallocation completion safety gate', () => {
         operation(tx),
       ),
     };
-    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never);
+    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never, { enqueue: vi.fn().mockResolvedValue(undefined) } as never);
 
     await expect(
       service.completeDeallocation('client-a', 'allocation-1'),
     ).resolves.toEqual({ completed: true });
+    expect((service as any).notifications.enqueue).toHaveBeenCalledWith(tx, 'client-a', 'allocation-1', 'RETURN_COMPLETED');
     expect(tx.fleet.update).toHaveBeenCalledWith({
       where: { id: 'fleet-1' },
       data: { status: FleetStatus.AVAILABLE, allocationEnabled: true },
@@ -318,7 +322,7 @@ describe('deallocation completion safety gate', () => {
         operation(tx),
       ),
     };
-    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never);
+    const service = new AllocationsService(prisma as never, { activateInTransaction: vi.fn() } as never, { enqueue: vi.fn().mockResolvedValue(undefined) } as never);
 
     await expect(
       service.initiateDeallocation('client-a', 'allocation-1'),
@@ -339,7 +343,7 @@ describe('allocation verification error details', () => {
       fleet: { updateMany: vi.fn() },
     };
     const issues = [{ fieldCode: 'PAN_VERIFICATION', reason: 'PAN verification is pending.' }];
-    const service = new AllocationsService({ $transaction: (fn: any) => fn(tx) } as never, {} as never,
+    const service = new AllocationsService({ $transaction: (fn: any) => fn(tx) } as never, {} as never, { enqueue: vi.fn().mockResolvedValue(undefined) } as never,
       { allocationBlockers: async () => issues } as never);
     await expect(service.initiate('client', 'fleet', 'rider', 'actor')).rejects.toMatchObject({
       response: { code: 'RIDER_VERIFICATION_PENDING', issues }, status: 409,

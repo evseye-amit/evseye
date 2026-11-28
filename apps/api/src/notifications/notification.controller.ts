@@ -24,9 +24,12 @@ import { ClientContextService } from '../auth/client-context.service.js';
 import type { AuthUser } from '../auth/interfaces/auth-user.interface.js';
 import { NotificationService } from './notification.service.js';
 import {
+  TestNotificationDto,
+  NotificationTestDevicesDto,
   MarkAllReadDto,
   NotificationAudienceDto,
   NotificationPageDto,
+  NotificationScopeDto,
   RegisterPushDeviceDto,
   SendNotificationDto,
 } from './notification.dto.js';
@@ -41,7 +44,8 @@ import {
   UserRole.TEAM_LEAD,
   UserRole.KYC_OPERATOR,
   UserRole.CLIENT_ADMIN,
-  UserRole.FLEET_MANAGER,
+  UserRole.ADVISOR,
+  UserRole.QC_MANAGER,
 )
 export class AppNotificationController {
   constructor(
@@ -89,11 +93,15 @@ export class AppNotificationController {
     };
   }
   @Get('notifications/unread-count')
-  async unread(@CurrentUser() actor: AuthUser) {
+  async unread(
+    @CurrentUser() actor: AuthUser,
+    @Query() query: NotificationScopeDto,
+  ) {
     return {
       data: await this.notifications.unread(
         this.clients.requireClientId(actor),
         actor.id,
+        query.application,
       ),
     };
   }
@@ -101,12 +109,14 @@ export class AppNotificationController {
   async read(
     @CurrentUser() actor: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: NotificationScopeDto,
   ) {
     return {
       data: await this.notifications.read(
         this.clients.requireClientId(actor),
         actor.id,
         id,
+        query.application,
       ),
     };
   }
@@ -118,6 +128,7 @@ export class AppNotificationController {
         this.clients.requireClientId(actor),
         actor.id,
         body?.throughId,
+        body?.application,
       ),
     };
   }
@@ -132,6 +143,49 @@ export class ClientNotificationController {
     private readonly notifications: NotificationService,
     private readonly clients: ClientContextService,
   ) {}
+  @Get('test-devices')
+  @Roles(UserRole.CLIENT_ADMIN)
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  async testDevices(
+    @CurrentUser() actor: AuthUser,
+    @Query() query: NotificationTestDevicesDto,
+  ) {
+    return {
+      data: await this.notifications.testDevices(
+        this.clients.requireClientId(actor),
+        actor,
+        query,
+      ),
+    };
+  }
+  @Post('test')
+  @Roles(UserRole.CLIENT_ADMIN)
+  @HttpCode(202)
+  @ApiHeader({ name: 'Idempotency-Key', required: true })
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  async testSend(
+    @CurrentUser() actor: AuthUser,
+    @Body() body: TestNotificationDto,
+    @Headers('idempotency-key') key: string,
+  ) {
+    return {
+      data: await this.notifications.testSend(
+        this.clients.requireClientId(actor),
+        actor,
+        body,
+        key,
+      ),
+    };
+  }
+  @Get('options')
+  async options(@CurrentUser() actor: AuthUser) {
+    return {
+      data: await this.notifications.composerOptions(
+        this.clients.requireClientId(actor),
+        actor,
+      ),
+    };
+  }
   @Post('preview')
   @HttpCode(200)
   async preview(
@@ -174,6 +228,20 @@ export class ClientNotificationController {
         this.clients.requireClientId(actor),
         actor,
         query,
+      ),
+    };
+  }
+  @Post(':id/withdraw')
+  @HttpCode(200)
+  async withdraw(
+    @CurrentUser() actor: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return {
+      data: await this.notifications.withdraw(
+        this.clients.requireClientId(actor),
+        actor,
+        id,
       ),
     };
   }

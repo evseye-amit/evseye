@@ -243,7 +243,7 @@ export class WalletService {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
   async transaction(clientId: string, walletId: string, id: string) {
-    if (!id.startsWith('deployment:') && !id.startsWith('deposit-refund:')) return this.prisma.walletTransaction.findFirst({ where: { clientId, walletId, id }, select: { id: true, transactionNumber: true, transactionType: true, status: true, amount: true, currency: true, description: true, referenceType: true, referenceId: true, createdAt: true, postedAt: true } });
+    if (!id.startsWith('deployment:') && !id.startsWith('deposit-refund:') && !id.startsWith('rent-invoice:')) return this.prisma.walletTransaction.findFirst({ where: { clientId, walletId, id }, select: { id: true, transactionNumber: true, transactionType: true, status: true, amount: true, currency: true, description: true, referenceType: true, referenceId: true, createdAt: true, postedAt: true } });
     return this.prisma.$transaction(async tx => {
       const wallet = await tx.riderWallet.findFirst({ where: { clientId, id: walletId } });
       if (!wallet) return null;

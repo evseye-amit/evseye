@@ -5,10 +5,12 @@ import { seedSuperAdmin } from './seed-super-admin.mjs';
 import { seedMasterData } from './seed-master-data.mjs';
 import { seedYogmaya } from './seed-yogmaya.mjs';
 import { seedPinkrides } from './seed-pinkrides.mjs';
+import { seedNotifications } from './seed-notifications.mjs';
 
 const prisma = createPrismaClient();
 
 async function main() {
+  await seedNotifications(prisma);
   await seedSuperAdmin(prisma);
   await seedMasterData(prisma);
   await seedYogmaya(prisma);
