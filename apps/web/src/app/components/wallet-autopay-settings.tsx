@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { ledgerText } from "../../lib/ledger-presentation";
 import { sessionFetch } from "../../lib/session-fetch";
 import { UnsavedChangesScope } from "./unsaved-changes";
+import { autoPayPolicySaveBody, type AutoPayPolicy } from "./wallet-autopay-settings-model";
 
-type Policy = { unifiedRollout?: boolean; enabled: boolean; threshold: string; rechargeAmount: string; revision: number };
+type Policy = AutoPayPolicy;
 type History = { id: string; createdAt: string; actorId: string | null; actorName: string | null; previousData: Policy | null; newData: Policy | null };
 const currency = (value: string) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(Number(value));
 const timestamp = (value: string) => new Date(value).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
@@ -60,7 +61,7 @@ export function WalletAutoPaySettings() {
     if (!policy || !dirty || !valid || saving.current) return;
     saving.current = true; setBusy(true); setError(""); setNotice("");
     try {
-      const data = await read<Policy>("", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...policy, threshold: Number(policy.threshold).toFixed(2), rechargeAmount: Number(policy.rechargeAmount).toFixed(2) }) });
+      const data = await read<Policy>("", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(autoPayPolicySaveBody(policy)) });
       if (!active.current) return;
       setPolicy(data); setSaved(data); setReset(value => value + 1);
       setNotice("AutoPay settings saved."); refreshHistory(1);
