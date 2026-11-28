@@ -5,6 +5,10 @@ import { autoPayPolicySaveBody } from "../../../src/app/components/wallet-autopa
 test("AutoPay policy updates only send fields accepted by the API", () => {
   const body = autoPayPolicySaveBody({
     unifiedRollout: true,
+    effectiveEnabled: false,
+    canEnable: false,
+    reasonCode: "PACKAGE_TERMS_INVALID",
+    setupTerms: { maxAmount: "750.00", validityDays: 365 },
     enabled: true,
     threshold: "550",
     rechargeAmount: "1750",

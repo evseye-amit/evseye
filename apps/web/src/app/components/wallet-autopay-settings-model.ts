@@ -1,5 +1,12 @@
 export type AutoPayPolicy = {
   unifiedRollout?: boolean;
+  effectiveEnabled?: boolean;
+  canEnable?: boolean;
+  reasonCode?: string | null;
+  reasonMessage?: string | null;
+  provider?: string | null;
+  environment?: string;
+  setupTerms?: { maxAmount: string; validityDays: number } | null;
   enabled: boolean;
   threshold: string;
   rechargeAmount: string;

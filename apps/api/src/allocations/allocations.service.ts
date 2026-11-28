@@ -228,10 +228,21 @@ export class AllocationsService {
         return { allocationId, status: AllocationStatus.CANCELLED, alreadyCancelled: true };
       if (allocation.allocatedAt || !(['INITIATED', 'INSPECTION_PENDING', 'OTP_PENDING'] as string[]).includes(allocation.status))
         throw new ConflictException('Only pending allocations before handover can be cancelled. Use deallocation for an active allocation.');
-      if (allocation.mobileDeployment && !['RIDER_WAITING', 'FLEET_REQUESTED'].includes(allocation.mobileDeployment.status))
-        throw new ConflictException('This deployment has progressed beyond reservation. Resolve its payment or handover before cancellation.');
-      if (allocation.commercialOfferId || allocation.rentalAgreementId || allocation.mobileDeployment?.payment)
-        throw new ConflictException('This allocation has a rental offer, agreement or payment. Resolve its commercial obligations before cancellation.');
+      const workflow = allocation.mobileDeployment;
+      const payment = workflow?.payment;
+      if (workflow?.status === 'DEPLOYED' || workflow?.pairedAt || workflow?.pairingBypassedAt)
+        throw new ConflictException('Vehicle handover has been recorded. Use the return/deallocation workflow.');
+      // Workflow stages are progress markers, not evidence of a money transfer.
+      // A zero quote is automatically PAID with NO_PAYMENT_REQUIRED and may
+      // advance through PDI/training without the rider paying anything.
+      const noPaymentRequired = payment?.status === 'PAID'
+        && payment.provider === 'NO_PAYMENT_REQUIRED' && payment.amount.eq(0);
+      if (!payment && workflow && (workflow.paymentPaidAt || ['PAYMENT_PAID', 'PDI_PENDING_RIDER', 'TRAINING_PENDING', 'DEVICE_PAIRING_PENDING'].includes(workflow.status)))
+        throw new ConflictException(`Deployment stage ${workflow.status} has no payment record. Reconcile the missing record before cancellation.`);
+      if (payment && !noPaymentRequired && (payment.paidAt || !['PENDING', 'REJECTED', 'FAILED', 'CANCELLED'].includes(payment.status)))
+        throw new ConflictException(`Payment status is ${payment.status}${payment.amount ? ` (${payment.currency} ${payment.amount.toString()})` : ''}. Review the received payment or submitted reference before cancellation.`);
+      if (payment && await tx.deploymentPaymentCapture.count({ where: { attempt: { clientId, deploymentPaymentId: payment.id } } }))
+        throw new ConflictException('A gateway payment has been received. Resolve its refund or reconciliation before cancellation.');
       await tx.$queryRaw`SELECT id FROM "Fleet" WHERE id = ${allocation.fleetId} AND "clientId" = ${clientId} FOR UPDATE`;
       const exchange = await tx.vehicleExchangeRequest.findFirst({
         where: { clientId, OR: [
@@ -241,6 +252,8 @@ export class AllocationsService {
         select: { id: true },
       });
       if (exchange) throw new ConflictException('This reservation belongs to a vehicle exchange. Resolve the exchange before cancellation.');
+      await this.cancelUnpaidCommercials(tx, clientId, allocation, actorId, cancellationReason);
+      if (payment) await tx.deploymentPayment.update({ where: { id: payment.id }, data: { status: 'CANCELLED' } });
       const released = await tx.fleet.updateMany({
         where: { id: allocation.fleetId, clientId, status: FleetStatus.RESERVED, deletedAt: null,
           allocations: { none: { id: { not: allocationId }, status: { notIn: [AllocationStatus.COMPLETED, AllocationStatus.CANCELLED] } } } },
@@ -253,10 +266,46 @@ export class AllocationsService {
         clientId, actorId, action: 'ALLOCATION_CANCELLED', entityType: 'ALLOCATION', entityId: allocationId,
         previousData: { status: allocation.status, fleetStatus: FleetStatus.RESERVED },
         newData: { status: AllocationStatus.CANCELLED, fleetStatus: FleetStatus.AVAILABLE,
-          fleetId: allocation.fleetId, riderId: allocation.riderId, reason: cancellationReason },
+          fleetId: allocation.fleetId, riderId: allocation.riderId, reason: cancellationReason,
+          paymentId: payment?.id ?? null, rentalAgreementId: allocation.rentalAgreementId, commercialOfferId: allocation.commercialOfferId },
       } });
       return { allocationId, status: AllocationStatus.CANCELLED, alreadyCancelled: false };
     });
+  }
+
+  private async cancelUnpaidCommercials(
+    tx: Prisma.TransactionClient, clientId: string,
+    allocation: { commercialOfferId: string | null; rentalAgreementId: string | null; riderId: string; fleetId: string },
+    actorId: string, reason: string,
+  ) {
+    const now = new Date();
+    // Offer acceptance uses the same allocation -> offer lock order.
+    if (allocation.commercialOfferId)
+      await tx.$queryRaw`SELECT id FROM "RiderCommercialOffer" WHERE id = ${allocation.commercialOfferId} AND "clientId" = ${clientId} FOR UPDATE`;
+    if (allocation.rentalAgreementId) {
+      const agreementId = allocation.rentalAgreementId;
+      await tx.$queryRaw`SELECT id FROM "RiderRentalAgreement" WHERE id = ${agreementId} AND "clientId" = ${clientId} FOR UPDATE`;
+      const agreement = await tx.riderRentalAgreement.findFirst({ where: { id: agreementId, clientId, riderId: allocation.riderId, vehicleId: allocation.fleetId } });
+      if (!agreement || !['PENDING_ACTIVATION', 'CANCELLED'].includes(agreement.status) || agreement.activatedAt)
+        throw new ConflictException('The rental agreement is already active or has changed. Refresh and review it before cancellation.');
+      await tx.$queryRaw`SELECT id FROM "RiderDeposit" WHERE "agreementId" = ${agreementId} AND "clientId" = ${clientId} ORDER BY id FOR UPDATE`;
+      const funded = await tx.riderDeposit.count({ where: { clientId, agreementId, OR: [{ fundedAmount: { gt: 0 } }, { availableAmount: { gt: 0 } }] } });
+      if (funded) throw new ConflictException('This agreement has a funded deposit. Resolve the deposit before cancellation.');
+      // Separate deposit checkout requests require their own reconciliation workflow.
+      const collections = await tx.paymentCollectionRequest.count({ where: { clientId, deposit: { agreementId }, status: { notIn: ['CANCELLED', 'FAILED', 'EXPIRED'] } } });
+      if (collections) throw new ConflictException('A separate deposit collection is pending. Resolve it before cancelling this allocation.');
+      await tx.riderDeposit.updateMany({ where: { clientId, agreementId, fundedAmount: 0, availableAmount: 0 }, data: { status: 'CLOSED', updatedById: actorId } });
+      if (agreement.status !== 'CANCELLED') {
+        await tx.riderRentalAgreement.update({ where: { id: agreementId }, data: { status: 'CANCELLED', updatedById: actorId } });
+        await tx.riderRentalAgreementStatusHistory.create({ data: { clientId, agreementId, previousStatus: agreement.status, newStatus: 'CANCELLED', reason, changedById: actorId } });
+      }
+      await tx.riderAgreementCommercialVersion.updateMany({ where: { clientId, agreementId, status: 'PENDING' }, data: { status: 'CANCELLED', effectiveTo: now } });
+    }
+    if (allocation.commercialOfferId) {
+      // Preserve accepted offer evidence; its agreement is cancelled above.
+      await tx.riderCommercialOffer.updateMany({ where: { id: allocation.commercialOfferId, clientId, status: { in: ['CALCULATED', 'PRESENTED'] } },
+        data: { status: 'CANCELLED', cancelledAt: now, cancelledById: actorId, cancellationReason: reason, updatedById: actorId } });
+    }
   }
 
   async activate(clientId: string, allocationId: string) {

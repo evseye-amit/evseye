@@ -630,6 +630,7 @@ export class DeploymentCommercialService {
         where: { id: allocationId, clientId },
         include: { mobileDeployment: { include: { payment: true } } },
       });
+      if (a.status === 'CANCELLED') fail('ALLOCATION_CANCELLED', 'This allocation has been cancelled.');
       const w = a.mobileDeployment,
         p = w?.payment;
       if (!w || !p)
