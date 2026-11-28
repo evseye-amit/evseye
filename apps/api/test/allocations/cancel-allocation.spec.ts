@@ -15,6 +15,14 @@ function setup(overrides: Record<string, unknown> = {}) {
     fleet: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     vehicleExchangeRequest: { findFirst: vi.fn().mockResolvedValue(null) },
     auditLog: { create: vi.fn() },
+    deploymentPaymentCapture: { count: vi.fn().mockResolvedValue(0) },
+    deploymentPayment: { update: vi.fn() },
+    riderCommercialOffer: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    riderRentalAgreement: { findFirst: vi.fn().mockResolvedValue({ status: 'PENDING_ACTIVATION', activatedAt: null }), update: vi.fn() },
+    riderDeposit: { count: vi.fn().mockResolvedValue(0), updateMany: vi.fn() },
+    paymentCollectionRequest: { count: vi.fn().mockResolvedValue(0) },
+    riderRentalAgreementStatusHistory: { create: vi.fn() },
+    riderAgreementCommercialVersion: { updateMany: vi.fn() },
   };
   const prisma = { $transaction: vi.fn(async (fn: (client: typeof tx) => unknown) => fn(tx)) };
   return { tx, service: new AllocationsService(prisma as never, {} as never, { enqueue: vi.fn().mockResolvedValue(undefined) } as never) };
@@ -41,9 +49,48 @@ describe('Allocation cancellation', () => {
     await expect(service.cancel('client', 'a', 'admin', 'Reason')).rejects.toThrow('Only pending');
     expect(tx.fleet.updateMany).not.toHaveBeenCalled();
   });
-  it.each([{ allocatedAt: new Date() }, { commercialOfferId: 'offer' }, { rentalAgreementId: 'agreement' }, { mobileDeployment: { status: 'PAYMENT_PAID', payment: { status: 'PAID' } } }, { mobileDeployment: { status: 'DEPLOYED' } }])('rejects handover or commercial obligations %j', async overrides => {
+  it.each([{ allocatedAt: new Date() }, { mobileDeployment: { status: 'PAYMENT_PAID', payment: { status: 'PAID' } } }, { mobileDeployment: { status: 'DEPLOYED' } }])('rejects handover or commercial obligations %j', async overrides => {
     const { service, tx } = setup(overrides);
     await expect(service.cancel('client', 'a', 'admin', 'Reason')).rejects.toThrow();
+    expect(tx.fleet.updateMany).not.toHaveBeenCalled();
+  });
+  it.each(['PENDING', 'REJECTED', 'FAILED'])('cancels an unpaid %s request and pending agreement', async status => {
+    const { service, tx } = setup({ commercialOfferId: 'offer', rentalAgreementId: 'agreement', mobileDeployment: {
+      status: 'PAYMENT_PENDING', paymentPaidAt: null, payment: { id: 'payment', status, paidAt: null },
+    } });
+    await expect(service.cancel('client', 'a', 'admin', 'Rider does not want to pay')).resolves.toMatchObject({ status: 'CANCELLED' });
+    expect(tx.deploymentPayment.update).toHaveBeenCalledWith({ where: { id: 'payment' }, data: { status: 'CANCELLED' } });
+    expect(tx.riderRentalAgreement.update).toHaveBeenCalledWith({ where: { id: 'agreement' }, data: { status: 'CANCELLED', updatedById: 'admin' } });
+    expect(tx.riderRentalAgreementStatusHistory.create).toHaveBeenCalledWith({ data: expect.objectContaining({ previousStatus: 'PENDING_ACTIVATION', newStatus: 'CANCELLED', reason: 'Rider does not want to pay' }) });
+    expect(tx.riderDeposit.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'CLOSED', updatedById: 'admin' } }));
+  });
+  it('cancels an unaccepted offer along with the reservation', async () => {
+    const { service, tx } = setup({ commercialOfferId: 'offer' });
+    await service.cancel('client', 'a', 'admin', 'Rider declined');
+    expect(tx.riderCommercialOffer.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'CANCELLED', cancellationReason: 'Rider declined' }) }));
+  });
+  it.each(['SUBMITTED', 'PAID'])('requires payment review for %s', async status => {
+    const { service, tx } = setup({ mobileDeployment: { status: 'PAYMENT_PENDING', payment: { id: 'p', status } } });
+    await expect(service.cancel('client', 'a', 'admin', 'Reason')).rejects.toThrow('payment');
+    expect(tx.fleet.updateMany).not.toHaveBeenCalled();
+  });
+  it('blocks a recorded gateway capture even if the payment still appears pending', async () => {
+    const { service, tx } = setup({ mobileDeployment: { status: 'PAYMENT_PENDING', payment: { id: 'p', status: 'PENDING' } } });
+    tx.deploymentPaymentCapture.count.mockResolvedValue(1);
+    await expect(service.cancel('client', 'a', 'admin', 'Reason')).rejects.toThrow('gateway payment');
+    expect(tx.fleet.updateMany).not.toHaveBeenCalled();
+  });
+  it('preserves funded deposits and the reservation for reconciliation', async () => {
+    const { service, tx } = setup({ rentalAgreementId: 'agreement' });
+    tx.riderDeposit.count.mockResolvedValue(1);
+    await expect(service.cancel('client', 'a', 'admin', 'Reason')).rejects.toThrow('funded deposit');
+    expect(tx.riderDeposit.updateMany).not.toHaveBeenCalled();
+    expect(tx.fleet.updateMany).not.toHaveBeenCalled();
+  });
+  it('does not cancel an already activated rental agreement', async () => {
+    const { service, tx } = setup({ rentalAgreementId: 'agreement' });
+    tx.riderRentalAgreement.findFirst.mockResolvedValue({ status: 'ACTIVE', activatedAt: new Date() } as never);
+    await expect(service.cancel('client', 'a', 'admin', 'Reason')).rejects.toThrow('already active');
     expect(tx.fleet.updateMany).not.toHaveBeenCalled();
   });
   it('rejects an allocation outside the client scope', async () => {
@@ -81,6 +128,34 @@ describe('Cancelled deployment continuation', () => {
     const service = new DeploymentCommercialService(db as never, {} as never, {} as never, {} as never);
     await expect(service.requestPayment('client', 'a')).rejects.toThrow('cancelled');
     expect(tx.deploymentPayment.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a stale manual verification after cancellation', async () => {
+    const { DeploymentCommercialService } = await import('../../src/allocations/deployment-commercial.service.js');
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([]),
+      allocation: { findFirstOrThrow: vi.fn().mockResolvedValue({ status: 'CANCELLED', mobileDeployment: { status: 'PAYMENT_PENDING', payment: { status: 'CANCELLED' } } }) },
+    };
+    const db = { $transaction: vi.fn(async (fn: (client: typeof tx) => unknown) => fn(tx)) };
+    const service = new DeploymentCommercialService(db as never, {} as never, {} as never, {} as never);
+    await expect(service.verifyPayment('client', 'admin', 'a')).rejects.toThrow('cancelled');
+  });
+
+  it('rejects a stale payment reference after cancellation', async () => {
+    const { MobileDeploymentService } = await import('../../src/allocations/mobile-deployment.service.js');
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([]),
+      allocation: { findFirst: vi.fn().mockResolvedValue({ status: 'CANCELLED' }) },
+      deploymentPayment: { update: vi.fn() },
+    };
+    const db = {
+      rider: { findFirst: vi.fn().mockResolvedValue({ id: 'r' }) },
+      allocation: { findFirst: vi.fn().mockResolvedValue({ id: 'a' }) },
+      $transaction: vi.fn(async (fn: (client: typeof tx) => unknown) => fn(tx)),
+    };
+    const service = new MobileDeploymentService(db as never, {} as never, {} as never, {} as never, {} as never, {} as never);
+    await expect(service.submitPaymentReference('client', 'rider-user', 'a', 'MANUAL', 'reference')).rejects.toThrow('cancelled');
+    expect(tx.deploymentPayment.update).not.toHaveBeenCalled();
   });
 
   it.each(['CANCELLED', 'INSPECTION_PENDING'])('checks current allocation when requesting fleet: %s', async status => {
