@@ -27,7 +27,7 @@ Operations APIs (CLIENT_ADMIN, tenant-scoped):
 
 A rider migrated to LEDGER_WALLET cannot schedule any new direct invoice AutoPay debit, even after disabling automatic funding. Wallet-first invoice settlement remains available. Existing submitted invoice collections must resolve before wallet opt-in. Turning off a client wallet policy does not silently switch opted-in riders into direct invoice collection.
 
-Manual Add Money remains available. Scooter return initiation stops new recharge creation. A previously submitted payment is still reconciled and credited on verified capture even if the rider disables wallet funding, returns the scooter, or the rollout flag is disabled.
+Manual Add Money remains available. A confirmed physical scooter return turns wallet AutoPay off when the rider has no other active allocation. Return-request creation and vehicle exchanges do not turn it off. The bank mandate and payment history remain stored for reconciliation and possible later re-enablement. A local recharge that has not started provider order creation is cancelled; a claimed, submitted, or uncertain payment is still reconciled and credited on verified capture even if the rider disables wallet funding, returns the scooter, or the rollout flag is disabled.
 
 ## Deployment sequence
 
